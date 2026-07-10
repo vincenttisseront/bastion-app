@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Santé{% endblock %}
+{% block breadcrumb %}Admin / Santé{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Diagnostic Santé Upstream</h1>
+      <p class="page-subtitle">Probes HTTP des applications et services</p>
+    </div>
+    <div class="live-indicator"><span class="live-dot"></span>LIVE</div>
+  </div>
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead><tr><th>Application</th><th>URL probe</th><th>Statut</th><th>Latence</th></tr></thead>
+      <tbody>
+        {% for p in probes %}
+        <tr>
+          <td>
+            <div style="font-weight:600;">{{ p.label }}</div>
+            <div class="mono" style="color:var(--text-muted);font-size:var(--font-size-xs);">{{ p.slug }}</div>
+          </td>
+          <td class="mono">{{ p.url }}</td>
+          <td><span class="badge badge-{{ 'success' if p.status == 'ok' else 'danger' }}">{{ p.status | upper }}</span></td>
+          <td class="mono">{{ p.latency_ms }} ms</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Erreur serveur{% endblock %}
+
+{% block content %}
+<div class="error-page">
+  <div class="error-code">500</div>
+  <h1 class="page-title">Erreur interne</h1>
+  <p class="error-message">Une erreur inattendue s'est produite. L'incident a été journalisé.</p>
+  <a href="/dashboard" class="btn btn-primary">Retour au dashboard</a>
+</div>
+{% endblock %}

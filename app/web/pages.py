@@ -1,0 +1,463 @@
+"""HTML page routes for Bastion Pro portal."""
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import RedirectResponse
+from sqlalchemy.orm import Session
+
+from app.audit import list_audit_entries, log_action
+from app.breakglass import COOKIE_MAX_AGE, COOKIE_NAME, create_breakglass_token
+from app.breakglass_store import verify_breakglass_password
+from app.database import get_db
+from app.models import App, AppGroup, RBACGroup, RealmConfig
+from app.realm_service import export_nginx_realms_conf
+from app.sso_settings import Settings, get_settings
+from app.web.constants import APP_VERSION
+from app.web.flash import base_template_context, flash_redirect
+from app.web.metrics_service import get_dashboard_metrics
+from app.web.sessions_service import get_active_sessions
+from app.web.templates import render
+from app.web.user_context import get_user_context, require_admin, require_user
+
+router = APIRouter(tags=["pages"])
+
+
+def _ctx(request: Request, settings: Settings, **extra):
+    return base_template_context(request, settings, APP_VERSION, **extra)
+
+
+def _client_ip(request: Request) -> str:
+    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+
+
+@router.get("/")
+def root():
+    return RedirectResponse(url="/dashboard", status_code=302)
+
+
+@router.get("/dashboard")
+def dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_user),
+):
+    metrics = get_dashboard_metrics(db)
+    recent_audit, _ = list_audit_entries(db, limit=8)
+    return render(
+        "dashboard/index.html",
+        **_ctx(request, settings, metrics=metrics, recent_audit=recent_audit),
+    )
+
+
+@router.get("/sessions")
+def sessions_page(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_user),
+):
+    return render(
+        "sessions/index.html",
+        **_ctx(request, settings, sessions=get_active_sessions()),
+    )
+
+
+@router.get("/catalogue")
+def catalogue_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_user),
+):
+    apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    if not user.is_admin and user.groups:
+        allowed_ids = {
+            link.app_id
+            for link in db.query(AppGroup)
+            .join(RBACGroup)
+            .filter(RBACGroup.name.in_(user.groups))
+            .all()
+        }
+        if allowed_ids:
+            apps = [a for a in apps if a.id in allowed_ids]
+    return render("catalogue/index.html", **_ctx(request, settings, apps=apps))
+
+
+# --- Auth ---
+
+
+@router.get("/auth/login")
+@router.get("/breakglass")
+def login_page(request: Request, settings: Settings = Depends(get_settings)):
+    if get_user_context(request, settings):
+        return RedirectResponse(url="/dashboard", status_code=302)
+    return render(
+        "auth/login.html",
+        **_ctx(request, settings, hide_chrome=True),
+    )
+
+
+@router.post("/auth/login")
+async def login_post(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    if not verify_breakglass_password(db, username, password):
+        log_action(
+            db,
+            actor=username,
+            action="breakglass.login_failed",
+            ip_address=_client_ip(request),
+        )
+        ctx = _ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            login_error="Identifiants invalides.",
+        )
+        return render("auth/login.html", **ctx)
+
+    token = create_breakglass_token(username, settings.vault_portal_internal_token)
+    response = RedirectResponse(url="/dashboard", status_code=302)
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+    )
+    log_action(
+        db,
+        actor=username,
+        action="breakglass.login",
+        ip_address=_client_ip(request),
+    )
+    flash_redirect(response, "Connexion break-glass réussie.", "success", settings.vault_portal_internal_token or "dev")
+    return response
+
+
+@router.get("/auth/sso-start")
+def sso_start(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    realm = request.headers.get("X-Portal-Realm-Slug", settings.sso_portal_default_realm_slug)
+    rd = request.headers.get("X-Portal-OAuth2-Rd", "/dashboard")
+    redirect_url = f"/oauth2/{realm}/start?rd={rd}"
+    return render(
+        "auth/sso_redirect.html",
+        **_ctx(request, settings, hide_chrome=True, redirect_url=redirect_url),
+    )
+
+
+@router.get("/logout")
+def logout(request: Request, settings: Settings = Depends(get_settings)):
+    response = RedirectResponse(url="/auth/login", status_code=302)
+    response.delete_cookie(key=COOKIE_NAME)
+    return response
+
+
+@router.get("/health")
+def health_page():
+    return {"status": "ok"}
+
+
+# --- Error pages ---
+
+
+@router.get("/errors/403")
+def error_403(request: Request, settings: Settings = Depends(get_settings)):
+    return render(
+        "errors/403.html",
+        **_ctx(request, settings, hide_chrome=True),
+        status_code=403,
+    )
+
+
+@router.get("/errors/404")
+def error_404(request: Request, settings: Settings = Depends(get_settings)):
+    return render(
+        "errors/404.html",
+        **_ctx(request, settings, hide_chrome=True),
+        status_code=404,
+    )
+
+
+@router.get("/errors/500")
+def error_500(request: Request, settings: Settings = Depends(get_settings)):
+    return render(
+        "errors/500.html",
+        **_ctx(request, settings, hide_chrome=True),
+        status_code=500,
+    )
+
+
+# --- Admin ---
+
+
+@router.get("/admin")
+@router.get("/admin/dashboard")
+def admin_dashboard(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    app_count = db.query(App).count()
+    realm_count = db.query(RealmConfig).count()
+    metrics = get_dashboard_metrics(db)
+    return render(
+        "admin/dashboard.html",
+        **_ctx(
+            request,
+            settings,
+            app_count=app_count,
+            realm_count=realm_count,
+            metrics=metrics,
+        ),
+    )
+
+
+@router.get("/admin/apps")
+def admin_apps_list(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    apps = db.query(App).order_by(App.slug).all()
+    return render("admin/apps/list.html", **_ctx(request, settings, apps=apps))
+
+
+@router.get("/admin/apps/create")
+def admin_apps_create(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    return render("admin/apps/create.html", **_ctx(request, settings))
+
+
+@router.post("/admin/apps/create")
+def admin_apps_create_post(
+    request: Request,
+    slug: str = Form(...),
+    label: str = Form(...),
+    upstream_url: str = Form(...),
+    access_mode: str = Form("sso"),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+    user=Depends(require_admin),
+):
+    if db.query(App).filter_by(slug=slug).first():
+        return render(
+            "admin/apps/create.html",
+            **_ctx(request, settings, form_error=f"Le slug '{slug}' existe déjà."),
+        )
+    app = App(slug=slug, label=label, upstream_url=upstream_url, access_mode=access_mode)
+    db.add(app)
+    db.commit()
+    log_action(db, actor=user.email, action="app.created", target=slug)
+    response = RedirectResponse(url="/admin/apps", status_code=302)
+    flash_redirect(response, f"Application '{label}' créée.", "success", settings.vault_portal_internal_token or "dev")
+    return response
+
+
+@router.get("/admin/apps/{slug}/edit")
+def admin_apps_edit(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    return render("admin/apps/edit.html", **_ctx(request, settings, app=app))
+
+
+@router.post("/admin/apps/{slug}/edit")
+def admin_apps_edit_post(
+    slug: str,
+    request: Request,
+    label: str = Form(...),
+    upstream_url: str = Form(...),
+    access_mode: str = Form("sso"),
+    enabled: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    app.label = label
+    app.upstream_url = upstream_url
+    app.access_mode = access_mode
+    app.enabled = enabled == "on"
+    db.commit()
+    log_action(db, actor=user.email, action="app.updated", target=slug)
+    response = RedirectResponse(url="/admin/apps", status_code=302)
+    flash_redirect(response, f"Application '{label}' mise à jour.", "success", settings.vault_portal_internal_token or "dev")
+    return response
+
+
+@router.get("/admin/realms")
+def admin_realms_list(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
+    return render("admin/realms/list.html", **_ctx(request, settings, realms=realms))
+
+
+@router.get("/admin/realms/create")
+def admin_realms_create(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    return render("admin/realms/edit.html", **_ctx(request, settings, realm=None))
+
+
+@router.post("/admin/realms/create")
+def admin_realms_create_post(
+    request: Request,
+    slug: str = Form(...),
+    keycloak_realm: str = Form(...),
+    keycloak_base_url: str = Form(...),
+    client_id: str = Form(...),
+    oauth2_proxy_port: int = Form(...),
+    oauth2_proxy_url: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    proxy_url = oauth2_proxy_url or f"http://127.0.0.1:{oauth2_proxy_port}"
+    realm = RealmConfig(
+        slug=slug,
+        keycloak_realm=keycloak_realm,
+        keycloak_base_url=keycloak_base_url,
+        client_id=client_id,
+        oauth2_proxy_port=oauth2_proxy_port,
+        oauth2_proxy_url=proxy_url,
+    )
+    db.add(realm)
+    db.commit()
+    export_nginx_realms_conf(db, settings)
+    log_action(db, actor=user.email, action="realm.created", target=slug)
+    response = RedirectResponse(url="/admin/realms", status_code=302)
+    flash_redirect(response, f"Realm '{slug}' créé.", "success", settings.vault_portal_internal_token or "dev")
+    return response
+
+
+@router.get("/admin/realms/{slug}/edit")
+def admin_realms_edit(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    realm = db.query(RealmConfig).filter_by(slug=slug).first()
+    if not realm:
+        raise HTTPException(status_code=404)
+    return render("admin/realms/edit.html", **_ctx(request, settings, realm=realm))
+
+
+@router.post("/admin/realms/{slug}/edit")
+def admin_realms_edit_post(
+    slug: str,
+    request: Request,
+    keycloak_realm: str = Form(...),
+    keycloak_base_url: str = Form(...),
+    client_id: str = Form(...),
+    oauth2_proxy_port: int = Form(...),
+    oauth2_proxy_url: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    realm = db.query(RealmConfig).filter_by(slug=slug).first()
+    if not realm:
+        raise HTTPException(status_code=404)
+    realm.keycloak_realm = keycloak_realm
+    realm.keycloak_base_url = keycloak_base_url
+    realm.client_id = client_id
+    realm.oauth2_proxy_port = oauth2_proxy_port
+    if oauth2_proxy_url:
+        realm.oauth2_proxy_url = oauth2_proxy_url
+    db.commit()
+    export_nginx_realms_conf(db, settings)
+    log_action(db, actor=user.email, action="realm.updated", target=slug)
+    response = RedirectResponse(url="/admin/realms", status_code=302)
+    flash_redirect(response, f"Realm '{slug}' mis à jour.", "success", settings.vault_portal_internal_token or "dev")
+    return response
+
+
+@router.get("/admin/rbac")
+def admin_rbac(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
+    apps = db.query(App).order_by(App.label).all()
+    links = db.query(AppGroup).all()
+    return render(
+        "admin/rbac.html",
+        **_ctx(request, settings, groups=groups, apps=apps, links=links),
+    )
+
+
+@router.get("/admin/resources")
+def admin_resources(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    resources = [
+        {"name": "prod-db-01", "type": "Database", "zone": "Production", "status": "ok"},
+        {"name": "win-jump-02", "type": "Jump Host", "zone": "DMZ", "status": "ok"},
+        {"name": "grafana.internal", "type": "Monitoring", "zone": "Internal", "status": "warn"},
+    ]
+    return render("admin/resources.html", **_ctx(request, settings, resources=resources))
+
+
+@router.get("/admin/security")
+def admin_security(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    return render("admin/security.html", **_ctx(request, settings))
+
+
+@router.get("/admin/health")
+def admin_health(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    apps = db.query(App).filter_by(enabled=True).all()
+    probes = [
+        {
+            "slug": a.slug,
+            "label": a.label,
+            "url": a.healthcheck_url or a.upstream_url,
+            "status": "ok",
+            "latency_ms": 42,
+        }
+        for a in apps
+    ] or [
+        {"slug": "portal", "label": "Portail SSO", "url": "/api/health", "status": "ok", "latency_ms": 12}
+    ]
+    return render("admin/health.html", **_ctx(request, settings, probes=probes))

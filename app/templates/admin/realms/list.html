@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Realms{% endblock %}
+{% block breadcrumb %}Admin / Realms{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div><h1 class="page-title">Realms OIDC</h1></div>
+    <a href="/admin/realms/create" class="btn btn-primary btn-sm">+ Créer</a>
+  </div>
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr><th>Slug</th><th>Keycloak Realm</th><th>Client ID</th><th>Proxy Port</th><th>Statut</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for realm in realms %}
+        <tr>
+          <td class="mono">{{ realm.slug }}</td>
+          <td>{{ realm.keycloak_realm }}</td>
+          <td class="mono">{{ realm.client_id }}</td>
+          <td class="mono">{{ realm.oauth2_proxy_port }}</td>
+          <td><span class="badge badge-{{ 'success' if realm.enabled else 'muted' }}">{{ 'Actif' if realm.enabled else 'Inactif' }}</span></td>
+          <td><a href="/admin/realms/{{ realm.slug }}/edit" class="btn btn-ghost btn-sm">Modifier</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty-state">Aucun realm configuré.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

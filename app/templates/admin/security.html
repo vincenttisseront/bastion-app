@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Sécurité{% endblock %}
+{% block breadcrumb %}Admin / Sécurité{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Sécurité</h1>
+      <p class="page-subtitle">Clés API, TLS, rotation des secrets</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:var(--space-4);">
+    <div class="card-header"><span class="card-title">Clés API internes</span></div>
+    <p style="color:var(--text-secondary);font-size:var(--font-size-sm);">
+      Token interne configuré via <code class="font-mono">vault_portal_internal_token</code>.
+      Utilisé pour les routes machine-to-machine <code class="font-mono">/api/admin/*</code>.
+    </p>
+  </div>
+
+  <div class="card" style="margin-bottom:var(--space-4);">
+    <div class="card-header"><span class="card-title">TLS / Certificats</span></div>
+    <p style="color:var(--text-secondary);font-size:var(--font-size-sm);">
+      Terminaison TLS gérée par Nginx (Let's Encrypt). Renouvellement automatique via certbot.
+    </p>
+    <span class="badge badge-success">Certificat valide</span>
+  </div>
+
+  <div class="card" id="vault">
+    <div class="card-header"><span class="card-title">Coffre-fort applicatif (Fernet)</span></div>
+    <p style="color:var(--text-secondary);font-size:var(--font-size-sm);">
+      Credentials chiffrés stockés en base (<code class="font-mono">app_credentials</code>).
+      Clé Fernet : <code class="font-mono">vault_portal_vault_fernet_key</code>.
+    </p>
+    <button type="button" class="btn btn-secondary btn-sm" style="margin-top:var(--space-3);" data-confirm="Lancer la rotation des clés Fernet ?">
+      Rotation secrets
+    </button>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}RBAC{% endblock %}
+{% block breadcrumb %}Admin / RBAC{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Gestion RBAC</h1>
+      <p class="page-subtitle">Groupes Keycloak et associations applications</p>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    <div class="card">
+      <div class="card-header"><span class="card-title">Groupes RBAC</span></div>
+      <div class="data-table-wrapper" style="border:none;">
+        <table class="data-table">
+          <thead><tr><th>Nom</th><th>Realm</th></tr></thead>
+          <tbody>
+            {% for g in groups %}
+            <tr><td class="mono">{{ g.name }}</td><td>{{ g.realm_slug or '—' }}</td></tr>
+            {% else %}
+            <tr><td colspan="2" class="empty-state">Aucun groupe.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="card-title">Associations App ↔ Groupe</span></div>
+      <div class="data-table-wrapper" style="border:none;">
+        <table class="data-table">
+          <thead><tr><th>App ID</th><th>Groupe ID</th></tr></thead>
+          <tbody>
+            {% for link in links %}
+            <tr><td class="mono">{{ link.app_id }}</td><td class="mono">{{ link.group_id }}</td></tr>
+            {% else %}
+            <tr><td colspan="2" class="empty-state">Aucune association.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

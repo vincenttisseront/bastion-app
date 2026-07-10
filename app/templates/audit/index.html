@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Journaux d'Audit{% endblock %}
+{% block breadcrumb %}Audit{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Journaux d'Audit</h1>
+      <p class="page-subtitle">{{ total_entries }} entrées — Index d'intégrité</p>
+    </div>
+  </div>
+
+  <div class="integrity-bar">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+    <span class="integrity-score">{{ integrity.score }}%</span>
+    <span class="integrity-label">Intégrité des logs</span>
+    <span class="badge badge-{{ 'success' if integrity.ok else 'danger' }}">
+      {{ 'VALIDÉ' if integrity.ok else 'ALTÉRÉ' }}
+    </span>
+    <span class="integrity-hash">SHA256: {{ integrity.hash }}</span>
+  </div>
+
+  <form id="audit-filter-form" class="audit-toolbar" method="get" action="/audit">
+    <input type="date" class="form-input" style="width:auto;" name="date_from" value="{{ filters.date_from }}" aria-label="Date début">
+    <input type="date" class="form-input" style="width:auto;" name="date_to" value="{{ filters.date_to }}" aria-label="Date fin">
+
+    <div class="severity-filter" role="group" aria-label="Filtrer par sévérité">
+      <button type="button" class="severity-chip chip-info active" data-sev="info">INFO</button>
+      <button type="button" class="severity-chip chip-warn" data-sev="warn">WARN</button>
+      <button type="button" class="severity-chip chip-error" data-sev="error">ERREUR</button>
+    </div>
+
+    <div class="export-group">
+      <a href="?export=csv{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}" class="btn btn-secondary btn-sm">↓ CSV</a>
+      <a href="?export=pdf{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}" class="btn btn-secondary btn-sm">↓ PDF</a>
+    </div>
+  </form>
+
+  <div class="card" style="padding:0;">
+    <div class="audit-stream">
+      {% for entry in audit_entries %}
+      <div class="audit-entry">
+        <span class="audit-severity {{ entry.severity }}"></span>
+        <div>
+          <div class="audit-action">{{ entry.action }}</div>
+          <div class="audit-target">{{ entry.target }}</div>
+        </div>
+        <span class="audit-user">{{ entry.user }}</span>
+        <span class="audit-time">{{ entry.timestamp }}</span>
+      </div>
+      {% else %}
+      <div class="empty-state">Aucune entrée pour ces critères.</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/bastion-audit.js"></script>
+{% endblock %}

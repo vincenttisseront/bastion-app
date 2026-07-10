@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Redirection SSO{% endblock %}
+
+{% block content %}
+<div class="login-container">
+  <div class="login-card sso-redirect">
+    <div class="sso-spinner" role="status" aria-label="Redirection en cours"></div>
+    <h1 class="login-brand-title">Redirection SSO</h1>
+    <p class="login-brand-sub">Connexion à Keycloak en cours…</p>
+  </div>
+</div>
+<script>
+  setTimeout(function () {
+    window.location.href = {{ redirect_url | tojson }};
+  }, 800);
+</script>
+{% endblock %}

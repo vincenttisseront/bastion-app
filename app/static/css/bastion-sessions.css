@@ -1,0 +1,51 @@
+/* Active sessions table */
+
+.session-table .session-protocol {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+}
+
+.session-protocol.ssh  { background: var(--proto-ssh-bg); color: var(--proto-ssh); }
+.session-protocol.rdp  { background: var(--proto-rdp-bg); color: var(--proto-rdp); }
+.session-protocol.web  { background: var(--proto-web-bg); color: var(--proto-web); }
+
+.session-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.btn-isolate {
+  background: var(--status-error-bg);
+  color: var(--status-error);
+  border: 1px solid rgba(239,68,68,0.3);
+  font-size: var(--font-size-xs);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-isolate:hover { background: rgba(239,68,68,0.25); }
+
+.btn-rotate-keys {
+  background: var(--status-warn-bg);
+  color: var(--status-warn);
+  border: 1px solid rgba(245,158,11,0.3);
+  font-size: var(--font-size-xs);
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-rotate-keys:hover { background: rgba(245,158,11,0.25); }

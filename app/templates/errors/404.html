@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Page introuvable{% endblock %}
+
+{% block content %}
+<div class="error-page">
+  <div class="error-code">404</div>
+  <h1 class="page-title">Page introuvable</h1>
+  <p class="error-message">La ressource demandée n'existe pas ou a été déplacée.</p>
+  <a href="/dashboard" class="btn btn-primary">Retour au dashboard</a>
+</div>
+{% endblock %}

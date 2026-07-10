@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Catalogue{% endblock %}
+{% block breadcrumb %}Catalogue{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Catalogue Applications</h1>
+      <p class="page-subtitle">{{ apps | length }} application(s) disponible(s)</p>
+    </div>
+    {% if is_admin %}
+    <a href="/admin/apps/create" class="btn btn-primary btn-sm">+ Nouvelle app</a>
+    {% endif %}
+  </div>
+
+  <div class="app-grid">
+    {% for app in apps %}
+      {% include 'partials/_app_card.html' %}
+    {% else %}
+    <div class="empty-state" style="grid-column: 1 / -1;">Aucune application disponible pour votre profil.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

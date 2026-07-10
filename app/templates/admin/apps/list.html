@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Applications{% endblock %}
+{% block breadcrumb %}Admin / Applications{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div><h1 class="page-title">Applications</h1></div>
+    <a href="/admin/apps/create" class="btn btn-primary btn-sm">+ Créer</a>
+  </div>
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr><th>Slug</th><th>Label</th><th>Mode</th><th>Upstream</th><th>Statut</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for app in apps %}
+        <tr>
+          <td class="mono">{{ app.slug }}</td>
+          <td>{{ app.label }}</td>
+          <td><span class="mode-badge {{ app.access_mode }}">{{ app.access_mode | upper }}</span></td>
+          <td class="mono">{{ app.upstream_url }}</td>
+          <td><span class="badge badge-{{ 'success' if app.enabled else 'muted' }}">{{ 'Actif' if app.enabled else 'Désactivé' }}</span></td>
+          <td><a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">Modifier</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty-state">Aucune application.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

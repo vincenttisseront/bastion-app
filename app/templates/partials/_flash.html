@@ -1,0 +1,5 @@
+{% for msg in messages %}
+<div class="alert alert-{{ msg.category | default('info') }}" data-dismiss role="alert">
+  {{ msg.message }}
+</div>
+{% endfor %}

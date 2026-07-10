@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" fill="none">
+  <rect x="0" y="4" width="32" height="32" rx="8" fill="#10b981"/>
+  <path d="M16 8L10 10.5v5c0 4.142 2.686 7.733 6 8.5 3.314-.767 6-4.358 6-8.5v-5L16 8z" fill="#051424" opacity="0.3"/>
+  <path d="M13.5 18l1.5 1.5 3-3" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="42" y="27" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#e2e8f0">Bastion</text>
+  <text x="108" y="27" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#10b981">Pro</text>
+</svg>

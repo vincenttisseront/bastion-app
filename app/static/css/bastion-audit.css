@@ -1,0 +1,104 @@
+/* Audit log stream and filters */
+
+.audit-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.audit-entry {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-muted);
+  font-size: var(--font-size-sm);
+  transition: background var(--transition-fast);
+}
+
+.audit-entry:hover { background: var(--bg-tertiary); }
+.audit-entry:last-child { border-bottom: none; }
+
+.audit-severity {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.audit-severity.info    { background: #60a5fa; }
+.audit-severity.warn    { background: var(--status-warn); }
+.audit-severity.error   { background: var(--status-error); }
+.audit-severity.success { background: var(--status-ok); }
+
+.audit-action {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.audit-target {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.audit-user {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.audit-time {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.audit-toolbar {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.severity-filter {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.severity-chip {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+  opacity: 0.6;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.severity-chip.active { opacity: 1; }
+.severity-chip.chip-info  { background: rgba(96,165,250,0.15); color: #60a5fa; border-color: rgba(96,165,250,0.3); }
+.severity-chip.chip-warn  { background: var(--status-warn-bg); color: var(--status-warn); border-color: rgba(245,158,11,0.3); }
+.severity-chip.chip-error { background: var(--status-error-bg); color: var(--status-error); border-color: rgba(239,68,68,0.3); }
+
+.export-group {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+@media (max-width: 768px) {
+  .audit-entry {
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+  }
+  .audit-user, .audit-time {
+    grid-column: 2;
+  }
+}

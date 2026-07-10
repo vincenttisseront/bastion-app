@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Sessions Actives{% endblock %}
+{% block breadcrumb %}Sessions{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Sessions Actives</h1>
+      <p class="page-subtitle">{{ sessions | length }} connexion(s) en cours</p>
+    </div>
+    <div class="live-indicator"><span class="live-dot"></span>LIVE</div>
+  </div>
+
+  <div class="data-table-wrapper session-table">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Utilisateur</th>
+          <th>Protocole</th>
+          <th>Ressource cible</th>
+          <th>IP Source</th>
+          <th>Durée</th>
+          <th>Statut</th>
+          {% if is_admin %}<th>Actions</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:var(--space-2);">
+              <div class="sidebar-user-avatar" style="width:28px;height:28px;font-size:10px;">{{ s.user[0] | upper }}</div>
+              <div>
+                <div style="font-weight:600;">{{ s.user }}</div>
+                <div class="mono" style="color:var(--text-muted);">{{ s.realm }}</div>
+              </div>
+            </div>
+          </td>
+          <td><span class="session-protocol {{ s.protocol | lower }}">{{ s.protocol }}</span></td>
+          <td class="mono">{{ s.target }}</td>
+          <td class="mono">{{ s.source_ip }}</td>
+          <td class="mono">{{ s.duration }}</td>
+          <td>
+            <span class="badge badge-{{ 'success' if s.status == 'active' else 'warning' }}">
+              {% if s.status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
+              {{ s.status | upper }}
+            </span>
+          </td>
+          {% if is_admin %}
+          <td>
+            <div class="session-actions">
+              <button type="button" class="btn-isolate" onclick="isolateSession('{{ s.id }}')" aria-label="Isoler la session {{ s.id }}">Isoler</button>
+              <button type="button" class="btn-rotate-keys" onclick="rotateKeys('{{ s.id }}')" aria-label="Rotation clés session {{ s.id }}">Rotation clés</button>
+            </div>
+          </td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="empty-state">Aucune session active.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/bastion-sessions.js"></script>
+{% endblock %}

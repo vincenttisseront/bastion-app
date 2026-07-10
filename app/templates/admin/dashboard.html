@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Administration{% endblock %}
+{% block breadcrumb %}Admin{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Administration</h1>
+      <p class="page-subtitle">Vue d'ensemble — {{ app_count }} apps, {{ realm_count }} realms</p>
+    </div>
+  </div>
+
+  <div class="metrics-grid">
+    <div class="metric-card ok">
+      <div class="metric-value">{{ metrics.active_sessions }}</div>
+      <div class="metric-label">Sessions actives</div>
+    </div>
+    <div class="metric-card info">
+      <div class="metric-value">{{ app_count }}</div>
+      <div class="metric-label">Applications</div>
+    </div>
+    <div class="metric-card ok">
+      <div class="metric-value">{{ metrics.health_score }}/100</div>
+      <div class="metric-label">Santé globale</div>
+    </div>
+  </div>
+
+  <div class="quick-access-grid" style="max-width:600px;margin-top:var(--space-6);">
+    <a href="/admin/apps" class="quick-access-item"><span>Applications</span></a>
+    <a href="/admin/realms" class="quick-access-item"><span>Realms</span></a>
+    <a href="/admin/rbac" class="quick-access-item"><span>RBAC</span></a>
+    <a href="/admin/security" class="quick-access-item"><span>Sécurité</span></a>
+  </div>
+</div>
+{% endblock %}

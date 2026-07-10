@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Ressources{% endblock %}
+{% block breadcrumb %}Admin / Ressources{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Topographie des Ressources</h1>
+      <p class="page-subtitle">Provisionnement et zones réseau</p>
+    </div>
+  </div>
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead><tr><th>Nom</th><th>Type</th><th>Zone</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for r in resources %}
+        <tr>
+          <td class="mono">{{ r.name }}</td>
+          <td>{{ r.type }}</td>
+          <td>{{ r.zone }}</td>
+          <td><span class="badge badge-{{ 'success' if r.status == 'ok' else 'warning' }}">{{ r.status | upper }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

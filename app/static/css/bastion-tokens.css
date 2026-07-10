@@ -1,0 +1,127 @@
+/* app/static/css/bastion-tokens.css — Sentinel Core design tokens */
+
+:root,
+[data-theme="dark"] {
+  --bg-primary:     #051424;
+  --bg-secondary:   #0a1e30;
+  --bg-tertiary:    #0f2640;
+  --bg-overlay:     #142d4a;
+
+  --accent-primary: #10b981;
+  --accent-hover:   #34d399;
+  --accent-muted:   rgba(16,185,129,0.12);
+  --accent-glow:    0 0 20px rgba(16,185,129,0.25);
+
+  --border-default: #1e3a5f;
+  --border-muted:   #0f2640;
+  --border-accent:  rgba(16,185,129,0.35);
+
+  --text-primary:   #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted:     #475569;
+  --text-link:      #34d399;
+  --text-danger:    #ef4444;
+  --text-success:   #10b981;
+  --text-warning:   #f59e0b;
+
+  --font-sans:      'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:      'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+  --status-ok:           #10b981;
+  --status-ok-bg:        rgba(16,185,129,0.12);
+  --status-warn:         #f59e0b;
+  --status-warn-bg:      rgba(245,158,11,0.12);
+  --status-error:        #ef4444;
+  --status-error-bg:     rgba(239,68,68,0.12);
+  --status-unknown:      #475569;
+  --status-unknown-bg:   rgba(71,85,105,0.2);
+
+  --proto-ssh:    #60a5fa;
+  --proto-ssh-bg: rgba(59,130,246,0.12);
+  --proto-rdp:    #a78bfa;
+  --proto-rdp-bg: rgba(139,92,246,0.12);
+  --proto-web:    #34d399;
+  --proto-web-bg: rgba(16,185,129,0.12);
+
+  --mode-direct:    #10b981;
+  --mode-sso:       #60a5fa;
+  --mode-robotic:   #a78bfa;
+  --mode-subdomain: #f59e0b;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 9999px;
+
+  --font-size-xs:   0.75rem;
+  --font-size-sm:   0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg:   1.125rem;
+  --font-size-xl:   1.25rem;
+  --font-size-2xl:  1.5rem;
+  --font-size-3xl:  1.875rem;
+
+  --shadow-sm:  0 1px 4px rgba(0,0,0,0.4);
+  --shadow-md:  0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg:  0 8px 32px rgba(0,0,0,0.6);
+  --shadow-xl:  0 16px 48px rgba(0,0,0,0.7);
+
+  --transition-fast: 100ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 350ms ease;
+}
+
+[data-theme="light"] {
+  --bg-primary:     #f8f9ff;
+  --bg-secondary:   #ffffff;
+  --bg-tertiary:    #f1f5f9;
+  --bg-overlay:     #e2e8f0;
+
+  --accent-primary: #10b981;
+  --accent-hover:   #059669;
+  --accent-muted:   rgba(16,185,129,0.1);
+  --accent-glow:    0 0 20px rgba(16,185,129,0.15);
+
+  --border-default: #cbd5e1;
+  --border-muted:   #e2e8f0;
+  --border-accent:  rgba(16,185,129,0.4);
+
+  --text-primary:   #0f172a;
+  --text-secondary: #475569;
+  --text-muted:     #94a3b8;
+  --text-link:      #059669;
+  --text-danger:    #dc2626;
+  --text-success:   #059669;
+  --text-warning:   #d97706;
+
+  --font-sans:      'Hanken Grotesk', 'Inter', system-ui, -apple-system, sans-serif;
+
+  --status-ok:           #059669;
+  --status-ok-bg:        rgba(16,185,129,0.1);
+  --status-warn:         #d97706;
+  --status-warn-bg:      rgba(245,158,11,0.1);
+  --status-error:        #dc2626;
+  --status-error-bg:     rgba(239,68,68,0.1);
+
+  --proto-ssh:    #2563eb;
+  --proto-ssh-bg: rgba(37,99,235,0.08);
+  --proto-rdp:    #7c3aed;
+  --proto-rdp-bg: rgba(124,58,237,0.08);
+  --proto-web:    #059669;
+  --proto-web-bg: rgba(5,150,105,0.08);
+
+  --shadow-sm:  0 1px 4px rgba(15,23,42,0.08);
+  --shadow-md:  0 4px 16px rgba(15,23,42,0.12);
+  --shadow-lg:  0 8px 32px rgba(15,23,42,0.16);
+}

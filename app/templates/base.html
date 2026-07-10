@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}Dashboard{% endblock %} — Bastion Pro</title>
+  <link rel="icon" type="image/svg+xml" href="/static/img/bastion-icon.svg">
+  <script src="/static/js/bastion-theme.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/bastion.css">
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% if hide_chrome %}auth-layout{% else %}app-layout{% endif %}{% endblock %}">
+
+  {% if not hide_chrome %}
+    {% include 'partials/_sidebar.html' %}
+    <div class="app-body">
+      {% include 'partials/_navbar.html' %}
+      {% if messages %}
+        <div class="flash-container">{% include 'partials/_flash.html' %}</div>
+      {% endif %}
+      <main class="main-content" id="main-content">
+  {% else %}
+    <main>
+  {% endif %}
+
+        {% block content %}{% endblock %}
+
+  {% if not hide_chrome %}
+      </main>
+    </div>
+  {% else %}
+    </main>
+  {% endif %}
+
+  <script src="/static/js/bastion.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

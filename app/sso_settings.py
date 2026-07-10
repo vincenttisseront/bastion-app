@@ -29,6 +29,10 @@ class Settings(BaseSettings):
         default=["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1/32"]
     )
 
+    portal_admin_groups: list[str] = Field(
+        default=["portal-admins", "bastion-admins", "admins"]
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
