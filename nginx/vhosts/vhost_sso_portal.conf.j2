@@ -1,5 +1,5 @@
 ﻿# {{ ansible_managed }}
-# {{ portal_domain }} ÔÇö Portail SSO multi-realm (oauth2-proxy par realm)
+# {{ portal_domain }} — Portail SSO multi-realm (oauth2-proxy par realm)
 
 server {
     listen 80;
@@ -21,7 +21,7 @@ server {
     ssl_session_cache shared:SSL:50m;
     ssl_session_tickets off;
 
-    # OCSP stapling d├®sactiv├® : Let's Encrypt ne fournit plus d'URL OCSP dans ses certificats r├®cents.
+    # OCSP stapling désactivé : Let's Encrypt ne fournit plus d'URL OCSP dans ses certificats récents.
     # ssl_stapling on;
     # ssl_stapling_verify on;
     resolver 1.1.1.1 8.8.8.8 valid=300s;
@@ -52,7 +52,7 @@ server {
     location @portal_rate_limited {
         default_type text/html;
         add_header X-Rate-Limited-By "portal-nginx" always;
-        return 429 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Trop de requ├¬tes</title></head><body><h1>Trop de requ├¬tes (429)</h1><p>Le reverse proxy a limit├® temporairement le d├®bit. Ce n\'est pas un bannissement CrushFTP.</p><p>Attendez quelques secondes puis rechargez. Si le probl├¿me persiste apr├¿s d├®ploiement AWX, v├®rifiez <code>limit_req</code> sur <code>/proxy/</code> dans nginx.</p></body></html>';
+        return 429 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Trop de requêtes</title></head><body><h1>Trop de requêtes (429)</h1><p>Le reverse proxy a limité temporairement le débit. Ce n\'est pas un bannissement CrushFTP.</p><p>Attendez quelques secondes puis rechargez. Si le problème persiste après déploiement AWX, vérifiez <code>limit_req</code> sur <code>/proxy/</code> dans nginx.</p></body></html>';
     }
 
     # Pages d'erreur portail (HTML statique, redirection auto vers /)
@@ -91,6 +91,7 @@ server {
     }
 
     location = /health {
+        auth_request off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/health;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -98,14 +99,16 @@ server {
     }
 
     location = /api/health {
+        auth_request off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/api/health;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
-    # Assets publics ÔÇö jamais auth_request (├®vite rd=/favicon.ico ÔåÆ oauth2-proxy 400)
+    # Assets publics — jamais auth_request (évite rd=/favicon.ico → oauth2-proxy 400)
     location ^~ /static/ {
+        auth_request off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -123,8 +126,9 @@ server {
         add_header Cache-Control "public, max-age=604800" always;
     }
 
-    # D├®connexion SLO ÔÇö direct FastAPI (pas d'auth_request : ├®vite 500 Nginx si oauth2-proxy r├®pond autrement que 200/401)
+    # Déconnexion SLO — direct FastAPI (pas d'auth_request : évite 500 Nginx si oauth2-proxy répond autrement que 200/401)
     location = /logout {
+        auth_request off;
         limit_req zone=portal_login burst=10 nodelay;
 
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
@@ -136,8 +140,9 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
-    # Break-glass : page publique hors SSO (GET + POST), sans auth_request ÔÇö LAN uniquement
+    # Break-glass : page publique hors SSO (GET + POST), sans auth_request — LAN uniquement
     location ^~ /breakglass {
+        auth_request off;
         allow 127.0.0.0/8;
         allow 10.0.0.0/8;
         allow 172.16.0.0/12;
@@ -150,8 +155,9 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
-    # Entr├®e SSO publique (sans auth_request) ÔÇö construit /oauth2/{realm}/start?rd=ÔÇª
+    # Entrée SSO publique (sans auth_request) — construit /oauth2/{realm}/start?rd=…
     location ^~ /auth/ {
+        auth_request off;
         limit_req zone=portal_login burst=10 nodelay;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
@@ -159,11 +165,12 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
-    # auth_request central : cookie break-glass ÔåÆ 200 ; sinon d├®l├®gation FastAPI ÔåÆ oauth2-proxy
+    # auth_request central : cookie break-glass → 200 ; sinon délégation FastAPI → oauth2-proxy
     location = /portal_auth_check {
         internal;
+        auth_request off;   # CRITIQUE : évite la récursion auth_request (fe15325)
 
-        # Pr├®sence du cookie suffit pour auth_request ; validation JWT c├┤t├® FastAPI.
+        # Présence du cookie suffit pour auth_request ; validation JWT côté FastAPI.
         if ($cookie_portal_breakglass_token) {
             return 200;
         }
@@ -182,7 +189,7 @@ server {
 
 {% include 'snippets/proxy_portal_legacy_redirects.conf.j2' %}
 
-    # Realms oauth2 ÔÇö g├®n├®r├® par le portail (/var/lib/sso-portal/exports/nginx-portal-realms.conf)
+    # Realms oauth2 — généré par le portail (/var/lib/sso-portal/exports/nginx-portal-realms.conf)
 {% if oauth2_core_admin_enabled | default(false) | bool %}
     {% include 'snippets/nginx-portal-core-oauth2.conf.j2' %}
 {% endif %}
@@ -192,8 +199,8 @@ server {
     {% include 'snippets/nginx-portal-oauth2-static.conf.j2' %}
     include {{ sso_portal_data_dir }}/exports/nginx-portal-realms.conf;
 
-    # Flux SSO : 401 ÔåÆ FastAPI /auth/sso-start (rd encod├® + sign_in si session p├®rim├®e)
-    # named location : proxy_pass sans URI ÔÇö rewrite vers /auth/sso-start
+    # Flux SSO : 401 → FastAPI /auth/sso-start (rd encodé + sign_in si session périmée)
+    # named location : proxy_pass sans URI — rewrite vers /auth/sso-start
     location @portal_oauth2_signin {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         rewrite ^ /auth/sso-start break;
@@ -203,11 +210,11 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
-    # Proxy sans oauth2-proxy configur├® ÔÇö ├®vite boucle /oauth2/start Ôåö /proxy/ÔÇª (secret OIDC absent)
+    # Proxy sans oauth2-proxy configuré — évite boucle /oauth2/start ↔ /proxy/… (secret OIDC absent)
     location @portal_proxy_sso_unavailable {
         default_type text/html;
         add_header Cache-Control "no-store" always;
-        return 503 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>SSO indisponible</title></head><body><h1>SSO indisponible (503)</h1><p>Le proxy applicatif requiert oauth2-proxy, non configur├® (<code>vault_sso_portal_oidc_client_secret</code> ou fichier <code>{{ oauth2_core_config_dir }}/client_secret</code>).</p><p>Acc├¿s LAN RFC1918 : ouvrez le portail depuis le r├®seau interne ou configurez le secret Keycloak puis red├®ployez.</p></body></html>';
+        return 503 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>SSO indisponible</title></head><body><h1>SSO indisponible (503)</h1><p>Le proxy applicatif requiert oauth2-proxy, non configuré (<code>vault_sso_portal_oidc_client_secret</code> ou fichier <code>{{ oauth2_core_config_dir }}/client_secret</code>).</p><p>Accès LAN RFC1918 : ouvrez le portail depuis le réseau interne ou configurez le secret Keycloak puis redéployez.</p></body></html>';
     }
 
     location ^~ /api/admin {
@@ -219,7 +226,7 @@ server {
         {% include 'snippets/proxy_portal_admin_location.conf.j2' %}
     }
 
-    # API interne portail (impersonate, catalogue) ÔÇö hors portal_api
+    # API interne portail (impersonate, catalogue) — hors portal_api
     location ^~ /api/internal/ {
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;

@@ -1,4 +1,4 @@
-"""FastAPI entrypoint — SSO portal Phase 2."""
+"""FastAPI entrypoint — SSO portal Phase 3."""
 
 from contextlib import asynccontextmanager
 
@@ -10,10 +10,10 @@ from app.database import engine
 from app.models import Base
 from app.realm_service import router as realm_router
 from app.services import router as apps_router
+from app.subdomain.subdomain_auth import router as subdomain_router
 
-# Routers Phase 3+ (not activated)
+# Routers Phase 4+ (not activated)
 # from app.proxy.proxy_service import router as proxy_router
-# from app.subdomain.subdomain_auth import router as subdomain_router
 
 
 @asynccontextmanager
@@ -24,19 +24,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="bastion-app — SSO Portal",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "phase": "2"}
+    return {"status": "ok", "phase": "3"}
 
 
 app.include_router(auth_router)
 app.include_router(breakglass_router)
 app.include_router(apps_router)
 app.include_router(realm_router)
+app.include_router(subdomain_router)
 
-# TODO Phase 3: proxy, subdomain, robotic
+# TODO Phase 4: proxy, robotic

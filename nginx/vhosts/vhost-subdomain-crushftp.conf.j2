@@ -1,98 +1,70 @@
 ﻿# {{ ansible_managed }}
-# CrushFTP subdomain ÔÇö {{ app.server_name }}
-# Backend ├á / ÔÇö aucun rewrite /proxy/ ni crush-admin-proxy.
-{% set _subdomain_auth = app.subdomain_auth_enabled | default(sso_portal_subdomain_auth_enabled | default(false)) | bool %}
-{% if not _subdomain_auth %}
-# Mode test : proxy direct vers CrushFTP (pas d'auth_request / redirect Keycloak).
-{% endif %}
+# Vhost subdomain SSO — {{ vhost.fqdn }}
+# PREREQUIS : transfer_dmz_vhost_enabled: false dans linux_nginx_dmz.yml (609cdfb)
 
 server {
     listen 80;
-    server_name {{ app.server_name }};
-    return 301 https://$host$request_uri;
+    server_name {{ vhost.fqdn }};
+    return 301 https://$server_name$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name {{ app.server_name }};
+    server_name {{ vhost.fqdn }};
 
-    ssl_certificate {{ app.ssl_certificate | default(ssl_certificate_path | default('/etc/letsencrypt/live/ar-systems.fr/fullchain.pem')) }};
-    ssl_certificate_key {{ app.ssl_certificate_key | default(ssl_certificate_key | default('/etc/letsencrypt/live/ar-systems.fr/privkey.pem')) }};
+    ssl_certificate     {{ vhost.ssl_cert | default(nginx_ssl_cert_default) }};
+    ssl_certificate_key {{ vhost.ssl_key  | default(nginx_ssl_key_default) }};
 
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-    ssl_session_timeout 1d;
-    ssl_session_cache shared:SSL:50m;
-    ssl_session_tickets off;
+    access_log /var/log/nginx/{{ vhost.slug }}_subdomain_access.log;
+    error_log  /var/log/nginx/{{ vhost.slug }}_subdomain_error.log;
 
-    access_log /var/log/nginx/{{ app.log_name | default(app.server_name) }}.access.log main;
-    error_log  /var/log/nginx/{{ app.log_name | default(app.server_name) }}.error.log warn;
+    set $fastapi_upstream http://{{ sso_portal_bind_host | default('127.0.0.1') }}:{{ sso_portal_bind_port | default('8000') }};
+    set $app_upstream     {{ vhost.upstream_url }};
 
-    client_max_body_size 0;
+    # ─── Bloc interne auth subdomain ──────────────────────────────────────────
+    # Définit location = /internal/subdomain-auth avec auth_request off
+    include snippets/subdomain_auth_common.conf;
 
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    # ─── Redirections legacy /proxy/{slug}/ depuis ce vhost ─────────────────
+{% include 'snippets/proxy_subdomain_redirects.conf.j2' %}
 
-    include /etc/nginx/snippets/error_pages.conf;
-    include /etc/nginx/includes/waf-basic.conf;
-
-{% if _subdomain_auth %}
-{% include 'snippets/subdomain_auth_check.conf.j2' %}
-{% endif %}
-
-    # CrushFTP WebSocket (new-ui / webfs)
-    location /webfs/ {
-{% if _subdomain_auth %}
-{% include 'snippets/subdomain_auth_protect.conf.j2' %}
-{% endif %}
-        proxy_pass {{ app.internal_upstream }};
-        proxy_http_version 1.1;
-        proxy_ssl_verify off;
-        proxy_ssl_server_name on;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host {{ app.backend_host }};
-        proxy_set_header Cookie $http_cookie;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-{% if _subdomain_auth %}
-        proxy_set_header X-Remote-User $subdomain_remote_user;
-{% endif %}
-        proxy_read_timeout 3600s;
-        proxy_buffering off;
+    # ─── Sonde santé applicative (pas d'auth) ─────────────────────────────────
+    # CrushFTP répond 302 sur GET / — sonde via GET (pas HEAD)
+    location = /healthz {
+        auth_request off;
+        proxy_pass $app_upstream/;
+        proxy_redirect off;
+        proxy_set_header Host $host;
     }
 
+    # ─── Route principale — protégée par auth_request ─────────────────────────
+    # REGLE : auth_request + error_page 401 uniquement ici (jamais au niveau server)
     location / {
-{% if _subdomain_auth %}
-{% include 'snippets/subdomain_auth_protect.conf.j2' %}
-{% endif %}
-        proxy_pass {{ app.internal_upstream }};
-        proxy_http_version 1.1;
-        proxy_ssl_verify off;
-        proxy_ssl_protocols TLSv1.2;
-        proxy_ssl_session_reuse off;
-        proxy_buffering off;
-        proxy_request_buffering off;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
+        auth_request /internal/subdomain-auth;
 
-        proxy_set_header Host {{ app.backend_host }};
-        proxy_set_header Connection "";
-        proxy_set_header Cookie $http_cookie;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # error_page 401 dans location, jamais au niveau server (dfcc5c7)
+        error_page 401 = @portal_redirect_{{ vhost.slug }};
+
+        proxy_pass $app_upstream;
+        proxy_redirect off;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-{% if _subdomain_auth %}
-        proxy_set_header X-Remote-User $subdomain_remote_user;
-{% endif %}
+
+        # Propagation cookies applicatifs (CrushFTP : CrushAuth, currentAuth)
+        proxy_cookie_path / /;
+        proxy_cookie_domain {{ vhost.upstream_host | default('172.24.0.106') }} {{ vhost.fqdn }};
+
+        # Identité transmise par FastAPI subdomain_auth
+        auth_request_set $auth_user $upstream_http_x_auth_user;
+        auth_request_set $auth_app  $upstream_http_x_auth_app;
+        proxy_set_header X-Auth-User $auth_user;
+        proxy_set_header X-Auth-App  $auth_app;
     }
 
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
+    # ─── Redirection vers portail pour login ──────────────────────────────────
+    location @portal_redirect_{{ vhost.slug }} {
+        return 302 https://{{ portal_domain }}/oauth2/{{ vhost.realm_slug | default(sso_portal_default_realm_slug) }}/start?rd=$scheme://$host$request_uri;
     }
 }

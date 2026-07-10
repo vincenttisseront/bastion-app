@@ -13,11 +13,17 @@ sso_portal_install_dir: /opt/sso-portal
 sso_portal_data_dir: /var/lib/sso-portal
 sso_portal_bind_host: "127.0.0.1"
 sso_portal_bind_port: 8000
+sso_portal_fastapi_port: 8000
+sso_portal_exports_path: /var/lib/sso-portal/exports
 portal_database_url: "sqlite:////var/lib/sso-portal/portal.db"
 
 # Nginx deploy paths
 nginx_conf_dir: /etc/nginx/conf.d
 nginx_snippets_dir: /etc/nginx/snippets
+
+# SSL — certificats par défaut (surchargés par vhost si besoin)
+nginx_ssl_cert_default: /etc/ssl/certs/portal.crt
+nginx_ssl_key_default: /etc/ssl/private/portal.key
 
 # Repo-relative paths (controller)
 bastion_app_root: "{{ playbook_dir }}/.."
@@ -25,7 +31,33 @@ bastion_nginx_vhosts_src: "{{ bastion_app_root }}/nginx/vhosts"
 bastion_nginx_snippets_src: "{{ bastion_app_root }}/nginx/snippets"
 bastion_app_src: "{{ bastion_app_root }}/app"
 
-# Bastion flags (Phase 3+)
+# ─── Subdomain SSO ─────────────────────────────────────────────────────────
+# Activer le déploiement des vhosts subdomain
 sso_portal_subdomain_sso_enabled: false
+
+# Liste des vhosts subdomain à générer
+# Exemple :
+# nginx_subdomain_sso_vhosts:
+#   - slug: transfer
+#     fqdn: transfer.ar-systems.fr
+#     upstream_url: https://172.24.0.106:8080
+#     upstream_host: 172.24.0.106
+#     realm_slug: ar-systems
+#     ssl_cert: /etc/ssl/certs/transfer.crt
+#     ssl_key:  /etc/ssl/private/transfer.key
+nginx_subdomain_sso_vhosts: []
+
+# ─── Redirections legacy /proxy/ vers subdomain ────────────────────────────
+nginx_legacy_proxy_catch_all: true
+nginx_legacy_proxy_redirect_enabled: true
+
+# Liste des redirections legacy (générée dans proxy_portal_legacy_redirects.conf)
+# Exemple :
+# nginx_legacy_proxy_redirects:
+#   - slug: transfer
+#     fqdn: transfer.ar-systems.fr
+nginx_legacy_proxy_redirects: []
+
+# Legacy flags (compat Phase 2)
 sso_portal_subdomain_auth_enabled: false
 sso_portal_subdomain_proxy_redirects_enabled: false

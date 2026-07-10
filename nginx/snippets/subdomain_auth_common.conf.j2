@@ -1,28 +1,22 @@
 # {{ ansible_managed }}
-# Subdomain SSO auth — merged from subdomain_auth_check + subdomain_auth_protect (ff4f66b).
-# Include this snippet inside proxy locations (protect block) after the location definitions below.
+# Snippet : auth subdomain commun
+# Inclus dans tous les vhosts subdomain SSO
+# CRITIQUE : auth_request off sur ce bloc interne (évite récursion — fe15325)
 
-# --- subdomain_auth_check (internal locations) ---
-location = /subdomain_auth_check {
+location = /internal/subdomain-auth {
     internal;
-    proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/internal/subdomain-auth;
+    auth_request off;   # CRITIQUE : évite la récursion auth_request
+
+    proxy_pass http://{{ sso_portal_bind_host | default('127.0.0.1') }}:{{ sso_portal_bind_port | default('8000') }}/internal/subdomain-auth;
     proxy_pass_request_body off;
-    proxy_set_header Content-Length "";
-    proxy_set_header Host {{ portal_domain }};
-    proxy_set_header X-Subdomain-Host $host;
-    proxy_set_header Cookie $http_cookie;
-    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header Content-Length  "";
+    proxy_set_header X-Original-URI  $request_uri;
+    proxy_set_header X-Original-Host $host;
+    proxy_set_header X-Real-IP       $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
-}
+    proxy_set_header Cookie          $http_cookie;
 
-location @subdomain_sso_signin {
-    return 302 https://{{ portal_domain }}/oauth2/{{ sso_portal_default_realm_slug }}/start?rd=$scheme://$host$request_uri;
+    # Ne pas intercepter les erreurs du backend FastAPI
+    proxy_intercept_errors off;
 }
-
-# --- subdomain_auth_protect (include inside proxy locations) ---
-# auth_request + error_page 401 UNIQUEMENT sur les locations proxy (pas au niveau server).
-# Sinon la sous-requête auth hérite de error_page 401 → 302 → « auth request unexpected status: 302 » → 500.
-auth_request /subdomain_auth_check;
-auth_request_set $subdomain_remote_user $upstream_http_x_remote_user;
-error_page 401 = @subdomain_sso_signin;

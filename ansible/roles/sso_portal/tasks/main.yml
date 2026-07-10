@@ -17,12 +17,3 @@
 
     - name: Deploy nginx vhosts
       ansible.builtin.import_tasks: nginx_vhosts.yml
-
-    - name: Deploy nginx snippets
-      ansible.builtin.copy:
-        src: "{{ bastion_nginx_snippets_src }}/"
-        dest: "{{ nginx_snippets_dir }}/"
-        owner: root
-        group: root
-        mode: "0644"
-      notify: Reload nginx

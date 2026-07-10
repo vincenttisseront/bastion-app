@@ -1,19 +1,69 @@
 ---
-- name: Deploy SSO portal vhost
+# tasks/nginx_vhosts.yml
+# Déploiement des vhosts Nginx et snippets pour le portail SSO + sous-domaines
+
+- name: Créer le répertoire snippets nginx
+  ansible.builtin.file:
+    path: "{{ nginx_snippets_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Déployer les snippets Nginx
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ nginx_snippets_dir }}/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - src: "{{ bastion_nginx_snippets_src }}/subdomain_auth_common.conf.j2"
+      dest: subdomain_auth_common.conf
+    - src: "{{ bastion_nginx_snippets_src }}/proxy_portal_forwarded_backend.conf.j2"
+      dest: proxy_portal_forwarded_backend.conf
+    - src: "{{ bastion_nginx_snippets_src }}/proxy_portal_legacy_redirects.conf.j2"
+      dest: proxy_portal_legacy_redirects.conf
+  notify: Reload nginx
+
+- name: Déployer le vhost portail SSO
   ansible.builtin.template:
     src: "{{ bastion_nginx_vhosts_src }}/vhost_sso_portal.conf.j2"
     dest: "{{ nginx_conf_dir }}/vhost_sso_portal.conf"
-    owner: root
-    group: root
     mode: "0644"
+  when: sso_portal_enabled | default(true)
   notify: Reload nginx
 
-- name: Deploy subdomain CrushFTP vhost when enabled
+- name: Supprimer le vhost portail si désactivé
+  ansible.builtin.file:
+    path: "{{ nginx_conf_dir }}/vhost_sso_portal.conf"
+    state: absent
+  when: not (sso_portal_enabled | default(true))
+  notify: Reload nginx
+
+- name: Déployer les vhosts subdomain SSO
   ansible.builtin.template:
     src: "{{ bastion_nginx_vhosts_src }}/vhost-subdomain-crushftp.conf.j2"
-    dest: "{{ nginx_conf_dir }}/vhost_subdomain_crushftp.conf"
-    owner: root
-    group: root
+    dest: "{{ nginx_conf_dir }}/vhost_subdomain_{{ vhost.slug }}.conf"
     mode: "0644"
-  when: sso_portal_subdomain_sso_enabled | default(false) | bool
+  loop: "{{ nginx_subdomain_sso_vhosts | default([]) }}"
+  loop_control:
+    loop_var: vhost
+  when: sso_portal_subdomain_sso_enabled | default(false)
   notify: Reload nginx
+
+- name: Repérer les vhosts subdomain existants
+  ansible.builtin.find:
+    paths: "{{ nginx_conf_dir }}"
+    patterns: "vhost_subdomain_*.conf"
+  register: _existing_subdomain_vhosts
+
+- name: Purger vhosts subdomain si subdomain SSO désactivé
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ _existing_subdomain_vhosts.files }}"
+  when: not (sso_portal_subdomain_sso_enabled | default(false))
+  notify: Reload nginx
+
+- name: Tester la configuration Nginx
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  register: _nginx_test
+  failed_when: _nginx_test.rc != 0
