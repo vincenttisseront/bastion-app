@@ -1,0 +1,43 @@
+---
+# Portail SSO AR Systems — bastion-app
+# Prérequis : client OIDC Keycloak, DNS portal.ar-systems.fr, secrets Vault AWX
+#
+# Usage:
+#   ansible-playbook ansible/linux_sso_portal.yml -i ansible/inventory/inventory_sso_portal.ini
+#
+# Blast radius : preflight → déploiement → smoke test (+ rollback auto si KO)
+
+- name: "PRE-FLIGHT : validation avant modification"
+  hosts: nginx_dmz
+  become: true
+  gather_facts: true
+  tags:
+    - preflight
+    - never_touch
+  tasks:
+    - name: Run SSO portal preflight checks
+      ansible.builtin.include_role:
+        name: sso_portal
+        tasks_from: preflight.yml
+      when: sso_portal_enabled | default(true) | bool
+
+- name: Deploy SSO portal on DMZ reverse proxy
+  hosts: nginx_dmz
+  become: true
+  roles:
+    - role: sso_portal
+      when: sso_portal_enabled | default(true) | bool
+
+- name: "SMOKE TEST : vérification post-déploiement"
+  hosts: nginx_dmz
+  become: true
+  gather_facts: false
+  tags:
+    - smoke_test
+    - never_touch
+  tasks:
+    - name: Run SSO portal smoke test and rollback if needed
+      ansible.builtin.include_role:
+        name: sso_portal
+        tasks_from: smoke_test.yml
+      when: sso_portal_enabled | default(true) | bool

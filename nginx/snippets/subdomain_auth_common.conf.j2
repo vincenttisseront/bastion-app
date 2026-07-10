@@ -1,0 +1,28 @@
+# {{ ansible_managed }}
+# Subdomain SSO auth — merged from subdomain_auth_check + subdomain_auth_protect (ff4f66b).
+# Include this snippet inside proxy locations (protect block) after the location definitions below.
+
+# --- subdomain_auth_check (internal locations) ---
+location = /subdomain_auth_check {
+    internal;
+    proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/internal/subdomain-auth;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header Host {{ portal_domain }};
+    proxy_set_header X-Subdomain-Host $host;
+    proxy_set_header Cookie $http_cookie;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+}
+
+location @subdomain_sso_signin {
+    return 302 https://{{ portal_domain }}/oauth2/{{ sso_portal_default_realm_slug }}/start?rd=$scheme://$host$request_uri;
+}
+
+# --- subdomain_auth_protect (include inside proxy locations) ---
+# auth_request + error_page 401 UNIQUEMENT sur les locations proxy (pas au niveau server).
+# Sinon la sous-requête auth hérite de error_page 401 → 302 → « auth request unexpected status: 302 » → 500.
+auth_request /subdomain_auth_check;
+auth_request_set $subdomain_remote_user $upstream_http_x_remote_user;
+error_page 401 = @subdomain_sso_signin;

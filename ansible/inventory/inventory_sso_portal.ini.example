@@ -1,0 +1,2 @@
+[nginx_dmz]
+vmdmz-reverse01 ansible_host=CHANGE_ME

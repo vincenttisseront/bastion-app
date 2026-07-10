@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+*.db
+*.egg-info/
+/ansible/inventory/*.ini
+!/ansible/inventory/*.ini.example
+.pytest_cache/
+node_modules/
+
+# Ansible deploy artefact (build copy of app/ at deploy time)
+/ansible/roles/sso_portal/files/portal/*
+!/ansible/roles/sso_portal/files/portal/.gitkeep

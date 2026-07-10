@@ -1,0 +1,3 @@
+---
+# Role vars — override via inventory / AWX when needed.
+# See defaults/main.yml for primary configuration.

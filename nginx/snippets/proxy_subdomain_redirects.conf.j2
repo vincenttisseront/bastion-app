@@ -1,0 +1,21 @@
+﻿# {{ ansible_managed }}
+# Sprint 2.1 ÔÇö 301 /proxy/{slug}/ ÔåÆ https://{server_name}/ (subdomain SSO)
+# Actif si sso_portal_subdomain_proxy_redirects_enabled=true
+# Placer AVANT les locations /proxy/ (proxy transparent legacy).
+{% if sso_portal_subdomain_proxy_redirects_enabled | default(false) | bool %}
+{% for vhost in nginx_subdomain_sso_vhosts | default([]) %}
+{% if vhost.server_name is defined and vhost.server_name %}
+{% set _slug = vhost.proxy_slug | default(vhost.server_name.split('.')[0]) %}
+{% if _slug %}
+    location = /proxy/{{ _slug }} {
+        return 301 https://{{ vhost.server_name }}/;
+    }
+
+    location ^~ /proxy/{{ _slug }}/ {
+        rewrite ^/proxy/{{ _slug }}/(.*)$ https://{{ vhost.server_name }}/$1 permanent;
+    }
+
+{% endif %}
+{% endif %}
+{% endfor %}
+{% endif %}

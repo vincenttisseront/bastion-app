@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  role_name: sso_portal
+  author: AR-Systems
+  description: Deploy SSO portal and bastion application
+  license: proprietary
+  min_ansible_version: "2.14"
+dependencies: []

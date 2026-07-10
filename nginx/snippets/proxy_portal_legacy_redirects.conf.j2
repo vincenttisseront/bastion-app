@@ -1,0 +1,24 @@
+﻿# {{ ansible_managed }}
+# Sprint 2 ÔÇö plus de proxy transparent sur le portail : 301 vers subdomains + filets legacy.
+{% include 'snippets/proxy_subdomain_redirects.conf.j2' %}
+
+{% set _transfer_vhost = (nginx_subdomain_sso_vhosts | default([]) | selectattr('proxy_slug', 'defined') | selectattr('proxy_slug', 'equalto', 'transfer') | list | first) | default((nginx_subdomain_sso_vhosts | default([]) | first) | default({})) %}
+{% set _transfer_host = _transfer_vhost.server_name | default('transfer.ar-systems.fr') %}
+
+    # Bookmarks CrushFTP ├á la racine du portail ÔåÆ subdomain
+    location = /WebInterface {
+        return 301 https://{{ _transfer_host }}/WebInterface/;
+    }
+    location ^~ /WebInterface/ {
+        return 301 https://{{ _transfer_host }}$request_uri;
+    }
+    location ^~ /assets/ {
+        return 301 https://{{ _transfer_host }}/WebInterface/new-ui$request_uri;
+    }
+
+    # Slugs /proxy/ non migr├®s ÔåÆ 404 explicite
+    location ^~ /proxy/ {
+        default_type text/html;
+        add_header Cache-Control "no-store" always;
+        return 404 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Application d├®plac├®e</title></head><body><h1>Application d├®plac├®e</h1><p>Cette application n\'est plus servie sous <code>/proxy/</code>. Utilisez son sous-domaine d├®di├® (ex. <a href="https://{{ _transfer_host }}/">https://{{ _transfer_host }}/</a>).</p></body></html>';
+    }

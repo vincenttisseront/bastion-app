@@ -1,0 +1,5 @@
+---
+# TODO Phase 6 — preflight checks (oauth2-proxy TOML, nginx -t preview, secrets)
+- name: Preflight placeholder
+  ansible.builtin.debug:
+    msg: "Preflight checks not implemented yet (Phase 6)"

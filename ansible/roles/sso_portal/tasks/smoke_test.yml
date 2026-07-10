@@ -1,0 +1,5 @@
+---
+# TODO Phase 6 — smoke test + auto-rollback
+- name: Smoke test placeholder
+  ansible.builtin.debug:
+    msg: "Smoke tests not implemented yet (Phase 6)"

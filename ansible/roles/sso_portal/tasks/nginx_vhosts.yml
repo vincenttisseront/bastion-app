@@ -1,0 +1,19 @@
+---
+- name: Deploy SSO portal vhost
+  ansible.builtin.template:
+    src: "{{ bastion_nginx_vhosts_src }}/vhost_sso_portal.conf.j2"
+    dest: "{{ nginx_conf_dir }}/vhost_sso_portal.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Deploy subdomain CrushFTP vhost when enabled
+  ansible.builtin.template:
+    src: "{{ bastion_nginx_vhosts_src }}/vhost-subdomain-crushftp.conf.j2"
+    dest: "{{ nginx_conf_dir }}/vhost_subdomain_crushftp.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  when: sso_portal_subdomain_sso_enabled | default(false) | bool
+  notify: Reload nginx
