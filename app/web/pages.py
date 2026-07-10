@@ -5,8 +5,13 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.audit import list_audit_entries, log_action
+from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
 from app.breakglass import COOKIE_MAX_AGE, COOKIE_NAME, create_breakglass_token
-from app.breakglass_store import verify_breakglass_password
+from app.breakglass_store import (
+    create_initial_breakglass_account,
+    has_active_breakglass_account,
+    verify_breakglass_password,
+)
 from app.database import get_db
 from app.models import App, AppGroup, RBACGroup, RealmConfig
 from app.realm_service import export_nginx_realms_conf
@@ -84,43 +89,18 @@ def catalogue_page(
 
 # --- Auth ---
 
-
-@router.get("/auth/login")
-@router.get("/breakglass")
-def login_page(request: Request, settings: Settings = Depends(get_settings)):
-    if get_user_context(request, settings):
-        return RedirectResponse(url="/dashboard", status_code=302)
-    return render(
-        "auth/login.html",
-        **_ctx(request, settings, hide_chrome=True),
-    )
+_MIN_SETUP_PASSWORD_LEN = 12
 
 
-@router.post("/auth/login")
-async def login_post(
+def _breakglass_login_response(
+    username: str,
     request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-    settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
-):
-    if not verify_breakglass_password(db, username, password):
-        log_action(
-            db,
-            actor=username,
-            action="breakglass.login_failed",
-            ip_address=_client_ip(request),
-        )
-        ctx = _ctx(
-            request,
-            settings,
-            hide_chrome=True,
-            login_error="Identifiants invalides.",
-        )
-        return render("auth/login.html", **ctx)
-
+    settings: Settings,
+    db: Session,
+    rd: str,
+) -> RedirectResponse:
     token = create_breakglass_token(username, settings.vault_portal_internal_token)
-    response = RedirectResponse(url="/dashboard", status_code=302)
+    response = RedirectResponse(url=rd, status_code=302)
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
@@ -135,8 +115,140 @@ async def login_post(
         action="breakglass.login",
         ip_address=_client_ip(request),
     )
-    flash_redirect(response, "Connexion break-glass réussie.", "success", settings.vault_portal_internal_token or "dev")
+    flash_redirect(
+        response,
+        "Connexion break-glass réussie.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
     return response
+
+
+@router.get("/auth/login")
+@router.get("/breakglass")
+def login_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    rd = resolve_rd(request)
+    if get_user_context(request, settings):
+        return RedirectResponse(url=rd, status_code=302)
+
+    realm = get_default_idp_realm(db)
+    if realm:
+        return RedirectResponse(url=oauth2_start_url(realm.slug, rd), status_code=302)
+
+    if not has_active_breakglass_account(db):
+        return RedirectResponse(url=setup_url(rd), status_code=302)
+
+    return render(
+        "auth/login.html",
+        **_ctx(request, settings, hide_chrome=True, rd=rd),
+    )
+
+
+@router.post("/auth/login")
+async def login_post(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    rd: str = Form("/dashboard"),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"
+
+    realm = get_default_idp_realm(db)
+    if realm:
+        return RedirectResponse(url=oauth2_start_url(realm.slug, safe_rd), status_code=302)
+
+    if not has_active_breakglass_account(db):
+        raise HTTPException(status_code=403, detail="Initial setup required")
+
+    if not verify_breakglass_password(db, username, password):
+        log_action(
+            db,
+            actor=username,
+            action="breakglass.login_failed",
+            ip_address=_client_ip(request),
+        )
+        ctx = _ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            login_error="Identifiants invalides.",
+            rd=safe_rd,
+        )
+        return render("auth/login.html", **ctx)
+
+    return _breakglass_login_response(username, request, settings, db, safe_rd)
+
+
+@router.get("/auth/setup")
+def setup_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if get_default_idp_realm(db) or has_active_breakglass_account(db):
+        raise HTTPException(status_code=403, detail="Setup is locked")
+    rd = resolve_rd(request)
+    return render(
+        "auth/setup.html",
+        **_ctx(request, settings, hide_chrome=True, rd=rd),
+    )
+
+
+@router.post("/auth/setup")
+async def setup_post(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    password_confirm: str = Form(...),
+    rd: str = Form("/dashboard"),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    if get_default_idp_realm(db) or has_active_breakglass_account(db):
+        raise HTTPException(status_code=403, detail="Setup is locked")
+
+    safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"
+    username = username.strip()
+    errors: list[str] = []
+
+    if not username:
+        errors.append("Le nom d'utilisateur est requis.")
+    if len(password) < _MIN_SETUP_PASSWORD_LEN:
+        errors.append(f"Le mot de passe doit contenir au moins {_MIN_SETUP_PASSWORD_LEN} caractères.")
+    if password != password_confirm:
+        errors.append("Les mots de passe ne correspondent pas.")
+
+    if errors:
+        return render(
+            "auth/setup.html",
+            **_ctx(
+                request,
+                settings,
+                hide_chrome=True,
+                rd=safe_rd,
+                setup_errors=errors,
+                form_username=username,
+            ),
+        )
+
+    try:
+        create_initial_breakglass_account(db, username, password)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Setup is locked") from None
+
+    log_action(
+        db,
+        actor=username,
+        action="breakglass.setup",
+        ip_address=_client_ip(request),
+    )
+    return _breakglass_login_response(username, request, settings, db, safe_rd)
 
 
 @router.get("/auth/sso-start")

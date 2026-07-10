@@ -11,21 +11,16 @@
         </svg>
       </div>
       <h1 class="login-brand-title">Bastion Pro</h1>
-      <p class="login-brand-sub">Portail SSO — Sentinel Core</p>
+      <p class="login-brand-sub">Accès local administrateur</p>
     </div>
 
     {% if login_error %}
     <div class="login-error" role="alert">{{ login_error }}</div>
     {% endif %}
 
-    <a href="/oauth2/{{ realm_slug | default('ar-systems') }}/start?rd=/dashboard" class="btn btn-primary btn-full btn-lg">
-      Connexion SSO Keycloak
-    </a>
-
-    <div class="login-divider">Break-glass</div>
-
     <form method="post" action="/auth/login">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="rd" value="{{ rd | default('/dashboard') }}">
       <div class="form-group">
         <label class="form-label" for="username">Utilisateur</label>
         <input type="text" id="username" name="username" class="form-input" required autocomplete="username">
@@ -34,7 +29,7 @@
         <label class="form-label" for="password">Mot de passe</label>
         <input type="password" id="password" name="password" class="form-input" required autocomplete="current-password">
       </div>
-      <button type="submit" class="btn btn-secondary btn-full">Accès d'urgence</button>
+      <button type="submit" class="btn btn-primary btn-full">Se connecter</button>
     </form>
   </div>
 </div>

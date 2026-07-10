@@ -1,0 +1,110 @@
+"""Auth login state machine tests."""
+
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.breakglass_store import set_breakglass_password
+from app.models import RealmConfig
+
+
+def _add_default_idp(db: Session) -> RealmConfig:
+    realm = RealmConfig(
+        slug="ar-systems",
+        keycloak_realm="AR-SYSTEMS",
+        keycloak_base_url="https://keycloak.example",
+        client_id="portal",
+        oauth2_proxy_port=4180,
+        oauth2_proxy_url="http://127.0.0.1:4180",
+        is_default=True,
+        enabled=True,
+    )
+    db.add(realm)
+    db.commit()
+    return realm
+
+
+def test_login_redirects_to_idp_when_default_realm_configured(client: TestClient, db_session: Session):
+    _add_default_idp(db_session)
+
+    response = client.get("/auth/login?rd=/catalogue", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/oauth2/ar-systems/start?rd=%2Fcatalogue"
+    assert "Connexion SSO Keycloak" not in response.text
+
+
+def test_login_redirects_to_setup_without_idp_or_account(client: TestClient):
+    response = client.get("/auth/login?rd=/admin", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/auth/setup?rd=%2Fadmin"
+
+
+def test_login_shows_local_form_only_when_breakglass_exists(client: TestClient, db_session: Session):
+    set_breakglass_password(db_session, "admin", "super-secret-password")
+
+    response = client.get("/auth/login")
+
+    assert response.status_code == 200
+    assert 'name="username"' in response.text
+    assert 'name="password"' in response.text
+    assert "Connexion SSO Keycloak" not in response.text
+    assert "/oauth2/" not in response.text
+    assert "Break-glass" not in response.text
+
+
+def test_setup_forbidden_when_account_already_exists(client: TestClient, db_session: Session):
+    set_breakglass_password(db_session, "admin", "super-secret-password")
+
+    get_response = client.get("/auth/setup")
+    post_response = client.post(
+        "/auth/setup",
+        data={
+            "username": "other",
+            "password": "long-enough-pass",
+            "password_confirm": "long-enough-pass",
+        },
+    )
+
+    assert get_response.status_code == 403
+    assert post_response.status_code == 403
+
+
+def test_setup_forbidden_when_idp_configured(client: TestClient, db_session: Session):
+    _add_default_idp(db_session)
+
+    assert client.get("/auth/setup").status_code == 403
+    assert client.post(
+        "/auth/setup",
+        data={
+            "username": "admin",
+            "password": "long-enough-pass",
+            "password_confirm": "long-enough-pass",
+        },
+    ).status_code == 403
+
+
+def test_setup_creates_account_and_redirects(client: TestClient, db_session: Session):
+    response = client.post(
+        "/auth/setup?rd=/dashboard",
+        data={
+            "username": "bootstrap",
+            "password": "initial-password-12",
+            "password_confirm": "initial-password-12",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "/dashboard"
+    assert "bg_session" in response.cookies
+
+    locked = client.get("/auth/setup")
+    assert locked.status_code == 403
+
+
+def test_internal_oauth2_auth_returns_no_idp_header_without_realm(client: TestClient):
+    response = client.get("/internal/oauth2-auth")
+
+    assert response.status_code == 401
+    assert response.headers.get("x-auth-error") == "no-idp-configured"

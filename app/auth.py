@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
+from app.auth_flow import get_default_idp_realm
 from app.breakglass import COOKIE_NAME, validate_breakglass_cookie
 from app.database import get_db
 from app.models import RealmConfig
@@ -66,7 +67,14 @@ async def oauth2_auth(
             return Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
         return Response(status_code=401)
 
-    realm_slug = request.headers.get("X-Realm-Slug", settings.sso_portal_default_realm_slug)
+    default_realm = get_default_idp_realm(db)
+    if not default_realm:
+        return Response(
+            status_code=401,
+            headers={"X-Auth-Error": "no-idp-configured"},
+        )
+
+    realm_slug = request.headers.get("X-Realm-Slug", default_realm.slug)
     proxy_url = get_realm_proxy_url(realm_slug, settings, db)
 
     cookie_header = request.headers.get("Cookie", "")
