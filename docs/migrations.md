@@ -44,7 +44,7 @@ alembic revision --autogenerate -m "describe change"
 
 3. **Review** the generated script — autogenerate may miss renames or SQLite quirks
 4. Test locally: `alembic upgrade head`
-5. Commit `alembic/versions/*.py`
+5. Commit `migrations/versions/*.py`
 
 ## Break-glass password reset (operations)
 
