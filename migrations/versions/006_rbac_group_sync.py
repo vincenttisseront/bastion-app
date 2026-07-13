@@ -18,6 +18,10 @@ def upgrade() -> None:
     bind = op.get_bind()
     tables = set(inspect(bind).get_table_names())
 
+    # If a previous batch operation crashed mid-flight, SQLite may keep the temporary
+    # table around and block retries. This is safe to drop: Alembic recreates it.
+    op.execute("DROP TABLE IF EXISTS _alembic_tmp_realm_configs")
+
     with op.batch_alter_table("realm_configs") as batch_op:
         batch_op.add_column(sa.Column("keycloak_admin_client_id", sa.String(), nullable=True))
         batch_op.add_column(
