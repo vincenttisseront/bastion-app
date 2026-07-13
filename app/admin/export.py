@@ -133,6 +133,27 @@ def export_realm_files(realm: RealmConfig, db: Session, settings: Settings) -> d
     }
 
 
+def prune_deleted_realm_exports(db: Session, settings: Settings) -> dict[str, list[str]]:
+    """Remove oauth2-proxy config files for realms that no longer exist in DB.
+
+    This enables "purge on delete" without directly touching systemd/nginx. AWX/Ansible
+    can reconcile based on export dir contents.
+    """
+    exports_path = _exports_path(settings)
+    existing_slugs = {slug for (slug,) in db.query(RealmConfig.slug).all() if slug}
+    removed: list[str] = []
+    for path in exports_path.glob("oauth2-proxy-*.conf"):
+        slug = path.stem.removeprefix("oauth2-proxy-")
+        if slug and slug not in existing_slugs:
+            try:
+                path.unlink(missing_ok=True)
+                removed.append(str(path))
+            except OSError:
+                # best-effort; keep going
+                continue
+    return {"removed": removed}
+
+
 def persist_test_result(realm: RealmConfig, result: dict) -> None:
     realm.last_test_status = result["status"]
     realm.last_test_detail = json.dumps(result, ensure_ascii=False)

@@ -48,7 +48,14 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="oauth2_proxy_port">Port oauth2-proxy <span class="req">*</span></label>
-            <input type="number" id="oauth2_proxy_port" name="oauth2_proxy_port" class="form-input{% if errors.oauth2_proxy_port %} is-invalid{% endif %}" value="{{ form_values.oauth2_proxy_port or 4181 }}" min="4180" max="4299" required>
+            <div class="input-wrap" style="gap:var(--sp-2); align-items:center;">
+              <input type="number" id="oauth2_proxy_port" name="oauth2_proxy_port" class="form-input{% if errors.oauth2_proxy_port %} is-invalid{% endif %}" value="{{ form_values.oauth2_proxy_port or 4181 }}" min="4180" max="4299" required {% if not realm %}readonly{% endif %}>
+              {% if not realm %}
+                <button type="button" id="btn-toggle-port" class="btn btn-ghost btn-sm">Choisir un autre port</button>
+              {% endif %}
+              <button type="button" id="btn-test-port" class="btn btn-ghost btn-sm" style="display:none;">Tester ce port</button>
+            </div>
+            <div id="port-test-result" class="form-hint" style="margin-top:var(--sp-2); display:none;"></div>
             {% if errors.oauth2_proxy_port %}<p class="form-error">{{ errors.oauth2_proxy_port }}</p>{% endif %}
           </div>
           <div class="form-group">
@@ -119,6 +126,10 @@
   const checksEl = document.getElementById('test-checks');
   const realmId = {{ realm.id if realm else 'null' }};
   let lastTestOk = {{ 'true' if realm and realm.last_test_status == 'ok' else 'false' }};
+  const portInput = document.getElementById('oauth2_proxy_port');
+  const togglePortBtn = document.getElementById('btn-toggle-port');
+  const testPortBtn = document.getElementById('btn-test-port');
+  const portTestResult = document.getElementById('port-test-result');
 
   const statusIcon = { ok: '✅', warning: '⚠️', error: '❌' };
   const statusClass = { ok: 'alert-ok', warning: 'alert-warn', error: 'alert-err' };
@@ -169,6 +180,56 @@
       testBtn.disabled = false;
     }
   });
+
+  function showPortMsg(ok, msg) {
+    if (!portTestResult) return;
+    portTestResult.style.display = 'block';
+    portTestResult.textContent = msg;
+    portTestResult.style.color = ok ? 'var(--ok-700, #0f766e)' : 'var(--err-700, #b91c1c)';
+  }
+
+  if (togglePortBtn && portInput) {
+    togglePortBtn.addEventListener('click', function () {
+      const isReadonly = portInput.hasAttribute('readonly');
+      if (isReadonly) {
+        portInput.removeAttribute('readonly');
+        togglePortBtn.textContent = 'Revenir au port proposé';
+        if (testPortBtn) testPortBtn.style.display = 'inline-flex';
+        showPortMsg(true, 'Saisie manuelle activée. Pensez à tester le port côté OS.');
+      } else {
+        portInput.setAttribute('readonly', 'readonly');
+        togglePortBtn.textContent = 'Choisir un autre port';
+        if (testPortBtn) testPortBtn.style.display = 'none';
+        if (portTestResult) portTestResult.style.display = 'none';
+      }
+    });
+  }
+
+  if (testPortBtn && portInput) {
+    testPortBtn.addEventListener('click', async function () {
+      const port = parseInt(portInput.value, 10);
+      if (!port) { showPortMsg(false, 'Port invalide'); return; }
+      testPortBtn.disabled = true;
+      try {
+        const resp = await fetch('/admin/realms/test-port', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ port: port })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          const msg = (data && data.errors && (data.errors.port || data.errors._form)) ? (data.errors.port || data.errors._form) : 'Erreur lors du test du port';
+          showPortMsg(false, msg);
+          return;
+        }
+        showPortMsg(!!data.available, data.message || (data.available ? 'Port libre' : 'Port occupé'));
+      } catch (e) {
+        showPortMsg(false, 'Erreur réseau lors du test du port');
+      } finally {
+        testPortBtn.disabled = false;
+      }
+    });
+  }
 })();
 </script>
 {% endblock %}

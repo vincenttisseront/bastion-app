@@ -133,3 +133,15 @@ def validation_errors_response(exc: ValidationError) -> dict[str, Any]:
 
 def slug_error_message() -> str:
     return "Slug invalide : lettres minuscules, chiffres, tirets uniquement"
+
+
+class PortTestBody(BaseModel):
+    port: int
+
+    @field_validator("port")
+    @classmethod
+    def validate_port(cls, value: int) -> int:
+        # Range is enforced server-side with Settings too; keep a safe default here.
+        if value < 1 or value > 65535:
+            raise ValueError("Port invalide")
+        return value

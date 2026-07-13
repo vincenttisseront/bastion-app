@@ -95,6 +95,15 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("OAUTH2_PROXY_DEFAULT_URL", "oauth2_proxy_default_url"),
     )
 
+    oauth2_proxy_port_min: int = Field(
+        default=4180,
+        validation_alias=AliasChoices("OAUTH2_PROXY_PORT_MIN", "oauth2_proxy_port_min"),
+    )
+    oauth2_proxy_port_max: int = Field(
+        default=4299,
+        validation_alias=AliasChoices("OAUTH2_PROXY_PORT_MAX", "oauth2_proxy_port_max"),
+    )
+
     rfc1918_bypass_enabled: bool = Field(
         default=True,
         validation_alias=AliasChoices(

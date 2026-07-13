@@ -40,11 +40,21 @@ def start_health_scheduler(settings: Settings) -> None:
         max_instances=1,
         coalesce=True,
     )
-    scheduler.start()
-    logger.info("Health probe scheduler started (every %d min)", interval)
+    try:
+        scheduler.start()
+        logger.info("Health probe scheduler started (every %d min)", interval)
+    except RuntimeError:
+        # On some environments (notably Windows + TestClient), the asyncio loop used by
+        # APScheduler may already be closed during lifespan startup. This is non-fatal
+        # for the web app: probes are best-effort.
+        logger.warning("Health probe scheduler not started (event loop closed)")
 
 
 def stop_health_scheduler() -> None:
     if scheduler.running:
-        scheduler.shutdown(wait=False)
-        logger.info("Health probe scheduler stopped")
+        try:
+            scheduler.shutdown(wait=False)
+            logger.info("Health probe scheduler stopped")
+        except RuntimeError:
+            # TestClient / Windows ProactorEventLoop can be closed before shutdown hooks run.
+            logger.warning("Health probe scheduler shutdown skipped (event loop closed)")

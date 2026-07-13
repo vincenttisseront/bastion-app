@@ -14,12 +14,15 @@ from sqlalchemy.orm import Session
 from app.admin.export import (
     compute_redirect_uri,
     export_realm_files,
+    prune_deleted_realm_exports,
     persist_test_result,
 )
 from app.admin.oidc_test import test_oidc_connection
+from app.admin.ports import NoAvailablePortError, get_next_available_port, test_port_available
 from app.admin.schemas import (
     RealmConfigCreate,
     RealmConfigUpdate,
+    PortTestBody,
     RealmTestBody,
     validation_errors_response,
 )
@@ -189,16 +192,22 @@ def admin_realms_list(
 @router.get("/admin/realms/new")
 def admin_realms_new(
     request: Request,
+    db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
+    suggested_port: int | str = ""
+    try:
+        suggested_port = get_next_available_port(db, settings)
+    except NoAvailablePortError:
+        suggested_port = ""
     return render(
         "admin/realm_form.html",
         **_ctx(
             request,
             settings,
             realm=None,
-            form_values=_realm_form_values(None),
+            form_values=_realm_form_values(None, oauth2_proxy_port=suggested_port or ""),
             errors={},
             encryption_error=_guard_encryption(settings),
         ),
@@ -299,7 +308,30 @@ async def admin_realms_create(
         enabled=False,
     )
     db.add(realm)
-    db.flush()
+    try:
+        db.flush()
+    except Exception as exc:  # IntegrityError types differ by backend; keep user-facing behavior.
+        db.rollback()
+        msg = str(exc).lower()
+        if "oauth2_proxy_port" in msg or "realm_configs.oauth2_proxy_port" in msg:
+            try:
+                new_port = get_next_available_port(db, settings)
+                errors["oauth2_proxy_port"] = (
+                    f"Le port choisi vient d'être pris par une autre configuration. "
+                    f"Un nouveau port a été proposé : {new_port}."
+                )
+                form_values["oauth2_proxy_port"] = new_port
+            except NoAvailablePortError as no_port:
+                errors["oauth2_proxy_port"] = str(no_port)
+            if _wants_json(request):
+                return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+            return render(
+                "admin/realm_form.html",
+                **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
+                status_code=400,
+            )
+        raise
+
     _apply_default_realm(db, realm, data.is_default)
 
     if enabled:
@@ -533,6 +565,33 @@ async def admin_realms_test_draft(
     return JSONResponse({"ok": True, **result})
 
 
+@router.post("/admin/realms/test-port")
+async def admin_realms_test_port(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    body = await request.json()
+    try:
+        data = PortTestBody.model_validate(body)
+    except ValidationError as exc:
+        return JSONResponse(validation_errors_response(exc), status_code=400)
+
+    if data.port < settings.oauth2_proxy_port_min or data.port > settings.oauth2_proxy_port_max:
+        return JSONResponse(
+            {
+                "ok": False,
+                "errors": {
+                    "port": f"Le port doit être entre {settings.oauth2_proxy_port_min} et {settings.oauth2_proxy_port_max}"
+                },
+            },
+            status_code=400,
+        )
+
+    result = test_port_available(data.port)
+    return JSONResponse({"ok": True, **result})
+
+
 @router.post("/admin/realms/{realm_id}/test")
 async def admin_realms_test(
     realm_id: int,
@@ -728,6 +787,8 @@ def admin_realms_delete(
     slug = realm.slug
     db.delete(realm)
     db.commit()
+    # Best-effort export purge (remove oauth2-proxy configs for deleted realms).
+    prune_deleted_realm_exports(db, settings)
     log_action(
         db,
         actor=user.email,
