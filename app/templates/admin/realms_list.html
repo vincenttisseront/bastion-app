@@ -3,12 +3,16 @@
 {% block breadcrumb %}Admin / Realms{% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page">
   <div class="page-header">
-    <div><h1 class="page-title">Realms OIDC</h1></div>
+    <div>
+      <h1 class="page-title">Realms OIDC</h1>
+      <p class="page-sub">Configurations IdP et export oauth2-proxy</p>
+    </div>
     <a href="/admin/realms/new" class="btn btn-primary btn-sm">+ Créer</a>
   </div>
-  <div class="data-table-wrapper">
+
+  <div class="table-wrap">
     <table class="data-table">
       <thead>
         <tr>
@@ -23,29 +27,40 @@
       </thead>
       <tbody>
         {% for realm in realms %}
-        <tr>
+        <tr data-searchable>
           <td class="mono">{{ realm.slug }}{% if realm.is_default %} <span class="badge badge-info">défaut</span>{% endif %}</td>
           <td>{{ realm.name }}</td>
-          <td class="mono" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;">{{ realm.issuer_url }}</td>
+          <td class="mono truncate" style="max-width:220px;">{{ realm.issuer_url }}</td>
           <td class="mono">{{ realm.oauth2_proxy_port }}</td>
           <td>
             {% if realm.last_test_status == 'ok' %}
-              <span class="badge badge-success" title="{{ realm.last_tested_at }}">Testé OK</span>
+              <span class="badge badge-ok" title="{{ realm.last_tested_at }}">Testé OK</span>
             {% elif realm.last_test_status == 'error' %}
-              <span class="badge badge-danger" title="{{ realm.last_tested_at }}">Échec</span>
+              <span class="badge badge-err" title="{{ realm.last_tested_at }}">Échec</span>
             {% else %}
               <span class="badge badge-muted">Non testé</span>
             {% endif %}
           </td>
           <td>
-            <span class="badge badge-{{ 'success' if realm.enabled else 'muted' }}">{{ 'Activé' if realm.enabled else 'Désactivé' }}</span>
+            <span class="badge badge-{{ 'ok' if realm.enabled else 'muted' }}">{{ 'Activé' if realm.enabled else 'Désactivé' }}</span>
           </td>
-          <td>
-            <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Modifier</a>
-          </td>
+          <td><a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Modifier</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty-state">Aucun realm configuré.</td></tr>
+        <tr>
+          <td colspan="7">
+            <div class="empty-state">
+              <div class="empty-icon">
+                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                </svg>
+              </div>
+              <div class="empty-title">Aucun realm configuré</div>
+              <div class="empty-desc">Créez un realm OIDC pour configurer un IdP et générer l'export oauth2-proxy.</div>
+              <a href="/admin/realms/new" class="btn btn-primary btn-sm">Créer un realm</a>
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>

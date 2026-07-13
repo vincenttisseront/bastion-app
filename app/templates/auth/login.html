@@ -1,36 +1,57 @@
 {% extends "base.html" %}
 {% block title %}Connexion{% endblock %}
+{% block body_class %}page-login{% endblock %}
 
 {% block content %}
-<div class="login-container">
+<div class="login-wrap">
   <div class="login-card">
-    <div class="login-brand">
-      <div class="login-brand-icon">
+    <div class="login-header">
+      <div class="login-logo">
         <svg width="28" height="28" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
       </div>
-      <h1 class="login-brand-title">Bastion Pro</h1>
-      <p class="login-brand-sub">Accès local administrateur</p>
+      <h1 class="login-title">Bastion <span>Pro</span></h1>
+      <p class="login-sub">Portail sécurisé AR-Systems</p>
     </div>
 
     {% if login_error %}
-    <div class="login-error" role="alert">{{ login_error }}</div>
+    <div class="alert alert-err" role="alert">{{ login_error }}</div>
     {% endif %}
 
-    <form method="post" action="/auth/login">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="rd" value="{{ rd | default('/dashboard') }}">
-      <div class="form-group">
-        <label class="form-label" for="username">Utilisateur</label>
-        <input type="text" id="username" name="username" class="form-input" required autocomplete="username">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="password">Mot de passe</label>
-        <input type="password" id="password" name="password" class="form-input" required autocomplete="current-password">
-      </div>
-      <button type="submit" class="btn btn-primary btn-full">Se connecter</button>
-    </form>
+    {% if oauth2_url %}
+    <a href="{{ oauth2_url }}" class="btn btn-primary btn-full">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>
+      </svg>
+      Connexion SSO Keycloak
+    </a>
+    <div class="login-divider">ou accès local</div>
+    {% endif %}
+
+    <details class="login-details"{% if not oauth2_url %} open{% endif %}>
+      <summary class="bg-toggle">Accès break-glass administrateur</summary>
+      <form method="post" action="/auth/login" class="form-body" style="padding-bottom:0;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="rd" value="{{ rd | default('/dashboard') }}">
+        <div class="form-group">
+          <label class="form-label" for="username">Utilisateur</label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <input type="text" id="username" name="username" class="form-input" required autocomplete="username">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="password">Mot de passe</label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input type="password" id="password" name="password" class="form-input" required autocomplete="current-password">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-secondary btn-full">Connexion locale</button>
+      </form>
+    </details>
   </div>
+  <p class="login-footer">Bastion Pro — Sentinel Core</p>
 </div>
 {% endblock %}

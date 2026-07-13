@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="/static/css/bastion.css">
   {% block head_extra %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% if hide_chrome %}auth-layout{% else %}app-layout{% endif %}{% endblock %}">
+<body class="{% block body_class %}{% if hide_chrome %}page-login{% else %}app-layout{% endif %}{% endblock %}">
 
   {% if not hide_chrome %}
     {% include 'partials/_sidebar.html' %}
@@ -24,7 +24,7 @@
       {% endif %}
       <main class="main-content" id="main-content">
   {% else %}
-    <main>
+    <main class="main-content" id="main-content">
   {% endif %}
 
         {% block content %}{% endblock %}

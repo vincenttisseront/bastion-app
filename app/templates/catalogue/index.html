@@ -3,23 +3,53 @@
 {% block breadcrumb %}Catalogue{% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Catalogue Applications</h1>
-      <p class="page-subtitle">{{ apps | length }} application(s) disponible(s)</p>
+      <h1 class="page-title">Catalogue applications</h1>
+      <p class="page-sub">{{ apps | length }} application(s) disponible(s)</p>
     </div>
     {% if is_admin %}
     <a href="/admin/apps/create" class="btn btn-primary btn-sm">+ Nouvelle app</a>
     {% endif %}
   </div>
 
+  <div class="catalogue-toolbar">
+    <label class="topbar-search" style="max-width:280px;flex:1;" for="catalogue-search">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="search" id="catalogue-search" placeholder="Rechercher une application…">
+    </label>
+    <div class="filter-group" role="group" aria-label="Filtrer par mode">
+      <button type="button" class="filter-chip active" data-filter="all">Tout</button>
+      <button type="button" class="filter-chip" data-filter="sso">SSO</button>
+      <button type="button" class="filter-chip" data-filter="robotic">Robotic</button>
+      <button type="button" class="filter-chip" data-filter="direct">Direct</button>
+    </div>
+  </div>
+
   <div class="app-grid">
     {% for app in apps %}
       {% include 'partials/_app_card.html' %}
     {% else %}
-    <div class="empty-state" style="grid-column: 1 / -1;">Aucune application disponible pour votre profil.</div>
+    <div class="empty-state" style="grid-column:1/-1;">
+      <div class="empty-icon">
+        <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/></svg>
+      </div>
+      <div class="empty-title">Catalogue vide</div>
+      <div class="empty-desc">Aucune application n'est disponible pour votre profil d'accès.</div>
+    </div>
     {% endfor %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('catalogue-search')?.addEventListener('input', function (e) {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('.app-card').forEach(function (card) {
+    card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+</script>
 {% endblock %}

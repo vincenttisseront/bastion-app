@@ -3,31 +3,63 @@
 {% block breadcrumb %}Admin / Applications{% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page">
   <div class="page-header">
-    <div><h1 class="page-title">Applications</h1></div>
-    <a href="/admin/apps/create" class="btn btn-primary btn-sm">+ Créer</a>
+    <div>
+      <h1 class="page-title">Applications</h1>
+      <p class="page-sub">{{ apps | length }} application(s) enregistrée(s)</p>
+    </div>
   </div>
-  <div class="data-table-wrapper">
-    <table class="data-table">
+
+  <div class="table-wrap">
+    <div class="table-toolbar">
+      <label class="topbar-search" style="max-width:240px;flex:1;" for="apps-search">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="search" id="apps-search" placeholder="Filtrer…" data-search-target="apps-table">
+      </label>
+      <a href="/admin/apps/create" class="btn btn-primary btn-sm">+ Ajouter</a>
+    </div>
+    <table class="data-table" id="apps-table">
       <thead>
-        <tr><th>Slug</th><th>Label</th><th>Mode</th><th>Upstream</th><th>Statut</th><th></th></tr>
+        <tr><th>Nom</th><th>Slug</th><th>Upstream</th><th>Mode</th><th>Statut</th><th>Actions</th></tr>
       </thead>
       <tbody>
         {% for app in apps %}
-        <tr>
-          <td class="mono">{{ app.slug }}</td>
+        <tr data-searchable>
           <td>{{ app.label }}</td>
-          <td><span class="mode-badge {{ app.access_mode }}">{{ app.access_mode | upper }}</span></td>
-          <td class="mono">{{ app.upstream_url }}</td>
-          <td><span class="badge badge-{{ 'success' if app.enabled else 'muted' }}">{{ 'Actif' if app.enabled else 'Désactivé' }}</span></td>
+          <td class="mono">{{ app.slug }}</td>
+          <td class="mono truncate" style="max-width:200px;">{{ app.upstream_url }}</td>
+          <td><span class="mode-badge {{ app.access_mode }}">{{ app.access_mode }}</span></td>
+          <td><span class="badge badge-{{ 'ok' if app.enabled else 'muted' }}">{{ 'Actif' if app.enabled else 'Désactivé' }}</span></td>
           <td><a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">Modifier</a></td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="empty-state">Aucune application.</td></tr>
+        <tr>
+          <td colspan="6">
+            <div class="empty-state">
+              <div class="empty-icon">
+                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/></svg>
+              </div>
+              <div class="empty-title">Aucune application</div>
+              <div class="empty-desc">Créez une application pour l'ajouter au catalogue SSO.</div>
+              <a href="/admin/apps/create" class="btn btn-primary btn-sm">Créer une application</a>
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('apps-search')?.addEventListener('input', function (e) {
+  const q = e.target.value.toLowerCase();
+  document.querySelectorAll('#apps-table tbody tr[data-searchable]').forEach(function (row) {
+    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+</script>
 {% endblock %}

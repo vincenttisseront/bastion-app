@@ -1,4 +1,4 @@
-<a href="/proxy/{{ app.slug }}/" class="app-card">
+<a href="/proxy/{{ app.slug }}/" class="app-card" data-mode="{{ app.access_mode | default('sso') }}" data-searchable>
   <div class="app-card-icon">
     <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
       <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
@@ -6,8 +6,9 @@
   </div>
   <div class="app-card-title">{{ app.label }}</div>
   <div class="app-card-slug">{{ app.slug }}</div>
+  <div class="app-card-url truncate">{{ app.upstream_url }}</div>
   <div class="app-card-footer">
-    <span class="mode-badge {{ app.access_mode | default('sso') }}">{{ app.access_mode | upper }}</span>
-    <span class="badge badge-success">Actif</span>
+    <span class="mode-badge {{ app.access_mode | default('sso') }}">{{ app.access_mode | default('sso') }}</span>
+    <span class="badge badge-{{ 'ok' if app.enabled else 'muted' }}">{{ 'Actif' if app.enabled else 'Inactif' }}</span>
   </div>
 </a>

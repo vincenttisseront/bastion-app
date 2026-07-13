@@ -463,10 +463,27 @@ def admin_health(
         {
             "slug": a.slug,
             "label": a.label,
-            "url": a.healthcheck_url or a.upstream_url,
+            "upstream_url": a.healthcheck_url or a.upstream_url,
+            "access_mode": a.access_mode,
             "status": "unknown",
+            "http_code": None,
             "latency_ms": None,
         }
         for a in apps
     ]
-    return render("admin/health.html", **_ctx(request, settings, probes=probes))
+    status_counts = {"ok": 0, "warn": 0, "error": 0, "unknown": 0}
+    for p in probes:
+        key = p["status"] if p["status"] in status_counts else "unknown"
+        status_counts[key] += 1
+    total = len(probes)
+    health_score = int((status_counts["ok"] / total) * 100) if total else 100
+    return render(
+        "admin/health.html",
+        **_ctx(
+            request,
+            settings,
+            probes=probes,
+            status_counts=status_counts,
+            health_score=health_score,
+        ),
+    )

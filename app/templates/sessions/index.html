@@ -3,23 +3,23 @@
 {% block breadcrumb %}Sessions{% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Sessions Actives</h1>
-      <p class="page-subtitle">{{ sessions | length }} connexion(s) en cours</p>
+      <h1 class="page-title">Sessions actives</h1>
+      <p class="page-sub">{{ sessions | length }} connexion(s) en cours</p>
     </div>
-    <div class="live-indicator"><span class="live-dot"></span>LIVE</div>
+    <div class="live-pill"><span class="live-dot"></span>Live</div>
   </div>
 
-  <div class="data-table-wrapper session-table">
+  <div class="table-wrap session-table">
     <table class="data-table">
       <thead>
         <tr>
           <th>Utilisateur</th>
           <th>Protocole</th>
-          <th>Ressource cible</th>
-          <th>IP Source</th>
+          <th>Ressource</th>
+          <th>IP source</th>
           <th>Durée</th>
           <th>Statut</th>
           {% if is_admin %}<th>Actions</th>{% endif %}
@@ -27,22 +27,22 @@
       </thead>
       <tbody>
         {% for s in sessions %}
-        <tr>
+        <tr data-searchable>
           <td>
-            <div style="display:flex;align-items:center;gap:var(--space-2);">
-              <div class="sidebar-user-avatar" style="width:28px;height:28px;font-size:10px;">{{ s.user[0] | upper }}</div>
+            <div style="display:flex;align-items:center;gap:var(--sp-2);">
+              <div class="user-avatar" style="width:28px;height:28px;font-size:10px;">{{ s.user[0] | upper }}</div>
               <div>
                 <div style="font-weight:600;">{{ s.user }}</div>
-                <div class="mono" style="color:var(--text-muted);">{{ s.realm }}</div>
+                <div class="mono">{{ s.realm }}</div>
               </div>
             </div>
           </td>
-          <td><span class="session-protocol {{ s.protocol | lower }}">{{ s.protocol }}</span></td>
+          <td><span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span></td>
           <td class="mono">{{ s.target }}</td>
           <td class="mono">{{ s.source_ip }}</td>
           <td class="mono">{{ s.duration }}</td>
           <td>
-            <span class="badge badge-{{ 'success' if s.status == 'active' else 'warning' }}">
+            <span class="badge badge-{{ 'ok' if s.status == 'active' else 'warn' }}">
               {% if s.status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
               {{ s.status | upper }}
             </span>
@@ -50,14 +50,24 @@
           {% if is_admin %}
           <td>
             <div class="session-actions">
-              <button type="button" class="btn-isolate" onclick="isolateSession('{{ s.id }}')" aria-label="Isoler la session {{ s.id }}">Isoler</button>
-              <button type="button" class="btn-rotate-keys" onclick="rotateKeys('{{ s.id }}')" aria-label="Rotation clés session {{ s.id }}">Rotation clés</button>
+              <button type="button" class="btn-isolate" onclick="isolateSession('{{ s.id }}')">Isoler</button>
+              <button type="button" class="btn-rotate" onclick="rotateKeys('{{ s.id }}')">Rotation</button>
             </div>
           </td>
           {% endif %}
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty-state">Aucune session active.</td></tr>
+        <tr>
+          <td colspan="{% if is_admin %}7{% else %}6{% endif %}">
+            <div class="empty-state">
+              <div class="empty-icon">
+                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              </div>
+              <div class="empty-title">Aucune session active</div>
+              <div class="empty-desc">Les connexions bastion apparaîtront ici en temps réel.</div>
+            </div>
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>

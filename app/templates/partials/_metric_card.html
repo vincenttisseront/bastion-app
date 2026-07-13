@@ -1,5 +1,5 @@
-<div class="metric-card {{ variant | default('ok') }}">
-  <div class="metric-card-header">
+<div class="metric-card {{ variant | default('green') }}">
+  <div class="metric-head">
     <div class="metric-icon">{{ icon | safe }}</div>
     {% if trend %}
     <span class="metric-trend {{ trend_class | default('flat') }}">{{ trend }}</span>
@@ -7,4 +7,5 @@
   </div>
   <div class="metric-value">{{ value | safe }}</div>
   <div class="metric-label">{{ label }}</div>
+  {% if sub %}<div class="metric-sub">{{ sub }}</div>{% endif %}
 </div>

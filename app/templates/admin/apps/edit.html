@@ -3,31 +3,58 @@
 {% block breadcrumb %}Admin / Applications / {{ app.slug }}{% endblock %}
 
 {% block content %}
-<div class="page-wrapper" style="max-width:560px;">
-  <h1 class="page-title">Modifier {{ app.label }}</h1>
-  <form method="post" action="/admin/apps/{{ app.slug }}/edit" class="card" style="margin-top:var(--space-4);">
-    <div class="form-group">
-      <label class="form-label" for="label">Label</label>
-      <input type="text" id="label" name="label" class="form-input" value="{{ app.label }}" required>
+<div class="page" style="max-width:640px;">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Modifier {{ app.label }}</h1>
+      <p class="page-sub">Slug : <span class="mono">{{ app.slug }}</span></p>
     </div>
-    <div class="form-group">
-      <label class="form-label" for="upstream_url">URL upstream</label>
-      <input type="url" id="upstream_url" name="upstream_url" class="form-input" value="{{ app.upstream_url }}" required>
+  </div>
+
+  <form method="post" action="/admin/apps/{{ app.slug }}/edit">
+    <div class="form-section">
+      <div class="form-section-header">
+        <div class="form-section-title">Identité</div>
+        <div class="form-section-sub">Libellé et URL upstream</div>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label" for="label">Nom affiché <span class="req">*</span></label>
+          <input type="text" id="label" name="label" class="form-input" value="{{ app.label }}" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="upstream_url">URL upstream <span class="req">*</span></label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <input type="url" id="upstream_url" name="upstream_url" class="form-input" value="{{ app.upstream_url }}" required>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="form-group">
-      <label class="form-label" for="access_mode">Mode d'accès</label>
-      <select id="access_mode" name="access_mode" class="form-select">
-        {% for mode in ['sso', 'direct', 'robotic', 'subdomain'] %}
-        <option value="{{ mode }}"{% if app.access_mode == mode %} selected{% endif %}>{{ mode | upper }}</option>
-        {% endfor %}
-      </select>
-    </div>
-    <label class="form-checkbox">
-      <input type="checkbox" name="enabled"{% if app.enabled %} checked{% endif %}> Application activée
-    </label>
-    <div style="margin-top:var(--space-4);display:flex;gap:var(--space-2);">
-      <button type="submit" class="btn btn-primary">Enregistrer</button>
-      <a href="/admin/apps" class="btn btn-ghost">Annuler</a>
+
+    <div class="form-section">
+      <div class="form-section-header">
+        <div class="form-section-title">Mode d'accès</div>
+        <div class="form-section-sub">Configuration du proxy et SSO</div>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label" for="access_mode">Mode</label>
+          <select id="access_mode" name="access_mode" class="form-select">
+            {% for mode in ['sso', 'direct', 'robotic', 'subdomain'] %}
+            <option value="{{ mode }}"{% if app.access_mode == mode %} selected{% endif %}>{{ mode | upper }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <label class="form-checkbox">
+          <input type="checkbox" name="enabled"{% if app.enabled %} checked{% endif %}>
+          Application activée
+        </label>
+      </div>
+      <div class="form-footer">
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+        <a href="/admin/apps" class="btn btn-ghost">Annuler</a>
+      </div>
     </div>
   </form>
 </div>

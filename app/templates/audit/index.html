@@ -3,36 +3,31 @@
 {% block breadcrumb %}Audit{% endblock %}
 
 {% block content %}
-<div class="page-wrapper">
+<div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Journaux d'Audit</h1>
-      <p class="page-subtitle">{{ total_entries }} entrées — Index d'intégrité</p>
+      <h1 class="page-title">Journaux d'audit</h1>
+      <p class="page-sub">{{ total_entries }} entrées indexées</p>
     </div>
   </div>
 
   <div class="integrity-bar">
-    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-    </svg>
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
     <span class="integrity-score">{{ integrity.score }}%</span>
     <span class="integrity-label">Intégrité des logs</span>
-    <span class="badge badge-{{ 'success' if integrity.ok else 'danger' }}">
-      {{ 'VALIDÉ' if integrity.ok else 'ALTÉRÉ' }}
-    </span>
-    <span class="integrity-hash">SHA256: {{ integrity.hash }}</span>
+    <span class="badge badge-{{ 'ok' if integrity.ok else 'err' }}">{{ 'VALIDÉ' if integrity.ok else 'ALTÉRÉ' }}</span>
+    <span class="integrity-hash font-mono">SHA256: {{ integrity.hash }}</span>
   </div>
 
   <form id="audit-filter-form" class="audit-toolbar" method="get" action="/audit">
     <input type="date" class="form-input" style="width:auto;" name="date_from" value="{{ filters.date_from }}" aria-label="Date début">
     <input type="date" class="form-input" style="width:auto;" name="date_to" value="{{ filters.date_to }}" aria-label="Date fin">
-
-    <div class="severity-filter" role="group" aria-label="Filtrer par sévérité">
-      <button type="button" class="severity-chip chip-info active" data-sev="info">INFO</button>
-      <button type="button" class="severity-chip chip-warn" data-sev="warn">WARN</button>
-      <button type="button" class="severity-chip chip-error" data-sev="error">ERREUR</button>
+    <div class="severity-filter filter-group" role="group" aria-label="Filtrer par sévérité">
+      <button type="button" class="sev-chip sev-info filter-chip active" data-filter="all">TOUT</button>
+      <button type="button" class="sev-chip sev-info filter-chip" data-filter="info">INFO</button>
+      <button type="button" class="sev-chip sev-warn filter-chip" data-filter="warn">WARN</button>
+      <button type="button" class="sev-chip sev-error filter-chip" data-filter="error">ERREUR</button>
     </div>
-
     <div class="export-group">
       <a href="?export=csv{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}" class="btn btn-secondary btn-sm">↓ CSV</a>
       <a href="?export=pdf{% if filters.date_from %}&date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&date_to={{ filters.date_to }}{% endif %}" class="btn btn-secondary btn-sm">↓ PDF</a>
@@ -42,17 +37,23 @@
   <div class="card" style="padding:0;">
     <div class="audit-stream">
       {% for entry in audit_entries %}
-      <div class="audit-entry">
-        <span class="audit-severity {{ entry.severity }}"></span>
+      <div class="audit-entry" data-severity="{{ entry.severity }}" data-searchable>
+        <span class="audit-dot {{ entry.severity }}"></span>
         <div>
           <div class="audit-action">{{ entry.action }}</div>
           <div class="audit-target">{{ entry.target }}</div>
         </div>
         <span class="audit-user">{{ entry.user }}</span>
-        <span class="audit-time">{{ entry.timestamp }}</span>
+        <span class="audit-time font-mono">{{ entry.timestamp }}</span>
       </div>
       {% else %}
-      <div class="empty-state">Aucune entrée pour ces critères.</div>
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+        </div>
+        <div class="empty-title">Aucune entrée</div>
+        <div class="empty-desc">Ajustez les filtres ou attendez de nouvelles actions administrateur.</div>
+      </div>
       {% endfor %}
     </div>
   </div>
