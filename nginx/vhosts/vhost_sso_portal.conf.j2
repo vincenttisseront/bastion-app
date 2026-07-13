@@ -45,8 +45,8 @@ server {
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self';" always;
 
     include /etc/nginx/snippets/error_pages.conf;
-    error_page 404 = @portal_error_404;
-    error_page 500 502 503 504 = @portal_error_5xx;
+    error_page 404 = /__portal_err/404;
+    error_page 500 502 503 504 = /__portal_err/500;
     error_page 429 = @portal_rate_limited;
     include /etc/nginx/includes/waf-basic.conf;
     location @portal_rate_limited {
@@ -55,23 +55,24 @@ server {
         return 429 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Trop de requêtes</title></head><body><h1>Trop de requêtes (429)</h1><p>Le reverse proxy a limité temporairement le débit. Ce n\'est pas un bannissement CrushFTP.</p><p>Attendez quelques secondes puis rechargez. Si le problème persiste après déploiement AWX, vérifiez <code>limit_req</code> sur <code>/proxy/</code> dans nginx.</p></body></html>';
     }
 
-    # Pages d'erreur portail — servies par FastAPI (templates Jinja2)
-    location @portal_error_404 {
+    # Pages d'erreur portail — servies par FastAPI (templates Jinja2).
+    # URI internes (pas de named location + proxy_pass : directives interdites après proxy_pass).
+    location = /__portal_err/404 {
         internal;
         auth_request off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/404;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/404;
     }
 
-    location @portal_error_5xx {
+    location = /__portal_err/500 {
         internal;
         auth_request off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/500;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/500;
     }
 
     include /etc/nginx/mime.types;
@@ -121,15 +122,12 @@ server {
 
     location = /favicon.ico {
         auth_request off;
-        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/static/img/bastion-icon.svg;
-        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
-        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
-        default_type image/svg+xml;
         log_not_found off;
         access_log off;
-        expires 7d;
-        add_header Cache-Control "public, max-age=604800" always;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/static/img/bastion-icon.svg;
     }
 
     # Déconnexion SLO — direct FastAPI (pas d'auth_request : évite 500 Nginx si oauth2-proxy répond autrement que 200/401)
