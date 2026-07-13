@@ -1,12 +1,16 @@
 """Admin action audit journal — write and read helpers."""
 
 import hashlib
+import logging
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog
+
+logger = logging.getLogger(__name__)
 
 
 def log_action(
@@ -16,18 +20,32 @@ def log_action(
     target: str | None = None,
     details: dict[str, Any] | None = None,
     ip_address: str | None = None,
-) -> AuditLog:
-    entry = AuditLog(
-        actor=actor,
-        action=action,
-        target=target,
-        details=details,
-        ip_address=ip_address,
-    )
-    db.add(entry)
-    db.commit()
-    db.refresh(entry)
-    return entry
+) -> AuditLog | None:
+    """Persist an audit entry. Never raises — failures are logged and swallowed."""
+    try:
+        entry = AuditLog(
+            actor=actor,
+            action=action,
+            target=target,
+            details=details,
+            ip_address=ip_address,
+        )
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return entry
+    except SQLAlchemyError:
+        logger.exception(
+            "audit log write failed (actor=%s action=%s target=%s)",
+            actor,
+            action,
+            target,
+        )
+        try:
+            db.rollback()
+        except SQLAlchemyError:
+            logger.exception("audit log rollback failed")
+        return None
 
 
 def derive_severity(action: str) -> str:
@@ -86,11 +104,18 @@ def list_audit_entries(
 def compute_integrity(db: Session) -> dict[str, Any]:
     rows = db.query(AuditLog).order_by(AuditLog.id.asc()).all()
     if not rows:
-        return {"score": 100, "ok": True, "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}
+        return {
+            "score": 100,
+            "ok": True,
+            "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        }
 
     chain = hashlib.sha256()
     for row in rows:
-        payload = f"{row.id}|{row.actor}|{row.action}|{row.target}|{row.created_at.isoformat() if row.created_at else ''}"
+        payload = (
+            f"{row.id}|{row.actor}|{row.action}|{row.target}|"
+            f"{row.created_at.isoformat() if row.created_at else ''}"
+        )
         chain.update(payload.encode())
         chain.update(chain.digest())
 
