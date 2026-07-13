@@ -60,4 +60,41 @@ document.addEventListener('DOMContentLoaded', function () {
       });
     });
   });
+
+  initSlugFromLabel();
 });
+
+function slugify(str) {
+  return str.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function initSlugFromLabel() {
+  document.querySelectorAll('[name="slug"][data-mode="create"]').forEach(function (slugInput) {
+    var form = slugInput.closest('form');
+    if (!form) return;
+
+    var fromName = slugInput.dataset.slugFrom || 'label';
+    var labelInput = form.querySelector('[name="' + fromName + '"]');
+    if (!labelInput) return;
+
+    var slugManuallyEdited = Boolean(
+      slugInput.value && slugInput.value !== slugify(labelInput.value)
+    );
+
+    slugInput.addEventListener('input', function () {
+      slugManuallyEdited = true;
+      slugInput.classList.remove('slug-auto');
+    });
+
+    labelInput.addEventListener('input', function () {
+      if (slugManuallyEdited) return;
+      slugInput.value = slugify(labelInput.value);
+      slugInput.classList.toggle('slug-auto', Boolean(slugInput.value));
+    });
+
+    slugInput.classList.toggle('slug-auto', Boolean(slugInput.value) && !slugManuallyEdited);
+  });
+}

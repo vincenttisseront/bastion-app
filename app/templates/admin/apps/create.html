@@ -22,24 +22,6 @@
         <div class="form-section-sub">Identité, upstream et mode d'accès</div>
       </div>
       <div class="form-body">
-        <div class="form-group">
-          <label class="form-label" for="slug">Slug <span class="req">*</span></label>
-          <div class="input-wrap">
-            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            <input type="text" id="slug" name="slug" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug | default('') }}" required pattern="[a-z0-9-]+" placeholder="ex: crm-interne">
-          </div>
-          {% if errors.slug %}<div class="form-error">{{ errors.slug }}</div>{% endif %}
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="upstream_url">URL upstream <span class="req">*</span></label>
-          <div class="input-wrap">
-            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ form_values.upstream_url | default('') }}" required placeholder="https://app.internal/">
-          </div>
-          {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
-        </div>
-
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="label">Nom affiché <span class="req">*</span></label>
@@ -60,6 +42,25 @@
             </select>
             {% if errors.access_mode %}<div class="form-error">{{ errors.access_mode }}</div>{% endif %}
           </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="slug">Slug <span class="req">*</span></label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            <input type="text" id="slug" name="slug" data-mode="create" data-slug-from="label" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug | default('') }}" required pattern="[a-z0-9-]+" placeholder="ex: crm-interne">
+          </div>
+          <p class="form-help">Généré automatiquement depuis le nom, modifiable</p>
+          {% if errors.slug %}<div class="form-error">{{ errors.slug }}</div>{% endif %}
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="upstream_url">URL upstream <span class="req">*</span></label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ form_values.upstream_url | default('') }}" required placeholder="https://app.internal/">
+          </div>
+          {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
         </div>
       </div>
       <div class="form-footer">

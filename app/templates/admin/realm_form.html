@@ -24,19 +24,26 @@
       <div class="form-body">
         {% if not realm %}
         <div class="form-group">
+          <label class="form-label" for="name">Nom affiché <span class="req">*</span></label>
+          <input type="text" id="name" name="name" class="form-input{% if errors.name %} is-invalid{% endif %}" value="{{ form_values.name }}" required maxlength="100">
+          {% if errors.name %}<p class="form-error">{{ errors.name }}</p>{% endif %}
+        </div>
+        <div class="form-group">
           <label class="form-label" for="slug">Slug <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18"/></svg>
-            <input type="text" id="slug" name="slug" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug }}" required pattern="[a-z0-9-]{2,40}">
+            <input type="text" id="slug" name="slug" data-mode="create" data-slug-from="name" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug }}" required pattern="[a-z0-9-]{2,40}">
           </div>
+          <p class="form-help">Généré automatiquement depuis le nom, modifiable</p>
           {% if errors.slug %}<p class="form-error">{{ errors.slug }}</p>{% endif %}
         </div>
-        {% endif %}
+        {% else %}
         <div class="form-group">
           <label class="form-label" for="name">Nom affiché <span class="req">*</span></label>
           <input type="text" id="name" name="name" class="form-input{% if errors.name %} is-invalid{% endif %}" value="{{ form_values.name }}" required maxlength="100">
           {% if errors.name %}<p class="form-error">{{ errors.name }}</p>{% endif %}
         </div>
+        {% endif %}
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="oauth2_proxy_port">Port oauth2-proxy <span class="req">*</span></label>

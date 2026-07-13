@@ -88,6 +88,7 @@
 .input-icon{position:absolute;left:var(--sp-3);top:50%;transform:translateY(-50%);color:var(--text-3);pointer-events:none;width:16px;height:16px}
 .input-wrap .form-input{padding-left:calc(var(--sp-3)*2 + 16px)}
 .form-help,.form-hint{font-size:var(--fs-xs);color:var(--text-2)}
+.form-input.slug-auto{color:var(--text-2);font-style:italic}
 .form-error{font-size:var(--fs-xs);color:var(--err)}
 .form-footer{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4) var(--sp-6);border-top:1px solid var(--border-muted);background:var(--bg-tertiary);flex-wrap:wrap}
 .form-check,.form-checkbox{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm);color:var(--text-2);cursor:pointer}
