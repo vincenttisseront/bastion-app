@@ -70,6 +70,13 @@ class Settings(BaseSettings):
             "vault_portal_vault_fernet_key",
         ),
     )
+    portal_secret_encryption_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "PORTAL_SECRET_ENCRYPTION_KEY",
+            "portal_secret_encryption_key",
+        ),
+    )
 
     database_url: str = Field(
         default="sqlite:///var/lib/sso-portal/portal.db",

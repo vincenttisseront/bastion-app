@@ -1,4 +1,4 @@
-"""Active sessions stub — replace with WebSocket/SSE in production."""
+"""Active sessions — backed by session registry (empty until Phase 4+ integration)."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -10,7 +10,7 @@ from app.audit import log_action
 from app.database import get_db
 from app.web.user_context import require_admin, require_user
 
-# TODO(production): connect to oauth2-proxy session store or bastion session registry via SSE/WebSocket
+# TODO(phase4): connect to oauth2-proxy session store or bastion session registry via SSE/WebSocket
 
 
 @dataclass
@@ -25,37 +25,7 @@ class ActiveSession:
     status: str = "active"
 
 
-_DEMO_SESSIONS: list[ActiveSession] = [
-    ActiveSession(
-        id="sess-001",
-        user="admin@ar-systems.fr",
-        realm="ar-systems",
-        protocol="SSH",
-        target="prod-db-01.internal:22",
-        source_ip="10.0.12.45",
-        duration="00:42:18",
-    ),
-    ActiveSession(
-        id="sess-002",
-        user="soc.analyst@ar-systems.fr",
-        realm="ar-systems",
-        protocol="RDP",
-        target="win-jump-02.internal:3389",
-        source_ip="192.168.1.88",
-        duration="00:15:03",
-    ),
-    ActiveSession(
-        id="sess-003",
-        user="devops@ar-systems.fr",
-        realm="ar-systems",
-        protocol="Web",
-        target="grafana.internal/dashboard",
-        source_ip="10.0.8.12",
-        duration="01:02:44",
-    ),
-]
-
-_sessions: list[ActiveSession] = list(_DEMO_SESSIONS)
+_sessions: list[ActiveSession] = []
 
 
 def get_active_sessions() -> list[dict[str, Any]]:

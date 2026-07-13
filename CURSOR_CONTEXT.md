@@ -2,9 +2,9 @@
 
 Document de référence pour les sessions Cursor. **Tenir à jour** à chaque changement de phase.
 
-## Phase en cours : 2 — Core Auth
+## Phase en cours : UI Bastion Pro (Sentinel Core)
 
-**Phase 1 terminée** (structure posée). Ne pas implémenter la logique métier au-delà du squelette FastAPI (`/api/health`) avant validation explicite de la Phase 2.
+**Phases 1–3 terminées** (structure, auth API, vhosts Nginx). **Phase UI en cours** : templates Jinja2, assets CSS/JS, routes HTML.
 
 ## Plan de projet (6 phases)
 
@@ -37,6 +37,12 @@ Document de référence pour les sessions Cursor. **Tenir à jour** à chaque ch
 ### Phase 6 — Déploiement
 - Preflight et smoke_test Ansible fonctionnels
 - Pipeline AWX, secrets Vault
+
+### Phase UI — Bastion Pro (Sentinel Core)
+- `app/static/` : CSS tokens, composants, JS theme/sessions/audit
+- `app/templates/` : layout sidebar+topbar, dashboard, sessions, audit, catalogue, admin
+- `app/web/` : user context (headers Nginx), pages HTML, metrics/sessions/audit services
+- Nginx : favicon `bastion-icon.svg`, erreurs via templates FastAPI
 
 ## Décisions arbitrées (Phase 1)
 

@@ -9,10 +9,10 @@ from app.breakglass_store import (
     LEGACY_BREAKGLASS_PASSWORD_HASH_KEY,
     LEGACY_BREAKGLASS_USERNAME,
     has_active_breakglass_account,
-    migrate_legacy_breakglass_account,
     set_breakglass_password,
     verify_breakglass_password,
 )
+from app.models import BreakGlassAccount
 
 
 def _create_legacy_settings_table(db: Session) -> None:
@@ -51,7 +51,11 @@ def test_legacy_breakglass_hash_migrates_and_verifies(db_session: Session):
     assert has_active_breakglass_account(db_session)
     assert verify_breakglass_password(db_session, LEGACY_BREAKGLASS_USERNAME, password)
 
-    migrated = migrate_legacy_breakglass_account(db_session)
+    migrated = (
+        db_session.query(BreakGlassAccount)
+        .filter_by(username=LEGACY_BREAKGLASS_USERNAME, is_active=True)
+        .first()
+    )
     assert migrated is not None
     assert migrated.username == LEGACY_BREAKGLASS_USERNAME
 

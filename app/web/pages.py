@@ -14,7 +14,6 @@ from app.breakglass_store import (
 )
 from app.database import get_db
 from app.models import App, AppGroup, RBACGroup, RealmConfig
-from app.realm_service import export_nginx_realms_conf
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
@@ -418,101 +417,6 @@ def admin_apps_edit_post(
     return response
 
 
-@router.get("/admin/realms")
-def admin_realms_list(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
-):
-    realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
-    return render("admin/realms/list.html", **_ctx(request, settings, realms=realms))
-
-
-@router.get("/admin/realms/create")
-def admin_realms_create(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
-):
-    return render("admin/realms/edit.html", **_ctx(request, settings, realm=None))
-
-
-@router.post("/admin/realms/create")
-def admin_realms_create_post(
-    request: Request,
-    slug: str = Form(...),
-    keycloak_realm: str = Form(...),
-    keycloak_base_url: str = Form(...),
-    client_id: str = Form(...),
-    oauth2_proxy_port: int = Form(...),
-    oauth2_proxy_url: str = Form(""),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    user=Depends(require_admin),
-):
-    proxy_url = oauth2_proxy_url or f"http://127.0.0.1:{oauth2_proxy_port}"
-    realm = RealmConfig(
-        slug=slug,
-        keycloak_realm=keycloak_realm,
-        keycloak_base_url=keycloak_base_url,
-        client_id=client_id,
-        oauth2_proxy_port=oauth2_proxy_port,
-        oauth2_proxy_url=proxy_url,
-    )
-    db.add(realm)
-    db.commit()
-    export_nginx_realms_conf(db, settings)
-    log_action(db, actor=user.email, action="realm.created", target=slug)
-    response = RedirectResponse(url="/admin/realms", status_code=302)
-    flash_redirect(response, f"Realm '{slug}' créé.", "success", settings.vault_portal_internal_token or "dev")
-    return response
-
-
-@router.get("/admin/realms/{slug}/edit")
-def admin_realms_edit(
-    slug: str,
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
-):
-    realm = db.query(RealmConfig).filter_by(slug=slug).first()
-    if not realm:
-        raise HTTPException(status_code=404)
-    return render("admin/realms/edit.html", **_ctx(request, settings, realm=realm))
-
-
-@router.post("/admin/realms/{slug}/edit")
-def admin_realms_edit_post(
-    slug: str,
-    request: Request,
-    keycloak_realm: str = Form(...),
-    keycloak_base_url: str = Form(...),
-    client_id: str = Form(...),
-    oauth2_proxy_port: int = Form(...),
-    oauth2_proxy_url: str = Form(""),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    user=Depends(require_admin),
-):
-    realm = db.query(RealmConfig).filter_by(slug=slug).first()
-    if not realm:
-        raise HTTPException(status_code=404)
-    realm.keycloak_realm = keycloak_realm
-    realm.keycloak_base_url = keycloak_base_url
-    realm.client_id = client_id
-    realm.oauth2_proxy_port = oauth2_proxy_port
-    if oauth2_proxy_url:
-        realm.oauth2_proxy_url = oauth2_proxy_url
-    db.commit()
-    export_nginx_realms_conf(db, settings)
-    log_action(db, actor=user.email, action="realm.updated", target=slug)
-    response = RedirectResponse(url="/admin/realms", status_code=302)
-    flash_redirect(response, f"Realm '{slug}' mis à jour.", "success", settings.vault_portal_internal_token or "dev")
-    return response
-
-
 @router.get("/admin/rbac")
 def admin_rbac(
     request: Request,
@@ -535,12 +439,7 @@ def admin_resources(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
-    resources = [
-        {"name": "prod-db-01", "type": "Database", "zone": "Production", "status": "ok"},
-        {"name": "win-jump-02", "type": "Jump Host", "zone": "DMZ", "status": "ok"},
-        {"name": "grafana.internal", "type": "Monitoring", "zone": "Internal", "status": "warn"},
-    ]
-    return render("admin/resources.html", **_ctx(request, settings, resources=resources))
+    return render("admin/resources.html", **_ctx(request, settings, resources=[]))
 
 
 @router.get("/admin/security")
@@ -565,11 +464,9 @@ def admin_health(
             "slug": a.slug,
             "label": a.label,
             "url": a.healthcheck_url or a.upstream_url,
-            "status": "ok",
-            "latency_ms": 42,
+            "status": "unknown",
+            "latency_ms": None,
         }
         for a in apps
-    ] or [
-        {"slug": "portal", "label": "Portail SSO", "url": "/api/health", "status": "ok", "latency_ms": 12}
     ]
     return render("admin/health.html", **_ctx(request, settings, probes=probes))

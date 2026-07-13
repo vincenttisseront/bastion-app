@@ -48,6 +48,7 @@ def client(db_engine):
     def override_get_settings():
         return Settings(
             vault_portal_internal_token="test-secret",
+            portal_secret_encryption_key="test-encryption-key-for-pytest-only",
             database_url="sqlite://",
         )
 

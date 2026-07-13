@@ -5,18 +5,27 @@ from sqlalchemy.orm import Session
 
 from app.breakglass_store import set_breakglass_password
 from app.models import RealmConfig
+from app.secret_crypto import encrypt_secret
+from app.sso_settings import Settings
 
 
 def _add_default_idp(db: Session) -> RealmConfig:
+    settings = Settings(
+        vault_portal_internal_token="test-secret",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        database_url="sqlite://",
+    )
     realm = RealmConfig(
         slug="ar-systems",
-        keycloak_realm="AR-SYSTEMS",
-        keycloak_base_url="https://keycloak.example",
+        name="AR-SYSTEMS",
+        issuer_url="https://keycloak.example/realms/ar-systems",
         client_id="portal",
+        client_secret_encrypted=encrypt_secret("secret", settings),
+        redirect_uri="https://portal.example/oauth2/ar-systems/callback",
         oauth2_proxy_port=4180,
-        oauth2_proxy_url="http://127.0.0.1:4180",
         is_default=True,
         enabled=True,
+        last_test_status="ok",
     )
     db.add(realm)
     db.commit()

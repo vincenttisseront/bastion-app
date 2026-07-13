@@ -21,6 +21,8 @@
           <td>{{ r.zone }}</td>
           <td><span class="badge badge-{{ 'success' if r.status == 'ok' else 'warning' }}">{{ r.status | upper }}</span></td>
         </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty-state">Aucune ressource provisionnée.</td></tr>
         {% endfor %}
       </tbody>
     </table>

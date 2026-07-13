@@ -55,21 +55,23 @@ server {
         return 429 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Trop de requêtes</title></head><body><h1>Trop de requêtes (429)</h1><p>Le reverse proxy a limité temporairement le débit. Ce n\'est pas un bannissement CrushFTP.</p><p>Attendez quelques secondes puis rechargez. Si le problème persiste après déploiement AWX, vérifiez <code>limit_req</code> sur <code>/proxy/</code> dans nginx.</p></body></html>';
     }
 
-    # Pages d'erreur portail (HTML statique, redirection auto vers /)
-    location ^~ /portal/errors/ {
-        alias {{ sso_portal_install_dir }}/static/errors/;
-        default_type text/html;
-        add_header Cache-Control "no-store" always;
-    }
-
+    # Pages d'erreur portail — servies par FastAPI (templates Jinja2)
     location @portal_error_404 {
         internal;
-        return 302 /portal/errors/404.html;
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/404;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
     location @portal_error_5xx {
         internal;
-        return 302 /portal/errors/5xx.html;
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/500;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
     include /etc/nginx/mime.types;
@@ -118,7 +120,11 @@ server {
     }
 
     location = /favicon.ico {
-        alias {{ sso_portal_install_dir }}/static/logo.svg;
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/static/img/bastion-icon.svg;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
         default_type image/svg+xml;
         log_not_found off;
         access_log off;

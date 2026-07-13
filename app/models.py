@@ -79,20 +79,31 @@ class AppCredential(Base):
 
 
 class RealmConfig(Base):
-    """Keycloak realm configuration for multi-realm oauth2-proxy."""
+    """OIDC realm configuration for multi-realm oauth2-proxy."""
 
     __tablename__ = "realm_configs"
 
     id = Column(Integer, primary_key=True)
     slug = Column(String, unique=True, nullable=False, index=True)
-    keycloak_realm = Column(String, nullable=False)
-    keycloak_base_url = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    issuer_url = Column(String, nullable=False)
     client_id = Column(String, nullable=False)
-    oauth2_proxy_port = Column(Integer, nullable=False)
-    oauth2_proxy_url = Column(String, nullable=False)
+    client_secret_encrypted = Column(String, nullable=False)
+    redirect_uri = Column(String, nullable=False)
+    scopes = Column(String, nullable=False, default="openid profile email")
+    oauth2_proxy_port = Column(Integer, unique=True, nullable=False)
+    oauth2_cookie_secret_encrypted = Column(String, nullable=True)
     is_default = Column(Boolean, default=False)
-    enabled = Column(Boolean, default=True)
+    enabled = Column(Boolean, default=False)
+    last_test_status = Column(String, nullable=True)
+    last_test_detail = Column(Text, nullable=True)
+    last_tested_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    @property
+    def oauth2_proxy_url(self) -> str:
+        return f"http://127.0.0.1:{self.oauth2_proxy_port}"
 
 
 class BreakGlassAccount(Base):

@@ -75,7 +75,7 @@ def _check_bcrypt_hash(stored_hash: str, plain_password: str) -> bool:
 
 def migrate_legacy_breakglass_account(db: Session) -> BreakGlassAccount | None:
     """Copy legacy settings hash into breakglass_accounts (username admin)."""
-    if has_active_breakglass_account(db):
+    if db.query(BreakGlassAccount).filter_by(is_active=True).first() is not None:
         return None
     legacy_hash = get_legacy_breakglass_password_hash(db)
     if not legacy_hash:

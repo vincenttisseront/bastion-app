@@ -22,9 +22,11 @@
             <div class="mono" style="color:var(--text-muted);font-size:var(--font-size-xs);">{{ p.slug }}</div>
           </td>
           <td class="mono">{{ p.url }}</td>
-          <td><span class="badge badge-{{ 'success' if p.status == 'ok' else 'danger' }}">{{ p.status | upper }}</span></td>
-          <td class="mono">{{ p.latency_ms }} ms</td>
+          <td><span class="badge badge-{{ 'success' if p.status == 'ok' else ('danger' if p.status == 'error' else 'info') }}">{{ p.status | upper }}</span></td>
+          <td class="mono">{% if p.latency_ms is not none %}{{ p.latency_ms }} ms{% else %}—{% endif %}</td>
         </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty-state">Aucune application à sonder.</td></tr>
         {% endfor %}
       </tbody>
     </table>

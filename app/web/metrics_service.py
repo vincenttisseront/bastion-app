@@ -1,4 +1,4 @@
-"""Dashboard metrics API."""
+"""Dashboard metrics API — real database values only."""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -12,7 +12,6 @@ router = APIRouter(prefix="/api", tags=["metrics"])
 
 
 def get_dashboard_metrics(db: Session) -> dict:
-    active_sessions = len(get_active_sessions())
     blocked = (
         db.query(AuditLog)
         .filter(
@@ -23,14 +22,12 @@ def get_dashboard_metrics(db: Session) -> dict:
     )
     enabled_apps = db.query(App).filter_by(enabled=True).count()
     total_apps = db.query(App).count()
-    health_score = 100 if total_apps == 0 else min(100, 70 + enabled_apps * 5)
 
     return {
-        "active_sessions": active_sessions,
+        "active_sessions": len(get_active_sessions()),
         "blocked_attempts": blocked,
-        "blocked_delta": min(blocked, 99),
-        "health_score": health_score,
-        "anomalies": 0,
+        "enabled_apps": enabled_apps,
+        "total_apps": total_apps,
     }
 
 

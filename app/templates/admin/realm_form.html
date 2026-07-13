@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}{% if realm %}Modifier {{ realm.slug }}{% else %}Créer un realm{% endif %}{% endblock %}
+{% block head_extra %}
+<style>
+  .form-error { color: var(--status-error); font-size: 0.875rem; margin-top: 0.25rem; }
+  .form-hint { color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.25rem; }
+  .form-input.is-invalid { border-color: var(--status-error); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper" style="max-width:640px;">
+  <h1 class="page-title">{% if realm %}Modifier {{ realm.slug }}{% else %}Nouveau realm OIDC{% endif %}</h1>
+
+  {% if errors._form %}<div class="alert alert-error">{{ errors._form }}</div>{% endif %}
+  <div id="test-global-result" class="alert" style="display:none;margin-top:var(--space-3);"></div>
+  <div id="test-checks" style="margin-top:var(--space-3);"></div>
+
+  <form id="realm-form" method="post" action="{% if realm %}/admin/realms/{{ realm.id }}{% else %}/admin/realms{% endif %}" class="card" style="margin-top:var(--space-4);">
+    {% if not realm %}
+    <div class="form-group">
+      <label class="form-label" for="slug">Slug</label>
+      <input type="text" id="slug" name="slug" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug }}" required pattern="[a-z0-9-]{2,40}">
+      {% if errors.slug %}<p class="form-error">{{ errors.slug }}</p>{% endif %}
+    </div>
+    {% endif %}
+
+    <div class="form-group">
+      <label class="form-label" for="name">Nom affiché</label>
+      <input type="text" id="name" name="name" class="form-input{% if errors.name %} is-invalid{% endif %}" value="{{ form_values.name }}" required maxlength="100">
+      {% if errors.name %}<p class="form-error">{{ errors.name }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="issuer_url">Issuer URL</label>
+      <input type="url" id="issuer_url" name="issuer_url" class="form-input{% if errors.issuer_url %} is-invalid{% endif %}" value="{{ form_values.issuer_url }}" required placeholder="https://keycloak.example/realms/myrealm">
+      {% if errors.issuer_url %}<p class="form-error">{{ errors.issuer_url }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="client_id">Client ID</label>
+      <input type="text" id="client_id" name="client_id" class="form-input{% if errors.client_id %} is-invalid{% endif %}" value="{{ form_values.client_id }}" required>
+      {% if errors.client_id %}<p class="form-error">{{ errors.client_id }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="client_secret">Client secret</label>
+      <input type="password" id="client_secret" name="client_secret" class="form-input{% if errors.client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm %}••••••••{% else %}Secret OIDC{% endif %}" {% if not realm %}required{% endif %} autocomplete="new-password">
+      {% if realm %}<p class="form-hint">Laissez vide pour conserver le secret actuel.</p>{% endif %}
+      {% if errors.client_secret %}<p class="form-error">{{ errors.client_secret }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="oauth2_proxy_port">Port oauth2-proxy</label>
+      <input type="number" id="oauth2_proxy_port" name="oauth2_proxy_port" class="form-input{% if errors.oauth2_proxy_port %} is-invalid{% endif %}" value="{{ form_values.oauth2_proxy_port or 4181 }}" min="4180" max="4299" required>
+      {% if errors.oauth2_proxy_port %}<p class="form-error">{{ errors.oauth2_proxy_port }}</p>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="scopes">Scopes</label>
+      <input type="text" id="scopes" name="scopes" class="form-input{% if errors.scopes %} is-invalid{% endif %}" value="{{ form_values.scopes }}">
+      {% if errors.scopes %}<p class="form-error">{{ errors.scopes }}</p>{% endif %}
+    </div>
+
+    {% if realm and form_values.redirect_uri %}
+    <div class="form-group">
+      <label class="form-label">Redirect URI (lecture seule)</label>
+      <input type="text" class="form-input" value="{{ form_values.redirect_uri }}" readonly>
+    </div>
+    {% endif %}
+
+    <div class="form-group">
+      <label class="form-check">
+        <input type="checkbox" name="is_default" {% if form_values.is_default %}checked{% endif %}>
+        Realm par défaut
+      </label>
+    </div>
+
+    <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;margin-top:var(--space-4);">
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+      <button type="submit" name="activate" value="on" id="btn-save-activate" class="btn btn-secondary" {% if realm and realm.last_test_status != 'ok' %}disabled{% endif %}>Enregistrer et activer</button>
+      <button type="button" id="btn-test-connection" class="btn btn-ghost">Tester la connexion</button>
+      <a href="/admin/realms" class="btn btn-ghost">Annuler</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const form = document.getElementById('realm-form');
+  const testBtn = document.getElementById('btn-test-connection');
+  const saveActivateBtn = document.getElementById('btn-save-activate');
+  const globalResult = document.getElementById('test-global-result');
+  const checksEl = document.getElementById('test-checks');
+  const realmId = {{ realm.id if realm else 'null' }};
+  let lastTestOk = {{ 'true' if realm and realm.last_test_status == 'ok' else 'false' }};
+
+  const statusIcon = { ok: '✅', warning: '⚠️', error: '❌' };
+  const statusClass = { ok: 'alert-success', warning: 'alert-warning', error: 'alert-error' };
+
+  function renderChecks(result) {
+    lastTestOk = result.status === 'ok';
+    if (saveActivateBtn) saveActivateBtn.disabled = !lastTestOk;
+
+    globalResult.style.display = 'block';
+    globalResult.className = 'alert ' + (statusClass[result.status] || 'alert-info');
+    globalResult.textContent = result.status === 'ok'
+      ? 'Test de connexion réussi'
+      : (result.status === 'error' ? 'Test de connexion échoué' : 'Test terminé avec avertissements');
+
+    checksEl.innerHTML = (result.checks || []).map(function (c) {
+      return '<div class="alert ' + (statusClass[c.status] || '') + '" style="margin-bottom:var(--space-2);">' +
+        (statusIcon[c.status] || '•') + ' <strong>' + c.name + '</strong> — ' + c.message + '</div>';
+    }).join('');
+  }
+
+  function payloadFromForm() {
+    const secret = document.getElementById('client_secret').value;
+    return {
+      issuer_url: document.getElementById('issuer_url').value,
+      client_id: document.getElementById('client_id').value,
+      client_secret: secret || 'placeholder-if-empty'
+    };
+  }
+
+  testBtn.addEventListener('click', async function () {
+    const body = payloadFromForm();
+    if (!body.client_secret || body.client_secret === 'placeholder-if-empty') {
+      if (!realmId) {
+        alert('Saisissez le client secret avant de tester.');
+        return;
+      }
+      delete body.client_secret;
+    } else if (body.client_secret === 'placeholder-if-empty') {
+      delete body.client_secret;
+    }
+
+    const url = realmId ? ('/admin/realms/' + realmId + '/test') : '/admin/realms/test';
+    testBtn.disabled = true;
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await resp.json();
+      if (!resp.ok && data.errors) {
+        globalResult.style.display = 'block';
+        globalResult.className = 'alert alert-error';
+        globalResult.textContent = data.errors._form || Object.values(data.errors).join(' ');
+        return;
+      }
+      renderChecks(data);
+    } catch (err) {
+      globalResult.style.display = 'block';
+      globalResult.className = 'alert alert-error';
+      globalResult.textContent = 'Erreur réseau lors du test.';
+    } finally {
+      testBtn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}
