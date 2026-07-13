@@ -87,3 +87,64 @@ def test_alembic_baseline_on_legacy_audit_db(tmp_path, monkeypatch):
         poolclass=StaticPool,
     )
     Base.metadata.create_all(bind=engine)
+
+
+def _legacy_realm_configs_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """
+        CREATE TABLE realm_configs (
+            id INTEGER PRIMARY KEY,
+            slug TEXT NOT NULL UNIQUE,
+            keycloak_realm TEXT NOT NULL,
+            keycloak_base_url TEXT NOT NULL,
+            client_id TEXT NOT NULL,
+            oauth2_proxy_port INTEGER NOT NULL,
+            oauth2_proxy_url TEXT NOT NULL,
+            name TEXT,
+            issuer_url TEXT,
+            client_secret_encrypted TEXT,
+            redirect_uri TEXT,
+            scopes TEXT,
+            is_default INTEGER,
+            enabled INTEGER,
+            created_at TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_alembic_drops_legacy_realm_columns(tmp_path, monkeypatch):
+    db_path = tmp_path / "portal.db"
+    _legacy_realm_configs_db(db_path)
+    db_url = f"sqlite:///{db_path.as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", db_url)
+
+    from app.sso_settings import get_settings
+
+    get_settings.cache_clear()
+
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("sqlalchemy.url", db_url)
+    command.upgrade(cfg, "head")
+
+    conn = sqlite3.connect(db_path)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(realm_configs)")}
+    assert "keycloak_realm" not in cols
+    assert "keycloak_base_url" not in cols
+    assert "oauth2_proxy_url" not in cols
+    conn.execute(
+        """
+        INSERT INTO realm_configs (
+            slug, name, issuer_url, client_id, client_secret_encrypted,
+            redirect_uri, scopes, oauth2_proxy_port, is_default, enabled
+        ) VALUES (
+            'test', 'Test', 'https://idp.example/realms/test', 'client',
+            'enc', 'https://portal.example/cb', 'openid', 4181, 0, 0
+        )
+        """
+    )
+    conn.commit()
+    conn.close()

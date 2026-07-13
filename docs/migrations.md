@@ -36,6 +36,23 @@ créer ou modifier un realm OIDC :
 Ajouter la valeur dans `/opt/sso-portal/.env` (ou réutiliser `VAULT_PORTAL_VAULT_FERNET_KEY`
 si déjà provisionnée par Ansible), puis `systemctl restart sso-portal`.
 
+### Erreur `NOT NULL constraint failed: realm_configs.keycloak_realm`
+
+Base v1 encore présente : la colonne legacy `keycloak_realm` (NOT NULL) n’est plus
+mappée par le modèle OIDC. Appliquer les migrations :
+
+```bash
+cd /opt/sso-portal
+sudo -u sso-portal venv/bin/alembic upgrade head
+```
+
+La révision `005_realm_legacy_drop` supprime `keycloak_realm`, `keycloak_base_url` et
+`oauth2_proxy_url`. Si la migration n’est pas encore déployée, contournement SQLite 3.35+ :
+
+```bash
+sqlite3 /var/lib/sso-portal/portal.db "ALTER TABLE realm_configs DROP COLUMN keycloak_realm;"
+```
+
 ## Apply migrations
 
 ```bash

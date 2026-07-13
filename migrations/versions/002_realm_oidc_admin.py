@@ -82,6 +82,15 @@ def upgrade() -> None:
             """
         )
 
+    # Drop legacy NOT NULL columns after data copy (also handled by 005 for brownfield DBs
+    # that already ran 002 before this block existed).
+    cols = _column_names(bind, "realm_configs")
+    legacy = [c for c in ("keycloak_realm", "keycloak_base_url", "oauth2_proxy_url") if c in cols]
+    if legacy:
+        with op.batch_alter_table("realm_configs") as batch_op:
+            for name in legacy:
+                batch_op.drop_column(name)
+
     op.execute(
         """
         UPDATE realm_configs
