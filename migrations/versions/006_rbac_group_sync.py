@@ -64,15 +64,14 @@ def upgrade() -> None:
             batch_op.create_index("ix_rbac_groups_keycloak_group_id", ["keycloak_group_id"])
             batch_op.create_index("ix_rbac_groups_name", ["name"])
             batch_op.create_unique_constraint("uq_realm_kc_group", ["realm_id", "keycloak_group_id"])
-
-        op.create_foreign_key(
-            "fk_rbac_groups_realm_id",
-            "rbac_groups",
-            "realm_configs",
-            ["realm_id"],
-            ["id"],
-            ondelete="SET NULL",
-        )
+            # SQLite can't ALTER constraints outside batch mode; create FK in batch.
+            batch_op.create_foreign_key(
+                "fk_rbac_groups_realm_id",
+                "realm_configs",
+                ["realm_id"],
+                ["id"],
+                ondelete="SET NULL",
+            )
 
 
 def downgrade() -> None:
