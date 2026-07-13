@@ -62,6 +62,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   initSlugFromLabel();
+  initAccessModeForm();
 });
 
 function slugify(str) {
@@ -97,4 +98,56 @@ function initSlugFromLabel() {
 
     slugInput.classList.toggle('slug-auto', Boolean(slugInput.value) && !slugManuallyEdited);
   });
+}
+
+var ACCESS_MODE_COPY = {
+  sso_gate: {
+    upstreamLabel: "URL publique de l'application",
+    upstreamHelp: "L'utilisateur sera redirigé ici après validation SSO. Aucun proxy.",
+    upstreamPlaceholder: 'https://app.example.fr/',
+    showFqdn: false,
+    showLegacyWarn: false
+  },
+  subdomain_proxy: {
+    upstreamLabel: 'URL backend interne (proxy_pass)',
+    upstreamHelp: 'Cible du reverse proxy Nginx sur le sous-domaine dédié.',
+    upstreamPlaceholder: 'http://127.0.0.1:8080/',
+    showFqdn: true,
+    showLegacyWarn: false
+  },
+  legacy_path_proxy: {
+    upstreamLabel: 'URL backend interne (proxy_pass)',
+    upstreamHelp: 'Cible proxifiée sous /proxy/{slug}/ — apps compatibles sous-chemin uniquement.',
+    upstreamPlaceholder: 'http://127.0.0.1:8080/',
+    showFqdn: false,
+    showLegacyWarn: true
+  }
+};
+
+function initAccessModeForm() {
+  var form = document.getElementById('app-form');
+  if (!form) return;
+
+  var select = form.querySelector('[data-access-mode-select]');
+  var labelEl = document.getElementById('upstream-url-label');
+  var helpEl = document.getElementById('upstream-url-help');
+  var upstreamInput = document.getElementById('upstream_url');
+  var fqdnGroup = document.getElementById('public-fqdn-group');
+  var legacyWarn = document.getElementById('access-mode-legacy-warning');
+  if (!select || !labelEl || !helpEl) return;
+
+  function applyMode() {
+    var mode = select.value;
+    var copy = ACCESS_MODE_COPY[mode] || ACCESS_MODE_COPY.sso_gate;
+    labelEl.innerHTML = copy.upstreamLabel + ' <span class="req">*</span>';
+    helpEl.textContent = copy.upstreamHelp;
+    if (upstreamInput && copy.upstreamPlaceholder) {
+      upstreamInput.placeholder = copy.upstreamPlaceholder;
+    }
+    if (fqdnGroup) fqdnGroup.hidden = !copy.showFqdn;
+    if (legacyWarn) legacyWarn.hidden = !copy.showLegacyWarn;
+  }
+
+  select.addEventListener('change', applyMode);
+  applyMode();
 }

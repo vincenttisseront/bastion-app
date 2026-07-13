@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.access_modes import normalize_access_mode, validate_app_access_fields
+from app.admin.export import export_app_catalogue_files
 from app.audit import list_audit_entries, log_action
 from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
 from app.breakglass import COOKIE_MAX_AGE, COOKIE_NAME, create_breakglass_token
@@ -354,7 +356,13 @@ def admin_apps_create(
         **_ctx(
             request,
             settings,
-            form_values={"slug": "", "label": "", "upstream_url": "", "access_mode": "sso"},
+            form_values={
+                "slug": "",
+                "label": "",
+                "upstream_url": "",
+                "access_mode": "sso_gate",
+                "public_fqdn": "",
+            },
             errors={},
         ),
     )
@@ -366,29 +374,39 @@ def admin_apps_create_post(
     slug: str = Form(...),
     label: str = Form(...),
     upstream_url: str = Form(...),
-    access_mode: str = Form("sso"),
+    access_mode: str = Form("sso_gate"),
+    public_fqdn: str = Form(""),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
     user=Depends(require_admin),
 ):
+    mode = normalize_access_mode(access_mode)
+    fqdn = public_fqdn.strip() or None
+    form_values = {
+        "slug": slug,
+        "label": label,
+        "upstream_url": upstream_url,
+        "access_mode": mode,
+        "public_fqdn": public_fqdn,
+    }
+    errors = validate_app_access_fields(mode, upstream_url, fqdn)
     if db.query(App).filter_by(slug=slug).first():
+        errors["slug"] = f"Le slug « {slug} » existe déjà."
+    if errors:
         return render(
             "admin/apps/create.html",
-            **_ctx(
-                request,
-                settings,
-                form_values={
-                    "slug": slug,
-                    "label": label,
-                    "upstream_url": upstream_url,
-                    "access_mode": access_mode,
-                },
-                errors={"slug": f"Le slug « {slug} » existe déjà."},
-            ),
+            **_ctx(request, settings, form_values=form_values, errors=errors),
         )
-    app = App(slug=slug, label=label, upstream_url=upstream_url, access_mode=access_mode)
+    app = App(
+        slug=slug,
+        label=label,
+        upstream_url=upstream_url,
+        access_mode=mode,
+        public_fqdn=fqdn,
+    )
     db.add(app)
     db.commit()
+    export_app_catalogue_files(db, settings)
     log_action(db, actor=user.email, action="app.created", target=slug)
     response = RedirectResponse(url="/admin/apps", status_code=302)
     flash_redirect(response, f"Application '{label}' créée.", "success", settings.vault_portal_internal_token or "dev")
@@ -406,7 +424,7 @@ def admin_apps_edit(
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
         raise HTTPException(status_code=404)
-    return render("admin/apps/edit.html", **_ctx(request, settings, app=app))
+    return render("admin/apps/edit.html", **_ctx(request, settings, app=app, errors={}))
 
 
 @router.post("/admin/apps/{slug}/edit")
@@ -415,7 +433,8 @@ def admin_apps_edit_post(
     request: Request,
     label: str = Form(...),
     upstream_url: str = Form(...),
-    access_mode: str = Form("sso"),
+    access_mode: str = Form("sso_gate"),
+    public_fqdn: str = Form(""),
     enabled: str | None = Form(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -424,11 +443,25 @@ def admin_apps_edit_post(
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
         raise HTTPException(status_code=404)
+    mode = normalize_access_mode(access_mode)
+    fqdn = public_fqdn.strip() or None
+    errors = validate_app_access_fields(mode, upstream_url, fqdn)
+    if errors:
+        app.label = label
+        app.upstream_url = upstream_url
+        app.access_mode = mode
+        app.public_fqdn = fqdn
+        return render(
+            "admin/apps/edit.html",
+            **_ctx(request, settings, app=app, errors=errors),
+        )
     app.label = label
     app.upstream_url = upstream_url
-    app.access_mode = access_mode
+    app.access_mode = mode
+    app.public_fqdn = fqdn
     app.enabled = enabled == "on"
     db.commit()
+    export_app_catalogue_files(db, settings)
     log_action(db, actor=user.email, action="app.updated", target=slug)
     response = RedirectResponse(url="/admin/apps", status_code=302)
     flash_redirect(response, f"Application '{label}' mise à jour.", "success", settings.vault_portal_internal_token or "dev")
@@ -482,7 +515,8 @@ def admin_health(
             "slug": a.slug,
             "label": a.label,
             "upstream_url": a.healthcheck_url or a.upstream_url,
-            "access_mode": a.access_mode,
+            "access_mode": normalize_access_mode(a.access_mode),
+            "public_fqdn": a.public_fqdn,
             "status": "unknown",
             "http_code": None,
             "latency_ms": None,

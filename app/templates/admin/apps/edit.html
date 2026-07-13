@@ -3,30 +3,23 @@
 {% block breadcrumb %}Admin / Applications / {{ app.slug }}{% endblock %}
 
 {% block content %}
+{% set selected_mode = app.access_mode %}
+{% set errors = errors | default({}) %}
 <div class="page page-form">
   <div class="page-header">
     <div>
       <h1 class="page-title">Modifier {{ app.label }}</h1>
-      <p class="page-sub">Slug : <span class="mono">{{ app.slug }}</span></p>
+      <p class="page-sub">Slug interne : <span class="mono">{{ app.slug }}</span> (non modifiable)</p>
     </div>
   </div>
 
-  <form method="post" action="/admin/apps/{{ app.slug }}/edit">
+  <form method="post" action="/admin/apps/{{ app.slug }}/edit" id="app-form">
     <div class="form-section">
       <div class="form-section-header">
         <div class="form-section-title">Informations générales</div>
-        <div class="form-section-sub">Libellé, upstream et mode d'accès</div>
+        <div class="form-section-sub">Libellé, mode d'accès et URL cible</div>
       </div>
       <div class="form-body">
-        <div class="form-group">
-          <label class="form-label" for="upstream_url">URL upstream <span class="req">*</span></label>
-          <div class="input-wrap">
-            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ app.upstream_url }}" required>
-          </div>
-          {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
-        </div>
-
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="label">Nom affiché <span class="req">*</span></label>
@@ -38,12 +31,37 @@
           </div>
           <div class="form-group">
             <label class="form-label" for="access_mode">Mode d'accès</label>
-            <select id="access_mode" name="access_mode" class="form-select">
-              {% for mode in ['sso', 'direct', 'robotic', 'subdomain'] %}
-              <option value="{{ mode }}"{% if app.access_mode == mode %} selected{% endif %}>{{ mode | upper }}</option>
+            <select id="access_mode" name="access_mode" class="form-select" data-access-mode-select>
+              {% for mode in access_modes %}
+              <option value="{{ mode }}"{% if selected_mode == mode %} selected{% endif %}>{{ access_mode_labels[mode] }}</option>
               {% endfor %}
             </select>
+            {% if errors.access_mode %}<div class="form-error">{{ errors.access_mode }}</div>{% endif %}
           </div>
+        </div>
+
+        <div id="access-mode-legacy-warning" class="alert alert-warn" hidden>
+          Ce mode ne fonctionne que si l'application supporte un déploiement en sous-chemin.
+          En cas de doute, utilisez SSO Gate ou Sous-domaine dédié.
+        </div>
+
+        <div class="form-group" id="public-fqdn-group" hidden>
+          <label class="form-label" for="public_fqdn">Sous-domaine public <span class="req">*</span></label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ app.public_fqdn or '' }}" placeholder="app.example.fr">
+          </div>
+          {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
+        </div>
+
+        <div class="form-group" id="upstream-url-group">
+          <label class="form-label" for="upstream_url" id="upstream-url-label">URL <span class="req">*</span></label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ app.upstream_url }}" required>
+          </div>
+          <p class="form-help" id="upstream-url-help"></p>
+          {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
         </div>
 
         <label class="form-check">

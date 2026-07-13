@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.access_modes import app_launch_url
 from starlette.templating import Jinja2Templates
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
@@ -27,6 +28,7 @@ def _format_datetime(value: datetime | str | None, fmt: str = "%Y-%m-%d %H:%M:%S
 
 templates.env.filters["initials"] = _initials
 templates.env.filters["format_datetime"] = _format_datetime
+templates.env.globals["app_launch_url"] = app_launch_url
 
 
 def render(template_name: str, **context: Any):

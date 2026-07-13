@@ -3,23 +3,20 @@
 {% block breadcrumb %}Admin / Applications / Créer{% endblock %}
 
 {% block content %}
+{% set selected_mode = form_values.access_mode | default('sso_gate') %}
 <div class="page page-form">
   <div class="page-header">
     <div>
       <h1 class="page-title">Nouvelle application</h1>
-      <p class="page-sub">Enregistrement dans le catalogue bastion</p>
+      <p class="page-sub">Le slug est un identifiant technique interne — il n'apparaît pas dans l'URL publique</p>
     </div>
   </div>
 
-  {% if form_error and not errors %}
-  <div class="alert alert-err">{{ form_error }}</div>
-  {% endif %}
-
-  <form method="post" action="/admin/apps/create">
+  <form method="post" action="/admin/apps/create" id="app-form">
     <div class="form-section">
       <div class="form-section-header">
         <div class="form-section-title">Informations générales</div>
-        <div class="form-section-sub">Identité, upstream et mode d'accès</div>
+        <div class="form-section-sub">Identité, mode d'accès et URL cible</div>
       </div>
       <div class="form-body">
         <div class="form-row">
@@ -33,33 +30,47 @@
           </div>
           <div class="form-group">
             <label class="form-label" for="access_mode">Mode d'accès</label>
-            <select id="access_mode" name="access_mode" class="form-select{% if errors.access_mode %} is-invalid{% endif %}">
-              {% set mode = form_values.access_mode | default('sso') %}
-              <option value="sso"{% if mode == 'sso' %} selected{% endif %}>SSO — oauth2-proxy</option>
-              <option value="direct"{% if mode == 'direct' %} selected{% endif %}>Direct — sans SSO</option>
-              <option value="robotic"{% if mode == 'robotic' %} selected{% endif %}>Robotic — automatisation</option>
-              <option value="subdomain"{% if mode == 'subdomain' %} selected{% endif %}>Subdomain — vhost dédié</option>
+            <select id="access_mode" name="access_mode" class="form-select{% if errors.access_mode %} is-invalid{% endif %}" data-access-mode-select>
+              {% for mode in access_modes %}
+              <option value="{{ mode }}"{% if selected_mode == mode %} selected{% endif %}>{{ access_mode_labels[mode] }}</option>
+              {% endfor %}
             </select>
             {% if errors.access_mode %}<div class="form-error">{{ errors.access_mode }}</div>{% endif %}
           </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="slug">Slug <span class="req">*</span></label>
+          <label class="form-label" for="slug">Slug (identifiant interne) <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             <input type="text" id="slug" name="slug" data-mode="create" data-slug-from="label" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug | default('') }}" required pattern="[a-z0-9-]+" placeholder="ex: crm-interne">
           </div>
-          <p class="form-help">Généré automatiquement depuis le nom, modifiable</p>
+          <p class="form-help">Généré automatiquement depuis le nom, modifiable. Référence RBAC, audit et configs — pas une URL publique.</p>
           {% if errors.slug %}<div class="form-error">{{ errors.slug }}</div>{% endif %}
         </div>
 
-        <div class="form-group">
-          <label class="form-label" for="upstream_url">URL upstream <span class="req">*</span></label>
+        <div id="access-mode-legacy-warning" class="alert alert-warn" hidden>
+          Ce mode ne fonctionne que si l'application supporte un déploiement en sous-chemin.
+          En cas de doute, utilisez SSO Gate ou Sous-domaine dédié.
+        </div>
+
+        <div class="form-group" id="public-fqdn-group" hidden>
+          <label class="form-label" for="public_fqdn">Sous-domaine public <span class="req">*</span></label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ form_values.public_fqdn | default('') }}" placeholder="app.example.fr">
+          </div>
+          <p class="form-help">FQDN public servi par Nginx (vhost dédié, proxy transparent).</p>
+          {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
+        </div>
+
+        <div class="form-group" id="upstream-url-group">
+          <label class="form-label" for="upstream_url" id="upstream-url-label">URL publique de l'application <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ form_values.upstream_url | default('') }}" required placeholder="https://app.internal/">
+            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ form_values.upstream_url | default('') }}" required placeholder="https://app.example.fr/">
           </div>
+          <p class="form-help" id="upstream-url-help">L'utilisateur sera redirigé ici après validation SSO. Aucun proxy.</p>
           {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
         </div>
       </div>

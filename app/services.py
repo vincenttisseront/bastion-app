@@ -1,6 +1,7 @@
 """Application catalogue CRUD and RBAC group management."""
 
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -19,7 +20,8 @@ class AppCreate(BaseModel):
     label: str
     upstream_url: str
     realm_slug: str | None = None
-    access_mode: str = "sso"
+    access_mode: Literal["sso_gate", "subdomain_proxy", "legacy_path_proxy"] = "sso_gate"
+    public_fqdn: str | None = None
     auth_mode: str = "oidc"
     robotic_driver: str | None = None
     healthcheck_url: str | None = None
@@ -31,7 +33,8 @@ class AppUpdate(BaseModel):
     label: str | None = None
     upstream_url: str | None = None
     realm_slug: str | None = None
-    access_mode: str | None = None
+    access_mode: Literal["sso_gate", "subdomain_proxy", "legacy_path_proxy"] | None = None
+    public_fqdn: str | None = None
     auth_mode: str | None = None
     robotic_driver: str | None = None
     healthcheck_url: str | None = None
@@ -45,6 +48,7 @@ class AppOut(BaseModel):
     upstream_url: str
     realm_slug: str | None
     access_mode: str
+    public_fqdn: str | None
     auth_mode: str
     robotic_driver: str | None
     healthcheck_url: str | None

@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi import Request, Response
 
+from app.access_modes import ACCESS_MODE_LABELS, ACCESS_MODES
+
 FLASH_COOKIE = "portal_flash"
 FLASH_MAX_AGE = 30
 
@@ -93,5 +95,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "csrf_token": make_csrf_token(request, secret),
         "hide_chrome": extra.pop("hide_chrome", False),
         "now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "access_modes": ACCESS_MODES,
+        "access_mode_labels": ACCESS_MODE_LABELS,
         **extra,
     }

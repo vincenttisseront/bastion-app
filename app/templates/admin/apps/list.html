@@ -29,7 +29,7 @@
           <td>{{ app.label }}</td>
           <td class="mono">{{ app.slug }}</td>
           <td class="mono truncate" style="max-width:200px;">{{ app.upstream_url }}</td>
-          <td><span class="mode-badge {{ app.access_mode }}">{{ app.access_mode }}</span></td>
+          <td><span class="mode-badge {{ app.access_mode }}">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</span></td>
           <td><span class="badge badge-{{ 'ok' if app.enabled else 'muted' }}">{{ 'Actif' if app.enabled else 'Désactivé' }}</span></td>
           <td><a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">Modifier</a></td>
         </tr>

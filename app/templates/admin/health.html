@@ -73,7 +73,7 @@
             <div class="mono" style="color:var(--text-3);font-size:var(--fs-xs);">{{ p.slug }}</div>
           </td>
           <td class="mono truncate" style="max-width:200px;">{{ p.upstream_url }}</td>
-          <td><span class="mode-badge {{ p.access_mode }}">{{ p.access_mode }}</span></td>
+          <td><span class="mode-badge {{ p.access_mode }}">{{ access_mode_labels.get(p.access_mode, p.access_mode) }}</span></td>
           <td>
             <span class="badge badge-{{ 'ok' if p.status == 'ok' else ('warn' if p.status == 'warn' else ('err' if p.status == 'error' else 'muted')) }}">
               {{ p.status | upper }}
