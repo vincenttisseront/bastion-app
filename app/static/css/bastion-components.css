@@ -78,6 +78,7 @@
   box-shadow:0 0 0 3px var(--accent-muted);
 }
 .form-input.is-invalid{border-color:var(--err);box-shadow:0 0 0 3px var(--err-bg)}
+.form-select.is-invalid{border-color:var(--err);box-shadow:0 0 0 3px var(--err-bg)}
 .form-input::placeholder{color:var(--text-3);font-style:italic}
 .form-select{
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
@@ -89,7 +90,8 @@
 .form-help,.form-hint{font-size:var(--fs-xs);color:var(--text-2)}
 .form-error{font-size:var(--fs-xs);color:var(--err)}
 .form-footer{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4) var(--sp-6);border-top:1px solid var(--border-muted);background:var(--bg-tertiary);flex-wrap:wrap}
-.form-check{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm);color:var(--text-2);cursor:pointer}
+.form-check,.form-checkbox{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm);color:var(--text-2);cursor:pointer}
+.form-check input,.form-checkbox input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 
 .table-wrap,.data-table-wrapper{border:1px solid var(--border);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh-card)}
 .table-toolbar{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--bg-card);border-bottom:1px solid var(--border-muted);flex-wrap:wrap}

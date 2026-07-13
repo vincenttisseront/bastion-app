@@ -108,6 +108,7 @@ body.app-layout{display:flex;min-height:100vh}
 
 .main-content{flex:1;overflow-y:auto;padding:var(--sp-6);background:var(--bg-base)}
 .page,.page-wrapper{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:var(--sp-6)}
+.page-form{max-width:640px}
 .page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap}
 .page-title{font-size:var(--fs-2xl);font-weight:700;letter-spacing:-.03em;color:var(--text);line-height:1.2}
 .page-sub,.page-subtitle{color:var(--text-2);font-size:var(--fs-sm);margin-top:4px}

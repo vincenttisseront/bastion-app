@@ -3,7 +3,7 @@
 {% block breadcrumb %}Admin / Applications / Créer{% endblock %}
 
 {% block content %}
-<div class="page" style="max-width:640px;">
+<div class="page page-form">
   <div class="page-header">
     <div>
       <h1 class="page-title">Nouvelle application</h1>
@@ -11,50 +11,55 @@
     </div>
   </div>
 
-  {% if form_error %}<div class="alert alert-err">{{ form_error }}</div>{% endif %}
+  {% if form_error and not errors %}
+  <div class="alert alert-err">{{ form_error }}</div>
+  {% endif %}
 
   <form method="post" action="/admin/apps/create">
     <div class="form-section">
       <div class="form-section-header">
-        <div class="form-section-title">Identité</div>
-        <div class="form-section-sub">Slug unique et libellé affiché</div>
+        <div class="form-section-title">Informations générales</div>
+        <div class="form-section-sub">Identité, upstream et mode d'accès</div>
       </div>
       <div class="form-body">
         <div class="form-group">
           <label class="form-label" for="slug">Slug <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-            <input type="text" id="slug" name="slug" class="form-input" required pattern="[a-z0-9-]+" placeholder="mon-app">
+            <input type="text" id="slug" name="slug" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug | default('') }}" required pattern="[a-z0-9-]+" placeholder="ex: crm-interne">
           </div>
+          {% if errors.slug %}<div class="form-error">{{ errors.slug }}</div>{% endif %}
         </div>
-        <div class="form-group">
-          <label class="form-label" for="label">Nom affiché <span class="req">*</span></label>
-          <input type="text" id="label" name="label" class="form-input" required>
-        </div>
+
         <div class="form-group">
           <label class="form-label" for="upstream_url">URL upstream <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <input type="url" id="upstream_url" name="upstream_url" class="form-input" required placeholder="https://app.internal/">
+            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ form_values.upstream_url | default('') }}" required placeholder="https://app.internal/">
           </div>
+          {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
         </div>
-      </div>
-    </div>
 
-    <div class="form-section">
-      <div class="form-section-header">
-        <div class="form-section-title">Mode d'accès</div>
-        <div class="form-section-sub">SSO, direct, robotic ou subdomain</div>
-      </div>
-      <div class="form-body">
-        <div class="form-group">
-          <label class="form-label" for="access_mode">Mode</label>
-          <select id="access_mode" name="access_mode" class="form-select">
-            <option value="sso">SSO — oauth2-proxy</option>
-            <option value="direct">Direct — sans SSO</option>
-            <option value="robotic">Robotic — automatisation</option>
-            <option value="subdomain">Subdomain — vhost dédié</option>
-          </select>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="label">Nom affiché <span class="req">*</span></label>
+            <div class="input-wrap">
+              <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/></svg>
+              <input type="text" id="label" name="label" class="form-input{% if errors.label %} is-invalid{% endif %}" value="{{ form_values.label | default('') }}" required>
+            </div>
+            {% if errors.label %}<div class="form-error">{{ errors.label }}</div>{% endif %}
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="access_mode">Mode d'accès</label>
+            <select id="access_mode" name="access_mode" class="form-select{% if errors.access_mode %} is-invalid{% endif %}">
+              {% set mode = form_values.access_mode | default('sso') %}
+              <option value="sso"{% if mode == 'sso' %} selected{% endif %}>SSO — oauth2-proxy</option>
+              <option value="direct"{% if mode == 'direct' %} selected{% endif %}>Direct — sans SSO</option>
+              <option value="robotic"{% if mode == 'robotic' %} selected{% endif %}>Robotic — automatisation</option>
+              <option value="subdomain"{% if mode == 'subdomain' %} selected{% endif %}>Subdomain — vhost dédié</option>
+            </select>
+            {% if errors.access_mode %}<div class="form-error">{{ errors.access_mode }}</div>{% endif %}
+          </div>
         </div>
       </div>
       <div class="form-footer">

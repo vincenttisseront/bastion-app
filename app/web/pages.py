@@ -349,7 +349,15 @@ def admin_apps_create(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
-    return render("admin/apps/create.html", **_ctx(request, settings))
+    return render(
+        "admin/apps/create.html",
+        **_ctx(
+            request,
+            settings,
+            form_values={"slug": "", "label": "", "upstream_url": "", "access_mode": "sso"},
+            errors={},
+        ),
+    )
 
 
 @router.post("/admin/apps/create")
@@ -366,7 +374,17 @@ def admin_apps_create_post(
     if db.query(App).filter_by(slug=slug).first():
         return render(
             "admin/apps/create.html",
-            **_ctx(request, settings, form_error=f"Le slug '{slug}' existe déjà."),
+            **_ctx(
+                request,
+                settings,
+                form_values={
+                    "slug": slug,
+                    "label": label,
+                    "upstream_url": upstream_url,
+                    "access_mode": access_mode,
+                },
+                errors={"slug": f"Le slug « {slug} » existe déjà."},
+            ),
         )
     app = App(slug=slug, label=label, upstream_url=upstream_url, access_mode=access_mode)
     db.add(app)
