@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.access_modes import normalize_access_mode, validate_app_access_fields
 from app.admin.export import export_app_catalogue_files
 from app.audit import list_audit_entries, log_action
+from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
 from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
 from app.breakglass import COOKIE_MAX_AGE, COOKIE_NAME, create_breakglass_token
 from app.breakglass_store import (
@@ -509,26 +510,11 @@ def admin_health(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
-    apps = db.query(App).filter_by(enabled=True).all()
-    probes = [
-        {
-            "slug": a.slug,
-            "label": a.label,
-            "upstream_url": a.healthcheck_url or a.upstream_url,
-            "access_mode": normalize_access_mode(a.access_mode),
-            "public_fqdn": a.public_fqdn,
-            "status": "unknown",
-            "http_code": None,
-            "latency_ms": None,
-        }
-        for a in apps
-    ]
-    status_counts = {"ok": 0, "warn": 0, "error": 0, "unknown": 0}
-    for p in probes:
-        key = p["status"] if p["status"] in status_counts else "unknown"
-        status_counts[key] += 1
+    apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    probes = [probe_row_from_app(app) for app in apps]
+    status_counts = compute_status_counts(probes)
     total = len(probes)
-    health_score = int((status_counts["ok"] / total) * 100) if total else 100
+    health_score = compute_health_score(status_counts, total)
     return render(
         "admin/health.html",
         **_ctx(

@@ -12,6 +12,7 @@ from app.auth import router as auth_router
 from app.admin.realms import router as admin_realms_router
 from app.breakglass import router as breakglass_router
 from app.database import engine
+from app.health_scheduler import start_health_scheduler, stop_health_scheduler
 from app.models import Base
 from app.realm_service import router as realm_router
 from app.services import router as apps_router
@@ -19,6 +20,7 @@ from app.subdomain.subdomain_auth import router as subdomain_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context
+from app.web.health_service import router as health_router
 from app.web.metrics_service import router as metrics_router
 from app.web.pages import router as pages_router
 from app.web.sessions_service import router as sessions_router
@@ -30,8 +32,13 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
     Base.metadata.create_all(bind=engine)
-    yield
+    start_health_scheduler(settings)
+    try:
+        yield
+    finally:
+        stop_health_scheduler()
 
 
 app = FastAPI(
@@ -74,6 +81,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(pages_router)
+app.include_router(health_router)
 app.include_router(admin_realms_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)

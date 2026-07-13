@@ -111,6 +111,21 @@ class Settings(BaseSettings):
         default=["portal-admins", "bastion-admins", "admins"]
     )
 
+    health_probe_interval_minutes: int = Field(
+        default=5,
+        validation_alias=AliasChoices(
+            "HEALTH_PROBE_INTERVAL_MINUTES",
+            "health_probe_interval_minutes",
+        ),
+    )
+    health_probe_leader: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "HEALTH_PROBE_LEADER",
+            "health_probe_leader",
+        ),
+    )
+
     @field_validator("portal_admin_groups", mode="before")
     @classmethod
     def parse_portal_admin_groups(cls, value: Any) -> list[str]:

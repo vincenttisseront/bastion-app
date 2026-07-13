@@ -29,6 +29,12 @@ class App(Base):
     healthcheck_url = Column(String, nullable=True)
     enabled = Column(Boolean, default=True)
     tile_icon = Column(String, nullable=True)
+    last_probe_status = Column(String, nullable=True)
+    last_probe_http_code = Column(Integer, nullable=True)
+    last_probe_latency_ms = Column(Integer, nullable=True)
+    last_probe_at = Column(DateTime(timezone=True), nullable=True)
+    last_probe_error = Column(String, nullable=True)
+    probe_enabled = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
