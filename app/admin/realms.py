@@ -194,7 +194,14 @@ def admin_realms_new(
 ):
     return render(
         "admin/realm_form.html",
-        **_ctx(request, settings, realm=None, form_values=_realm_form_values(None), errors={}),
+        **_ctx(
+            request,
+            settings,
+            realm=None,
+            form_values=_realm_form_values(None),
+            errors={},
+            encryption_error=_guard_encryption(settings),
+        ),
     )
 
 
@@ -345,6 +352,7 @@ def admin_realms_edit(
             realm=realm,
             form_values=_realm_form_values(realm),
             errors={},
+            encryption_error=_guard_encryption(settings),
         ),
     )
 

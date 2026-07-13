@@ -11,21 +11,33 @@ from app.sso_settings import Settings
 ENCRYPTION_KEY_ENV = "PORTAL_SECRET_ENCRYPTION_KEY"
 
 
+def _encryption_key_material(settings: Settings) -> str:
+    """Primary: PORTAL_SECRET_ENCRYPTION_KEY; fallback: VAULT_PORTAL_VAULT_FERNET_KEY."""
+    raw = (settings.portal_secret_encryption_key or "").strip()
+    if not raw:
+        raw = (settings.vault_portal_vault_fernet_key or "").strip()
+    if not raw:
+        raise ValueError(encryption_config_error())
+    return raw
+
+
 def encryption_configured(settings: Settings) -> bool:
-    return bool((settings.portal_secret_encryption_key or "").strip())
+    try:
+        _encryption_key_material(settings)
+        return True
+    except ValueError:
+        return False
 
 
 def encryption_config_error() -> str:
     return (
-        f"{ENCRYPTION_KEY_ENV} n'est pas configurée sur le serveur. "
-        "Générez une clé Fernet et ajoutez-la au fichier d'environnement du service sso-portal."
+        f"{ENCRYPTION_KEY_ENV} (ou VAULT_PORTAL_VAULT_FERNET_KEY) n'est pas configurée. "
+        "Ajoutez une clé Fernet dans /opt/sso-portal/.env puis redémarrez sso-portal."
     )
 
 
 def _fernet(settings: Settings) -> Fernet:
-    raw = settings.portal_secret_encryption_key
-    if not raw:
-        raise ValueError(encryption_config_error())
+    raw = _encryption_key_material(settings)
     try:
         return Fernet(raw.encode("ascii"))
     except (ValueError, TypeError):

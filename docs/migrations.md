@@ -33,8 +33,8 @@ créer ou modifier un realm OIDC :
 /opt/sso-portal/venv/bin/python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Ajouter la valeur dans le fichier d'environnement du service `sso-portal`, puis
-`systemctl restart sso-portal`.
+Ajouter la valeur dans `/opt/sso-portal/.env` (ou réutiliser `VAULT_PORTAL_VAULT_FERNET_KEY`
+si déjà provisionnée par Ansible), puis `systemctl restart sso-portal`.
 
 ## Apply migrations
 

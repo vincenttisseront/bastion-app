@@ -12,6 +12,7 @@
   </div>
 
   {% if errors._form %}<div class="alert alert-err">{{ errors._form }}</div>{% endif %}
+  {% if encryption_error %}<div class="alert alert-warn">{{ encryption_error }}</div>{% endif %}
   <div id="test-global-result" class="alert" style="display:none;"></div>
   <div id="test-checks"></div>
 
