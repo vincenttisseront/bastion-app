@@ -24,6 +24,18 @@ sudo -u sso-portal venv/bin/python3 scripts/fix_audit_logs_schema.py
 
 This script is idempotent and preserves existing `audit_logs` rows.
 
+## OIDC realm admin (chiffrement des secrets)
+
+`PORTAL_SECRET_ENCRYPTION_KEY` doit être définie sur le serveur (clé Fernet) avant de
+créer ou modifier un realm OIDC :
+
+```bash
+/opt/sso-portal/venv/bin/python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Ajouter la valeur dans le fichier d'environnement du service `sso-portal`, puis
+`systemctl restart sso-portal`.
+
 ## Apply migrations
 
 ```bash

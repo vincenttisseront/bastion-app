@@ -8,11 +8,24 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from app.sso_settings import Settings
 
+ENCRYPTION_KEY_ENV = "PORTAL_SECRET_ENCRYPTION_KEY"
+
+
+def encryption_configured(settings: Settings) -> bool:
+    return bool((settings.portal_secret_encryption_key or "").strip())
+
+
+def encryption_config_error() -> str:
+    return (
+        f"{ENCRYPTION_KEY_ENV} n'est pas configurée sur le serveur. "
+        "Générez une clé Fernet et ajoutez-la au fichier d'environnement du service sso-portal."
+    )
+
 
 def _fernet(settings: Settings) -> Fernet:
     raw = settings.portal_secret_encryption_key
     if not raw:
-        raise ValueError("PORTAL_SECRET_ENCRYPTION_KEY is not configured")
+        raise ValueError(encryption_config_error())
     try:
         return Fernet(raw.encode("ascii"))
     except (ValueError, TypeError):

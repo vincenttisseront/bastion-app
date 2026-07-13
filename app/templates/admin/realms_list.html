@@ -12,6 +12,13 @@
     <a href="/admin/realms/new" class="btn btn-primary btn-sm">+ Créer</a>
   </div>
 
+  {% if schema_error %}
+  <div class="alert alert-err" style="margin-bottom:var(--sp-4);">{{ schema_error }}</div>
+  {% endif %}
+  {% if encryption_error %}
+  <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">{{ encryption_error }}</div>
+  {% endif %}
+
   <div class="table-wrap">
     <table class="data-table">
       <thead>

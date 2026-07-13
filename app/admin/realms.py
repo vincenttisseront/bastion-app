@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.admin.export import (
@@ -26,7 +27,7 @@ from app.admin.throttling import check_test_rate_limit
 from app.audit import log_action
 from app.database import get_db
 from app.models import RealmConfig
-from app.secret_crypto import decrypt_secret, encrypt_secret
+from app.secret_crypto import decrypt_secret, encrypt_secret, encryption_config_error, encryption_configured
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
@@ -142,6 +143,19 @@ def _guard_activation(realm: RealmConfig, enabled: bool) -> str | None:
     return None
 
 
+def _guard_encryption(settings: Settings) -> str | None:
+    if not encryption_configured(settings):
+        return encryption_config_error()
+    return None
+
+
+def _safe_encrypt_secret(plaintext: str, settings: Settings) -> tuple[str | None, str | None]:
+    try:
+        return encrypt_secret(plaintext, settings), None
+    except ValueError as exc:
+        return None, str(exc)
+
+
 @router.get("/admin/realms")
 def admin_realms_list(
     request: Request,
@@ -149,8 +163,27 @@ def admin_realms_list(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
-    realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
-    return render("admin/realms_list.html", **_ctx(request, settings, realms=realms))
+    schema_error: str | None = None
+    try:
+        realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
+    except SQLAlchemyError:
+        logger.exception("Realm list query failed — schema migration likely pending")
+        realms = []
+        schema_error = (
+            "Schéma base de données incompatible. Sur le serveur : "
+            "cd /opt/sso-portal && alembic upgrade head"
+        )
+    encryption_error = _guard_encryption(settings)
+    return render(
+        "admin/realms_list.html",
+        **_ctx(
+            request,
+            settings,
+            realms=realms,
+            schema_error=schema_error,
+            encryption_error=encryption_error,
+        ),
+    )
 
 
 @router.get("/admin/realms/new")
@@ -216,6 +249,8 @@ async def admin_realms_create(
         )
 
     errors: dict[str, str] = {}
+    if enc_err := _guard_encryption(settings):
+        errors["_form"] = enc_err
     if slug_err := _check_slug_unique(db, data.slug):
         errors["slug"] = slug_err
     if port_err := _check_port_unique(db, data.oauth2_proxy_port):
@@ -236,12 +271,20 @@ async def admin_realms_create(
         )
 
     redirect_uri = compute_redirect_uri(data.slug, settings)
+    encrypted_secret, enc_err = _safe_encrypt_secret(data.client_secret, settings)
+    if enc_err:
+        errors["_form"] = enc_err
+        return render(
+            "admin/realm_form.html",
+            **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
+            status_code=400,
+        )
     realm = RealmConfig(
         slug=data.slug,
         name=data.name,
         issuer_url=data.issuer_url,
         client_id=data.client_id,
-        client_secret_encrypted=encrypt_secret(data.client_secret, settings),
+        client_secret_encrypted=encrypted_secret,
         redirect_uri=redirect_uri,
         scopes=data.scopes,
         oauth2_proxy_port=data.oauth2_proxy_port,
@@ -391,7 +434,20 @@ async def admin_realms_update(
     realm.scopes = data.scopes
     realm.redirect_uri = compute_redirect_uri(realm.slug, settings)
     if data.client_secret:
-        realm.client_secret_encrypted = encrypt_secret(data.client_secret, settings)
+        encrypted_secret, enc_err = _safe_encrypt_secret(data.client_secret, settings)
+        if enc_err:
+            return render(
+                "admin/realm_form.html",
+                **_ctx(
+                    request,
+                    settings,
+                    realm=realm,
+                    form_values=form_values,
+                    errors={"_form": enc_err},
+                ),
+                status_code=400,
+            )
+        realm.client_secret_encrypted = encrypted_secret
     _apply_default_realm(db, realm, data.is_default)
 
     if enabled_requested:

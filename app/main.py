@@ -32,7 +32,14 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
+
     settings = get_settings()
+    logger = logging.getLogger("app.main")
+    if not settings.portal_secret_encryption_key:
+        logger.warning(
+            "PORTAL_SECRET_ENCRYPTION_KEY is not set — OIDC realm create/update will fail"
+        )
     Base.metadata.create_all(bind=engine)
     start_health_scheduler(settings)
     try:
