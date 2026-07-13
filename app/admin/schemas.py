@@ -18,6 +18,8 @@ class RealmConfigBase(BaseModel):
     scopes: str = "openid profile email"
     is_default: bool = False
     enabled: bool = False
+    keycloak_admin_client_id: str | None = None
+    keycloak_admin_client_secret: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -81,6 +83,22 @@ class RealmConfigCreate(RealmConfigBase):
             raise ValueError("Client secret requis")
         return value
 
+    @field_validator("keycloak_admin_client_id")
+    @classmethod
+    def validate_keycloak_admin_client_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+    @field_validator("keycloak_admin_client_secret")
+    @classmethod
+    def validate_keycloak_admin_client_secret(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
 
 class RealmConfigUpdate(RealmConfigBase):
     client_secret: str | None = None
@@ -88,6 +106,13 @@ class RealmConfigUpdate(RealmConfigBase):
     @field_validator("client_secret")
     @classmethod
     def validate_client_secret(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            return None
+        return value
+
+    @field_validator("keycloak_admin_client_secret")
+    @classmethod
+    def validate_keycloak_admin_client_secret(cls, value: str | None) -> str | None:
         if value is not None and not value.strip():
             return None
         return value

@@ -92,6 +92,19 @@ def _resolve_client_secret(
     return None
 
 
+def _resolve_admin_client_secret(
+    provided: str | None, realm: RealmConfig | None, settings: Settings
+) -> str | None:
+    if provided and provided.strip():
+        return provided.strip()
+    if realm and realm.keycloak_admin_client_secret_encrypted:
+        try:
+            return decrypt_secret(realm.keycloak_admin_client_secret_encrypted, settings)
+        except ValueError:
+            return None
+    return None
+
+
 def _realm_form_values(
   realm: RealmConfig | None,
   *,
@@ -116,6 +129,8 @@ def _realm_form_values(
             "last_test_status": realm.last_test_status,
             "last_tested_at": realm.last_tested_at,
             "enabled": realm.enabled,
+            "keycloak_admin_client_id": realm.keycloak_admin_client_id or "",
+            "groups_sync_enabled": bool(realm.groups_sync_enabled),
         }
     return {
         "slug": slug,
@@ -129,6 +144,8 @@ def _realm_form_values(
         "last_test_status": None,
         "last_tested_at": None,
         "enabled": False,
+        "keycloak_admin_client_id": "",
+        "groups_sync_enabled": False,
     }
 
 
@@ -222,6 +239,8 @@ async def admin_realms_create(
     issuer_url: str = Form(""),
     client_id: str = Form(""),
     client_secret: str = Form(""),
+    keycloak_admin_client_id: str = Form(""),
+    keycloak_admin_client_secret: str = Form(""),
     oauth2_proxy_port: int = Form(4180),
     scopes: str = Form("openid profile email"),
     is_default: str | None = Form(None),
@@ -249,6 +268,8 @@ async def admin_realms_create(
             issuer_url=issuer_url,
             client_id=client_id,
             client_secret=client_secret,
+            keycloak_admin_client_id=keycloak_admin_client_id or None,
+            keycloak_admin_client_secret=keycloak_admin_client_secret or None,
             oauth2_proxy_port=oauth2_proxy_port,
             scopes=scopes,
             is_default=_form_bool(is_default),
@@ -295,6 +316,31 @@ async def admin_realms_create(
             **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
             status_code=400,
         )
+
+    admin_client_id: str | None = (data.keycloak_admin_client_id or "").strip() or None
+    admin_secret_plain: str | None = (data.keycloak_admin_client_secret or "").strip() or None
+    admin_secret_encrypted: str | None = None
+    if admin_client_id or admin_secret_plain:
+        if not admin_client_id:
+            errors["keycloak_admin_client_id"] = "Client ID requis"
+        if not admin_secret_plain:
+            errors["keycloak_admin_client_secret"] = "Client secret requis"
+        if errors:
+            if _wants_json(request):
+                return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+            return render(
+                "admin/realm_form.html",
+                **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
+                status_code=400,
+            )
+        admin_secret_encrypted, enc_err = _safe_encrypt_secret(admin_secret_plain, settings)
+        if enc_err:
+            errors["_form"] = enc_err
+            return render(
+                "admin/realm_form.html",
+                **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
+                status_code=400,
+            )
     realm = RealmConfig(
         slug=data.slug,
         name=data.name,
@@ -306,6 +352,9 @@ async def admin_realms_create(
         oauth2_proxy_port=data.oauth2_proxy_port,
         is_default=data.is_default,
         enabled=False,
+        keycloak_admin_client_id=admin_client_id,
+        keycloak_admin_client_secret_encrypted=admin_secret_encrypted,
+        groups_sync_enabled=bool(admin_client_id and admin_secret_encrypted),
     )
     db.add(realm)
     try:
@@ -397,6 +446,8 @@ async def admin_realms_update(
     issuer_url: str = Form(""),
     client_id: str = Form(""),
     client_secret: str = Form(""),
+    keycloak_admin_client_id: str = Form(""),
+    keycloak_admin_client_secret: str = Form(""),
     oauth2_proxy_port: int = Form(4180),
     scopes: str = Form("openid profile email"),
     is_default: str | None = Form(None),
@@ -428,6 +479,8 @@ async def admin_realms_update(
             issuer_url=issuer_url,
             client_id=client_id,
             client_secret=client_secret or None,
+            keycloak_admin_client_id=keycloak_admin_client_id or None,
+            keycloak_admin_client_secret=keycloak_admin_client_secret or None,
             oauth2_proxy_port=oauth2_proxy_port,
             scopes=scopes,
             is_default=_form_bool(is_default),
@@ -488,6 +541,66 @@ async def admin_realms_update(
                 status_code=400,
             )
         realm.client_secret_encrypted = encrypted_secret
+
+    admin_id = (data.keycloak_admin_client_id or "").strip() or None
+    admin_secret_plain = (data.keycloak_admin_client_secret or "").strip() or None
+    if admin_id or admin_secret_plain:
+        if not admin_id:
+            if _wants_json(request):
+                return JSONResponse(
+                    {"ok": False, "errors": {"keycloak_admin_client_id": "Client ID requis"}},
+                    status_code=400,
+                )
+            return render(
+                "admin/realm_form.html",
+                **_ctx(
+                    request,
+                    settings,
+                    realm=realm,
+                    form_values=form_values,
+                    errors={"keycloak_admin_client_id": "Client ID requis"},
+                ),
+                status_code=400,
+            )
+        if not admin_secret_plain and not realm.keycloak_admin_client_secret_encrypted:
+            if _wants_json(request):
+                return JSONResponse(
+                    {"ok": False, "errors": {"keycloak_admin_client_secret": "Client secret requis"}},
+                    status_code=400,
+                )
+            return render(
+                "admin/realm_form.html",
+                **_ctx(
+                    request,
+                    settings,
+                    realm=realm,
+                    form_values=form_values,
+                    errors={"keycloak_admin_client_secret": "Client secret requis"},
+                ),
+                status_code=400,
+            )
+
+        realm.keycloak_admin_client_id = admin_id
+        if admin_secret_plain:
+            encrypted_admin, enc_err = _safe_encrypt_secret(admin_secret_plain, settings)
+            if enc_err:
+                return render(
+                    "admin/realm_form.html",
+                    **_ctx(
+                        request,
+                        settings,
+                        realm=realm,
+                        form_values=form_values,
+                        errors={"_form": enc_err},
+                    ),
+                    status_code=400,
+                )
+            realm.keycloak_admin_client_secret_encrypted = encrypted_admin
+
+    realm.groups_sync_enabled = bool(
+        (realm.keycloak_admin_client_id or "").strip()
+        and (realm.keycloak_admin_client_secret_encrypted or "").strip()
+    )
     _apply_default_realm(db, realm, data.is_default)
 
     if enabled_requested:

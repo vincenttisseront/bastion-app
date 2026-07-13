@@ -113,6 +113,33 @@
         <a href="/admin/realms" class="btn btn-ghost">Annuler</a>
       </div>
     </div>
+
+    <div class="form-section">
+      <div class="form-section-header">
+        <div class="form-section-title">Compte de service (synchronisation des groupes)</div>
+        <div class="form-section-sub">Client confidentiel dédié, rôle minimum : <span class="mono">realm-management:query-groups</span></div>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label" for="keycloak_admin_client_id">Client ID (admin)</label>
+          <input type="text" id="keycloak_admin_client_id" name="keycloak_admin_client_id" class="form-input{% if errors.keycloak_admin_client_id %} is-invalid{% endif %}" value="{{ form_values.keycloak_admin_client_id or '' }}" placeholder="bastion-admin-sync" autocomplete="off">
+          <p class="form-hint">Distinct du client OIDC de login. Requis pour activer l’import des groupes.</p>
+          {% if errors.keycloak_admin_client_id %}<p class="form-error">{{ errors.keycloak_admin_client_id }}</p>{% endif %}
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="keycloak_admin_client_secret">Client secret (admin)</label>
+          <input type="password" id="keycloak_admin_client_secret" name="keycloak_admin_client_secret" class="form-input{% if errors.keycloak_admin_client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm and form_values.groups_sync_enabled %}••••••••{% else %}Secret du compte de service{% endif %}" autocomplete="new-password">
+          <p class="form-hint">{% if realm %}Laissez vide pour conserver le secret actuel.{% else %}Optionnel (mais requis si vous saisissez un Client ID).{% endif %}</p>
+          {% if errors.keycloak_admin_client_secret %}<p class="form-error">{{ errors.keycloak_admin_client_secret }}</p>{% endif %}
+        </div>
+        {% if realm %}
+          <div class="form-group">
+            <label class="form-label">Import groupes</label>
+            <span class="badge badge-{{ 'ok' if form_values.groups_sync_enabled else 'muted' }}">{{ 'Activé' if form_values.groups_sync_enabled else 'Non configuré' }}</span>
+          </div>
+        {% endif %}
+      </div>
+    </div>
   </form>
 </div>
 {% endblock %}

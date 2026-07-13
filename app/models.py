@@ -2,7 +2,17 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -50,8 +60,25 @@ class RBACGroup(Base):
     __tablename__ = "rbac_groups"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String, unique=True, nullable=False)
+    # Display name (Keycloak group name for synced groups).
+    name = Column(String, nullable=False, index=True)
+    # Legacy/manual linkage (kept for backward compatibility with early Phase 3 APIs).
     realm_slug = Column(String, nullable=True)
+
+    # New multi-realm Keycloak sync fields (Phase 4).
+    realm_id = Column(Integer, ForeignKey("realm_configs.id"), nullable=True, index=True)
+    keycloak_group_id = Column(String, nullable=True, index=True)
+    path = Column(String, nullable=True)
+    member_count = Column(Integer, nullable=True)
+    synced_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "realm_id",
+            "keycloak_group_id",
+            name="uq_realm_kc_group",
+        ),
+    )
 
     app_links = relationship("AppGroup", back_populates="group")
 
@@ -107,6 +134,14 @@ class RealmConfig(Base):
     last_tested_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    # Keycloak Admin API service account (per realm) for RBAC groups sync.
+    keycloak_admin_client_id = Column(String, nullable=True)
+    keycloak_admin_client_secret_encrypted = Column(String, nullable=True)
+    groups_sync_enabled = Column(Boolean, default=False)
+    last_groups_sync_at = Column(DateTime(timezone=True), nullable=True)
+    last_groups_sync_status = Column(String, nullable=True)  # "ok" | "error"
+    last_groups_sync_error = Column(String, nullable=True)
 
     @property
     def oauth2_proxy_url(self) -> str:

@@ -17,24 +17,64 @@
         <span class="card-title">Groupes RBAC</span>
         <span class="badge badge-muted">{{ groups | length }}</span>
       </div>
+      <div style="padding:var(--sp-4); border-top:1px solid var(--border); display:flex; gap:var(--sp-2); flex-wrap:wrap;">
+        {% for realm in realms %}
+          {% if realm.groups_sync_enabled %}
+            <form method="post" action="/admin/rbac/groups/sync/{{ realm.id }}">
+              <button class="btn btn-ghost btn-sm">Synchroniser {{ realm.slug }}</button>
+            </form>
+          {% else %}
+            <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Configurer sync ({{ realm.slug }})</a>
+          {% endif %}
+        {% else %}
+          <span class="badge badge-muted">Aucun realm configuré</span>
+        {% endfor %}
+      </div>
       <div class="table-wrap" style="border:none;border-radius:0;">
         <table class="data-table">
-          <thead><tr><th>Nom</th><th>Realm</th></tr></thead>
+          <thead><tr><th>Nom</th><th>Chemin</th><th>Realm</th><th>Dernière sync</th><th>Statut</th></tr></thead>
           <tbody>
             {% for g in groups %}
             <tr>
               <td class="mono">{{ g.name }}</td>
-              <td>{{ g.realm_slug or '—' }}</td>
+              <td class="mono">{{ g.path or '—' }}</td>
+              <td>
+                {% if g.realm_id and realms_by_id.get(g.realm_id) %}
+                  {{ realms_by_id.get(g.realm_id).slug }}
+                {% else %}
+                  {{ g.realm_slug or '—' }}
+                {% endif %}
+              </td>
+              <td class="mono">{% if g.synced_at %}{{ g.synced_at }}{% else %}—{% endif %}</td>
+              <td>
+                {% set r = realms_by_id.get(g.realm_id) if g.realm_id else None %}
+                {% if r and r.last_groups_sync_at and g.synced_at and g.synced_at < r.last_groups_sync_at %}
+                  <span class="badge badge-muted">Non retrouvé au dernier sync</span>
+                {% else %}
+                  <span class="badge badge-ok">OK</span>
+                {% endif %}
+              </td>
             </tr>
             {% else %}
             <tr>
-              <td colspan="2">
+              <td colspan="5">
                 <div class="empty-state" style="padding:var(--sp-6);">
                   <div class="empty-icon">
                     <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
                   </div>
                   <div class="empty-title">Aucun groupe</div>
                   <div class="empty-desc">Les groupes Keycloak synchronisés apparaîtront ici.</div>
+                  {% if realms and (realms | selectattr("groups_sync_enabled") | list | length) > 0 %}
+                    <div style="margin-top:var(--sp-3); display:flex; gap:var(--sp-2); flex-wrap:wrap; justify-content:center;">
+                      {% for realm in realms %}
+                        {% if realm.groups_sync_enabled %}
+                          <form method="post" action="/admin/rbac/groups/sync/{{ realm.id }}">
+                            <button class="btn btn-primary btn-sm">Synchroniser maintenant ({{ realm.slug }})</button>
+                          </form>
+                        {% endif %}
+                      {% endfor %}
+                    </div>
+                  {% endif %}
                 </div>
               </td>
             </tr>

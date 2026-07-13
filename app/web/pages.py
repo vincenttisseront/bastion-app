@@ -476,12 +476,22 @@ def admin_rbac(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
+    realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
     groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
     apps = db.query(App).order_by(App.label).all()
     links = db.query(AppGroup).all()
+    realms_by_id = {r.id: r for r in realms}
     return render(
         "admin/rbac.html",
-        **_ctx(request, settings, groups=groups, apps=apps, links=links),
+        **_ctx(
+            request,
+            settings,
+            realms=realms,
+            realms_by_id=realms_by_id,
+            groups=groups,
+            apps=apps,
+            links=links,
+        ),
     )
 
 
