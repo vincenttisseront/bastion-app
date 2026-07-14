@@ -203,15 +203,9 @@ server {
     {% include 'snippets/nginx-portal-oauth2-static.conf.j2' %}
     include {{ sso_portal_data_dir }}/exports/nginx-portal-realms.conf;
 
-    # Flux SSO : 401 → FastAPI /auth/sso-start (rd encodé + sign_in si session périmée)
-    # named location : proxy_pass sans URI — rewrite vers /auth/sso-start
+    # Flux login : 401 → page de choix SSO / break-glass (/auth/login)
     location @portal_oauth2_signin {
-        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        rewrite ^ /auth/sso-start break;
-        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
-        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
-        proxy_set_header X-Portal-OAuth2-Rd $request_uri;
-        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        return 302 /auth/login?rd=$uri;
     }
 
     # Proxy sans oauth2-proxy configuré — évite boucle /oauth2/start ↔ /proxy/… (secret OIDC absent)

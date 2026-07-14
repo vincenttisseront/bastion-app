@@ -36,7 +36,10 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
     lines = [
         f"# Generated for realm: {realm.slug}",
         f"http_address = \"127.0.0.1:{realm.oauth2_proxy_port}\"",
-        "upstream = \"http://127.0.0.1:8000\"",
+        # auth_request-only: no reverse proxy to FastAPI (Nginx handles app traffic)
+        'upstreams = [ "file:///dev/null" ]',
+        "reverse_proxy = true",
+        "skip_provider_button = true",
         'provider = "oidc"',
         f'oidc_issuer_url = "{realm.issuer_url}"',
         f'client_id = "{realm.client_id}"',
@@ -61,11 +64,14 @@ def generate_nginx_realms_conf(db: Session) -> str:
 
     for realm in realms:
         lines.append(f"# Realm: {realm.slug} ({realm.name})")
-        lines.append(f"location /oauth2/{realm.slug}/ {{")
+        lines.append(f"location ^~ /oauth2/{realm.slug}/ {{")
+        lines.append("    auth_request off;")
         lines.append(f"    proxy_pass {realm.oauth2_proxy_url}/oauth2/;")
         lines.append("    proxy_set_header Host $host;")
         lines.append("    proxy_set_header X-Real-IP $remote_addr;")
+        lines.append("    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
         lines.append("    proxy_set_header X-Forwarded-Proto $scheme;")
+        lines.append("    proxy_set_header X-Forwarded-Host $host;")
         lines.append("}")
         lines.append("")
 

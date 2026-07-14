@@ -32,14 +32,34 @@ def _add_default_idp(db: Session) -> RealmConfig:
     return realm
 
 
-def test_login_redirects_to_idp_when_default_realm_configured(client: TestClient, db_session: Session):
+def test_login_shows_sso_and_local_when_default_realm_configured(
+    client: TestClient, db_session: Session
+):
     _add_default_idp(db_session)
+    set_breakglass_password(db_session, "admin", "super-secret-password")
 
     response = client.get("/auth/login?rd=/catalogue", follow_redirects=False)
 
+    assert response.status_code == 200
+    assert "Connexion SSO Keycloak" in response.text
+    assert "/oauth2/ar-systems/start?rd=%2Fcatalogue" in response.text
+    assert 'name="username"' in response.text
+    assert 'name="password"' in response.text
+
+
+def test_login_post_uses_breakglass_not_idp_redirect(client: TestClient, db_session: Session):
+    _add_default_idp(db_session)
+    set_breakglass_password(db_session, "admin", "super-secret-password")
+
+    response = client.post(
+        "/auth/login",
+        data={"username": "admin", "password": "super-secret-password", "rd": "/dashboard"},
+        follow_redirects=False,
+    )
+
     assert response.status_code == 302
-    assert response.headers["location"] == "/oauth2/ar-systems/start?rd=%2Fcatalogue"
-    assert "Connexion SSO Keycloak" not in response.text
+    assert response.headers["location"] == "/dashboard"
+    assert "bg_session" in response.cookies
 
 
 def test_login_redirects_to_setup_without_idp_or_account(client: TestClient):

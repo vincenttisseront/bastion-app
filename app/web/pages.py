@@ -138,15 +138,13 @@ def login_page(
         return RedirectResponse(url=rd, status_code=302)
 
     realm = get_default_idp_realm(db)
-    if realm:
-        return RedirectResponse(url=oauth2_start_url(realm.slug, rd), status_code=302)
-
-    if not has_active_breakglass_account(db):
+    if not realm and not has_active_breakglass_account(db):
         return RedirectResponse(url=setup_url(rd), status_code=302)
 
+    oauth2_url = oauth2_start_url(realm.slug, rd) if realm else None
     return render(
         "auth/login.html",
-        **_ctx(request, settings, hide_chrome=True, rd=rd),
+        **_ctx(request, settings, hide_chrome=True, rd=rd, oauth2_url=oauth2_url),
     )
 
 
@@ -161,10 +159,6 @@ async def login_post(
 ):
     safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"
 
-    realm = get_default_idp_realm(db)
-    if realm:
-        return RedirectResponse(url=oauth2_start_url(realm.slug, safe_rd), status_code=302)
-
     if not has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Initial setup required")
 
@@ -175,12 +169,15 @@ async def login_post(
             action="breakglass.login_failed",
             ip_address=_client_ip(request),
         )
+        realm = get_default_idp_realm(db)
+        oauth2_url = oauth2_start_url(realm.slug, safe_rd) if realm else None
         ctx = _ctx(
             request,
             settings,
             hide_chrome=True,
             login_error="Identifiants invalides.",
             rd=safe_rd,
+            oauth2_url=oauth2_url,
         )
         return render("auth/login.html", **ctx)
 
