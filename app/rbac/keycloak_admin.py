@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import httpx
 from sqlalchemy.orm import Session
 
@@ -18,6 +20,77 @@ def _issuer_parts(issuer_url: str) -> tuple[str, str]:
     if not base or not realm_name:
         raise ValueError("Issuer URL invalide")
     return base, realm_name
+
+
+def _view_users_error() -> str:
+    return (
+        "Le compte de service n'a pas le rôle realm-management:view-users. "
+        "Vérifiez la configuration côté Keycloak (view-users et query-groups requis)."
+    )
+
+
+async def _admin_get(realm: RealmConfig, settings: Settings, path: str) -> httpx.Response:
+    token = await get_admin_token(realm, settings)
+    base, realm_name = _issuer_parts(realm.issuer_url)
+    url = f"{base}/admin/realms/{realm_name}{path}"
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        return await client.get(url, headers={"Authorization": f"Bearer {token}"})
+
+
+async def fetch_group_members(
+    realm: RealmConfig, keycloak_group_id: str, settings: Settings
+) -> list[dict]:
+    resp = await _admin_get(realm, settings, f"/groups/{keycloak_group_id}/members")
+    if resp.status_code == 403:
+        raise ValueError(_view_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec lecture membres du groupe (HTTP {resp.status_code})")
+    data = resp.json()
+    return data if isinstance(data, list) else []
+
+
+async def search_keycloak_users(
+    realm: RealmConfig, query: str, settings: Settings, *, max_results: int = 20
+) -> list[dict]:
+    q = (query or "").strip()
+    if not q:
+        return []
+    resp = await _admin_get(
+        realm,
+        settings,
+        f"/users?search={quote(q)}&max={max_results}",
+    )
+    if resp.status_code == 403:
+        raise ValueError(_view_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec recherche utilisateurs (HTTP {resp.status_code})")
+    data = resp.json()
+    return data if isinstance(data, list) else []
+
+
+async def fetch_user_groups(
+    realm: RealmConfig, keycloak_user_id: str, settings: Settings
+) -> list[dict]:
+    resp = await _admin_get(realm, settings, f"/users/{keycloak_user_id}/groups")
+    if resp.status_code == 403:
+        raise ValueError(_view_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec lecture groupes utilisateur (HTTP {resp.status_code})")
+    data = resp.json()
+    return data if isinstance(data, list) else []
+
+
+async def fetch_keycloak_user(
+    realm: RealmConfig, keycloak_user_id: str, settings: Settings
+) -> dict | None:
+    resp = await _admin_get(realm, settings, f"/users/{keycloak_user_id}")
+    if resp.status_code == 404:
+        return None
+    if resp.status_code == 403:
+        raise ValueError(_view_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec lecture utilisateur (HTTP {resp.status_code})")
+    return resp.json()
 
 
 async def get_admin_token(realm: RealmConfig, settings: Settings) -> str:

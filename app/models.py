@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -81,6 +82,51 @@ class RBACGroup(Base):
     )
 
     app_links = relationship("AppGroup", back_populates="group")
+    access_grants = relationship(
+        "AccessGrant",
+        back_populates="rbac_group",
+        foreign_keys="AccessGrant.rbac_group_id",
+    )
+
+
+class AccessGrant(Base):
+    """RBAC grant — group or user subject, application or system role resource."""
+
+    __tablename__ = "access_grants"
+
+    id = Column(Integer, primary_key=True)
+    subject_type = Column(String, nullable=False)  # group | user
+    rbac_group_id = Column(Integer, ForeignKey("rbac_groups.id"), nullable=True)
+    keycloak_user_id = Column(String, nullable=True)
+    user_display_cache = Column(String, nullable=True)
+
+    resource_type = Column(String, nullable=False)  # application | system_role
+    application_id = Column(Integer, ForeignKey("apps.id"), nullable=True)
+    system_role = Column(String, nullable=True)
+
+    access_level = Column(String, default="view", nullable=False)
+    granted_at = Column(DateTime(timezone=True), default=utcnow)
+    granted_by = Column(String, nullable=False)
+
+    rbac_group = relationship(
+        "RBACGroup",
+        back_populates="access_grants",
+        foreign_keys=[rbac_group_id],
+    )
+    application = relationship("App", foreign_keys=[application_id])
+
+    __table_args__ = (
+        CheckConstraint(
+            "(subject_type = 'group' AND rbac_group_id IS NOT NULL AND keycloak_user_id IS NULL) OR "
+            "(subject_type = 'user' AND keycloak_user_id IS NOT NULL AND rbac_group_id IS NULL)",
+            name="ck_access_grant_subject_exclusive",
+        ),
+        CheckConstraint(
+            "(resource_type = 'application' AND application_id IS NOT NULL AND system_role IS NULL) OR "
+            "(resource_type = 'system_role' AND system_role IS NOT NULL AND application_id IS NULL)",
+            name="ck_access_grant_resource_exclusive",
+        ),
+    )
 
 
 class AppGroup(Base):

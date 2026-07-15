@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}Utilisateurs RBAC{% endblock %}
+{% block breadcrumb %}Admin / RBAC / Utilisateurs{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Droits par utilisateur</h1>
+      <p class="page-sub">Recherche Keycloak à la volée — pas d'annuaire dupliqué en base</p>
+    </div>
+    <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
+  </div>
+
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+    <form method="get" action="/admin/rbac/users" id="user-search-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+      <div class="form-group">
+        <label class="form-label" for="realm_id">Realm</label>
+        <select id="realm_id" name="realm_id" class="form-select">
+          {% for realm in realms %}
+          <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
+          {% else %}
+          <option value="">Aucun realm avec sync activée</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group" style="flex:1; min-width:240px;">
+        <label class="form-label" for="user-query">Rechercher un utilisateur</label>
+        <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" data-user-search>
+        <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="{{ keycloak_user_id or '' }}">
+        <div id="user-suggestions" class="form-hint" style="margin-top:var(--sp-2);"></div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Afficher</button>
+    </form>
+  </div>
+
+  {% if user_error %}
+  <div class="alert alert-err">{{ user_error }}</div>
+  {% endif %}
+
+  {% if kc_user %}
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+    <h2 class="card-title">{{ kc_user.username or kc_user.email }}</h2>
+    <p class="page-sub mono">{{ kc_user.email or '—' }} · ID {{ keycloak_user_id }}</p>
+    <div style="margin-top:var(--sp-3);">
+      <span class="form-label">Groupes Keycloak (lecture seule)</span>
+      <ul style="margin:var(--sp-2) 0 0; padding-left:var(--sp-4);">
+        {% for g in kc_groups %}
+        <li class="mono">{{ g.path or g.name }}</li>
+        {% else %}
+        <li class="empty-desc">Aucun groupe</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="dash-grid" style="grid-template-columns:1fr 1fr; margin-bottom:var(--sp-4);">
+    <div class="card" style="padding:0;">
+      <div class="card-header" style="padding:var(--sp-4);">
+        <span class="card-title">Droits individuels</span>
+      </div>
+      <div class="table-wrap" style="border:none;border-radius:0;">
+        <table class="data-table">
+          <thead><tr><th>Ressource</th><th>Niveau</th><th></th></tr></thead>
+          <tbody>
+            {% for g in direct_grants %}
+            <tr>
+              <td>{% if g.resource_type == 'application' %}{{ g.application_label }}{% else %}{{ g.system_role_label }}{% endif %}</td>
+              <td><span class="badge badge-info">{{ g.access_level }}</span></td>
+              <td>
+                <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
+                  <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&keycloak_user_id={{ keycloak_user_id }}">
+                  <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">Aucun droit direct.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
+        <form method="post" action="/admin/rbac/grants" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+          <input type="hidden" name="subject_type" value="user">
+          <input type="hidden" name="keycloak_user_id" value="{{ keycloak_user_id }}">
+          <input type="hidden" name="user_display_cache" value="{{ kc_user.username or kc_user.email }}">
+          <input type="hidden" name="realm_id" value="{{ selected_realm.id }}">
+          <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&keycloak_user_id={{ keycloak_user_id }}">
+          <div class="form-group">
+            <label class="form-label">Type</label>
+            <select name="resource_type" class="form-select" data-grant-resource-type>
+              <option value="application">Application</option>
+              <option value="system_role">Rôle système</option>
+            </select>
+          </div>
+          <div class="form-group" data-grant-app>
+            <label class="form-label">Application</label>
+            <select name="application_id" class="form-select">
+              {% for app in apps %}<option value="{{ app.id }}">{{ app.label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group" data-grant-role hidden>
+            <label class="form-label">Rôle système</label>
+            <select class="form-select" disabled>
+              {% for role, label in system_roles.items() %}<option value="{{ role }}">{{ label }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Niveau</label>
+            <select name="access_level" class="form-select">
+              {% for level in access_levels %}<option value="{{ level }}">{{ level }}</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0;">
+      <div class="card-header" style="padding:var(--sp-4);">
+        <span class="card-title">Droits effectifs</span>
+        <span class="badge badge-muted">{{ effective_grants | length }}</span>
+      </div>
+      <div class="table-wrap" style="border:none;border-radius:0;">
+        <table class="data-table">
+          <thead><tr><th>Ressource</th><th>Niveau</th><th>Provenance</th></tr></thead>
+          <tbody>
+            {% for g in effective_grants %}
+            <tr>
+              <td>{% if g.resource_type == 'application' %}{{ g.application_label }}{% else %}{{ g.system_role_label }}{% endif %}</td>
+              <td><span class="badge badge-info">{{ g.access_level }}</span></td>
+              <td>{{ g.source }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">Aucun droit effectif.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  document.querySelectorAll('[data-grant-resource-type]').forEach(function (typeSelect) {
+    var form = typeSelect.closest('form');
+    if (!form) return;
+    var appBlock = form.querySelector('[data-grant-app]');
+    var roleBlock = form.querySelector('[data-grant-role]');
+    var appSelect = appBlock && appBlock.querySelector('select');
+    var roleSelect = roleBlock && roleBlock.querySelector('select');
+    function sync() {
+      var isApp = typeSelect.value === 'application';
+      if (appBlock) appBlock.hidden = !isApp;
+      if (roleBlock) roleBlock.hidden = isApp;
+      if (appSelect) { appSelect.disabled = !isApp; appSelect.name = isApp ? 'application_id' : ''; }
+      if (roleSelect) { roleSelect.disabled = isApp; roleSelect.name = isApp ? '' : 'system_role'; }
+    }
+    typeSelect.addEventListener('change', sync);
+    sync();
+  });
+
+  var searchInput = document.querySelector('[data-user-search]');
+  var hiddenId = document.getElementById('keycloak_user_id');
+  var realmSelect = document.getElementById('realm_id');
+  var suggestions = document.getElementById('user-suggestions');
+  if (!searchInput || !hiddenId || !realmSelect) return;
+
+  var timer;
+  searchInput.addEventListener('input', function () {
+    clearTimeout(timer);
+    var q = searchInput.value.trim();
+    if (q.length < 2) { suggestions.textContent = ''; return; }
+    timer = setTimeout(async function () {
+      try {
+        var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
+        var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        var data = await resp.json();
+        if (!data.ok) { suggestions.textContent = data.errors && data.errors._form || 'Erreur recherche'; return; }
+        suggestions.innerHTML = (data.users || []).map(function (u) {
+          return '<button type="button" class="btn btn-ghost btn-sm" style="margin:2px;" data-pick-user="' + u.id + '">' + (u.display || u.username) + '</button>';
+        }).join(' ');
+        suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            hiddenId.value = btn.getAttribute('data-pick-user');
+            searchInput.value = btn.textContent;
+            suggestions.textContent = '';
+          });
+        });
+      } catch (e) {
+        suggestions.textContent = 'Erreur réseau';
+      }
+    }, 300);
+  });
+})();
+</script>
+{% endblock %}

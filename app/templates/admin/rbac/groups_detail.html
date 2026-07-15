@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Groupe {{ group.name }}{% endblock %}
+{% block breadcrumb %}Admin / RBAC / {{ group.name }}{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ group.name }}</h1>
+      <p class="page-sub mono">{{ group.path or '—' }} · Realm {{ realm.slug }}</p>
+    </div>
+    <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
+  </div>
+
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Membres Keycloak</span>
+      <span class="badge badge-muted">{{ members | length }}</span>
+    </div>
+    {% if members_error %}
+    <div class="alert alert-err" style="margin:var(--sp-4);">{{ members_error }}</div>
+    {% endif %}
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead><tr><th>Utilisateur</th><th>Email</th><th>Statut</th></tr></thead>
+        <tbody>
+          {% for m in members %}
+          <tr>
+            <td class="mono">{{ m.username or '—' }}</td>
+            <td>{{ m.email or '—' }}</td>
+            <td>
+              {% if m.enabled %}
+                <span class="badge badge-ok">Actif</span>
+              {% else %}
+                <span class="badge badge-muted">Désactivé</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">Aucun membre ou lecture Keycloak indisponible.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Droits accordés au groupe</span>
+      <span class="badge badge-muted">{{ grant_rows | length }}</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead><tr><th>Ressource</th><th>Niveau</th><th>Accordé par</th><th></th></tr></thead>
+        <tbody>
+          {% for g in grant_rows %}
+          <tr>
+            <td>
+              {% if g.resource_type == 'application' %}
+                Application · {{ g.application_label or g.application_id }}
+              {% else %}
+                Rôle · {{ g.system_role_label or g.system_role }}
+              {% endif %}
+            </td>
+            <td><span class="badge badge-info">{{ g.access_level }}</span></td>
+            <td class="mono">{{ g.granted_by }}</td>
+            <td>
+              <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
+                <input type="hidden" name="redirect_url" value="/admin/rbac/groups/{{ group.id }}">
+                <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4"><div class="empty-desc" style="padding:var(--sp-4);">Aucun droit accordé à ce groupe.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter un droit</div>
+      <form method="post" action="/admin/rbac/grants" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+        <input type="hidden" name="subject_type" value="group">
+        <input type="hidden" name="rbac_group_id" value="{{ group.id }}">
+        <input type="hidden" name="redirect_url" value="/admin/rbac/groups/{{ group.id }}">
+        <div class="form-group">
+          <label class="form-label" for="resource_type">Type</label>
+          <select id="resource_type" name="resource_type" class="form-select" data-grant-resource-type>
+            <option value="application">Application</option>
+            <option value="system_role">Rôle système</option>
+          </select>
+        </div>
+        <div class="form-group" data-grant-app>
+          <label class="form-label" for="application_id">Application</label>
+          <select id="application_id" name="application_id" class="form-select">
+            {% for app in apps %}
+            <option value="{{ app.id }}">{{ app.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" data-grant-role hidden>
+          <label class="form-label" for="system_role">Rôle système</label>
+          <select id="system_role" name="system_role" class="form-select" disabled>
+            {% for role, label in system_roles.items() %}
+            <option value="{{ role }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="access_level">Niveau</label>
+          <select id="access_level" name="access_level" class="form-select">
+            {% for level in access_levels %}
+            <option value="{{ level }}">{{ level }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var typeSelect = document.querySelector('[data-grant-resource-type]');
+  if (!typeSelect) return;
+  var appBlock = document.querySelector('[data-grant-app]');
+  var roleBlock = document.querySelector('[data-grant-role]');
+  var appSelect = document.getElementById('application_id');
+  var roleSelect = document.getElementById('system_role');
+  function sync() {
+    var isApp = typeSelect.value === 'application';
+    appBlock.hidden = !isApp;
+    roleBlock.hidden = isApp;
+    appSelect.disabled = !isApp;
+    roleSelect.disabled = isApp;
+    if (!isApp) appSelect.removeAttribute('name');
+    else appSelect.setAttribute('name', 'application_id');
+    if (isApp) roleSelect.removeAttribute('name');
+    else roleSelect.setAttribute('name', 'system_role');
+  }
+  typeSelect.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endblock %}
