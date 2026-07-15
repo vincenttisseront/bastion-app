@@ -1,7 +1,7 @@
 """Nginx auth_request handler — RFC1918 bypass, break-glass, OIDC proxy."""
 
 import ipaddress
-from typing import Optional
+from typing import Mapping, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Response
@@ -14,6 +14,26 @@ from app.models import RealmConfig
 from app.sso_settings import Settings, get_settings
 
 router = APIRouter()
+
+# Nginx auth_request_set (vhost_sso_portal.conf.j2) reads only these upstream headers:
+#   $upstream_http_x_auth_request_user
+#   $upstream_http_x_auth_request_email
+#   $upstream_http_x_auth_request_groups
+#   $upstream_http_x_auth_request_preferred_username
+# Whitelist by prefix — never relay Set-Cookie or other oauth2-proxy headers.
+_AUTH_REQUEST_HEADER_PREFIX = "x-auth-request-"
+
+
+def _forward_auth_request_headers(upstream_headers: Mapping[str, str]) -> dict[str, str]:
+    """Copy X-Auth-Request-* headers for Nginx auth_request_set variables."""
+    forwarded: dict[str, str] = {}
+    for name, value in upstream_headers.items():
+        if name.lower().startswith(_AUTH_REQUEST_HEADER_PREFIX) and value:
+            # Canonical casing expected by ops docs / oauth2-proxy set_xauthrequest.
+            forwarded[
+                "-".join(part.capitalize() for part in name.split("-"))
+            ] = value
+    return forwarded
 
 
 def is_rfc1918(ip: str, cidrs: list[str]) -> bool:
@@ -84,7 +104,12 @@ async def oauth2_auth(
                 f"{proxy_url}/oauth2/auth",
                 headers={"Cookie": cookie_header},
             )
-        return Response(status_code=resp.status_code)
+        # Preserve oauth2-proxy status (often 202 Accepted on success with set_xauthrequest).
+        # Forward identity headers so Nginx auth_request_set can inject X-User / X-Email / …
+        return Response(
+            status_code=resp.status_code,
+            headers=_forward_auth_request_headers(resp.headers),
+        )
     except httpx.RequestError:
         return Response(status_code=503)
 
