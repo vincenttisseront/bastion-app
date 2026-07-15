@@ -9,7 +9,10 @@
       <h1 class="page-title">Gestion RBAC</h1>
       <p class="page-sub">Groupes Keycloak, droits par groupe ou par utilisateur</p>
     </div>
-    <a href="/admin/rbac/users" class="btn btn-primary btn-sm">Utilisateurs</a>
+    <div style="display:flex; gap:var(--sp-2);">
+      <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
+      <a href="/admin/rbac/users" class="btn btn-primary btn-sm">Utilisateurs</a>
+    </div>
   </div>
 
   <div class="dash-grid" style="grid-template-columns:1fr 1fr;">
@@ -92,7 +95,10 @@
         <span class="card-title">Associations App ↔ Groupe (legacy)</span>
         <span class="badge badge-muted">{{ links | length }}</span>
       </div>
-      <p class="form-hint" style="padding:0 var(--sp-4) var(--sp-3);">Les nouveaux droits utilisent <a href="/admin/rbac/users">AccessGrant</a> (groupe ou utilisateur). Ce tableau reflète l'ancien modèle <code>AppGroup</code> encore actif pour le catalogue.</p>
+      <p class="form-hint" style="padding:0 var(--sp-4) var(--sp-3);">
+        Les nouveaux droits administratifs utilisent <a href="/admin/rbac/users">AccessGrant</a>.
+        <code>AppGroup</code> reste <strong>encore utilisé au runtime</strong> pour filtrer le catalogue et le contrôle d'accès subdomain — ne pas supprimer sans migration (voir <code>docs/rbac-enforcement-audit.md</code>).
+      </p>
       <div class="table-wrap" style="border:none;border-radius:0;">
         <table class="data-table">
           <thead><tr><th>Application</th><th>Groupe ID</th></tr></thead>

@@ -16,6 +16,8 @@ from app.rbac.grants_service import (
     ACCESS_LEVELS,
     SYSTEM_ROLES,
     AccessGrantCreate,
+    build_application_access_view,
+    build_grants_matrix,
     compute_effective_grants,
     create_grant,
     delete_grant,
@@ -288,15 +290,89 @@ async def admin_rbac_user_detail(
     )
 
 
+@router.get("/admin/rbac/applications/{application_id}")
+async def admin_rbac_application_detail(
+    application_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    app = db.query(App).filter_by(id=application_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application introuvable")
+
+    access = await build_application_access_view(db, application_id, settings)
+    db.commit()  # persist refreshed member_count cache when available
+
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": True,
+                "application": {
+                    "id": app.id,
+                    "slug": app.slug,
+                    "label": app.label,
+                },
+                **access,
+            }
+        )
+
+    groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
+    realms = (
+        db.query(RealmConfig)
+        .filter_by(groups_sync_enabled=True)
+        .order_by(RealmConfig.slug)
+        .all()
+    )
+    return render(
+        "admin/rbac/application_detail.html",
+        **_ctx(
+            request,
+            settings,
+            application=app,
+            grant_rows=access["grants"],
+            grant_count=access["grant_count"],
+            unique_people_count=access["unique_people_count"],
+            people_sources=access["people_sources"],
+            groups=groups,
+            realms=realms,
+            access_levels=sorted(ACCESS_LEVELS),
+        ),
+    )
+
+
+@router.get("/admin/rbac/matrix")
+def admin_rbac_matrix(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    matrix = build_grants_matrix(db)
+    if _wants_json(request):
+        return JSONResponse({"ok": True, **matrix})
+    return render(
+        "admin/rbac/matrix.html",
+        **_ctx(request, settings, matrix=matrix),
+    )
+
+
 @router.get("/admin/rbac/grants")
 def admin_rbac_grants_list(
     request: Request,
     rbac_group_id: int | None = None,
     keycloak_user_id: str | None = None,
+    application_id: int | None = None,
     db: Session = Depends(get_db),
     _user=Depends(require_admin),
 ):
-    grants = list_grants(db, rbac_group_id=rbac_group_id, keycloak_user_id=keycloak_user_id)
+    grants = list_grants(
+        db,
+        rbac_group_id=rbac_group_id,
+        keycloak_user_id=keycloak_user_id,
+        application_id=application_id,
+    )
     return JSONResponse(
         {"ok": True, "grants": [serialize_grant(g, db) for g in grants]}
     )
@@ -315,8 +391,10 @@ async def admin_rbac_grants_create(
         body = await request.json()
     else:
         form = await request.form()
-        body = dict(form)
+        body = {k: (v if v != "" else None) for k, v in dict(form).items()}
         redirect_url = str(form.get("redirect_url") or redirect_url)
+
+    preferred_redirect = body.get("redirect_url") or redirect_url
 
     try:
         data = AccessGrantCreate.model_validate(body)
@@ -326,7 +404,7 @@ async def admin_rbac_grants_create(
                 {"ok": False, "errors": {e["loc"][-1]: e["msg"] for e in exc.errors()}},
                 status_code=400,
             )
-        response = RedirectResponse(url=redirect_url, status_code=302)
+        response = RedirectResponse(url=str(preferred_redirect), status_code=302)
         flash_redirect(
             response,
             exc.errors()[0]["msg"],
@@ -335,7 +413,9 @@ async def admin_rbac_grants_create(
         )
         return response
 
-    if data.subject_type == "group" and data.rbac_group_id:
+    if preferred_redirect and str(preferred_redirect) != "/admin/rbac":
+        redirect_url = str(preferred_redirect)
+    elif data.subject_type == "group" and data.rbac_group_id:
         group = db.query(RBACGroup).filter_by(id=data.rbac_group_id).first()
         if not group:
             raise HTTPException(status_code=404, detail="Groupe introuvable")
@@ -344,6 +424,8 @@ async def admin_rbac_grants_create(
         realm_id = body.get("realm_id")
         q = f"?realm_id={realm_id}&keycloak_user_id={data.keycloak_user_id}" if realm_id else ""
         redirect_url = f"/admin/rbac/users{q}"
+    elif data.resource_type == "application" and data.application_id:
+        redirect_url = f"/admin/rbac/applications/{data.application_id}"
 
     grant = create_grant(db, data, user.email)
     db.commit()
@@ -405,10 +487,16 @@ def admin_rbac_grants_delete(
     )
     db.commit()
 
-    if grant.subject_type == "group" and grant.rbac_group_id:
-        redirect_url = f"/admin/rbac/groups/{grant.rbac_group_id}"
-    elif grant.subject_type == "user" and grant.keycloak_user_id:
-        redirect_url = redirect_url or "/admin/rbac/users"
+    if redirect_url in ("/admin/rbac", ""):
+        if (
+            grant.resource_type == "application"
+            and grant.application_id
+        ):
+            redirect_url = f"/admin/rbac/applications/{grant.application_id}"
+        elif grant.subject_type == "group" and grant.rbac_group_id:
+            redirect_url = f"/admin/rbac/groups/{grant.rbac_group_id}"
+        elif grant.subject_type == "user" and grant.keycloak_user_id:
+            redirect_url = "/admin/rbac/users"
 
     if _wants_json(request) or request.method == "DELETE":
         return JSONResponse({"ok": True})

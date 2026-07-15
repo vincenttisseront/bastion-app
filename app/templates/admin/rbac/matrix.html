@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Matrice RBAC{% endblock %}
+{% block breadcrumb %}Admin / RBAC / Matrice{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Matrice Applications × Groupes</h1>
+      <p class="page-sub">Lecture seule — droits individuels exclus (voir fiche application ou utilisateur)</p>
+    </div>
+    <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
+  </div>
+
+  {% if matrix.apps and matrix.groups %}
+  <div class="card" style="padding:0; overflow:auto;">
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Groupe</th>
+            {% for app in matrix.apps %}
+            <th class="mono" title="{{ app.slug }}">
+              <a href="/admin/rbac/applications/{{ app.id }}">{{ app.label }}</a>
+            </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for group in matrix.groups %}
+          <tr>
+            <td class="mono">
+              <a href="/admin/rbac/groups/{{ group.id }}">{{ group.name }}</a>
+            </td>
+            {% for app in matrix.apps %}
+            {% set key = group.id ~ ':' ~ app.id %}
+            <td>
+              {% if matrix.cells.get(key) %}
+                <span class="badge badge-info">{{ matrix.cells.get(key) }}</span>
+              {% else %}
+                <span class="badge badge-muted">—</span>
+              {% endif %}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-title">Matrice vide</div>
+    <div class="empty-desc">Synchronisez des groupes et créez des AccessGrant application pour alimenter cette vue.</div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

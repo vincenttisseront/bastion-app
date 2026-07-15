@@ -65,7 +65,15 @@
           <tbody>
             {% for g in direct_grants %}
             <tr>
-              <td>{% if g.resource_type == 'application' %}{{ g.application_label }}{% else %}{{ g.system_role_label }}{% endif %}</td>
+              <td>
+                {% if g.resource_type == 'application' and g.application_id %}
+                  <a href="/admin/rbac/applications/{{ g.application_id }}">{{ g.application_label }}</a>
+                {% elif g.resource_type == 'application' %}
+                  {{ g.application_label }}
+                {% else %}
+                  {{ g.system_role_label }}
+                {% endif %}
+              </td>
               <td><span class="badge badge-info">{{ g.access_level }}</span></td>
               <td>
                 <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
@@ -128,7 +136,15 @@
           <tbody>
             {% for g in effective_grants %}
             <tr>
-              <td>{% if g.resource_type == 'application' %}{{ g.application_label }}{% else %}{{ g.system_role_label }}{% endif %}</td>
+              <td>
+                {% if g.resource_type == 'application' and g.application_id %}
+                  <a href="/admin/rbac/applications/{{ g.application_id }}">{{ g.application_label }}</a>
+                {% elif g.resource_type == 'application' %}
+                  {{ g.application_label }}
+                {% else %}
+                  {{ g.system_role_label }}
+                {% endif %}
+              </td>
               <td><span class="badge badge-info">{{ g.access_level }}</span></td>
               <td>{{ g.source }}</td>
             </tr>

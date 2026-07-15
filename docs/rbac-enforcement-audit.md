@@ -13,7 +13,7 @@
 | Le mapper Keycloak `groups` est-il actif sur le client portail ? | **Non vérifié automatiquement** — à confirmer dans la console Keycloak (client `sso-portal-ar-systems`, mappers / client scopes). |
 | oauth2-proxy transmet-il les groupes à Nginx ? | **Partiellement prévu** : `set_xauthrequest = true` dans la config oauth2-proxy exportée ; Nginx lit `$upstream_http_x_auth_request_groups` dans le vhost portail. |
 | FastAPI reçoit-il `X-Groups` ? | **Oui, si Nginx les transmet** — `user_context.py` parse `X-Groups` depuis les headers injectés par Nginx. |
-| `/internal/oauth2-auth` relaie-t-il les headers oauth2-proxy ? | **Non** — `app/auth.py` renvoie uniquement le code HTTP de oauth2-proxy (`return Response(status_code=resp.status_code)`), **sans** propager `X-Auth-Request-*`. Les headers identité ne sont donc **pas** remplis par la sous-requête auth actuelle, sauf bypass break-glass / RFC1918. |
+| `/internal/oauth2-auth` relaie-t-il les headers oauth2-proxy ? | **Oui (corrigé 2026-07-15)** — forward whitelist `X-Auth-Request-*` depuis oauth2-proxy. Voir tests `oauth2_auth_header_forward`. |
 
 **Conclusion :** même si Keycloak émet les groupes, la chaîne Nginx → FastAPI est **incomplète** tant que `/internal/oauth2-auth` ne mappe pas les headers oauth2-proxy vers la réponse auth_request.
 
@@ -54,14 +54,28 @@
 
 ## 5. Points de suivi recommandés (tâche séparée)
 
-1. Corriger `/internal/oauth2-auth` pour renvoyer `X-Auth-Request-User`, `X-Auth-Request-Email`, `X-Auth-Request-Groups`, etc. sur HTTP 200.
+1. ~~Corriger `/internal/oauth2-auth` pour renvoyer `X-Auth-Request-*`~~ (**fait** 2026-07-15). Suivi restant : relay `Set-Cookie` sur refresh de session via `auth_request_set` Nginx (non implémenté — risque doc. dans le correctif).
 2. Valider le mapper Keycloak `groups` sur le client portail et documenter la config prod.
 3. Brancher le catalogue (et éventuellement l'admin) sur `AccessGrant` + niveaux `view` / `launch` / `manage`.
-4. Décider du sort de `AppGroup` (migration vers AccessGrant ou coexistence documentée).
+4. Migrer l'enforcement runtime de `AppGroup` vers `AccessGrant` (chantier séparé, **ne pas supprimer** `AppGroup` avant).
 
 ---
 
-## 6. Compte de service Keycloak (sync + RBAC)
+## 6. Investigation `AppGroup` (2026-07-15) — **effet réel constaté**
+
+| Emplacement | Effet |
+|-------------|--------|
+| `app/web/pages.py` (`catalogue_page`) | Filtre le catalogue pour les non-admins lorsque `X-Groups` est non vide |
+| `app/subdomain/subdomain_service.py` (`get_app_allowed_groups` / `user_has_access`) | Contrôle d'accès subdomain SSO : groupes autorisés via `AppGroup` ; liste vide = accès ouvert |
+| `app/services.py` | API interne CRUD `/{slug}/groups` (lien App ↔ Groupe) |
+| Encart UI admin RBAC | Affichage legacy uniquement |
+
+**Verdict :** `AppGroup` n'est **pas** un reliquat inerte. Suppression = risque de régression catalogue/subdomain.  
+**Plan :** conserver jusqu'à migration explicite vers `AccessGrant` (hors scope de la vue croisée Application).
+
+---
+
+## 7. Compte de service Keycloak (sync + RBAC)
 
 Le compte de service realm-management doit disposer **à minima** de :
 

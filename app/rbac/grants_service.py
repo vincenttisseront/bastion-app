@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, field_validator, model_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import AccessGrant, App, RBACGroup, RealmConfig
-from app.rbac.keycloak_admin import fetch_user_groups
+from app.rbac.keycloak_admin import fetch_group_members, fetch_user_groups
 
 SUBJECT_TYPES = frozenset({"group", "user"})
 RESOURCE_TYPES = frozenset({"application", "system_role"})
@@ -111,6 +113,7 @@ def list_grants(
     *,
     rbac_group_id: int | None = None,
     keycloak_user_id: str | None = None,
+    application_id: int | None = None,
 ) -> list[AccessGrant]:
     query = db.query(AccessGrant).order_by(AccessGrant.granted_at.desc())
     if rbac_group_id is not None:
@@ -123,7 +126,137 @@ def list_grants(
             AccessGrant.subject_type == "user",
             AccessGrant.keycloak_user_id == keycloak_user_id,
         )
+    if application_id is not None:
+        query = query.filter(
+            AccessGrant.resource_type == "application",
+            AccessGrant.application_id == application_id,
+        )
     return query.all()
+
+
+def count_grants_by_application(db: Session) -> dict[int, int]:
+    """Return {application_id: grant_count} for application-scoped AccessGrants."""
+    rows = (
+        db.query(AccessGrant.application_id, func.count(AccessGrant.id))
+        .filter(
+            AccessGrant.resource_type == "application",
+            AccessGrant.application_id.is_not(None),
+        )
+        .group_by(AccessGrant.application_id)
+        .all()
+    )
+    return {int(app_id): int(count) for app_id, count in rows if app_id is not None}
+
+
+def serialize_application_grant_row(
+    grant: AccessGrant,
+    db: Session,
+    *,
+    member_count: int | None = None,
+) -> dict[str, Any]:
+    row = serialize_grant(grant, db)
+    if grant.subject_type == "group":
+        group = (
+            db.query(RBACGroup).filter_by(id=grant.rbac_group_id).first()
+            if grant.rbac_group_id
+            else None
+        )
+        cached = group.member_count if group else None
+        row["member_count"] = member_count if member_count is not None else cached
+        row["subject_label"] = row.get("group_name") or f"groupe:{grant.rbac_group_id}"
+        row["subject_href"] = (
+            f"/admin/rbac/groups/{grant.rbac_group_id}" if grant.rbac_group_id else None
+        )
+    else:
+        display = row.get("user_display_cache") or grant.keycloak_user_id
+        row["member_count"] = None
+        row["subject_label"] = display
+        row["subject_href"] = (
+            f"/admin/rbac/users?keycloak_user_id={grant.keycloak_user_id}"
+            if grant.keycloak_user_id
+            else None
+        )
+    return row
+
+
+async def build_application_access_view(
+    db: Session,
+    application_id: int,
+    settings,
+) -> dict[str, Any]:
+    """Grants for one app + deduplicated people coverage for admin UI."""
+    grants = list_grants(db, application_id=application_id)
+    rows: list[dict[str, Any]] = []
+    unique_people: set[str] = set()
+    people_sources: dict[str, list[str]] = defaultdict(list)
+
+    for grant in grants:
+        member_count: int | None = None
+        if grant.subject_type == "user" and grant.keycloak_user_id:
+            uid = str(grant.keycloak_user_id)
+            unique_people.add(uid)
+            people_sources[uid].append("direct")
+        elif grant.subject_type == "group" and grant.rbac_group_id:
+            group = db.query(RBACGroup).filter_by(id=grant.rbac_group_id).first()
+            if group and group.keycloak_group_id and group.realm_id:
+                realm = db.query(RealmConfig).filter_by(id=group.realm_id).first()
+                if realm and realm.groups_sync_enabled:
+                    try:
+                        members = await fetch_group_members(
+                            realm, group.keycloak_group_id, settings
+                        )
+                        member_count = len(members)
+                        group.member_count = member_count
+                        for member in members:
+                            mid = str(member.get("id") or "").strip()
+                            if mid:
+                                unique_people.add(mid)
+                                people_sources[mid].append(f"via groupe {group.name}")
+                    except Exception:
+                        member_count = group.member_count
+                else:
+                    member_count = group.member_count if group else None
+            else:
+                member_count = group.member_count if group else None
+        rows.append(serialize_application_grant_row(grant, db, member_count=member_count))
+
+    return {
+        "grants": rows,
+        "grant_count": len(rows),
+        "unique_people_count": len(unique_people),
+        "people_sources": {
+            uid: sorted(set(sources)) for uid, sources in people_sources.items()
+        },
+    }
+
+
+def build_grants_matrix(db: Session) -> dict[str, Any]:
+    """Applications × Groups matrix (group grants only, read-only)."""
+    apps = db.query(App).order_by(App.label).all()
+    groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
+    grants = (
+        db.query(AccessGrant)
+        .filter(
+            AccessGrant.resource_type == "application",
+            AccessGrant.subject_type == "group",
+            AccessGrant.application_id.is_not(None),
+            AccessGrant.rbac_group_id.is_not(None),
+        )
+        .all()
+    )
+    cells: dict[tuple[int, int], str] = {}
+    for grant in grants:
+        if grant.application_id is None or grant.rbac_group_id is None:
+            continue
+        cells[(grant.rbac_group_id, grant.application_id)] = grant.access_level
+
+    return {
+        "apps": [{"id": a.id, "label": a.label, "slug": a.slug} for a in apps],
+        "groups": [{"id": g.id, "name": g.name, "path": g.path} for g in groups],
+        "cells": {
+            f"{group_id}:{app_id}": level for (group_id, app_id), level in cells.items()
+        },
+    }
 
 
 def create_grant(db: Session, data: AccessGrantCreate, granted_by: str) -> AccessGrant:

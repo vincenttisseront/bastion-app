@@ -17,6 +17,7 @@ from app.breakglass_store import (
 )
 from app.database import get_db
 from app.models import App, AppGroup, RBACGroup, RealmConfig
+from app.rbac.grants_service import count_grants_by_application
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
@@ -86,7 +87,11 @@ def catalogue_page(
         }
         if allowed_ids:
             apps = [a for a in apps if a.id in allowed_ids]
-    return render("catalogue/index.html", **_ctx(request, settings, apps=apps))
+    grant_counts = count_grants_by_application(db) if user.is_admin else {}
+    return render(
+        "catalogue/index.html",
+        **_ctx(request, settings, apps=apps, grant_counts=grant_counts),
+    )
 
 
 # --- Auth ---

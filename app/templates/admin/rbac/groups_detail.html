@@ -57,7 +57,11 @@
           <tr>
             <td>
               {% if g.resource_type == 'application' %}
-                Application · {{ g.application_label or g.application_id }}
+                {% if g.application_id %}
+                  <a href="/admin/rbac/applications/{{ g.application_id }}">Application · {{ g.application_label or g.application_id }}</a>
+                {% else %}
+                  Application · {{ g.application_label or g.application_id }}
+                {% endif %}
               {% else %}
                 Rôle · {{ g.system_role_label or g.system_role }}
               {% endif %}

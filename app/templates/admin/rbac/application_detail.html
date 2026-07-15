@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Droits — {{ application.label }}{% endblock %}
+{% block breadcrumb %}Admin / RBAC / Applications / {{ application.label }}{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ application.label }}</h1>
+      <p class="page-sub mono">{{ application.slug }} · {{ grant_count }} grant(s) · {{ unique_people_count }} personne(s) effective(s)</p>
+    </div>
+    <div style="display:flex; gap:var(--sp-2);">
+      <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
+      <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Qui a accès à cette application</span>
+      <span class="badge badge-muted">{{ grant_count }}</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Sujet</th>
+            <th>Type</th>
+            <th>Niveau</th>
+            <th>Accordé par</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in grant_rows %}
+          <tr>
+            <td>
+              {% if g.subject_href %}
+                <a href="{{ g.subject_href }}" class="mono">{{ g.subject_label }}</a>
+              {% else %}
+                <span class="mono">{{ g.subject_label }}</span>
+              {% endif %}
+              {% if g.subject_type == 'group' and g.member_count is not none %}
+                <span class="badge badge-muted">{{ g.member_count }} membre(s)</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if g.subject_type == 'group' %}
+                <span class="badge badge-info">Groupe</span>
+              {% else %}
+                <span class="badge badge-ok">Utilisateur</span>
+              {% endif %}
+            </td>
+            <td><span class="badge badge-info">{{ g.access_level }}</span></td>
+            <td class="mono">{{ g.granted_by }}</td>
+            <td class="mono">{{ g.granted_at or '—' }}</td>
+            <td>
+              <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
+                <input type="hidden" name="redirect_url" value="/admin/rbac/applications/{{ application.id }}">
+                <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6">
+              <div class="empty-desc" style="padding:var(--sp-4);">Aucun AccessGrant pour cette application.</div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter un droit</div>
+      <form method="post" action="/admin/rbac/grants" id="app-grant-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+        <input type="hidden" name="resource_type" value="application">
+        <input type="hidden" name="application_id" value="{{ application.id }}">
+        <input type="hidden" name="redirect_url" value="/admin/rbac/applications/{{ application.id }}">
+
+        <div class="form-group">
+          <label class="form-label" for="subject_type">Sujet</label>
+          <select id="subject_type" name="subject_type" class="form-select" data-grant-subject-type>
+            <option value="group">Groupe</option>
+            <option value="user">Utilisateur</option>
+          </select>
+        </div>
+
+        <div class="form-group" data-subject-group>
+          <label class="form-label" for="rbac_group_id">Groupe</label>
+          <select id="rbac_group_id" name="rbac_group_id" class="form-select">
+            {% for group in groups %}
+            <option value="{{ group.id }}">{{ group.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="form-group" data-subject-user hidden>
+          <label class="form-label" for="realm_id">Realm</label>
+          <select id="realm_id" name="realm_id" class="form-select" disabled>
+            {% for realm in realms %}
+            <option value="{{ realm.id }}">{{ realm.slug }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" data-subject-user hidden style="flex:1; min-width:220px;">
+          <label class="form-label" for="user-query">Utilisateur</label>
+          <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" disabled>
+          <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" disabled>
+          <input type="hidden" name="user_display_cache" id="user_display_cache" disabled>
+          <div id="user-suggestions" class="form-hint" style="margin-top:var(--sp-2);"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="access_level">Niveau</label>
+          <select id="access_level" name="access_level" class="form-select">
+            {% for level in access_levels %}
+            <option value="{{ level }}">{{ level }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card" style="padding:var(--sp-4);">
+    <div class="card-header" style="padding:0 0 var(--sp-3); border:none;">
+      <span class="card-title">Accès effectif total</span>
+      <span class="badge badge-ok">{{ unique_people_count }} personne(s)</span>
+    </div>
+    <p class="form-hint" style="margin-bottom:var(--sp-3);">
+      Compte dédupliqué : un utilisateur présent à la fois via un groupe et en droit direct ne compte qu'une fois.
+      Les sources restent visibles ci-dessus (lignes de grants séparées).
+    </p>
+    {% if people_sources %}
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Identifiant Keycloak</th><th>Sources</th></tr></thead>
+        <tbody>
+          {% for uid, sources in people_sources.items() %}
+          <tr>
+            <td class="mono">
+              <a href="/admin/rbac/users?keycloak_user_id={{ uid }}">{{ uid }}</a>
+            </td>
+            <td>
+              {% for src in sources %}
+                <span class="badge badge-muted">{{ src }}</span>
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-desc">Impossible de calculer les personnes uniques (pas de membres Keycloak récupérés).</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var subjectSelect = document.querySelector('[data-grant-subject-type]');
+  if (!subjectSelect) return;
+  var groupBlocks = document.querySelectorAll('[data-subject-group]');
+  var userBlocks = document.querySelectorAll('[data-subject-user]');
+  var groupSelect = document.getElementById('rbac_group_id');
+  var realmSelect = document.getElementById('realm_id');
+  var userQuery = document.getElementById('user-query');
+  var userId = document.getElementById('keycloak_user_id');
+  var userDisplay = document.getElementById('user_display_cache');
+  var suggestions = document.getElementById('user-suggestions');
+
+  function setEnabled(el, on) {
+    if (!el) return;
+    el.disabled = !on;
+    if (!on) el.removeAttribute('name');
+  }
+
+  function syncSubject() {
+    var isGroup = subjectSelect.value === 'group';
+    groupBlocks.forEach(function (b) { b.hidden = !isGroup; });
+    userBlocks.forEach(function (b) { b.hidden = isGroup; });
+    if (groupSelect) {
+      groupSelect.disabled = !isGroup;
+      if (isGroup) groupSelect.setAttribute('name', 'rbac_group_id');
+      else groupSelect.removeAttribute('name');
+    }
+    [realmSelect, userQuery, userId, userDisplay].forEach(function (el) {
+      if (!el) return;
+      el.disabled = isGroup;
+    });
+    if (!isGroup) {
+      if (realmSelect) realmSelect.setAttribute('name', 'realm_id');
+      if (userId) userId.setAttribute('name', 'keycloak_user_id');
+      if (userDisplay) userDisplay.setAttribute('name', 'user_display_cache');
+    } else {
+      if (realmSelect) realmSelect.removeAttribute('name');
+      if (userId) userId.removeAttribute('name');
+      if (userDisplay) userDisplay.removeAttribute('name');
+      if (suggestions) suggestions.textContent = '';
+    }
+  }
+  subjectSelect.addEventListener('change', syncSubject);
+  syncSubject();
+
+  var timer;
+  if (userQuery && realmSelect && suggestions) {
+    userQuery.addEventListener('input', function () {
+      clearTimeout(timer);
+      var q = userQuery.value.trim();
+      if (q.length < 2) { suggestions.textContent = ''; return; }
+      timer = setTimeout(async function () {
+        try {
+          var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
+          var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          var data = await resp.json();
+          if (!data.ok) {
+            suggestions.textContent = (data.errors && data.errors._form) || 'Erreur recherche';
+            return;
+          }
+          suggestions.innerHTML = (data.users || []).map(function (u) {
+            return '<button type="button" class="btn btn-ghost btn-sm" style="margin:2px;" data-pick-user="' + u.id + '" data-pick-label="' + (u.display || u.username || '') + '">' + (u.display || u.username) + '</button>';
+          }).join(' ');
+          suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              userId.value = btn.getAttribute('data-pick-user');
+              userDisplay.value = btn.getAttribute('data-pick-label');
+              userQuery.value = btn.textContent;
+              suggestions.textContent = '';
+            });
+          });
+        } catch (e) {
+          suggestions.textContent = 'Erreur réseau';
+        }
+      }, 300);
+    });
+  }
+})();
+</script>
+{% endblock %}

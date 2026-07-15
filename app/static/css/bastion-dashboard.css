@@ -127,6 +127,8 @@
 .filter-chip[data-filter="direct"].active{background:var(--ok-bg);color:var(--ok);border-color:rgba(16,185,129,.3)}
 
 .app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--sp-4)}
+.app-card-link{display:flex;flex-direction:column;gap:inherit;color:inherit;text-decoration:none;flex:1}
+.app-card-link:hover{text-decoration:none;color:inherit}
 .app-card{
   background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-xl);
   padding:var(--sp-5);display:flex;flex-direction:column;gap:var(--sp-3);
