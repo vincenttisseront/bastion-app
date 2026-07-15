@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.auth import router as auth_router
+from app.admin.infrastructure import router as infrastructure_router
 from app.admin.realms import router as admin_realms_router
 from app.admin.rbac_groups import router as admin_rbac_groups_router
 from app.breakglass import router as breakglass_router
@@ -91,6 +92,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 app.include_router(pages_router)
 app.include_router(health_router)
 app.include_router(admin_realms_router)
+app.include_router(infrastructure_router)
 app.include_router(admin_rbac_groups_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)

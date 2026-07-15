@@ -103,6 +103,13 @@ class Settings(BaseSettings):
         default=4299,
         validation_alias=AliasChoices("OAUTH2_PROXY_PORT_MAX", "oauth2_proxy_port_max"),
     )
+    oauth2_core_static_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "OAUTH2_CORE_STATIC_ENABLED",
+            "oauth2_core_static_enabled",
+        ),
+    )
 
     rfc1918_bypass_enabled: bool = Field(
         default=True,
