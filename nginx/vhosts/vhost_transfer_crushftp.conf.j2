@@ -32,7 +32,8 @@ server {
     large_client_header_buffers 8 32k;
     rewrite ^//+ / permanent;
 
-    proxy_cookie_path / "/; SameSite=None; Secure";
+    # Ne pas doubler SameSite/Secure (CrushFTP les envoie déjà) — sinon Firefox rejette CrushAuth.
+    # proxy_cookie_path / "/; SameSite=None; Secure";
 
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options SAMEORIGIN always;
@@ -106,8 +107,7 @@ server {
         proxy_read_timeout 299s;
         proxy_send_timeout 300s;
 
-        proxy_redirect ~^https?://[^/]+/WebInterface/login\.html(\?.*)?$ /WebInterface/new-ui/index.html$1;
-        proxy_redirect ~^/WebInterface/login\.html(\?.*)?$ /WebInterface/new-ui/index.html$1;
+        # Pas de proxy_redirect login.html → new-ui (évite boucle post-login).
     }
 
     location ~ /\. {
