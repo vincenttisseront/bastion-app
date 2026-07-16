@@ -302,6 +302,12 @@ Both records must point to **nginx** (vmdmz-reverse01), not directly to Keycloak
 
 ## 10. Troubleshooting
 
+### Firefox timeout / corps vide sur `/WebInterface/new-ui/`
+
+**Cause :** CrushFTP sert correctement `…/new-ui/index.html` (~20 Ko) mais coupe le TLS sur `GET …/new-ui/` (Content-Length 4096, corps vide → nginx `upstream prematurely closed`).
+
+**Correctif nginx (AWX) :** redirect exact `location = /WebInterface/new-ui/` → `/WebInterface/new-ui/index.html` ; `proxy_redirect` login.html → `index.html` (pas le slash directory).
+
 ### IP CrushFTP OK mais `transfer.ar-systems.fr` KO
 
 **Restaurer la config AWX** (ne pas improviser de patch nginx) :

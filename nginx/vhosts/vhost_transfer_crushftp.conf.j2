@@ -64,6 +64,14 @@ server {
         proxy_set_header X-Forwarded-Host $host;
     }
 
+    # CrushFTP coupe le TLS sur GET /WebInterface/new-ui/ — forcer index.html.
+    location = /WebInterface/new-ui {
+        return 302 /WebInterface/new-ui/index.html;
+    }
+    location = /WebInterface/new-ui/ {
+        return 302 /WebInterface/new-ui/index.html;
+    }
+
     location /WebInterface/new-ui/upload/ {
         proxy_pass {{ transfer_backend }};
         proxy_http_version 1.1;
@@ -98,8 +106,8 @@ server {
         proxy_read_timeout 299s;
         proxy_send_timeout 300s;
 
-        proxy_redirect ~^https?://[^/]+/WebInterface/login\.html(\?.*)?$ /WebInterface/new-ui/$1;
-        proxy_redirect ~^/WebInterface/login\.html(\?.*)?$ /WebInterface/new-ui/$1;
+        proxy_redirect ~^https?://[^/]+/WebInterface/login\.html(\?.*)?$ /WebInterface/new-ui/index.html$1;
+        proxy_redirect ~^/WebInterface/login\.html(\?.*)?$ /WebInterface/new-ui/index.html$1;
     }
 
     location ~ /\. {
