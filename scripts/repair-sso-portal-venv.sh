@@ -57,17 +57,24 @@ if [[ ! -x "${VENV}/bin/python3" ]]; then
   chown -R "$USER:$USER" "$VENV"
 fi
 
-log "=== Nettoyage métadonnées pip / fastapi cassé ==="
+log "=== Nettoyage ombres PYTHONPATH + métadonnées pip ==="
+rm -rf "${INSTALL_DIR}/fastapi" "${INSTALL_DIR}/pydantic" \
+       "${INSTALL_DIR}/fastapi.py" "${INSTALL_DIR}/pydantic.py" \
+       "${INSTALL_DIR}"/*.egg-info "${INSTALL_DIR}/bastion_app"*.dist-info 2>/dev/null || true
 rm -rf "${VENV}"/lib/python*/site-packages/bastion_app*.dist-info \
-       "${VENV}"/lib/python*/site-packages/fastapi \
-       "${VENV}"/lib/python*/site-packages/fastapi-*.dist-info \
        "${VENV}"/lib/python*/site-packages/__editable__*.pth \
        "${VENV}"/lib/python*/site-packages/__editable__*.py \
        "${VENV}"/lib/python*/site-packages/bastion_app*.pth 2>/dev/null || true
 
-log "=== Réinstallation pip (--force-reinstall) ==="
+log "=== Réinstallation pip (--force-reinstall, user ${USER}) ==="
 sudo -u "$USER" "${VENV}/bin/pip" install --upgrade pip
 sudo -u "$USER" "${VENV}/bin/pip" install --force-reinstall --no-cache-dir "${PIP_DEPS[@]}"
+
+chown -R "$USER:$USER" "$VENV"
+
+log "=== Vérification fastapi/pydantic (sans PYTHONPATH) ==="
+sudo -u "$USER" "${VENV}/bin/python3" -c \
+  "import fastapi; from fastapi import FastAPI; import pydantic; from pydantic import AliasChoices; print('deps OK', fastapi.__file__)"
 
 log "=== Vérification import ==="
 sudo -u "$USER" env PYTHONPATH="$INSTALL_DIR" bash -c \
