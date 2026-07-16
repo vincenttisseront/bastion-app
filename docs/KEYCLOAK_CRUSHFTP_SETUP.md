@@ -19,7 +19,7 @@ nginx : transfer.ar-systems.fr:443
   ├─── [No valid _kc_transfer cookie]
   │        │
   │        ▼
-  │    oauth2-proxy (127.0.0.1:4180)
+  │    oauth2-proxy (127.0.0.1:4183)
   │        │ auth_request
   │        ▼
   │    Keycloak realm TRANSFER
@@ -40,7 +40,7 @@ nginx : transfer.ar-systems.fr:443
 | Component | Host | Address |
 |---|---|---|
 | nginx reverse proxy | vmdmz-reverse01 | 172.24.0.108 |
-| oauth2-proxy | vmdmz-reverse01 (loopback) | 127.0.0.1:4180 |
+| oauth2-proxy **transfer** | vmdmz-reverse01 (loopback) | 127.0.0.1:**4183** (dédié — **pas** :4180 portail) |
 | CrushFTP | vmdmz-crush01 | 172.24.0.106:443 |
 | Keycloak | vmdmz-docker01 | 172.24.0.110 (Docker) |
 | Traefik | vmdmz-docker01 | 172.24.0.110:443 |
@@ -100,47 +100,38 @@ vault_keycloak_admin_password: "<admin_password>"
 
 ## 2. nginx — transfer.ar-systems.fr vhost
 
-Source file: `roles/nginx_reverse_proxy_dmz/templates/nginx.conf.j2`
+**Source de vérité :** `awx-playbook/roles/nginx_reverse_proxy_dmz/`
 
-### 2.1 Double-barrier logic
+| Fichier AWX | Déployé sur reverse01 |
+|-------------|------------------------|
+| `templates/vhost_transfer_crushftp.conf.j2` | `/etc/nginx/conf.d/vhost_transfer_crushftp.conf` |
+| `files/transfer-crushftp.map.conf` | `/etc/nginx/includes/transfer-crushftp.map.conf` |
+| `templates/nginx.conf.j2` (include map) | `include ... transfer-crushftp.map.conf` dans `http {}` |
+
+Variable AWX : `transfer_dmz_vhost_enabled: true` (défaut).
+
+**Ne pas patcher manuellement** avec des scripts bastion-app expérimentaux — restaurer via AWX ou `scripts/restore-transfer-nginx-awx.sh`.
+
+### 2.1 Logique proxy (login natif CrushFTP)
 
 ```nginx
-# Detect active CrushFTP session cookie
-map $http_cookie $crushftp_authed {
-    default                          0;
-    "~(?:^|;\s*)CrushAuth=[^;]+"    1;
-}
-
-# Cookie filter: forward only the CrushAuth cookie to CrushFTP
-# (prevents 502 caused by CrushFTP Java header buffer overflow
-# when the large _kc_transfer cookie is forwarded)
-map $http_cookie $crushftp_cookie_filtered {
-    default                                  "";
-    "~(?:^|;\s*)(CrushAuth=[^;]+)"           $1;
-}
-
-# First barrier: Keycloak via oauth2-proxy
-location /oauth2/ {
-    proxy_pass http://127.0.0.1:4180;
-    ...
-}
+# Map cookie (http {}) — transfer-crushftp.map.conf
+map $http_cookie $transfer_crushftp_backend_cookie { ... }
 
 location / {
-    auth_request /oauth2/auth;
-    error_page 401 = @keycloak_redirect;
-
-    # Second barrier: CrushFTP native login
     proxy_pass            https://172.24.0.106;
-    proxy_set_header Cookie $crushftp_cookie_filtered;
+    proxy_set_header Host 172.24.0.106;
+    proxy_set_header Cookie $transfer_crushftp_backend_cookie;
+    proxy_ssl_verify off;
+    proxy_ssl_session_reuse off;
     ...
-}
-
-location @keycloak_redirect {
-    return 302 /oauth2/start?rd=$request_uri;
 }
 ```
 
-### 2.2 Critical CrushFTP proxy settings
+> Le vhost AWX actuel est **login natif CrushFTP** (pas d'`auth_request` Keycloak sur transfer).
+> La double barrière Keycloak + CrushFTP (oauth2) est une variante documentée historiquement — non déployée si `transfer_dmz_vhost_enabled: true`.
+
+### 2.2 Réglages proxy CrushFTP (AWX)
 
 | Directive | Reason |
 |---|---|
@@ -148,7 +139,7 @@ location @keycloak_redirect {
 | `proxy_ssl_verify off` | Self-signed cert `CN=www.crushftp.com` |
 | `proxy_ssl_protocols TLSv1.2` | Restrict TLS negotiation |
 | `proxy_buffering off` | Required for large file transfers |
-| `proxy_set_header Cookie $crushftp_cookie_filtered` | **Critical** — the `_kc_transfer` cookie (500+ chars) overflows CrushFTP's Java header buffer causing 502. Forward `CrushAuth` only. |
+| `proxy_set_header Cookie $transfer_crushftp_backend_cookie` | Filtre cookies SSO si `_kc_*` présents |
 | `proxy_set_header Host "172.24.0.106"` | CrushFTP only responds to its own IP as Host |
 
 ---
@@ -310,6 +301,28 @@ Both records must point to **nginx** (vmdmz-reverse01), not directly to Keycloak
 ---
 
 ## 10. Troubleshooting
+
+### IP CrushFTP OK mais `transfer.ar-systems.fr` KO
+
+**Restaurer la config AWX** (ne pas improviser de patch nginx) :
+
+```bash
+# Sur vmdmz-reverse01 — depuis bastion-app
+sudo bash scripts/restore-transfer-nginx-awx.sh
+
+# Ou relancer le job AWX « App – Nginx reverse » (rôle nginx_reverse_proxy_dmz)
+```
+
+Vérifier :
+
+```bash
+grep transfer-crushftp /etc/nginx/nginx.conf
+nginx -t
+curl -sk "https://172.24.0.106/WebInterface/new-ui/" -H "Host: 172.24.0.106" -w "direct=%{size_download}\n" -o /dev/null
+curl -sk "https://transfer.ar-systems.fr/WebInterface/new-ui/" --resolve transfer.ar-systems.fr:443:127.0.0.1 -w "proxy=%{size_download}\n" -o /dev/null
+```
+
+Référence fichiers : `awx-playbook/roles/nginx_reverse_proxy_dmz/` ou `bastion-app/nginx/reference-from-awx/`.
 
 ### 502 on transfer.ar-systems.fr after Keycloak authentication
 
