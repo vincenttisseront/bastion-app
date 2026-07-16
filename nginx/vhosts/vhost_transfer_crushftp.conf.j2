@@ -66,7 +66,9 @@ server {
         proxy_set_header Connection "upgrade";
         # Host public (pas l'IP backend) — sinon session OK en direct IP, boucle login via transfer.*
         proxy_set_header Host $host;
-        proxy_set_header Cookie $transfer_crushftp_backend_cookie;
+        # Cookie navigateur complet — le filtre $transfer_crushftp_backend_cookie (1 seul
+        # currentAuth* si _kc_* présent) casse la session new-ui → boucle login.
+        proxy_set_header Cookie $http_cookie;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
@@ -90,7 +92,9 @@ server {
         proxy_ssl_protocols TLSv1.2;
         proxy_set_header Host $host;
         proxy_set_header Connection "";
-        proxy_set_header Cookie $transfer_crushftp_backend_cookie;
+        # Cookie navigateur complet — le filtre $transfer_crushftp_backend_cookie (1 seul
+        # currentAuth* si _kc_* présent) casse la session new-ui → boucle login.
+        proxy_set_header Cookie $http_cookie;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
@@ -106,7 +110,9 @@ server {
         proxy_ssl_protocols TLSv1.2;
         proxy_set_header Host $host;
         proxy_set_header Connection "";
-        proxy_set_header Cookie $transfer_crushftp_backend_cookie;
+        # Cookie navigateur complet — le filtre $transfer_crushftp_backend_cookie (1 seul
+        # currentAuth* si _kc_* présent) casse la session new-ui → boucle login.
+        proxy_set_header Cookie $http_cookie;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
