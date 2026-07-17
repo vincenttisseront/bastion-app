@@ -119,27 +119,50 @@
   until: _nginx_exec_health.rc | default(1) == 0
   changed_when: false
 
-- name: "SMOKE : list nginx networks"
-  ansible.builtin.command: >
-    docker inspect {{ _nginx_cid.stdout | trim }}
-    --format '{% raw %}{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}{% endraw %}'
-  register: _nginx_nets
-  changed_when: false
+- name: "SMOKE : resolve nginx IPv4 on {{ bastion_traefik_network }}"
+  ansible.builtin.shell: |
+    set -o pipefail
+    python3 - {{ _nginx_cid.stdout | trim }} {{ bastion_traefik_network }} <<'PY'
+    import json, subprocess, sys
+    cid, net = sys.argv[1], sys.argv[2]
+    data = json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))
+    networks = data[0].get("NetworkSettings", {}).get("Networks") or {}
+    print("NETWORKS=" + json.dumps({k: (v or {}).get("IPAddress") for k, v in networks.items()}, sort_keys=True))
+    ep = networks.get(net) or {}
+    ip = (ep.get("IPAddress") or "").strip()
+    if not ip:
+        # endpoint present but empty IP — reconnect
+        subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
+        subprocess.check_call(["docker", "network", "connect", net, cid])
+        data = json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))
+        networks = data[0].get("NetworkSettings", {}).get("Networks") or {}
+        print("NETWORKS_AFTER_RECONNECT=" + json.dumps({k: (v or {}).get("IPAddress") for k, v in networks.items()}, sort_keys=True))
+        ip = ((networks.get(net) or {}).get("IPAddress") or "").strip()
+    if not ip:
+        sys.stderr.write("no IPv4 on network %r for %s\n" % (net, cid))
+        sys.exit(1)
+    print(ip)
+    PY
+  args:
+    executable: /bin/bash
+  register: _nginx_ip_lookup
+  retries: 5
+  delay: 2
+  until: _nginx_ip_lookup.rc | default(1) == 0
+  changed_when: "'NETWORKS_AFTER_RECONNECT=' in (_nginx_ip_lookup.stdout | default(''))"
 
-- name: "SMOKE : parse vpcbr IP"
+- name: "SMOKE : set bastion_nginx_vpcbr_ip"
   ansible.builtin.set_fact:
-    bastion_nginx_vpcbr_ip: >-
-      {{
-        (_nginx_nets.stdout | regex_findall(bastion_traefik_network ~ '=([0-9.]+)'))
-        | first | default('')
-      }}
+    bastion_nginx_vpcbr_ip: "{{ _nginx_ip_lookup.stdout_lines | last | trim }}"
 
-- name: "SMOKE : fail if nginx not on vpcbr"
-  ansible.builtin.fail:
-    msg: >-
-      nginx n'a pas d'IP sur {{ bastion_traefik_network }}.
-      networks={{ _nginx_nets.stdout | default('') }}
-  when: bastion_nginx_vpcbr_ip | length == 0
+- name: "SMOKE : fail if nginx IP still invalid"
+  ansible.builtin.assert:
+    that:
+      - bastion_nginx_vpcbr_ip is match('^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$')
+    fail_msg: >-
+      IP vpcbr invalide: {{ bastion_nginx_vpcbr_ip | default('n/a') }}
+      raw={{ _nginx_ip_lookup.stdout | default('') }}
+      err={{ _nginx_ip_lookup.stderr | default('') }}
 
 - name: "SMOKE : nginx healthy on vpcbr by IP (bypass Traefik / DNS)"
   ansible.builtin.shell: |

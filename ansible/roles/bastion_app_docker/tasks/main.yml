@@ -189,6 +189,38 @@
   until: _wait_nginx.rc | default(1) == 0
   changed_when: false
 
+- name: "Ensure nginx has IPv4 on vpcbr"
+  ansible.builtin.shell: |
+    set -o pipefail
+    cid="{{ _wait_nginx.stdout | trim }}"
+    net="{{ bastion_traefik_network }}"
+    python3 - "$cid" "$net" <<'PY'
+    import json, subprocess, sys
+    cid, net = sys.argv[1], sys.argv[2]
+    def ip_on(cid, net):
+        data = json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))
+        ep = (data[0].get("NetworkSettings", {}).get("Networks") or {}).get(net) or {}
+        return (ep.get("IPAddress") or "").strip()
+    ip = ip_on(cid, net)
+    if ip:
+        print(ip)
+        sys.exit(0)
+    subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
+    subprocess.check_call(["docker", "network", "connect", net, cid])
+    ip = ip_on(cid, net)
+    if not ip:
+        sys.stderr.write("nginx still has no IPv4 on %s after reconnect\n" % net)
+        sys.exit(1)
+    print(ip)
+    PY
+  args:
+    executable: /bin/bash
+  register: _nginx_vpcbr_ensure
+  retries: 5
+  delay: 2
+  until: _nginx_vpcbr_ensure.rc | default(1) == 0
+  changed_when: true
+
 - name: "Run apply-infra-docker (secondary realms)"
   ansible.builtin.command:
     cmd: >-
