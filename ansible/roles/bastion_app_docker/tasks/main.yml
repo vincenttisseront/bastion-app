@@ -12,40 +12,53 @@
     - "{{ sso_portal_exports_dir }}"
     - "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
 
-- name: "Sync bastion-app project into compose dir (rsync)"
-  ansible.posix.synchronize:
-    src: "{{ bastion_app_root }}/"
-    dest: "{{ bastion_app_docker_compose_dir }}/"
-    delete: false
-    rsync_opts:
-      - "--exclude=.git"
-      - "--exclude=.venv"
-      - "--exclude=node_modules"
-      - "--exclude=.pytest_cache"
-      - "--exclude=portal.db"
-      - "--exclude=data"
-      - "--exclude=.env"
-  register: _sync
-  failed_when: false
+# synchronize/rsync hangs on AWX EE (SSH password) — tar + copy + unarchive (Phase 6 pattern).
+- name: "Stage bastion Docker tarball on controller"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    stamp="{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+    work="{{ playbook_dir }}/.cache/bastion-docker-${stamp}"
+    rm -rf "${work}" "${work}.tar.gz"
+    mkdir -p "${work}"
+    root="{{ bastion_app_root }}"
+    for d in app migrations scripts docker nginx; do
+      if [ -d "${root}/${d}" ]; then
+        cp -a "${root}/${d}" "${work}/"
+      fi
+    done
+    for f in Dockerfile docker-compose.yml docker-compose.publish.yml pyproject.toml alembic.ini README.md; do
+      if [ -f "${root}/${f}" ]; then
+        cp -a "${root}/${f}" "${work}/"
+      fi
+    done
+    # Ne jamais embarquer secrets / data / caches
+    rm -rf "${work}/.git" "${work}/.venv" "${work}/node_modules" "${work}/data" \
+      "${work}/docker/oauth2-core/oauth2-proxy.cfg" 2>/dev/null || true
+    tar -C "${work}" -czf "${work}.tar.gz" .
+    rm -rf "${work}"
+    test -s "${work}.tar.gz"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  run_once: true
 
-- name: "Fallback recursive copy when synchronize unavailable"
+- name: "Upload Docker tarball to docker01"
   ansible.builtin.copy:
-    src: "{{ bastion_app_root }}/{{ item }}"
-    dest: "{{ bastion_app_docker_compose_dir }}/{{ item }}"
-    mode: preserve
-  loop:
-    - Dockerfile
-    - docker-compose.yml
-    - docker-compose.publish.yml
-    - pyproject.toml
-    - README.md
-    - alembic.ini
-    - app
-    - migrations
-    - docker
-    - scripts
-    - nginx
-  when: _sync is failed or (_sync.rc | default(0)) != 0
+    src: "{{ playbook_dir }}/.cache/bastion-docker-{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+    dest: "/tmp/bastion-docker-{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+    mode: "0644"
+
+- name: "Extract Docker stack into /tools/portal"
+  ansible.builtin.unarchive:
+    src: "/tmp/bastion-docker-{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+    dest: "{{ bastion_app_docker_compose_dir }}"
+    remote_src: true
+
+- name: "Remove temporary Docker tarball on server"
+  ansible.builtin.file:
+    path: "/tmp/bastion-docker-{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+    state: absent
 
 - name: "Render portal .env (no_log)"
   ansible.builtin.template:
