@@ -10,7 +10,7 @@
 sso_portal_enabled: true
 bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
 # Tag/commit épinglé — jamais 'main' / 'master' en prod
-bastion_app_git_ref: "v0.6.5"
+bastion_app_git_ref: "v0.6.6"
 # false = synchronise depuis le checkout AWX/controller (playbook_dir/..)
 # true  = git clone sur le serveur (nécessite credentials git privés)
 bastion_app_remote_git_clone: false

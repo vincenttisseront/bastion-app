@@ -52,34 +52,85 @@
 - name: "SMOKE : parser realms"
   ansible.builtin.set_fact:
     _active_realms: "{{ (_realms_json.stdout | default('[]') | from_json) if (_realms_json.rc | default(1)) == 0 else [] }}"
+    _oauth2_core_port: "{{ oauth2_core_listen.split(':')[-1] | int }}"
+    _oauth2_core_slug: "{{ oauth2_core_realm_slug | default(sso_portal_default_realm_slug) }}"
 
-- name: "SMOKE : oauth2/start sur chaque realm actif (302 attendu)"
+- name: "SMOKE : secondary realms (hors core)"
+  ansible.builtin.set_fact:
+    _secondary_realms: "{{ _active_realms | rejectattr('slug', 'equalto', _oauth2_core_slug) | list }}"
+
+- name: "SMOKE : core realm depuis DB ou fallback listen"
+  ansible.builtin.set_fact:
+    _core_realms: "{{ _active_realms | selectattr('slug', 'equalto', _oauth2_core_slug) | list }}"
+
+- name: "SMOKE : fallback core realm si absent de la DB"
+  ansible.builtin.set_fact:
+    _core_realms:
+      - slug: "{{ _oauth2_core_slug }}"
+        port: "{{ _oauth2_core_port | int }}"
+  when: (_core_realms | length) == 0
+
+- name: "SMOKE : oauth2/start core realm (302 attendu — bloquant)"
   ansible.builtin.uri:
     url: "http://127.0.0.1:{{ item.port }}/oauth2/start"
     method: GET
     follow_redirects: none
     status_code: [302, 303]
-  loop: "{{ _active_realms }}"
-  when: _active_realms | length > 0
-  register: _oauth2_starts
-  failed_when: false
+  loop: "{{ _core_realms }}"
+  register: _oauth2_core_starts
 
-- name: "SMOKE : fallback oauth2-proxy-core :4180 si DB vide"
-  ansible.builtin.uri:
-    url: "http://{{ oauth2_core_listen }}/oauth2/start"
-    method: GET
-    follow_redirects: none
-    status_code: [302, 303]
-  when: _active_realms | length == 0
-  register: _oauth2_core_start
-
-- name: "SMOKE : assert oauth2/start OK pour realms DB"
+- name: "SMOKE : assert oauth2/start OK pour realm core"
   ansible.builtin.assert:
     that:
       - item.status | default(0) in [302, 303]
-    fail_msg: "oauth2/start realm port={{ item.item.port }} status={{ item.status | default('n/a') }}"
-  loop: "{{ _oauth2_starts.results | default([]) }}"
-  when: _active_realms | length > 0
+    fail_msg: >-
+      oauth2/start CORE slug={{ item.item.slug }} port={{ item.item.port }}
+      status={{ item.status | default('n/a') }} — oauth2-proxy-core doit tourner.
+  loop: "{{ _oauth2_core_starts.results | default([]) }}"
+
+- name: "SMOKE : stat client_secret des realms secondaires"
+  ansible.builtin.stat:
+    path: "{{ oauth2_proxy_portal_config_dir }}/{{ item.slug }}/client_secret"
+  loop: "{{ _secondary_realms }}"
+  register: _secondary_secrets
+  when: _secondary_realms | length > 0
+
+- name: "SMOKE : oauth2/start realms secondaires (si secret présent)"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ item.item.port }}/oauth2/start"
+    method: GET
+    follow_redirects: none
+    status_code: [302, 303]
+  loop: "{{ _secondary_secrets.results | default([]) }}"
+  when:
+    - _secondary_realms | length > 0
+    - item.stat.exists | default(false)
+  register: _oauth2_secondary_starts
+  failed_when: false
+
+- name: "SMOKE : assert oauth2/start OK pour secondaires configurés"
+  ansible.builtin.assert:
+    that:
+      - item.status | default(0) in [302, 303]
+    fail_msg: >-
+      oauth2/start secondary slug={{ item.item.item.slug }} port={{ item.item.item.port }}
+      status={{ item.status | default('n/a') }} (client_secret présent mais proxy down).
+  loop: "{{ _oauth2_secondary_starts.results | default([]) }}"
+  when:
+    - _oauth2_secondary_starts is defined
+    - (_oauth2_secondary_starts.results | default([]) | length) > 0
+    - not (item.skipped | default(false))
+
+- name: "SMOKE : warn realms secondaires sans client_secret (non-bloquant)"
+  ansible.builtin.debug:
+    msg: >-
+      Realm secondaire '{{ item.item.slug }}' port={{ item.item.port }} :
+      pas de {{ oauth2_proxy_portal_config_dir }}/{{ item.item.slug }}/client_secret —
+      oauth2-proxy non démarré (attendu tant que le secret Keycloak n'est pas fourni).
+  loop: "{{ _secondary_secrets.results | default([]) }}"
+  when:
+    - _secondary_realms | length > 0
+    - not (item.stat.exists | default(false))
 
 - name: "SMOKE : subdomain-auth sans cookie → 401 (pas 500)"
   ansible.builtin.uri:
