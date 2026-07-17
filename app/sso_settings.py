@@ -142,6 +142,15 @@ class Settings(BaseSettings):
         ),
     )
 
+    log_level: str = Field(
+        default="INFO",
+        validation_alias=AliasChoices("LOG_LEVEL", "log_level"),
+    )
+    log_format: str = Field(
+        default="text",
+        validation_alias=AliasChoices("LOG_FORMAT", "log_format"),
+    )
+
     @field_validator("portal_admin_groups", mode="before")
     @classmethod
     def parse_portal_admin_groups(cls, value: Any) -> list[str]:

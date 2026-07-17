@@ -1,35 +1,28 @@
-"""In-memory rate limiting for realm OIDC tests."""
+"""In-memory rate limiting for realm OIDC / credential / health tests.
+
+Delegates to ``app.testing_framework.throttle`` — kept for import compatibility.
+"""
 
 from __future__ import annotations
 
-import time
-from threading import Lock
+from app.testing_framework.throttle import (
+    reset_throttles,
+    throttle_retry_after,
+    throttle_retry_after_key,
+)
 
-_lock = Lock()
-_last_test_at: dict[str, float] = {}
 _TEST_COOLDOWN_SECONDS = 5.0
 _SYNC_COOLDOWN_SECONDS = 30.0
 
 
-def _check_rate_limit(key: str, cooldown_seconds: float) -> float | None:
-    """Return seconds to wait if throttled, else None."""
-    now = time.monotonic()
-    with _lock:
-        last = _last_test_at.get(key)
-        if last is not None and (now - last) < cooldown_seconds:
-            return cooldown_seconds - (now - last)
-        _last_test_at[key] = now
-    return None
-
-
 def check_test_rate_limit(key: str) -> float | None:
-    return _check_rate_limit(key, _TEST_COOLDOWN_SECONDS)
+    """Return seconds to wait if throttled, else None. Key format: ``type:id``."""
+    return throttle_retry_after_key(key, _TEST_COOLDOWN_SECONDS)
 
 
 def check_sync_rate_limit(key: str) -> float | None:
-    return _check_rate_limit(key, _SYNC_COOLDOWN_SECONDS)
+    return throttle_retry_after_key(key, _SYNC_COOLDOWN_SECONDS)
 
 
 def reset_test_rate_limits() -> None:
-    with _lock:
-        _last_test_at.clear()
+    reset_throttles()

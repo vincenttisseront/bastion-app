@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Logs admin{% endblock %}
+{% block breadcrumb %}Admin / Logs{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Journaux d'administration</h1>
+      <p class="page-sub">{{ total }} entrée(s) — audit métier (log_action)</p>
+    </div>
+  </div>
+
+  <form class="audit-toolbar" method="get" action="/admin/logs" style="flex-wrap:wrap;gap:var(--sp-2);">
+    <select class="form-input" name="action" aria-label="Filtrer par action" style="width:auto;min-width:12rem;">
+      <option value="">Toutes les actions</option>
+      {% for a in action_choices %}
+      <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+    <input type="text" class="form-input" name="actor" value="{{ filters.actor }}"
+           placeholder="Acteur" aria-label="Filtrer par acteur" style="width:10rem;">
+    <input type="date" class="form-input" name="date_from" value="{{ filters.date_from }}"
+           aria-label="Date début" style="width:auto;">
+    <input type="date" class="form-input" name="date_to" value="{{ filters.date_to }}"
+           aria-label="Date fin" style="width:auto;">
+    <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+  </form>
+
+  <div class="card" style="padding:0;overflow-x:auto;">
+    <table class="data-table" style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:0.75rem;">Horodatage</th>
+          <th style="text-align:left;padding:0.75rem;">Acteur</th>
+          <th style="text-align:left;padding:0.75rem;">Action</th>
+          <th style="text-align:left;padding:0.75rem;">IP</th>
+          <th style="text-align:left;padding:0.75rem;">Résultat</th>
+          <th style="text-align:left;padding:0.75rem;">Détail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+        <tr>
+          <td class="font-mono" style="padding:0.75rem;white-space:nowrap;">{{ e.timestamp }}</td>
+          <td style="padding:0.75rem;">{{ e.actor }}</td>
+          <td style="padding:0.75rem;"><code>{{ e.action }}</code></td>
+          <td class="font-mono" style="padding:0.75rem;">{{ e.ip_address or "—" }}</td>
+          <td style="padding:0.75rem;">
+            {% if e.status %}
+            <span class="badge badge-{{ 'ok' if e.status == 'ok' else ('warn' if e.status == 'warn' else 'err') }}">{{ e.status }}</span>
+            {% else %}
+            <span class="badge badge-info">{{ e.severity }}</span>
+            {% endif %}
+          </td>
+          <td style="padding:0.75rem;max-width:28rem;">
+            <span class="font-mono" style="font-size:0.85em;">{{ e.detail_short or "—" }}</span>
+            {% if e.detail_full and e.detail_full != e.detail_short %}
+            <details style="margin-top:0.25rem;">
+              <summary style="cursor:pointer;color:var(--accent);font-size:0.85em;">voir plus</summary>
+              <pre style="white-space:pre-wrap;font-size:0.8em;margin:0.5rem 0 0;">{{ e.detail_full }}</pre>
+            </details>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" style="padding:2rem;text-align:center;color:var(--muted);">Aucune entrée</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4);align-items:center;">
+    {% if page > 1 %}
+    <a class="btn btn-secondary btn-sm" href="?page={{ page - 1 }}&action={{ filters.action }}&actor={{ filters.actor }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}">← Précédent</a>
+    {% endif %}
+    <span>Page {{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="btn btn-secondary btn-sm" href="?page={{ page + 1 }}&action={{ filters.action }}&actor={{ filters.actor }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}">Suivant →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

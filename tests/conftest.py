@@ -1,7 +1,9 @@
 """Shared pytest fixtures."""
 
 import pytest
+import respx
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -57,3 +59,36 @@ def client(db_engine):
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def mock_http():
+    """Generic respx mock for connection-test modules."""
+    with respx.mock(assert_all_called=False) as mock:
+        yield mock
+
+
+@pytest.fixture
+def oidc_discovery_ok(mock_http):
+    def _register(issuer_base: str):
+        mock_http.get(f"{issuer_base}/.well-known/openid-configuration").mock(
+            return_value=Response(
+                200,
+                json={
+                    "issuer": issuer_base,
+                    "jwks_uri": f"{issuer_base}/protocol/openid-connect/certs",
+                    "token_endpoint": f"{issuer_base}/protocol/openid-connect/token",
+                    "authorization_endpoint": f"{issuer_base}/protocol/openid-connect/auth",
+                },
+            )
+        )
+
+    return _register
+
+
+@pytest.fixture
+def http_probe_ok(mock_http):
+    def _register(url: str, status_code: int = 200):
+        mock_http.get(url).mock(return_value=Response(status_code))
+
+    return _register

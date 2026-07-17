@@ -1,6 +1,7 @@
 """Admin health probe routes — manual and summary JSON."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -14,6 +15,7 @@ from app.health_probe import (
 )
 from app.models import App
 from app.sso_settings import Settings, get_settings
+from app.testing_framework.throttle import throttle_retry_after
 from app.web.user_context import require_admin
 
 router = APIRouter(tags=["health"])
@@ -34,6 +36,12 @@ async def probe_single_app(
     app = db.query(App).filter_by(id=app_id).first()
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
+
+    if wait := throttle_retry_after("app_health", app_id, min_interval_seconds=5):
+        return JSONResponse(
+            {"ok": False, "error": f"Trop de tests — réessayez dans {wait:.0f}s"},
+            status_code=429,
+        )
 
     payload = await probe_and_persist_app(db, app)
     log_action(

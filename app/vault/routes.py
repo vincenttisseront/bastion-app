@@ -9,22 +9,22 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.admin.throttling import check_test_rate_limit
-from app.bastion.drivers.base import RoboticLoginError
-from app.bastion.drivers.crushftp import CrushFTPDriver
+from app.audit import log_action
 from app.database import get_db
 from app.security import require_internal_token
 from app.services import get_app_by_slug_or_404
 from app.sso_settings import Settings, get_settings
+from app.testing_framework.throttle import throttle_retry_after
 from app.vault.app_credential_service import (
-    CredentialDecryptError,
-    CredentialNotFoundError,
     EncryptionNotConfiguredError,
     VaultError,
     deactivate_app_credential,
     get_app_credential,
-    get_decrypted_password,
     set_app_credential,
+)
+from app.vault.credential_connection_test import (
+    credential_test_legacy_response,
+    test_app_credential_connection,
 )
 
 router = APIRouter(prefix="/api/admin/apps", tags=["admin-vault"])
@@ -120,38 +120,30 @@ async def test_credential(
     settings: Settings = Depends(get_settings),
     _token: str = Depends(require_internal_token),
 ):
-    if wait := check_test_rate_limit(f"credential:{slug}"):
+    if wait := throttle_retry_after("app_credential", slug, min_interval_seconds=5):
         return JSONResponse(
             {"ok": False, "error": f"Trop de tests — réessayez dans {wait:.0f}s"},
             status_code=429,
         )
 
     app = get_app_by_slug_or_404(db, slug)
-    try:
-        password = get_decrypted_password(db, slug, settings)
-        cred = get_app_credential(db, slug)
-        if cred is None:
-            return JSONResponse(
-                {"ok": False, "error": "No active credential configured"},
-                status_code=404,
-            )
-        driver = CrushFTPDriver()
-        session = await driver.login(app.upstream_url, cred.robotic_username, password)
-        identity = await driver.get_username(session)
-        if identity != cred.robotic_username:
-            return {"ok": False, "error": "Identity mismatch after login"}
-        return {"ok": True}
-    except EncryptionNotConfiguredError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except CredentialNotFoundError:
-        return JSONResponse(
-            {"ok": False, "error": "No active credential configured"},
-            status_code=404,
-        )
-    except CredentialDecryptError:
-        return JSONResponse(
-            {"ok": False, "error": "Credential decryption failed"},
-            status_code=500,
-        )
-    except RoboticLoginError as exc:
-        return {"ok": False, "error": str(exc)}
+    result = await test_app_credential_connection(db, app, settings)
+    log_action(
+        db,
+        actor="system",
+        action="credential.test",
+        target=f"app:{slug}",
+        details={
+            "resource_type": result.resource_type,
+            "resource_id": slug,
+            "status": result.overall_status.value,
+            "checks": [{"name": c.name, "status": c.status.value} for c in result.checks],
+        },
+        ip_address=_client_ip(request),
+    )
+    body, status = credential_test_legacy_response(result)
+    if status == 503:
+        raise HTTPException(status_code=503, detail=body.get("error", "Encryption not configured"))
+    if status != 200 or not body.get("ok"):
+        return JSONResponse(body, status_code=status if status != 200 else 200)
+    return body

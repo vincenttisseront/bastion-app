@@ -8,7 +8,7 @@ __pycache__/
 !/ansible/inventory/*.ini.example
 .pytest_cache/
 node_modules/
-
-# Ansible deploy artefact (build copy of app/ at deploy time)
+test-results/
+playwright-report/
 /ansible/roles/sso_portal/files/portal/*
 !/ansible/roles/sso_portal/files/portal/.gitkeep

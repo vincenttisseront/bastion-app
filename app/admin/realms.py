@@ -26,7 +26,7 @@ from app.admin.schemas import (
     RealmTestBody,
     validation_errors_response,
 )
-from app.admin.throttling import check_test_rate_limit
+from app.testing_framework.throttle import throttle_retry_after
 from app.audit import log_action
 from app.database import get_db
 from app.models import RealmConfig
@@ -662,8 +662,9 @@ async def admin_realms_test_draft(
     except ValidationError as exc:
         return JSONResponse(validation_errors_response(exc), status_code=400)
 
-    throttle_key = f"draft:{data.client_id}:{data.issuer_url}"
-    if wait := check_test_rate_limit(throttle_key):
+    if wait := throttle_retry_after(
+        "oidc_realm", f"draft:{data.client_id}:{data.issuer_url}", min_interval_seconds=5
+    ):
         return JSONResponse(
             {"ok": False, "errors": {"_form": f"Trop de tests — réessayez dans {wait:.0f}s"}},
             status_code=429,
@@ -717,7 +718,7 @@ async def admin_realms_test(
     if not realm:
         raise HTTPException(status_code=404)
 
-    if wait := check_test_rate_limit(f"realm:{realm_id}"):
+    if wait := throttle_retry_after("oidc_realm", realm_id, min_interval_seconds=5):
         return JSONResponse(
             {"ok": False, "errors": {"_form": f"Trop de tests — réessayez dans {wait:.0f}s"}},
             status_code=429,

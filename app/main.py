@@ -1,4 +1,4 @@
-"""FastAPI entrypoint — SSO portal Phase 3 + Bastion Pro UI."""
+"""FastAPI entrypoint — SSO portal Phase 5 + Bastion Pro UI."""
 
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,12 +16,15 @@ from app.admin.rbac_groups import router as admin_rbac_groups_router
 from app.breakglass import router as breakglass_router
 from app.database import engine
 from app.health_scheduler import start_health_scheduler, stop_health_scheduler
+from app.logging_config import configure_logging
+from app.logging_middleware import RequestIdMiddleware
 from app.models import Base
 from app.realm_service import router as realm_router
 from app.robotic.client_open_action import router as robotic_router
 from app.services import router as apps_router
 from app.subdomain.subdomain_auth import router as subdomain_router
 from app.vault.routes import router as vault_router
+from app.web.admin_logs import router as admin_logs_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context
@@ -40,6 +43,7 @@ async def lifespan(app: FastAPI):
     import logging
 
     settings = get_settings()
+    configure_logging(settings)
     logger = logging.getLogger("app.main")
     if not settings.portal_secret_encryption_key:
         logger.warning(
@@ -59,14 +63,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RequestIdMiddleware)
+
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    # Proposed Phase 4 bump — confirm before commit if this observable must stay at "3".
-    return {"status": "ok", "phase": "4"}
+    return {"status": "ok", "phase": "5"}
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -101,6 +106,7 @@ app.include_router(admin_realms_router)
 app.include_router(infrastructure_router)
 app.include_router(admin_rbac_groups_router)
 app.include_router(admin_rbac_access_router)
+app.include_router(admin_logs_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)
 app.include_router(sessions_router)

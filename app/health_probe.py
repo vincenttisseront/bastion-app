@@ -11,6 +11,12 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.models import App, utcnow
+from app.testing_framework.connection_test import (
+    CheckStatus,
+    CheckStep,
+    ConnectionTestResult,
+    overall_from_checks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,43 +34,121 @@ def classify_http_status(status_code: int) -> str:
     return "error"
 
 
-async def probe_application(app: App) -> dict[str, Any]:
-    """Probe HTTP on the app's target URL. Returns a dict ready to persist."""
+def _status_from_http(code: int) -> CheckStatus:
+    return CheckStatus(classify_http_status(code))
+
+
+def _legacy_probe_dict(result: ConnectionTestResult) -> dict[str, Any]:
+    """Map ConnectionTestResult to the dict expected by apply_probe_result / API."""
+    http_code = None
+    error = None
+    for step in result.checks:
+        if step.name != "http_probe":
+            continue
+        if step.detail:
+            http_code = step.detail.get("http_code")
+        if step.status == CheckStatus.ERROR:
+            error = step.message
+        elif step.status == CheckStatus.WARN:
+            error = None
+    if result.overall_status == CheckStatus.ERROR and error is None:
+        for step in result.checks:
+            if step.status == CheckStatus.ERROR:
+                error = step.message
+                break
+    return {
+        "status": result.overall_status.value,
+        "http_code": http_code,
+        "latency_ms": result.latency_ms,
+        "error": error,
+    }
+
+
+async def probe_application_result(app: App) -> ConnectionTestResult:
+    """Probe HTTP and return a ConnectionTestResult."""
+    resource_id = getattr(app, "id", None)
+    if resource_id is None:
+        resource_id = getattr(app, "slug", None) or "unknown"
+
     url = probe_target_url(app)
     if not url:
-        return {
-            "status": "error",
-            "http_code": None,
-            "latency_ms": None,
-            "error": "Aucune URL upstream configurée",
-        }
+        checks = [
+            CheckStep(
+                name="http_probe",
+                status=CheckStatus.ERROR,
+                message="Aucune URL upstream configurée",
+            )
+        ]
+        return ConnectionTestResult(
+            resource_type="app_health",
+            resource_id=resource_id,
+            overall_status=CheckStatus.ERROR,
+            checks=checks,
+            latency_ms=None,
+        )
 
     start = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=5.0, follow_redirects=True, verify=True) as client:
             resp = await client.get(url)
         latency_ms = int((time.monotonic() - start) * 1000)
-        status = classify_http_status(resp.status_code)
-        return {
-            "status": status,
-            "http_code": resp.status_code,
-            "latency_ms": latency_ms,
-            "error": None,
-        }
+        status = _status_from_http(resp.status_code)
+        if status == CheckStatus.OK:
+            message = f"Upstream joignable (HTTP {resp.status_code})"
+        elif status == CheckStatus.WARN:
+            message = f"Réponse client HTTP {resp.status_code}"
+        else:
+            message = f"Réponse serveur HTTP {resp.status_code}"
+        checks = [
+            CheckStep(
+                name="http_probe",
+                status=status,
+                message=message,
+                detail={"http_code": resp.status_code},
+            )
+        ]
+        return ConnectionTestResult(
+            resource_type="app_health",
+            resource_id=resource_id,
+            overall_status=overall_from_checks(checks),
+            checks=checks,
+            latency_ms=latency_ms,
+        )
     except httpx.TimeoutException:
-        return {
-            "status": "error",
-            "http_code": None,
-            "latency_ms": None,
-            "error": "Timeout (> 5s)",
-        }
+        checks = [
+            CheckStep(
+                name="http_probe",
+                status=CheckStatus.ERROR,
+                message="Timeout (> 5s)",
+            )
+        ]
+        return ConnectionTestResult(
+            resource_type="app_health",
+            resource_id=resource_id,
+            overall_status=CheckStatus.ERROR,
+            checks=checks,
+            latency_ms=None,
+        )
     except httpx.RequestError as exc:
-        return {
-            "status": "error",
-            "http_code": None,
-            "latency_ms": None,
-            "error": f"Injoignable : {exc}",
-        }
+        checks = [
+            CheckStep(
+                name="http_probe",
+                status=CheckStatus.ERROR,
+                message=f"Injoignable : {exc}",
+            )
+        ]
+        return ConnectionTestResult(
+            resource_type="app_health",
+            resource_id=resource_id,
+            overall_status=CheckStatus.ERROR,
+            checks=checks,
+            latency_ms=None,
+        )
+
+
+async def probe_application(app: App) -> dict[str, Any]:
+    """Probe HTTP on the app's target URL. Returns a dict ready to persist."""
+    return _legacy_probe_dict(await probe_application_result(app))
 
 
 def apply_probe_result(app: App, result: dict[str, Any], probed_at: datetime | None = None) -> None:
