@@ -35,7 +35,7 @@
   ansible.builtin.blockinfile:
     path: /etc/nginx/nginx.conf
     marker: "# {mark} ANSIBLE MANAGED — portal SSO rate zones"
-    insertbefore: "include /etc/nginx/includes/waf-maps.conf"
+    insertafter: 'http {'
     block: |2
       limit_req_zone $binary_remote_addr zone=portal_login:10m rate=3r/s;
       limit_req_zone $binary_remote_addr zone=portal_api:10m rate=30r/s;
