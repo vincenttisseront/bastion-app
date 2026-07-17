@@ -81,6 +81,11 @@ def _get_app_or_404(db: Session, slug: str) -> App:
     return app
 
 
+def get_app_by_slug_or_404(db: Session, slug: str) -> App:
+    """Public lookup used by vault / robotic modules (avoids ad-hoc queries)."""
+    return _get_app_or_404(db, slug)
+
+
 def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
 

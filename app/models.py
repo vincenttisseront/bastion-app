@@ -51,7 +51,10 @@ class App(Base):
 
     groups = relationship("AppGroup", back_populates="app", cascade="all, delete-orphan")
     credentials = relationship(
-        "AppCredential", back_populates="app", cascade="all, delete-orphan"
+        "AppCredential",
+        back_populates="app",
+        cascade="all, delete-orphan",
+        foreign_keys="AppCredential.app_slug",
     )
 
 
@@ -143,19 +146,26 @@ class AppGroup(Base):
 
 
 class AppCredential(Base):
-    """Encrypted application credential (Fernet) — portal vault."""
+    """Encrypted robotic service-account credential (Fernet) — portal vault."""
 
     __tablename__ = "app_credentials"
 
     id = Column(Integer, primary_key=True)
-    app_id = Column(Integer, ForeignKey("apps.id"), nullable=False)
-    username = Column(String, nullable=False)
+    app_slug = Column(
+        String,
+        ForeignKey("apps.slug"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    robotic_username = Column(String, nullable=False)
     encrypted_password = Column(Text, nullable=False)
-    label = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    rotated_at = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
 
-    app = relationship("App", back_populates="credentials")
+    app = relationship("App", back_populates="credentials", foreign_keys=[app_slug])
 
 
 class RealmConfig(Base):

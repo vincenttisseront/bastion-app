@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -18,8 +18,10 @@ from app.database import engine
 from app.health_scheduler import start_health_scheduler, stop_health_scheduler
 from app.models import Base
 from app.realm_service import router as realm_router
+from app.robotic.client_open_action import router as robotic_router
 from app.services import router as apps_router
 from app.subdomain.subdomain_auth import router as subdomain_router
+from app.vault.routes import router as vault_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context
@@ -63,22 +65,25 @@ if STATIC_DIR.is_dir():
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
-    return {"status": "ok", "phase": "3"}
+    # Proposed Phase 4 bump — confirm before commit if this observable must stay at "3".
+    return {"status": "ok", "phase": "4"}
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    if exc.status_code == 401 and not request.url.path.startswith("/api/"):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    if exc.status_code == 401:
         return RedirectResponse(url="/auth/login", status_code=302)
-    if exc.status_code == 403 and not request.url.path.startswith("/api/"):
+    if exc.status_code == 403:
         settings = get_settings()
         ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
         return render("errors/403.html", **ctx, status_code=403)
-    if exc.status_code == 404 and not request.url.path.startswith("/api/"):
+    if exc.status_code == 404:
         settings = get_settings()
         ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
         return render("errors/404.html", **ctx, status_code=404)
-    raise exc
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
 
 
 @app.exception_handler(Exception)
@@ -104,5 +109,5 @@ app.include_router(breakglass_router)
 app.include_router(apps_router)
 app.include_router(realm_router)
 app.include_router(subdomain_router)
-
-# TODO Phase 4: proxy, robotic
+app.include_router(vault_router)
+app.include_router(robotic_router)
