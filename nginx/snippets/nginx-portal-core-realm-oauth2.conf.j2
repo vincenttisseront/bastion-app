@@ -1,0 +1,16 @@
+    # ---- oauth2-proxy CORE realm {{ oauth2_core_realm_slug }} (Ansible :{{ oauth2_core_listen.split(':')[-1] }}) ----
+    # Prioritaire sur nginx-portal-realms.conf (évite 4180/4181 + cookie_secret divergents).
+    location ~ ^/oauth2/{{ oauth2_core_realm_slug }}/(.*)$ {
+        proxy_pass http://{{ oauth2_core_listen }}/oauth2/$1$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_buffer_size 128k;
+        proxy_buffers 8 128k;
+        proxy_busy_buffers_size 256k;
+        proxy_read_timeout 120s;
+    }

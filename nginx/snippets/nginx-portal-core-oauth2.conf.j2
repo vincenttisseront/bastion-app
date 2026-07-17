@@ -1,0 +1,36 @@
+    # ---- Core admin oauth2-proxy (Ansible statique — :{{ oauth2_core_admin_listen.split(':')[-1] }}) ----
+    location ~ ^/oauth2/core/(.*)$ {
+        proxy_pass http://{{ oauth2_core_admin_listen }}/oauth2/$1$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_buffer_size 128k;
+        proxy_buffers 8 128k;
+        proxy_busy_buffers_size 256k;
+        proxy_read_timeout 120s;
+    }
+
+    location = /portal_core_auth_check {
+        internal;
+
+        if ($cookie_portal_breakglass_token) {
+            return 200;
+        }
+
+        proxy_pass http://{{ oauth2_core_admin_listen }}/oauth2/auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host $host;
+        include /etc/nginx/snippets/proxy_portal_forwarded.conf;
+        proxy_set_header X-Forwarded-Uri $request_uri;
+        proxy_set_header Cookie $http_cookie;
+        proxy_buffering off;
+    }
+
+    location @portal_core_oauth2_signin {
+        return 302 /oauth2/core/start?rd=$portal_oauth2_rd_safe;
+    }

@@ -1,6 +1,10 @@
 ---
 # tasks/nginx_vhosts.yml
 # Déploiement des vhosts Nginx et snippets pour le portail SSO + sous-domaines
+#
+# Les vhosts Jinja font {% include 'snippets/...' %} : Ansible ne résout pas
+# nginx/snippets depuis nginx/vhosts. On stage un arbre de rendu sur le contrôleur
+# (même pattern que awx-playbook bastion_app_prepare_controller).
 
 - name: Créer le répertoire exports portail
   ansible.builtin.file:
@@ -23,23 +27,74 @@
     state: directory
     mode: "0755"
 
-- name: Déployer les snippets Nginx
+- name: Stage nginx Jinja render tree on controller
+  vars:
+    _nginx_render_dir: "{{ playbook_dir }}/.cache/bastion-nginx-render"
+  block:
+    - name: Reset nginx render directory on controller
+      ansible.builtin.file:
+        path: "{{ _nginx_render_dir }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Create nginx render snippets directory
+      ansible.builtin.file:
+        path: "{{ _nginx_render_dir }}/snippets"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Stage bastion-app nginx snippets for Jinja includes
+      ansible.builtin.copy:
+        src: "{{ bastion_nginx_snippets_src }}/"
+        dest: "{{ _nginx_render_dir }}/snippets/"
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Stage portal vhost template for renderer
+      ansible.builtin.copy:
+        src: "{{ bastion_nginx_vhosts_src }}/vhost_sso_portal.conf.j2"
+        dest: "{{ _nginx_render_dir }}/vhost_sso_portal.conf.j2"
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Stage subdomain vhost template for renderer
+      ansible.builtin.copy:
+        src: "{{ bastion_nginx_vhosts_src }}/vhost-subdomain-crushftp.conf.j2"
+        dest: "{{ _nginx_render_dir }}/vhost-subdomain-crushftp.conf.j2"
+        mode: "0644"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: Publish staged nginx template paths
+      ansible.builtin.set_fact:
+        bastion_nginx_staged_portal_vhost: "{{ _nginx_render_dir }}/vhost_sso_portal.conf.j2"
+        bastion_nginx_staged_subdomain_vhost: "{{ _nginx_render_dir }}/vhost-subdomain-crushftp.conf.j2"
+        bastion_nginx_staged_snippets_dir: "{{ _nginx_render_dir }}/snippets"
+
+- name: Déployer les snippets Nginx (runtime /etc/nginx/snippets)
   ansible.builtin.template:
-    src: "{{ item.src }}"
-    dest: "{{ nginx_snippets_dir }}/{{ item.dest }}"
+    src: "{{ bastion_nginx_staged_snippets_dir }}/{{ item }}"
+    dest: "{{ nginx_snippets_dir }}/{{ item | regex_replace('\\.j2$', '') }}"
     mode: "0644"
   loop:
-    - src: "{{ bastion_nginx_snippets_src }}/subdomain_auth_common.conf.j2"
-      dest: subdomain_auth_common.conf
-    - src: "{{ bastion_nginx_snippets_src }}/proxy_portal_forwarded_backend.conf.j2"
-      dest: proxy_portal_forwarded_backend.conf
-    - src: "{{ bastion_nginx_snippets_src }}/proxy_portal_legacy_redirects.conf.j2"
-      dest: proxy_portal_legacy_redirects.conf
+    - subdomain_auth_common.conf.j2
+    - proxy_portal_forwarded_backend.conf.j2
+    - proxy_portal_legacy_redirects.conf.j2
   notify: Reload nginx
 
 - name: Déployer le vhost portail SSO
   ansible.builtin.template:
-    src: "{{ bastion_nginx_vhosts_src }}/vhost_sso_portal.conf.j2"
+    src: "{{ bastion_nginx_staged_portal_vhost }}"
     dest: "{{ nginx_conf_dir }}/vhost_sso_portal.conf"
     mode: "0644"
   when: sso_portal_enabled | default(true)
@@ -54,7 +109,7 @@
 
 - name: Déployer les vhosts subdomain SSO
   ansible.builtin.template:
-    src: "{{ bastion_nginx_vhosts_src }}/vhost-subdomain-crushftp.conf.j2"
+    src: "{{ bastion_nginx_staged_subdomain_vhost }}"
     dest: "{{ nginx_conf_dir }}/vhost_subdomain_{{ vhost.slug }}.conf"
     mode: "0644"
   loop: "{{ nginx_subdomain_sso_vhosts | default([]) }}"

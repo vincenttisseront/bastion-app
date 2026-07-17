@@ -10,7 +10,7 @@
 sso_portal_enabled: true
 bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
 # Tag/commit épinglé — jamais 'main' / 'master' en prod
-bastion_app_git_ref: "v0.6.3"
+bastion_app_git_ref: "v0.6.4"
 # false = synchronise depuis le checkout AWX/controller (playbook_dir/..)
 # true  = git clone sur le serveur (nécessite credentials git privés)
 bastion_app_remote_git_clone: false
@@ -50,6 +50,9 @@ sso_portal_oidc_client_id: sso-portal-ar-systems
 sso_portal_manage_oauth2_core: false
 oauth2_core_static_enabled: true
 oauth2_core_listen: "127.0.0.1:4180"
+oauth2_core_admin_listen: "127.0.0.1:4190"
+oauth2_core_admin_enabled: false
+oauth2_core_realm_slug: "{{ sso_portal_default_realm_slug }}"
 oauth2_core_config_dir: /etc/oauth2-proxy-portal/core
 oauth2_proxy_portal_config_dir: /etc/oauth2-proxy-portal
 oauth2_proxy_portal_user: oauth2-proxy-portal

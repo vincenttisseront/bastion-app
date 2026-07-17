@@ -1,0 +1,20 @@
+        limit_req zone=portal_api burst=60 nodelay;
+        auth_request /portal_auth_check;
+        error_page 401 = @portal_oauth2_signin;
+
+        auth_request_set $auth_user      $upstream_http_x_auth_request_user;
+        auth_request_set $auth_email     $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups    $upstream_http_x_auth_request_groups;
+        auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
+
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+
+        proxy_set_header X-User $auth_user;
+        proxy_set_header X-Email $auth_email;
+        proxy_set_header X-Groups $auth_groups;
+        proxy_set_header X-Preferred-Username $auth_preferred;
+        proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
+        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
