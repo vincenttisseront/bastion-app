@@ -81,13 +81,7 @@
     path: "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh"
     mode: "0755"
 
-- name: "Ensure Traefik network vpcbr exists"
-  community.docker.docker_network:
-    name: "{{ bastion_traefik_network }}"
-    state: present
-  failed_when: false
-
-- name: "Ensure Traefik network vpcbr exists (cli fallback)"
+- name: "Inspect Traefik network vpcbr (CLI — no community.docker required)"
   ansible.builtin.command: docker network inspect {{ bastion_traefik_network }}
   register: _vpcbr
   changed_when: false
