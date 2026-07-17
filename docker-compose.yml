@@ -15,7 +15,16 @@ services:
   bastion-app-migrate:
     build: .
     image: bastion-app:local
-    command: ["alembic", "upgrade", "head"]
+    # root: créer portal.db puis chown pour l'user bastion (uid 1000)
+    user: "0:0"
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mkdir -p /var/lib/sso-portal/exports
+        alembic upgrade head
+        chown -R 1000:1000 /var/lib/sso-portal
     env_file:
       - .env
     environment:

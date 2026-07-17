@@ -5,7 +5,9 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
-    mode: "0750"
+    owner: "1000"
+    group: "1000"
+    mode: "0755"
   loop:
     - "{{ bastion_app_docker_compose_dir }}"
     - "{{ bastion_app_docker_data_dir }}"
@@ -119,6 +121,28 @@
     SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
     OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
     PORTAL_DOMAIN: "{{ portal_domain }}"
+  register: _compose_up
+  failed_when: false
+
+- name: "Dump migrate logs on compose failure"
+  ansible.builtin.command:
+    cmd: docker compose logs --no-color bastion-app-migrate
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _migrate_logs
+  changed_when: false
+  failed_when: false
+  when: _compose_up.rc | default(0) != 0
+
+- name: "Fail with migrate diagnostics"
+  ansible.builtin.fail:
+    msg: >-
+      docker compose up failed (rc={{ _compose_up.rc }}).
+      migrate logs:
+      {{ _migrate_logs.stdout | default('') }}
+      {{ _migrate_logs.stderr | default('') }}
+      compose stderr:
+      {{ _compose_up.stderr | default('') }}
+  when: _compose_up.rc | default(0) != 0
 
 - name: "Wait for bastion-app healthy"
   ansible.builtin.uri:
