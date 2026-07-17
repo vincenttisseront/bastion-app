@@ -167,38 +167,15 @@
       direct FastAPI={{ _subdomain_auth_direct.status | default('n/a') }}
       (attendu 401 sans session depuis IP publique factice).
 
-- name: "SMOKE : détecter locations /proxy/ actives (proxy_pass) hors redirect 301/302"
-  ansible.builtin.shell: |
-    set -euo pipefail
-    {{ sso_portal_venv }}/bin/python - <<'PY'
-    import pathlib
-    import re
-    import sys
+- name: "SMOKE : déployer le checker /proxy/ locations"
+  ansible.builtin.copy:
+    src: check_proxy_locations.py
+    dest: /tmp/check_proxy_locations.py
+    mode: "0755"
 
-    conf_dir = pathlib.Path("{{ nginx_conf_dir }}")
-    # location ... /proxy/ ... { ... }  — corps jusqu'à la } de même niveau (simple)
-    loc_re = re.compile(
-        r"location\s+[^{;\n]*?/proxy/[^{]*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}",
-        re.MULTILINE,
-    )
-    bad = []
-    for path in sorted(conf_dir.glob("*.conf")):
-        text = path.read_text(encoding="utf-8", errors="replace")
-        for match in loc_re.finditer(text):
-            header = match.group(0).split("{", 1)[0].strip()
-            body = match.group(1)
-            line_no = text[: match.start()].count("\n") + 1
-            has_redirect = re.search(r"\breturn\s+30[123]\b", body) is not None
-            has_proxy_pass = re.search(r"\bproxy_pass\b", body) is not None
-            if has_proxy_pass or not has_redirect:
-                bad.append(f"{path}:{line_no}:{header} (proxy_pass={has_proxy_pass} redirect={has_redirect})")
-    if bad:
-        print("\n".join(bad))
-        sys.exit(1)
-    print("OK: aucune location /proxy/ active (uniquement redirects 301/302 legacy)")
-    PY
-  args:
-    executable: /bin/bash
+- name: "SMOKE : détecter locations /proxy/ actives (proxy_pass) hors redirect 301/302"
+  ansible.builtin.command:
+    cmd: "{{ sso_portal_venv }}/bin/python /tmp/check_proxy_locations.py {{ nginx_conf_dir }}"
   register: _proxy_locations
   changed_when: false
   failed_when: false
