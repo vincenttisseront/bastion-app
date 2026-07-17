@@ -21,6 +21,20 @@
       /api/health inattendu : {{ _health.content | default('n/a') }}.
       Attendu status=ok phase={{ sso_portal_expected_health_phase }}.
 
+- name: "SMOKE : nginx healthy on vpcbr (bypass Traefik)"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker run --rm --network {{ bastion_traefik_network }} curlimages/curl:8.5.0 \
+      -fsS -H "Host: {{ portal_domain }}" \
+      "http://bastion-nginx:8080/api/health"
+  args:
+    executable: /bin/bash
+  register: _nginx_vpcbr
+  retries: 15
+  delay: 2
+  until: _nginx_vpcbr.rc | default(1) == 0
+  changed_when: false
+
 - name: "SMOKE : via Traefik https://{{ bastion_docker_host_ip }} Host={{ portal_domain }}"
   ansible.builtin.uri:
     url: "{{ bastion_upstream_url }}/api/health"
@@ -30,15 +44,57 @@
     return_content: true
     status_code: 200
   register: _traefik_health
-  retries: 15
-  delay: 2
+  retries: 20
+  delay: 3
   until: _traefik_health.status | default(0) == 200
+  failed_when: false
+
+- name: "SMOKE : diagnose Traefik 502"
+  when: _traefik_health.status | default(0) != 200
+  block:
+    - name: "compose ps"
+      ansible.builtin.command:
+        cmd: docker compose ps -a
+        chdir: "{{ bastion_app_docker_compose_dir }}"
+      register: _compose_ps
+      changed_when: false
+      failed_when: false
+
+    - name: "nginx logs"
+      ansible.builtin.command:
+        cmd: docker compose logs --no-color --tail 80 nginx
+        chdir: "{{ bastion_app_docker_compose_dir }}"
+      register: _nginx_logs
+      changed_when: false
+      failed_when: false
+
+    - name: "nginx networks + traefik labels"
+      ansible.builtin.command: >
+        docker inspect bastion-nginx
+        --format '{% raw %}{{json .NetworkSettings.Networks}} LABELS={{json .Config.Labels}}{% endraw %}'
+      register: _nginx_inspect
+      changed_when: false
+      failed_when: false
+
+    - name: "Fail with Traefik diagnostics"
+      ansible.builtin.fail:
+        msg: |
+          Traefik /api/health → HTTP {{ _traefik_health.status | default('n/a') }}
+          body={{ _traefik_health.content | default('') }}
+          nginx-via-vpcbr rc={{ _nginx_vpcbr.rc }} out={{ _nginx_vpcbr.stdout | default('') }}
+          --- compose ps ---
+          {{ _compose_ps.stdout | default('') }}
+          --- nginx logs ---
+          {{ _nginx_logs.stdout | default('') }}
+          {{ _nginx_logs.stderr | default('') }}
+          --- inspect ---
+          {{ _nginx_inspect.stdout | default('') }}
 
 - name: "SMOKE : docker compose ps"
   ansible.builtin.command:
     cmd: docker compose ps
     chdir: "{{ bastion_app_docker_compose_dir }}"
-  register: _compose_ps
+  register: _compose_ps_ok
   changed_when: false
 
 - name: "SMOKE : oauth2-proxy-core /oauth2/start (302 attendu si cfg valide)"

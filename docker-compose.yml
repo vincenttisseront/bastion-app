@@ -50,8 +50,10 @@ services:
       OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
+    # vpcbr : joignable depuis nginx (nginx n'est PAS sur bastion_net — évite 502 Traefik)
     networks:
       - bastion_net
+      - vpcbr
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -75,6 +77,7 @@ services:
       - ${OAUTH2_CORE_CONFIG_DIR:-./docker/oauth2-core}:/etc/oauth2-proxy:ro
     networks:
       - bastion_net
+      - vpcbr
     ports:
       - "127.0.0.1:4180:4180"
     restart: unless-stopped
@@ -82,14 +85,15 @@ services:
   nginx:
     build: ./docker/nginx
     image: bastion-nginx:local
+    container_name: bastion-nginx
     environment:
       PORTAL_INTERNAL_TOKEN: ${VAULT_PORTAL_INTERNAL_TOKEN:-${PORTAL_INTERNAL_TOKEN:-}}
       PORTAL_DOMAIN: ${PORTAL_DOMAIN:-portal.ar-systems.fr}
       SSO_PORTAL_DEFAULT_REALM_SLUG: ${SSO_PORTAL_DEFAULT_REALM_SLUG:-ar-systems}
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
+    # Uniquement vpcbr (comme Keycloak) — Traefik ne peut pas joindre une IP bastion_net
     networks:
-      - bastion_net
       - vpcbr
     labels:
       - "traefik.enable=true"
@@ -97,11 +101,15 @@ services:
       - "traefik.http.routers.bastion-portal.rule=Host(`${PORTAL_DOMAIN:-portal.ar-systems.fr}`)"
       - "traefik.http.routers.bastion-portal.entrypoints=websecure"
       - "traefik.http.routers.bastion-portal.tls=true"
-      - "traefik.http.routers.bastion-portal.service=bastion-portal"
+      - "traefik.http.routers.bastion-portal.tls.certresolver=cloudflare"
+      - "traefik.http.routers.bastion-portal.middlewares=secure-headers@file"
       - "traefik.http.services.bastion-portal.loadbalancer.server.port=8080"
-      - "traefik.http.routers.bastion-portal-http.rule=Host(`${PORTAL_DOMAIN:-portal.ar-systems.fr}`)"
-      - "traefik.http.routers.bastion-portal-http.entrypoints=web"
-      - "traefik.http.routers.bastion-portal-http.service=bastion-portal"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       bastion-app:
         condition: service_healthy

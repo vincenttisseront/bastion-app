@@ -102,9 +102,23 @@
   changed_when: false
   failed_when: false
 
-- name: "Create vpcbr if missing (should already exist with Keycloak/Traefik)"
-  ansible.builtin.command: docker network create {{ bastion_traefik_network }}
+- name: "Fail if vpcbr missing (must be owned by Keycloak/Traefik stack)"
+  ansible.builtin.fail:
+    msg: >-
+      Réseau Docker {{ bastion_traefik_network }} introuvable.
+      Ne pas le créer à la main : il doit déjà exister avec Traefik (stack Keycloak sous /tools/keycloak).
   when: _vpcbr.rc | default(1) != 0
+
+- name: "PREFLIGHT : Traefik container attached to vpcbr"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker network inspect {{ bastion_traefik_network }} --format '{% raw %}{{json .Containers}}{% endraw %}' \
+      | grep -qi traefik
+  args:
+    executable: /bin/bash
+  register: _traefik_on_vpcbr
+  changed_when: false
+  failed_when: _traefik_on_vpcbr.rc != 0
 
 - name: "Docker compose build"
   ansible.builtin.command:
@@ -162,6 +176,8 @@
   environment:
     OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
     SSO_PORTAL_DEFAULT_REALM_SLUG: "{{ sso_portal_default_realm_slug }}"
+    PORTAL_DOMAIN: "{{ portal_domain }}"
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
   register: _apply_docker
   failed_when: false
   changed_when: _apply_docker.rc == 0

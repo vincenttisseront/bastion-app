@@ -19,11 +19,16 @@ def test_compose_split_topology_binds():
     assert "vpcbr" in text
     assert "traefik.enable=true" in text
     assert "bastion-portal" in text
+    assert "tls.certresolver=cloudflare" in text
+    assert "container_name: bastion-nginx" in text
     assert '"80:80"' not in text
     assert '"443:443"' not in text
     assert "8080:8080" not in text  # prod: via Traefik, not host publish
     assert "bastion-app-migrate" in text
     assert "bastion_net" in text
+    # nginx only on vpcbr (avoid Traefik 502 via bastion_net IP)
+    assert "Uniquement vpcbr" in text
+    assert "bastion-portal-http" not in text
 
 
 def test_compose_publish_override_for_local_smoke():
