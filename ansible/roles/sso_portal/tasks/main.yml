@@ -206,6 +206,14 @@
         path: "{{ sso_portal_venv }}/bin/python"
       register: _venv_py
 
+    - name: Probe pip inside shared venv
+      ansible.builtin.command:
+        cmd: "{{ sso_portal_venv }}/bin/python -m pip --version"
+      register: _venv_pip
+      changed_when: false
+      failed_when: false
+      when: _venv_py.stat.exists | default(false)
+
     - name: Remove broken or root-owned shared venv
       ansible.builtin.file:
         path: "{{ sso_portal_venv }}"
@@ -216,11 +224,22 @@
           _venv_py.stat.exists | default(false)
           and (_venv_py.stat.pw_name | default('')) != sso_portal_user
         )
+        or (
+          _venv_py.stat.exists | default(false)
+          and (_venv_pip.rc | default(1)) != 0
+        )
 
     - name: Create shared Python venv
       ansible.builtin.command:
         cmd: python3 -m venv {{ sso_portal_venv }}
         creates: "{{ sso_portal_venv }}/bin/python"
+
+    - name: Bootstrap pip in shared venv (ensurepip)
+      ansible.builtin.command:
+        cmd: "{{ sso_portal_venv }}/bin/python -m ensurepip --upgrade"
+      register: _ensurepip
+      changed_when: _ensurepip.rc == 0
+      failed_when: false
 
     - name: Ensure venv ownership
       ansible.builtin.file:
@@ -229,18 +248,28 @@
         group: "{{ sso_portal_user }}"
         recurse: true
 
+    - name: Verify pyproject.toml present in release (editable install)
+      ansible.builtin.stat:
+        path: "{{ sso_portal_install_dir }}/pyproject.toml"
+      register: _pyproject
+
+    - name: Fail when pyproject.toml missing from release
+      ansible.builtin.fail:
+        msg: >-
+          {{ sso_portal_install_dir }}/pyproject.toml introuvable après extract.
+          Vérifier le tarball release (app/, pyproject.toml).
+      when: not (_pyproject.stat.exists | default(false))
+
     - name: Install bastion-app editable into venv
       become: true
       become_user: "{{ sso_portal_user }}"
-      ansible.builtin.pip:
-        name: .
-        editable: true
+      ansible.builtin.command:
+        cmd: "{{ sso_portal_venv }}/bin/python -m pip install --upgrade -e ."
         chdir: "{{ sso_portal_install_dir }}"
-        virtualenv: "{{ sso_portal_venv }}"
-        extra_args: --upgrade
       environment:
         PIP_DISABLE_PIP_VERSION_CHECK: "1"
       register: _pip_install
+      changed_when: "'Successfully installed' in (_pip_install.stdout | default('')) or 'Requirement already satisfied' not in (_pip_install.stdout | default(''))"
       notify: Restart sso-portal
 
     - name: Render portal.env from Vault secrets
