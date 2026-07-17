@@ -106,8 +106,21 @@
   ansible.builtin.fail:
     msg: >-
       Réseau Docker {{ bastion_traefik_network }} introuvable.
-      Ne pas le créer à la main : il doit déjà exister avec Traefik (stack Keycloak sous /tools/keycloak).
+      Ne pas le créer à la main : il doit déjà exister avec Traefik (stack Keycloak sous /tools/keycloak),
+      IPAM 10.5.0.0/16.
   when: _vpcbr.rc | default(1) != 0
+
+- name: "PREFLIGHT : vpcbr subnet is 10.5.0.0/16"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker network inspect {{ bastion_traefik_network }} \
+      --format '{% raw %}{{range .IPAM.Config}}{{.Subnet}}{{end}}{% endraw %}'
+  args:
+    executable: /bin/bash
+  register: _vpcbr_subnet
+  changed_when: false
+  failed_when: >-
+    (_vpcbr_subnet.stdout | trim) != "10.5.0.0/16"
 
 - name: "PREFLIGHT : Traefik container attached to vpcbr"
   ansible.builtin.shell: |
@@ -158,6 +171,71 @@
       {{ _compose_up.stderr | default('') }}
   when: _compose_up.rc | default(0) != 0
 
+- name: "Attach all bastion containers to vpcbr (10.5.0.0/16) and drop bastion_net"
+  ansible.builtin.shell: |
+    set -o pipefail
+    net="{{ bastion_traefik_network }}"
+    cd "{{ bastion_app_docker_compose_dir }}"
+    mapfile -t cids < <(
+      docker ps -q \
+        --filter "label=com.docker.compose.project=bastion" \
+        --filter "status=running" \
+        | awk 'NF'
+    )
+    python3 - "$net" "${cids[@]}" <<'PY'
+    import json, subprocess, sys
+    net = sys.argv[1]
+    cids = [c for c in sys.argv[2:] if c]
+    if not cids:
+        sys.stderr.write("no running bastion containers (label com.docker.compose.project=bastion)\n")
+        sys.exit(1)
+
+    def inspect(cid):
+        return json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))[0]
+
+    def networks_of(cid):
+        return (inspect(cid).get("NetworkSettings", {}) or {}).get("Networks") or {}
+
+    def ip_on(cid, n):
+        return ((networks_of(cid).get(n) or {}).get("IPAddress") or "").strip()
+
+    report = []
+    for cid in cids:
+        name = inspect(cid).get("Name", cid).lstrip("/")
+        # Drop project bridge leftovers (bastion_bastion_net / bastion_default)
+        for n in list(networks_of(cid)):
+            if n != net and (
+                n.startswith("bastion_")
+                or n.endswith("_bastion_net")
+                or n == "bastion_net"
+            ):
+                subprocess.call(["docker", "network", "disconnect", "-f", n, cid])
+        if not ip_on(cid, net):
+            subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
+            subprocess.check_call(["docker", "network", "connect", net, cid])
+        ip = ip_on(cid, net)
+        if not ip.startswith("10.5."):
+            sys.stderr.write("%s: expected 10.5.0.0/16 on %s, got %r nets=%s\n" % (
+                name, net, ip, sorted(networks_of(cid))))
+            sys.exit(1)
+        report.append("%s=%s" % (name, ip))
+    print(" ".join(report))
+    PY
+  args:
+    executable: /bin/bash
+  register: _vpcbr_attach
+  retries: 5
+  delay: 3
+  until: _vpcbr_attach.rc | default(1) == 0
+  changed_when: true
+
+- name: "Restart bastion stack after vpcbr attach"
+  ansible.builtin.command:
+    cmd: docker compose restart bastion-app oauth2-proxy-core nginx
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _stack_restart
+  changed_when: true
+
 - name: "Wait for bastion-app healthy"
   ansible.builtin.uri:
     url: "http://127.0.0.1:8000/api/health"
@@ -167,70 +245,14 @@
   delay: 2
   until: _wait_health.status | default(0) == 200
 
-- name: "Wait for nginx container running"
+- name: "Assert nginx /api/health on loopback inside container"
   ansible.builtin.shell: |
     set -o pipefail
-    cid=""
-    if docker inspect bastion-nginx >/dev/null 2>&1; then
-      cid=bastion-nginx
-    else
-      cid="$(docker compose ps -q nginx | head -1)"
-    fi
-    [[ -n "${cid}" ]] || exit 1
-    st="$(docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' "${cid}")"
-    [[ "${st}" == "running" ]] || exit 1
-    echo "${cid}"
-  args:
-    executable: /bin/bash
-    chdir: "{{ bastion_app_docker_compose_dir }}"
-  register: _wait_nginx
-  retries: 30
-  delay: 2
-  until: _wait_nginx.rc | default(1) == 0
-  changed_when: false
-
-- name: "Ensure nginx has IPv4 on vpcbr"
-  ansible.builtin.shell: |
-    set -o pipefail
-    cid="{{ _wait_nginx.stdout | trim }}"
-    net="{{ bastion_traefik_network }}"
-    python3 - "$cid" "$net" <<'PY'
-    import json, subprocess, sys
-    cid, net = sys.argv[1], sys.argv[2]
-    def ip_on(cid, net):
-        data = json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))
-        ep = (data[0].get("NetworkSettings", {}).get("Networks") or {}).get(net) or {}
-        return (ep.get("IPAddress") or "").strip()
-    ip = ip_on(cid, net)
-    if not ip:
-        subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
-        subprocess.check_call(["docker", "network", "connect", net, cid])
-        ip = ip_on(cid, net)
-    if not ip:
-        sys.stderr.write("nginx still has no IPv4 on %s after reconnect\n" % net)
-        sys.exit(1)
-    print(ip)
-    PY
-    # Reload after network settle so workers see the iface
-    docker exec "$cid" nginx -s reload 2>/dev/null || docker restart "$cid"
-  args:
-    executable: /bin/bash
-  register: _nginx_vpcbr_ensure
-  retries: 5
-  delay: 2
-  until: _nginx_vpcbr_ensure.rc | default(1) == 0
-  changed_when: true
-
-- name: "Assert nginx listens on 0.0.0.0:8080 inside container"
-  ansible.builtin.shell: |
-    set -o pipefail
-    cid="{{ _wait_nginx.stdout | trim }}"
-    docker exec "$cid" wget -qO- http://127.0.0.1:8080/api/health | grep -q '"status"'
-    docker exec "$cid" sh -c 'wget -qO- http://127.0.0.1:8080/api/health; echo; (ss -lntp || netstat -lntp) 2>/dev/null | grep -E ":8080|nginx" || true'
+    docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/api/health | grep -q '"status"'
   args:
     executable: /bin/bash
   register: _nginx_listen_check
-  retries: 15
+  retries: 20
   delay: 2
   until: _nginx_listen_check.rc | default(1) == 0
   changed_when: false

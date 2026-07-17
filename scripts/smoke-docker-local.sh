@@ -26,8 +26,9 @@ grep -q 'OAUTH2_PROXY_NETWORK_MODE' .env \
 export SSO_PORTAL_DATA_DIR="${SSO_PORTAL_DATA_DIR:-$ROOT/data/sso-portal}"
 export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.ar-systems.fr}"
 
-# Réseau Traefik attendu par compose (external vpcbr)
-docker network inspect vpcbr >/dev/null 2>&1 || docker network create vpcbr
+# Réseau Traefik attendu par compose (external vpcbr, même IPAM que Keycloak)
+docker network inspect vpcbr >/dev/null 2>&1 \
+  || docker network create --subnet=10.5.0.0/16 vpcbr
 
 COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.publish.yml)
 

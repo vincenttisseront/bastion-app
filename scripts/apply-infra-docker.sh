@@ -83,7 +83,6 @@ PY
     echo "    volumes:"
     echo "      - ${EXPORT_DIR}/oauth2/${slug}:/etc/oauth2-proxy:ro"
     echo "    networks:"
-    echo "      - bastion_net"
     echo "      - vpcbr"
     echo "    restart: unless-stopped"
     if [[ "$host_port" =~ ^[0-9]+$ ]] && [[ "$host_port" -gt 0 ]]; then

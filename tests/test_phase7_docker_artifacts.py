@@ -25,9 +25,10 @@ def test_compose_split_topology_binds():
     assert '"443:443"' not in text
     assert "8080:8080" not in text  # prod: via Traefik, not host publish
     assert "bastion-app-migrate" in text
-    assert "bastion_net" in text
-    # nginx only on vpcbr (avoid Traefik 502 via bastion_net IP)
-    assert "Uniquement vpcbr" in text
+    # All services on vpcbr only (Keycloak pattern, 10.5.0.0/16)
+    assert "bastion_net" not in text
+    assert "10.5.0.0/16" in text
+    assert "external: true" in text
     assert "bastion-portal-http" not in text
 
 

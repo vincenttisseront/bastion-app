@@ -1,13 +1,16 @@
 # Bastion applicatif — Phase 7
 #
-# Topologie prod (comme Keycloak sur docker01) :
+# Topologie prod (identique Keycloak sur docker01) :
 #   clients → vmdmz-reverse01:443 (nginx edge)
 #     → https://172.24.0.110 (Traefik, Host: portal.ar-systems.fr)
-#       → container nginx bastion:8080 (réseau Docker vpcbr)
+#       → bastion-nginx:8080 sur réseau Docker vpcbr (10.5.0.0/16)
 #
-# App / oauth2 : bastion_net uniquement (loopback host pour smoke on-box).
-# Smoke local sans Traefik : docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d
-#   (crée le réseau vpcbr si absent : docker network create vpcbr)
+# Tous les services bastion sont UNIQUEMENT sur vpcbr (comme keycloak/traefik).
+# Pas de bridge projet séparé (évite 172.20.0.0/16 sans IP Traefik).
+#
+# Smoke local sans Traefik :
+#   docker network create --subnet=10.5.0.0/16 vpcbr   # si absent
+#   docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d
 
 name: bastion
 
@@ -35,7 +38,7 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
     networks:
-      - bastion_net
+      - vpcbr
     restart: "no"
 
   bastion-app:
@@ -50,9 +53,7 @@ services:
       OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
-    # vpcbr : joignable depuis nginx (nginx n'est PAS sur bastion_net — évite 502 Traefik)
     networks:
-      - bastion_net
       - vpcbr
     ports:
       - "127.0.0.1:8000:8000"
@@ -76,7 +77,6 @@ services:
     volumes:
       - ${OAUTH2_CORE_CONFIG_DIR:-./docker/oauth2-core}:/etc/oauth2-proxy:ro
     networks:
-      - bastion_net
       - vpcbr
     ports:
       - "127.0.0.1:4180:4180"
@@ -92,7 +92,6 @@ services:
       SSO_PORTAL_DEFAULT_REALM_SLUG: ${SSO_PORTAL_DEFAULT_REALM_SLUG:-ar-systems}
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
-    # Uniquement vpcbr (comme Keycloak) — Traefik ne peut pas joindre une IP bastion_net
     networks:
       - vpcbr
     labels:
@@ -118,9 +117,7 @@ services:
     restart: unless-stopped
 
 networks:
-  bastion_net:
-    driver: bridge
-  # Réseau Traefik existant sur vmdmz-docker01 (stack Keycloak)
+  # Réseau Traefik / Keycloak existant (IPAM 10.5.0.0/16 — ne pas recréer)
   vpcbr:
     external: true
     name: vpcbr
