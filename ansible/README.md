@@ -8,7 +8,8 @@
 | Version smoke | `phase: "5"` / `APP_VERSION 0.5.0` (`sso_portal_expected_health_phase`) |
 | `bastion_app_git_ref` | `v0.6.0` (défaut) |
 | Hôte | `vmdmz-reverse01` — AWX : `[nginx_dmz]` ; local : `[sso_portal]` |
-| JT AWX | Projet **awx-playbook** → `linux_sso_portal.yml` (clone bastion-app @ tag) |
+| JT AWX portail | Projet **awx-playbook** → `linux_sso_portal.yml` (clone bastion-app @ tag) |
+| JT AWX infra DMZ | `linux_nginx_dmz.yml` — **sans** deploy portail (`bastion_app_*_enabled: false`) |
 | Rotation Fernet | Hors scope Phase 6 |
 
 ## Usage
