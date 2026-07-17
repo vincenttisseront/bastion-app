@@ -110,6 +110,14 @@ class Settings(BaseSettings):
             "oauth2_core_static_enabled",
         ),
     )
+    # loopback = bare-metal (127.0.0.1:port) ; docker = service DNS oauth2-proxy-{slug}:4180
+    oauth2_proxy_network_mode: str = Field(
+        default="loopback",
+        validation_alias=AliasChoices(
+            "OAUTH2_PROXY_NETWORK_MODE",
+            "oauth2_proxy_network_mode",
+        ),
+    )
 
     rfc1918_bypass_enabled: bool = Field(
         default=True,

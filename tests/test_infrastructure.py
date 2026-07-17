@@ -92,7 +92,9 @@ def test_apply_infrastructure_excludes_core_static_realm(
 
     assert manifest["partial"] is False
     assert (tmp_path / "oauth2-proxy-clients.conf").is_file()
+    assert (tmp_path / "oauth2" / "clients" / "oauth2-proxy.cfg").is_file()
     assert not (tmp_path / "oauth2-proxy-ar-systems.conf").exists()
+    assert not (tmp_path / "oauth2" / "ar-systems").exists()
 
     nginx_conf = (tmp_path / "nginx-portal-realms.conf").read_text(encoding="utf-8")
     assert "/oauth2/clients/" in nginx_conf

@@ -1,0 +1,262 @@
+# ${PORTAL_DOMAIN} — Portail SSO (Phase 7 Docker, HTTP derrière frontal DMZ)
+# Variables envsubst: PORTAL_DOMAIN, SSO_PORTAL_DEFAULT_REALM_SLUG
+
+server {
+    listen 8080;
+    server_name ${PORTAL_DOMAIN} _;
+
+    access_log /var/log/nginx/portal.access.log portal;
+    error_log  /var/log/nginx/portal.error.log warn;
+
+    client_max_body_size 32M;
+    large_client_header_buffers 8 32k;
+    send_timeout 60s;
+    client_body_timeout 30s;
+    client_header_timeout 30s;
+    keepalive_timeout 65s;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    include /etc/nginx/snippets/error_pages.conf;
+    error_page 404 = /__portal_err/404;
+    error_page 500 502 503 504 = /__portal_err/500;
+    error_page 429 = @portal_rate_limited;
+    include /etc/nginx/includes/waf-basic.conf;
+
+    location @portal_rate_limited {
+        default_type text/html;
+        add_header X-Rate-Limited-By "portal-nginx" always;
+        return 429 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Trop de requêtes</title></head><body><h1>Trop de requêtes (429)</h1></body></html>';
+    }
+
+    location = /__portal_err/404 {
+        internal;
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://bastion-app:8000/errors/404;
+    }
+
+    location = /__portal_err/500 {
+        internal;
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://bastion-app:8000/errors/500;
+    }
+
+    include /etc/nginx/mime.types;
+    types_hash_max_size 2048;
+
+    location ~ /\. {
+        deny all;
+        return 404;
+    }
+
+    location = /_portal_nginx_ok {
+        allow 127.0.0.1;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+        default_type text/plain;
+        return 200 "portal nginx ok\n";
+    }
+
+    location = /health {
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000/health;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    location = /api/health {
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000/api/health;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    location ^~ /static/ {
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800" always;
+    }
+
+    location = /favicon.ico {
+        auth_request off;
+        log_not_found off;
+        access_log off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://bastion-app:8000/static/img/bastion-icon.svg;
+    }
+
+    location = /logout {
+        auth_request off;
+        limit_req zone=portal_login burst=10 nodelay;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
+        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    location ^~ /breakglass {
+        auth_request off;
+        allow 127.0.0.0/8;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+        limit_req zone=portal_login burst=5 nodelay;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    location ^~ /auth/ {
+        auth_request off;
+        limit_req zone=portal_login burst=10 nodelay;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    location = /portal_auth_check {
+        internal;
+        auth_request off;
+
+        if ($cookie_portal_breakglass_token) {
+            return 200;
+        }
+
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000/internal/oauth2-auth;
+        proxy_pass_request_body off;
+        proxy_set_header Content-Length "";
+        proxy_set_header Host $host;
+        include /etc/nginx/snippets/proxy_portal_forwarded.conf;
+        proxy_set_header X-Forwarded-Uri $request_uri;
+        proxy_set_header Cookie $http_cookie;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_buffering off;
+    }
+
+    include /etc/nginx/snippets/nginx-portal-core-realm-oauth2.conf;
+    include /etc/nginx/snippets/nginx-portal-oauth2-static.conf;
+    include /var/lib/sso-portal/exports/nginx-portal-realms.conf;
+
+    location @portal_oauth2_signin {
+        return 302 /auth/login?rd=$uri;
+    }
+
+    location ^~ /api/admin {
+        limit_req zone=portal_api burst=60 nodelay;
+        auth_request /portal_auth_check;
+        error_page 401 = @portal_oauth2_signin;
+
+        auth_request_set $auth_user      $upstream_http_x_auth_request_user;
+        auth_request_set $auth_email     $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups    $upstream_http_x_auth_request_groups;
+        auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
+
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+
+        proxy_set_header X-User $auth_user;
+        proxy_set_header X-Email $auth_email;
+        proxy_set_header X-Groups $auth_groups;
+        proxy_set_header X-Preferred-Username $auth_preferred;
+        proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
+        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    location ^~ /admin {
+        add_header X-Frame-Options "DENY" always;
+        limit_req zone=portal_api burst=60 nodelay;
+        auth_request /portal_auth_check;
+        error_page 401 = @portal_oauth2_signin;
+
+        auth_request_set $auth_user      $upstream_http_x_auth_request_user;
+        auth_request_set $auth_email     $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups    $upstream_http_x_auth_request_groups;
+        auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
+
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+
+        proxy_set_header X-User $auth_user;
+        proxy_set_header X-Email $auth_email;
+        proxy_set_header X-Groups $auth_groups;
+        proxy_set_header X-Preferred-Username $auth_preferred;
+        proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
+        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    location ^~ /api/internal/ {
+        auth_request /portal_auth_check;
+        error_page 401 = @portal_oauth2_signin;
+
+        auth_request_set $auth_user      $upstream_http_x_auth_request_user;
+        auth_request_set $auth_email     $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups    $upstream_http_x_auth_request_groups;
+        auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
+
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+
+        proxy_set_header X-User $auth_user;
+        proxy_set_header X-Email $auth_email;
+        proxy_set_header X-Groups $auth_groups;
+        proxy_set_header X-Preferred-Username $auth_preferred;
+        proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
+        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    # Smoke: subdomain-auth via nginx (internal location also available on default server)
+    include /etc/nginx/snippets/subdomain_auth_common.conf;
+
+    location / {
+        limit_req zone=portal_api burst=60 nodelay;
+        auth_request /portal_auth_check;
+        error_page 401 = @portal_oauth2_signin;
+
+        auth_request_set $auth_user      $upstream_http_x_auth_request_user;
+        auth_request_set $auth_email     $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups    $upstream_http_x_auth_request_groups;
+        auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
+
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://bastion-app:8000;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+
+        proxy_set_header X-User $auth_user;
+        proxy_set_header X-Email $auth_email;
+        proxy_set_header X-Groups $auth_groups;
+        proxy_set_header X-Preferred-Username $auth_preferred;
+        proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
+        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+}

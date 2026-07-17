@@ -1,0 +1,57 @@
+---
+# SSO Portal Docker — defaults (Phase 7)
+# Stack sur vmdmz-docker01 sous /tools/portal (comme Keycloak → /tools/keycloak).
+# nginx edge TLS sur vmdmz-reverse01.
+
+bastion_app_docker_enabled: true
+# Racine config + compose sur docker01
+bastion_app_docker_compose_dir: /tools/portal
+# Données persistantes hôte (monté → /var/lib/sso-portal dans les conteneurs)
+bastion_app_docker_data_dir: /tools/portal/data
+
+# Host Docker (inventaire AWX : vmdmz-docker01 = 172.24.0.110, derrière Traefik)
+bastion_docker_host: vmdmz-docker01
+bastion_docker_host_ip: "172.24.0.110"
+# Legacy var — plus de publish host en prod (Traefik). Conservé pour smoke local.
+bastion_publish_bind: "127.0.0.1"
+
+# Edge nginx (hors scope deploy Docker — doc / smoke distant)
+bastion_edge_host: vmdmz-reverse01
+bastion_edge_host_ip: "172.24.0.108"
+# Même schéma que Keycloak : reverse01 → https://Traefik (Host: portal.*)
+bastion_upstream_url: "https://{{ bastion_docker_host_ip }}"
+bastion_traefik_network: vpcbr
+bastion_nginx_listen_port: 8080
+
+# Binds locaux sur docker01 (smoke on-host / debug)
+bastion_app_docker_bind_app: "127.0.0.1:8000"
+bastion_app_docker_bind_oauth2_core: "127.0.0.1:4180"
+bastion_app_docker_bind_nginx: "127.0.0.1:{{ bastion_nginx_listen_port }}"
+
+# Source code for build (AWX project checkout or git)
+bastion_app_root: "{{ playbook_dir }}/.."
+bastion_app_git_ref: "v0.7.0"
+bastion_app_docker_image_tag: "bastion-app:{{ bastion_app_git_ref }}"
+bastion_nginx_docker_image_tag: "bastion-nginx:{{ bastion_app_git_ref }}"
+oauth2_proxy_image_tag: "v7.7.1"
+
+# Domain / health
+base_domain: ar-systems.fr
+portal_domain: portal.ar-systems.fr
+sso_portal_default_realm_slug: ar-systems
+sso_portal_expected_health_phase: "5"
+sso_portal_app_version: "0.5.0"
+sso_portal_db_path: "{{ bastion_app_docker_data_dir }}/portal.db"
+sso_portal_exports_dir: "{{ bastion_app_docker_data_dir }}/exports"
+sso_portal_env_path: "{{ bastion_app_docker_compose_dir }}/.env"
+sso_portal_min_free_disk_mb: 512
+sso_portal_backup_retention_days: 14
+
+# Secrets (override via Vault / AWX extra-vars — never commit)
+vault_portal_internal_token: ""
+vault_sso_portal_oidc_client_secret: ""
+vault_portal_vault_fernet_key: ""
+portal_secret_encryption_key: ""
+
+# oauth2-core config on host (copied into compose dir)
+oauth2_core_config_src: "{{ bastion_app_root }}/docker/oauth2-core"

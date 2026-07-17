@@ -1,0 +1,109 @@
+# Bastion applicatif — Phase 7
+#
+# Topologie prod (comme Keycloak sur docker01) :
+#   clients → vmdmz-reverse01:443 (nginx edge)
+#     → https://172.24.0.110 (Traefik, Host: portal.ar-systems.fr)
+#       → container nginx bastion:8080 (réseau Docker vpcbr)
+#
+# App / oauth2 : bastion_net uniquement (loopback host pour smoke on-box).
+# Smoke local sans Traefik : docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d
+#   (crée le réseau vpcbr si absent : docker network create vpcbr)
+
+name: bastion
+
+services:
+  bastion-app-migrate:
+    build: .
+    image: bastion-app:local
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/sso-portal/portal.db}
+      EXPORTS_DIR: /var/lib/sso-portal/exports
+      OAUTH2_PROXY_NETWORK_MODE: docker
+      OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
+    volumes:
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
+    networks:
+      - bastion_net
+    restart: "no"
+
+  bastion-app:
+    build: .
+    image: bastion-app:local
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/sso-portal/portal.db}
+      EXPORTS_DIR: /var/lib/sso-portal/exports
+      OAUTH2_PROXY_NETWORK_MODE: docker
+      OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
+    volumes:
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
+    networks:
+      - bastion_net
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      bastion-app-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    restart: unless-stopped
+
+  oauth2-proxy-core:
+    image: quay.io/oauth2-proxy/oauth2-proxy:${OAUTH2_PROXY_IMAGE_TAG:-v7.7.1}
+    env_file:
+      - ${OAUTH2_CORE_ENV_FILE:-.env.oauth2-core}
+    command:
+      - --config=/etc/oauth2-proxy/oauth2-proxy.cfg
+    volumes:
+      - ${OAUTH2_CORE_CONFIG_DIR:-./docker/oauth2-core}:/etc/oauth2-proxy:ro
+    networks:
+      - bastion_net
+    ports:
+      - "127.0.0.1:4180:4180"
+    restart: unless-stopped
+
+  nginx:
+    build: ./docker/nginx
+    image: bastion-nginx:local
+    environment:
+      PORTAL_INTERNAL_TOKEN: ${VAULT_PORTAL_INTERNAL_TOKEN:-${PORTAL_INTERNAL_TOKEN:-}}
+      PORTAL_DOMAIN: ${PORTAL_DOMAIN:-portal.ar-systems.fr}
+      SSO_PORTAL_DEFAULT_REALM_SLUG: ${SSO_PORTAL_DEFAULT_REALM_SLUG:-ar-systems}
+    volumes:
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
+    networks:
+      - bastion_net
+      - vpcbr
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=vpcbr"
+      - "traefik.http.routers.bastion-portal.rule=Host(`${PORTAL_DOMAIN:-portal.ar-systems.fr}`)"
+      - "traefik.http.routers.bastion-portal.entrypoints=websecure"
+      - "traefik.http.routers.bastion-portal.tls=true"
+      - "traefik.http.routers.bastion-portal.service=bastion-portal"
+      - "traefik.http.services.bastion-portal.loadbalancer.server.port=8080"
+      - "traefik.http.routers.bastion-portal-http.rule=Host(`${PORTAL_DOMAIN:-portal.ar-systems.fr}`)"
+      - "traefik.http.routers.bastion-portal-http.entrypoints=web"
+      - "traefik.http.routers.bastion-portal-http.service=bastion-portal"
+    depends_on:
+      bastion-app:
+        condition: service_healthy
+      oauth2-proxy-core:
+        condition: service_started
+    restart: unless-stopped
+
+networks:
+  bastion_net:
+    driver: bridge
+  # Réseau Traefik existant sur vmdmz-docker01 (stack Keycloak)
+  vpcbr:
+    external: true
+    name: vpcbr

@@ -12,3 +12,10 @@ test-results/
 playwright-report/
 /ansible/roles/sso_portal/files/portal/*
 !/ansible/roles/sso_portal/files/portal/.gitkeep
+/data/
+docker-compose.override.yml
+# Secrets oauth2-core (copier depuis oauth2-proxy.cfg.example)
+docker/oauth2-core/oauth2-proxy.cfg
+!docker/oauth2-core/oauth2-proxy.cfg.example
+.env.oauth2-core
+/exports/

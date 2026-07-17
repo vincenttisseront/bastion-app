@@ -1,0 +1,2 @@
+# Placeholder conf.d — real vhost rendered by entrypoint from templates/
+# This file keeps the directory non-empty for Docker COPY.

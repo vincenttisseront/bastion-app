@@ -19,8 +19,8 @@ from app.admin.export import (
     core_static_realm_slugs,
     export_app_catalogue_files,
     generate_nginx_realms_conf,
-    generate_oauth2_proxy_config,
     prune_deleted_realm_exports,
+    write_oauth2_proxy_export,
 )
 from app.database import SessionLocal, get_db
 from app.models import App, RealmConfig
@@ -120,18 +120,14 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
                     realm.last_test_status,
                 )
                 continue
-            proxy_path = exports_path / f"oauth2-proxy-{realm.slug}.conf"
-            proxy_path.write_text(
-                generate_oauth2_proxy_config(realm, settings),
-                encoding="utf-8",
-            )
+            proxy_path = write_oauth2_proxy_export(realm, settings)
             written_files.append(
                 _file_manifest_entry(proxy_path, kind="oauth2_proxy_config", realm_slug=realm.slug)
             )
 
         nginx_realms_path = exports_path / "nginx-portal-realms.conf"
         nginx_realms_path.write_text(
-            generate_nginx_realms_conf(db, exclude_slugs=exclude),
+            generate_nginx_realms_conf(db, settings, exclude_slugs=exclude),
             encoding="utf-8",
         )
         written_files.append(_file_manifest_entry(nginx_realms_path, kind="nginx_realms_conf"))

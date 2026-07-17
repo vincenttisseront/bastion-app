@@ -1,0 +1,52 @@
+---
+# Preflight Docker stack — fail-fast before mutation
+
+- name: "PREFLIGHT : docker disponible"
+  ansible.builtin.command: docker version --format '{{.Server.Version}}'
+  register: _docker_ver
+  changed_when: false
+  failed_when: _docker_ver.rc != 0
+
+- name: "PREFLIGHT : docker compose disponible"
+  ansible.builtin.command: docker compose version
+  register: _compose_ver
+  changed_when: false
+  failed_when: _compose_ver.rc != 0
+
+- name: "PREFLIGHT : espace disque data dir"
+  ansible.builtin.shell: |
+    set -o pipefail
+    df -Pm {{ bastion_app_docker_data_dir | dirname }} 2>/dev/null | awk 'NR==2 {print $4}' \
+      || df -Pm /var/lib | awk 'NR==2 {print $4}'
+  args:
+    executable: /bin/bash
+  register: _disk_mb
+  changed_when: false
+
+- name: "PREFLIGHT : assert disque"
+  ansible.builtin.assert:
+    that:
+      - (_disk_mb.stdout | trim | int) >= (sso_portal_min_free_disk_mb | int)
+    fail_msg: "Espace disque insuffisant ({{ _disk_mb.stdout }} Mo)"
+
+- name: "PREFLIGHT : secrets non vides"
+  ansible.builtin.assert:
+    that:
+      - vault_portal_internal_token | length > 0
+      - (portal_secret_encryption_key | length > 0) or (vault_portal_vault_fernet_key | length > 0)
+    fail_msg: >-
+      Secrets manquants : vault_portal_internal_token et
+      portal_secret_encryption_key / vault_portal_vault_fernet_key requis.
+
+- name: "PREFLIGHT : stat portal.db"
+  ansible.builtin.stat:
+    path: "{{ sso_portal_db_path }}"
+  register: _db_stat
+
+- name: "PREFLIGHT : backup portal.db (si existe)"
+  ansible.builtin.copy:
+    src: "{{ sso_portal_db_path }}"
+    dest: "{{ sso_portal_db_path }}.bak.{{ ansible_date_time.iso8601_basic_short }}"
+    remote_src: true
+    mode: "0600"
+  when: _db_stat.stat.exists | default(false)

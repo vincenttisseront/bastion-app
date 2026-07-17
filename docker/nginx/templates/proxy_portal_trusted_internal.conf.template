@@ -1,0 +1,2 @@
+# Jeton partagé Nginx → FastAPI (non exposé au navigateur).
+proxy_set_header X-Portal-Internal-Token "${PORTAL_INTERNAL_TOKEN}";

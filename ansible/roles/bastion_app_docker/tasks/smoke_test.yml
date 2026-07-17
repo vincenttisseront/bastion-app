@@ -1,0 +1,71 @@
+---
+# Smoke on docker01 : loopback app/oauth2 + Traefik (Host portal) comme Keycloak
+
+- name: "SMOKE : GET /api/health (app bind loopback)"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8000/api/health"
+    return_content: true
+    status_code: 200
+  register: _health
+  retries: 15
+  delay: 2
+  until: _health.status | default(0) == 200
+
+- name: "SMOKE : assert health phase"
+  ansible.builtin.assert:
+    that:
+      - _health.json is defined
+      - _health.json.status == 'ok'
+      - _health.json.phase | string == (sso_portal_expected_health_phase | string)
+    fail_msg: >-
+      /api/health inattendu : {{ _health.content | default('n/a') }}.
+      Attendu status=ok phase={{ sso_portal_expected_health_phase }}.
+
+- name: "SMOKE : via Traefik https://{{ bastion_docker_host_ip }} Host={{ portal_domain }}"
+  ansible.builtin.uri:
+    url: "{{ bastion_upstream_url }}/api/health"
+    headers:
+      Host: "{{ portal_domain }}"
+    validate_certs: false
+    return_content: true
+    status_code: 200
+  register: _traefik_health
+  retries: 15
+  delay: 2
+  until: _traefik_health.status | default(0) == 200
+
+- name: "SMOKE : docker compose ps"
+  ansible.builtin.command:
+    cmd: docker compose ps
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _compose_ps
+  changed_when: false
+
+- name: "SMOKE : oauth2-proxy-core /oauth2/start (302 attendu si cfg valide)"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:4180/oauth2/start"
+    method: GET
+    follow_redirects: none
+    status_code: [302, 303, 400, 500]
+  register: _oauth2_start
+  failed_when: false
+
+- name: "SMOKE : log oauth2 start status"
+  ansible.builtin.debug:
+    msg: "oauth2/start status={{ _oauth2_start.status | default('n/a') }} (302/303 = OK)"
+
+- name: "SMOKE : subdomain-auth via FastAPI (expect 401 without cookie, not 500)"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8000/internal/subdomain-auth"
+    headers:
+      X-Original-Host: "transfer.{{ base_domain }}"
+      X-Real-IP: "8.8.8.8"
+    status_code: [200, 401, 403]
+  register: _subdomain_auth
+  failed_when: _subdomain_auth.status | default(500) == 500
+
+- name: "SMOKE : rappel upstream pour reverse01"
+  ansible.builtin.debug:
+    msg: >-
+      Edge (vmdmz-reverse01) : proxy_pass {{ bastion_upstream_url }}
+      avec Host {{ portal_domain }} (même schéma que Keycloak / Traefik).

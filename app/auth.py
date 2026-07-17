@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
+from app.admin.export import realm_oauth2_proxy_url
 from app.auth_flow import get_default_idp_realm
 from app.breakglass import COOKIE_NAME, validate_breakglass_cookie
 from app.database import get_db
@@ -53,10 +54,10 @@ def get_realm_proxy_url(realm_slug: Optional[str], settings: Settings, db: Sessi
             .first()
         )
         if realm:
-            return realm.oauth2_proxy_url
+            return realm_oauth2_proxy_url(realm, settings)
     default_realm = db.query(RealmConfig).filter_by(is_default=True, enabled=True).first()
     if default_realm:
-        return default_realm.oauth2_proxy_url
+        return realm_oauth2_proxy_url(default_realm, settings)
     return settings.oauth2_proxy_default_url
 
 

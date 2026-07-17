@@ -61,7 +61,10 @@ def export_nginx_realms_conf(db: Session, settings: Settings) -> Path:
     exports_path = _exports_path(settings)
     exports_path.mkdir(parents=True, exist_ok=True)
     output = exports_path / "nginx-portal-realms.conf"
-    output.write_text(generate_nginx_realms_conf(db), encoding="utf-8")
+    output.write_text(
+        generate_nginx_realms_conf(db, settings),
+        encoding="utf-8",
+    )
     return output
 
 

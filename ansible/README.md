@@ -1,3 +1,36 @@
+## Phase 7 — Docker (`linux_sso_portal_docker.yml`)
+
+**Topologie split + Traefik (comme Keycloak) :**
+
+```
+clients → vmdmz-reverse01:443 (nginx edge)
+            → https://172.24.0.110 (Traefik, Host: portal.ar-systems.fr)
+              → nginx-bastion:8080 (réseau Docker vpcbr)
+                → bastion-app / oauth2-proxy (bastion_net)
+```
+
+| Rôle | Host | IP / chemin |
+|------|------|-------------|
+| Edge TLS | `vmdmz-reverse01` | `172.24.0.108` |
+| Traefik + stack bastion | `vmdmz-docker01` | `172.24.0.110` — config **`/tools/portal`** |
+
+- Compose / `.env` / oauth2-core : `/tools/portal`
+- Data (SQLite, exports) : `/tools/portal/data` → monté `/var/lib/sso-portal` dans les conteneurs
+
+- **Pas** de publish host `:8080` en prod — entrée = Traefik (`labels` + réseau `vpcbr`)
+- Smoke local sans Traefik : `docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d`
+- Étape awx-playbook : vhost `portal.*` → `https://172.24.0.110` + `Host: portal.ar-systems.fr`
+  (`vhost_portal_bastion.conf.j2`, `portal_bastion_edge_enabled: true` dans `linux_nginx_dmz.yml`)
+
+```bash
+ansible-playbook ansible/linux_sso_portal_docker.yml \
+  -i ansible/inventory/inventory_sso_portal.ini.example --syntax-check
+
+bash scripts/smoke-docker-local.sh
+```
+
+---
+
 # Phase 6 — Déploiement Ansible (`linux_sso_portal`)
 
 ## Décisions actées (2026-07-17)

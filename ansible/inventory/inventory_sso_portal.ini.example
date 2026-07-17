@@ -1,8 +1,26 @@
-# Inventaire dédié linux_sso_portal (Phase 6)
-# Copier vers inventory_sso_portal.ini et renseigner ansible_host.
+# Inventaire Phase 7 — stack Docker bastion sur vmdmz-docker01 (Traefik)
+# Copier vers inventory_sso_portal.ini et ajuster si besoin.
 #
-# Aujourd'hui : même host que l'infra DMZ (vmdmz-reverse01).
-# Un host dédié reste possible plus tard sans changer le playbook.
+# Split :
+#   vmdmz-docker01  = Traefik + conteneurs bastion sous /tools/portal
+#   vmdmz-reverse01 = nginx edge TLS → https://172.24.0.110 (Host portal.*)
 
-[sso_portal]
-vmdmz-reverse01 ansible_host=CHANGE_ME
+[sso_portal_docker]
+vmdmz-docker01 ansible_host=172.24.0.110
+
+[sso_portal_docker:vars]
+ansible_connection=ssh
+ansible_python_interpreter=/usr/bin/python3
+bastion_docker_host_ip=172.24.0.110
+bastion_upstream_url=https://172.24.0.110
+bastion_traefik_network=vpcbr
+bastion_edge_host_ip=172.24.0.108
+bastion_app_docker_compose_dir=/tools/portal
+bastion_app_docker_data_dir=/tools/portal/data
+
+[sso_portal_edge]
+vmdmz-reverse01 ansible_host=172.24.0.108
+
+[sso_portal_edge:vars]
+ansible_connection=ssh
+ansible_python_interpreter=/usr/bin/python3

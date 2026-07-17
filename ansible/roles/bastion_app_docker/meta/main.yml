@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: bastion_app_docker
+  description: Phase 7 — déploiement Docker du bastion SSO (Topologie A)
+  license: proprietary
+  min_ansible_version: "2.14"
+dependencies: []

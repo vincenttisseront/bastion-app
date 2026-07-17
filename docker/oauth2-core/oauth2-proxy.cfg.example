@@ -1,0 +1,20 @@
+# oauth2-proxy core — exemple local (à personnaliser / monter via OAUTH2_CORE_CONFIG_DIR)
+# http_address doit écouter 0.0.0.0 pour Docker.
+
+http_address = "0.0.0.0:4180"
+upstreams = [ "file:///dev/null" ]
+reverse_proxy = true
+skip_provider_button = true
+provider = "oidc"
+oidc_issuer_url = "https://keycloak.ar-systems.fr/realms/AR-SYSTEMS"
+client_id = "sso-portal-ar-systems"
+client_secret = "REPLACE_ME"
+redirect_url = "https://portal.ar-systems.fr/oauth2/ar-systems/callback"
+cookie_secret = "REPLACE_WITH_32_BYTE_URLSAFE_BASE64"
+scope = "openid profile email"
+email_domains = ["*"]
+cookie_secure = true
+cookie_httponly = true
+set_xauthrequest = true
+pass_access_token = false
+pass_authorization_header = true
