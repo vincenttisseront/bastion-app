@@ -13,7 +13,7 @@ def get_default_idp_realm(db: Session) -> RealmConfig | None:
     return db.query(RealmConfig).filter_by(is_default=True, enabled=True).first()
 
 
-def resolve_rd(request: Request, default: str = "/dashboard") -> str:
+def resolve_rd(request: Request, default: str = "/apps") -> str:
     """Extract a safe relative redirect target from the query string."""
     rd = request.query_params.get("rd") or default
     if not isinstance(rd, str) or not rd.startswith("/") or rd.startswith("//"):

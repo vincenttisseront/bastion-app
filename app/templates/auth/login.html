@@ -33,7 +33,7 @@
       <summary class="bg-toggle">Accès break-glass administrateur</summary>
       <form method="post" action="/auth/login" class="form-body" style="padding-bottom:0;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="rd" value="{{ rd | default('/dashboard') }}">
+        <input type="hidden" name="rd" value="{{ rd | default('/apps') }}">
         <div class="form-group">
           <label class="form-label" for="username">Utilisateur</label>
           <div class="input-wrap">

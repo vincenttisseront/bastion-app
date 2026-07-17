@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Mes applications{% endblock %}
+{% block body_class %}page-portal{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/bastion-portal.css">
+{% endblock %}
+
+{% block content %}
+<header class="portal-topbar">
+  <div class="portal-brand">
+    <img src="/static/img/bastion-icon.svg" alt="" width="28" height="28">
+    <span class="portal-brand-name">Bastion Pro</span>
+  </div>
+  <div class="portal-topbar-actions">
+    {% if is_portal_admin %}
+    <a href="/dashboard" class="btn btn-ghost btn-sm">Administration</a>
+    {% endif %}
+    {% if portal_user %}
+    <span class="portal-user truncate">{{ portal_user.email }}</span>
+    {% endif %}
+    <a href="/logout" class="btn btn-ghost btn-sm">Déconnexion</a>
+  </div>
+</header>
+
+{% if messages %}
+<div class="flash-container portal-flash">{% include 'partials/_flash.html' %}</div>
+{% endif %}
+
+<main class="portal-main">
+  <div class="portal-header">
+    <h1 class="page-title">Mes applications</h1>
+    <p class="page-sub">
+      {% if apps %}
+        {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
+      {% else %}
+        Aucune application disponible
+      {% endif %}
+    </p>
+  </div>
+
+  {% if apps %}
+  <div class="admin-grid portal-app-grid">
+    {% for app in apps %}
+      {% if app.can_launch %}
+      <a
+        href="{{ app.launch_url }}"
+        class="admin-card app-tile"
+        data-app-id="{{ app.id }}"
+        data-access-level="{{ app.access_level }}"
+        {% if app.access_mode != 'legacy_path_proxy' %}target="_blank" rel="noopener noreferrer"{% endif %}
+      >
+        <div class="admin-icon">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+          </svg>
+        </div>
+        <div class="admin-title">{{ app.label }}</div>
+        <div class="admin-desc truncate">{{ app.slug }}</div>
+        <div class="app-tile-meta">
+          <span class="badge badge-{{ 'ok' if app.access_level == 'manage' else 'info' if app.access_level == 'launch' else 'muted' }}">{{ app.access_level }}</span>
+          <span class="mode-badge {{ app.access_mode }}">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</span>
+        </div>
+        <span class="admin-arrow">Ouvrir →</span>
+      </a>
+      {% else %}
+      <div
+        class="admin-card app-tile app-tile--disabled"
+        data-app-id="{{ app.id }}"
+        data-access-level="view"
+        title="Accès lecture seule — ouverture non autorisée"
+        aria-disabled="true"
+      >
+        <div class="admin-icon">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+          </svg>
+        </div>
+        <div class="admin-title">{{ app.label }}</div>
+        <div class="admin-desc truncate">{{ app.slug }}</div>
+        <div class="app-tile-meta">
+          <span class="badge badge-muted">view</span>
+          <span class="mode-badge {{ app.access_mode }}">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</span>
+        </div>
+        <span class="admin-arrow app-tile-locked">Lecture seule</span>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state portal-empty">
+    <div class="empty-icon">
+      <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="7" width="20" height="14" rx="2"/>
+      </svg>
+    </div>
+    <div class="empty-title">Aucune application</div>
+    <div class="empty-desc">Vous n'avez accès à aucune application pour le moment. Contactez un administrateur si besoin.</div>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  document.querySelectorAll('.app-tile[data-app-id]:not(.app-tile--disabled)').forEach(function (tile) {
+    tile.addEventListener('click', function () {
+      var id = tile.getAttribute('data-app-id');
+      if (!id) return;
+      try {
+        fetch('/api/apps/' + id + '/launch-ping', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
+          keepalive: true,
+        });
+      } catch (_) { /* fire-and-forget */ }
+    });
+  });
+})();
+</script>
+{% endblock %}

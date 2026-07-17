@@ -31,6 +31,7 @@ from app.web.flash import base_template_context
 from app.web.health_service import router as health_router
 from app.web.metrics_service import router as metrics_router
 from app.web.pages import router as pages_router
+from app.web.portal import router as portal_router
 from app.web.sessions_service import router as sessions_router
 from app.web.templates import render
 from app.sso_settings import get_settings
@@ -81,7 +82,12 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     if exc.status_code == 401:
         return RedirectResponse(url="/auth/login", status_code=302)
     if exc.status_code == 403:
+        # Authenticated end-users hitting /dashboard or /admin → home launcher
+        from app.web.user_context import get_user_context
+
         settings = get_settings()
+        if get_user_context(request, settings) is not None:
+            return RedirectResponse(url="/apps", status_code=302)
         ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
         return render("errors/403.html", **ctx, status_code=403)
     if exc.status_code == 404:
@@ -101,6 +107,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(pages_router)
+app.include_router(portal_router)
 app.include_router(health_router)
 app.include_router(admin_realms_router)
 app.include_router(infrastructure_router)

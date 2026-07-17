@@ -1,0 +1,123 @@
+/* Bastion Pro — end-user portal (/apps). Reuses admin-card / badge tokens. */
+
+.page-portal {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.portal-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-6);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.portal-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.portal-brand-name {
+  font-family: var(--font-display, "Hanken Grotesk", sans-serif);
+  font-weight: 700;
+  font-size: var(--fs-md);
+  letter-spacing: -0.02em;
+}
+
+.portal-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.portal-user {
+  max-width: 220px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.portal-flash {
+  margin: var(--sp-3) var(--sp-6) 0;
+}
+
+.portal-main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--sp-8) var(--sp-6);
+}
+
+.portal-header {
+  margin-bottom: var(--sp-6);
+}
+
+.portal-app-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.app-tile .app-tile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: auto;
+}
+
+.app-tile .admin-arrow {
+  opacity: 0.55;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.app-tile:hover .admin-arrow {
+  opacity: 1;
+}
+
+.app-tile--disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  pointer-events: auto;
+}
+
+.app-tile--disabled:hover {
+  border-color: var(--border);
+  background: var(--bg-card);
+  transform: none;
+  box-shadow: var(--sh-card);
+}
+
+.app-tile--disabled:hover::before {
+  opacity: 0;
+}
+
+.app-tile--disabled:hover .admin-icon {
+  background: var(--accent-muted);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+.app-tile-locked {
+  opacity: 0.7 !important;
+  color: var(--text-3);
+}
+
+.portal-empty {
+  margin-top: var(--sp-8);
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .portal-topbar {
+    padding: var(--sp-3) var(--sp-4);
+    flex-wrap: wrap;
+  }
+  .portal-main {
+    padding: var(--sp-6) var(--sp-4);
+  }
+  .portal-user {
+    display: none;
+  }
+}

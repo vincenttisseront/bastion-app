@@ -39,7 +39,7 @@ def _client_ip(request: Request) -> str:
 
 @router.get("/")
 def root():
-    return RedirectResponse(url="/dashboard", status_code=302)
+    return RedirectResponse(url="/apps", status_code=302)
 
 
 @router.get("/dashboard")
@@ -47,7 +47,7 @@ def dashboard(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    user=Depends(require_user),
+    user=Depends(require_admin),
 ):
     metrics = get_dashboard_metrics(db)
     recent_audit, _ = list_audit_entries(db, limit=8)
@@ -158,11 +158,14 @@ async def login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    rd: str = Form("/dashboard"),
+    rd: str = Form("/apps"),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
+    # Break-glass is never an end-user: default landing is admin dashboard.
     safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"
+    if safe_rd == "/apps":
+        safe_rd = "/dashboard"
 
     if not has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Initial setup required")
@@ -217,7 +220,10 @@ async def setup_post(
     if get_default_idp_realm(db) or has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Setup is locked")
 
+    # Setup always creates a break-glass admin — land on dashboard, not /apps.
     safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"
+    if safe_rd == "/apps":
+        safe_rd = "/dashboard"
     username = username.strip()
     errors: list[str] = []
 
@@ -261,7 +267,7 @@ def sso_start(
     settings: Settings = Depends(get_settings),
 ):
     realm = request.headers.get("X-Portal-Realm-Slug", settings.sso_portal_default_realm_slug)
-    rd = request.headers.get("X-Portal-OAuth2-Rd", "/dashboard")
+    rd = request.headers.get("X-Portal-OAuth2-Rd", "/apps")
     redirect_url = f"/oauth2/{realm}/start?rd={rd}"
     return render(
         "auth/sso_redirect.html",
