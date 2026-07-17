@@ -167,26 +167,49 @@
       direct FastAPI={{ _subdomain_auth_direct.status | default('n/a') }}
       (attendu 401 sans session depuis IP publique factice).
 
-- name: "SMOKE : grep routes /proxy/ résiduelles hors redirect legacy"
+- name: "SMOKE : détecter locations /proxy/ actives (proxy_pass) hors redirect 301/302"
   ansible.builtin.shell: |
-    set -o pipefail
-    grep -RIn --include='*.conf' 'location.*/proxy/' {{ nginx_conf_dir }} 2>/dev/null \
-      | grep -v 'return 301' \
-      | grep -v 'legacy' \
-      | grep -v '^#' \
-      || true
+    set -euo pipefail
+    {{ sso_portal_venv }}/bin/python - <<'PY'
+    import pathlib
+    import re
+    import sys
+
+    conf_dir = pathlib.Path("{{ nginx_conf_dir }}")
+    # location ... /proxy/ ... { ... }  — corps jusqu'à la } de même niveau (simple)
+    loc_re = re.compile(
+        r"location\s+[^{;\n]*?/proxy/[^{]*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}",
+        re.MULTILINE,
+    )
+    bad = []
+    for path in sorted(conf_dir.glob("*.conf")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in loc_re.finditer(text):
+            header = match.group(0).split("{", 1)[0].strip()
+            body = match.group(1)
+            line_no = text[: match.start()].count("\n") + 1
+            has_redirect = re.search(r"\breturn\s+30[123]\b", body) is not None
+            has_proxy_pass = re.search(r"\bproxy_pass\b", body) is not None
+            if has_proxy_pass or not has_redirect:
+                bad.append(f"{path}:{line_no}:{header} (proxy_pass={has_proxy_pass} redirect={has_redirect})")
+    if bad:
+        print("\n".join(bad))
+        sys.exit(1)
+    print("OK: aucune location /proxy/ active (uniquement redirects 301/302 legacy)")
+    PY
   args:
     executable: /bin/bash
   register: _proxy_locations
   changed_when: false
+  failed_when: false
 
-- name: "SMOKE : assert pas de location /proxy/ active hors legacy 301"
+- name: "SMOKE : assert pas de location /proxy/ active hors legacy 301/302"
   ansible.builtin.assert:
     that:
-      - (_proxy_locations.stdout | default('') | trim | length) == 0
+      - (_proxy_locations.rc | default(1)) == 0
     fail_msg: >-
-      Locations /proxy/ résiduelles détectées (hors return 301 legacy) :
-      {{ _proxy_locations.stdout }}
+      Locations /proxy/ actives (proxy_pass ou sans return 301/302) :
+      {{ _proxy_locations.stdout | default(_proxy_locations.stderr) }}
 
 - name: "SMOKE : OK"
   ansible.builtin.debug:
