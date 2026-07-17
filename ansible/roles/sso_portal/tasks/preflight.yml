@@ -1,5 +1,112 @@
 ---
-# TODO Phase 6 — preflight checks (oauth2-proxy TOML, nginx -t preview, secrets)
-- name: Preflight placeholder
+# Preflight — fail-fast before any mutation (Phase 6 §2.1)
+
+- name: "PREFLIGHT : nginx -t baseline (config actuelle doit être saine)"
+  ansible.builtin.command: nginx -t
+  register: _preflight_nginx_t
+  changed_when: false
+  failed_when: _preflight_nginx_t.rc != 0
+
+- name: "PREFLIGHT : espace disque /opt"
+  ansible.builtin.shell: |
+    set -o pipefail
+    df -Pm /opt | awk 'NR==2 {print $4}'
+  args:
+    executable: /bin/bash
+  register: _disk_opt_mb
+  changed_when: false
+
+- name: "PREFLIGHT : espace disque /var/lib"
+  ansible.builtin.shell: |
+    set -o pipefail
+    df -Pm /var/lib | awk 'NR==2 {print $4}'
+  args:
+    executable: /bin/bash
+  register: _disk_data_mb
+  changed_when: false
+
+- name: "PREFLIGHT : assert espace disque minimal"
+  ansible.builtin.assert:
+    that:
+      - (_disk_opt_mb.stdout | trim | int) >= (sso_portal_min_free_disk_mb | int)
+      - (_disk_data_mb.stdout | trim | int) >= (sso_portal_min_free_disk_mb | int)
+    fail_msg: >-
+      Espace disque insuffisant (seuil {{ sso_portal_min_free_disk_mb }} Mo).
+      /opt={{ _disk_opt_mb.stdout | trim }} Mo, /var/lib={{ _disk_data_mb.stdout | trim }} Mo.
+
+- name: "PREFLIGHT : version Python système"
+  ansible.builtin.command: python3 -c "import sys; print('%d.%d' % sys.version_info[:2])"
+  register: _python_ver
+  changed_when: false
+
+- name: "PREFLIGHT : assert Python >= {{ sso_portal_python_min_version }}"
+  ansible.builtin.assert:
+    that:
+      - _python_ver.stdout is version(sso_portal_python_min_version, '>=')
+    fail_msg: "Python {{ _python_ver.stdout }} < {{ sso_portal_python_min_version }}"
+
+- name: "PREFLIGHT : stat venv cible"
+  ansible.builtin.stat:
+    path: "{{ sso_portal_venv }}/bin/python"
+  register: _venv_python
+
+- name: "PREFLIGHT : info si venv absent (sera créé au deploy)"
   ansible.builtin.debug:
-    msg: "Preflight checks not implemented yet (Phase 6)"
+    msg: "venv {{ sso_portal_venv }} absent — sera créé au déploiement"
+  when: not (_venv_python.stat.exists | default(false))
+
+- name: "PREFLIGHT : assert secrets Vault AWX non vides"
+  ansible.builtin.assert:
+    that:
+      - (vault_portal_internal_token | default(portal_internal_token) | default('') | length) > 0
+      - (vault_sso_portal_oidc_client_secret | default(sso_portal_oidc_client_secret) | default('') | length) > 0
+      - (vault_portal_vault_fernet_key | default(portal_vault_fernet_key) | default('') | length) > 0
+    fail_msg: >-
+      Secrets Vault manquants ou vides. Vérifier AWX Vault :
+      vault_portal_internal_token, vault_sso_portal_oidc_client_secret,
+      vault_portal_vault_fernet_key. Fail-fast avant mutation.
+
+- name: "PREFLIGHT : assurer data dir"
+  ansible.builtin.file:
+    path: "{{ sso_portal_data_dir }}"
+    state: directory
+    mode: "0750"
+
+- name: "PREFLIGHT : stat portal.db"
+  ansible.builtin.stat:
+    path: "{{ sso_portal_db_path }}"
+  register: _db_stat
+
+- name: "PREFLIGHT : backup portal.db horodaté"
+  ansible.builtin.copy:
+    src: "{{ sso_portal_db_path }}"
+    dest: "{{ sso_portal_db_path }}.bak-{{ ansible_date_time.iso8601_basic_short | default(ansible_date_time.epoch) }}"
+    remote_src: true
+    mode: "0640"
+  when: _db_stat.stat.exists | default(false)
+
+- name: "PREFLIGHT : lister listeners sur ports oauth2 attendus"
+  ansible.builtin.shell: |
+    set -o pipefail
+    ss -lntp 2>/dev/null | grep -E ':{{ item }}\b' || true
+  args:
+    executable: /bin/bash
+  loop: "{{ sso_portal_oauth2_expected_ports }}"
+  register: _oauth2_port_listen
+  changed_when: false
+
+- name: "PREFLIGHT : fail si port attendu occupé hors oauth2-proxy/uvicorn"
+  ansible.builtin.fail:
+    msg: >-
+      Port {{ item.item }} occupé par un process inattendu :
+      {{ item.stdout }}. Libérez le port avant déploiement.
+  loop: "{{ _oauth2_port_listen.results }}"
+  when: >
+    (item.stdout | default('') | length) > 0
+    and ('oauth2-proxy' not in (item.stdout | default('')))
+    and ('uvicorn' not in (item.stdout | default('')))
+    and ('python' not in (item.stdout | default('')))
+
+- name: "PREFLIGHT : OK"
+  ansible.builtin.debug:
+    msg: "Preflight SSO portal réussi — déploiement autorisé (ref={{ bastion_app_git_ref }})"

@@ -1,5 +1,126 @@
 ---
-# TODO Phase 6 — smoke test + auto-rollback
-- name: Smoke test placeholder
+# Smoke test — fail the run on assertion failure; NEVER auto-rollback (Phase 6 §2.3)
+
+- name: "SMOKE : GET /api/health"
+  ansible.builtin.uri:
+    url: "http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/api/health"
+    return_content: true
+    status_code: 200
+  register: _health
+  retries: 15
+  delay: 2
+  until: _health.status | default(0) == 200
+
+- name: "SMOKE : assert health phase"
+  ansible.builtin.assert:
+    that:
+      - _health.json is defined
+      - _health.json.status == 'ok'
+      - _health.json.phase | string == (sso_portal_expected_health_phase | string)
+    fail_msg: >-
+      /api/health inattendu : {{ _health.content | default('n/a') }}.
+      Attendu status=ok phase={{ sso_portal_expected_health_phase }}
+      (APP_VERSION {{ sso_portal_app_version }}).
+
+- name: "SMOKE : nginx -t post-déploiement"
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  register: _smoke_nginx
+  failed_when: _smoke_nginx.rc != 0
+
+- name: "SMOKE : lister realms actifs + ports depuis SQLite"
+  ansible.builtin.shell: |
+    set -o pipefail
+    {{ sso_portal_venv }}/bin/python - <<'PY'
+    import sqlite3, json, os
+    db = os.environ.get("DB", "{{ sso_portal_db_path }}")
+    con = sqlite3.connect(db)
+    con.row_factory = sqlite3.Row
+    rows = con.execute(
+        "SELECT slug, oauth2_proxy_port FROM realm_configs WHERE enabled = 1 ORDER BY slug"
+    ).fetchall()
+    print(json.dumps([{"slug": r["slug"], "port": r["oauth2_proxy_port"]} for r in rows]))
+    PY
+  args:
+    executable: /bin/bash
+  environment:
+    DB: "{{ sso_portal_db_path }}"
+  register: _realms_json
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : parser realms"
+  ansible.builtin.set_fact:
+    _active_realms: "{{ (_realms_json.stdout | default('[]') | from_json) if (_realms_json.rc | default(1)) == 0 else [] }}"
+
+- name: "SMOKE : oauth2/start sur chaque realm actif (302 attendu)"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ item.port }}/oauth2/start"
+    method: GET
+    follow_redirects: none
+    status_code: [302, 303]
+  loop: "{{ _active_realms }}"
+  when: _active_realms | length > 0
+  register: _oauth2_starts
+  failed_when: false
+
+- name: "SMOKE : fallback oauth2-proxy-core :4180 si DB vide"
+  ansible.builtin.uri:
+    url: "http://{{ oauth2_core_listen }}/oauth2/start"
+    method: GET
+    follow_redirects: none
+    status_code: [302, 303]
+  when: _active_realms | length == 0
+  register: _oauth2_core_start
+
+- name: "SMOKE : assert oauth2/start OK pour realms DB"
+  ansible.builtin.assert:
+    that:
+      - item.status | default(0) in [302, 303]
+    fail_msg: "oauth2/start realm port={{ item.item.port }} status={{ item.status | default('n/a') }}"
+  loop: "{{ _oauth2_starts.results | default([]) }}"
+  when: _active_realms | length > 0
+
+- name: "SMOKE : subdomain-auth sans cookie → 401 (pas 500)"
+  ansible.builtin.uri:
+    url: "https://{{ portal_domain }}/internal/subdomain-auth"
+    method: GET
+    validate_certs: false
+    status_code: [401, 302]
+    follow_redirects: none
+  register: _subdomain_auth
+  failed_when: (_subdomain_auth.status | default(0)) == 500
+
+- name: "SMOKE : assert subdomain-auth non-500"
+  ansible.builtin.assert:
+    that:
+      - (_subdomain_auth.status | default(0)) != 500
+      - (_subdomain_auth.status | default(0)) in [401, 302]
+    fail_msg: >-
+      /internal/subdomain-auth a renvoyé {{ _subdomain_auth.status | default('n/a') }}
+      (régression historique Phase 3 : 500 interdit).
+
+- name: "SMOKE : grep routes /proxy/ résiduelles hors redirect legacy"
+  ansible.builtin.shell: |
+    set -o pipefail
+    grep -RIn --include='*.conf' 'location.*/proxy/' {{ nginx_conf_dir }} 2>/dev/null \
+      | grep -v 'return 301' \
+      | grep -v 'legacy' \
+      | grep -v '^#' \
+      || true
+  args:
+    executable: /bin/bash
+  register: _proxy_locations
+  changed_when: false
+
+- name: "SMOKE : assert pas de location /proxy/ active hors legacy 301"
+  ansible.builtin.assert:
+    that:
+      - (_proxy_locations.stdout | default('') | trim | length) == 0
+    fail_msg: >-
+      Locations /proxy/ résiduelles détectées (hors return 301 legacy) :
+      {{ _proxy_locations.stdout }}
+
+- name: "SMOKE : OK"
   ansible.builtin.debug:
-    msg: "Smoke tests not implemented yet (Phase 6)"
+    msg: "Smoke test SSO portal vert (phase={{ sso_portal_expected_health_phase }})"

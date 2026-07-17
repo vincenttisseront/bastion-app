@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Watch apply-infra.request for SSO portal infrastructure apply
+After=network.target
+
+[Path]
+PathChanged={{ sso_portal_data_dir }}/apply-infra.request
+Unit=sso-portal-apply-infra.service
+
+[Install]
+WantedBy=multi-user.target

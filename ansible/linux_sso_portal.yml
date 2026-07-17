@@ -1,19 +1,24 @@
 ---
-# Portail SSO AR Systems — bastion-app
+# Portail SSO AR Systems — bastion-app (Phase 6)
 # Prérequis : client OIDC Keycloak, DNS portal.ar-systems.fr, secrets Vault AWX
 #
 # Usage:
-#   ansible-playbook ansible/linux_sso_portal.yml -i ansible/inventory/inventory_sso_portal.ini
+#   ansible-playbook ansible/linux_sso_portal.yml \
+#     -i ansible/inventory/inventory_sso_portal.ini
 #
-# Blast radius : preflight → déploiement → smoke test (+ rollback auto si KO)
+# Dry-run:
+#   ansible-playbook ... --check --diff
+#
+# Inventaire : groupe [sso_portal] (même host que la DMZ aujourd'hui : vmdmz-reverse01).
+# Bascule : ce playbook reprend le scope applicatif ; linux_nginx_dmz.yml (awx-playbook)
+# redevient infra DMZ pure après validation prod (étapes 6–7 du plan Phase 6).
 
 - name: "PRE-FLIGHT : validation avant modification"
-  hosts: nginx_dmz
+  hosts: sso_portal
   become: true
   gather_facts: true
   tags:
     - preflight
-    - never_touch
   tasks:
     - name: Run SSO portal preflight checks
       ansible.builtin.include_role:
@@ -21,22 +26,24 @@
         tasks_from: preflight.yml
       when: sso_portal_enabled | default(true) | bool
 
-- name: Deploy SSO portal on DMZ reverse proxy
-  hosts: nginx_dmz
+- name: Deploy SSO portal (FastAPI + nginx + apply-infra)
+  hosts: sso_portal
   become: true
+  gather_facts: true
+  tags:
+    - deploy
   roles:
     - role: sso_portal
       when: sso_portal_enabled | default(true) | bool
 
 - name: "SMOKE TEST : vérification post-déploiement"
-  hosts: nginx_dmz
+  hosts: sso_portal
   become: true
   gather_facts: false
   tags:
     - smoke_test
-    - never_touch
   tasks:
-    - name: Run SSO portal smoke test and rollback if needed
+    - name: Run SSO portal smoke test (no automatic rollback)
       ansible.builtin.include_role:
         name: sso_portal
         tasks_from: smoke_test.yml

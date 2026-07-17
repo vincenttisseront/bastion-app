@@ -1,63 +1,110 @@
 ---
-# SSO Portal — defaults (override via AWX / group_vars nginx_dmz)
+# SSO Portal — defaults (override via AWX extra-vars / group_vars)
+#
+# Après bascule Phase 6, NE PLUS utiliser côté awx-playbook/linux_nginx_dmz.yml :
+#   - bastion_app_nginx_deploy_enabled
+#   - bastion_app_deploy_enabled
+# (retirés du job DMZ une fois linux_sso_portal validé en prod)
 
-base_domain: ar-systems.fr
-portal_domain: portal.ar-systems.fr
-
+# ─── Application / release ──────────────────────────────────────────────────
 sso_portal_enabled: true
-sso_portal_default_realm_slug: ar-systems
+bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
+# Tag/commit épinglé — jamais 'main' / 'master' en prod
+bastion_app_git_ref: "v0.5.0"
+# false = synchronise depuis le checkout AWX/controller (playbook_dir/..)
+# true  = git clone sur le serveur (nécessite credentials git privés)
+bastion_app_remote_git_clone: false
 
-# Portail FastAPI
-sso_portal_user: sso-portal
 sso_portal_install_dir: /opt/sso-portal
+sso_portal_release_dir: /opt/sso-portal-release
+sso_portal_venv: /opt/sso-portal-venv
 sso_portal_data_dir: /var/lib/sso-portal
+sso_portal_db_path: /var/lib/sso-portal/portal.db
+sso_portal_exports_dir: /var/lib/sso-portal/exports
+sso_portal_exports_path: "{{ sso_portal_exports_dir }}"
+sso_portal_env_path: /var/lib/sso-portal/portal.env
+sso_portal_user: sso-portal
+sso_portal_rebuild_venv: false
+
 sso_portal_bind_host: "127.0.0.1"
 sso_portal_bind_port: 8000
-sso_portal_fastapi_port: 8000
-sso_portal_exports_path: /var/lib/sso-portal/exports
+sso_portal_fastapi_port: "{{ sso_portal_bind_port }}"
 portal_database_url: "sqlite:////var/lib/sso-portal/portal.db"
 
-# Nginx deploy paths
+# Attendu par smoke_test (/api/health)
+sso_portal_expected_health_phase: "5"
+sso_portal_app_version: "0.5.0"
+
+# ─── Domaine / Keycloak ─────────────────────────────────────────────────────
+base_domain: ar-systems.fr
+portal_domain: portal.ar-systems.fr
+sso_portal_default_realm_slug: ar-systems
+keycloak_host: keycloak.ar-systems.fr
+keycloak_realm: AR-SYSTEMS
+sso_portal_oidc_client_id: sso-portal-ar-systems
+
+# ─── oauth2-proxy ───────────────────────────────────────────────────────────
+# Core (realm ar-systems) : géré hors apply-infrastructure (statique Ansible historique).
+# Phase 6 : par défaut on NE recrée PAS oauth2-proxy-core (déjà en prod) — on s'appuie
+# sur apply-infrastructure.sh pour les realms secondaires exportés depuis la DB.
+sso_portal_manage_oauth2_core: false
+oauth2_core_static_enabled: true
+oauth2_core_listen: "127.0.0.1:4180"
+oauth2_core_config_dir: /etc/oauth2-proxy-portal/core
+oauth2_proxy_portal_config_dir: /etc/oauth2-proxy-portal
+oauth2_proxy_portal_user: oauth2-proxy-portal
+
+# Ports à vérifier en preflight (occupés = OK si process oauth2-proxy connu)
+sso_portal_oauth2_expected_ports:
+  - 4180
+  - 4181
+
+# ─── Subdomain SSO (Phase 3) ────────────────────────────────────────────────
+sso_portal_subdomain_sso_enabled: true
+nginx_subdomain_sso_vhosts:
+  - slug: transfer
+    fqdn: transfer.ar-systems.fr
+    upstream_url: "https://172.24.0.106:8080"
+    upstream_host: 172.24.0.106
+    realm_slug: ar-systems
+
+nginx_legacy_proxy_catch_all: true
+nginx_legacy_proxy_redirect_enabled: true
+nginx_legacy_proxy_redirects:
+  - slug: transfer
+    fqdn: transfer.ar-systems.fr
+
+sso_portal_subdomain_auth_enabled: false
+sso_portal_subdomain_proxy_redirects_enabled: false
+
+# ─── Nginx paths ────────────────────────────────────────────────────────────
 nginx_conf_dir: /etc/nginx/conf.d
 nginx_snippets_dir: /etc/nginx/snippets
+nginx_ssl_cert_default: /etc/letsencrypt/live/{{ base_domain }}/fullchain.pem
+nginx_ssl_key_default: /etc/letsencrypt/live/{{ base_domain }}/privkey.pem
 
-# SSL — certificats par défaut (surchargés par vhost si besoin)
-nginx_ssl_cert_default: /etc/ssl/certs/portal.crt
-nginx_ssl_key_default: /etc/ssl/private/portal.key
-
-# Repo-relative paths (controller)
+# Repo-relative paths (controller / AWX project checkout)
 bastion_app_root: "{{ playbook_dir }}/.."
 bastion_nginx_vhosts_src: "{{ bastion_app_root }}/nginx/vhosts"
 bastion_nginx_snippets_src: "{{ bastion_app_root }}/nginx/snippets"
 bastion_app_src: "{{ bastion_app_root }}/app"
 
-# ─── Subdomain SSO ─────────────────────────────────────────────────────────
-# Activer le déploiement des vhosts subdomain
-sso_portal_subdomain_sso_enabled: false
+# ─── Préflight ──────────────────────────────────────────────────────────────
+sso_portal_min_free_disk_mb: 512
+sso_portal_backup_retention_days: 14
+sso_portal_python_min_version: "3.10"
 
-# Liste des vhosts subdomain à générer
-# Exemple :
-# nginx_subdomain_sso_vhosts:
-#   - slug: transfer
-#     fqdn: transfer.ar-systems.fr
-#     upstream_url: https://172.24.0.106:8080
-#     upstream_host: 172.24.0.106
-#     realm_slug: ar-systems
-#     ssl_cert: /etc/ssl/certs/transfer.crt
-#     ssl_key:  /etc/ssl/private/transfer.key
-nginx_subdomain_sso_vhosts: []
+# ─── Secrets (AWX Vault — jamais en defaults en clair) ──────────────────────
+# Injectés à l'exécution :
+#   vault_portal_internal_token
+#   vault_sso_portal_oidc_client_secret
+#   vault_portal_vault_fernet_key
+# Aliases locaux (mappés dans portal.env.j2) :
+portal_internal_token: "{{ vault_portal_internal_token | default('') }}"
+portal_vault_fernet_key: "{{ vault_portal_vault_fernet_key | default('') }}"
+sso_portal_oidc_client_secret: "{{ vault_sso_portal_oidc_client_secret | default('') }}"
 
-# ─── Redirections legacy /proxy/ vers subdomain ────────────────────────────
-nginx_legacy_proxy_catch_all: true
-nginx_legacy_proxy_redirect_enabled: true
-
-# Liste des redirections legacy (générée dans proxy_portal_legacy_redirects.conf)
-# Exemple :
-# nginx_legacy_proxy_redirects:
-#   - slug: transfer
-#     fqdn: transfer.ar-systems.fr
-nginx_legacy_proxy_redirects: []
-
-# Legacy flags (compat Phase 2)
-sso_portal_subdomain_auth_enabled: false
-sso_portal_subdomain_proxy_redirects_enabled: false
+portal_admin_groups: "portal-admins,bastion-admins,admins"
+sso_portal_rfc1918_bypass_auth: true
+oauth2_proxy_request_logging: false
+oauth2_core_static_enabled_env: "{{ oauth2_core_static_enabled | lower }}"

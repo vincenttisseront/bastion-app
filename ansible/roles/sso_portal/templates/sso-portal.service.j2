@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Bastion SSO Portal (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User={{ sso_portal_user }}
+Group={{ sso_portal_user }}
+WorkingDirectory={{ sso_portal_install_dir }}
+EnvironmentFile=-{{ sso_portal_env_path }}
+Environment=PYTHONPATH={{ sso_portal_install_dir }}
+ExecStart={{ sso_portal_venv }}/bin/uvicorn app.main:app --host {{ sso_portal_bind_host }} --port {{ sso_portal_bind_port }}
+Restart=on-failure
+RestartSec=3
+# Allow writing exports / DB under data dir
+ReadWritePaths={{ sso_portal_data_dir }}
+
+[Install]
+WantedBy=multi-user.target

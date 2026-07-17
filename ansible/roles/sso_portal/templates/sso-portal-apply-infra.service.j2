@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Apply SSO portal infrastructure export (oauth2-proxy + nginx)
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=SSO_PORTAL_DATA_DIR={{ sso_portal_data_dir }}
+Environment=SSO_PORTAL_INSTALL_DIR={{ sso_portal_install_dir }}
+Environment=SSO_PORTAL_USER={{ sso_portal_user }}
+Environment=PORTAL_DEFAULT_REALM_SLUG={{ sso_portal_default_realm_slug }}
+ExecStart={{ sso_portal_install_dir }}/scripts/apply-infra-dispatch.sh
+
+[Install]
+WantedBy=multi-user.target

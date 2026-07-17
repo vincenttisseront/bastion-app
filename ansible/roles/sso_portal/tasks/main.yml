@@ -1,19 +1,272 @@
 ---
-# SSO Portal — Phase 1 skeleton (full deploy in Phase 6)
+# SSO Portal deploy — release/symlink + venv + .env + alembic + nginx + apply-infra
+# oauth2-proxy secondary realms : apply-infrastructure.sh (DB exports), not full Ansible regen.
+# oauth2-proxy-core : left as-is unless sso_portal_manage_oauth2_core=true (default false).
+
 - name: SSO portal deployment
   when: sso_portal_enabled | default(true) | bool
   block:
-    - name: Build portal artefact from app source
+    - name: Install Python venv packages
+      ansible.builtin.apt:
+        name:
+          - python3-venv
+          - python3-pip
+          - rsync
+        state: present
+        update_cache: true
+
+    - name: Create sso-portal system group
+      ansible.builtin.group:
+        name: "{{ sso_portal_user }}"
+        system: true
+
+    - name: Create sso-portal system user
+      ansible.builtin.user:
+        name: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        home: "{{ sso_portal_data_dir }}"
+        create_home: false
+
+    - name: Create data / release / venv directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        mode: "0755"
+      loop:
+        - "{{ sso_portal_data_dir }}"
+        - "{{ sso_portal_exports_dir }}"
+        - "{{ sso_portal_release_dir }}"
+        - "{{ sso_portal_venv | dirname }}"
+
+    - name: Ensure apply-infra request file exists
+      ansible.builtin.file:
+        path: "{{ sso_portal_data_dir }}/apply-infra.request"
+        state: touch
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        mode: "0644"
+        modification_time: preserve
+        access_time: preserve
+
+    - name: Stat current /opt/sso-portal
+      ansible.builtin.stat:
+        path: "{{ sso_portal_install_dir }}"
+      register: _install_stat
+
+    - name: Migrate legacy real install dir into a release (one-shot)
+      when:
+        - _install_stat.stat.exists | default(false)
+        - not (_install_stat.stat.islnk | default(false))
+        - _install_stat.stat.isdir | default(false)
+      block:
+        - name: Compute legacy release name
+          ansible.builtin.set_fact:
+            _legacy_release: "{{ sso_portal_release_dir }}/pre-phase6-{{ ansible_date_time.epoch }}"
+
+        - name: Move legacy install to release/pre-phase6
+          ansible.builtin.command:
+            cmd: "mv {{ sso_portal_install_dir }} {{ _legacy_release }}"
+          args:
+            removes: "{{ sso_portal_install_dir }}"
+
+        - name: Stat shared venv after move
+          ansible.builtin.stat:
+            path: "{{ sso_portal_venv }}/bin/python"
+          register: _shared_venv
+
+        - name: Stat legacy venv in moved tree
+          ansible.builtin.stat:
+            path: "{{ _legacy_release }}/venv/bin/python"
+          register: _legacy_venv
+
+        - name: Move legacy venv to shared location
+          ansible.builtin.command:
+            cmd: "mv {{ _legacy_release }}/venv {{ sso_portal_venv }}"
+          when:
+            - not (_shared_venv.stat.exists | default(false))
+            - _legacy_venv.stat.exists | default(false)
+
+    - name: Create release directory for pinned ref
+      ansible.builtin.file:
+        path: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}"
+        state: directory
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        mode: "0755"
+
+    - name: Synchronize bastion-app from controller checkout into release
       ansible.builtin.synchronize:
         src: "{{ bastion_app_root }}/"
-        dest: "{{ role_path }}/files/portal/"
-        delete: false
+        dest: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}/"
+        delete: true
+        recursive: true
         rsync_opts:
           - "--include=/app/***"
+          - "--include=/migrations/***"
+          - "--include=/scripts/***"
+          - "--include=/nginx/***"
           - "--include=/pyproject.toml"
+          - "--include=/alembic.ini"
+          - "--include=/README.md"
           - "--exclude=*"
       delegate_to: localhost
-      run_once: true
+      when: not (bastion_app_remote_git_clone | default(false) | bool)
+      register: _release_sync
 
-    - name: Deploy nginx vhosts
+    - name: Clone bastion-app on server at pinned ref
+      ansible.builtin.git:
+        repo: "{{ bastion_app_git_repo }}"
+        dest: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}"
+        version: "{{ bastion_app_git_ref }}"
+        force: true
+      when: bastion_app_remote_git_clone | default(false) | bool
+      register: _release_git
+
+    - name: Fix ownership on release tree
+      ansible.builtin.file:
+        path: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}"
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        recurse: true
+
+    - name: Make apply-infra scripts executable
+      ansible.builtin.file:
+        path: "{{ item }}"
+        mode: "0755"
+      loop:
+        - "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}/scripts/apply-infrastructure.sh"
+        - "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}/scripts/apply-infra-dispatch.sh"
+        - "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}/scripts/oauth2-cookie-secret.sh"
+      failed_when: false
+
+    - name: Atomic symlink /opt/sso-portal → release
+      ansible.builtin.file:
+        src: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}"
+        dest: "{{ sso_portal_install_dir }}"
+        state: link
+        force: true
+      register: _install_symlink
+      notify: Restart sso-portal
+
+    - name: Stat shared venv python
+      ansible.builtin.stat:
+        path: "{{ sso_portal_venv }}/bin/python"
+      register: _venv_py
+
+    - name: Remove broken or root-owned shared venv
+      ansible.builtin.file:
+        path: "{{ sso_portal_venv }}"
+        state: absent
+      when: >
+        (sso_portal_rebuild_venv | default(false) | bool)
+        or (
+          _venv_py.stat.exists | default(false)
+          and (_venv_py.stat.pw_name | default('')) != sso_portal_user
+        )
+
+    - name: Create shared Python venv
+      ansible.builtin.command:
+        cmd: python3 -m venv {{ sso_portal_venv }}
+        creates: "{{ sso_portal_venv }}/bin/python"
+
+    - name: Ensure venv ownership
+      ansible.builtin.file:
+        path: "{{ sso_portal_venv }}"
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        recurse: true
+
+    - name: Install bastion-app editable into venv
+      become: true
+      become_user: "{{ sso_portal_user }}"
+      ansible.builtin.pip:
+        name: .
+        editable: true
+        chdir: "{{ sso_portal_install_dir }}"
+        virtualenv: "{{ sso_portal_venv }}"
+        extra_args: --upgrade
+      environment:
+        PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      register: _pip_install
+      notify: Restart sso-portal
+
+    - name: Render portal.env from Vault secrets
+      ansible.builtin.template:
+        src: portal.env.j2
+        dest: "{{ sso_portal_env_path }}"
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        mode: "0640"
+      no_log: true
+      notify: Restart sso-portal
+
+    - name: Apply Alembic migrations
+      become: true
+      become_user: "{{ sso_portal_user }}"
+      ansible.builtin.command:
+        cmd: "{{ sso_portal_venv }}/bin/python -m alembic upgrade head"
+        chdir: "{{ sso_portal_install_dir }}"
+      environment:
+        DATABASE_URL: "{{ portal_database_url }}"
+      register: _alembic
+      changed_when: "'Running upgrade' in (_alembic.stdout | default(''))"
+      failed_when: _alembic.rc != 0
+
+    - name: Deploy nginx vhosts (Phase 3)
       ansible.builtin.import_tasks: nginx_vhosts.yml
+
+    - name: Install sso-portal systemd unit
+      ansible.builtin.template:
+        src: sso-portal.service.j2
+        dest: /etc/systemd/system/sso-portal.service
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Restart sso-portal
+
+    - name: Install apply-infra systemd units
+      ansible.builtin.template:
+        src: "{{ item.src }}"
+        dest: "/etc/systemd/system/{{ item.dest }}"
+        mode: "0644"
+      loop:
+        - src: sso-portal-apply-infra.service.j2
+          dest: sso-portal-apply-infra.service
+        - src: sso-portal-apply-infra.path.j2
+          dest: sso-portal-apply-infra.path
+      notify: Reload systemd
+
+    - name: Enable apply-infra path watcher
+      ansible.builtin.systemd:
+        name: sso-portal-apply-infra.path
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Ensure sso-portal service enabled
+      ansible.builtin.systemd:
+        name: sso-portal
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Flush handlers (nginx reload / sso-portal restart if needed)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Run apply-infrastructure for secondary oauth2 realms
+      ansible.builtin.command:
+        cmd: "{{ sso_portal_install_dir }}/scripts/apply-infrastructure.sh {{ sso_portal_exports_dir }}"
+      register: _apply_infra
+      changed_when: "'ok' in (_apply_infra.stdout | default('') | lower) or (_apply_infra.rc == 0)"
+      failed_when: false
+
+    - name: Warn if apply-infrastructure failed (non-blocking if no exports yet)
+      ansible.builtin.debug:
+        msg: >-
+          apply-infrastructure rc={{ _apply_infra.rc }} —
+          {{ _apply_infra.stderr | default(_apply_infra.stdout) | default('') }}
+      when: (_apply_infra.rc | default(0)) != 0

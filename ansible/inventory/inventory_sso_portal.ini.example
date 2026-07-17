@@ -1,2 +1,8 @@
-[nginx_dmz]
+# Inventaire dédié linux_sso_portal (Phase 6)
+# Copier vers inventory_sso_portal.ini et renseigner ansible_host.
+#
+# Aujourd'hui : même host que l'infra DMZ (vmdmz-reverse01).
+# Un host dédié reste possible plus tard sans changer le playbook.
+
+[sso_portal]
 vmdmz-reverse01 ansible_host=CHANGE_ME

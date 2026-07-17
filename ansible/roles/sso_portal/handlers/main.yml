@@ -9,3 +9,13 @@
     name: nginx
     state: reloaded
   listen: Reload nginx
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart sso-portal
+  ansible.builtin.systemd:
+    name: sso-portal
+    state: restarted
+    daemon_reload: true

@@ -248,50 +248,50 @@ Contrainte unique : `(user_email, application_id)`.
 
 ### 2.5 Déploiement Ansible
 
-#### Playbook
+#### Playbook (bastion-app — scope applicatif complet depuis Phase 6)
 
-`linux_sso_portal.yml` : `preflight` → rôle `sso_portal` → `smoke_test`.
+`ansible/linux_sso_portal.yml` : `preflight` → rôle `sso_portal` → `smoke_test`.
 
-#### Templates statiques
+- Release/symlink : `/opt/sso-portal-release/{ref}` → `/opt/sso-portal`
+- Venv partagé : `/opt/sso-portal-venv`
+- Env secrets : `/var/lib/sso-portal/portal.env` (`no_log`)
+- Nginx vhosts : `roles/sso_portal/tasks/nginx_vhosts.yml` + templates `nginx/`
+- Realms oauth2 secondaires : `scripts/apply-infrastructure.sh` (pas de regen core Ansible à chaque run)
+
+**Infra DMZ** (Grafana, Keycloak, Wiki.js, WAF) reste dans `awx-playbook/linux_nginx_dmz.yml` après bascule.
+
+Voir `ansible/README.md` pour le plan de bascule et le rollback manuel.
+
+#### Templates Nginx (repo bastion-app)
 
 | Fichier | Cible prod |
 |---------|------------|
-| `nginx-portal.conf.j2` | `/etc/nginx/conf.d/vhost_sso_portal.conf` |
-| `oauth2-proxy-core.cfg.j2` | `/etc/oauth2-proxy-portal/core/` |
-| `portal.env.j2` | `/opt/sso-portal/.env` |
-| Snippets | `/etc/nginx/snippets/proxy_portal_*.conf` |
+| `nginx/vhosts/vhost_sso_portal.conf.j2` | `/etc/nginx/conf.d/vhost_sso_portal.conf` |
+| `nginx/vhosts/vhost-subdomain-*.conf.j2` | `/etc/nginx/conf.d/vhost_subdomain_*.conf` |
+| `nginx/snippets/*.j2` | `/etc/nginx/snippets/` |
+| `roles/sso_portal/templates/portal.env.j2` | `/var/lib/sso-portal/portal.env` |
 
 #### Génération dynamique (portail)
 
-`infrastructure.py` + `apply-infrastructure.sh` :
+`infrastructure.py` + `scripts/apply-infrastructure.sh` :
 
 - Configs oauth2 realms secondaires (`exports/oauth2/{slug}/`)
 - `nginx-portal-realms.conf` (skip `ar-systems` si core statique)
-- **Ne modifie pas** le vhost portail principal
+- **Ne modifie pas** le vhost portail principal ni oauth2-proxy-core
 
-#### Preflight existant (`tasks/preflight.yml`)
+#### Preflight / smoke (Phase 6)
 
-- Validation binaire oauth2-proxy sur configs temporaires
-- Politique cookie (pas de `cookie_csrf_per_request`)
-- `nginx -t` sur config **courante** (pas le vhost preview)
+- Preflight : `nginx -t`, disque, Python, secrets Vault, backup `portal.db`, ports oauth2
+- Smoke : `/api/health` phase attendue, `nginx -t`, `oauth2/start` par realm, subdomain-auth ≠ 500, pas de `/proxy/` actif hors 301 legacy
+- **Pas de rollback automatique** en cas d'échec smoke
 
-#### Rollback existant
+#### Bascule restante (ops / awx-playbook)
 
-| Mécanisme | Déclencheur |
-|-----------|-------------|
-| Backup vhost `.bkp` | Avant deploy |
-| Rollback vhost | `nginx -t` post-deploy ou smoke `/api/health` KO |
-| Smoke | oauth2 `/ping` + HTTPS `/api/health` |
-
-#### Gaps preflight / SPOF
-
-| Gap | Risque |
+| Gap | Action |
 |-----|--------|
-| Preview vhost non testé `nginx -t` | Deploy casse Nginx |
-| Pas de check units `:4181`/`:4190` | Régression SSO |
-| Rollback oauth2 cfg absent | SSO cassé, Nginx OK |
-| Smoke sans `/` ni `/admin` 302 | Régression auth non détectée |
-| apply-infra sans backup realms.conf | Export corrompu → reload Nginx KO |
+| Job Template AWX `linux_sso_portal` | Créer (checklist §5) |
+| Dry-run + premier run prod | Validation Vincent |
+| Scope applicatif encore dans `linux_nginx_dmz.yml` | Retirer après validation (checklist §8–9) |
 
 **SPOF :** `vmdmz-reverse01` (Nginx + FastAPI + oauth2 core sur même hôte). Pas de Redis (sessions cookie oauth2-proxy uniquement).
 
