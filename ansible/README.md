@@ -23,6 +23,12 @@ clients → vmdmz-reverse01:443 (nginx edge)
   (`vhost_portal_bastion.conf.j2`, `portal_bastion_edge_enabled: true` dans `linux_nginx_dmz.yml`)
 
 ```bash
+# AWX (prod) — Project awx-playbook
+#   Playbook = linux_sso_portal_docker.yml
+#   Inventaire = groupe sso_portal_docker (vmdmz-docker01)
+#   Extra var  = bastion_app_git_version: v0.7.0
+
+# Local / hors AWX (rôle dans ce repo)
 ansible-playbook ansible/linux_sso_portal_docker.yml \
   -i ansible/inventory/inventory_sso_portal.ini.example --syntax-check
 
