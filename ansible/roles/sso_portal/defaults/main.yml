@@ -10,7 +10,7 @@
 sso_portal_enabled: true
 bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
 # Tag/commit épinglé — jamais 'main' / 'master' en prod
-bastion_app_git_ref: "v0.6.9"
+bastion_app_git_ref: "v0.6.10"
 # false = synchronise depuis le checkout AWX/controller (playbook_dir/..)
 # true  = git clone sur le serveur (nécessite credentials git privés)
 bastion_app_remote_git_clone: false
@@ -62,8 +62,10 @@ sso_portal_oauth2_expected_ports:
   - 4180
   - 4181
 
-# ─── Subdomain SSO (Phase 3) ────────────────────────────────────────────────
-sso_portal_subdomain_sso_enabled: true
+# ─── Subdomain SSO (Phase 3+) ───────────────────────────────────────────────
+# false tant que CrushFTP reste en accès direct via vhost_transfer_crushftp
+# (linux_nginx_dmz). Passer à true UNIQUEMENT à la bascule SSO transfer.
+sso_portal_subdomain_sso_enabled: false
 nginx_subdomain_sso_vhosts:
   - slug: transfer
     fqdn: transfer.ar-systems.fr
