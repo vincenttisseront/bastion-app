@@ -98,25 +98,73 @@
         group: "{{ sso_portal_user }}"
         mode: "0755"
 
-    - name: Synchronize bastion-app from controller checkout into release
-      ansible.builtin.synchronize:
-        src: "{{ bastion_app_root }}/"
-        dest: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}/"
-        delete: true
-        recursive: true
-        rsync_opts:
-          - "--include=/app/***"
-          - "--include=/migrations/***"
-          - "--include=/scripts/***"
-          - "--include=/nginx/***"
-          - "--include=/pyproject.toml"
-          - "--include=/alembic.ini"
-          - "--include=/README.md"
-          - "--exclude=*"
+    # synchronize/rsync hang on AWX EE with SSH password auth — use tar + ansible copy instead.
+    - name: Stage bastion-app release tarball on controller
+      ansible.builtin.shell: |
+        set -euo pipefail
+        stamp="{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+        work="{{ playbook_dir }}/.cache/bastion-release-${stamp}"
+        rm -rf "${work}" "${work}.tar.gz"
+        mkdir -p "${work}"
+        root="{{ bastion_app_root }}"
+        for d in app migrations scripts nginx; do
+          if [ -d "${root}/${d}" ]; then
+            cp -a "${root}/${d}" "${work}/"
+          fi
+        done
+        for f in pyproject.toml alembic.ini README.md; do
+          if [ -f "${root}/${f}" ]; then
+            cp -a "${root}/${f}" "${work}/"
+          fi
+        done
+        tar -C "${work}" -czf "${work}.tar.gz" .
+        rm -rf "${work}"
+        test -s "${work}.tar.gz"
+      args:
+        executable: /bin/bash
       delegate_to: localhost
       become: false
+      run_once: true
+      when: not (bastion_app_remote_git_clone | default(false) | bool)
+      register: _release_tar
+
+    - name: Upload release tarball to server
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/.cache/bastion-release-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+        dest: "/tmp/bastion-release-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+        mode: "0644"
+      when: not (bastion_app_remote_git_clone | default(false) | bool)
+
+    - name: Clear previous release tree before extract
+      ansible.builtin.file:
+        path: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}"
+        state: absent
+      when: not (bastion_app_remote_git_clone | default(false) | bool)
+
+    - name: Recreate release directory for extract
+      ansible.builtin.file:
+        path: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}"
+        state: directory
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        mode: "0755"
+      when: not (bastion_app_remote_git_clone | default(false) | bool)
+
+    - name: Extract bastion-app release tarball on server
+      ansible.builtin.unarchive:
+        src: "/tmp/bastion-release-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+        dest: "{{ sso_portal_release_dir }}/{{ bastion_app_git_ref }}"
+        remote_src: true
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
       when: not (bastion_app_remote_git_clone | default(false) | bool)
       register: _release_sync
+
+    - name: Remove temporary release tarball on server
+      ansible.builtin.file:
+        path: "/tmp/bastion-release-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+        state: absent
+      when: not (bastion_app_remote_git_clone | default(false) | bool)
 
     - name: Clone bastion-app on server at pinned ref
       ansible.builtin.git:
