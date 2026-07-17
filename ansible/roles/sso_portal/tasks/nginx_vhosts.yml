@@ -6,6 +6,43 @@
 # nginx/snippets depuis nginx/vhosts. On stage un arbre de rendu sur le contrôleur
 # (même pattern que awx-playbook bastion_app_prepare_controller).
 
+- name: Check if portal access log format is defined in nginx.conf
+  ansible.builtin.command: grep -q 'log_format portal ' /etc/nginx/nginx.conf
+  register: portal_log_format_defined
+  changed_when: false
+  failed_when: false
+
+- name: Ensure portal access log format in nginx.conf http block
+  ansible.builtin.blockinfile:
+    path: /etc/nginx/nginx.conf
+    marker: "# {mark} ANSIBLE MANAGED — portal access log format"
+    insertafter: 'access_log /var/log/nginx/access.log main;'
+    block: |2
+      log_format portal '$remote_addr - $host [$time_local] "$request" '
+                        '$status $body_bytes_sent "$http_referer" "$http_user_agent" '
+                        'us=$upstream_status';
+    create: false
+  when: portal_log_format_defined.rc != 0
+  notify: Reload nginx
+
+- name: Check if portal_login rate zone exists in nginx.conf
+  ansible.builtin.command: grep -q 'zone=portal_login' /etc/nginx/nginx.conf
+  register: portal_login_zone_defined
+  changed_when: false
+  failed_when: false
+
+- name: Add portal SSO rate limit zones to nginx http block
+  ansible.builtin.blockinfile:
+    path: /etc/nginx/nginx.conf
+    marker: "# {mark} ANSIBLE MANAGED — portal SSO rate zones"
+    insertbefore: "include /etc/nginx/includes/waf-maps.conf"
+    block: |2
+      limit_req_zone $binary_remote_addr zone=portal_login:10m rate=3r/s;
+      limit_req_zone $binary_remote_addr zone=portal_api:10m rate=30r/s;
+    create: false
+  when: portal_login_zone_defined.rc != 0
+  notify: Reload nginx
+
 - name: Créer le répertoire exports portail
   ansible.builtin.file:
     path: "{{ sso_portal_exports_path }}"
