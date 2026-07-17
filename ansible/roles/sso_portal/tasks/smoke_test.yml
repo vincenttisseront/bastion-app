@@ -132,24 +132,40 @@
     - _secondary_realms | length > 0
     - not (item.stat.exists | default(false))
 
-- name: "SMOKE : subdomain-auth sans cookie → 401 (pas 500)"
+- name: "SMOKE : subdomain-auth (≠ 500 ; 200 OK si bypass RFC1918 depuis AWX)"
   ansible.builtin.uri:
     url: "https://{{ portal_domain }}/internal/subdomain-auth"
     method: GET
     validate_certs: false
-    status_code: [401, 302]
+    status_code: [200, 401, 302]
     follow_redirects: none
   register: _subdomain_auth
   failed_when: (_subdomain_auth.status | default(0)) == 500
+
+- name: "SMOKE : subdomain-auth direct FastAPI sans cookie / sans RFC1918 → 401"
+  ansible.builtin.uri:
+    url: "http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/internal/subdomain-auth"
+    method: GET
+    headers:
+      X-Real-IP: "8.8.8.8"
+      X-Original-Host: "transfer.{{ base_domain }}"
+    status_code: [401, 503]
+    follow_redirects: none
+  register: _subdomain_auth_direct
+  failed_when: (_subdomain_auth_direct.status | default(0)) == 500
 
 - name: "SMOKE : assert subdomain-auth non-500"
   ansible.builtin.assert:
     that:
       - (_subdomain_auth.status | default(0)) != 500
-      - (_subdomain_auth.status | default(0)) in [401, 302]
+      - (_subdomain_auth.status | default(0)) in [200, 401, 302]
+      - (_subdomain_auth_direct.status | default(0)) != 500
+      - (_subdomain_auth_direct.status | default(0)) in [401, 503]
     fail_msg: >-
-      /internal/subdomain-auth a renvoyé {{ _subdomain_auth.status | default('n/a') }}
-      (régression historique Phase 3 : 500 interdit).
+      subdomain-auth via nginx={{ _subdomain_auth.status | default('n/a') }}
+      (200=bypass RFC1918 LAN OK ; 401/302 OK ; 500 interdit).
+      direct FastAPI={{ _subdomain_auth_direct.status | default('n/a') }}
+      (attendu 401 sans session depuis IP publique factice).
 
 - name: "SMOKE : grep routes /proxy/ résiduelles hors redirect legacy"
   ansible.builtin.shell: |
