@@ -2,7 +2,7 @@
 # Preflight Docker stack — fail-fast before mutation
 
 - name: "PREFLIGHT : docker disponible"
-  ansible.builtin.command: docker version --format '{{.Server.Version}}'
+  ansible.builtin.command: docker info
   register: _docker_ver
   changed_when: false
   failed_when: _docker_ver.rc != 0
