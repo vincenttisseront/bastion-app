@@ -7,7 +7,8 @@
 | oauth2 multi-realm | **apply-infrastructure.sh** (exports DB) pour realms secondaires ; `oauth2-proxy-core` non régénéré à chaque deploy (`sso_portal_manage_oauth2_core: false`) |
 | Version smoke | `phase: "5"` / `APP_VERSION 0.5.0` (`sso_portal_expected_health_phase`) |
 | `bastion_app_git_ref` | `v0.6.0` (défaut) |
-| Hôte | Même `vmdmz-reverse01` (groupe inventaire `[sso_portal]`) |
+| Hôte | `vmdmz-reverse01` — AWX : `[nginx_dmz]` ; local : `[sso_portal]` |
+| JT AWX | Projet **awx-playbook** → `linux_sso_portal.yml` (clone bastion-app @ tag) |
 | Rotation Fernet | Hors scope Phase 6 |
 
 ## Usage

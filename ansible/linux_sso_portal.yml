@@ -9,12 +9,17 @@
 # Dry-run:
 #   ansible-playbook ... --check --diff
 #
-# Inventaire : groupe [sso_portal] (même host que la DMZ aujourd'hui : vmdmz-reverse01).
-# Bascule : ce playbook reprend le scope applicatif ; linux_nginx_dmz.yml (awx-playbook)
+# Inventaire :
+#   - AWX / awx-playbook : groupe [nginx_dmz] (inventory_dmz_reverse.ini)
+#   - local bastion-app : groupe [sso_portal] (ansible/inventory/…)
+# Bascule : ce rôle reprend le scope applicatif ; linux_nginx_dmz.yml (awx-playbook)
 # redevient infra DMZ pure après validation prod (étapes 6–7 du plan Phase 6).
+#
+# En prod AWX, préférer awx-playbook/linux_sso_portal.yml (hosts: nginx_dmz,
+# checkout bastion-app @ tag).
 
 - name: "PRE-FLIGHT : validation avant modification"
-  hosts: sso_portal
+  hosts: nginx_dmz:sso_portal
   become: true
   gather_facts: true
   tags:
@@ -27,7 +32,7 @@
       when: sso_portal_enabled | default(true) | bool
 
 - name: Deploy SSO portal (FastAPI + nginx + apply-infra)
-  hosts: sso_portal
+  hosts: nginx_dmz:sso_portal
   become: true
   gather_facts: true
   tags:
@@ -37,7 +42,7 @@
       when: sso_portal_enabled | default(true) | bool
 
 - name: "SMOKE TEST : vérification post-déploiement"
-  hosts: sso_portal
+  hosts: nginx_dmz:sso_portal
   become: true
   gather_facts: false
   tags:
