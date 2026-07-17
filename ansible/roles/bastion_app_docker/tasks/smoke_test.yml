@@ -21,16 +21,136 @@
       /api/health inattendu : {{ _health.content | default('n/a') }}.
       Attendu status=ok phase={{ sso_portal_expected_health_phase }}.
 
-- name: "SMOKE : nginx healthy on vpcbr (bypass Traefik)"
+- name: "SMOKE : locate nginx container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    if docker inspect bastion-nginx >/dev/null 2>&1; then
+      echo bastion-nginx
+      exit 0
+    fi
+    cid="$(docker compose ps -q nginx 2>/dev/null | head -1)"
+    if [[ -n "${cid}" ]]; then
+      echo "${cid}"
+      exit 0
+    fi
+    exit 1
+  args:
+    executable: /bin/bash
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _nginx_cid
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : diagnose missing nginx container"
+  when: _nginx_cid.rc | default(1) != 0 or (_nginx_cid.stdout | trim | length) == 0
+  block:
+    - name: "compose ps -a"
+      ansible.builtin.command:
+        cmd: docker compose ps -a
+        chdir: "{{ bastion_app_docker_compose_dir }}"
+      register: _compose_ps_missing
+      changed_when: false
+      failed_when: false
+
+    - name: "nginx logs (missing container)"
+      ansible.builtin.command:
+        cmd: docker compose logs --no-color --tail 100 nginx
+        chdir: "{{ bastion_app_docker_compose_dir }}"
+      register: _nginx_logs_missing
+      changed_when: false
+      failed_when: false
+
+    - name: "Fail — nginx container introuvable"
+      ansible.builtin.fail:
+        msg: |
+          Conteneur nginx introuvable (attendu: bastion-nginx).
+          --- compose ps -a ---
+          {{ _compose_ps_missing.stdout | default('') }}
+          --- nginx logs ---
+          {{ _nginx_logs_missing.stdout | default('') }}
+          {{ _nginx_logs_missing.stderr | default('') }}
+
+- name: "SMOKE : nginx running?"
+  ansible.builtin.command: >
+    docker inspect {{ _nginx_cid.stdout | trim }}
+    --format '{% raw %}{{.State.Status}}{% endraw %}'
+  register: _nginx_state
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : diagnose nginx not running"
+  when: _nginx_state.stdout | trim != "running"
+  block:
+    - name: "nginx logs (not running)"
+      ansible.builtin.command:
+        cmd: docker logs --tail 100 {{ _nginx_cid.stdout | trim }}
+      register: _nginx_logs_down
+      changed_when: false
+      failed_when: false
+
+    - name: "compose ps -a (not running)"
+      ansible.builtin.command:
+        cmd: docker compose ps -a
+        chdir: "{{ bastion_app_docker_compose_dir }}"
+      register: _compose_ps_down
+      changed_when: false
+      failed_when: false
+
+    - name: "Fail — nginx not running"
+      ansible.builtin.fail:
+        msg: |
+          nginx state={{ _nginx_state.stdout | default('n/a') }} (attendu: running)
+          --- compose ps ---
+          {{ _compose_ps_down.stdout | default('') }}
+          --- logs ---
+          {{ _nginx_logs_down.stdout | default('') }}
+          {{ _nginx_logs_down.stderr | default('') }}
+
+- name: "SMOKE : nginx /api/health via docker exec"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker exec {{ _nginx_cid.stdout | trim }} wget -qO- http://127.0.0.1:8080/api/health \
+      || docker exec {{ _nginx_cid.stdout | trim }} nginx -t
+  args:
+    executable: /bin/bash
+  register: _nginx_exec_health
+  retries: 15
+  delay: 2
+  until: _nginx_exec_health.rc | default(1) == 0
+  changed_when: false
+
+- name: "SMOKE : list nginx networks"
+  ansible.builtin.command: >
+    docker inspect {{ _nginx_cid.stdout | trim }}
+    --format '{% raw %}{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}{% endraw %}'
+  register: _nginx_nets
+  changed_when: false
+
+- name: "SMOKE : parse vpcbr IP"
+  ansible.builtin.set_fact:
+    bastion_nginx_vpcbr_ip: >-
+      {{
+        (_nginx_nets.stdout | regex_findall(bastion_traefik_network ~ '=([0-9.]+)'))
+        | first | default('')
+      }}
+
+- name: "SMOKE : fail if nginx not on vpcbr"
+  ansible.builtin.fail:
+    msg: >-
+      nginx n'a pas d'IP sur {{ bastion_traefik_network }}.
+      networks={{ _nginx_nets.stdout | default('') }}
+  when: bastion_nginx_vpcbr_ip | length == 0
+
+- name: "SMOKE : nginx healthy on vpcbr by IP (bypass Traefik / DNS)"
   ansible.builtin.shell: |
     set -o pipefail
     docker run --rm --network {{ bastion_traefik_network }} curlimages/curl:8.5.0 \
       -fsS -H "Host: {{ portal_domain }}" \
-      "http://bastion-nginx:8080/api/health"
+      "http://{{ bastion_nginx_vpcbr_ip }}:8080/api/health"
   args:
     executable: /bin/bash
   register: _nginx_vpcbr
-  retries: 15
+  retries: 10
   delay: 2
   until: _nginx_vpcbr.rc | default(1) == 0
   changed_when: false
@@ -49,7 +169,7 @@
   until: _traefik_health.status | default(0) == 200
   failed_when: false
 
-- name: "SMOKE : diagnose Traefik 502"
+- name: "SMOKE : diagnose Traefik failure"
   when: _traefik_health.status | default(0) != 200
   block:
     - name: "compose ps"
@@ -62,17 +182,16 @@
 
     - name: "nginx logs"
       ansible.builtin.command:
-        cmd: docker compose logs --no-color --tail 80 nginx
-        chdir: "{{ bastion_app_docker_compose_dir }}"
+        cmd: docker logs --tail 80 {{ _nginx_cid.stdout | trim }}
       register: _nginx_logs
       changed_when: false
       failed_when: false
 
-    - name: "nginx networks + traefik labels"
+    - name: "nginx labels"
       ansible.builtin.command: >
-        docker inspect bastion-nginx
-        --format '{% raw %}{{json .NetworkSettings.Networks}} LABELS={{json .Config.Labels}}{% endraw %}'
-      register: _nginx_inspect
+        docker inspect {{ _nginx_cid.stdout | trim }}
+        --format '{% raw %}{{json .Config.Labels}}{% endraw %}'
+      register: _nginx_labels
       changed_when: false
       failed_when: false
 
@@ -81,14 +200,15 @@
         msg: |
           Traefik /api/health → HTTP {{ _traefik_health.status | default('n/a') }}
           body={{ _traefik_health.content | default('') }}
-          nginx-via-vpcbr rc={{ _nginx_vpcbr.rc }} out={{ _nginx_vpcbr.stdout | default('') }}
+          nginx_vpcbr_ip={{ bastion_nginx_vpcbr_ip | default('') }}
+          nginx-via-vpcbr rc={{ _nginx_vpcbr.rc | default('n/a') }} out={{ _nginx_vpcbr.stdout | default('') }}
           --- compose ps ---
           {{ _compose_ps.stdout | default('') }}
           --- nginx logs ---
           {{ _nginx_logs.stdout | default('') }}
           {{ _nginx_logs.stderr | default('') }}
-          --- inspect ---
-          {{ _nginx_inspect.stdout | default('') }}
+          --- labels ---
+          {{ _nginx_labels.stdout | default('') }}
 
 - name: "SMOKE : docker compose ps"
   ansible.builtin.command:

@@ -1,7 +1,7 @@
 # Bastion nginx — Topologie A (HTTP interne derrière nginx host DMZ)
 FROM nginx:1.27-alpine
 
-RUN apk add --no-cache bash gettext \
+RUN apk add --no-cache bash gettext wget \
     && rm -f /etc/nginx/conf.d/default.conf \
     && mkdir -p /etc/nginx/snippets /etc/nginx/includes /var/lib/sso-portal/exports \
     && mkdir -p /var/www/nginx-errors

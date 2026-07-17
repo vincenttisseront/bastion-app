@@ -129,7 +129,7 @@
 
 - name: "Docker compose up migrate + stack"
   ansible.builtin.command:
-    cmd: docker compose up -d --remove-orphans
+    cmd: docker compose up -d --remove-orphans --force-recreate
     chdir: "{{ bastion_app_docker_compose_dir }}"
   environment:
     SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
@@ -166,6 +166,28 @@
   retries: 30
   delay: 2
   until: _wait_health.status | default(0) == 200
+
+- name: "Wait for nginx container running"
+  ansible.builtin.shell: |
+    set -o pipefail
+    cid=""
+    if docker inspect bastion-nginx >/dev/null 2>&1; then
+      cid=bastion-nginx
+    else
+      cid="$(docker compose ps -q nginx | head -1)"
+    fi
+    [[ -n "${cid}" ]] || exit 1
+    st="$(docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' "${cid}")"
+    [[ "${st}" == "running" ]] || exit 1
+    echo "${cid}"
+  args:
+    executable: /bin/bash
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _wait_nginx
+  retries: 30
+  delay: 2
+  until: _wait_nginx.rc | default(1) == 0
+  changed_when: false
 
 - name: "Run apply-infra-docker (secondary realms)"
   ansible.builtin.command:

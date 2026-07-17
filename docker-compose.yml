@@ -94,7 +94,10 @@ services:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
     # Uniquement vpcbr (comme Keycloak) — Traefik ne peut pas joindre une IP bastion_net
     networks:
-      - vpcbr
+      vpcbr:
+        aliases:
+          - bastion-nginx
+          - nginx
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=vpcbr"
