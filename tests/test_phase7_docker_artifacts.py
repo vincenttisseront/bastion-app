@@ -57,13 +57,13 @@ def test_nginx_docker_uses_service_dns():
     vhost = (
         ROOT / "docker" / "nginx" / "templates" / "vhost_sso_portal.conf.template"
     ).read_text(encoding="utf-8")
-    assert "bastion-app:8000" in vhost
+    assert "bastion-app:8000" in vhost or "$bastion_app_upstream" in vhost
     assert "listen 8080" in vhost or "listen 0.0.0.0:8080" in vhost
     assert "letsencrypt" not in vhost
     core = (
         ROOT / "docker" / "nginx" / "snippets" / "nginx-portal-core-realm-oauth2.conf"
     ).read_text(encoding="utf-8")
-    assert "oauth2-proxy-core:4180" in core
+    assert "oauth2-proxy-core:4180" in core or "$oauth2_core_upstream" in core
 
 
 def test_ansible_docker_role_present():

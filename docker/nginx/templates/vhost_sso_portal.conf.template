@@ -5,6 +5,10 @@ server {
     listen 0.0.0.0:8080;
     server_name ${PORTAL_DOMAIN} _;
 
+    # Variables → resolver Docker (évite upstream figé si alias vpcbr recréés)
+    set $bastion_app_upstream bastion-app:8000;
+    set $oauth2_core_upstream oauth2-proxy-core:4180;
+
     access_log /var/log/nginx/portal.access.log portal;
     error_log  /var/log/nginx/portal.error.log warn;
 
@@ -37,7 +41,7 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
-        proxy_pass http://bastion-app:8000/errors/404;
+        proxy_pass http://$bastion_app_upstream/errors/404;
     }
 
     location = /__portal_err/500 {
@@ -46,7 +50,7 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
-        proxy_pass http://bastion-app:8000/errors/500;
+        proxy_pass http://$bastion_app_upstream/errors/500;
     }
 
     include /etc/nginx/mime.types;
@@ -70,7 +74,7 @@ server {
     location = /health {
         auth_request off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000/health;
+        proxy_pass http://$bastion_app_upstream/health;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
@@ -78,7 +82,7 @@ server {
     location = /api/health {
         auth_request off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000/api/health;
+        proxy_pass http://$bastion_app_upstream/api/health;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
@@ -86,7 +90,7 @@ server {
     location ^~ /static/ {
         auth_request off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000;
+        proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
         expires 7d;
@@ -100,14 +104,14 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
-        proxy_pass http://bastion-app:8000/static/img/bastion-icon.svg;
+        proxy_pass http://$bastion_app_upstream/static/img/bastion-icon.svg;
     }
 
     location = /logout {
         auth_request off;
         limit_req zone=portal_login burst=10 nodelay;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000;
+        proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
         proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
@@ -123,7 +127,7 @@ server {
         deny all;
         limit_req zone=portal_login burst=5 nodelay;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000;
+        proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
@@ -132,7 +136,7 @@ server {
         auth_request off;
         limit_req zone=portal_login burst=10 nodelay;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000;
+        proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
@@ -146,7 +150,7 @@ server {
         }
 
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000/internal/oauth2-auth;
+        proxy_pass http://$bastion_app_upstream/internal/oauth2-auth;
         proxy_pass_request_body off;
         proxy_set_header Content-Length "";
         proxy_set_header Host $host;
@@ -176,7 +180,7 @@ server {
         auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
 
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000;
+        proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
 
         proxy_set_header X-User $auth_user;
@@ -200,7 +204,7 @@ server {
         auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
 
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000;
+        proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
 
         proxy_set_header X-User $auth_user;
@@ -222,7 +226,7 @@ server {
         auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
 
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000;
+        proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
 
         proxy_set_header X-User $auth_user;
@@ -248,7 +252,7 @@ server {
         auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
 
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
-        proxy_pass http://bastion-app:8000;
+        proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
 
         proxy_set_header X-User $auth_user;

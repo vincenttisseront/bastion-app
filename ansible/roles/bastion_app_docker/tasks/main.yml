@@ -171,7 +171,7 @@
       {{ _compose_up.stderr | default('') }}
   when: _compose_up.rc | default(0) != 0
 
-- name: "Attach all bastion containers to vpcbr (10.5.0.0/16) and drop bastion_net"
+- name: "Attach all bastion containers to vpcbr (10.5.0.0/16) with DNS aliases"
   ansible.builtin.shell: |
     set -o pipefail
     net="{{ bastion_traefik_network }}"
@@ -187,7 +187,7 @@
     net = sys.argv[1]
     cids = [c for c in sys.argv[2:] if c]
     if not cids:
-        sys.stderr.write("no running bastion containers (label com.docker.compose.project=bastion)\n")
+        sys.stderr.write("no running bastion containers\n")
         sys.exit(1)
 
     def inspect(cid):
@@ -199,10 +199,14 @@
     def ip_on(cid, n):
         return ((networks_of(cid).get(n) or {}).get("IPAddress") or "").strip()
 
+    changed = False
     report = []
     for cid in cids:
-        name = inspect(cid).get("Name", cid).lstrip("/")
-        # Drop project bridge leftovers (bastion_bastion_net / bastion_default)
+        info = inspect(cid)
+        name = info.get("Name", cid).lstrip("/")
+        labels = info.get("Config", {}).get("Labels") or {}
+        service = labels.get("com.docker.compose.service") or ""
+        # Drop project bridge leftovers only (keep vpcbr + aliases intact when healthy)
         for n in list(networks_of(cid)):
             if n != net and (
                 n.startswith("bastion_")
@@ -210,15 +214,33 @@
                 or n == "bastion_net"
             ):
                 subprocess.call(["docker", "network", "disconnect", "-f", n, cid])
-        if not ip_on(cid, net):
-            subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
-            subprocess.check_call(["docker", "network", "connect", net, cid])
+                changed = True
         ip = ip_on(cid, net)
+        if not ip.startswith("10.5."):
+            subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
+            cmd = ["docker", "network", "connect"]
+            aliases = []
+            if service:
+                aliases.append(service)
+            aliases.append(name)
+            if name == "bastion-nginx" or service == "nginx":
+                aliases.extend(["bastion-nginx", "nginx"])
+            # unique preserve order
+            seen = set()
+            for a in aliases:
+                if a and a not in seen:
+                    seen.add(a)
+                    cmd.extend(["--alias", a])
+            cmd.extend([net, cid])
+            subprocess.check_call(cmd)
+            changed = True
+            ip = ip_on(cid, net)
         if not ip.startswith("10.5."):
             sys.stderr.write("%s: expected 10.5.0.0/16 on %s, got %r nets=%s\n" % (
                 name, net, ip, sorted(networks_of(cid))))
             sys.exit(1)
-        report.append("%s=%s" % (name, ip))
+        report.append("%s=%s(service=%s)" % (name, ip, service or "?"))
+    print("CHANGED=%s" % ("1" if changed else "0"))
     print(" ".join(report))
     PY
   args:
@@ -227,14 +249,13 @@
   retries: 5
   delay: 3
   until: _vpcbr_attach.rc | default(1) == 0
-  changed_when: true
+  changed_when: "'CHANGED=1' in (_vpcbr_attach.stdout | default(''))"
 
-- name: "Restart bastion stack after vpcbr attach"
-  ansible.builtin.command:
-    cmd: docker compose restart bastion-app oauth2-proxy-core nginx
-    chdir: "{{ bastion_app_docker_compose_dir }}"
-  register: _stack_restart
+- name: "Reload nginx after vpcbr attach (keep aliases — no full stack restart)"
+  ansible.builtin.command: docker exec bastion-nginx nginx -s reload
+  register: _nginx_reload
   changed_when: true
+  failed_when: false
 
 - name: "Wait for bastion-app healthy"
   ansible.builtin.uri:
@@ -245,10 +266,17 @@
   delay: 2
   until: _wait_health.status | default(0) == 200
 
-- name: "Assert nginx /api/health on loopback inside container"
+- name: "Assert nginx listens (/_portal_nginx_ok) then proxies /api/health"
   ansible.builtin.shell: |
     set -o pipefail
-    docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/api/health | grep -q '"status"'
+    echo "=== /_portal_nginx_ok ==="
+    docker exec bastion-nginx wget -S -O- http://127.0.0.1:8080/_portal_nginx_ok 2>&1
+    echo "=== resolve bastion-app from nginx ==="
+    docker exec bastion-nginx getent hosts bastion-app || docker exec bastion-nginx nslookup bastion-app 127.0.0.11 || true
+    echo "=== /api/health ==="
+    body="$(docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/api/health)"
+    echo "$body"
+    echo "$body" | grep -q '"status"'
   args:
     executable: /bin/bash
   register: _nginx_listen_check
@@ -256,6 +284,16 @@
   delay: 2
   until: _nginx_listen_check.rc | default(1) == 0
   changed_when: false
+  failed_when: false
+
+- name: "Fail with nginx proxy diagnostics"
+  ansible.builtin.fail:
+    msg: |
+      nginx health via exec failed after vpcbr attach.
+      {{ _nginx_listen_check.stdout | default('') }}
+      {{ _nginx_listen_check.stderr | default('') }}
+      vpcbr_attach: {{ _vpcbr_attach.stdout | default('') }}
+  when: _nginx_listen_check.rc | default(1) != 0
 
 - name: "Run apply-infra-docker (secondary realms)"
   ansible.builtin.command:

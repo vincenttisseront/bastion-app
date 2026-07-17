@@ -6,7 +6,6 @@
 #       → bastion-nginx:8080 sur réseau Docker vpcbr (10.5.0.0/16)
 #
 # Tous les services bastion sont UNIQUEMENT sur vpcbr (comme keycloak/traefik).
-# Pas de bridge projet séparé (évite 172.20.0.0/16 sans IP Traefik).
 #
 # Smoke local sans Traefik :
 #   docker network create --subnet=10.5.0.0/16 vpcbr   # si absent
@@ -18,7 +17,6 @@ services:
   bastion-app-migrate:
     build: .
     image: bastion-app:local
-    # root: créer portal.db puis chown pour l'user bastion (uid 1000)
     user: "0:0"
     command:
       - /bin/sh
@@ -38,7 +36,9 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
     networks:
-      - vpcbr
+      vpcbr:
+        aliases:
+          - bastion-app-migrate
     restart: "no"
 
   bastion-app:
@@ -54,7 +54,9 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
     networks:
-      - vpcbr
+      vpcbr:
+        aliases:
+          - bastion-app
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -77,7 +79,9 @@ services:
     volumes:
       - ${OAUTH2_CORE_CONFIG_DIR:-./docker/oauth2-core}:/etc/oauth2-proxy:ro
     networks:
-      - vpcbr
+      vpcbr:
+        aliases:
+          - oauth2-proxy-core
     ports:
       - "127.0.0.1:4180:4180"
     restart: unless-stopped
@@ -93,7 +97,10 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
     networks:
-      - vpcbr
+      vpcbr:
+        aliases:
+          - bastion-nginx
+          - nginx
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=vpcbr"
@@ -104,7 +111,7 @@ services:
       - "traefik.http.routers.bastion-portal.middlewares=secure-headers@file"
       - "traefik.http.services.bastion-portal.loadbalancer.server.port=8080"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_portal_nginx_ok"]
       interval: 15s
       timeout: 5s
       retries: 5
