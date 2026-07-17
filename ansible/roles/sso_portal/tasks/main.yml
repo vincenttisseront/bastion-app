@@ -114,6 +114,7 @@
           - "--include=/README.md"
           - "--exclude=*"
       delegate_to: localhost
+      become: false
       when: not (bastion_app_remote_git_clone | default(false) | bool)
       register: _release_sync
 
