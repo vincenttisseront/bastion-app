@@ -48,6 +48,34 @@
     path: "{{ sso_portal_exports_path }}"
     state: directory
     mode: "0755"
+    owner: "{{ sso_portal_user }}"
+    group: "{{ sso_portal_user }}"
+
+- name: Ensure portal break-glass map file exists
+  ansible.builtin.copy:
+    src: "{{ bastion_app_root }}/nginx/maps/nginx-portal-breakglass.map.conf"
+    dest: "{{ sso_portal_exports_path }}/nginx-portal-breakglass.map.conf"
+    owner: "{{ sso_portal_user }}"
+    group: "{{ sso_portal_user }}"
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Check if portal break-glass map is included in nginx.conf
+  ansible.builtin.command: grep -q 'nginx-portal-breakglass.map.conf' /etc/nginx/nginx.conf
+  register: portal_breakglass_map_included
+  changed_when: false
+  failed_when: false
+
+- name: Include portal break-glass auth_source map in nginx http block
+  ansible.builtin.blockinfile:
+    path: /etc/nginx/nginx.conf
+    marker: "# {mark} ANSIBLE MANAGED — portal break-glass auth map"
+    insertafter: 'http {'
+    block: |2
+      include {{ sso_portal_exports_path }}/nginx-portal-breakglass.map.conf;
+    create: false
+  when: portal_breakglass_map_included.rc != 0
+  notify: Reload nginx
 
 - name: Assurer un fragment nginx-portal-realms.conf valide (include obligatoire)
   ansible.builtin.copy:
