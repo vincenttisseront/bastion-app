@@ -335,6 +335,38 @@
     - name: Flush handlers (nginx reload / sso-portal restart if needed)
       ansible.builtin.meta: flush_handlers
 
+    - name: Wait for sso-portal to listen on bind port
+      ansible.builtin.wait_for:
+        host: "{{ sso_portal_bind_host }}"
+        port: "{{ sso_portal_bind_port | int }}"
+        timeout: 60
+        delay: 2
+      register: _portal_listen
+      failed_when: false
+
+    - name: Collect sso-portal journal when not listening
+      ansible.builtin.shell: |
+        set -euo pipefail
+        echo "=== systemctl status ==="
+        systemctl status sso-portal --no-pager -l || true
+        echo "=== journalctl -u sso-portal -n 80 ==="
+        journalctl -u sso-portal -n 80 --no-pager || true
+        echo "=== unit ExecStart ==="
+        systemctl cat sso-portal | sed -n '1,40p' || true
+      args:
+        executable: /bin/bash
+      register: _portal_diag
+      changed_when: false
+      when: _portal_listen.failed | default(true)
+
+    - name: Fail when sso-portal is not listening after restart
+      ansible.builtin.fail:
+        msg: |
+          sso-portal n'écoute pas sur {{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}.
+          Diagnostics:
+          {{ _portal_diag.stdout | default('(pas de journal)') }}
+      when: _portal_listen.failed | default(true)
+
     - name: Run apply-infrastructure for secondary oauth2 realms
       ansible.builtin.command:
         cmd: "{{ sso_portal_install_dir }}/scripts/apply-infrastructure.sh {{ sso_portal_exports_dir }}"
