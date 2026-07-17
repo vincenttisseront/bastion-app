@@ -122,7 +122,7 @@
 
 - name: "Docker compose build"
   ansible.builtin.command:
-    cmd: docker compose build
+    cmd: docker compose build --no-cache nginx bastion-app bastion-app-migrate
     chdir: "{{ bastion_app_docker_compose_dir }}"
   register: _compose_build
   changed_when: true
@@ -202,17 +202,17 @@
         ep = (data[0].get("NetworkSettings", {}).get("Networks") or {}).get(net) or {}
         return (ep.get("IPAddress") or "").strip()
     ip = ip_on(cid, net)
-    if ip:
-        print(ip)
-        sys.exit(0)
-    subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
-    subprocess.check_call(["docker", "network", "connect", net, cid])
-    ip = ip_on(cid, net)
+    if not ip:
+        subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
+        subprocess.check_call(["docker", "network", "connect", net, cid])
+        ip = ip_on(cid, net)
     if not ip:
         sys.stderr.write("nginx still has no IPv4 on %s after reconnect\n" % net)
         sys.exit(1)
     print(ip)
     PY
+    # Reload after network settle so workers see the iface
+    docker exec "$cid" nginx -s reload 2>/dev/null || docker restart "$cid"
   args:
     executable: /bin/bash
   register: _nginx_vpcbr_ensure
@@ -220,6 +220,20 @@
   delay: 2
   until: _nginx_vpcbr_ensure.rc | default(1) == 0
   changed_when: true
+
+- name: "Assert nginx listens on 0.0.0.0:8080 inside container"
+  ansible.builtin.shell: |
+    set -o pipefail
+    cid="{{ _wait_nginx.stdout | trim }}"
+    docker exec "$cid" wget -qO- http://127.0.0.1:8080/api/health | grep -q '"status"'
+    docker exec "$cid" sh -c 'wget -qO- http://127.0.0.1:8080/api/health; echo; (ss -lntp || netstat -lntp) 2>/dev/null | grep -E ":8080|nginx" || true'
+  args:
+    executable: /bin/bash
+  register: _nginx_listen_check
+  retries: 15
+  delay: 2
+  until: _nginx_listen_check.rc | default(1) == 0
+  changed_when: false
 
 - name: "Run apply-infra-docker (secondary realms)"
   ansible.builtin.command:

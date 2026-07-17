@@ -2,7 +2,7 @@
 # Variables envsubst: PORTAL_DOMAIN, SSO_PORTAL_DEFAULT_REALM_SLUG
 
 server {
-    listen 8080;
+    listen 0.0.0.0:8080;
     server_name ${PORTAL_DOMAIN} _;
 
     access_log /var/log/nginx/portal.access.log portal;

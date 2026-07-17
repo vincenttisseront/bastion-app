@@ -109,8 +109,10 @@
 - name: "SMOKE : nginx /api/health via docker exec"
   ansible.builtin.shell: |
     set -o pipefail
-    docker exec {{ _nginx_cid.stdout | trim }} wget -qO- http://127.0.0.1:8080/api/health \
-      || docker exec {{ _nginx_cid.stdout | trim }} nginx -t
+    cid="{{ _nginx_cid.stdout | trim }}"
+    body="$(docker exec "$cid" wget -qO- http://127.0.0.1:8080/api/health)"
+    echo "$body" | grep -q '"status"'
+    echo "$body"
   args:
     executable: /bin/bash
   register: _nginx_exec_health
@@ -118,6 +120,33 @@
   delay: 2
   until: _nginx_exec_health.rc | default(1) == 0
   changed_when: false
+  failed_when: false
+
+- name: "SMOKE : diagnose nginx listen sockets on failure"
+  when: _nginx_exec_health.rc | default(1) != 0
+  ansible.builtin.shell: |
+    cid="{{ _nginx_cid.stdout | trim }}"
+    echo "=== conf.d ==="
+    docker exec "$cid" ls -la /etc/nginx/conf.d/ || true
+    echo "=== vhost head ==="
+    docker exec "$cid" head -40 /etc/nginx/conf.d/vhost_sso_portal.conf || true
+    echo "=== listeners ==="
+    docker exec "$cid" sh -c 'ss -lntp || netstat -lntp' || true
+    echo "=== logs ==="
+    docker logs --tail 50 "$cid" || true
+  args:
+    executable: /bin/bash
+  register: _nginx_listen_diag
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : fail with nginx listen diagnostics"
+  ansible.builtin.fail:
+    msg: |
+      nginx /api/health via exec failed.
+      {{ _nginx_exec_health.stderr | default('') }}
+      {{ _nginx_listen_diag.stdout | default('') }}
+  when: _nginx_exec_health.rc | default(1) != 0
 
 - name: "SMOKE : resolve nginx IPv4 on {{ bastion_traefik_network }}"
   ansible.builtin.shell: |

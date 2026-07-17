@@ -24,5 +24,12 @@ envsubst '${PORTAL_DOMAIN} ${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
   < /etc/nginx/templates-portal/vhost_sso_portal.conf.template \
   > /etc/nginx/conf.d/vhost_sso_portal.conf
 
+# Fail fast if vhost render did not produce a listener (avoids "running" with no :8080)
+if ! grep -qE 'listen[[:space:]]+0\.0\.0\.0:8080' /etc/nginx/conf.d/vhost_sso_portal.conf; then
+  echo "ERROR: rendered vhost missing listen 0.0.0.0:8080" >&2
+  cat /etc/nginx/conf.d/vhost_sso_portal.conf >&2 || true
+  exit 1
+fi
+
 nginx -t
 exec "$@"

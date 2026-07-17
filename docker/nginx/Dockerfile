@@ -14,7 +14,10 @@ COPY templates/ /etc/nginx/templates-portal/
 COPY docker-entrypoint.sh /docker-entrypoint-portal.sh
 COPY errors/ /var/www/nginx-errors/
 
-RUN chmod +x /docker-entrypoint-portal.sh
+RUN chmod +x /docker-entrypoint-portal.sh \
+    && sed -i 's/\r$//' /docker-entrypoint-portal.sh \
+    && find /etc/nginx/templates-portal /etc/nginx/snippets /etc/nginx/includes \
+         -type f -exec sed -i 's/\r$//' {} +
 
 EXPOSE 8080
 
