@@ -169,15 +169,11 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
-    # auth_request central : cookie break-glass → 200 ; sinon délégation FastAPI → oauth2-proxy
+    # auth_request central : toujours FastAPI (/internal/oauth2-auth).
+    # SSO session preferred over bg_session when both present (avoids /apps → /dashboard steal).
     location = /portal_auth_check {
         internal;
         auth_request off;   # CRITIQUE : évite la récursion auth_request (fe15325)
-
-        # Présence du cookie suffit pour auth_request ; validation JWT côté FastAPI.
-        if ($cookie_portal_breakglass_token) {
-            return 200;
-        }
 
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/internal/oauth2-auth;

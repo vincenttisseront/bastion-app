@@ -105,3 +105,63 @@ def test_oauth2_auth_header_forward_request_error_returns_503(client, db_session
 
     assert resp.status_code == 503
     assert resp.headers.get("x-auth-request-email") is None
+
+
+@respx.mock
+def test_oauth2_auth_prefers_sso_over_breakglass_cookie(client, db_session):
+    """Leftover bg_session must not hide a valid oauth2 session (/apps steal)."""
+    import jwt
+
+    settings = _settings()
+    _override_settings(client, settings)
+    _add_default_realm(db_session)
+
+    bg_token = jwt.encode(
+        {"sub": "admin", "type": "bg"},
+        settings.vault_portal_internal_token,
+        algorithm="HS256",
+    )
+    respx.get("http://127.0.0.1:4180/oauth2/auth").mock(
+        return_value=Response(
+            202,
+            headers={
+                "X-Auth-Request-User": "v.tisseront",
+                "X-Auth-Request-Email": "vincent.tisseront@ar-systems.fr",
+                "X-Auth-Request-Groups": "ARSYSTEMS-Users",
+                "X-Auth-Request-Preferred-Username": "vincent.tisseront",
+            },
+        )
+    )
+
+    resp = client.get(
+        "/internal/oauth2-auth",
+        headers={"Cookie": f"bg_session={bg_token}; _oauth2_proxy=sso-session"},
+    )
+
+    assert resp.status_code == 202
+    assert resp.headers.get("x-auth-request-email") == "vincent.tisseront@ar-systems.fr"
+    assert resp.headers.get("x-auth-source") is None
+
+
+@respx.mock
+def test_oauth2_auth_falls_back_to_breakglass_when_sso_401(client, db_session):
+    import jwt
+
+    settings = _settings()
+    _override_settings(client, settings)
+    _add_default_realm(db_session)
+
+    bg_token = jwt.encode(
+        {"sub": "admin", "type": "bg"},
+        settings.vault_portal_internal_token,
+        algorithm="HS256",
+    )
+    respx.get("http://127.0.0.1:4180/oauth2/auth").mock(return_value=Response(401))
+
+    resp = client.get(
+        "/internal/oauth2-auth",
+        headers={"Cookie": f"bg_session={bg_token}"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "breakglass"

@@ -141,13 +141,10 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
+    # Always delegate to FastAPI (SSO preferred over bg_session — see /internal/oauth2-auth).
     location = /portal_auth_check {
         internal;
         auth_request off;
-
-        if ($cookie_portal_breakglass_token) {
-            return 200;
-        }
 
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream/internal/oauth2-auth;

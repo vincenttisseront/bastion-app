@@ -72,32 +72,18 @@ def _rfc1918_response(request: Request, settings: Settings) -> Response | None:
     return None
 
 
-@router.get("/internal/oauth2-auth")
-async def oauth2_auth(
+async def _oauth2_proxy_auth_response(
     request: Request,
-    settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
-):
-    bypass = _rfc1918_response(request, settings)
-    if bypass:
-        return bypass
-
-    bg_cookie = request.cookies.get(COOKIE_NAME)
-    if bg_cookie:
-        if validate_breakglass_cookie(bg_cookie, settings.vault_portal_internal_token):
-            return Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
-        return Response(status_code=401)
-
+    settings: Settings,
+    db: Session,
+) -> Response | None:
+    """Call oauth2-proxy /oauth2/auth. None if no IdP; else proxy status (202/401/503)."""
     default_realm = get_default_idp_realm(db)
     if not default_realm:
-        return Response(
-            status_code=401,
-            headers={"X-Auth-Error": "no-idp-configured"},
-        )
+        return None
 
     realm_slug = request.headers.get("X-Realm-Slug", default_realm.slug)
     proxy_url = get_realm_proxy_url(realm_slug, settings, db)
-
     cookie_header = request.headers.get("Cookie", "")
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -113,6 +99,37 @@ async def oauth2_auth(
         )
     except httpx.RequestError:
         return Response(status_code=503)
+
+
+@router.get("/internal/oauth2-auth")
+async def oauth2_auth(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    bypass = _rfc1918_response(request, settings)
+    if bypass:
+        return bypass
+
+    # Prefer SSO session over break-glass when both cookies are present.
+    # Otherwise a leftover bg_session sends /apps → 302 /dashboard and never hits oauth2.
+    oauth2_resp = await _oauth2_proxy_auth_response(request, settings, db)
+    if oauth2_resp is not None and oauth2_resp.status_code in (200, 202):
+        return oauth2_resp
+
+    bg_cookie = request.cookies.get(COOKIE_NAME)
+    if bg_cookie and validate_breakglass_cookie(
+        bg_cookie, settings.vault_portal_internal_token
+    ):
+        return Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
+
+    if oauth2_resp is not None:
+        return oauth2_resp
+
+    return Response(
+        status_code=401,
+        headers={"X-Auth-Error": "no-idp-configured"},
+    )
 
 
 @router.get("/internal/portal-rfc1918-bypass-auth")
