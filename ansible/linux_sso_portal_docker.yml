@@ -7,6 +7,8 @@
 #     -i ansible/inventory/inventory_sso_portal.ini
 #
 # Prod AWX : Project=awx-playbook, Playbook=linux_sso_portal_docker.yml
+# Extra-vars recommandés : bastion_app_git_ref=master (ou tag),
+# bastion_app_docker_fetch_git=true (défaut) — clone bastion-app avant docker build.
 
 - name: "PRE-FLIGHT : validation Docker avant mutation"
   hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"

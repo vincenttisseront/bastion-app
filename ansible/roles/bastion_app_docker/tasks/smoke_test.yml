@@ -282,6 +282,42 @@
   ansible.builtin.debug:
     msg: "oauth2/start status={{ _oauth2_start.status | default('n/a') }} (302/303 = OK)"
 
+- name: "SMOKE : RFC1918 bypass disabled + auth SSO fixes in image"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ bastion_app_docker_compose_dir }}"
+    val="$(docker compose exec -T bastion-app python -c 'from app.sso_settings import get_settings; print(get_settings().rfc1918_bypass_enabled)')"
+    echo "rfc1918_bypass_enabled=${val}"
+    test "${val}" = "False" || test "${val}" = "false"
+    docker compose exec -T bastion-app python -c \
+      "import app.admin.infrastructure as i; assert hasattr(i,'get_core_realm_for_oauth2_export')"
+    docker compose exec -T bastion-app python -c \
+      "import pathlib, app.auth as a; t=pathlib.Path(a.__file__).read_text(); assert ('Do NOT apply RFC1918 bypass' in t) or ('Prefer SSO session' in t)"
+  args:
+    executable: /bin/bash
+  register: _auth_image_smoke
+  changed_when: false
+
+- name: "SMOKE : nginx signin defaults rd to /apps"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker exec bastion-nginx grep -E 'portal_login_rd|/auth/login\?rd=' \
+      /etc/nginx/conf.d/vhost_sso_portal.conf | head -20
+    docker exec bastion-nginx grep -q 'set \$portal_login_rd /apps' \
+      /etc/nginx/conf.d/vhost_sso_portal.conf
+  args:
+    executable: /bin/bash
+  register: _nginx_rd_smoke
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : warn if nginx rd=/apps missing (rebuild nginx image)"
+  ansible.builtin.debug:
+    msg: >-
+      nginx vhost sans 'set $portal_login_rd /apps' —
+      {{ _nginx_rd_smoke.stdout | default('') }} rc={{ _nginx_rd_smoke.rc }}
+  when: _nginx_rd_smoke.rc | default(1) != 0
+
 - name: "SMOKE : subdomain-auth via FastAPI (expect 401 without cookie, not 500)"
   ansible.builtin.uri:
     url: "http://127.0.0.1:8000/internal/subdomain-auth"

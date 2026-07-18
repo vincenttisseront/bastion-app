@@ -14,6 +14,56 @@
     - "{{ sso_portal_exports_dir }}"
     - "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
 
+# AWX Project=awx-playbook → ne contient pas le code app. Cloner bastion-app @ ref
+# sur le controller, puis tar (même pattern Phase 6, sans git sur docker01).
+- name: "Fetch bastion-app source on controller (git)"
+  when: bastion_app_docker_fetch_git | default(true) | bool
+  block:
+    - name: "Ensure controller cache dir for bastion-app checkout"
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/.cache"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: "Clone/update bastion-app @ {{ bastion_app_git_ref }}"
+      ansible.builtin.git:
+        repo: "{{ bastion_app_git_repo }}"
+        dest: "{{ playbook_dir }}/.cache/bastion-app-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+        version: "{{ bastion_app_git_ref }}"
+        force: true
+        depth: 1
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: _bastion_git
+
+    - name: "Point bastion_app_root at fetched checkout"
+      ansible.builtin.set_fact:
+        bastion_app_root: "{{ playbook_dir }}/.cache/bastion-app-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+
+    - name: "Log fetched bastion-app revision"
+      ansible.builtin.debug:
+        msg: >-
+          bastion_app_root={{ bastion_app_root }}
+          ref={{ bastion_app_git_ref }}
+          after={{ _bastion_git.after | default('n/a') }}
+
+- name: "Assert bastion_app_root has Dockerfile + app/"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ bastion_app_root }}/Dockerfile"
+    - "{{ bastion_app_root }}/app"
+    - "{{ bastion_app_root }}/docker/nginx/templates/vhost_sso_portal.conf.template"
+  register: _bastion_src_stat
+  delegate_to: localhost
+  become: false
+  run_once: true
+  failed_when: not (_bastion_src_stat.results | map(attribute='stat.exists') | min)
+
 # synchronize/rsync hangs on AWX EE (SSH password) — tar + copy + unarchive (Phase 6 pattern).
 - name: "Stage bastion Docker tarball on controller"
   ansible.builtin.shell: |
@@ -23,6 +73,18 @@
     rm -rf "${work}" "${work}.tar.gz"
     mkdir -p "${work}"
     root="{{ bastion_app_root }}"
+    test -f "${root}/Dockerfile"
+    test -d "${root}/app"
+    # Guard: refuse packing an AWX playbook tree without FastAPI app
+    if ! grep -q 'get_core_realm_for_oauth2_export' "${root}/app/admin/infrastructure.py" 2>/dev/null; then
+      echo "REFUS: ${root}/app/admin/infrastructure.py sans get_core_realm_for_oauth2_export" >&2
+      echo "Vérifier bastion_app_git_ref={{ bastion_app_git_ref }} / bastion_app_docker_fetch_git" >&2
+      exit 1
+    fi
+    if ! grep -q 'RFC1918 bypass' "${root}/app/auth.py" 2>/dev/null \
+      && ! grep -q 'Do NOT apply RFC1918 bypass' "${root}/app/auth.py" 2>/dev/null; then
+      echo "WARN: auth.py sans garde RFC1918 documentée — continuer" >&2
+    fi
     for d in app migrations scripts docker nginx; do
       if [ -d "${root}/${d}" ]; then
         cp -a "${root}/${d}" "${work}/"
