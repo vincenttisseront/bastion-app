@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -13,6 +14,8 @@ from app.database import get_db
 from app.models import ActiveSession, App, utcnow
 from app.sso_settings import Settings, get_settings
 from app.web.user_context import UserContext, is_portal_admin, require_admin, require_user
+
+logger = logging.getLogger(__name__)
 
 SESSION_IDLE_TTL = timedelta(hours=8)
 
@@ -87,8 +90,24 @@ def touch_portal_session(
     db: Session,
     user: UserContext,
     source_ip: str | None,
+) -> ActiveSession | None:
+    """Upsert a portal (SSO / break-glass) user session. Never raises to callers."""
+    try:
+        return _touch_portal_session(db, user, source_ip)
+    except Exception:
+        logger.exception("touch_portal_session failed — page continues without registry")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
+
+
+def _touch_portal_session(
+    db: Session,
+    user: UserContext,
+    source_ip: str | None,
 ) -> ActiveSession:
-    """Upsert a portal (SSO / break-glass) user session."""
     email = (user.email or user.username or "unknown").strip().lower()
     realm = user.realm_slug or "ar-systems"
     session_id = _portal_session_id(email, realm)
@@ -126,8 +145,25 @@ def touch_app_session(
     user: UserContext,
     app: App,
     source_ip: str | None,
+) -> ActiveSession | None:
+    """Upsert an application session after launch-ping. Never raises to callers."""
+    try:
+        return _touch_app_session(db, user, app, source_ip)
+    except Exception:
+        logger.exception("touch_app_session failed — launch continues without registry")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
+
+
+def _touch_app_session(
+    db: Session,
+    user: UserContext,
+    app: App,
+    source_ip: str | None,
 ) -> ActiveSession:
-    """Upsert an application session after launch-ping."""
     email = (user.email or user.username or "unknown").strip().lower()
     realm = user.realm_slug or app.realm_slug or "ar-systems"
     session_id = _app_session_id(email, app.slug)
@@ -185,26 +221,42 @@ def get_active_sessions(
     include_isolated: bool = True,
 ) -> list[dict[str, Any]]:
     """List sessions visible to viewer (admin = all, else own email)."""
-    expire_stale_sessions(db)
-    q = db.query(ActiveSession)
-    if kind in (KIND_USER, KIND_APP):
-        q = q.filter(ActiveSession.kind == kind)
-    if not include_isolated:
-        q = q.filter(ActiveSession.status == "active")
-    if viewer is not None and not viewer.is_admin:
-        email = (viewer.email or viewer.username or "").strip().lower()
-        q = q.filter(ActiveSession.user_email == email)
-    rows = q.order_by(ActiveSession.last_seen_at.desc()).all()
-    return [_row_to_dict(r) for r in rows]
+    try:
+        expire_stale_sessions(db)
+        q = db.query(ActiveSession)
+        if kind in (KIND_USER, KIND_APP):
+            q = q.filter(ActiveSession.kind == kind)
+        if not include_isolated:
+            q = q.filter(ActiveSession.status == "active")
+        if viewer is not None and not viewer.is_admin:
+            email = (viewer.email or viewer.username or "").strip().lower()
+            q = q.filter(ActiveSession.user_email == email)
+        rows = q.order_by(ActiveSession.last_seen_at.desc()).all()
+        return [_row_to_dict(r) for r in rows]
+    except Exception:
+        logger.exception("get_active_sessions failed")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return []
 
 
 def count_active_sessions(db: Session) -> int:
-    expire_stale_sessions(db)
-    return (
-        db.query(ActiveSession)
-        .filter(ActiveSession.status == "active")
-        .count()
-    )
+    try:
+        expire_stale_sessions(db)
+        return (
+            db.query(ActiveSession)
+            .filter(ActiveSession.status == "active")
+            .count()
+        )
+    except Exception:
+        logger.exception("count_active_sessions failed")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return 0
 
 
 def get_session_by_id(db: Session, session_id: str) -> ActiveSession | None:

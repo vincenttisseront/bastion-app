@@ -163,13 +163,11 @@ server {
     include /var/lib/sso-portal/exports/nginx-portal-realms.conf;
 
     location @portal_oauth2_signin {
-        # /dashboard is admin-only — send end-users to /apps after SSO
-        set $portal_login_rd $uri;
-        if ($uri = /dashboard) {
-            set $portal_login_rd /apps;
-        }
-        if ($uri = /) {
-            set $portal_login_rd /apps;
+        # Default post-login home is /apps (end-user portal). /dashboard is admin-only
+        # and must not be baked into OIDC state for ARSYSTEMS-Users.
+        set $portal_login_rd /apps;
+        if ($uri ~ ^/admin) {
+            set $portal_login_rd $uri;
         }
         return 302 /auth/login?rd=$portal_login_rd;
     }
