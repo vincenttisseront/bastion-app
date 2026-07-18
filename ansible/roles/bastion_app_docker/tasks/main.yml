@@ -390,33 +390,56 @@
   delay: 2
   until: _wait_health.status | default(0) == 200
 
-- name: "Assert nginx listens (/_portal_nginx_ok) then proxies /api/health"
+# failed_when:false + until masquait l'échec (Assert=ok puis Fail) — un seul check clair.
+- name: "Assert nginx resolves bastion-app on vpcbr and proxies /api/health"
   ansible.builtin.shell: |
-    set -o pipefail
+    set -euo pipefail
+    echo "=== nginx networks ==="
+    docker inspect bastion-nginx --format '{{json .NetworkSettings.Networks}}' | head -c 2000 || true
+    echo
+    echo "=== bastion-app networks ==="
+    app_cid="$(docker ps -q -f name=bastion-bastion-app -f status=running | head -1)"
+    app_cid="${app_cid:-$(docker ps -q -f label=com.docker.compose.service=bastion-app -f status=running | head -1)}"
+    echo "app_cid=${app_cid}"
+    docker inspect "$app_cid" --format '{{json .NetworkSettings.Networks}}' | head -c 2000 || true
+    echo
+    echo "=== DNS bastion-app from nginx ==="
+    if ! docker exec bastion-nginx getent hosts bastion-app; then
+      echo "DNS miss — reconnect bastion-app alias on vpcbr"
+      docker network disconnect -f "{{ bastion_traefik_network }}" "$app_cid" || true
+      docker network connect --alias bastion-app --alias bastion-bastion-app-1 \
+        "{{ bastion_traefik_network }}" "$app_cid"
+      sleep 2
+      docker exec bastion-nginx getent hosts bastion-app
+    fi
     echo "=== /_portal_nginx_ok ==="
-    docker exec bastion-nginx wget -S -O- http://127.0.0.1:8080/_portal_nginx_ok 2>&1
-    echo "=== resolve bastion-app from nginx ==="
-    docker exec bastion-nginx getent hosts bastion-app || docker exec bastion-nginx nslookup bastion-app 127.0.0.11 || true
-    echo "=== /api/health ==="
+    docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/_portal_nginx_ok
+    echo
+    echo "=== /api/health via nginx ==="
     body="$(docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/api/health)"
     echo "$body"
     echo "$body" | grep -q '"status"'
   args:
     executable: /bin/bash
   register: _nginx_listen_check
-  retries: 20
-  delay: 2
+  retries: 15
+  delay: 3
   until: _nginx_listen_check.rc | default(1) == 0
-  changed_when: false
-  failed_when: false
+  changed_when: "'DNS miss' in (_nginx_listen_check.stdout | default(''))"
+  ignore_errors: true
 
 - name: "Fail with nginx proxy diagnostics"
   ansible.builtin.fail:
     msg: |
-      nginx health via exec failed after vpcbr attach.
+      nginx → bastion-app via vpcbr a échoué après attach.
+      Causes fréquentes: alias DNS bastion-app absent sur {{ bastion_traefik_network }},
+      ou bastion-app pas en 10.5.0.0/16.
+      --- stdout ---
       {{ _nginx_listen_check.stdout | default('') }}
+      --- stderr ---
       {{ _nginx_listen_check.stderr | default('') }}
-      vpcbr_attach: {{ _vpcbr_attach.stdout | default('') }}
+      --- vpcbr_attach ---
+      {{ _vpcbr_attach.stdout | default('') }}
   when: _nginx_listen_check.rc | default(1) != 0
 
 - name: "Regenerate oauth2 exports from DB (RealmConfig → exports/)"
