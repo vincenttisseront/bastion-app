@@ -1,6 +1,6 @@
 """HTML page routes for Bastion Pro portal."""
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -22,9 +22,9 @@ from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
-from app.web.sessions_service import get_active_sessions
+from app.web.sessions_service import get_active_sessions, touch_portal_session
 from app.web.templates import render
-from app.web.user_context import get_user_context, require_admin, require_user
+from app.web.user_context import get_user_context, is_portal_admin, require_admin, require_user
 
 router = APIRouter(tags=["pages"])
 
@@ -49,6 +49,7 @@ def dashboard(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    touch_portal_session(db, user, _client_ip(request))
     metrics = get_dashboard_metrics(db)
     recent_audit, _ = list_audit_entries(db, limit=8)
     return render(
@@ -60,12 +61,29 @@ def dashboard(
 @router.get("/sessions")
 def sessions_page(
     request: Request,
+    db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_user),
+    user=Depends(require_user),
+    kind: str | None = Query(None),
 ):
+    if is_portal_admin(user, db, settings):
+        user.is_admin = True
+    touch_portal_session(db, user, _client_ip(request))
+    filter_kind = kind if kind in ("user", "app") else None
+    sessions = get_active_sessions(db, viewer=user, kind=filter_kind)
     return render(
         "sessions/index.html",
-        **_ctx(request, settings, sessions=get_active_sessions()),
+        **_ctx(
+            request,
+            settings,
+            sessions=sessions,
+            session_kind=filter_kind or "all",
+            session_counts={
+                "all": len(get_active_sessions(db, viewer=user)),
+                "user": len(get_active_sessions(db, viewer=user, kind="user")),
+                "app": len(get_active_sessions(db, viewer=user, kind="app")),
+            },
+        ),
     )
 
 

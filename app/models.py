@@ -229,3 +229,21 @@ class AuditLog(Base):
     details = Column(JSON, nullable=True)
     ip_address = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
+
+
+class ActiveSession(Base):
+    """Live portal / application session registry for the Sessions UI."""
+
+    __tablename__ = "active_sessions"
+
+    id = Column(String, primary_key=True)
+    kind = Column(String, nullable=False, index=True)  # user | app
+    user_email = Column(String, nullable=False, index=True)
+    username = Column(String, nullable=False)
+    realm = Column(String, nullable=False)
+    protocol = Column(String, nullable=False)
+    target = Column(String, nullable=False)
+    source_ip = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="active")
+    started_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import App, AuditLog
-from app.web.sessions_service import get_active_sessions
+from app.web.sessions_service import count_active_sessions
 from app.web.user_context import require_user
 
 router = APIRouter(prefix="/api", tags=["metrics"])
@@ -24,7 +24,7 @@ def get_dashboard_metrics(db: Session) -> dict:
     total_apps = db.query(App).count()
 
     return {
-        "active_sessions": len(get_active_sessions()),
+        "active_sessions": count_active_sessions(db),
         "blocked_attempts": blocked,
         "enabled_apps": enabled_apps,
         "total_apps": total_apps,

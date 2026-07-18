@@ -1,5 +1,44 @@
 /* Active sessions table */
 
+.session-kind-tabs {
+  display: flex;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.session-kind-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: var(--radius-full, 999px);
+  border: 1px solid var(--border, #e2e8f0);
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.session-kind-tab:hover {
+  border-color: var(--accent, #2563eb);
+  color: var(--text, #0f172a);
+}
+
+.session-kind-tab.is-active {
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+
+.session-kind-count {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
 .session-table .session-protocol {
   display: inline-flex;
   align-items: center;
@@ -36,7 +75,8 @@
 
 .btn-isolate:hover { background: rgba(239,68,68,0.25); }
 
-.btn-rotate-keys {
+.btn-rotate-keys,
+.btn-rotate {
   background: var(--status-warn-bg);
   color: var(--status-warn);
   border: 1px solid rgba(245,158,11,0.3);
@@ -47,5 +87,3 @@
   cursor: pointer;
   transition: all var(--transition-fast);
 }
-
-.btn-rotate-keys:hover { background: rgba(245,158,11,0.25); }

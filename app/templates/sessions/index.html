@@ -1,22 +1,38 @@
 {% extends "base.html" %}
 {% block title %}Sessions Actives{% endblock %}
 {% block breadcrumb %}Sessions{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/bastion-sessions.css">
+{% endblock %}
 
 {% block content %}
-<div class="page">
+<div class="page" id="sessions-page" data-kind="{{ session_kind | default('all') }}">
   <div class="page-header">
     <div>
       <h1 class="page-title">Sessions actives</h1>
-      <p class="page-sub">{{ sessions | length }} connexion(s) en cours</p>
+      <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> connexion(s) en cours</p>
     </div>
     <div class="live-pill"><span class="live-dot"></span>Live</div>
   </div>
 
+  <div class="session-kind-tabs" role="tablist">
+    <a href="/sessions" class="session-kind-tab{% if session_kind == 'all' or not session_kind %} is-active{% endif %}" data-kind="all">
+      Toutes <span class="session-kind-count">{{ session_counts.all | default(sessions | length) }}</span>
+    </a>
+    <a href="/sessions?kind=user" class="session-kind-tab{% if session_kind == 'user' %} is-active{% endif %}" data-kind="user">
+      Utilisateurs <span class="session-kind-count">{{ session_counts.user | default(0) }}</span>
+    </a>
+    <a href="/sessions?kind=app" class="session-kind-tab{% if session_kind == 'app' %} is-active{% endif %}" data-kind="app">
+      Applications <span class="session-kind-count">{{ session_counts.app | default(0) }}</span>
+    </a>
+  </div>
+
   <div class="table-wrap session-table">
-    <table class="data-table">
+    <table class="data-table" id="sessions-table">
       <thead>
         <tr>
           <th>Utilisateur</th>
+          <th>Type</th>
           <th>Protocole</th>
           <th>Ressource</th>
           <th>IP source</th>
@@ -25,9 +41,9 @@
           {% if is_admin %}<th>Actions</th>{% endif %}
         </tr>
       </thead>
-      <tbody>
+      <tbody id="sessions-tbody">
         {% for s in sessions %}
-        <tr data-searchable>
+        <tr data-searchable data-kind="{{ s.kind }}" data-session-id="{{ s.id }}">
           <td>
             <div style="display:flex;align-items:center;gap:var(--sp-2);">
               <div class="user-avatar" style="width:28px;height:28px;font-size:10px;">{{ s.user[0] | upper }}</div>
@@ -37,10 +53,15 @@
               </div>
             </div>
           </td>
+          <td>
+            <span class="badge badge-{{ 'info' if s.kind == 'user' else 'ok' }}">
+              {{ 'Utilisateur' if s.kind == 'user' else 'Application' }}
+            </span>
+          </td>
           <td><span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span></td>
           <td class="mono">{{ s.target }}</td>
           <td class="mono">{{ s.source_ip }}</td>
-          <td class="mono">{{ s.duration }}</td>
+          <td class="mono session-duration">{{ s.duration }}</td>
           <td>
             <span class="badge badge-{{ 'ok' if s.status == 'active' else 'warn' }}">
               {% if s.status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
@@ -57,14 +78,14 @@
           {% endif %}
         </tr>
         {% else %}
-        <tr>
-          <td colspan="{% if is_admin %}7{% else %}6{% endif %}">
+        <tr class="sessions-empty-row">
+          <td colspan="{% if is_admin %}8{% else %}7{% endif %}">
             <div class="empty-state">
               <div class="empty-icon">
                 <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
               </div>
               <div class="empty-title">Aucune session active</div>
-              <div class="empty-desc">Les connexions bastion apparaîtront ici en temps réel.</div>
+              <div class="empty-desc">Les connexions portail et les ouvertures d’applications apparaîtront ici.</div>
             </div>
           </td>
         </tr>
@@ -76,5 +97,8 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+  window.__SESSIONS_IS_ADMIN__ = {{ 'true' if is_admin else 'false' }};
+</script>
 <script src="/static/js/bastion-sessions.js"></script>
 {% endblock %}

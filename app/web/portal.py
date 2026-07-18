@@ -15,6 +15,7 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context
 from app.web.templates import render
 from app.web.user_context import UserContext, is_portal_admin, require_user
+from app.web.sessions_service import touch_app_session, touch_portal_session
 
 router = APIRouter(tags=["portal"])
 
@@ -62,6 +63,7 @@ def apps_portal(
     if user.is_breakglass:
         return RedirectResponse(url="/dashboard", status_code=302)
 
+    touch_portal_session(db, user, _client_ip(request))
     portal_admin = is_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
     return render(
@@ -109,4 +111,5 @@ def app_launch_ping(
         },
         ip_address=_client_ip(request),
     )
+    touch_app_session(db, user, match.app, _client_ip(request))
     return {"ok": True}
