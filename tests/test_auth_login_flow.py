@@ -47,6 +47,17 @@ def test_login_shows_sso_and_local_when_default_realm_configured(
     assert 'name="password"' in response.text
 
 
+def test_login_remaps_dashboard_rd_to_apps(client: TestClient, db_session: Session):
+    _add_default_idp(db_session)
+    set_breakglass_password(db_session, "admin", "super-secret-password")
+
+    response = client.get("/auth/login?rd=/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "/oauth2/ar-systems/start?rd=%2Fapps" in response.text
+    assert "rd=%2Fdashboard" not in response.text
+
+
 def test_login_post_uses_breakglass_not_idp_redirect(client: TestClient, db_session: Session):
     _add_default_idp(db_session)
     set_breakglass_password(db_session, "admin", "super-secret-password")

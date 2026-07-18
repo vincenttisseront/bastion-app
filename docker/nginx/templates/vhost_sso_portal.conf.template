@@ -163,7 +163,15 @@ server {
     include /var/lib/sso-portal/exports/nginx-portal-realms.conf;
 
     location @portal_oauth2_signin {
-        return 302 /auth/login?rd=$uri;
+        # /dashboard is admin-only — send end-users to /apps after SSO
+        set $portal_login_rd $uri;
+        if ($uri = /dashboard) {
+            set $portal_login_rd /apps;
+        }
+        if ($uri = /) {
+            set $portal_login_rd /apps;
+        }
+        return 302 /auth/login?rd=$portal_login_rd;
     }
 
     location ^~ /api/admin {

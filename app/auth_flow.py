@@ -14,9 +14,15 @@ def get_default_idp_realm(db: Session) -> RealmConfig | None:
 
 
 def resolve_rd(request: Request, default: str = "/apps") -> str:
-    """Extract a safe relative redirect target from the query string."""
+    """Extract a safe relative redirect target from the query string.
+
+    /dashboard is admin-only; unauthenticated hits there would bake rd=/dashboard
+    into the OIDC state and land end-users on a 403 bounce. Prefer /apps.
+    """
     rd = request.query_params.get("rd") or default
     if not isinstance(rd, str) or not rd.startswith("/") or rd.startswith("//"):
+        return default
+    if rd in ("/dashboard", "/admin/dashboard"):
         return default
     return rd
 
