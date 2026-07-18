@@ -165,3 +165,36 @@ def test_oauth2_auth_falls_back_to_breakglass_when_sso_401(client, db_session):
 
     assert resp.status_code == 200
     assert resp.headers.get("x-auth-source") == "breakglass"
+
+
+@respx.mock
+def test_oauth2_auth_ignores_rfc1918_bypass_even_when_enabled(client, db_session):
+    """Traefik/vpcbr 10.5.0.0/16 must not short-circuit portal auth_request."""
+    settings = Settings(
+        vault_portal_internal_token="test-secret",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        portal_domain="portal.test",
+        database_url="sqlite://",
+        oauth2_proxy_default_url="http://127.0.0.1:4180",
+        rfc1918_bypass_enabled=True,
+    )
+    _override_settings(client, settings)
+    _add_default_realm(db_session)
+    route = respx.get("http://127.0.0.1:4180/oauth2/auth").mock(
+        return_value=Response(
+            202,
+            headers={"X-Auth-Request-Email": "user@ar-systems.fr"},
+        )
+    )
+
+    resp = client.get(
+        "/internal/oauth2-auth",
+        headers={
+            "X-Real-IP": "10.5.0.4",
+            "Cookie": "_oauth2_proxy=sso-session",
+        },
+    )
+
+    assert route.called
+    assert resp.status_code == 202
+    assert resp.headers.get("x-auth-request-email") == "user@ar-systems.fr"
