@@ -104,9 +104,26 @@ mv "$tmp" "$OVERRIDE"
 trap - EXIT
 echo "Écrit: $OVERRIDE"
 
+# ── Core realm (ar-systems) : cfg depuis DB export → volume oauth2-proxy-core ──
+# Source of truth = RealmConfig en base ; le fichier docker/oauth2-core n'est qu'un miroir.
+CORE_CFG_SRC="${EXPORT_DIR}/oauth2/${CORE_REALM_SLUG}/oauth2-proxy.cfg"
+CORE_CFG_DST="${COMPOSE_DIR}/docker/oauth2-core/oauth2-proxy.cfg"
+if [[ -f "$CORE_CFG_SRC" ]]; then
+  mkdir -p "$(dirname "$CORE_CFG_DST")"
+  cp -a "$CORE_CFG_SRC" "$CORE_CFG_DST"
+  chmod 644 "$CORE_CFG_DST"
+  chmod 755 "$(dirname "$CORE_CFG_DST")"
+  echo "Sync oauth2-proxy-core cfg depuis DB export: $CORE_CFG_SRC → $CORE_CFG_DST"
+else
+  echo "WARN: export core absent ($CORE_CFG_SRC) — oauth2-proxy-core non synchronisé (Admin → Realms + Apply infra)" >&2
+fi
+
 cd "$COMPOSE_DIR"
 if command -v docker >/dev/null 2>&1; then
   docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --remove-orphans
+  if [[ -f "$CORE_CFG_SRC" ]]; then
+    docker compose up -d --force-recreate --no-deps oauth2-proxy-core
+  fi
   # Reload nginx to pick up nginx-portal-realms.conf updates
   docker compose exec -T nginx nginx -s reload 2>/dev/null \
     || docker compose restart nginx

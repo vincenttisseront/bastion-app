@@ -33,6 +33,8 @@ def _ensure_cookie_secret(realm: RealmConfig, settings: Settings) -> str:
 def realm_oauth2_proxy_url(realm: RealmConfig, settings: Settings) -> str:
     """Resolve oauth2-proxy base URL for nginx / FastAPI auth_request."""
     if settings.oauth2_proxy_network_mode == "docker":
+        if realm.slug in core_static_realm_slugs(settings):
+            return "http://oauth2-proxy-core:4180"
         return f"http://oauth2-proxy-{realm.slug}:4180"
     return f"http://127.0.0.1:{realm.oauth2_proxy_port}"
 
@@ -45,7 +47,7 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
     else:
         http_address = f"127.0.0.1:{realm.oauth2_proxy_port}"
     lines = [
-        f"# Generated for realm: {realm.slug}",
+        f"# Generated for realm: {realm.slug} — source of truth: DB RealmConfig (do not edit)",
         f'http_address = "{http_address}"',
         # auth_request-only: no reverse proxy to FastAPI (Nginx handles app traffic)
         'upstreams = [ "file:///dev/null" ]',
@@ -57,6 +59,8 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
         f'client_secret = "{client_secret}"',
         f'redirect_url = "{realm.redirect_uri}"',
         f'cookie_secret = "{cookie_secret}"',
+        # Keycloak PKCE — required when client enforces code_challenge_method
+        'code_challenge_method = "S256"',
         f'scope = "{realm.scopes}"',
         "email_domains = [\"*\"]",
         "cookie_secure = true",
@@ -70,7 +74,7 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
 
 
 def core_static_realm_slugs(settings: Settings) -> frozenset[str]:
-    """Realm slugs managed by Ansible oauth2-proxy-core (not per-realm export)."""
+    """Realm slugs served by oauth2-proxy-core (nginx snippet static; oauth2 cfg still from DB)."""
     if not settings.oauth2_core_static_enabled:
         return frozenset()
     return frozenset({settings.sso_portal_default_realm_slug})

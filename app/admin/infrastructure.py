@@ -1,7 +1,9 @@
 """Infrastructure desired-state manifest for apply-infrastructure.sh.
 
-Exports oauth2-proxy configs and nginx snippets for secondary realms only.
-The default portal realm (ar-systems) is served by oauth2-proxy-core :4180 via Ansible.
+Exports oauth2-proxy configs from DB RealmConfig (source of truth).
+- Default/core realm (ar-systems): oauth2 cfg only → synced to oauth2-proxy-core by apply-infra-docker.
+- Secondary realms: oauth2 cfg + nginx snippet + dedicated containers.
+Nginx location for the core realm stays static (snippets/nginx-portal-core-realm-oauth2).
 """
 
 from __future__ import annotations
@@ -41,10 +43,25 @@ def _exports_path(settings: Settings) -> Path:
 
 
 def iter_exportable_realms(db: Session, settings: Settings) -> list[RealmConfig]:
-    """Enabled realms that should get a dedicated oauth2-proxy instance."""
+    """Enabled secondary realms (dedicated oauth2-proxy instance each)."""
     exclude = core_static_realm_slugs(settings)
     query = db.query(RealmConfig).filter_by(enabled=True).order_by(RealmConfig.slug)
     return [realm for realm in query.all() if realm.slug not in exclude]
+
+
+def get_core_realm_for_oauth2_export(db: Session, settings: Settings) -> RealmConfig | None:
+    """Default portal realm whose oauth2-proxy-core cfg is generated from DB."""
+    slug = settings.sso_portal_default_realm_slug
+    realm = db.query(RealmConfig).filter_by(slug=slug, enabled=True).first()
+    if realm:
+        return realm
+    return (
+        db.query(RealmConfig)
+        .filter_by(is_default=True, enabled=True)
+        .order_by(RealmConfig.id)
+        .first()
+    )
+
 
 
 def _realm_manifest_entry(realm: RealmConfig) -> dict[str, Any]:
@@ -104,7 +121,7 @@ def build_infrastructure_manifest(
 
 
 def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
-    """Write export files and return the infrastructure manifest."""
+    """Write export files from DB and return the infrastructure manifest."""
     exports_path = _exports_path(settings)
     written_files: list[dict[str, Any]] = []
     partial = False
@@ -112,6 +129,31 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
 
     try:
         exclude = core_static_realm_slugs(settings)
+
+        # Core/default realm: oauth2 cfg from DB → oauth2-proxy-core (via apply-infra-docker).
+        # Exported even if last_test_status != ok so secrets entered in Admin can be applied.
+        core_realm = get_core_realm_for_oauth2_export(db, settings)
+        if core_realm:
+            proxy_path = write_oauth2_proxy_export(core_realm, settings)
+            written_files.append(
+                _file_manifest_entry(
+                    proxy_path,
+                    kind="oauth2_proxy_core_config",
+                    realm_slug=core_realm.slug,
+                )
+            )
+            if core_realm.last_test_status != "ok":
+                logger.warning(
+                    "Core realm %s exported with last_test_status=%s — run OIDC test when ready",
+                    core_realm.slug,
+                    core_realm.last_test_status,
+                )
+        else:
+            logger.warning(
+                "No enabled default realm (%s) — oauth2-proxy-core cfg not refreshed from DB",
+                settings.sso_portal_default_realm_slug,
+            )
+
         for realm in iter_exportable_realms(db, settings):
             if realm.last_test_status != "ok":
                 logger.warning(

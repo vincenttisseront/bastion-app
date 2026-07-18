@@ -11,6 +11,8 @@ client_id = "sso-portal-ar-systems"
 client_secret = "REPLACE_ME"
 redirect_url = "https://portal.ar-systems.fr/oauth2/ar-systems/callback"
 cookie_secret = "REPLACE_WITH_32_BYTE_URLSAFE_BASE64"
+# Keycloak PKCE obligatoire (sinon callback: Missing parameter: code_challenge_method)
+code_challenge_method = "S256"
 scope = "openid profile email"
 email_domains = ["*"]
 cookie_secure = true

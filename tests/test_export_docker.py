@@ -43,7 +43,19 @@ def test_realm_oauth2_proxy_url_docker(db_session: Session):
     assert realm_oauth2_proxy_url(realm, settings) == "http://oauth2-proxy-clients:4180"
 
 
-def test_generate_oauth2_proxy_config_docker_listen(db_session: Session):
+def test_realm_oauth2_proxy_url_docker_core_uses_oauth2_proxy_core(db_session: Session):
+    settings = Settings(
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        database_url="sqlite://",
+        oauth2_proxy_network_mode="docker",
+        oauth2_core_static_enabled=True,
+        sso_portal_default_realm_slug="ar-systems",
+    )
+    realm = _realm(db_session, settings, slug="ar-systems", port=4180)
+    assert realm_oauth2_proxy_url(realm, settings) == "http://oauth2-proxy-core:4180"
+
+
+def test_generate_oauth2_proxy_config_includes_pkce(db_session: Session):
     settings = Settings(
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
@@ -52,6 +64,7 @@ def test_generate_oauth2_proxy_config_docker_listen(db_session: Session):
     realm = _realm(db_session, settings)
     cfg = generate_oauth2_proxy_config(realm, settings)
     assert 'http_address = "0.0.0.0:4180"' in cfg
+    assert 'code_challenge_method = "S256"' in cfg
 
 
 def test_nginx_realms_conf_uses_docker_dns(db_session: Session):

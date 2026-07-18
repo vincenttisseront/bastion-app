@@ -81,9 +81,10 @@ def test_build_manifest_uses_app_not_application_name(db_session: Session, tmp_p
     assert manifest["applications"][0]["slug"] == "wikijs"
 
 
-def test_apply_infrastructure_excludes_core_static_realm(
+def test_apply_infrastructure_exports_core_oauth2_cfg_not_nginx(
     db_session: Session, tmp_path
 ):
+    """Core realm: oauth2 cfg from DB (for oauth2-proxy-core); no nginx duplicate location."""
     settings = _test_settings(tmp_path)
     _make_realm(db_session, slug="ar-systems", port=4180, is_default=True)
     _make_realm(db_session, slug="clients", port=4182)
@@ -93,8 +94,13 @@ def test_apply_infrastructure_excludes_core_static_realm(
     assert manifest["partial"] is False
     assert (tmp_path / "oauth2-proxy-clients.conf").is_file()
     assert (tmp_path / "oauth2" / "clients" / "oauth2-proxy.cfg").is_file()
-    assert not (tmp_path / "oauth2-proxy-ar-systems.conf").exists()
-    assert not (tmp_path / "oauth2" / "ar-systems").exists()
+    # Core oauth2 cfg IS exported (source of truth = DB)
+    assert (tmp_path / "oauth2-proxy-ar-systems.conf").is_file()
+    core_cfg = (tmp_path / "oauth2" / "ar-systems" / "oauth2-proxy.cfg").read_text(
+        encoding="utf-8"
+    )
+    assert 'code_challenge_method = "S256"' in core_cfg
+    assert any(f.get("kind") == "oauth2_proxy_core_config" for f in manifest["files"])
 
     nginx_conf = (tmp_path / "nginx-portal-realms.conf").read_text(encoding="utf-8")
     assert "/oauth2/clients/" in nginx_conf

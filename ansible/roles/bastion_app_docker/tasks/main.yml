@@ -74,8 +74,70 @@
     src: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg.example"
     dest: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
     remote_src: true
-    mode: "0640"
+    # 0644 : l'image quay.io/oauth2-proxy tourne en non-root (uid ~2000).
+    # 0640 root:root → permission denied en boucle au démarrage.
+    mode: "0644"
     force: false
+
+- name: "Ensure oauth2-core cfg readable by container user"
+  ansible.builtin.file:
+    path: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
+    state: directory
+    mode: "0755"
+    recurse: false
+
+- name: "Ensure oauth2-proxy.cfg mode for non-root container"
+  ansible.builtin.file:
+    path: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    mode: "0644"
+    state: file
+  failed_when: false
+
+# Keycloak PKCE : sans code_challenge_method → callback invalid_request
+# (Missing parameter: code_challenge_method). Idempotent sur cfg déjà présent.
+- name: "Ensure oauth2-proxy PKCE code_challenge_method=S256"
+  ansible.builtin.lineinfile:
+    path: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    regexp: '^\s*code_challenge_method\s*='
+    line: 'code_challenge_method = "S256"'
+    insertafter: '^\s*cookie_secret\s*='
+    mode: "0644"
+
+# cookie_secret AES : 16/24/32 octets. Placeholder ou longueur invalide → régénérer.
+- name: "Ensure oauth2-proxy cookie_secret is AES-valid (16/24/32 bytes)"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cfg="{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    gen="{{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh"
+    current="$(grep -E '^\s*cookie_secret\s*=' "$cfg" | head -1 | sed -E 's/^[^=]*=\s*"?([^"]*)"?/\1/' | tr -d '[:space:]')"
+    need_new=0
+    case "$current" in
+      ""|REPLACE*|CHANGE*|changeme*|CHANGEME*) need_new=1 ;;
+    esac
+    if [[ "$need_new" -eq 0 ]] && [[ -x "$gen" ]]; then
+      tmp="$(mktemp)"
+      printf '%s' "$current" > "$tmp"
+      if ! bash "$gen" valid "$tmp"; then
+        need_new=1
+      fi
+      rm -f "$tmp"
+    fi
+    if [[ "$need_new" -eq 1 ]]; then
+      if [[ ! -x "$gen" ]]; then
+        echo "cookie_secret invalide et scripts/oauth2-cookie-secret.sh absent" >&2
+        exit 1
+      fi
+      new="$(bash "$gen" gen)"
+      sed -i -E "s|^[[:space:]]*cookie_secret[[:space:]]*=.*|cookie_secret = \"${new}\"|" "$cfg"
+      echo "cookie_secret regenerated"
+    else
+      echo "cookie_secret ok"
+    fi
+    chmod 644 "$cfg"
+  args:
+    executable: /bin/bash
+  register: _oauth2_cookie_secret
+  changed_when: "'regenerated' in (_oauth2_cookie_secret.stdout | default(''))"
 
 - name: "Ensure empty oauth2-core env file"
   ansible.builtin.copy:
@@ -295,7 +357,26 @@
       vpcbr_attach: {{ _vpcbr_attach.stdout | default('') }}
   when: _nginx_listen_check.rc | default(1) != 0
 
-- name: "Run apply-infra-docker (secondary realms)"
+- name: "Regenerate oauth2 exports from DB (RealmConfig → exports/)"
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T bastion-app
+      python -m app.admin.infrastructure apply
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+  register: _infra_export
+  failed_when: false
+  changed_when: _infra_export.rc == 0
+
+- name: "Warn if DB infrastructure export failed"
+  ansible.builtin.debug:
+    msg: >-
+      python -m app.admin.infrastructure apply rc={{ _infra_export.rc }} —
+      {{ _infra_export.stderr | default(_infra_export.stdout) }}
+  when: _infra_export.rc | default(0) != 0
+
+- name: "Run apply-infra-docker (sync core cfg + secondary realms)"
   ansible.builtin.command:
     cmd: >-
       bash {{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh
