@@ -59,6 +59,8 @@ def test_nginx_docker_uses_service_dns():
     ).read_text(encoding="utf-8")
     assert "bastion-app:8000" in vhost or "$bastion_app_upstream" in vhost
     assert "listen 8080" in vhost or "listen 0.0.0.0:8080" in vhost
+    assert "absolute_redirect off" in vhost
+    assert "port_in_redirect off" in vhost
     assert "letsencrypt" not in vhost
     core = (
         ROOT / "docker" / "nginx" / "snippets" / "nginx-portal-core-realm-oauth2.conf"

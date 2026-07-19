@@ -5,6 +5,10 @@ server {
     listen 0.0.0.0:8080;
     server_name ${PORTAL_DOMAIN} _;
 
+    # Derrière Traefik/edge :443 — ne pas réécrire Location en :8080 (port listen interne)
+    absolute_redirect off;
+    port_in_redirect off;
+
     # Variables → resolver Docker (évite upstream figé si alias vpcbr recréés)
     set $bastion_app_upstream bastion-app:8000;
     set $oauth2_core_upstream oauth2-proxy-core:4180;
