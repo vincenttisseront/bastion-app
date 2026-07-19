@@ -1,0 +1,5 @@
+---
+- name: "phase7 → bastion_app_docker (smoke)"
+  ansible.builtin.import_role:
+    name: bastion_app_docker
+    tasks_from: smoke_test.yml

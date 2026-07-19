@@ -26,17 +26,23 @@ clients → vmdmz-reverse01:443 (nginx edge)
 # AWX (prod) — Project awx-playbook
 #   Playbook = linux_sso_portal_docker.yml
 #   Inventaire = groupe sso_portal_docker (vmdmz-docker01)
-#   Extra vars :
-#     bastion_app_git_ref: master          # ou tag (ex. v0.8.0)
-#     bastion_app_docker_fetch_git: true   # défaut — clone bastion-app avant build
+#   Rôle      = bastion_app_docker_phase7 (alias → bastion_app_docker)
+#   Extra-vars (optionnel) :
+#     bastion_app_git_ref: master   # défaut du playbook
+#
+# IMPORTANT : synchroniser depuis bastion-app/ansible/ vers awx-playbook :
+#   - linux_sso_portal_docker.yml
+#   - roles/bastion_app_docker/
+#   - roles/bastion_app_docker_phase7/
 #
 # Le rôle clone https://github.com/vincenttisseront/bastion-app.git @ bastion_app_git_ref
 # sur le controller AWX, puis tar → /tools/portal + docker compose build.
-# Sans fetch_git, bastion_app_root=playbook_dir/.. (awx-playbook) → image SANS le code app.
+# VERIFY post-up échoue si RFC1918≠false ou nginx sans rd=/apps.
 
-# Local / hors AWX (rôle dans ce repo)
+# Local / hors AWX
 ansible-playbook ansible/linux_sso_portal_docker.yml \
-  -i ansible/inventory/inventory_sso_portal.ini.example --syntax-check
+  -i ansible/inventory/inventory_sso_portal.ini.example --syntax-check \
+  -e bastion_app_docker_role_name=bastion_app_docker
 
 bash scripts/smoke-docker-local.sh
 ```
@@ -45,7 +51,7 @@ Le playbook applique notamment :
 - `.env` avec `RFC1918_BYPASS_ENABLED=false` (sinon boucle SSO derrière Traefik)
 - build `nginx` + `bastion-app` depuis le checkout Git (vhost `rd=/apps`, auth SSO-first)
 - `bastion-app-migrate` (Alembic, table `active_sessions`)
-- `python -m app.admin.infrastructure apply` + `apply-infra-docker.sh` (cfg oauth2-core depuis DB)
+- VERIFY image SSO puis `infrastructure apply` + `apply-infra-docker.sh`
 
 ---
 

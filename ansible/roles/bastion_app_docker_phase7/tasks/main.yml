@@ -1,0 +1,6 @@
+---
+# Alias : AWX utilise bastion_app_docker_phase7 — logique dans bastion_app_docker.
+- name: "phase7 → bastion_app_docker (main)"
+  ansible.builtin.import_role:
+    name: bastion_app_docker
+    tasks_from: main.yml

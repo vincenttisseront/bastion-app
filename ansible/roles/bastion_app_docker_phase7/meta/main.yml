@@ -1,0 +1,8 @@
+---
+# Alias AWX (Job Template historique) → même implémentation que bastion_app_docker.
+galaxy_info:
+  role_name: bastion_app_docker_phase7
+  description: Alias Phase 7 — délègue à bastion_app_docker
+  license: proprietary
+  min_ansible_version: "2.14"
+dependencies: []

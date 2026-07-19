@@ -1,14 +1,21 @@
 ---
-# Référence locale / CI — le Job Template AWX DOIT utiliser
-# awx-playbook/linux_sso_portal_docker.yml (seul repo visible d'AWX).
+# Déploiement Docker bastion (Phase 7) — AWX + local.
 #
-# Ce fichier conserve le même contrat de rôles pour tests hors AWX :
-#   ansible-playbook ansible/linux_sso_portal_docker.yml \
-#     -i ansible/inventory/inventory_sso_portal.ini
+# AWX :
+#   Project  = awx-playbook (doit contenir ce playbook + roles/bastion_app_docker*
+#              synchronisés depuis bastion-app/ansible/)
+#   Playbook = linux_sso_portal_docker.yml
+#   Inventaire = sso_portal_docker / vmdmz-docker01
 #
-# Prod AWX : Project=awx-playbook, Playbook=linux_sso_portal_docker.yml
-# Extra-vars recommandés : bastion_app_git_ref=master (ou tag),
-# bastion_app_docker_fetch_git=true (défaut) — clone bastion-app avant docker build.
+# Flux :
+#   1) clone Git bastion-app @ bastion_app_git_ref (controller)
+#   2) tar → /tools/portal + docker compose build/up
+#   3) VERIFY image SSO (RFC1918=false, rd=/apps) sinon fail
+#   4) vpcbr aliases + smoke
+#
+# Extra-vars AWX (override) :
+#   bastion_app_git_ref: master
+#   vault_portal_internal_token / vault_sso_portal_oidc_client_secret / …
 
 - name: "PRE-FLIGHT : validation Docker avant mutation"
   hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"
@@ -16,12 +23,18 @@
   gather_facts: true
   tags:
     - preflight
+  vars:
+    bastion_app_docker_enabled: true
+    bastion_app_docker_fetch_git: true
+    bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
+    bastion_app_git_ref: master
+    bastion_app_docker_role_name: bastion_app_docker_phase7
   tasks:
     - name: Run Docker bastion preflight
       ansible.builtin.include_role:
-        name: bastion_app_docker
+        name: "{{ bastion_app_docker_role_name }}"
         tasks_from: preflight.yml
-      when: bastion_app_docker_enabled | default(true) | bool
+      when: bastion_app_docker_enabled | bool
 
 - name: "DEPLOY : stack Docker bastion"
   hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"
@@ -29,12 +42,18 @@
   gather_facts: true
   tags:
     - deploy
+  vars:
+    bastion_app_docker_enabled: true
+    bastion_app_docker_fetch_git: true
+    bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
+    bastion_app_git_ref: master
+    bastion_app_docker_role_name: bastion_app_docker_phase7
   tasks:
     - name: Deploy bastion Docker compose stack
       ansible.builtin.include_role:
-        name: bastion_app_docker
+        name: "{{ bastion_app_docker_role_name }}"
         tasks_from: main.yml
-      when: bastion_app_docker_enabled | default(true) | bool
+      when: bastion_app_docker_enabled | bool
 
 - name: "SMOKE : validation post-déploiement Docker"
   hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"
@@ -42,9 +61,12 @@
   gather_facts: false
   tags:
     - smoke
+  vars:
+    bastion_app_docker_enabled: true
+    bastion_app_docker_role_name: bastion_app_docker_phase7
   tasks:
     - name: Run Docker bastion smoke tests
       ansible.builtin.include_role:
-        name: bastion_app_docker
+        name: "{{ bastion_app_docker_role_name }}"
         tasks_from: smoke_test.yml
-      when: bastion_app_docker_enabled | default(true) | bool
+      when: bastion_app_docker_enabled | bool
