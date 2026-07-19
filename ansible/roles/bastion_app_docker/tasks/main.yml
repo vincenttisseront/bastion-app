@@ -458,32 +458,41 @@
   delay: 2
   until: _wait_health.status | default(0) == 200
 
-# failed_when:false + until masquait l'échec (Assert=ok puis Fail) — un seul check clair.
+# Check DNS vpcbr + proxy nginx → app
 - name: "Assert nginx resolves bastion-app on vpcbr and proxies /api/health"
   ansible.builtin.shell: |
     set -euo pipefail
-    echo "=== nginx networks ==="
-    docker inspect bastion-nginx --format '{{json .NetworkSettings.Networks}}' | head -c 2000 || true
-    echo
-    echo "=== bastion-app networks ==="
+    net="{{ bastion_traefik_network }}"
     app_cid="$(docker ps -q -f name=bastion-bastion-app -f status=running | head -1)"
     app_cid="${app_cid:-$(docker ps -q -f label=com.docker.compose.service=bastion-app -f status=running | head -1)}"
     echo "app_cid=${app_cid}"
-    docker inspect "$app_cid" --format '{{json .NetworkSettings.Networks}}' | head -c 2000 || true
-    echo
-    echo "=== DNS bastion-app from nginx ==="
-    if ! docker exec bastion-nginx getent hosts bastion-app; then
-      echo "DNS miss — reconnect bastion-app alias on vpcbr"
-      docker network disconnect -f "{{ bastion_traefik_network }}" "$app_cid" || true
-      docker network connect --alias bastion-app --alias bastion-bastion-app-1 \
-        "{{ bastion_traefik_network }}" "$app_cid"
+    [[ -n "${app_cid}" ]]
+
+    echo "=== container IPs on ${net} ==="
+    python3 - "$net" bastion-nginx "$app_cid" <<'PY'
+    import json, subprocess, sys
+    net, *cids = sys.argv[1:]
+    for cid in cids:
+        data = json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))[0]
+        name = data.get("Name", cid).lstrip("/")
+        nets = data.get("NetworkSettings", {}).get("Networks") or {}
+        ep = nets.get(net) or {}
+        print("%s ip=%s aliases=%s" % (name, ep.get("IPAddress"), ep.get("Aliases")))
+    PY
+
+    echo "=== direct app health from nginx (DNS + TCP) ==="
+    if ! docker exec bastion-nginx wget -qO- --timeout=5 http://bastion-app:8000/api/health | grep -q '"status"'; then
+      echo "DNS/TCP miss — reconnect bastion-app alias on ${net}"
+      docker network disconnect -f "$net" "$app_cid" || true
+      docker network connect --alias bastion-app --alias bastion-bastion-app-1 "$net" "$app_cid"
       sleep 2
-      docker exec bastion-nginx getent hosts bastion-app
+      docker exec bastion-nginx wget -qO- --timeout=5 http://bastion-app:8000/api/health | grep -q '"status"'
     fi
+
     echo "=== /_portal_nginx_ok ==="
     docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/_portal_nginx_ok
     echo
-    echo "=== /api/health via nginx ==="
+    echo "=== /api/health via nginx proxy ==="
     body="$(docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/api/health)"
     echo "$body"
     echo "$body" | grep -q '"status"'
@@ -493,8 +502,8 @@
   retries: 15
   delay: 3
   until: _nginx_listen_check.rc | default(1) == 0
-  changed_when: "'DNS miss' in (_nginx_listen_check.stdout | default(''))"
-  ignore_errors: true
+  changed_when: "'DNS/TCP miss' in (_nginx_listen_check.stdout | default(''))"
+  failed_when: false
 
 - name: "Fail with nginx proxy diagnostics"
   ansible.builtin.fail:
