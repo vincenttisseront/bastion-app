@@ -111,7 +111,15 @@
   delegate_to: localhost
   become: false
   run_once: true
-  failed_when: not (_bastion_src_stat.results | map(attribute='stat.exists') | min)
+
+- name: "Fail if bastion_app_root sources incomplete"
+  ansible.builtin.assert:
+    that:
+      - _bastion_src_stat.results | map(attribute='stat.exists') | list | min
+    fail_msg: >-
+      Sources incompletes sous bastion_app_root={{ bastion_app_root }}.
+      Attendu: Dockerfile, app/, docker/nginx/templates/vhost_sso_portal.conf.template
+  run_once: true
 
 # synchronize/rsync hangs on AWX EE (SSH password) — tar + copy + unarchive (Phase 6 pattern).
 - name: "Stage bastion Docker tarball on controller"
