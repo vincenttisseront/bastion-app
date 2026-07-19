@@ -9,11 +9,9 @@
       <h1 class="page-title">Gestion RBAC</h1>
       <p class="page-sub">Groupes Keycloak, droits par groupe ou par utilisateur</p>
     </div>
-    <div style="display:flex; gap:var(--sp-2);">
-      <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
-      <a href="/admin/rbac/users" class="btn btn-primary btn-sm">Utilisateurs</a>
-    </div>
   </div>
+
+  {% include "admin/rbac/_rbac_tabs.html" %}
 
   <div class="dash-grid" style="grid-template-columns:1fr 1fr;">
     <div class="card" style="padding:0;">

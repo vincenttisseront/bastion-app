@@ -112,4 +112,8 @@ body.app-layout{display:flex;min-height:100vh}
 .page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4);flex-wrap:wrap}
 .page-title{font-size:var(--fs-2xl);font-weight:700;letter-spacing:-.03em;color:var(--text);line-height:1.2}
 .page-sub,.page-subtitle{color:var(--text-2);font-size:var(--fs-sm);margin-top:4px}
+.tabs{display:flex;gap:var(--sp-2);border-bottom:1px solid var(--border-muted);margin-bottom:var(--sp-5)}
+.tab{padding:var(--sp-2) var(--sp-4);color:var(--text-2);font-size:var(--fs-sm);font-weight:500;text-decoration:none;border-bottom:2px solid transparent;transition:all var(--t-fast)}
+.tab:hover{color:var(--text);text-decoration:none}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
 .flash-container{padding:0 var(--sp-6) var(--sp-2)}

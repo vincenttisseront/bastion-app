@@ -255,6 +255,7 @@ async def admin_rbac_users_page(
             apps=apps,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
+            active_tab="users",
         ),
     )
 
@@ -354,7 +355,7 @@ def admin_rbac_matrix(
         return JSONResponse({"ok": True, **matrix})
     return render(
         "admin/rbac/matrix.html",
-        **_ctx(request, settings, matrix=matrix),
+        **_ctx(request, settings, matrix=matrix, active_tab="matrix"),
     )
 
 

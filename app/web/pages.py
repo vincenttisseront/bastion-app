@@ -604,6 +604,7 @@ def admin_rbac(
             groups=groups,
             apps=apps,
             links=links,
+            active_tab="groups",
         ),
     )
 

@@ -9,8 +9,9 @@
       <h1 class="page-title">Droits par utilisateur</h1>
       <p class="page-sub">Recherche Keycloak à la volée — pas d'annuaire dupliqué en base</p>
     </div>
-    <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
   </div>
+
+  {% include "admin/rbac/_rbac_tabs.html" %}
 
   <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
     <form method="get" action="/admin/rbac/users" id="user-search-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">

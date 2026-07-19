@@ -9,8 +9,9 @@
       <h1 class="page-title">Matrice Applications × Groupes</h1>
       <p class="page-sub">Lecture seule — droits individuels exclus (voir fiche application ou utilisateur)</p>
     </div>
-    <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
   </div>
+
+  {% include "admin/rbac/_rbac_tabs.html" %}
 
   {% if matrix.apps and matrix.groups %}
   <div class="card" style="padding:0; overflow:auto;">
