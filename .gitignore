@@ -19,6 +19,7 @@ docker/oauth2-core/oauth2-proxy.cfg
 !docker/oauth2-core/oauth2-proxy.cfg.example
 .env.oauth2-core
 /exports/
-# Uploaded app logos (keep directory via .gitkeep)
+# Uploaded app logos (legacy package path + data volume)
 app/static/uploads/app-logos/*
 !app/static/uploads/app-logos/.gitkeep
+data/sso-portal/uploads/

@@ -3,8 +3,8 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -51,6 +51,9 @@ async def lifespan(app: FastAPI):
             "PORTAL_SECRET_ENCRYPTION_KEY is not set — OIDC realm create/update will fail"
         )
     Base.metadata.create_all(bind=engine)
+    from app.web.app_logos import ensure_logo_dir
+
+    ensure_logo_dir(settings)
     start_health_scheduler(settings)
     try:
         yield
@@ -68,6 +71,28 @@ app.add_middleware(RequestIdMiddleware)
 
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/media/app-logos/{filename}")
+async def serve_app_logo(filename: str):
+    """Serve catalogue logos from PORTAL_DATA_DIR (not package static/)."""
+    from app.web.app_logos import (
+        logo_filename,
+        media_type_for_filename,
+        resolve_logo_file,
+    )
+
+    safe = logo_filename(filename)
+    if safe is None or safe != filename:
+        raise HTTPException(status_code=404, detail="Not found")
+    path = resolve_logo_file(safe)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        path,
+        media_type=media_type_for_filename(safe),
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
 
 
 @app.get("/api/health")

@@ -86,6 +86,14 @@ class Settings(BaseSettings):
         default="./exports",
         validation_alias=AliasChoices("EXPORTS_DIR", "NGINX_EXPORT_DIR", "exports_dir"),
     )
+    # Persistent data root (SQLite, exports, uploads). Docker: /var/lib/sso-portal.
+    portal_data_dir: str = Field(
+        default="./data/sso-portal",
+        validation_alias=AliasChoices(
+            "PORTAL_DATA_DIR",
+            "portal_data_dir",
+        ),
+    )
 
     subdomain_sso_enabled: bool = False
     subdomain_auth_enabled: bool = False

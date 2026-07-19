@@ -30,12 +30,12 @@ USER_HEADERS = {
 
 @pytest.fixture()
 def logo_dirs(tmp_path, monkeypatch):
-    static = tmp_path / "static"
-    logos = static / "uploads" / "app-logos"
+    """Point logo storage at a tmp volume (not site-packages/static)."""
+    data = tmp_path / "sso-portal"
+    logos = data / "uploads" / "app-logos"
     logos.mkdir(parents=True)
-    monkeypatch.setattr(app_logos, "STATIC_DIR", static)
-    monkeypatch.setattr(app_logos, "LOGO_DIR", logos)
-    return static, logos
+    monkeypatch.setattr(app_logos, "get_portal_data_dir", lambda settings=None: data)
+    return data, logos
 
 
 def _png_bytes(size: tuple[int, int] = (64, 64), color=(16, 185, 129)) -> bytes:
@@ -63,7 +63,7 @@ def _app(db: Session, *, slug: str = "wiki", label: str = "Wiki", **kwargs) -> A
 
 
 def test_app_logo_upload_valid(client: TestClient, db_session: Session, logo_dirs):
-    _static, logos = logo_dirs
+    _data, logos = logo_dirs
     app = _app(db_session)
 
     resp = client.post(
@@ -74,17 +74,43 @@ def test_app_logo_upload_valid(client: TestClient, db_session: Session, logo_dir
     assert resp.status_code == 200
     body = resp.json()
     assert body["ok"] is True
-    assert body["logo_url"].startswith("/static/uploads/app-logos/")
+    assert body["logo_url"].startswith("/media/app-logos/")
     assert "wiki-" in body["logo_url"]
     assert body["logo_url"].endswith(".png")
 
     db_session.refresh(app)
     assert app.logo_path is not None
-    assert app.logo_path.startswith("uploads/app-logos/")
-    disk = logos / Path(app.logo_path).name
+    assert "/" not in app.logo_path  # filename only
+    assert app.logo_path.startswith("wiki-")
+    disk = logos / app.logo_path
     assert disk.is_file()
     with Image.open(disk) as img:
         assert img.size == (128, 128)
+
+
+def test_app_logo_upload_then_media_get(
+    client: TestClient, db_session: Session, logo_dirs
+):
+    """Regression: upload must land on writable data dir and be served via /media/."""
+    _data, logos = logo_dirs
+    app = _app(db_session)
+    raw = _png_bytes()
+
+    up = client.post(
+        f"/admin/apps/{app.id}/logo",
+        headers=ADMIN_HEADERS,
+        files={"file": ("logo.png", raw, "image/png")},
+    )
+    assert up.status_code == 200
+    logo_url = up.json()["logo_url"]
+    filename = logo_url.rsplit("/", 1)[-1]
+
+    get = client.get(logo_url)
+    assert get.status_code == 200
+    assert get.headers["content-type"].startswith("image/")
+    assert len(get.content) > 0
+    assert (logos / filename).is_file()
+    assert get.content == (logos / filename).read_bytes()
 
 
 def test_app_logo_upload_rejects_spoofed_extension(
@@ -132,7 +158,7 @@ def test_app_logo_upload_rejects_too_large(
 
 
 def test_app_logo_delete(client: TestClient, db_session: Session, logo_dirs):
-    _static, logos = logo_dirs
+    _data, logos = logo_dirs
     app = _app(db_session)
     up = client.post(
         f"/admin/apps/{app.id}/logo",
@@ -141,7 +167,7 @@ def test_app_logo_delete(client: TestClient, db_session: Session, logo_dirs):
     )
     assert up.status_code == 200
     db_session.refresh(app)
-    path = logos / Path(app.logo_path).name
+    path = logos / app.logo_path
     assert path.is_file()
 
     resp = client.delete(f"/admin/apps/{app.id}/logo", headers=ADMIN_HEADERS)
@@ -160,7 +186,7 @@ def test_app_logo_fallback_missing_file_on_portal(
     app = _app(
         db_session,
         description="Wiki interne de l'entreprise",
-        logo_path="uploads/app-logos/wiki-deadbeef.png",  # file absent
+        logo_path="uploads/app-logos/wiki-deadbeef.png",  # file absent (legacy path ok)
     )
     create_grant(
         db_session,
@@ -183,6 +209,7 @@ def test_app_logo_fallback_missing_file_on_portal(
     assert "app-tile-logo" not in resp.text
     assert "admin-icon" in resp.text
     assert "uploads/app-logos" not in resp.text
+    assert "/media/app-logos/" not in resp.text
     assert "deadbeef" not in resp.text
     assert "logo_path" not in resp.text
 
@@ -213,6 +240,7 @@ def test_app_logo_and_description_shown_when_present(
     )
     assert up.status_code == 200
     logo_url = up.json()["logo_url"]
+    assert logo_url.startswith("/media/app-logos/")
 
     resp = client.get("/apps", headers=USER_HEADERS)
     assert resp.status_code == 200

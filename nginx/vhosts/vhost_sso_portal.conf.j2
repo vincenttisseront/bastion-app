@@ -120,6 +120,16 @@ server {
         add_header Cache-Control "public, max-age=604800" always;
     }
 
+    location ^~ /media/app-logos/ {
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800" always;
+    }
+
     location = /favicon.ico {
         auth_request off;
         log_not_found off;
