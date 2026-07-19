@@ -14,10 +14,21 @@
     - "{{ sso_portal_exports_dir }}"
     - "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
 
-# AWX Project=awx-playbook → ne contient pas le code app. Cloner bastion-app @ ref
-# sur le controller, puis tar (même pattern Phase 6, sans git sur docker01).
+# AWX Project=awx-playbook → ne contient pas le code app.
+# Si le playbook wrapper a déjà cloné bastion-app (bastion_app_root), on NE reclône PAS
+# (sinon git HTTPS sans PAT hang sur dépôt privé).
+- name: "Decide whether to fetch bastion-app on controller"
+  ansible.builtin.stat:
+    path: "{{ bastion_app_root }}/Dockerfile"
+  register: _bastion_root_dockerfile
+  delegate_to: localhost
+  become: false
+  run_once: true
+
 - name: "Fetch bastion-app source on controller (git)"
-  when: bastion_app_docker_fetch_git | default(true) | bool
+  when:
+    - bastion_app_docker_fetch_git | default(true) | bool
+    - not (_bastion_root_dockerfile.stat.exists | default(false))
   block:
     - name: "Ensure controller cache dir for bastion-app checkout"
       ansible.builtin.file:
@@ -28,17 +39,49 @@
       become: false
       run_once: true
 
+    - name: "Fail if private git fetch has no token/URL with credentials"
+      ansible.builtin.assert:
+        that:
+          - >-
+            ('@github.com' in (bastion_app_git_repo | default('')))
+            or (bastion_app_git_repo | default('') | regex_search('https://[^:]+:[^@]+@'))
+            or ((vault_bastion_app_github_token | default(bastion_app_github_token | default(''))) | length > 0)
+        fail_msg: >-
+          Clone bastion-app requis mais dépôt privé sans credentials.
+          Passe bastion_app_docker_fetch_git=false + bastion_app_root=<checkout>,
+          ou vault_bastion_app_github_token / URL authentifiée.
+
+    - name: "Build authenticated bastion-app git URL"
+      ansible.builtin.set_fact:
+        _bastion_fetch_repo: >-
+          {{
+            bastion_app_git_repo
+            if ('@github.com' in (bastion_app_git_repo | default(''))
+                or (bastion_app_git_repo | default('') | regex_search('https://[^:]+:[^@]+@')))
+            else (
+              ('https://' ~ (vault_bastion_app_github_token | default(bastion_app_github_token))
+               ~ '@github.com/vincenttisseront/bastion-app.git')
+              if ((vault_bastion_app_github_token | default(bastion_app_github_token | default(''))) | length > 0)
+              else bastion_app_git_repo
+            )
+          }}
+
     - name: "Clone/update bastion-app @ {{ bastion_app_git_ref }}"
       ansible.builtin.git:
-        repo: "{{ bastion_app_git_repo }}"
+        repo: "{{ _bastion_fetch_repo }}"
         dest: "{{ playbook_dir }}/.cache/bastion-app-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}"
         version: "{{ bastion_app_git_ref }}"
         force: true
         depth: 1
+        update: true
+      environment:
+        GIT_TERMINAL_PROMPT: "0"
+        GIT_ASKPASS: "/bin/echo"
       delegate_to: localhost
       become: false
       run_once: true
       register: _bastion_git
+      no_log: "{{ (_bastion_fetch_repo | default('')) is search('@github.com') }}"
 
     - name: "Point bastion_app_root at fetched checkout"
       ansible.builtin.set_fact:
@@ -50,6 +93,12 @@
           bastion_app_root={{ bastion_app_root }}
           ref={{ bastion_app_git_ref }}
           after={{ _bastion_git.after | default('n/a') }}
+
+- name: "Reuse existing bastion_app_root (skip git fetch)"
+  ansible.builtin.debug:
+    msg: "Reuse bastion_app_root={{ bastion_app_root }} (Dockerfile présent — pas de second clone)"
+  when: _bastion_root_dockerfile.stat.exists | default(false)
+  run_once: true
 
 - name: "Assert bastion_app_root has Dockerfile + app/"
   ansible.builtin.stat:

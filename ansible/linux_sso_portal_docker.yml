@@ -25,7 +25,8 @@
     - preflight
   vars:
     bastion_app_docker_enabled: true
-    bastion_app_docker_fetch_git: true
+    # AWX wrapper clone déjà ; true seulement hors AWX sans checkout
+    bastion_app_docker_fetch_git: false
     bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
     bastion_app_git_ref: master
     bastion_app_docker_role_name: bastion_app_docker_phase7
@@ -44,7 +45,7 @@
     - deploy
   vars:
     bastion_app_docker_enabled: true
-    bastion_app_docker_fetch_git: true
+    bastion_app_docker_fetch_git: false
     bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
     bastion_app_git_ref: master
     bastion_app_docker_role_name: bastion_app_docker_phase7

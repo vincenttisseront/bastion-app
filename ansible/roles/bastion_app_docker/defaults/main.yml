@@ -30,11 +30,12 @@ bastion_app_docker_bind_nginx: "127.0.0.1:{{ bastion_nginx_listen_port }}"
 
 # Source code for build
 # AWX Project = awx-playbook → playbook_dir/.. N'EST PAS bastion-app.
-# Par défaut on clone bastion-app @ bastion_app_git_ref sur le controller avant le tar.
+# Le wrapper AWX clone déjà bastion-app → laisser false (évite double clone / hang PAT).
+# true seulement en local ou si aucun checkout n'est fourni via bastion_app_root.
 bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
 bastion_app_git_ref: "master"
-bastion_app_docker_fetch_git: true
-# Utilisé seulement si bastion_app_docker_fetch_git=false (dev local dans ce repo)
+bastion_app_docker_fetch_git: false
+# Checkout utilisé pour le tar (AWX: .cache/bastion-app ; local: racine repo)
 bastion_app_root: "{{ playbook_dir }}/.."
 bastion_app_docker_image_tag: "bastion-app:{{ bastion_app_git_ref }}"
 bastion_nginx_docker_image_tag: "bastion-nginx:{{ bastion_app_git_ref }}"
