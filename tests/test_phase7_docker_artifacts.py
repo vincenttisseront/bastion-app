@@ -51,6 +51,16 @@ def test_apply_infra_docker_script_exists():
     body = script.read_text(encoding="utf-8")
     assert "docker-compose.override.yml" in body
     assert "--remove-orphans" in body
+    assert "purge-units.list" in body
+    assert "oauth2-proxy-portal-" in body
+
+
+def test_validate_purge_units_task_present():
+    role = ROOT / "ansible" / "roles" / "bastion_app_docker"
+    assert (role / "tasks" / "validate_purge_units.yml").is_file()
+    playbook = (ROOT / "ansible" / "linux_sso_portal_docker.yml").read_text(encoding="utf-8")
+    assert "validate_purge" in playbook
+    assert "validate_purge_units.yml" in playbook
 
 
 def test_nginx_docker_uses_service_dns():

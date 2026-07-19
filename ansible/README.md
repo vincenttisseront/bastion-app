@@ -30,6 +30,10 @@ clients → vmdmz-reverse01:443 (nginx edge)
 #   Extra-vars (optionnel) :
 #     bastion_app_git_ref: master   # défaut du playbook
 #
+# Tags utiles :
+#   --tags smoke            # smoke + VALIDATE_PURGE (canary purge-units.list)
+#   --tags validate_purge   # uniquement la conso purge-units.list (rapport collable)
+#
 # IMPORTANT : synchroniser depuis bastion-app/ansible/ vers awx-playbook :
 #   - linux_sso_portal_docker.yml
 #   - roles/bastion_app_docker/
@@ -38,6 +42,8 @@ clients → vmdmz-reverse01:443 (nginx edge)
 # Le rôle clone https://github.com/vincenttisseront/bastion-app.git @ bastion_app_git_ref
 # sur le controller AWX, puis tar → /tools/portal + docker compose build.
 # VERIFY post-up échoue si RFC1918≠false ou nginx sans rd=/apps.
+# VALIDATE_PURGE seed un canary dans exports/systemd/purge-units.list, lance
+# apply-infra-docker.sh, assert liste vidée, et affiche « AWX VALIDATE_PURGE REPORT ».
 
 # Local / hors AWX
 ansible-playbook ansible/linux_sso_portal_docker.yml \

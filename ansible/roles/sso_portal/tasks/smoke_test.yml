@@ -191,3 +191,9 @@
 - name: "SMOKE : OK"
   ansible.builtin.debug:
     msg: "Smoke test SSO portal vert (phase={{ sso_portal_expected_health_phase }})"
+
+- name: "VALIDATE_PURGE : consommation purge-units.list (bare-metal canary)"
+  ansible.builtin.include_tasks: validate_purge_units.yml
+  tags:
+    - smoke
+    - validate_purge

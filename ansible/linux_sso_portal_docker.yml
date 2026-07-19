@@ -12,6 +12,10 @@
 #   2) tar → /tools/portal + docker compose build/up
 #   3) VERIFY image SSO (RFC1918=false, rd=/apps) sinon fail
 #   4) vpcbr aliases + smoke
+#   5) VALIDATE_PURGE canary (purge-units.list → apply-infra-docker) + REPORT
+#
+# Tags AWX : preflight | deploy | smoke | validate_purge
+#   --tags validate_purge  → canary seul (sans redeploy), coller le REPORT dans Cursor
 #
 # Extra-vars AWX (override) :
 #   bastion_app_git_ref: master
@@ -70,4 +74,23 @@
       ansible.builtin.include_role:
         name: "{{ bastion_app_docker_role_name }}"
         tasks_from: smoke_test.yml
+      when: bastion_app_docker_enabled | bool
+
+# Canary purge-units.list — inclus au deploy (tag smoke) ou seul (--tags validate_purge).
+# Coller le debug « AWX VALIDATE_PURGE REPORT » dans Cursor pour validation.
+- name: "VALIDATE_PURGE : consommation exports/systemd/purge-units.list"
+  hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"
+  become: true
+  gather_facts: false
+  tags:
+    - smoke
+    - validate_purge
+  vars:
+    bastion_app_docker_enabled: true
+    bastion_app_docker_role_name: bastion_app_docker_phase7
+  tasks:
+    - name: Validate purge-units.list consumption via apply-infra-docker
+      ansible.builtin.include_role:
+        name: "{{ bastion_app_docker_role_name }}"
+        tasks_from: validate_purge_units.yml
       when: bastion_app_docker_enabled | bool

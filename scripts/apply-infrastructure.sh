@@ -82,6 +82,20 @@ for slug_dir in "$EXPORT_DIR"/oauth2/*/; do
   fi
 done
 
+# Purge marker written by bastion-app on realm DELETE (exports/systemd/purge-units.list).
+PURGE_LIST="$EXPORT_DIR/systemd/purge-units.list"
+if [[ -f "$PURGE_LIST" ]]; then
+  while IFS= read -r unit || [[ -n "$unit" ]]; do
+    unit="${unit%%#*}"
+    unit="$(echo "$unit" | tr -d '[:space:]')"
+    [[ -z "$unit" ]] && continue
+    systemctl disable --now "$unit" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$unit"
+  done < "$PURGE_LIST"
+  systemctl daemon-reload 2>/dev/null || true
+  : > "$PURGE_LIST"
+fi
+
 if [[ -f "$NGINX_REALMS" ]]; then
   if nginx -t; then
     systemctl reload nginx

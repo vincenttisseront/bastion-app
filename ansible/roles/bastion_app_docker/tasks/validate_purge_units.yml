@@ -1,0 +1,124 @@
+---
+# Validation AWX : consommation de exports/systemd/purge-units.list
+# par apply-infra-docker.sh (canary safe — unité inexistante).
+#
+# Tags : smoke, validate_purge
+# Rapport : coller le debug « AWX VALIDATE_PURGE REPORT » dans Cursor.
+
+- name: "VALIDATE_PURGE : chemins exports"
+  ansible.builtin.set_fact:
+    _purge_list_path: "{{ sso_portal_exports_dir }}/systemd/purge-units.list"
+    _nginx_realms_path: "{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
+    _purge_canary_unit: "oauth2-proxy-portal-awx-purge-canary.service"
+
+- name: "VALIDATE_PURGE : ensure systemd export dir"
+  ansible.builtin.file:
+    path: "{{ sso_portal_exports_dir }}/systemd"
+    state: directory
+    mode: "0755"
+
+- name: "VALIDATE_PURGE : snapshot nginx-portal-realms.conf (avant)"
+  ansible.builtin.slurp:
+    src: "{{ _nginx_realms_path }}"
+  register: _nginx_before_raw
+  failed_when: false
+
+- name: "VALIDATE_PURGE : seed canary dans purge-units.list"
+  ansible.builtin.copy:
+    dest: "{{ _purge_list_path }}"
+    mode: "0644"
+    content: |
+      # AWX canary — safe (unité/conteneur inexistant)
+      {{ _purge_canary_unit }}
+
+- name: "VALIDATE_PURGE : contenu seed (avant apply)"
+  ansible.builtin.slurp:
+    src: "{{ _purge_list_path }}"
+  register: _purge_before_raw
+
+- name: "VALIDATE_PURGE : run apply-infra-docker (consomme la liste)"
+  ansible.builtin.command:
+    cmd: >-
+      bash {{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh
+      {{ sso_portal_exports_dir }}
+      {{ bastion_app_docker_compose_dir }}
+  environment:
+    OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
+    SSO_PORTAL_DEFAULT_REALM_SLUG: "{{ sso_portal_default_realm_slug }}"
+    PORTAL_DOMAIN: "{{ portal_domain }}"
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+  register: _purge_apply
+  changed_when: _purge_apply.rc == 0
+  failed_when: false
+
+- name: "VALIDATE_PURGE : contenu liste (après apply)"
+  ansible.builtin.slurp:
+    src: "{{ _purge_list_path }}"
+  register: _purge_after_raw
+  failed_when: false
+
+- name: "VALIDATE_PURGE : snapshot nginx (après)"
+  ansible.builtin.slurp:
+    src: "{{ _nginx_realms_path }}"
+  register: _nginx_after_raw
+  failed_when: false
+
+- name: "VALIDATE_PURGE : dériver faits rapport"
+  ansible.builtin.set_fact:
+    _purge_before_text: "{{ (_purge_before_raw.content | default('') | b64decode) if (_purge_before_raw.content is defined) else '' }}"
+    _purge_after_text: "{{ (_purge_after_raw.content | default('') | b64decode) if (_purge_after_raw.content is defined and (_purge_after_raw.failed | default(false)) == false) else '' }}"
+    _nginx_before_text: "{{ (_nginx_before_raw.content | default('') | b64decode) if (_nginx_before_raw.content is defined and (_nginx_before_raw.failed | default(false)) == false) else '(absent)' }}"
+    _nginx_after_text: "{{ (_nginx_after_raw.content | default('') | b64decode) if (_nginx_after_raw.content is defined and (_nginx_after_raw.failed | default(false)) == false) else '(absent)' }}"
+    _purge_list_emptied: >-
+      {{
+        (_purge_after_raw.content is defined)
+        and ((_purge_after_raw.content | b64decode | trim | length) == 0)
+      }}
+    _purge_apply_mentions_canary: >-
+      {{
+        ('awx-purge-canary' in (_purge_apply.stdout | default('')))
+        or ('awx-purge-canary' in (_purge_apply.stderr | default('')))
+        or ('purge-units.list vidé' in (_purge_apply.stdout | default('')))
+        or ('purge-units.list vidé' in (_purge_apply.stderr | default('')))
+      }}
+
+- name: "VALIDATE_PURGE : assert liste vidée + apply OK"
+  ansible.builtin.assert:
+    that:
+      - _purge_apply.rc | default(1) == 0
+      - _purge_list_emptied | bool
+      - _purge_canary_unit in _purge_before_text
+    fail_msg: |
+      VALIDATE_PURGE ÉCHEC
+      apply rc={{ _purge_apply.rc | default('n/a') }}
+      list_emptied={{ _purge_list_emptied }}
+      --- apply stdout ---
+      {{ _purge_apply.stdout | default('') }}
+      --- apply stderr ---
+      {{ _purge_apply.stderr | default('') }}
+      --- purge list after ---
+      {{ _purge_after_text | default('(missing)') }}
+    success_msg: "VALIDATE_PURGE OK — purge-units.list consommé et vidé"
+
+- name: "VALIDATE_PURGE : AWX REPORT (coller dans Cursor)"
+  ansible.builtin.debug:
+    msg: |
+      === AWX VALIDATE_PURGE REPORT ===
+      host={{ inventory_hostname }}
+      exports_dir={{ sso_portal_exports_dir }}
+      purge_list={{ _purge_list_path }}
+      canary_unit={{ _purge_canary_unit }}
+      apply_rc={{ _purge_apply.rc }}
+      list_emptied={{ _purge_list_emptied }}
+      apply_mentions_purge={{ _purge_apply_mentions_canary }}
+      --- purge-units.list BEFORE ---
+      {{ _purge_before_text }}
+      --- purge-units.list AFTER (must be empty) ---
+      {{ _purge_after_text | default('(empty)') }}
+      --- apply-infra-docker stdout (tail) ---
+      {{ _purge_apply.stdout | default('') | truncate(2000, true, '…') }}
+      --- apply-infra-docker stderr (tail) ---
+      {{ _purge_apply.stderr | default('') | truncate(1000, true, '…') }}
+      --- nginx-portal-realms.conf locations ---
+      {{ _nginx_after_text | regex_findall('location \\^~ /oauth2/[^/]+/') | join('\n') }}
+      === END REPORT ===

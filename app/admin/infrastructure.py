@@ -20,8 +20,8 @@ from sqlalchemy.orm import Session
 from app.admin.export import (
     core_static_realm_slugs,
     export_app_catalogue_files,
-    generate_nginx_realms_conf,
     prune_deleted_realm_exports,
+    write_nginx_realms_conf,
     write_oauth2_proxy_export,
 )
 from app.database import SessionLocal, get_db
@@ -128,8 +128,6 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
     error: str | None = None
 
     try:
-        exclude = core_static_realm_slugs(settings)
-
         # Core/default realm: oauth2 cfg from DB → oauth2-proxy-core (via apply-infra-docker).
         # Exported even if last_test_status != ok so secrets entered in Admin can be applied.
         core_realm = get_core_realm_for_oauth2_export(db, settings)
@@ -167,11 +165,7 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
                 _file_manifest_entry(proxy_path, kind="oauth2_proxy_config", realm_slug=realm.slug)
             )
 
-        nginx_realms_path = exports_path / "nginx-portal-realms.conf"
-        nginx_realms_path.write_text(
-            generate_nginx_realms_conf(db, settings, exclude_slugs=exclude),
-            encoding="utf-8",
-        )
+        nginx_realms_path = write_nginx_realms_conf(db, settings)
         written_files.append(_file_manifest_entry(nginx_realms_path, kind="nginx_realms_conf"))
 
         app_paths = export_app_catalogue_files(db, settings)

@@ -104,6 +104,36 @@ mv "$tmp" "$OVERRIDE"
 trap - EXIT
 echo "Écrit: $OVERRIDE"
 
+# ── Purge marker (bastion-app DELETE → exports/systemd/purge-units.list) ──
+# Même format que scripts/apply-infrastructure.sh (bare-metal systemd).
+# Ici : stop/rm du service compose oauth2-proxy-<slug>, puis truncate du marqueur.
+PURGE_LIST="$EXPORT_DIR/systemd/purge-units.list"
+if [[ -f "$PURGE_LIST" ]]; then
+  echo "Consommation purge-units.list…"
+  while IFS= read -r unit || [[ -n "$unit" ]]; do
+    unit="${unit%%#*}"
+    unit="$(echo "$unit" | tr -d '[:space:]')"
+    [[ -z "$unit" ]] && continue
+    if [[ "$unit" =~ ^oauth2-proxy-portal-(.+)\.service$ ]]; then
+      slug="${BASH_REMATCH[1]}"
+      echo "  purge docker: oauth2-proxy-${slug} (marker $unit)"
+      if command -v docker >/dev/null 2>&1; then
+        (
+          cd "$COMPOSE_DIR"
+          docker compose -f docker-compose.yml -f docker-compose.override.yml \
+            stop "oauth2-proxy-${slug}" 2>/dev/null || true
+          docker compose -f docker-compose.yml -f docker-compose.override.yml \
+            rm -f "oauth2-proxy-${slug}" 2>/dev/null || true
+        )
+      fi
+    else
+      echo "  entrée purge ignorée (format inattendu): $unit" >&2
+    fi
+  done < "$PURGE_LIST"
+  : > "$PURGE_LIST"
+  echo "purge-units.list vidé"
+fi
+
 # ── Core realm (ar-systems) : cfg depuis DB export → volume oauth2-proxy-core ──
 # Source of truth = RealmConfig en base ; le fichier docker/oauth2-core n'est qu'un miroir.
 CORE_CFG_SRC="${EXPORT_DIR}/oauth2/${CORE_REALM_SLUG}/oauth2-proxy.cfg"

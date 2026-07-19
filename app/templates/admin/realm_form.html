@@ -49,6 +49,9 @@
           <div class="form-group">
             <label class="form-label" for="oauth2_proxy_port">Port oauth2-proxy <span class="req">*</span></label>
             <div class="input-wrap" style="gap:var(--sp-2); align-items:center;">
+              {# Task 6 (spec §5bis readonly+button on edit): left editable on purpose so admins
+                 can repair a divergent/stale port without a forced re-allocation UX. Not changed
+                 in this pass — needs explicit product arbitration. #}
               <input type="number" id="oauth2_proxy_port" name="oauth2_proxy_port" class="form-input{% if errors.oauth2_proxy_port %} is-invalid{% endif %}" value="{{ form_values.oauth2_proxy_port or 4181 }}" min="4180" max="4299" required {% if not realm %}readonly{% endif %}>
               {% if not realm %}
                 <button type="button" id="btn-toggle-port" class="btn btn-ghost btn-sm">Choisir un autre port</button>

@@ -1,0 +1,5 @@
+---
+- name: "phase7 → bastion_app_docker (validate_purge)"
+  ansible.builtin.import_role:
+    name: bastion_app_docker
+    tasks_from: validate_purge_units.yml

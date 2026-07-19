@@ -1,0 +1,61 @@
+---
+# Bare-metal twin of bastion_app_docker/validate_purge_units.yml
+# Consomme exports/systemd/purge-units.list via apply-infrastructure.sh
+
+- name: "VALIDATE_PURGE (bare-metal) : chemins"
+  ansible.builtin.set_fact:
+    _purge_list_path: "{{ sso_portal_exports_dir }}/systemd/purge-units.list"
+    _purge_canary_unit: "oauth2-proxy-portal-awx-purge-canary.service"
+    _apply_infra_script: "{{ sso_portal_install_dir }}/scripts/apply-infrastructure.sh"
+
+- name: "VALIDATE_PURGE (bare-metal) : ensure systemd export dir"
+  ansible.builtin.file:
+    path: "{{ sso_portal_exports_dir }}/systemd"
+    state: directory
+    mode: "0755"
+
+- name: "VALIDATE_PURGE (bare-metal) : seed canary"
+  ansible.builtin.copy:
+    dest: "{{ _purge_list_path }}"
+    mode: "0644"
+    content: |
+      # AWX canary — safe (unité inexistante)
+      {{ _purge_canary_unit }}
+
+- name: "VALIDATE_PURGE (bare-metal) : run apply-infrastructure.sh"
+  ansible.builtin.command:
+    cmd: "{{ _apply_infra_script }} {{ sso_portal_exports_dir }}"
+  register: _purge_apply_bm
+  changed_when: _purge_apply_bm.rc == 0
+  failed_when: false
+
+- name: "VALIDATE_PURGE (bare-metal) : lire liste après"
+  ansible.builtin.slurp:
+    src: "{{ _purge_list_path }}"
+  register: _purge_after_bm
+  failed_when: false
+
+- name: "VALIDATE_PURGE (bare-metal) : assert vidée"
+  ansible.builtin.assert:
+    that:
+      - _purge_apply_bm.rc | default(1) == 0
+      - (_purge_after_bm.content | default('') | b64decode | trim | length) == 0
+    fail_msg: |
+      VALIDATE_PURGE bare-metal ÉCHEC rc={{ _purge_apply_bm.rc }}
+      {{ _purge_apply_bm.stdout | default('') }}
+      {{ _purge_apply_bm.stderr | default('') }}
+    success_msg: "VALIDATE_PURGE bare-metal OK"
+
+- name: "VALIDATE_PURGE (bare-metal) : AWX REPORT"
+  ansible.builtin.debug:
+    msg: |
+      === AWX VALIDATE_PURGE REPORT (bare-metal) ===
+      host={{ inventory_hostname }}
+      apply_rc={{ _purge_apply_bm.rc }}
+      list_emptied=true
+      canary={{ _purge_canary_unit }}
+      --- stdout ---
+      {{ _purge_apply_bm.stdout | default('') | truncate(1500, true, '…') }}
+      --- stderr ---
+      {{ _purge_apply_bm.stderr | default('') | truncate(800, true, '…') }}
+      === END REPORT ===

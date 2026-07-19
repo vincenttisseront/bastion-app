@@ -8,14 +8,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import ValidationError
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.admin.export import (
     compute_redirect_uri,
     export_realm_files,
-    prune_deleted_realm_exports,
     persist_test_result,
+    purge_realm_exports_after_delete,
 )
 from app.admin.oidc_test import test_oidc_connection
 from app.admin.ports import NoAvailablePortError, get_next_available_port, test_port_available
@@ -40,6 +40,19 @@ from app.web.user_context import require_admin
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-realms"])
+
+
+def _port_collision_message(new_port: int) -> str:
+    return (
+        "Le port choisi vient d'être pris par une autre configuration. "
+        f"Un nouveau port a été proposé : {new_port}."
+    )
+
+
+def _is_oauth2_proxy_port_integrity_error(exc: IntegrityError) -> bool:
+    """Detect unique constraint failures on oauth2_proxy_port across SQLite/Postgres."""
+    msg = str(getattr(exc, "orig", None) or exc).lower()
+    return "oauth2_proxy_port" in msg
 
 
 def _ctx(request: Request, settings: Settings, **extra: Any) -> dict[str, Any]:
@@ -359,27 +372,35 @@ async def admin_realms_create(
     db.add(realm)
     try:
         db.flush()
-    except Exception as exc:  # IntegrityError types differ by backend; keep user-facing behavior.
+    except IntegrityError as exc:
         db.rollback()
-        msg = str(exc).lower()
-        if "oauth2_proxy_port" in msg or "realm_configs.oauth2_proxy_port" in msg:
-            try:
-                new_port = get_next_available_port(db, settings)
-                errors["oauth2_proxy_port"] = (
-                    f"Le port choisi vient d'être pris par une autre configuration. "
-                    f"Un nouveau port a été proposé : {new_port}."
-                )
-                form_values["oauth2_proxy_port"] = new_port
-            except NoAvailablePortError as no_port:
-                errors["oauth2_proxy_port"] = str(no_port)
-            if _wants_json(request):
-                return JSONResponse({"ok": False, "errors": errors}, status_code=400)
-            return render(
-                "admin/realm_form.html",
-                **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
-                status_code=400,
+        if not _is_oauth2_proxy_port_integrity_error(exc):
+            raise
+        try:
+            new_port = get_next_available_port(db, settings)
+            errors["oauth2_proxy_port"] = _port_collision_message(new_port)
+            form_values["oauth2_proxy_port"] = new_port
+            log_action(
+                db,
+                actor=user.email,
+                action="realm.port_reallocated",
+                target=data.slug,
+                details={
+                    "oauth2_proxy_port_requested": data.oauth2_proxy_port,
+                    "oauth2_proxy_port": new_port,
+                    "reason": "unique_constraint_collision",
+                },
+                ip_address=_client_ip(request),
             )
-        raise
+        except NoAvailablePortError as no_port:
+            errors["oauth2_proxy_port"] = str(no_port)
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+        return render(
+            "admin/realm_form.html",
+            **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
+            status_code=400,
+        )
 
     _apply_default_realm(db, realm, data.is_default)
 
@@ -398,6 +419,7 @@ async def admin_realms_create(
         actor=user.email,
         action="realm.created",
         target=realm.slug,
+        details={"oauth2_proxy_port": realm.oauth2_proxy_port},
         ip_address=_client_ip(request),
     )
 
@@ -869,7 +891,7 @@ def admin_realms_export(
     )
     message = (
         "Configuration exportée. Elle sera appliquée au prochain "
-        "déploiement AWX (linux_nginx_dmz.yml)."
+        "déploiement AWX (linux_sso_portal_docker.yml)."
     )
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": message, "paths": paths})
@@ -899,15 +921,24 @@ def admin_realms_delete(
         raise HTTPException(status_code=400, detail="Impossible de supprimer un realm activé")
 
     slug = realm.slug
+    released_port = realm.oauth2_proxy_port
     db.delete(realm)
     db.commit()
-    # Best-effort export purge (remove oauth2-proxy configs for deleted realms).
-    prune_deleted_realm_exports(db, settings)
+    # Full export purge: oauth2 configs + nginx rewrite + systemd purge marker for AWX.
+    purge_paths = purge_realm_exports_after_delete(db, settings, deleted_slug=slug)
     log_action(
         db,
         actor=user.email,
         action="realm.deleted",
         target=slug,
+        details={
+            "oauth2_proxy_port": released_port,
+            "purge": {
+                "nginx_realms_conf": purge_paths.get("nginx_realms_conf"),
+                "systemd_unit": purge_paths.get("systemd_unit"),
+                "systemd_purge_list": purge_paths.get("systemd_purge_list"),
+            },
+        },
         ip_address=_client_ip(request),
     )
     if _wants_json(request):
