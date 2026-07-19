@@ -7,13 +7,14 @@
 {% endblock %}
 
 {% block content %}
+<div class="portal-shell">
 <header class="portal-topbar">
   <div class="portal-brand">
     <img src="/static/img/bastion-icon.svg" alt="" width="28" height="28">
     <span class="portal-brand-name">Bastion Pro</span>
   </div>
   <div class="portal-topbar-actions">
-    {% if is_portal_admin %}
+    {% if is_admin %}
     <a href="/dashboard" class="btn btn-ghost btn-sm">Administration</a>
     {% endif %}
     {% if portal_user %}
@@ -58,8 +59,9 @@
         <div class="admin-title">{{ app.label }}</div>
         <div class="admin-desc truncate">{{ app.slug }}</div>
         <div class="app-tile-meta">
-          <span class="badge badge-{{ 'ok' if app.access_level == 'manage' else 'info' if app.access_level == 'launch' else 'muted' }}">{{ app.access_level }}</span>
-          <span class="mode-badge {{ app.access_mode }}">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</span>
+          {% if app.access_level == 'manage' %}
+          <span class="badge badge-ok">Gérée</span>
+          {% endif %}
         </div>
         <span class="admin-arrow">Ouvrir →</span>
       </a>
@@ -78,10 +80,7 @@
         </div>
         <div class="admin-title">{{ app.label }}</div>
         <div class="admin-desc truncate">{{ app.slug }}</div>
-        <div class="app-tile-meta">
-          <span class="badge badge-muted">view</span>
-          <span class="mode-badge {{ app.access_mode }}">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</span>
-        </div>
+        <div class="app-tile-meta"></div>
         <span class="admin-arrow app-tile-locked">Lecture seule</span>
       </div>
       {% endif %}
@@ -99,6 +98,7 @@
   </div>
   {% endif %}
 </main>
+</div>
 {% endblock %}
 
 {% block scripts %}

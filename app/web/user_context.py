@@ -31,16 +31,24 @@ class UserContext:
         return self.auth_source == "breakglass"
 
 
+def _normalize_group_name(raw: str) -> str:
+    """Keycloak may send path-style claims (/portal-admins); compare on leaf name."""
+    name = raw.strip()
+    if "/" in name:
+        name = name.rstrip("/").rsplit("/", 1)[-1]
+    return name
+
+
 def _parse_groups(raw: str | None) -> list[str]:
     if not raw:
         return []
-    return [g.strip() for g in raw.split(",") if g.strip()]
+    return [_normalize_group_name(g) for g in raw.split(",") if g.strip()]
 
 
 def _is_admin_via_groups(groups: list[str], auth_source: str, settings: Settings) -> bool:
     if auth_source == "breakglass":
         return True
-    admin_groups = settings.portal_admin_groups
+    admin_groups = {_normalize_group_name(g) for g in settings.portal_admin_groups}
     return any(g in admin_groups for g in groups)
 
 

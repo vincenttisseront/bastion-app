@@ -65,6 +65,8 @@ def apps_portal(
 
     touch_portal_session(db, user, _client_ip(request))
     portal_admin = is_portal_admin(user, db, settings)
+    if portal_admin:
+        user.is_admin = True
     tiles = _effective_tiles(db, user)
     return render(
         "portal/apps.html",
@@ -73,6 +75,7 @@ def apps_portal(
             settings,
             hide_chrome=True,
             apps=tiles,
+            is_admin=portal_admin,
             is_portal_admin=portal_admin,
             portal_user=user,
         ),

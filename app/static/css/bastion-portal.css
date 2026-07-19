@@ -1,9 +1,32 @@
-/* Bastion Pro — end-user portal (/apps). Reuses admin-card / badge tokens. */
+/* Bastion Pro — end-user portal (/apps). Aligned with admin-card / metric-card. */
 
-.page-portal {
+/* Full-viewport shell: hide_chrome wraps content in .main-content (not .app-body). */
+body.page-portal {
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
-  background: var(--bg);
+  background: var(--bg-base);
   color: var(--text);
+}
+
+body.page-portal > .main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow-y: auto;
+  background: var(--bg-base);
+}
+
+.portal-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 100vh;
+  background: var(--bg-base);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -15%, rgba(16, 185, 129, 0.07) 0%, transparent 60%);
 }
 
 .portal-topbar {
@@ -14,6 +37,7 @@
   padding: var(--sp-3) var(--sp-6);
   border-bottom: 1px solid var(--border);
   background: var(--bg-card);
+  flex-shrink: 0;
 }
 
 .portal-brand {
@@ -46,9 +70,12 @@
 }
 
 .portal-main {
+  flex: 1;
+  width: 100%;
   max-width: 1100px;
   margin: 0 auto;
   padding: var(--sp-8) var(--sp-6);
+  background: var(--bg-base);
 }
 
 .portal-header {
@@ -59,21 +86,49 @@
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
 }
 
+/* Launch / manage tiles — elevate to metric-card / admin-card finish */
+.app-tile {
+  box-shadow: var(--sh-card);
+  transition:
+    transform var(--t-base),
+    box-shadow var(--t-base),
+    border-color var(--t-base),
+    background var(--t-base);
+}
+
+.app-tile .admin-icon {
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.12);
+}
+
+.app-tile:hover .admin-icon {
+  box-shadow: var(--accent-glow);
+}
+
 .app-tile .app-tile-meta {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
   margin-top: auto;
+  min-height: 1.25rem;
 }
 
 .app-tile .admin-arrow {
-  opacity: 0.55;
+  opacity: 1;
   font-size: var(--fs-xs);
   font-weight: 600;
+  color: var(--accent);
+  align-self: flex-end;
+  transition: transform var(--t-fast), color var(--t-fast);
+}
+
+.app-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sh-md);
 }
 
 .app-tile:hover .admin-arrow {
-  opacity: 1;
+  color: var(--accent-h, var(--accent));
+  transform: translateX(3px);
 }
 
 .app-tile--disabled {
@@ -101,7 +156,8 @@
 
 .app-tile-locked {
   opacity: 0.7 !important;
-  color: var(--text-3);
+  color: var(--text-3) !important;
+  transform: none !important;
 }
 
 .portal-empty {

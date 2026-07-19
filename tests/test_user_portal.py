@@ -128,6 +128,9 @@ def test_user_portal_view_only_disabled_tile(client: TestClient, db_session: Ses
     assert "app-tile--disabled" in resp.text
     assert "Lecture seule" in resp.text
     assert 'href="https://reports.example.com/"' not in resp.text
+    assert "mode-badge" not in resp.text
+    assert "SSO Gate" not in resp.text
+    assert "Sous-domaine" not in resp.text
 
 
 def test_user_portal_empty_state(client: TestClient):
@@ -136,6 +139,7 @@ def test_user_portal_empty_state(client: TestClient):
     assert "Aucune application" in resp.text
     assert "portal-empty" in resp.text
     assert "Administration" not in resp.text
+    assert "portal-shell" in resp.text
 
 
 def test_user_portal_admin_link_hidden_for_non_admin(
@@ -161,6 +165,45 @@ def test_user_portal_admin_link_hidden_for_non_admin(
     assert "Wiki" in resp.text
     assert "Administration" not in resp.text
     assert 'href="/dashboard"' not in resp.text
+    assert "mode-badge" not in resp.text
+    assert "Gérée" not in resp.text
+    assert "Ouvrir →" in resp.text
+
+
+def test_user_portal_manage_badge_only(client: TestClient, db_session: Session):
+    app = _app(db_session, slug="crm", label="CRM")
+    group = _group(db_session, "team-ops")
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="manage",
+        ),
+        "admin",
+    )
+    db_session.commit()
+
+    resp = client.get("/apps", headers=USER_HEADERS)
+    assert resp.status_code == 200
+    assert "Gérée" in resp.text
+    assert "mode-badge" not in resp.text
+    assert "manage" not in resp.text or "data-access-level=\"manage\"" in resp.text
+
+
+def test_user_portal_admin_link_path_style_groups(client: TestClient):
+    """Keycloak often forwards groups as /portal-admins — still grant Administration."""
+    headers = {
+        "X-Email": "vincent@example.com",
+        "X-Preferred-Username": "vincent.tisseront",
+        "X-Groups": "/portal-admins,/team-ops",
+    }
+    resp = client.get("/apps", headers=headers)
+    assert resp.status_code == 200
+    assert "Administration" in resp.text
+    assert 'href="/dashboard"' in resp.text
 
 
 def test_user_portal_disabled_app_absent(db_session: Session):
