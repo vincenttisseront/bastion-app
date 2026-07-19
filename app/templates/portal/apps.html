@@ -8,21 +8,7 @@
 
 {% block content %}
 <div class="portal-shell">
-<header class="portal-topbar">
-  <div class="portal-brand">
-    <img src="/static/img/bastion-icon.svg" alt="" width="28" height="28">
-    <span class="portal-brand-name">Bastion Pro</span>
-  </div>
-  <div class="portal-topbar-actions">
-    {% if is_admin %}
-    <a href="/dashboard" class="btn btn-ghost btn-sm">Administration</a>
-    {% endif %}
-    {% if portal_user %}
-    <span class="portal-user truncate">{{ portal_user.email }}</span>
-    {% endif %}
-    <a href="/logout" class="btn btn-ghost btn-sm">Déconnexion</a>
-  </div>
-</header>
+{% include "portal/_topbar.html" %}
 
 {% if messages %}
 <div class="flash-container portal-flash">{% include 'partials/_flash.html' %}</div>
@@ -30,7 +16,7 @@
 
 <main class="portal-main">
   <div class="portal-header">
-    <h1 class="page-title">Mes applications</h1>
+    <h1 class="page-title">Bonjour {{ greeting_name }}</h1>
     <p class="page-sub">
       {% if apps %}
         {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
@@ -41,14 +27,13 @@
   </div>
 
   {% if apps %}
-  <div class="admin-grid portal-app-grid">
+  <div class="admin-grid portal-app-grid{% if apps | length <= 3 %} portal-app-grid--compact{% endif %}">
     {% for app in apps %}
       {% if app.can_launch %}
       <a
         href="{{ app.launch_url }}"
         class="admin-card app-tile"
         data-app-id="{{ app.id }}"
-        data-access-level="{{ app.access_level }}"
         {% if app.access_mode != 'legacy_path_proxy' %}target="_blank" rel="noopener noreferrer"{% endif %}
       >
         <div class="admin-icon">
@@ -57,7 +42,6 @@
           </svg>
         </div>
         <div class="admin-title">{{ app.label }}</div>
-        <div class="admin-desc truncate">{{ app.slug }}</div>
         <div class="app-tile-meta">
           {% if app.access_level == 'manage' %}
           <span class="badge badge-ok">Gérée</span>
@@ -69,7 +53,6 @@
       <div
         class="admin-card app-tile app-tile--disabled"
         data-app-id="{{ app.id }}"
-        data-access-level="view"
         title="Accès lecture seule — ouverture non autorisée"
         aria-disabled="true"
       >
@@ -79,13 +62,13 @@
           </svg>
         </div>
         <div class="admin-title">{{ app.label }}</div>
-        <div class="admin-desc truncate">{{ app.slug }}</div>
         <div class="app-tile-meta"></div>
         <span class="admin-arrow app-tile-locked">Lecture seule</span>
       </div>
       {% endif %}
     {% endfor %}
   </div>
+  <p class="portal-apps-hint">Besoin d'un accès supplémentaire&nbsp;? Contactez votre administrateur.</p>
   {% else %}
   <div class="empty-state portal-empty">
     <div class="empty-icon">

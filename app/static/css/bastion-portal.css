@@ -1,4 +1,4 @@
-/* Bastion Pro — end-user portal (/apps). Aligned with admin-card / metric-card. */
+/* Bastion Pro — end-user portal (/apps, /profile). Aligned with admin-card / metric-card. */
 
 /* Full-viewport shell: hide_chrome wraps content in .main-content (not .app-body). */
 body.page-portal {
@@ -44,6 +44,13 @@ body.page-portal > .main-content {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
+  text-decoration: none;
+  color: inherit;
+}
+
+.portal-brand:hover {
+  text-decoration: none;
+  color: inherit;
 }
 
 .portal-brand-name {
@@ -59,10 +66,133 @@ body.page-portal > .main-content {
   gap: var(--sp-3);
 }
 
-.portal-user {
-  max-width: 220px;
+/* —— User menu (avatar + dropdown) —— */
+.portal-user-menu {
+  position: relative;
+}
+
+.portal-user-menu > summary {
+  list-style: none;
+}
+
+.portal-user-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.portal-user-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 8px 4px 4px;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast);
+}
+
+.portal-user-trigger:hover,
+.portal-user-menu[open] > .portal-user-trigger {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border);
+}
+
+.portal-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-full);
+  background: var(--accent-muted);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.portal-avatar--sm {
+  width: 28px;
+  height: 28px;
+  font-size: 10px;
+}
+
+.portal-avatar--lg {
+  width: 56px;
+  height: 56px;
+  font-size: var(--fs-md);
+}
+
+.portal-user-label {
+  max-width: 160px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.portal-user-caret {
+  color: var(--text-3);
+  flex-shrink: 0;
+  transition: transform var(--t-fast);
+}
+
+.portal-user-menu[open] .portal-user-caret {
+  transform: rotate(180deg);
+}
+
+.portal-user-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  min-width: 240px;
+  z-index: 100;
+  padding: var(--sp-2);
+  box-shadow: var(--sh-md);
+}
+
+.portal-user-dropdown-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--border-muted);
+  margin-bottom: var(--sp-2);
+}
+
+.portal-user-dropdown-meta {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.portal-user-dropdown-meta .text-2 {
+  font-size: var(--fs-xs);
+  font-weight: 500;
   color: var(--text-2);
+}
+
+.portal-user-dropdown-item {
+  display: block;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-2);
+  text-decoration: none;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.portal-user-dropdown-item:hover {
+  background: var(--accent-muted);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.portal-user-dropdown-item--danger:hover {
+  background: var(--err-bg);
+  color: var(--err);
 }
 
 .portal-flash {
@@ -78,12 +208,36 @@ body.page-portal > .main-content {
   background: var(--bg-base);
 }
 
+.portal-main--profile {
+  max-width: 720px;
+}
+
 .portal-header {
   margin-bottom: var(--sp-6);
 }
 
 .portal-app-grid {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+/* Few apps: keep tiles sized and centered instead of a lone stretched card. */
+.portal-app-grid--compact {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-4);
+}
+
+.portal-app-grid--compact .app-tile {
+  width: min(100%, 260px);
+  flex: 0 1 260px;
+}
+
+.portal-apps-hint {
+  margin-top: var(--sp-6);
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 /* Launch / manage tiles — elevate to metric-card / admin-card finish */
@@ -165,6 +319,86 @@ body.page-portal > .main-content {
   text-align: center;
 }
 
+/* —— Profile page —— */
+.portal-profile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.portal-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-5);
+}
+
+.portal-identity-fields {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.portal-identity-fields dt {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-3);
+  margin: 0 0 2px;
+}
+
+.portal-identity-fields dd {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.portal-profile-count {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  margin: 0 0 var(--sp-4);
+}
+
+.portal-apps-preview {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.portal-apps-preview-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+  min-width: 0;
+}
+
+.portal-apps-preview-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-md);
+  background: var(--accent-muted);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.portal-security-note {
+  margin: 0 0 var(--sp-3);
+}
+
 @media (max-width: 640px) {
   .portal-topbar {
     padding: var(--sp-3) var(--sp-4);
@@ -173,7 +407,15 @@ body.page-portal > .main-content {
   .portal-main {
     padding: var(--sp-6) var(--sp-4);
   }
-  .portal-user {
+  .portal-user-label {
     display: none;
+  }
+  .portal-identity {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .portal-identity-fields {
+    width: 100%;
   }
 }

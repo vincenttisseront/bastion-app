@@ -1,4 +1,4 @@
-"""End-user portal — application launcher home (/apps)."""
+"""End-user portal — application launcher (/apps) and profile (/profile)."""
 
 from __future__ import annotations
 
@@ -9,15 +9,23 @@ from sqlalchemy.orm import Session
 from app.access_modes import app_launch_url
 from app.audit import log_action
 from app.database import get_db
+from app.models import RealmConfig
 from app.rbac.effective_access_service import get_effective_apps_for_user
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context
+from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
 from app.web.user_context import UserContext, is_portal_admin, require_user
-from app.web.sessions_service import touch_app_session, touch_portal_session
 
 router = APIRouter(tags=["portal"])
+
+# Human-readable access status for end-user surfaces (never expose raw levels).
+_ACCESS_STATUS = {
+    "view": "Lecture seule",
+    "launch": "Ouverture",
+    "manage": "Gestion",
+}
 
 
 def _ctx(request: Request, settings: Settings, **extra):
@@ -26,6 +34,13 @@ def _ctx(request: Request, settings: Settings, **extra):
 
 def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+
+
+def _resolve_portal_admin(user: UserContext, db: Session, settings: Settings) -> bool:
+    portal_admin = is_portal_admin(user, db, settings)
+    if portal_admin:
+        user.is_admin = True
+    return portal_admin
 
 
 def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
@@ -39,17 +54,30 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
         tiles.append(
             {
                 "id": entry.app.id,
-                "slug": entry.app.slug,
                 "label": entry.app.label,
                 "access_mode": entry.app.access_mode,
                 "access_level": entry.access_level,
+                "access_status": _ACCESS_STATUS.get(entry.access_level, "Accès"),
                 "can_launch": entry.can_launch,
                 "launch_url": app_launch_url(entry.app),
-                "sources": entry.sources,
                 "tile_icon": entry.app.tile_icon,
             }
         )
     return tiles
+
+
+def _account_console_url(db: Session, user: UserContext, settings: Settings) -> str | None:
+    """Keycloak Account Console URL for the user's realm (self-service)."""
+    if user.is_breakglass:
+        return None
+    realm = (
+        db.query(RealmConfig).filter_by(slug=user.realm_slug).first()
+        or db.query(RealmConfig).filter_by(is_default=True).first()
+        or db.query(RealmConfig).filter_by(slug=settings.sso_portal_default_realm_slug).first()
+    )
+    if realm is None or not realm.issuer_url:
+        return None
+    return f"{realm.issuer_url.rstrip('/')}/account/"
 
 
 @router.get("/apps")
@@ -64,9 +92,7 @@ def apps_portal(
         return RedirectResponse(url="/dashboard", status_code=302)
 
     touch_portal_session(db, user, _client_ip(request))
-    portal_admin = is_portal_admin(user, db, settings)
-    if portal_admin:
-        user.is_admin = True
+    portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
     return render(
         "portal/apps.html",
@@ -78,6 +104,36 @@ def apps_portal(
             is_admin=portal_admin,
             is_portal_admin=portal_admin,
             portal_user=user,
+            greeting_name=user.first_name,
+        ),
+    )
+
+
+@router.get("/profile")
+def user_profile(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user),
+):
+    """End-user profile: identity, app summary, Keycloak account security link."""
+    touch_portal_session(db, user, _client_ip(request))
+    portal_admin = _resolve_portal_admin(user, db, settings)
+    tiles = _effective_tiles(db, user)
+    account_url = _account_console_url(db, user, settings)
+    return render(
+        "portal/profile.html",
+        **_ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            apps=tiles,
+            apps_preview=tiles[:6],
+            is_admin=portal_admin,
+            is_portal_admin=portal_admin,
+            portal_user=user,
+            account_url=account_url,
+            role_label="Administrateur" if portal_admin else "Utilisateur",
         ),
     )
 

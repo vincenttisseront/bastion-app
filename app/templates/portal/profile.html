@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Mon profil{% endblock %}
+{% block body_class %}page-portal{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/bastion-portal.css">
+{% endblock %}
+
+{% block content %}
+<div class="portal-shell">
+{% include "portal/_topbar.html" %}
+
+{% if messages %}
+<div class="flash-container portal-flash">{% include 'partials/_flash.html' %}</div>
+{% endif %}
+
+<main class="portal-main portal-main--profile">
+  <div class="portal-header">
+    <h1 class="page-title">Mon profil</h1>
+    <p class="page-sub">Vos informations et accès sur Bastion Pro</p>
+  </div>
+
+  <div class="portal-profile-stack">
+    {# —— Identité —— #}
+    <section class="card portal-profile-card">
+      <div class="card-header">
+        <h2 class="card-title">Identité</h2>
+      </div>
+      <div class="card-body portal-identity">
+        <span class="portal-avatar portal-avatar--lg" aria-hidden="true">{{ portal_user.initials }}</span>
+        <dl class="portal-identity-fields">
+          <div>
+            <dt>Nom affiché</dt>
+            <dd>{{ portal_user.display_name }}</dd>
+          </div>
+          <div>
+            <dt>E-mail</dt>
+            <dd>{{ portal_user.email }}</dd>
+          </div>
+          <div>
+            <dt>Rôle</dt>
+            <dd>
+              <span class="badge {% if is_admin %}badge-ok{% else %}badge-muted{% endif %}">{{ role_label }}</span>
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    {# —— Mes applications —— #}
+    <section class="card portal-profile-card">
+      <div class="card-header">
+        <h2 class="card-title">Mes applications</h2>
+        <a href="/apps" class="btn btn-ghost btn-sm">Voir tout</a>
+      </div>
+      <div class="card-body">
+        {% if apps %}
+        <p class="portal-profile-count">
+          {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
+        </p>
+        <ul class="portal-apps-preview" aria-label="Aperçu des applications">
+          {% for app in apps_preview %}
+          <li class="portal-apps-preview-item" title="{{ app.label }}">
+            <span class="portal-apps-preview-icon" aria-hidden="true">{{ app.label[:1] | upper }}</span>
+            <span class="truncate">{{ app.label }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-2">Aucune application pour le moment.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    {# —— Sécurité —— #}
+    <section class="card portal-profile-card">
+      <div class="card-header">
+        <h2 class="card-title">Sécurité du compte</h2>
+      </div>
+      <div class="card-body">
+        {% if portal_user.is_breakglass %}
+        <p class="portal-security-note">
+          <span class="badge badge-warn">Compte de secours local</span>
+        </p>
+        <p class="text-2">
+          Ce compte d'urgence est géré localement et n'utilise pas le portail d'identité.
+          Le mot de passe et les sessions ne sont pas modifiables ici.
+        </p>
+        {% elif account_url %}
+        <p class="text-2">
+          Mot de passe, authentification renforcée et sessions actives sont gérés
+          dans votre espace compte.
+        </p>
+        <p style="margin-top: var(--sp-4);">
+          <a href="{{ account_url }}" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+            Gérer la sécurité du compte
+          </a>
+        </p>
+        {% else %}
+        <p class="text-2">
+          La gestion de la sécurité du compte n'est pas disponible pour le moment.
+          Contactez un administrateur si besoin.
+        </p>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+</main>
+</div>
+{% endblock %}

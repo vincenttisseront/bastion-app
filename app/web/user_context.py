@@ -21,6 +21,7 @@ class UserContext:
     auth_source: str
     is_admin: bool
     keycloak_user_id: str | None = None
+    given_name: str | None = None
 
     @property
     def display_name(self) -> str:
@@ -29,6 +30,33 @@ class UserContext:
     @property
     def is_breakglass(self) -> bool:
         return self.auth_source == "breakglass"
+
+    @property
+    def first_name(self) -> str:
+        """Prénom for greetings — OIDC given_name, else email local-part."""
+        if self.given_name and self.given_name.strip():
+            return self.given_name.strip()
+        local = (self.email or self.username or "").split("@", 1)[0].strip()
+        if not local:
+            return self.display_name
+        token = local.replace("_", ".").replace("-", ".").split(".", 1)[0]
+        if not token:
+            return self.display_name
+        return token[:1].upper() + token[1:]
+
+    @property
+    def initials(self) -> str:
+        """Two-letter avatar initials from display name / email."""
+        source = (self.username or self.email or "?").strip()
+        if "@" in source:
+            source = source.split("@", 1)[0]
+        parts = [p for p in source.replace("_", ".").replace("-", ".").split(".") if p]
+        if len(parts) >= 2:
+            return (parts[0][0] + parts[1][0]).upper()
+        if parts:
+            token = parts[0]
+            return (token[:2] if len(token) >= 2 else token[:1]).upper()
+        return "?"
 
 
 def _normalize_group_name(raw: str) -> str:
@@ -67,6 +95,11 @@ def get_user_context(request: Request, settings: Settings | None = None) -> User
         "X-Portal-Realm-Slug", settings.sso_portal_default_realm_slug
     )
     auth_source = request.headers.get("X-Portal-Auth-Source", "sso")
+    given_name = (
+        request.headers.get("X-Given-Name", "").strip()
+        or request.headers.get("X-Auth-Request-Given-Name", "").strip()
+        or None
+    )
 
     if not email and not username:
         bg_cookie = request.cookies.get(COOKIE_NAME)
@@ -103,6 +136,7 @@ def get_user_context(request: Request, settings: Settings | None = None) -> User
         auth_source=auth_source,
         is_admin=is_admin,
         keycloak_user_id=keycloak_user_id,
+        given_name=given_name,
     )
 
 

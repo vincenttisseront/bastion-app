@@ -131,6 +131,13 @@ def test_user_portal_view_only_disabled_tile(client: TestClient, db_session: Ses
     assert "mode-badge" not in resp.text
     assert "SSO Gate" not in resp.text
     assert "Sous-domaine" not in resp.text
+    assert "access_mode" not in resp.text
+    assert "slug" not in resp.text
+    assert "grant" not in resp.text.lower()
+    assert "Mon profil" in resp.text
+    assert 'href="/profile"' in resp.text
+    assert "admin-desc" not in resp.text
+    assert "Bonjour Viewer" in resp.text or "Bonjour viewer" in resp.text
 
 
 def test_user_portal_empty_state(client: TestClient):
@@ -190,7 +197,9 @@ def test_user_portal_manage_badge_only(client: TestClient, db_session: Session):
     assert resp.status_code == 200
     assert "Gérée" in resp.text
     assert "mode-badge" not in resp.text
-    assert "manage" not in resp.text or "data-access-level=\"manage\"" in resp.text
+    assert "manage" not in resp.text
+    assert "access_mode" not in resp.text
+    assert "Bonjour Alice" in resp.text
 
 
 def test_user_portal_admin_link_path_style_groups(client: TestClient):
