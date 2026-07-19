@@ -166,38 +166,13 @@
     mode: "0644"
 
 # cookie_secret AES : 16/24/32 octets. Placeholder ou longueur invalide → régénérer.
+# (logique dans scripts/oauth2-cookie-secret.sh — évite quoting Jinja2 dans Ansible)
 - name: "Ensure oauth2-proxy cookie_secret is AES-valid (16/24/32 bytes)"
-  ansible.builtin.shell: |
-    set -euo pipefail
-    cfg="{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
-    gen="{{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh"
-    current="$(grep -E '^\s*cookie_secret\s*=' "$cfg" | head -1 | sed -E 's/^[^=]*=\s*"?([^"]*)"?/\1/' | tr -d '[:space:]')"
-    need_new=0
-    case "$current" in
-      ""|REPLACE*|CHANGE*|changeme*|CHANGEME*) need_new=1 ;;
-    esac
-    if [[ "$need_new" -eq 0 ]] && [[ -x "$gen" ]]; then
-      tmp="$(mktemp)"
-      printf '%s' "$current" > "$tmp"
-      if ! bash "$gen" valid "$tmp"; then
-        need_new=1
-      fi
-      rm -f "$tmp"
-    fi
-    if [[ "$need_new" -eq 1 ]]; then
-      if [[ ! -x "$gen" ]]; then
-        echo "cookie_secret invalide et scripts/oauth2-cookie-secret.sh absent" >&2
-        exit 1
-      fi
-      new="$(bash "$gen" gen)"
-      sed -i -E "s|^[[:space:]]*cookie_secret[[:space:]]*=.*|cookie_secret = \"${new}\"|" "$cfg"
-      echo "cookie_secret regenerated"
-    else
-      echo "cookie_secret ok"
-    fi
-    chmod 644 "$cfg"
-  args:
-    executable: /bin/bash
+  ansible.builtin.command:
+    cmd: >-
+      bash {{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh
+      ensure-cfg
+      {{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg
   register: _oauth2_cookie_secret
   changed_when: "'regenerated' in (_oauth2_cookie_secret.stdout | default(''))"
 
