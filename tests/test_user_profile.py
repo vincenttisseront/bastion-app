@@ -80,7 +80,10 @@ def test_user_profile_accessible_authenticated(client: TestClient, db_session: S
     assert "Utilisateur" in resp.text
     assert "Administrateur" not in resp.text
     assert "portal-avatar" in resp.text
-    assert "AL" in resp.text or "A" in resp.text  # initials
+    assert "portal-identity-name" in resp.text
+    assert "Nom affiché" not in resp.text
+    assert "E-mail" not in resp.text
+    assert "Rôle" not in resp.text
     assert "access_mode" not in resp.text
     assert "slug" not in resp.text
     assert "grant" not in resp.text.lower()
@@ -113,6 +116,7 @@ def test_user_profile_apps_summary_matches_grants(
     client: TestClient, db_session: Session
 ):
     wiki = _app(db_session, slug="wiki", label="Wiki Interne")
+    wiki.description = "Documentation équipe"
     crm = _app(db_session, slug="crm", label="CRM")
     for app in (wiki, crm):
         create_grant(
@@ -135,6 +139,8 @@ def test_user_profile_apps_summary_matches_grants(
     assert "CRM" in resp.text
     assert "wiki" not in resp.text  # no raw slug
     assert 'href="/apps"' in resp.text
+    # Description is for /apps tiles; profile preview uses title attribute
+    assert "Documentation équipe" in resp.text or "Wiki Interne" in resp.text
 
 
 def test_user_profile_admin_role_and_menu(client: TestClient, db_session: Session):

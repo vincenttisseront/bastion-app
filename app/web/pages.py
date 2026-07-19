@@ -1,7 +1,7 @@
 """HTML page routes for Bastion Pro portal."""
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode, validate_app_access_fields
@@ -19,6 +19,12 @@ from app.database import get_db
 from app.models import App, AppGroup, RBACGroup, RealmConfig
 from app.rbac.grants_service import count_grants_by_application
 from app.sso_settings import Settings, get_settings
+from app.web.app_logos import (
+    LogoValidationError,
+    clear_app_logo,
+    logo_public_url,
+    save_app_logo,
+)
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
@@ -27,6 +33,17 @@ from app.web.templates import render
 from app.web.user_context import get_user_context, is_portal_admin, require_admin, require_user
 
 router = APIRouter(tags=["pages"])
+
+_DESC_MAX = 140
+
+
+def _normalize_description(raw: str | None) -> str | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    if len(text) > _DESC_MAX:
+        text = text[:_DESC_MAX]
+    return text
 
 
 def _ctx(request: Request, settings: Settings, **extra):
@@ -389,6 +406,7 @@ def admin_apps_create(
                 "upstream_url": "",
                 "access_mode": "sso_gate",
                 "public_fqdn": "",
+                "description": "",
             },
             errors={},
         ),
@@ -403,20 +421,25 @@ def admin_apps_create_post(
     upstream_url: str = Form(...),
     access_mode: str = Form("sso_gate"),
     public_fqdn: str = Form(""),
+    description: str = Form(""),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
     user=Depends(require_admin),
 ):
     mode = normalize_access_mode(access_mode)
     fqdn = public_fqdn.strip() or None
+    desc = _normalize_description(description)
     form_values = {
         "slug": slug,
         "label": label,
         "upstream_url": upstream_url,
         "access_mode": mode,
         "public_fqdn": public_fqdn,
+        "description": description,
     }
     errors = validate_app_access_fields(mode, upstream_url, fqdn)
+    if len((description or "").strip()) > _DESC_MAX:
+        errors["description"] = f"La description ne doit pas dépasser {_DESC_MAX} caractères."
     if db.query(App).filter_by(slug=slug).first():
         errors["slug"] = f"Le slug « {slug} » existe déjà."
     if errors:
@@ -430,13 +453,19 @@ def admin_apps_create_post(
         upstream_url=upstream_url,
         access_mode=mode,
         public_fqdn=fqdn,
+        description=desc,
     )
     db.add(app)
     db.commit()
     export_app_catalogue_files(db, settings)
     log_action(db, actor=user.email, action="app.created", target=slug)
-    response = RedirectResponse(url="/admin/apps", status_code=302)
-    flash_redirect(response, f"Application '{label}' créée.", "success", settings.vault_portal_internal_token or "dev")
+    response = RedirectResponse(url=f"/admin/apps/{slug}/edit", status_code=302)
+    flash_redirect(
+        response,
+        f"Application '{label}' créée. Vous pouvez ajouter un logo.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
     return response
 
 
@@ -451,7 +480,16 @@ def admin_apps_edit(
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
         raise HTTPException(status_code=404)
-    return render("admin/apps/edit.html", **_ctx(request, settings, app=app, errors={}))
+    return render(
+        "admin/apps/edit.html",
+        **_ctx(
+            request,
+            settings,
+            app=app,
+            errors={},
+            logo_url=logo_public_url(app),
+        ),
+    )
 
 
 @router.post("/admin/apps/{slug}/edit")
@@ -462,6 +500,7 @@ def admin_apps_edit_post(
     upstream_url: str = Form(...),
     access_mode: str = Form("sso_gate"),
     public_fqdn: str = Form(""),
+    description: str = Form(""),
     enabled: str | None = Form(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -472,20 +511,31 @@ def admin_apps_edit_post(
         raise HTTPException(status_code=404)
     mode = normalize_access_mode(access_mode)
     fqdn = public_fqdn.strip() or None
+    desc = _normalize_description(description)
     errors = validate_app_access_fields(mode, upstream_url, fqdn)
+    if len((description or "").strip()) > _DESC_MAX:
+        errors["description"] = f"La description ne doit pas dépasser {_DESC_MAX} caractères."
     if errors:
         app.label = label
         app.upstream_url = upstream_url
         app.access_mode = mode
         app.public_fqdn = fqdn
+        app.description = desc
         return render(
             "admin/apps/edit.html",
-            **_ctx(request, settings, app=app, errors=errors),
+            **_ctx(
+                request,
+                settings,
+                app=app,
+                errors=errors,
+                logo_url=logo_public_url(app),
+            ),
         )
     app.label = label
     app.upstream_url = upstream_url
     app.access_mode = mode
     app.public_fqdn = fqdn
+    app.description = desc
     app.enabled = enabled == "on"
     db.commit()
     export_app_catalogue_files(db, settings)
@@ -493,6 +543,43 @@ def admin_apps_edit_post(
     response = RedirectResponse(url="/admin/apps", status_code=302)
     flash_redirect(response, f"Application '{label}' mise à jour.", "success", settings.vault_portal_internal_token or "dev")
     return response
+
+
+@router.post("/admin/apps/{app_id}/logo")
+async def admin_app_logo_upload(
+    app_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user=Depends(require_admin),
+):
+    """Upload / replace app logo (admin only). Content-sniffed PNG/JPEG/WEBP, max 512 KB."""
+    app = db.query(App).filter_by(id=app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application introuvable")
+    raw = await file.read()
+    try:
+        save_app_logo(app, raw)
+    except LogoValidationError as exc:
+        return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
+    db.commit()
+    log_action(db, actor=user.email, action="app.logo_updated", target=app.slug)
+    return {"ok": True, "logo_url": logo_public_url(app)}
+
+
+@router.delete("/admin/apps/{app_id}/logo")
+def admin_app_logo_delete(
+    app_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_admin),
+):
+    """Remove logo and fall back to tile_icon / generic icon on the portal."""
+    app = db.query(App).filter_by(id=app_id).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application introuvable")
+    clear_app_logo(app)
+    db.commit()
+    log_action(db, actor=user.email, action="app.logo_removed", target=app.slug)
+    return {"ok": True}
 
 
 @router.get("/admin/rbac")

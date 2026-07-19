@@ -40,6 +40,8 @@ class App(Base):
     healthcheck_url = Column(String, nullable=True)
     enabled = Column(Boolean, default=True)
     tile_icon = Column(String, nullable=True)
+    description = Column(String(140), nullable=True)
+    logo_path = Column(String, nullable=True)  # relative under static/uploads/app-logos/
     last_probe_status = Column(String, nullable=True)
     last_probe_http_code = Column(Integer, nullable=True)
     last_probe_latency_ms = Column(Integer, nullable=True)

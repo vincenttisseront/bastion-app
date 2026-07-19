@@ -43,7 +43,33 @@ def _resolve_portal_admin(user: UserContext, db: Session, settings: Settings) ->
     return portal_admin
 
 
+def _portal_page_ctx(
+    request: Request,
+    settings: Settings,
+    *,
+    user: UserContext,
+    portal_admin: bool,
+    **extra,
+) -> dict:
+    """Build template context with is_admin always reflecting portal_admin resolution."""
+    ctx = _ctx(
+        request,
+        settings,
+        hide_chrome=True,
+        is_admin=portal_admin,
+        is_portal_admin=portal_admin,
+        portal_user=user,
+        **extra,
+    )
+    # Defend against base_template_context overwriting — keep resolved admin flag.
+    ctx["is_admin"] = portal_admin
+    ctx["is_portal_admin"] = portal_admin
+    return ctx
+
+
 def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
+    from app.web.app_logos import logo_public_url
+
     entries = get_effective_apps_for_user(
         db,
         keycloak_user_id=user.keycloak_user_id,
@@ -55,11 +81,13 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
             {
                 "id": entry.app.id,
                 "label": entry.app.label,
+                "description": entry.app.description or "",
                 "access_mode": entry.app.access_mode,
                 "access_level": entry.access_level,
                 "access_status": _ACCESS_STATUS.get(entry.access_level, "Accès"),
                 "can_launch": entry.can_launch,
                 "launch_url": app_launch_url(entry.app),
+                "logo_url": logo_public_url(entry.app),
                 "tile_icon": entry.app.tile_icon,
             }
         )
@@ -96,14 +124,12 @@ def apps_portal(
     tiles = _effective_tiles(db, user)
     return render(
         "portal/apps.html",
-        **_ctx(
+        **_portal_page_ctx(
             request,
             settings,
-            hide_chrome=True,
+            user=user,
+            portal_admin=portal_admin,
             apps=tiles,
-            is_admin=portal_admin,
-            is_portal_admin=portal_admin,
-            portal_user=user,
             greeting_name=user.first_name,
         ),
     )
@@ -123,15 +149,13 @@ def user_profile(
     account_url = _account_console_url(db, user, settings)
     return render(
         "portal/profile.html",
-        **_ctx(
+        **_portal_page_ctx(
             request,
             settings,
-            hide_chrome=True,
+            user=user,
+            portal_admin=portal_admin,
             apps=tiles,
             apps_preview=tiles[:6],
-            is_admin=portal_admin,
-            is_portal_admin=portal_admin,
-            portal_user=user,
             account_url=account_url,
             role_label="Administrateur" if portal_admin else "Utilisateur",
         ),

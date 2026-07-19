@@ -7,6 +7,7 @@
 {% endblock %}
 
 {% block content %}
+{% from "portal/_app_icons.html" import app_tile_icon %}
 <div class="portal-shell">
 {% include "portal/_topbar.html" %}
 
@@ -36,12 +37,11 @@
         data-app-id="{{ app.id }}"
         {% if app.access_mode != 'legacy_path_proxy' %}target="_blank" rel="noopener noreferrer"{% endif %}
       >
-        <div class="admin-icon">
-          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
-          </svg>
-        </div>
+        {{ app_tile_icon(app) }}
         <div class="admin-title">{{ app.label }}</div>
+        {% if app.description %}
+        <div class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</div>
+        {% endif %}
         <div class="app-tile-meta">
           {% if app.access_level == 'manage' %}
           <span class="badge badge-ok">Gérée</span>
@@ -56,12 +56,11 @@
         title="Accès lecture seule — ouverture non autorisée"
         aria-disabled="true"
       >
-        <div class="admin-icon">
-          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
-          </svg>
-        </div>
+        {{ app_tile_icon(app) }}
         <div class="admin-title">{{ app.label }}</div>
+        {% if app.description %}
+        <div class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</div>
+        {% endif %}
         <div class="app-tile-meta"></div>
         <span class="admin-arrow app-tile-locked">Lecture seule</span>
       </div>

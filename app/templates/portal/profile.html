@@ -7,6 +7,7 @@
 {% endblock %}
 
 {% block content %}
+{% from "portal/_app_icons.html" import app_preview_icon %}
 <div class="portal-shell">
 {% include "portal/_topbar.html" %}
 
@@ -27,23 +28,12 @@
         <h2 class="card-title">Identité</h2>
       </div>
       <div class="card-body portal-identity">
-        <span class="portal-avatar portal-avatar--lg" aria-hidden="true">{{ portal_user.initials }}</span>
-        <dl class="portal-identity-fields">
-          <div>
-            <dt>Nom affiché</dt>
-            <dd>{{ portal_user.display_name }}</dd>
-          </div>
-          <div>
-            <dt>E-mail</dt>
-            <dd>{{ portal_user.email }}</dd>
-          </div>
-          <div>
-            <dt>Rôle</dt>
-            <dd>
-              <span class="badge {% if is_admin %}badge-ok{% else %}badge-muted{% endif %}">{{ role_label }}</span>
-            </dd>
-          </div>
-        </dl>
+        <span class="portal-avatar portal-avatar--xl" aria-hidden="true">{{ portal_user.initials }}</span>
+        <div class="portal-identity-copy">
+          <div class="portal-identity-name">{{ portal_user.display_name }}</div>
+          <div class="portal-identity-email">{{ portal_user.email }}</div>
+          <span class="badge {% if is_admin or is_portal_admin %}badge-ok{% else %}badge-muted{% endif %}">{{ role_label }}</span>
+        </div>
       </div>
     </section>
 
@@ -58,14 +48,14 @@
         <p class="portal-profile-count">
           {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
         </p>
-        <ul class="portal-apps-preview" aria-label="Aperçu des applications">
+        <div class="portal-apps-preview" aria-label="Aperçu des applications">
           {% for app in apps_preview %}
-          <li class="portal-apps-preview-item" title="{{ app.label }}">
-            <span class="portal-apps-preview-icon" aria-hidden="true">{{ app.label[:1] | upper }}</span>
-            <span class="truncate">{{ app.label }}</span>
-          </li>
+          <div class="portal-apps-preview-item" title="{{ app.description or app.label }}">
+            <span class="portal-apps-preview-tile">{{ app_preview_icon(app) }}</span>
+            <span class="portal-apps-preview-label truncate">{{ app.label }}</span>
+          </div>
           {% endfor %}
-        </ul>
+        </div>
         {% else %}
         <p class="text-2">Aucune application pour le moment.</p>
         {% endif %}
@@ -91,7 +81,7 @@
           Mot de passe, authentification renforcée et sessions actives sont gérés
           dans votre espace compte.
         </p>
-        <p style="margin-top: var(--sp-4);">
+        <p class="portal-security-actions">
           <a href="{{ account_url }}" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             Gérer la sécurité du compte
           </a>

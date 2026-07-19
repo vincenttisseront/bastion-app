@@ -1,0 +1,20 @@
+{# Shared tile icon: real logo or generic SVG fallback (never a broken img). #}
+{% macro app_tile_icon(app) -%}
+<div class="admin-icon{% if app.logo_url %} admin-icon--logo{% endif %}">
+  {% if app.logo_url %}
+  <img src="{{ app.logo_url }}" alt="" class="app-tile-logo" width="128" height="128">
+  {% else %}
+  <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+  </svg>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro app_preview_icon(app) -%}
+  {% if app.logo_url %}
+  <img src="{{ app.logo_url }}" alt="" class="portal-apps-preview-logo" width="28" height="28">
+  {% else %}
+  <span class="portal-apps-preview-icon" aria-hidden="true">{{ app.label[:1] | upper }}</span>
+  {% endif %}
+{%- endmacro %}

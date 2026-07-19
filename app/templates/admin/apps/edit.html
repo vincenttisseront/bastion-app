@@ -5,6 +5,9 @@
 {% block content %}
 {% set selected_mode = app.access_mode %}
 {% set errors = errors | default({}) %}
+{% set form_values = {
+  'description': app.description or ''
+} %}
 <div class="page page-form">
   <div class="page-header">
     <div>
@@ -69,6 +72,11 @@
           Application activée
         </label>
       </div>
+    </div>
+
+    {% include "admin/apps/_description_logo_sections.html" with context %}
+
+    <div class="form-section" style="margin-top: var(--sp-4);">
       <div class="form-footer">
         <button type="submit" class="btn btn-primary">Enregistrer</button>
         <a href="/admin/apps" class="btn btn-ghost">Annuler</a>
@@ -76,4 +84,108 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var root = document.getElementById('logo-uploader');
+  if (!root || !root.dataset.appId) return;
+  var appId = root.dataset.appId;
+  var input = document.getElementById('logo-file');
+  var preview = document.getElementById('logo-preview');
+  var empty = document.getElementById('logo-empty');
+  var statusEl = document.getElementById('logo-status');
+  var removeBtn = document.getElementById('logo-remove');
+  var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  function setStatus(msg, isErr) {
+    if (!statusEl) return;
+    statusEl.textContent = msg || '';
+    statusEl.className = 'form-help' + (isErr ? ' form-error' : '');
+  }
+
+  function showPreview(url) {
+    if (preview) {
+      preview.src = url;
+      preview.hidden = false;
+    }
+    if (empty) empty.hidden = true;
+    if (removeBtn) removeBtn.hidden = false;
+  }
+
+  function showEmpty() {
+    if (preview) {
+      preview.removeAttribute('src');
+      preview.hidden = true;
+    }
+    if (empty) empty.hidden = false;
+    if (removeBtn) removeBtn.hidden = true;
+  }
+
+  async function upload(file) {
+    setStatus('Envoi en cours…');
+    var fd = new FormData();
+    fd.append('file', file);
+    try {
+      var resp = await fetch('/admin/apps/' + appId + '/logo', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrf },
+        body: fd,
+      });
+      var data = await resp.json().catch(function () { return {}; });
+      if (!resp.ok || !data.ok) {
+        setStatus(data.detail || 'Échec de l\'upload.', true);
+        return;
+      }
+      showPreview(data.logo_url);
+      setStatus('Logo enregistré.');
+    } catch (e) {
+      setStatus('Erreur réseau.', true);
+    }
+  }
+
+  if (input) {
+    input.addEventListener('change', function () {
+      if (input.files && input.files[0]) upload(input.files[0]);
+      input.value = '';
+    });
+  }
+
+  root.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    root.classList.add('logo-dropzone--active');
+  });
+  root.addEventListener('dragleave', function () {
+    root.classList.remove('logo-dropzone--active');
+  });
+  root.addEventListener('drop', function (e) {
+    e.preventDefault();
+    root.classList.remove('logo-dropzone--active');
+    var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) upload(file);
+  });
+
+  if (removeBtn) {
+    removeBtn.addEventListener('click', async function () {
+      setStatus('Suppression…');
+      try {
+        var resp = await fetch('/admin/apps/' + appId + '/logo', {
+          method: 'DELETE',
+          headers: { 'X-CSRF-Token': csrf },
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok || !data.ok) {
+          setStatus(data.detail || 'Échec de la suppression.', true);
+          return;
+        }
+        showEmpty();
+        setStatus('Logo retiré — icône par défaut.');
+      } catch (e) {
+        setStatus('Erreur réseau.', true);
+      }
+    });
+  }
+})();
+</script>
 {% endblock %}

@@ -1,4 +1,5 @@
-{# Shared portal topbar with user dropdown menu. Expects portal_user, is_admin. #}
+{# Shared portal topbar — expects portal_user; admin if is_admin / is_portal_admin / portal_user.is_admin. #}
+{% set show_admin = is_admin or is_portal_admin or (portal_user is defined and portal_user and portal_user.is_admin) %}
 <header class="portal-topbar">
   <a href="/apps" class="portal-brand">
     <img src="/static/img/bastion-icon.svg" alt="" width="28" height="28">
@@ -16,17 +17,34 @@
       </summary>
       <div class="card portal-user-dropdown" role="menu">
         <div class="portal-user-dropdown-head">
-          <span class="portal-avatar portal-avatar--sm" aria-hidden="true">{{ portal_user.initials }}</span>
+          <span class="portal-avatar" aria-hidden="true">{{ portal_user.initials }}</span>
           <div class="portal-user-dropdown-meta">
-            <div class="truncate">{{ portal_user.display_name }}</div>
-            <div class="truncate text-2">{{ portal_user.email }}</div>
+            <div class="portal-user-dropdown-name truncate">{{ portal_user.display_name }}</div>
+            <div class="portal-user-dropdown-email truncate">{{ portal_user.email }}</div>
           </div>
         </div>
-        <a href="/profile" class="portal-user-dropdown-item" role="menuitem">Mon profil</a>
-        {% if is_admin %}
-        <a href="/dashboard" class="portal-user-dropdown-item" role="menuitem">Administration</a>
-        {% endif %}
-        <a href="/logout" class="portal-user-dropdown-item portal-user-dropdown-item--danger" role="menuitem">Déconnexion</a>
+        <nav class="portal-user-dropdown-nav" aria-label="Actions compte">
+          <a href="/profile" class="portal-user-dropdown-item" role="menuitem">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+            Mon profil
+          </a>
+          {% if show_admin %}
+          <a href="/dashboard" class="portal-user-dropdown-item" role="menuitem" data-portal-admin-link>
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+            </svg>
+            Administration
+          </a>
+          {% endif %}
+          <a href="/logout" class="portal-user-dropdown-item portal-user-dropdown-item--danger" role="menuitem">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Déconnexion
+          </a>
+        </nav>
       </div>
     </details>
     {% endif %}

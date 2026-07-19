@@ -1,0 +1,79 @@
+{# Shared Description + Logo sections. Expects form_values / errors; app + logo_url on edit. #}
+{% set desc_val = form_values.description | default(app.description if app is defined and app else '') | default('') %}
+{% set logo_ready = app is defined and app and app.id %}
+
+<div class="form-section" style="margin-top: var(--sp-4);">
+  <div class="form-section-header">
+    <div class="form-section-title">Description</div>
+    <div class="form-section-sub">Texte court affiché sous le nom sur le portail (max. 140 caractères)</div>
+  </div>
+  <div class="form-body">
+    <div class="form-group">
+      <label class="form-label" for="description">Description métier</label>
+      <textarea
+        id="description"
+        name="description"
+        class="form-textarea{% if errors.description %} is-invalid{% endif %}"
+        rows="3"
+        maxlength="140"
+        data-char-counter="desc-count"
+        placeholder="Ex. : Partage de fichiers sécurisé pour les équipes terrain"
+      >{{ desc_val }}</textarea>
+      <p class="form-help"><span id="desc-count">0</span> / 140</p>
+      {% if errors.description %}<div class="form-error">{{ errors.description }}</div>{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="form-section" style="margin-top: var(--sp-4);">
+  <div class="form-section-header">
+    <div class="form-section-title">Logo</div>
+    <div class="form-section-sub">PNG, JPG ou WEBP — 512&nbsp;Ko max, redimensionné à 128×128</div>
+  </div>
+  <div class="form-body">
+    {% if logo_ready %}
+    <div
+      class="logo-dropzone"
+      id="logo-uploader"
+      data-app-id="{{ app.id }}"
+      role="button"
+      tabindex="0"
+      aria-label="Déposer un logo"
+    >
+      <div class="logo-dropzone-preview">
+        <img
+          id="logo-preview"
+          class="logo-preview-img"
+          alt=""
+          {% if logo_url %}src="{{ logo_url }}"{% else %}hidden{% endif %}
+        >
+        <div id="logo-empty" class="logo-empty"{% if logo_url %} hidden{% endif %}>
+          <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+          </svg>
+          <span>Glisser-déposer ou choisir un fichier</span>
+        </div>
+      </div>
+      <input type="file" id="logo-file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden>
+      <div class="logo-dropzone-actions">
+        <label for="logo-file" class="btn btn-secondary btn-sm">Choisir un fichier</label>
+        <button type="button" class="btn btn-ghost btn-sm" id="logo-remove"{% if not logo_url %} hidden{% endif %}>Retirer</button>
+      </div>
+      <p class="form-help" id="logo-status"></p>
+    </div>
+    {% else %}
+    <p class="text-2">Enregistrez d'abord l'application pour pouvoir ajouter un logo.</p>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function () {
+  var ta = document.getElementById('description');
+  var counter = document.getElementById('desc-count');
+  if (!ta || !counter) return;
+  function sync() { counter.textContent = String(ta.value.length); }
+  ta.addEventListener('input', sync);
+  sync();
+})();
+</script>

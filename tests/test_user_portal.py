@@ -202,6 +202,58 @@ def test_user_portal_manage_badge_only(client: TestClient, db_session: Session):
     assert "Bonjour Alice" in resp.text
 
 
+def test_user_portal_shows_description_when_set(client: TestClient, db_session: Session):
+    app = _app(db_session, slug="wiki", label="Wiki")
+    app.description = "Base de connaissances métier"
+    db_session.commit()
+    group = _group(db_session, "team-ops")
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+
+    resp = client.get("/apps", headers=USER_HEADERS)
+    assert resp.status_code == 200
+    assert "Base de connaissances métier" in resp.text
+    assert 'title="Base de connaissances métier"' in resp.text
+    assert "admin-desc" in resp.text
+
+
+def test_user_portal_admin_link_visible_in_dropdown(client: TestClient):
+    """Administration must appear inside the user-menu dropdown for portal admins."""
+    headers = {
+        "X-Email": "vincent.tisseront@ar-systems.fr",
+        "X-Preferred-Username": "vincent.tisseront",
+        "X-Groups": "/portal-admins",
+    }
+    resp = client.get("/apps", headers=headers)
+    assert resp.status_code == 200
+    assert "portal-user-menu" in resp.text
+    assert "data-portal-admin-link" in resp.text
+    assert "Administration" in resp.text
+    assert 'href="/dashboard"' in resp.text
+    # Link sits in the dropdown nav, not as a standalone topbar button.
+    assert "portal-user-dropdown" in resp.text
+    assert resp.text.index("portal-user-dropdown") < resp.text.index("Administration")
+
+
+def test_user_portal_admin_link_absent_in_dropdown_for_user(client: TestClient):
+    resp = client.get("/apps", headers=USER_HEADERS)
+    assert resp.status_code == 200
+    assert "portal-user-menu" in resp.text
+    assert "data-portal-admin-link" not in resp.text
+    assert "Administration" not in resp.text
+    assert 'href="/dashboard"' not in resp.text
+
+
 def test_user_portal_admin_link_path_style_groups(client: TestClient):
     """Keycloak often forwards groups as /portal-admins — still grant Administration."""
     headers = {

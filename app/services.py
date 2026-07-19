@@ -27,6 +27,8 @@ class AppCreate(BaseModel):
     healthcheck_url: str | None = None
     enabled: bool = True
     tile_icon: str | None = None
+    description: str | None = None
+    logo_path: str | None = None
 
 
 class AppUpdate(BaseModel):
@@ -40,6 +42,8 @@ class AppUpdate(BaseModel):
     healthcheck_url: str | None = None
     enabled: bool | None = None
     tile_icon: str | None = None
+    description: str | None = None
+    logo_path: str | None = None
 
 
 class AppOut(BaseModel):
@@ -54,6 +58,8 @@ class AppOut(BaseModel):
     healthcheck_url: str | None
     enabled: bool
     tile_icon: str | None
+    description: str | None = None
+    logo_path: str | None = None
 
     model_config = {"from_attributes": True}
 

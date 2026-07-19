@@ -4,6 +4,7 @@
 
 {% block content %}
 {% set selected_mode = form_values.access_mode | default('sso_gate') %}
+{% set errors = errors | default({}) %}
 <div class="page page-form">
   <div class="page-header">
     <div>
@@ -74,6 +75,11 @@
           {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
         </div>
       </div>
+    </div>
+
+    {% include "admin/apps/_description_logo_sections.html" with context %}
+
+    <div class="form-section" style="margin-top: var(--sp-4);">
       <div class="form-footer">
         <button type="submit" class="btn btn-primary">Créer</button>
         <a href="/admin/apps" class="btn btn-ghost">Annuler</a>
