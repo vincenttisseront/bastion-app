@@ -134,6 +134,43 @@ def list_grants(
     return query.all()
 
 
+def list_users_with_direct_grants(db: Session) -> list[dict[str, Any]]:
+    """Distinct SSO users that already have at least one individual AccessGrant.
+
+    Used as the default list on /admin/rbac/users (no full Keycloak directory sync).
+    """
+    rows = (
+        db.query(AccessGrant)
+        .filter(
+            AccessGrant.subject_type == "user",
+            AccessGrant.keycloak_user_id.is_not(None),
+        )
+        .order_by(AccessGrant.granted_at.desc())
+        .all()
+    )
+    by_user: dict[str, dict[str, Any]] = {}
+    for grant in rows:
+        uid = str(grant.keycloak_user_id)
+        entry = by_user.get(uid)
+        if entry is None:
+            by_user[uid] = {
+                "keycloak_user_id": uid,
+                "display": grant.user_display_cache or uid,
+                "grant_count": 1,
+                "has_portal_admin": (
+                    grant.resource_type == "system_role"
+                    and grant.system_role == "portal_admin"
+                ),
+            }
+        else:
+            entry["grant_count"] += 1
+            if grant.resource_type == "system_role" and grant.system_role == "portal_admin":
+                entry["has_portal_admin"] = True
+            if (not entry.get("display") or entry["display"] == uid) and grant.user_display_cache:
+                entry["display"] = grant.user_display_cache
+    return sorted(by_user.values(), key=lambda u: (u["display"] or "").lower())
+
+
 def count_grants_by_application(db: Session) -> dict[int, int]:
     """Return {application_id: grant_count} for application-scoped AccessGrants."""
     rows = (

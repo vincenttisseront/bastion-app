@@ -22,6 +22,7 @@ from app.rbac.grants_service import (
     create_grant,
     delete_grant,
     list_grants,
+    list_users_with_direct_grants,
     serialize_grant,
     serialize_member,
     serialize_user_search_result,
@@ -239,6 +240,7 @@ async def admin_rbac_users_page(
             user_error = "Erreur serveur lors du chargement de l'utilisateur"
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    granted_users = list_users_with_direct_grants(db)
     return render(
         "admin/rbac/users.html",
         **_ctx(
@@ -253,6 +255,7 @@ async def admin_rbac_users_page(
             effective_grants=effective_grants,
             user_error=user_error,
             apps=apps,
+            granted_users=granted_users,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
             active_tab="users",

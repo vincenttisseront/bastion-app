@@ -318,6 +318,42 @@
       {{ _nginx_rd_smoke.stdout | default('') }} rc={{ _nginx_rd_smoke.rc }}
   when: _nginx_rd_smoke.rc | default(1) != 0
 
+- name: "SMOKE : nginx forwards Keycloak sub as X-User-Id"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker exec bastion-nginx grep -q 'proxy_set_header X-User-Id' \
+      /etc/nginx/conf.d/vhost_sso_portal.conf
+    docker exec bastion-nginx grep -q 'proxy_set_header X-User \$auth_preferred' \
+      /etc/nginx/conf.d/vhost_sso_portal.conf
+    echo "nginx X-User-Id + X-User=\$auth_preferred OK"
+  args:
+    executable: /bin/bash
+  register: _nginx_userid_smoke
+  changed_when: false
+
+- name: "SMOKE : oauth2-proxy-core cfg has user_id_claim=sub"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cfg="{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    test -f "$cfg"
+    grep -E 'user_id_claim\s*=\s*"sub"' "$cfg"
+    echo "oauth2 user_id_claim=sub OK ($cfg)"
+  args:
+    executable: /bin/bash
+  register: _oauth2_sub_smoke
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : fail if user_id_claim=sub missing after apply-infra"
+  ansible.builtin.fail:
+    msg: >-
+      oauth2-proxy.cfg sans user_id_claim="sub" — relancer infrastructure apply
+      + apply-infra-docker après déploiement bastion-app (AccessGrant portal_admin
+      ne matchera pas sans subject Keycloak).
+      stdout={{ _oauth2_sub_smoke.stdout | default('') }}
+      stderr={{ _oauth2_sub_smoke.stderr | default('') }}
+  when: _oauth2_sub_smoke.rc | default(1) != 0
+
 - name: "SMOKE : subdomain-auth via FastAPI (expect 401 without cookie, not 500)"
   ansible.builtin.uri:
     url: "http://127.0.0.1:8000/internal/subdomain-auth"

@@ -250,7 +250,8 @@ server {
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
 
-        proxy_set_header X-User $auth_user;
+        proxy_set_header X-User $auth_preferred;
+        proxy_set_header X-User-Id $auth_user;
         proxy_set_header X-Email $auth_email;
         proxy_set_header X-Groups $auth_groups;
         proxy_set_header X-Preferred-Username $auth_preferred;
@@ -273,7 +274,8 @@ server {
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
 
-        proxy_set_header X-User $auth_user;
+        proxy_set_header X-User $auth_preferred;
+        proxy_set_header X-User-Id $auth_user;
         proxy_set_header X-Email $auth_email;
         proxy_set_header X-Groups $auth_groups;
         proxy_set_header X-Preferred-Username $auth_preferred;

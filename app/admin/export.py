@@ -66,6 +66,9 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
         "cookie_secure = true",
         "cookie_httponly = true",
         "set_xauthrequest = true",
+        # Keycloak subject UUID → X-Auth-Request-User (matched by AccessGrant.keycloak_user_id).
+        # Preferred-Username stays the human login; Nginx maps it to X-User / X-User-Id.
+        'user_id_claim = "sub"',
         "pass_access_token = false",
         "pass_authorization_header = true",
         "",

@@ -13,6 +13,45 @@
 
   {% include "admin/rbac/_rbac_tabs.html" %}
 
+  {% if granted_users %}
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Utilisateurs avec droits individuels</span>
+      <span class="badge badge-muted">{{ granted_users | length }}</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead><tr><th>Utilisateur</th><th>Droits</th><th>Admin</th><th></th></tr></thead>
+        <tbody>
+          {% for u in granted_users %}
+          <tr>
+            <td>
+              <div>{{ u.display }}</div>
+              <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
+            </td>
+            <td><span class="badge badge-muted">{{ u.grant_count }}</span></td>
+            <td>
+              {% if u.has_portal_admin %}
+                <span class="badge badge-ok">portal_admin</span>
+              {% else %}
+                <span class="badge badge-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if selected_realm %}
+              <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Ouvrir</a>
+              {% else %}
+              <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?keycloak_user_id={{ u.keycloak_user_id }}">Ouvrir</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
     <form method="get" action="/admin/rbac/users" id="user-search-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
       <div class="form-group">
