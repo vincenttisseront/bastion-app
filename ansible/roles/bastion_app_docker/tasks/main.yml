@@ -295,6 +295,39 @@
       {{ _compose_up.stderr | default('') }}
   when: _compose_up.rc | default(0) != 0
 
+# Bloque le deploy si l'image tournante n'a pas les correctifs SSO (évite login loop silencieux).
+- name: "VERIFY : image bastion-app contains SSO auth fixes"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ bastion_app_docker_compose_dir }}"
+    echo "=== image code ==="
+    docker compose exec -T bastion-app python - <<'PY'
+    import pathlib
+    import app.admin.infrastructure as infra
+    import app.auth as auth
+    from app.sso_settings import get_settings
+    assert hasattr(infra, "get_core_realm_for_oauth2_export"), "missing get_core_realm_for_oauth2_export"
+    text = pathlib.Path(auth.__file__).read_text()
+    assert "Do NOT apply RFC1918 bypass" in text, "auth.py missing RFC1918 guard — old image"
+    assert "Prefer SSO session" in text or "Prefer SSO" in text, "auth.py missing SSO-over-breakglass"
+    s = get_settings()
+    print("rfc1918_bypass_enabled=", s.rfc1918_bypass_enabled)
+    assert s.rfc1918_bypass_enabled is False, "RFC1918_BYPASS_ENABLED must be false behind Traefik"
+    print("SSO auth image OK")
+    PY
+    echo "=== nginx rd=/apps ==="
+    docker exec bastion-nginx grep -q 'set \$portal_login_rd /apps' \
+      /etc/nginx/conf.d/vhost_sso_portal.conf \
+      || { echo "nginx vhost missing set \$portal_login_rd /apps — rebuild nginx image"; exit 1; }
+    echo "nginx signin OK"
+  args:
+    executable: /bin/bash
+  register: _sso_image_verify
+  retries: 10
+  delay: 3
+  until: _sso_image_verify.rc | default(1) == 0
+  changed_when: false
+
 - name: "Attach all bastion containers to vpcbr (10.5.0.0/16) with DNS aliases"
   ansible.builtin.shell: |
     set -o pipefail
