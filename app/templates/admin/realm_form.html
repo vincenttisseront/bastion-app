@@ -48,16 +48,15 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="oauth2_proxy_port">Port oauth2-proxy <span class="req">*</span></label>
+            {% set port_locked = not errors.get('oauth2_proxy_port') %}
             <div class="input-wrap" style="gap:var(--sp-2); align-items:center;">
-              {# Task 6 (spec §5bis readonly+button on edit): left editable on purpose so admins
-                 can repair a divergent/stale port without a forced re-allocation UX. Not changed
-                 in this pass — needs explicit product arbitration. #}
-              <input type="number" id="oauth2_proxy_port" name="oauth2_proxy_port" class="form-input{% if errors.oauth2_proxy_port %} is-invalid{% endif %}" value="{{ form_values.oauth2_proxy_port or 4181 }}" min="4180" max="4299" required {% if not realm %}readonly{% endif %}>
-              {% if not realm %}
-                <button type="button" id="btn-toggle-port" class="btn btn-ghost btn-sm">Choisir un autre port</button>
-              {% endif %}
-              <button type="button" id="btn-test-port" class="btn btn-ghost btn-sm" style="display:none;">Tester ce port</button>
+              <input type="number" id="oauth2_proxy_port" name="oauth2_proxy_port" class="form-input{% if errors.oauth2_proxy_port %} is-invalid{% endif %}" value="{{ form_values.oauth2_proxy_port or 4181 }}" min="4180" max="4299" required data-original-port="{{ form_values.oauth2_proxy_port or 4181 }}" data-port-context="{{ 'edit' if realm else 'create' }}"{% if port_locked %} readonly{% endif %}>
+              <button type="button" id="btn-toggle-port" class="btn btn-ghost btn-sm">{% if port_locked %}Choisir un autre port{% elif realm %}Revenir au port assigné{% else %}Revenir au port proposé{% endif %}</button>
+              <button type="button" id="btn-test-port" class="btn btn-ghost btn-sm"{% if port_locked %} style="display:none;"{% endif %}>Tester ce port</button>
             </div>
+            {% if realm and port_locked %}
+            <p class="form-hint" id="port-assigned-hint" style="margin-top:var(--sp-2);">Port assigné à ce realm. Ne le modifiez que si nécessaire (ex: conflit avec un service externe).</p>
+            {% endif %}
             <div id="port-test-result" class="form-hint" style="margin-top:var(--sp-2); display:none;"></div>
             {% if errors.oauth2_proxy_port %}<p class="form-error">{{ errors.oauth2_proxy_port }}</p>{% endif %}
           </div>
@@ -219,18 +218,26 @@
   }
 
   if (togglePortBtn && portInput) {
+    const originalPort = portInput.dataset.originalPort || portInput.value;
+    const isEdit = portInput.dataset.portContext === 'edit';
+    const revertLabel = isEdit ? 'Revenir au port assigné' : 'Revenir au port proposé';
+    const assignedHint = document.getElementById('port-assigned-hint');
+
     togglePortBtn.addEventListener('click', function () {
       const isReadonly = portInput.hasAttribute('readonly');
       if (isReadonly) {
         portInput.removeAttribute('readonly');
-        togglePortBtn.textContent = 'Revenir au port proposé';
+        togglePortBtn.textContent = revertLabel;
         if (testPortBtn) testPortBtn.style.display = 'inline-flex';
+        if (assignedHint) assignedHint.style.display = 'none';
         showPortMsg(true, 'Saisie manuelle activée. Pensez à tester le port côté OS.');
       } else {
+        portInput.value = originalPort;
         portInput.setAttribute('readonly', 'readonly');
         togglePortBtn.textContent = 'Choisir un autre port';
         if (testPortBtn) testPortBtn.style.display = 'none';
         if (portTestResult) portTestResult.style.display = 'none';
+        if (assignedHint) assignedHint.style.display = '';
       }
     });
   }

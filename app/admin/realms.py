@@ -542,10 +542,15 @@ async def admin_realms_update(
             status_code=400,
         )
 
+    # Only write port when it actually changes — avoids treating a no-op submit
+    # as a reallocation (no purge/export/audit on identical port).
+    port_changed = data.oauth2_proxy_port != realm.oauth2_proxy_port
+
     realm.name = data.name
     realm.issuer_url = data.issuer_url
     realm.client_id = data.client_id
-    realm.oauth2_proxy_port = data.oauth2_proxy_port
+    if port_changed:
+        realm.oauth2_proxy_port = data.oauth2_proxy_port
     realm.scopes = data.scopes
     realm.redirect_uri = compute_redirect_uri(realm.slug, settings)
     if data.client_secret:

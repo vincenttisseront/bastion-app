@@ -247,3 +247,126 @@ def test_delete_purges_nginx_and_systemd_marker(
 
     used_ports = {p for (p,) in db_session.query(RealmConfig.oauth2_proxy_port).all()}
     assert 4194 not in used_ports
+
+
+def test_edit_form_port_readonly_by_default(client: TestClient, db_session: Session):
+    realm = _make_realm(db_session, slug="edit-ro", port=4187)
+    response = client.get(f"/admin/realms/{realm.id}/edit", headers=ADMIN_HEADERS)
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="oauth2_proxy_port"' in html
+    assert 'readonly' in html
+    # Port field itself must be readonly (not only another input like redirect_uri).
+    assert 'id="oauth2_proxy_port"' in html
+    assert 'name="oauth2_proxy_port"' in html
+    # Attribute present on the port input line
+    port_idx = html.find('id="oauth2_proxy_port"')
+    snippet = html[port_idx : port_idx + 400]
+    assert "readonly" in snippet
+    assert 'id="btn-toggle-port"' in html
+    assert "Choisir un autre port" in html
+    assert "Port assigné à ce realm" in html
+    assert 'value="4187"' in snippet
+
+
+def test_update_same_port_no_reallocation_audit_or_export(
+    client: TestClient, db_session: Session, tmp_path, monkeypatch
+):
+    """Update without port change must not purge/export/audit a reallocation."""
+    realm = _make_realm(db_session, slug="stable-port", port=4188, enabled=True)
+    app_settings = _settings(exports_dir=str(tmp_path))
+    get_settings.cache_clear()
+    client.app.dependency_overrides[get_settings] = lambda: app_settings  # type: ignore[attr-defined]
+
+    export_realm_files(realm, db_session, app_settings)
+    nginx_path = tmp_path / "nginx-portal-realms.conf"
+    nginx_before = nginx_path.read_text(encoding="utf-8")
+    mtime_before = nginx_path.stat().st_mtime_ns
+
+    calls: list[object] = []
+
+    def _track_export(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("export_realm_files must not run on port-unchanged update")
+
+    monkeypatch.setattr("app.admin.realms.export_realm_files", _track_export)
+    monkeypatch.setattr("app.admin.export.export_realm_files", _track_export)
+    monkeypatch.setattr("app.admin.export.write_nginx_realms_conf", _track_export)
+
+    response = client.post(
+        f"/admin/realms/{realm.id}",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={
+            "name": "Realm stable-port",
+            "issuer_url": ISSUER,
+            "client_id": "portal-client",
+            "oauth2_proxy_port": 4188,
+            "scopes": "openid profile email",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    db_session.refresh(realm)
+    assert realm.oauth2_proxy_port == 4188
+    assert calls == []
+    assert nginx_path.read_text(encoding="utf-8") == nginx_before
+    assert nginx_path.stat().st_mtime_ns == mtime_before
+
+    assert (
+        db_session.query(AuditLog)
+        .filter_by(action="realm.port_reallocated", target="stable-port")
+        .count()
+        == 0
+    )
+    assert (
+        db_session.query(AuditLog)
+        .filter_by(action="realm.updated", target="stable-port")
+        .count()
+        == 1
+    )
+
+
+def test_update_manual_port_change_and_uniqueness(
+    client: TestClient, db_session: Session
+):
+    holder = _make_realm(db_session, slug="holder-port", port=4189)
+    realm = _make_realm(db_session, slug="mover", port=4191)
+
+    conflict = client.post(
+        f"/admin/realms/{realm.id}",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={
+            "name": "Realm mover",
+            "issuer_url": ISSUER,
+            "client_id": "portal-client",
+            "oauth2_proxy_port": holder.oauth2_proxy_port,
+            "scopes": "openid profile email",
+        },
+    )
+    assert conflict.status_code == 400
+    err = conflict.json()["errors"]["oauth2_proxy_port"]
+    assert "déjà utilisé" in err.lower() or "Port" in err
+    db_session.refresh(realm)
+    assert realm.oauth2_proxy_port == 4191
+
+    ok = client.post(
+        f"/admin/realms/{realm.id}",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={
+            "name": "Realm mover",
+            "issuer_url": ISSUER,
+            "client_id": "portal-client",
+            "oauth2_proxy_port": 4196,
+            "scopes": "openid profile email",
+        },
+    )
+    assert ok.status_code == 200
+    db_session.refresh(realm)
+    assert realm.oauth2_proxy_port == 4196
+    assert (
+        db_session.query(AuditLog)
+        .filter_by(action="realm.port_reallocated", target="mover")
+        .count()
+        == 0
+    )
