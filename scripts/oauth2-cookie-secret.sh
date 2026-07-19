@@ -2,6 +2,11 @@
 # oauth2-proxy v7+ attend un secret 16/24/32 octets (AES).
 # Génération : 32 octets aléatoires, encodés en base64 URL-safe sans padding
 # (compatible pkg/encryption.SecretBytes → base64.RawURLEncoding côté Go).
+#
+# Usage:
+#   oauth2-cookie-secret.sh gen
+#   oauth2-cookie-secret.sh valid <file>
+#   oauth2-cookie-secret.sh ensure-cfg <oauth2-proxy.cfg>
 set -euo pipefail
 
 _py() {
@@ -52,11 +57,49 @@ sys.exit(1)
 PY
 }
 
+# Lit cookie_secret depuis un cfg oauth2-proxy ; régénère si placeholder / invalide.
+cmd_ensure_cfg() {
+  local cfg="${1:-}"
+  if [[ -z "$cfg" || ! -f "$cfg" ]]; then
+    echo "ensure-cfg: fichier cfg introuvable: ${cfg:-<empty>}" >&2
+    return 1
+  fi
+  local current
+  current="$(
+    grep -E '^\s*cookie_secret\s*=' "$cfg" | head -1 \
+      | sed -E 's/^[^=]*=[[:space:]]*"?([^"]*)"?/\1/' \
+      | tr -d '[:space:]'
+  )"
+  local need_new=0
+  case "$current" in
+    ""|REPLACE*|CHANGE*|changeme*|CHANGEME*|GENERATE*) need_new=1 ;;
+  esac
+  if [[ "$need_new" -eq 0 ]]; then
+    local tmp
+    tmp="$(mktemp)"
+    printf '%s' "$current" > "$tmp"
+    if ! cmd_valid "$tmp"; then
+      need_new=1
+    fi
+    rm -f "$tmp"
+  fi
+  if [[ "$need_new" -eq 1 ]]; then
+    local new
+    new="$(cmd_gen)"
+    sed -i -E "s|^[[:space:]]*cookie_secret[[:space:]]*=.*|cookie_secret = \"${new}\"|" "$cfg"
+    echo "cookie_secret regenerated"
+  else
+    echo "cookie_secret ok"
+  fi
+  chmod 644 "$cfg"
+}
+
 case "${1:-gen}" in
   gen) cmd_gen ;;
   valid) cmd_valid "${2:-}" ;;
+  ensure-cfg) cmd_ensure_cfg "${2:-}" ;;
   *)
-    echo "Usage: $0 gen|valid <file>" >&2
+    echo "Usage: $0 gen|valid <file>|ensure-cfg <oauth2-proxy.cfg>" >&2
     exit 2
     ;;
 esac

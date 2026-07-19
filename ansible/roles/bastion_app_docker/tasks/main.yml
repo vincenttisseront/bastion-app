@@ -192,8 +192,11 @@
 
 - name: "Make apply-infra-docker executable"
   ansible.builtin.file:
-    path: "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh"
+    path: "{{ item }}"
     mode: "0755"
+  loop:
+    - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh"
+    - "{{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh"
 
 - name: "Inspect Traefik network vpcbr (CLI — no community.docker required)"
   ansible.builtin.command: docker network inspect {{ bastion_traefik_network }}
