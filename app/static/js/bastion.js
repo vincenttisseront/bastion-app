@@ -134,6 +134,9 @@ function initAccessModeForm() {
   var upstreamInput = document.getElementById('upstream_url');
   var fqdnGroup = document.getElementById('public-fqdn-group');
   var legacyWarn = document.getElementById('access-mode-legacy-warning');
+  var authSection = document.getElementById('auth-mode-section');
+  var authSelect = document.querySelector('[data-auth-mode-select]');
+  var genericFields = document.getElementById('generic-form-fields');
   if (!select || !labelEl || !helpEl) return;
 
   function applyMode() {
@@ -146,8 +149,20 @@ function initAccessModeForm() {
     }
     if (fqdnGroup) fqdnGroup.hidden = !copy.showFqdn;
     if (legacyWarn) legacyWarn.hidden = !copy.showLegacyWarn;
+    if (authSection) {
+      authSection.hidden = (mode === 'sso_gate');
+    }
+  }
+
+  function applyAuthMode() {
+    if (!authSelect || !genericFields) return;
+    genericFields.hidden = (authSelect.value !== 'generic_form');
   }
 
   select.addEventListener('change', applyMode);
   applyMode();
+  if (authSelect) {
+    authSelect.addEventListener('change', applyAuthMode);
+    applyAuthMode();
+  }
 }

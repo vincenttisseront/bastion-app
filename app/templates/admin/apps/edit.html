@@ -104,28 +104,14 @@
   var appSlug = {{ ('"' + app.slug + '"') if app is defined else 'null' }};
 
   function initAuthModeForm() {
-    var accessSelect = document.querySelector('[data-access-mode-select]');
-    var authSection = document.getElementById('auth-mode-section');
-    var authSelect = document.querySelector('[data-auth-mode-select]');
-    var genericFields = document.getElementById('generic-form-fields');
+    // Access/auth toggles live in bastion.js (initAccessModeForm).
+    // Keep only client-side JSON validation for login_extra_fields here.
     var extraFields = document.getElementById('login_extra_fields');
-    if (!accessSelect || !authSection) return;
-
-    function applyAccessMode() {
-      var isProxy = accessSelect.value !== 'sso_gate';
-      authSection.hidden = !isProxy;
-      if (!isProxy && authSelect) authSelect.value = 'sso';
-      applyAuthMode();
-    }
-
-    function applyAuthMode() {
-      if (!genericFields) return;
-      var mode = authSelect ? authSelect.value : 'sso';
-      genericFields.hidden = mode !== 'generic_form';
-    }
+    if (!extraFields) return;
 
     function validateExtraJson() {
-      if (!extraFields || extraFields.closest('#generic-form-fields')?.hidden) return true;
+      var panel = document.getElementById('generic-form-fields');
+      if (panel && panel.hidden) return true;
       var raw = (extraFields.value || '').trim();
       if (!raw) return true;
       try {
@@ -139,16 +125,13 @@
       }
     }
 
-    accessSelect.addEventListener('change', applyAccessMode);
-    if (authSelect) authSelect.addEventListener('change', applyAuthMode);
-    if (extraFields) extraFields.addEventListener('blur', validateExtraJson);
+    extraFields.addEventListener('blur', validateExtraJson);
     var form = document.getElementById('app-form');
     if (form) {
       form.addEventListener('submit', function (e) {
         if (!validateExtraJson()) e.preventDefault();
       });
     }
-    applyAccessMode();
   }
 
   function initVaultCredential() {

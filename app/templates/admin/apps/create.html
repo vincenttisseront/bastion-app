@@ -90,32 +90,3 @@
   </form>
 </div>
 {% endblock %}
-
-{% block scripts %}
-<script>
-(function () {
-  var accessSelect = document.querySelector('[data-access-mode-select]');
-  var authSection = document.getElementById('auth-mode-section');
-  var authSelect = document.querySelector('[data-auth-mode-select]');
-  var genericFields = document.getElementById('generic-form-fields');
-  if (!accessSelect || !authSection) return;
-
-  function applyAccessMode() {
-    var isProxy = accessSelect.value !== 'sso_gate';
-    authSection.hidden = !isProxy;
-    if (!isProxy && authSelect) authSelect.value = 'sso';
-    applyAuthMode();
-  }
-
-  function applyAuthMode() {
-    if (!genericFields) return;
-    var mode = authSelect ? authSelect.value : 'sso';
-    genericFields.hidden = mode !== 'generic_form';
-  }
-
-  accessSelect.addEventListener('change', applyAccessMode);
-  if (authSelect) authSelect.addEventListener('change', applyAuthMode);
-  applyAccessMode();
-})();
-</script>
-{% endblock %}
