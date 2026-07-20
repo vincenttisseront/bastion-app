@@ -10,8 +10,10 @@
   <div class="form-body">
   {% if app is defined and app.robotic_driver == 'crushftp' %}
     <div class="alert alert-info">
-      Cette application utilise le driver CrushFTP (<span class="mono">robotic_driver=crushftp</span>).
-      Le mode vault générique ne s'applique pas — configurez le credential ci-dessous.
+      <div class="alert-body">
+        Cette application utilise le driver CrushFTP (<span class="mono">robotic_driver=crushftp</span>).
+        Le mode vault générique ne s'applique pas — configurez le credential ci-dessous.
+      </div>
     </div>
   {% else %}
     <div class="form-group">

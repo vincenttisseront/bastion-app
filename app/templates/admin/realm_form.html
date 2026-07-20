@@ -171,7 +171,8 @@
     globalResult.textContent = result.status === 'ok' ? 'Test de connexion réussi' : (result.status === 'error' ? 'Test de connexion échoué' : 'Test terminé avec avertissements');
     checksEl.innerHTML = (result.checks || []).map(function (c) {
       return '<div class="alert ' + (statusClass[c.status] || '') + '" style="margin-top:var(--sp-2);">' +
-        (statusIcon[c.status] || '•') + ' <strong>' + c.name + '</strong> — ' + c.message + '</div>';
+        '<div class="alert-body">' + (statusIcon[c.status] || '•') +
+        ' <strong>' + c.name + '</strong> — ' + c.message + '</div></div>';
     }).join('');
   }
 

@@ -139,6 +139,7 @@
   display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
   border-radius:var(--r-lg);font-size:var(--fs-sm);border:1px solid;
 }
+.alert-body{flex:1;min-width:0}
 .alert-ok,.alert-success{background:var(--ok-bg);border-color:rgba(16,185,129,.25);color:var(--ok)}
 .alert-warn,.alert-warning{background:var(--warn-bg);border-color:rgba(245,158,11,.25);color:var(--warn)}
 .alert-err,.alert-error{background:var(--err-bg);border-color:rgba(239,68,68,.25);color:var(--err)}
