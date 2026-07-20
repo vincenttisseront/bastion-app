@@ -70,12 +70,64 @@ async def test_get_username_ok():
                 text="<response>success</response>",
                 headers=[("set-cookie", "CrushAuth=TOKENTOKEN1234; Path=/")],
             ),
-            Response(200, text="<response>robot</response>"),
+            Response(
+                200,
+                text=(
+                    "<loginResult><response>success</response>"
+                    "<username>robot</username></loginResult>"
+                ),
+            ),
         ]
     )
     driver = CrushFTPDriver()
     session = await driver.login(BASE, "robot", "secret")
     assert await driver.get_username(session) == "robot"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_username_extracts_from_username_tag_not_response():
+    """CrushFTP puts success/failure in <response> and the real login in <username>."""
+    respx.post(LOGIN_URL).mock(
+        side_effect=[
+            Response(
+                200,
+                text="<response>success</response>",
+                headers=[("set-cookie", "CrushAuth=TOKENTOKEN1234; Path=/")],
+            ),
+            Response(
+                200,
+                text=(
+                    "<loginResult><response>success</response>"
+                    "<username>vincent</username></loginResult>"
+                ),
+            ),
+        ]
+    )
+    driver = CrushFTPDriver()
+    session = await driver.login(BASE, "robot", "secret")
+    identity = await driver.get_username(session)
+    assert identity == "vincent"
+    assert identity != "success"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_username_missing_username_tag_despite_success():
+    respx.post(LOGIN_URL).mock(
+        side_effect=[
+            Response(
+                200,
+                text="<response>success</response>",
+                headers=[("set-cookie", "CrushAuth=TOKENTOKEN1234; Path=/")],
+            ),
+            Response(200, text="<loginResult><response>success</response></loginResult>"),
+        ]
+    )
+    driver = CrushFTPDriver()
+    session = await driver.login(BASE, "robot", "secret")
+    with pytest.raises(RoboticLoginError, match="missing username"):
+        await driver.get_username(session)
 
 
 @respx.mock

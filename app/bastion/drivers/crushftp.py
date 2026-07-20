@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 5.0
 _SUCCESS_RE = re.compile(r"<response>\s*success\s*</response>", re.IGNORECASE)
 _USERNAME_RE = re.compile(
-    r"<response>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</response>",
+    r"<username>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</username>",
     re.IGNORECASE,
 )
 
@@ -101,9 +101,14 @@ class CrushFTPDriver(RoboticDriver):
         except httpx.RequestError as exc:
             raise RoboticLoginError("CrushFTP getUsername network error") from exc
 
-        match = _USERNAME_RE.search(response.text or "")
+        text = response.text or ""
+        if not _SUCCESS_RE.search(text):
+            raise RoboticLoginError("CrushFTP getUsername rejected")
+        match = _USERNAME_RE.search(text)
         if not match:
-            raise RoboticLoginError("CrushFTP getUsername returned no identity")
+            raise RoboticLoginError(
+                "CrushFTP getUsername missing username despite success"
+            )
         username = match.group(1).strip()
         if not username or username.lower() in ("failure", "error", "anonymous"):
             raise RoboticLoginError("CrushFTP getUsername identity check failed")
