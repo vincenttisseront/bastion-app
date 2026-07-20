@@ -78,17 +78,24 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
 
     from app.web.user_context import get_user_context
 
-    ctx = get_user_context(request, settings)
+    # Prefer the request-scoped session (same DB as Depends(get_db) / tests).
+    db = getattr(request.state, "db", None)
+    ctx = get_user_context(request, settings, db=db)
     if ctx:
         user = ctx
         is_admin = ctx.is_admin
         realm_slug = ctx.realm_slug
 
+    # Explicit overrides from callers (e.g. portal pages) win.
+    if "is_admin" in extra:
+        is_admin = bool(extra["is_admin"])
+
     messages = get_flash_messages(request, secret)
-    return {
+    ctx_out = {
         "request": request,
         "current_user": user,
         "is_admin": is_admin,
+        "is_portal_admin": is_admin,
         "realm_slug": realm_slug,
         "app_version": app_version,
         "messages": messages,
@@ -99,3 +106,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "access_mode_labels": ACCESS_MODE_LABELS,
         **extra,
     }
+    # Keep resolved admin flag even if a caller passed a stale is_admin in extras.
+    ctx_out["is_admin"] = is_admin
+    ctx_out["is_portal_admin"] = bool(extra.get("is_portal_admin", is_admin))
+    return ctx_out

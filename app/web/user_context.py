@@ -1,5 +1,8 @@
 """User identity from Nginx-injected headers and break-glass cookie."""
 
+from __future__ import annotations
+
+import re
 from dataclasses import dataclass
 
 import jwt
@@ -10,6 +13,28 @@ from app.breakglass import COOKIE_NAME, validate_breakglass_cookie
 from app.database import get_db
 from app.rbac.effective_access_service import user_has_portal_admin_role
 from app.sso_settings import Settings, get_settings
+
+# Keycloak subject UUIDs must never be shown as a display name.
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def looks_like_uuid(value: str | None) -> bool:
+    if not value:
+        return False
+    return bool(_UUID_RE.match(value.strip()))
+
+
+def _human_label(*candidates: str | None) -> str | None:
+    for raw in candidates:
+        if not raw:
+            continue
+        text = raw.strip()
+        if text and not looks_like_uuid(text):
+            return text
+    return None
 
 
 @dataclass
@@ -25,7 +50,9 @@ class UserContext:
 
     @property
     def display_name(self) -> str:
-        return self.username or self.email
+        return _human_label(self.username, self.email, self.given_name) or (
+            self.email or self.username or "?"
+        )
 
     @property
     def is_breakglass(self) -> bool:
@@ -34,10 +61,10 @@ class UserContext:
     @property
     def first_name(self) -> str:
         """Prénom for greetings — OIDC given_name, else email local-part."""
-        if self.given_name and self.given_name.strip():
+        if self.given_name and self.given_name.strip() and not looks_like_uuid(self.given_name):
             return self.given_name.strip()
         local = (self.email or self.username or "").split("@", 1)[0].strip()
-        if not local:
+        if not local or looks_like_uuid(local):
             return self.display_name
         token = local.replace("_", ".").replace("-", ".").split(".", 1)[0]
         if not token:
@@ -47,7 +74,9 @@ class UserContext:
     @property
     def initials(self) -> str:
         """Two-letter avatar initials from display name / email."""
-        source = (self.username or self.email or "?").strip()
+        source = self.display_name
+        if source == "?" or looks_like_uuid(source):
+            source = (self.email or self.username or "?").strip()
         if "@" in source:
             source = source.split("@", 1)[0]
         parts = [p for p in source.replace("_", ".").replace("-", ".").split(".") if p]
@@ -80,14 +109,54 @@ def _is_admin_via_groups(groups: list[str], auth_source: str, settings: Settings
     return any(g in admin_groups for g in groups)
 
 
-def get_user_context(request: Request, settings: Settings | None = None) -> UserContext | None:
+def _display_cache_for_user(db: Session, keycloak_user_id: str | None) -> str | None:
+    if not keycloak_user_id:
+        return None
+    from app.models import AccessGrant
+
+    row = (
+        db.query(AccessGrant.user_display_cache)
+        .filter(
+            AccessGrant.subject_type == "user",
+            AccessGrant.keycloak_user_id == keycloak_user_id,
+            AccessGrant.user_display_cache.is_not(None),
+            AccessGrant.user_display_cache != "",
+        )
+        .order_by(AccessGrant.granted_at.desc())
+        .first()
+    )
+    if not row:
+        return None
+    label = (row[0] or "").strip()
+    return label if label and not looks_like_uuid(label) else None
+
+
+def enrich_user_identity(user: UserContext, db: Session | None) -> UserContext:
+    """Prefer human labels over Keycloak subject UUIDs; fill from grant cache if needed."""
+    if db is None:
+        return user
+
+    cache = _display_cache_for_user(db, user.keycloak_user_id)
+    if looks_like_uuid(user.username):
+        user.username = _human_label(cache, user.email, user.given_name) or user.username
+    if looks_like_uuid(user.email):
+        user.email = _human_label(cache, user.username, user.given_name) or user.email
+    if cache and looks_like_uuid(user.username) and looks_like_uuid(user.email):
+        user.username = cache
+    return user
+
+
+def get_user_context(
+    request: Request,
+    settings: Settings | None = None,
+    db: Session | None = None,
+) -> UserContext | None:
     settings = settings or get_settings()
     email = request.headers.get("X-Email", "").strip()
-    username = (
-        request.headers.get("X-Preferred-Username", "").strip()
-        or request.headers.get("X-User", "").strip()
-        or email
-    )
+    preferred = request.headers.get("X-Preferred-Username", "").strip()
+    x_user = request.headers.get("X-User", "").strip()
+    # Never treat a Keycloak subject UUID as the login name.
+    username = _human_label(preferred, x_user, email) or preferred or x_user or email
     # Prefer explicit subject UUID when Nginx/oauth2-proxy forwards it.
     keycloak_user_id = request.headers.get("X-User-Id", "").strip() or None
     groups = _parse_groups(request.headers.get("X-Groups"))
@@ -121,14 +190,20 @@ def get_user_context(request: Request, settings: Settings | None = None) -> User
     if not email:
         email = username
 
-    # Fallback: X-User holding a Keycloak subject (not an email).
+    # Fallback: X-User / X-User-Id holding a Keycloak subject (not an email).
     if not keycloak_user_id:
-        x_user = request.headers.get("X-User", "").strip()
-        if x_user and x_user != email and "@" not in x_user:
-            keycloak_user_id = x_user
+        for candidate in (request.headers.get("X-User-Id", ""), x_user):
+            cand = (candidate or "").strip()
+            if cand and looks_like_uuid(cand):
+                keycloak_user_id = cand
+                break
+            if cand and cand != email and "@" not in cand and not preferred:
+                # Legacy: X-User sometimes carried the subject when preferred was absent.
+                keycloak_user_id = cand
+                break
 
     is_admin = _is_admin_via_groups(groups, auth_source, settings)
-    return UserContext(
+    user = UserContext(
         email=email,
         username=username,
         groups=groups,
@@ -138,6 +213,15 @@ def get_user_context(request: Request, settings: Settings | None = None) -> User
         keycloak_user_id=keycloak_user_id,
         given_name=given_name,
     )
+    if db is not None:
+        if not user.is_admin and user_has_portal_admin_role(
+            db,
+            keycloak_user_id=user.keycloak_user_id,
+            group_names=user.groups,
+        ):
+            user.is_admin = True
+        enrich_user_identity(user, db)
+    return user
 
 
 def is_portal_admin(
@@ -158,8 +242,12 @@ def is_portal_admin(
     )
 
 
-def require_user(request: Request) -> UserContext:
-    user = get_user_context(request)
+def require_user(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> UserContext:
+    user = get_user_context(request, settings, db=db)
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     return user
@@ -171,9 +259,9 @@ def require_admin(
     settings: Settings = Depends(get_settings),
 ) -> UserContext:
     """Require portal admin. Non-admins get 403 (HTML handler redirects to /apps)."""
-    user = require_user(request)
+    user = require_user(request, db=db, settings=settings)
     if is_portal_admin(user, db, settings):
         user.is_admin = True
+        enrich_user_identity(user, db)
         return user
     raise HTTPException(status_code=403, detail="Admin access required")
-

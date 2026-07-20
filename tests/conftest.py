@@ -38,10 +38,13 @@ def db_session(db_engine):
 
 @pytest.fixture()
 def client(db_engine):
+    from fastapi import Request
+
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
 
-    def override_get_db():
+    def override_get_db(request: Request):
         db = session_factory()
+        request.state.db = db
         try:
             yield db
         finally:

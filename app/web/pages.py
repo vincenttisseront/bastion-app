@@ -112,6 +112,8 @@ def catalogue_page(
     user=Depends(require_user),
 ):
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    if is_portal_admin(user, db, settings):
+        user.is_admin = True
     if not user.is_admin and user.groups:
         allowed_ids = {
             link.app_id

@@ -2,6 +2,7 @@
 
 from collections.abc import Generator
 
+from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,8 +16,9 @@ engine = create_engine(
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def get_db() -> Generator[Session, None, None]:
+def get_db(request: Request) -> Generator[Session, None, None]:
     db = SessionLocal()
+    request.state.db = db
     try:
         yield db
     finally:

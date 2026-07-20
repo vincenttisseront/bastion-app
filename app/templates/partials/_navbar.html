@@ -31,7 +31,7 @@
 
   {% if current_user %}
   <span class="topbar-sep" aria-hidden="true"></span>
-  <span class="text-2 truncate" style="max-width:180px;">{{ current_user.email }}</span>
+  <span class="text-2 truncate" style="max-width:180px;">{{ current_user.display_name }}</span>
   <a href="/logout" class="logout-btn">Déconnexion</a>
   {% endif %}
 </header>
