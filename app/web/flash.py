@@ -114,6 +114,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "auth_mode_labels": AUTH_MODE_LABELS,
         "credential_modes": CREDENTIAL_MODES,
         "credential_mode_labels": CREDENTIAL_MODE_LABELS,
+        "portal_domain": getattr(settings, "portal_domain", "") or "",
         **extra,
     }
     # Keep resolved admin flag even if a caller passed a stale is_admin in extras.

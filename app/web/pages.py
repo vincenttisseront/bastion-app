@@ -1,5 +1,7 @@
 """HTML page routes for Bastion Pro portal."""
 
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
@@ -25,6 +27,7 @@ from app.breakglass_store import (
 from app.database import get_db
 from app.models import App, AppGroup, RBACGroup, RealmConfig
 from app.rbac.grants_service import count_grants_by_application
+from app.robotic.robotic_session_cookies import shared_parent_domain
 from app.sso_settings import Settings, get_settings
 from app.web.app_logos import (
     LogoValidationError,
@@ -59,7 +62,31 @@ from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["pages"])
 
+logger = logging.getLogger(__name__)
+
 _DESC_MAX = 140
+
+
+def _warn_if_fqdn_cookie_domain_incompatible(
+    *,
+    access_mode: str,
+    public_fqdn: str | None,
+    portal_domain: str,
+    app_slug: str,
+) -> None:
+    if normalize_access_mode(access_mode) != "subdomain_proxy":
+        return
+    fqdn = (public_fqdn or "").strip()
+    if not fqdn:
+        return
+    if shared_parent_domain(fqdn, portal_domain or "") is None:
+        logger.warning(
+            "App %s FQDN %r shares no parent domain with portal %r — "
+            "cross-subdomain session cookies will never work for this combination",
+            app_slug,
+            fqdn,
+            portal_domain,
+        )
 
 
 def _normalize_description(raw: str | None) -> str | None:
@@ -588,6 +615,12 @@ def admin_apps_create_post(
     )
     db.add(app)
     db.commit()
+    _warn_if_fqdn_cookie_domain_incompatible(
+        access_mode=mode,
+        public_fqdn=fqdn,
+        portal_domain=settings.portal_domain,
+        app_slug=slug,
+    )
     export_app_catalogue_files(db, settings)
     log_action(db, actor=user.email, action="app.created", target=slug)
     response = RedirectResponse(url=f"/admin/apps/{slug}/edit", status_code=302)
@@ -709,6 +742,12 @@ def admin_apps_edit_post(
         credential_mode=credential_mode,
     )
     db.commit()
+    _warn_if_fqdn_cookie_domain_incompatible(
+        access_mode=mode,
+        public_fqdn=fqdn,
+        portal_domain=settings.portal_domain,
+        app_slug=slug,
+    )
     export_app_catalogue_files(db, settings)
     log_action(db, actor=user.email, action="app.updated", target=slug)
     response = RedirectResponse(url="/admin/apps", status_code=302)

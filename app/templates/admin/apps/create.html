@@ -61,10 +61,18 @@
           <label class="form-label" for="public_fqdn">Sous-domaine public <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ form_values.public_fqdn | default('') }}" placeholder="app.example.fr">
+            <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ form_values.public_fqdn | default('') }}" placeholder="app.example.fr" data-portal-domain="{{ portal_domain }}">
           </div>
           <p class="form-help">FQDN public servi par Nginx (vhost dédié, proxy transparent).</p>
           {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
+          <div id="fqdn-cookie-domain-warning" class="alert alert-warn" hidden style="margin-top:var(--sp-3);">
+            <div class="alert-body">
+              Ce sous-domaine ne partage aucun domaine parent avec le portail
+              (<span class="mono" data-portal-domain-label>{{ portal_domain }}</span>) —
+              l'injection de cookie de session ne fonctionnera jamais pour cette combinaison.
+              Utilisez SSO Gate ou un domaine sous la même racine que le portail.
+            </div>
+          </div>
         </div>
 
         <div class="form-group" id="upstream-url-group">

@@ -105,6 +105,7 @@ async def client_impersonate(
             mode=result.mode,
             slug=result.slug,
             fqdn=result.fqdn,
+            portal_domain=settings.portal_domain,
         )
     else:
         build_response_cookies(
@@ -113,6 +114,7 @@ async def client_impersonate(
             mode=result.mode,
             slug=result.slug,
             fqdn=result.fqdn,
+            portal_domain=settings.portal_domain,
         )
     return response
 

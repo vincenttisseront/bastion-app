@@ -140,6 +140,24 @@ var ACCESS_MODE_COPY = {
   }
 };
 
+function sharedParentDomain(fqdn, portalDomain) {
+  var fqdnLabels = String(fqdn || '').replace(/^\.+|\.+$/g, '').toLowerCase().split('.');
+  var portalLabels = String(portalDomain || '').replace(/^\.+|\.+$/g, '').toLowerCase().split('.');
+  if (!fqdnLabels[0] || !portalLabels[0]) return null;
+  var common = [];
+  var i = 0;
+  while (
+    i < fqdnLabels.length &&
+    i < portalLabels.length &&
+    fqdnLabels[fqdnLabels.length - 1 - i] === portalLabels[portalLabels.length - 1 - i]
+  ) {
+    common.push(fqdnLabels[fqdnLabels.length - 1 - i]);
+    i += 1;
+  }
+  if (common.length < 2) return null;
+  return common.reverse().join('.');
+}
+
 function initAccessModeForm() {
   var form = document.getElementById('app-form');
   if (!form) return;
@@ -149,11 +167,25 @@ function initAccessModeForm() {
   var helpEl = document.getElementById('upstream-url-help');
   var upstreamInput = document.getElementById('upstream_url');
   var fqdnGroup = document.getElementById('public-fqdn-group');
+  var fqdnInput = document.getElementById('public_fqdn');
+  var fqdnCookieWarn = document.getElementById('fqdn-cookie-domain-warning');
   var legacyWarn = document.getElementById('access-mode-legacy-warning');
   var authSection = document.getElementById('auth-mode-section');
   var authSelect = document.querySelector('[data-auth-mode-select]');
   var genericFields = document.getElementById('generic-form-fields');
   if (!select || !labelEl || !helpEl) return;
+
+  function syncFqdnCookieWarning() {
+    if (!fqdnCookieWarn || !fqdnInput) return;
+    var mode = select.value;
+    var fqdn = (fqdnInput.value || '').trim();
+    var portalDomain = fqdnInput.getAttribute('data-portal-domain') || '';
+    var show =
+      mode === 'subdomain_proxy' &&
+      fqdn.length > 0 &&
+      !sharedParentDomain(fqdn, portalDomain);
+    fqdnCookieWarn.hidden = !show;
+  }
 
   function applyMode() {
     var mode = select.value;
@@ -168,6 +200,7 @@ function initAccessModeForm() {
     if (authSection) {
       authSection.hidden = (mode === 'sso_gate');
     }
+    syncFqdnCookieWarning();
   }
 
   function applyAuthMode() {
@@ -177,6 +210,10 @@ function initAccessModeForm() {
 
   select.addEventListener('change', applyMode);
   applyMode();
+  if (fqdnInput) {
+    fqdnInput.addEventListener('input', syncFqdnCookieWarning);
+    fqdnInput.addEventListener('change', syncFqdnCookieWarning);
+  }
   if (authSelect) {
     authSelect.addEventListener('change', applyAuthMode);
     applyAuthMode();
