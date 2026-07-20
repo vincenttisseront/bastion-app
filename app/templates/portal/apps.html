@@ -30,7 +30,24 @@
   {% if apps %}
   <div class="admin-grid portal-app-grid{% if apps | length <= 3 %} portal-app-grid--compact{% endif %}">
     {% for app in apps %}
-      {% if app.can_launch %}
+      {% if app.needs_credential_setup %}
+      <div
+        class="admin-card app-tile app-tile--disabled"
+        data-app-id="{{ app.id }}"
+        title="Cette application nécessite une configuration par votre administrateur avant le premier accès."
+        aria-disabled="true"
+      >
+        {{ app_tile_icon(app) }}
+        <div class="admin-title">{{ app.label }}</div>
+        {% if app.description %}
+        <div class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</div>
+        {% endif %}
+        <div class="app-tile-meta">
+          <span class="badge badge-warn">Configuration requise</span>
+        </div>
+        <span class="admin-arrow app-tile-locked">Contactez un administrateur</span>
+      </div>
+      {% elif app.can_launch %}
       <a
         href="{{ app.launch_url }}"
         class="admin-card app-tile"

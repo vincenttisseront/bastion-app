@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.robotic.impersonate_service import (
+    ImpersonationCredentialRequiredError,
     ImpersonationError,
     get_basic_auth_header,
     impersonate,
@@ -51,6 +52,14 @@ def _check_app_rbac(
 
 
 def _impersonation_error_response(exc: ImpersonationError) -> JSONResponse:
+    if isinstance(exc, ImpersonationCredentialRequiredError):
+        return JSONResponse(
+            {
+                "error": ImpersonationCredentialRequiredError.error_code,
+                "message": ImpersonationCredentialRequiredError.user_message,
+            },
+            status_code=409,
+        )
     message = str(exc)
     status = 502
     if "No active credential" in message or "No credential" in message:
@@ -138,6 +147,8 @@ async def basic_auth_header(
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
         )
+    except ImpersonationCredentialRequiredError:
+        return Response(status_code=409)
     except ImpersonationError:
         return Response(status_code=403)
 

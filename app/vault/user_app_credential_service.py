@@ -73,16 +73,47 @@ def get_effective_credential(
     """
     Resolve vault credential: user override first, then shared AppCredential.
 
+    When app.credential_mode == "individual_required", never fall back to shared.
     Returns (credential_row_or_None, source_or_None).
     """
+    from app.bastion.bastion_fields import normalize_credential_mode
+    from app.models import App
+
+    app = db.query(App).filter_by(slug=app_slug).first()
+    mode = normalize_credential_mode(app.credential_mode if app else None)
+
     if keycloak_user_id:
         user_cred = get_user_credential(db, app_slug, keycloak_user_id)
         if user_cred is not None and user_cred.is_active:
             return user_cred, "user_override"
+
+    if mode == "individual_required":
+        return None, None
+
     shared = get_app_credential(db, app_slug)
     if shared is not None and shared.is_active:
         return shared, "shared"
     return None, None
+
+
+def needs_individual_credential_setup(
+    db: Session,
+    app: object,
+    keycloak_user_id: str | None,
+) -> bool:
+    """True when app requires a per-user override and the user has none."""
+    from app.bastion.bastion_fields import normalize_credential_mode, vault_enabled_for_app
+
+    if not keycloak_user_id:
+        return False
+    if not vault_enabled_for_app(
+        getattr(app, "auth_mode", None),
+        getattr(app, "robotic_driver", None),
+    ):
+        return False
+    if normalize_credential_mode(getattr(app, "credential_mode", None)) != "individual_required":
+        return False
+    return not has_user_override(db, app.slug, keycloak_user_id)
 
 
 def resolve_credential(
@@ -200,6 +231,7 @@ __all__ = [
     "get_user_credential",
     "has_user_override",
     "get_effective_credential",
+    "needs_individual_credential_setup",
     "resolve_credential",
     "set_user_credential",
     "delete_user_credential",

@@ -26,6 +26,13 @@ ROBOTIC_DRIVERS: frozenset[str] = frozenset(
     {"crushftp", "generic_form", "generic_basic_auth"}
 )
 
+CREDENTIAL_MODES: tuple[str, ...] = ("shared", "individual_required")
+
+CREDENTIAL_MODE_LABELS: dict[str, str] = {
+    "shared": "Partagé (par défaut)",
+    "individual_required": "Individuel obligatoire",
+}
+
 LOGIN_HTTP_METHODS: frozenset[str] = frozenset({"POST", "GET"})
 
 
@@ -36,6 +43,15 @@ def normalize_auth_mode(value: str | None) -> str:
     if lowered in AUTH_MODES:
         return lowered
     return _AUTH_MODE_ALIASES.get(lowered, "sso")
+
+
+def normalize_credential_mode(value: str | None) -> str:
+    if not value:
+        return "shared"
+    lowered = value.strip().lower()
+    if lowered in CREDENTIAL_MODES:
+        return lowered
+    return "shared"
 
 
 def resolve_robotic_driver(auth_mode: str, existing: str | None = None) -> str | None:

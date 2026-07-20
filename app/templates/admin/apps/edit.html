@@ -80,7 +80,8 @@
       'login_username_field': app.login_username_field,
       'login_password_field': app.login_password_field,
       'login_http_method': app.login_http_method,
-      'login_extra_fields': app.login_extra_fields or ''
+      'login_extra_fields': app.login_extra_fields or '',
+      'credential_mode': app.credential_mode or 'shared'
     } %}
     {% include "admin/apps/_auth_mode_section.html" with context %}
 
@@ -142,6 +143,54 @@
     var testBtn = document.getElementById('btn-vault-test');
     var userInput = document.getElementById('vault_robotic_username');
     var passInput = document.getElementById('vault_password');
+    var modeSelect = document.querySelector('[data-credential-mode-select]');
+    var sharedFields = document.getElementById('shared-credential-fields');
+    var modeHint = document.getElementById('shared-credential-disabled-hint');
+    var form = document.getElementById('app-form');
+    var initialMode = modeSelect ? modeSelect.value : 'shared';
+
+    function applyCredentialMode() {
+      var mode = modeSelect ? modeSelect.value : 'shared';
+      var individual = mode === 'individual_required';
+      if (modeHint) modeHint.hidden = !individual;
+      if (userInput) userInput.disabled = individual;
+      if (passInput) passInput.disabled = individual;
+      if (saveBtn) saveBtn.disabled = individual;
+      if (testBtn) testBtn.disabled = individual;
+      if (sharedFields) sharedFields.style.opacity = individual ? '0.55' : '1';
+    }
+
+    if (modeSelect) {
+      modeSelect.addEventListener('change', function () {
+        if (modeSelect.value === 'individual_required' && initialMode !== 'individual_required') {
+          var ok = confirm(
+            'Attention : les utilisateurs n\'ayant pas encore de credential individuel ' +
+            'configuré ne pourront plus ouvrir cette application jusqu\'à ce qu\'un admin ' +
+            'leur en attribue un.'
+          );
+          if (!ok) {
+            modeSelect.value = initialMode;
+            applyCredentialMode();
+            return;
+          }
+        }
+        applyCredentialMode();
+      });
+      applyCredentialMode();
+    }
+
+    if (form) {
+      form.addEventListener('submit', function () {
+        if (modeSelect && modeSelect.value === 'individual_required' && initialMode !== 'individual_required') {
+          return confirm(
+            'Attention : les utilisateurs n\'ayant pas encore de credential individuel ' +
+            'configuré ne pourront plus ouvrir cette application jusqu\'à ce qu\'un admin ' +
+            'leur en attribue un.'
+          );
+        }
+      });
+    }
+
     if (!saveBtn || !testBtn) return;
 
     var headers = {
@@ -166,6 +215,10 @@
     }
 
     saveBtn.addEventListener('click', async function () {
+      if (modeSelect && modeSelect.value === 'individual_required') {
+        alert('Compte partagé désactivé en mode individuel obligatoire.');
+        return;
+      }
       var username = userInput ? userInput.value.trim() : '';
       var password = passInput ? passInput.value : '';
       if (!username || !password) {
@@ -187,7 +240,7 @@
         if (passInput) passInput.value = '';
         if (statusEl) statusEl.textContent = 'Credential enregistré.';
       } finally {
-        saveBtn.disabled = false;
+        applyCredentialMode();
       }
     });
 
@@ -216,7 +269,7 @@
           resultEl.textContent = 'Erreur réseau.';
         }
       } finally {
-        testBtn.disabled = false;
+        applyCredentialMode();
       }
     });
 

@@ -211,13 +211,22 @@
         </thead>
         <tbody>
           {% for va in vault_apps %}
-          <tr data-app-slug="{{ va.slug }}">
+          <tr data-app-slug="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}">
             <td>
               <div>{{ va.label }}</div>
               <div class="mono form-hint">{{ va.slug }}{% if va.robotic_driver %} · {{ va.robotic_driver }}{% endif %}</div>
             </td>
             <td>
-              {% if va.has_override %}
+              {% if va.credential_mode == 'individual_required' %}
+                {% if va.has_override %}
+                  <span class="badge badge-ok" data-vault-status>Configuré</span>
+                  {% if va.robotic_username %}
+                  <div class="mono form-hint" data-vault-username>{{ va.robotic_username }}</div>
+                  {% endif %}
+                {% else %}
+                  <span class="badge badge-warn" data-vault-status>Obligatoire — non configuré</span>
+                {% endif %}
+              {% elif va.has_override %}
                 <span class="badge badge-ok" data-vault-status>Individuel</span>
                 {% if va.robotic_username %}
                 <div class="mono form-hint" data-vault-username>{{ va.robotic_username }}</div>
@@ -230,7 +239,7 @@
               <button type="button" class="btn btn-ghost btn-sm" data-vault-configure="{{ va.slug }}">Configurer</button>
             </td>
           </tr>
-          <tr data-vault-form-row="{{ va.slug }}" hidden>
+          <tr data-vault-form-row="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}" hidden>
             <td colspan="3" style="padding:var(--sp-4); background:var(--bg-secondary);">
               <div class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
                 <div class="form-group">
@@ -244,7 +253,12 @@
                 </div>
                 <button type="button" class="btn btn-secondary btn-sm" data-vault-save="{{ va.slug }}">Enregistrer</button>
                 <button type="button" class="btn btn-ghost btn-sm" data-vault-test="{{ va.slug }}">Tester la connexion</button>
+                {% if va.credential_mode != 'individual_required' %}
                 <button type="button" class="btn btn-ghost btn-sm" data-vault-clear="{{ va.slug }}">Utiliser le compte partagé</button>
+                {% else %}
+                <button type="button" class="btn btn-ghost btn-sm" data-vault-clear="{{ va.slug }}" data-individual-required
+                        {% if not va.has_override %}hidden{% endif %}>Supprimer le credential individuel</button>
+                {% endif %}
               </div>
               <div class="form-help" data-vault-msg style="margin-top:var(--sp-2);"></div>
             </td>
@@ -329,6 +343,27 @@
     var row = formRow(slug);
     return row ? row.querySelector('[data-vault-msg]') : null;
   }
+  function credentialMode(slug) {
+    var row = document.querySelector('tr[data-app-slug="' + slug + '"]');
+    return (row && row.dataset.credentialMode) || 'shared';
+  }
+  function setConfiguredBadge(slug) {
+    var badge = statusCell(slug);
+    if (!badge) return;
+    badge.className = 'badge badge-ok';
+    badge.textContent = credentialMode(slug) === 'individual_required' ? 'Configuré' : 'Individuel';
+  }
+  function setClearedBadge(slug) {
+    var badge = statusCell(slug);
+    if (!badge) return;
+    if (credentialMode(slug) === 'individual_required') {
+      badge.className = 'badge badge-warn';
+      badge.textContent = 'Obligatoire — non configuré';
+    } else {
+      badge.className = 'badge badge-muted';
+      badge.textContent = 'Partagé';
+    }
+  }
 
   document.querySelectorAll('[data-vault-configure]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -366,11 +401,9 @@
           return;
         }
         row.querySelector('[data-vault-pass]').value = '';
-        var badge = statusCell(slug);
-        if (badge) {
-          badge.className = 'badge badge-ok';
-          badge.textContent = 'Individuel';
-        }
+        setConfiguredBadge(slug);
+        var clearBtn = row.querySelector('[data-vault-clear][data-individual-required]');
+        if (clearBtn) clearBtn.hidden = false;
         if (msg) msg.textContent = 'Credential individuel enregistré.';
       } catch (e) {
         if (msg) msg.textContent = 'Erreur réseau.';
@@ -384,7 +417,11 @@
     btn.addEventListener('click', async function () {
       var slug = btn.getAttribute('data-vault-clear');
       var msg = msgEl(slug);
-      if (!confirm('Revenir au compte partagé pour cette application ?')) return;
+      var individual = btn.hasAttribute('data-individual-required') || credentialMode(slug) === 'individual_required';
+      var confirmMsg = individual
+        ? 'Cette application nécessite un credential individuel. Supprimer cet override empêchera cet utilisateur d\'accéder à l\'application jusqu\'à nouvelle configuration.'
+        : 'Revenir au compte partagé pour cette application ?';
+      if (!confirm(confirmMsg)) return;
       btn.disabled = true;
       try {
         var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
@@ -396,17 +433,18 @@
           if (msg) msg.textContent = data.detail || 'Échec.';
           return;
         }
-        var badge = statusCell(slug);
-        if (badge) {
-          badge.className = 'badge badge-muted';
-          badge.textContent = 'Partagé';
-        }
+        setClearedBadge(slug);
         var form = formRow(slug);
         if (form) {
           form.querySelector('[data-vault-user]').value = '';
           form.querySelector('[data-vault-pass]').value = '';
         }
-        if (msg) msg.textContent = 'Override supprimé — compte partagé.';
+        if (individual) {
+          btn.hidden = true;
+          if (msg) msg.textContent = 'Credential individuel supprimé — accès bloqué jusqu\'à reconfiguration.';
+        } else if (msg) {
+          msg.textContent = 'Override supprimé — compte partagé.';
+        }
       } catch (e) {
         if (msg) msg.textContent = 'Erreur réseau.';
       } finally {

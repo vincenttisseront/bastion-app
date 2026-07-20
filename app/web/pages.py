@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.access_modes import normalize_access_mode, validate_app_access_fields
 from app.bastion.bastion_fields import (
     normalize_auth_mode,
+    normalize_credential_mode,
     resolve_robotic_driver,
     validate_generic_form_fields,
     vault_enabled_for_app,
@@ -97,6 +98,7 @@ def _apply_auth_config(
     login_password_field: str,
     login_http_method: str,
     login_extra_fields: str,
+    credential_mode: str = "shared",
 ) -> None:
     mode = normalize_auth_mode(auth_mode)
     app.auth_mode = mode
@@ -106,6 +108,7 @@ def _apply_auth_config(
     app.login_password_field = (login_password_field or "password").strip() or "password"
     app.login_http_method = (login_http_method or "POST").strip().upper()
     app.login_extra_fields = (login_extra_fields or "").strip() or None
+    app.credential_mode = normalize_credential_mode(credential_mode)
 
 
 def _validate_auth_fields(
@@ -581,6 +584,7 @@ def admin_apps_create_post(
         login_password_field=login_password_field,
         login_http_method=login_http_method,
         login_extra_fields=login_extra_fields,
+        credential_mode="shared",
     )
     db.add(app)
     db.commit()
@@ -636,6 +640,7 @@ def admin_apps_edit_post(
     login_password_field: str = Form("password"),
     login_http_method: str = Form("POST"),
     login_extra_fields: str = Form(""),
+    credential_mode: str = Form("shared"),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -674,6 +679,7 @@ def admin_apps_edit_post(
             login_password_field=login_password_field,
             login_http_method=login_http_method,
             login_extra_fields=login_extra_fields,
+            credential_mode=credential_mode,
         )
         return render(
             "admin/apps/edit.html",
@@ -700,6 +706,7 @@ def admin_apps_edit_post(
         login_password_field=login_password_field,
         login_http_method=login_http_method,
         login_extra_fields=login_extra_fields,
+        credential_mode=credential_mode,
     )
     db.commit()
     export_app_catalogue_files(db, settings)
@@ -746,6 +753,14 @@ def admin_app_credential_save(
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
         raise HTTPException(status_code=404)
+    if normalize_credential_mode(app.credential_mode) == "individual_required":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Compte partagé désactivé — cette application est en mode "
+                "individuel obligatoire. Configurez les credentials depuis la fiche RBAC."
+            ),
+        )
     try:
         cred = set_app_credential(
             db,

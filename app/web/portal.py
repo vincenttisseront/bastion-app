@@ -69,6 +69,7 @@ def _portal_page_ctx(
 
 def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
     from app.web.app_logos import logo_public_url
+    from app.vault.user_app_credential_service import needs_individual_credential_setup
 
     entries = get_effective_apps_for_user(
         db,
@@ -77,15 +78,21 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
     )
     tiles: list[dict] = []
     for entry in entries:
+        needs_credential_setup = needs_individual_credential_setup(
+            db, entry.app, user.keycloak_user_id
+        )
+        can_launch = entry.can_launch and not needs_credential_setup
         tiles.append(
             {
                 "id": entry.app.id,
+                "slug": entry.app.slug,
                 "label": entry.app.label,
                 "description": entry.app.description or "",
                 "access_mode": entry.app.access_mode,
                 "access_level": entry.access_level,
                 "access_status": _ACCESS_STATUS.get(entry.access_level, "Accès"),
-                "can_launch": entry.can_launch,
+                "can_launch": can_launch,
+                "needs_credential_setup": needs_credential_setup,
                 "launch_url": app_launch_url(entry.app),
                 "logo_url": logo_public_url(entry.app),
                 "tile_icon": entry.app.tile_icon,

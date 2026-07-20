@@ -267,6 +267,7 @@ async def admin_rbac_users_page(
                     "slug": app.slug,
                     "label": app.label,
                     "robotic_driver": app.robotic_driver,
+                    "credential_mode": app.credential_mode or "shared",
                     "has_override": override,
                     "robotic_username": user_cred.robotic_username if user_cred else None,
                 }

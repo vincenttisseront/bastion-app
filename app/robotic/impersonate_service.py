@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.access_modes import PROXY_ACCESS_MODES, normalize_access_mode
 from app.audit import log_action
+from app.bastion.bastion_fields import normalize_credential_mode
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPDriver
 from app.bastion.drivers.generic import (
@@ -35,6 +36,16 @@ logger = logging.getLogger(__name__)
 
 class ImpersonationError(Exception):
     """Impersonation failed — messages must never include secrets or full cookies."""
+
+
+class ImpersonationCredentialRequiredError(ImpersonationError):
+    """App is individual_required and the user has no override configured."""
+
+    error_code = "credential_required"
+    user_message = (
+        "Aucun credential individuel configuré pour cette application. "
+        "Contactez un administrateur."
+    )
 
 
 @dataclass(frozen=True)
@@ -155,6 +166,24 @@ def _load_app_and_credential(
         )
         raise ImpersonationError(str(exc)) from exc
     except CredentialNotFoundError as exc:
+        if normalize_credential_mode(app.credential_mode) == "individual_required":
+            log_action(
+                db,
+                actor=actor,
+                action="robotic.impersonate.blocked_no_credential",
+                target=f"app:{app_slug}",
+                details={
+                    "app_slug": app_slug,
+                    "success": False,
+                    "error": "credential_required",
+                    "driver": driver,
+                    "keycloak_user_id": keycloak_user_id,
+                },
+                ip_address=ip_address,
+            )
+            raise ImpersonationCredentialRequiredError(
+                ImpersonationCredentialRequiredError.user_message
+            ) from exc
         _audit_impersonate(
             db,
             app_slug=app_slug,

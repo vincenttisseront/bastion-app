@@ -42,6 +42,7 @@ class App(Base):
     login_password_field = Column(String, default="password", nullable=False)
     login_extra_fields = Column(Text, nullable=True)
     login_http_method = Column(String, default="POST", nullable=False)
+    credential_mode = Column(String, default="shared", nullable=False)
     healthcheck_url = Column(String, nullable=True)
     enabled = Column(Boolean, default=True)
     tile_icon = Column(String, nullable=True)
