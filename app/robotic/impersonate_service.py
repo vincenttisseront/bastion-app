@@ -250,7 +250,9 @@ async def _impersonate_crushftp(
             error="identity_mismatch",
             credential_source=resolved.source,
         )
-        raise ImpersonationError("CrushFTP identity fingerprint mismatch")
+        raise ImpersonationError(
+            f"CrushFTP identity fingerprint mismatch (attendu={resolved.robotic_username!r}, obtenu={identity!r})"
+        )
 
     mode, target_url, fqdn = _resolve_target(app, settings)
     _audit_impersonate(
