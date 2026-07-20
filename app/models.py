@@ -286,3 +286,14 @@ class ActiveSession(Base):
     status = Column(String, nullable=False, default="active")
     started_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     last_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class PortalSettings(Base):
+    """Singleton global portal settings (id=1)."""
+
+    __tablename__ = "portal_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    subdomain_sso_enabled = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_by = Column(String, nullable=True)

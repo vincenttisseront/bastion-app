@@ -1023,10 +1023,68 @@ def admin_resources(
 @router.get("/admin/security")
 def admin_security(
     request: Request,
+    db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
-    return render("admin/security.html", **_ctx(request, settings))
+    from app.portal_settings_service import get_subdomain_sso_enabled
+
+    subdomain_apps = (
+        db.query(App)
+        .filter(App.access_mode == "subdomain_proxy", App.enabled.is_(True))
+        .order_by(App.label)
+        .all()
+    )
+    return render(
+        "admin/security.html",
+        **_ctx(
+            request,
+            settings,
+            subdomain_sso_enabled=get_subdomain_sso_enabled(db, settings),
+            subdomain_apps=subdomain_apps,
+        ),
+    )
+
+
+@router.post("/admin/security/subdomain-sso")
+def admin_security_subdomain_sso(
+    request: Request,
+    enabled: str | None = Form(None),
+    infra_ack: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.portal_settings_service import set_subdomain_sso_enabled
+
+    want_enabled = enabled == "on"
+    if want_enabled and infra_ack != "on":
+        response = RedirectResponse(url="/admin/security", status_code=302)
+        flash_redirect(
+            response,
+            "Activation refusée : confirmez d'abord que l'infrastructure sous-domaine est prête.",
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
+
+    set_subdomain_sso_enabled(
+        db,
+        settings,
+        want_enabled,
+        actor=user.email or user.username or "admin",
+        ip_address=request.headers.get("X-Real-IP")
+        or (request.client.host if request.client else None),
+    )
+    response = RedirectResponse(url="/admin/security", status_code=302)
+    flash_redirect(
+        response,
+        "Routage par sous-domaine "
+        + ("activé." if want_enabled else "désactivé."),
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
 
 
 @router.get("/admin/health")

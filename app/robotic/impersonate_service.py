@@ -78,11 +78,17 @@ def _cookie_fingerprint(cookies: dict[str, str]) -> dict[str, str]:
     return out
 
 
-def _resolve_target(app: App, settings: Settings) -> tuple[Literal["subdomain", "legacy"], str, str | None]:
+def _resolve_target(
+    app: App,
+    settings: Settings,
+    db: Session,
+) -> tuple[Literal["subdomain", "legacy"], str, str | None]:
     """Return (mode, target_url, fqdn)."""
+    from app.portal_settings_service import get_subdomain_sso_enabled
+
     mode = normalize_access_mode(app.access_mode)
     fqdn = (app.public_fqdn or "").strip() or None
-    if settings.subdomain_sso_enabled and mode == "subdomain_proxy" and fqdn:
+    if get_subdomain_sso_enabled(db, settings) and mode == "subdomain_proxy" and fqdn:
         return "subdomain", f"https://{fqdn}/", fqdn
     return "legacy", f"/proxy/{app.slug}/", None
 
@@ -252,7 +258,7 @@ async def _impersonate_crushftp(
         )
         raise ImpersonationError("CrushFTP identity fingerprint mismatch")
 
-    mode, target_url, fqdn = _resolve_target(app, settings)
+    mode, target_url, fqdn = _resolve_target(app, settings, db)
     _audit_impersonate(
         db,
         app_slug=app_slug,
@@ -306,7 +312,7 @@ async def _impersonate_generic_form(
     finally:
         password = ""  # noqa: F841
 
-    mode, target_url, fqdn = _resolve_target(app, settings)
+    mode, target_url, fqdn = _resolve_target(app, settings, db)
     _audit_impersonate(
         db,
         app_slug=app_slug,

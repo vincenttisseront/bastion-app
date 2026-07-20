@@ -3,11 +3,13 @@
 {% block breadcrumb %}Admin / Sécurité{% endblock %}
 
 {% block content %}
+{% set subdomain_sso_enabled = subdomain_sso_enabled | default(false) %}
+{% set subdomain_apps = subdomain_apps | default([]) %}
 <div class="page">
   <div class="page-header">
     <div>
       <h1 class="page-title">Sécurité</h1>
-      <p class="page-sub">Clés API, TLS et rotation des secrets</p>
+      <p class="page-sub">Clés API, TLS et routage SSO sous-domaine</p>
     </div>
   </div>
 
@@ -37,6 +39,86 @@
     </div>
   </div>
 
+  <div class="form-section" id="subdomain-sso">
+    <div class="form-section-header">
+      <div class="form-section-title">Routage par sous-domaine dédié (SSO)</div>
+      <div class="form-section-sub">
+        État actuel :
+        {% if subdomain_sso_enabled %}
+        <span class="badge badge-ok">Activé</span>
+        {% else %}
+        <span class="badge badge-muted">Désactivé</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="form-body">
+      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0 0 var(--sp-4);">
+        Quand ce mode est actif, les applications en accès
+        <strong>Sous-domaine dédié</strong> sont redirigées vers leur FQDN après
+        impersonation. Sinon elles retombent sur <span class="mono">/proxy/{slug}/</span>.
+      </p>
+
+      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+        <div class="alert-body">
+          N'activez ce mode que si l'infrastructure réseau est prête pour
+          <strong>TOUTES</strong> les applications configurées en mode
+          « Sous-domaine dédié » : DNS wildcard ou entrées dédiées pour chaque
+          sous-domaine, certificats TLS valides, routage Nginx en place.
+          Toute application en mode « Sous-domaine dédié » sans cette infra prête
+          deviendra inaccessible après activation.
+        </div>
+      </div>
+
+      {% if subdomain_apps %}
+      <p class="form-help" style="margin-bottom:var(--sp-2);">
+        Applications actuellement en mode sous-domaine dédié ({{ subdomain_apps | length }}) :
+      </p>
+      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+        <table class="data-table">
+          <thead>
+            <tr><th>Application</th><th>FQDN public</th></tr>
+          </thead>
+          <tbody>
+            {% for app in subdomain_apps %}
+            <tr>
+              <td>{{ app.label }} <span class="mono form-hint">{{ app.slug }}</span></td>
+              <td class="mono">{{ app.public_fqdn or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="form-help" style="margin-bottom:var(--sp-4);">
+        Aucune application active en mode « Sous-domaine dédié » pour le moment.
+      </p>
+      {% endif %}
+
+      <form method="post" action="/admin/security/subdomain-sso" id="subdomain-sso-form">
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:center;gap:var(--sp-3);cursor:pointer;">
+            <input type="checkbox" name="enabled" id="subdomain_sso_enabled"
+                   {% if subdomain_sso_enabled %}checked{% endif %}
+                   data-was-enabled="{{ '1' if subdomain_sso_enabled else '0' }}">
+            Activer le routage par sous-domaine dédié (SSO)
+          </label>
+        </div>
+        <div class="form-group" id="infra-ack-group" {% if subdomain_sso_enabled %}hidden{% endif %}>
+          <label class="form-label" style="display:flex;align-items:flex-start;gap:var(--sp-3);cursor:pointer;">
+            <input type="checkbox" name="infra_ack" id="infra_ack" style="margin-top:3px;">
+            <span>
+              J'ai vérifié que l'infrastructure (DNS, TLS, Nginx) est prête pour
+              toutes les applications listées ci-dessus.
+            </span>
+          </label>
+        </div>
+        <div class="form-footer" style="padding-left:0;padding-right:0;border:none;">
+          <button type="submit" class="btn btn-secondary btn-sm">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="form-section" id="vault">
     <div class="form-section-header">
       <div class="form-section-title">Coffre-fort applicatif (Fernet)</div>
@@ -55,4 +137,47 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var form = document.getElementById('subdomain-sso-form');
+  if (!form) return;
+  var enabled = document.getElementById('subdomain_sso_enabled');
+  var ackGroup = document.getElementById('infra-ack-group');
+  var ack = document.getElementById('infra_ack');
+  var wasEnabled = enabled && enabled.getAttribute('data-was-enabled') === '1';
+
+  function syncAck() {
+    if (!ackGroup || !enabled) return;
+    var activating = enabled.checked && !wasEnabled;
+    ackGroup.hidden = !activating;
+    if (ack) ack.required = activating;
+  }
+  if (enabled) enabled.addEventListener('change', syncAck);
+  syncAck();
+
+  form.addEventListener('submit', function (e) {
+    if (!enabled || !enabled.checked || wasEnabled) return;
+    if (!ack || !ack.checked) {
+      e.preventDefault();
+      alert(
+        "N'activez ce mode que si l'infrastructure réseau est prête pour TOUTES " +
+        "les applications configurées en mode 'Sous-domaine dédié' : DNS wildcard " +
+        "ou entrées dédiées pour chaque sous-domaine, certificats TLS valides, " +
+        "routage Nginx en place. Toute application en mode 'Sous-domaine dédié' " +
+        "sans cette infra prête deviendra inaccessible après activation."
+      );
+      return;
+    }
+    var ok = confirm(
+      "Confirmer l'activation du routage par sous-domaine dédié ?\n\n" +
+      "Les applications listées ci-dessus seront redirigées vers leur FQDN " +
+      "après impersonation. Sans DNS/TLS/Nginx prêts, elles seront inaccessibles."
+    );
+    if (!ok) e.preventDefault();
+  });
+})();
+</script>
 {% endblock %}

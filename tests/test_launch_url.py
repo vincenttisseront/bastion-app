@@ -86,7 +86,7 @@ def test_launch_url_sso_without_driver_unchanged():
     assert app_launch_url(sub) == "https://sub.example.fr"
 
 
-def test_resolve_target_legacy_and_subdomain():
+def test_resolve_target_legacy_and_subdomain(db_session: Session):
     settings_off = Settings(
         vault_portal_internal_token="t",
         portal_secret_encryption_key="k",
@@ -101,7 +101,7 @@ def test_resolve_target_legacy_and_subdomain():
         robotic_driver="crushftp",
         enabled=True,
     )
-    mode, url, fqdn = _resolve_target(legacy, settings_off)
+    mode, url, fqdn = _resolve_target(legacy, settings_off, db_session)
     assert mode == "legacy"
     assert url == "/proxy/transfer/"
     assert fqdn is None
@@ -121,7 +121,8 @@ def test_resolve_target_legacy_and_subdomain():
         robotic_driver="crushftp",
         enabled=True,
     )
-    mode, url, fqdn = _resolve_target(sub, settings_on)
+    # No portal_settings row → fallback on Settings.subdomain_sso_enabled
+    mode, url, fqdn = _resolve_target(sub, settings_on, db_session)
     assert mode == "subdomain"
     assert url == "https://transfer.example.fr/"
     assert fqdn == "transfer.example.fr"

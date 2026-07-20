@@ -95,7 +95,10 @@ class Settings(BaseSettings):
         ),
     )
 
-    subdomain_sso_enabled: bool = False
+    subdomain_sso_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("SUBDOMAIN_SSO_ENABLED", "subdomain_sso_enabled"),
+    )
     subdomain_auth_enabled: bool = False
 
     oauth2_proxy_default_url: str = Field(
