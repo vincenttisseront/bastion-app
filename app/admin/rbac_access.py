@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
+from app.bastion.bastion_fields import vault_enabled_for_app
 from app.database import get_db
 from app.models import App, RBACGroup, RealmConfig
 from app.rbac.grants_service import (
@@ -34,6 +35,7 @@ from app.rbac.keycloak_admin import (
     search_keycloak_users,
 )
 from app.sso_settings import Settings, get_settings
+from app.vault.user_app_credential_service import get_user_credential, has_user_override
 from app.web.flash import flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
@@ -241,6 +243,35 @@ async def admin_rbac_users_page(
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     granted_users = list_users_with_direct_grants(db)
+
+    vault_apps: list[dict] = []
+    if keycloak_user_id and (direct_grants or effective_grants):
+        apps_by_id = {a.id: a for a in apps}
+        seen_slugs: set[str] = set()
+        for grant in list(effective_grants) + [
+            serialize_grant(g, db) for g in direct_grants
+        ]:
+            if grant.get("resource_type") != "application":
+                continue
+            app_id = grant.get("application_id")
+            app = apps_by_id.get(app_id) if app_id else None
+            if app is None or app.slug in seen_slugs:
+                continue
+            if not vault_enabled_for_app(app.auth_mode, app.robotic_driver):
+                continue
+            seen_slugs.add(app.slug)
+            override = has_user_override(db, app.slug, keycloak_user_id)
+            user_cred = get_user_credential(db, app.slug, keycloak_user_id) if override else None
+            vault_apps.append(
+                {
+                    "slug": app.slug,
+                    "label": app.label,
+                    "robotic_driver": app.robotic_driver,
+                    "has_override": override,
+                    "robotic_username": user_cred.robotic_username if user_cred else None,
+                }
+            )
+
     return render(
         "admin/rbac/users.html",
         **_ctx(
@@ -255,6 +286,7 @@ async def admin_rbac_users_page(
             effective_grants=effective_grants,
             user_error=user_error,
             apps=apps,
+            vault_apps=vault_apps,
             granted_users=granted_users,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),

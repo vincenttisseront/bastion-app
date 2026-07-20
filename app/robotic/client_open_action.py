@@ -83,6 +83,7 @@ async def client_impersonate(
             settings,
             actor=user.email or user.username,
             ip_address=_client_ip(request),
+            keycloak_user_id=user.keycloak_user_id,
         )
     except ImpersonationError as exc:
         return _impersonation_error_response(exc)
@@ -135,6 +136,7 @@ async def basic_auth_header(
             settings,
             actor=user.email or user.username,
             ip_address=_client_ip(request),
+            keycloak_user_id=user.keycloak_user_id,
         )
     except ImpersonationError:
         return Response(status_code=403)

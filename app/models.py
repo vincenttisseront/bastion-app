@@ -175,6 +175,37 @@ class AppCredential(Base):
     app = relationship("App", back_populates="credentials", foreign_keys=[app_slug])
 
 
+class UserAppCredential(Base):
+    """Per-user vault override for an application (Fernet) — optional."""
+
+    __tablename__ = "user_app_credentials"
+
+    id = Column(Integer, primary_key=True)
+    app_slug = Column(
+        String,
+        ForeignKey("apps.slug"),
+        nullable=False,
+        index=True,
+    )
+    keycloak_user_id = Column(String, nullable=False, index=True)
+    robotic_username = Column(String, nullable=False)
+    encrypted_password = Column(Text, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    rotated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "app_slug",
+            "keycloak_user_id",
+            name="uq_user_app_credential",
+        ),
+    )
+
+    app = relationship("App", foreign_keys=[app_slug])
+
+
 class RealmConfig(Base):
     """OIDC realm configuration for multi-realm oauth2-proxy."""
 

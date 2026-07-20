@@ -25,15 +25,16 @@ from app.vault.app_credential_service import (
     CredentialDecryptError,
     CredentialNotFoundError,
     EncryptionNotConfiguredError,
-    get_app_credential,
-    get_decrypted_password,
 )
+from app.vault.user_app_credential_service import resolve_credential
 
 
 async def test_app_credential_connection(
     db: Session,
     app: App,
     settings: Settings,
+    *,
+    keycloak_user_id: str | None = None,
 ) -> ConnectionTestResult:
     """Run login + fingerprint steps; never put secrets in CheckStep.detail."""
     checks: list[CheckStep] = []
@@ -42,10 +43,9 @@ async def test_app_credential_connection(
     driver = (app.robotic_driver or "").strip().lower()
 
     try:
-        password = get_decrypted_password(db, slug, settings)
-        cred = get_app_credential(db, slug)
-        if cred is None:
-            raise CredentialNotFoundError(f"No active credential for app '{slug}'")
+        resolved, password = resolve_credential(
+            db, slug, settings, keycloak_user_id=keycloak_user_id
+        )
     except EncryptionNotConfiguredError as exc:
         checks.append(
             CheckStep(
@@ -93,13 +93,17 @@ async def test_app_credential_connection(
         )
 
     checks.append(
-        CheckStep(name="vault", status=CheckStatus.OK, message="Credential decrypted")
+        CheckStep(
+            name="vault",
+            status=CheckStatus.OK,
+            message=f"Credential decrypted ({resolved.source})",
+        )
     )
     password_cleared = False
 
     if driver == "generic_form":
         try:
-            result = await generic_form_login(cred, app, password)
+            result = await generic_form_login(resolved, app, password)
             password = ""
             password_cleared = True
             if result.cookies:
@@ -124,7 +128,7 @@ async def test_app_credential_connection(
             )
     elif driver == "generic_basic_auth":
         try:
-            auth_header = generic_basic_auth_header(cred, password)
+            auth_header = generic_basic_auth_header(resolved, password)
             password = ""
             password_cleared = True
             ok = await generic_basic_auth_probe(app, auth_header)
@@ -155,14 +159,16 @@ async def test_app_credential_connection(
     else:
         crush_driver = CrushFTPDriver()
         try:
-            session = await crush_driver.login(app.upstream_url, cred.robotic_username, password)
+            session = await crush_driver.login(
+                app.upstream_url, resolved.robotic_username, password
+            )
             password = ""
             password_cleared = True
             checks.append(
                 CheckStep(name="login", status=CheckStatus.OK, message="Robotic login OK")
             )
             identity = await crush_driver.get_username(session)
-            if identity != cred.robotic_username:
+            if identity != resolved.robotic_username:
                 checks.append(
                     CheckStep(
                         name="get_username",
@@ -199,7 +205,6 @@ def credential_test_legacy_response(result: ConnectionTestResult) -> tuple[dict,
     """Map to legacy ``{ok, error?}`` JSON + HTTP status."""
     if result.overall_status == CheckStatus.OK:
         return {"ok": True}, 200
-    # Prefer the first error message
     message = "Connection test failed"
     for step in result.checks:
         if step.status == CheckStatus.ERROR:

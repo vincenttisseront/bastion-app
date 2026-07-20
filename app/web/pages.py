@@ -46,6 +46,12 @@ from app.vault.credential_connection_test import (
     credential_test_legacy_response,
     test_app_credential_connection,
 )
+from app.vault.user_app_credential_service import (
+    delete_user_credential,
+    get_user_credential,
+    has_user_override,
+    set_user_credential,
+)
 from app.testing_framework.throttle import throttle_retry_after
 from app.web.user_context import get_user_context, is_portal_admin, require_admin, require_user
 from pydantic import BaseModel, Field
@@ -786,6 +792,133 @@ async def admin_app_credential_test(
         details={
             "resource_type": result.resource_type,
             "resource_id": slug,
+            "status": result.overall_status.value,
+            "checks": [{"name": c.name, "status": c.status.value} for c in result.checks],
+        },
+        ip_address=_client_ip(request),
+    )
+    body, status = credential_test_legacy_response(result)
+    if status == 503:
+        raise HTTPException(status_code=503, detail=body.get("error", "Encryption not configured"))
+    if status != 200 or not body.get("ok"):
+        return JSONResponse(body, status_code=status if status != 200 else 200)
+    return body
+
+
+@router.get("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+def admin_user_app_credential_read(
+    slug: str,
+    keycloak_user_id: str,
+    db: Session = Depends(get_db),
+    _user=Depends(require_admin),
+):
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    override = has_user_override(db, slug, keycloak_user_id)
+    user_cred = get_user_credential(db, slug, keycloak_user_id) if override else None
+    shared = get_app_credential(db, slug)
+    return {
+        "app_slug": slug,
+        "keycloak_user_id": keycloak_user_id,
+        "has_override": override,
+        "credential_source": "user_override" if override else "shared",
+        "robotic_username": (
+            user_cred.robotic_username if user_cred is not None else (
+                shared.robotic_username if shared is not None else None
+            )
+        ),
+        "shared_available": shared is not None and bool(shared.is_active),
+    }
+
+
+@router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+def admin_user_app_credential_save(
+    slug: str,
+    keycloak_user_id: str,
+    body: _VaultCredentialBody,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    try:
+        cred = set_user_credential(
+            db,
+            slug,
+            keycloak_user_id,
+            body.robotic_username.strip(),
+            body.password,
+            settings,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except EncryptionNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except VaultError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "has_override": True,
+        "robotic_username": cred.robotic_username,
+        "credential_source": "user_override",
+    }
+
+
+@router.delete("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+def admin_user_app_credential_delete(
+    slug: str,
+    keycloak_user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_admin),
+):
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    deleted = delete_user_credential(
+        db,
+        slug,
+        keycloak_user_id,
+        actor=user.email,
+        ip_address=_client_ip(request),
+    )
+    return {"ok": True, "deleted": deleted, "has_override": False, "credential_source": "shared"}
+
+
+@router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential/test")
+async def admin_user_app_credential_test(
+    slug: str,
+    keycloak_user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    throttle_id = f"{slug}:{keycloak_user_id}"
+    if wait := throttle_retry_after("user_app_credential", throttle_id, min_interval_seconds=5):
+        return JSONResponse(
+            {"ok": False, "error": f"Trop de tests — réessayez dans {wait:.0f}s"},
+            status_code=429,
+        )
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    result = await test_app_credential_connection(
+        db, app, settings, keycloak_user_id=keycloak_user_id
+    )
+    log_action(
+        db,
+        actor=user.email,
+        action="credential.user.test",
+        target=f"app:{slug}/user:{keycloak_user_id}",
+        details={
+            "resource_type": result.resource_type,
+            "resource_id": slug,
+            "keycloak_user_id": keycloak_user_id,
             "status": result.overall_status.value,
             "checks": [{"name": c.name, "status": c.status.value} for c in result.checks],
         },

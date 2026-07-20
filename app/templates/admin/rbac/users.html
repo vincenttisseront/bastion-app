@@ -196,6 +196,65 @@
       </div>
     </div>
   </div>
+
+  {% if vault_apps %}
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);" id="user-vault-section"
+       data-keycloak-user-id="{{ keycloak_user_id }}">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Vault applicatif — {{ kc_user.username or kc_user.email }}</span>
+      <span class="badge badge-muted">{{ vault_apps | length }}</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table" id="user-vault-table">
+        <thead>
+          <tr><th>Application</th><th>Statut credential</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for va in vault_apps %}
+          <tr data-app-slug="{{ va.slug }}">
+            <td>
+              <div>{{ va.label }}</div>
+              <div class="mono form-hint">{{ va.slug }}{% if va.robotic_driver %} · {{ va.robotic_driver }}{% endif %}</div>
+            </td>
+            <td>
+              {% if va.has_override %}
+                <span class="badge badge-ok" data-vault-status>Individuel</span>
+                {% if va.robotic_username %}
+                <div class="mono form-hint" data-vault-username>{{ va.robotic_username }}</div>
+                {% endif %}
+              {% else %}
+                <span class="badge badge-muted" data-vault-status>Partagé</span>
+              {% endif %}
+            </td>
+            <td>
+              <button type="button" class="btn btn-ghost btn-sm" data-vault-configure="{{ va.slug }}">Configurer</button>
+            </td>
+          </tr>
+          <tr data-vault-form-row="{{ va.slug }}" hidden>
+            <td colspan="3" style="padding:var(--sp-4); background:var(--bg-secondary);">
+              <div class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+                <div class="form-group">
+                  <label class="form-label">Login individuel</label>
+                  <input type="text" class="form-input" data-vault-user autocomplete="off"
+                         value="{{ va.robotic_username or '' }}" placeholder="service-account">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Mot de passe individuel</label>
+                  <input type="password" class="form-input" data-vault-pass autocomplete="new-password" placeholder="••••••••">
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" data-vault-save="{{ va.slug }}">Enregistrer</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-vault-test="{{ va.slug }}">Tester la connexion</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-vault-clear="{{ va.slug }}">Utiliser le compte partagé</button>
+              </div>
+              <div class="form-help" data-vault-msg style="margin-top:var(--sp-2);"></div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
   {% endif %}
 </div>
 {% endblock %}
@@ -225,33 +284,158 @@
   var hiddenId = document.getElementById('keycloak_user_id');
   var realmSelect = document.getElementById('realm_id');
   var suggestions = document.getElementById('user-suggestions');
-  if (!searchInput || !hiddenId || !realmSelect) return;
-
-  var timer;
-  searchInput.addEventListener('input', function () {
-    clearTimeout(timer);
-    var q = searchInput.value.trim();
-    if (q.length < 2) { suggestions.textContent = ''; return; }
-    timer = setTimeout(async function () {
-      try {
-        var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
-        var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
-        var data = await resp.json();
-        if (!data.ok) { suggestions.textContent = data.errors && data.errors._form || 'Erreur recherche'; return; }
-        suggestions.innerHTML = (data.users || []).map(function (u) {
-          return '<button type="button" class="btn btn-ghost btn-sm" style="margin:2px;" data-pick-user="' + u.id + '">' + (u.display || u.username) + '</button>';
-        }).join(' ');
-        suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
-          btn.addEventListener('click', function () {
-            hiddenId.value = btn.getAttribute('data-pick-user');
-            searchInput.value = btn.textContent;
-            suggestions.textContent = '';
+  if (searchInput && hiddenId && realmSelect) {
+    var timer;
+    searchInput.addEventListener('input', function () {
+      clearTimeout(timer);
+      var q = searchInput.value.trim();
+      if (q.length < 2) { suggestions.textContent = ''; return; }
+      timer = setTimeout(async function () {
+        try {
+          var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
+          var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+          var data = await resp.json();
+          if (!data.ok) { suggestions.textContent = data.errors && data.errors._form || 'Erreur recherche'; return; }
+          suggestions.innerHTML = (data.users || []).map(function (u) {
+            return '<button type="button" class="btn btn-ghost btn-sm" style="margin:2px;" data-pick-user="' + u.id + '">' + (u.display || u.username) + '</button>';
+          }).join(' ');
+          suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+              hiddenId.value = btn.getAttribute('data-pick-user');
+              searchInput.value = btn.textContent;
+              suggestions.textContent = '';
+            });
           });
-        });
-      } catch (e) {
-        suggestions.textContent = 'Erreur réseau';
+        } catch (e) {
+          suggestions.textContent = 'Erreur réseau';
+        }
+      }, 300);
+    });
+  }
+
+  var vaultSection = document.getElementById('user-vault-section');
+  if (!vaultSection) return;
+  var kcUserId = vaultSection.dataset.keycloakUserId;
+  var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  function formRow(slug) {
+    return document.querySelector('[data-vault-form-row="' + slug + '"]');
+  }
+  function statusCell(slug) {
+    var row = document.querySelector('tr[data-app-slug="' + slug + '"]');
+    return row ? row.querySelector('[data-vault-status]') : null;
+  }
+  function msgEl(slug) {
+    var row = formRow(slug);
+    return row ? row.querySelector('[data-vault-msg]') : null;
+  }
+
+  document.querySelectorAll('[data-vault-configure]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var slug = btn.getAttribute('data-vault-configure');
+      var row = formRow(slug);
+      if (row) row.hidden = !row.hidden;
+    });
+  });
+
+  document.querySelectorAll('[data-vault-save]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var slug = btn.getAttribute('data-vault-save');
+      var row = formRow(slug);
+      var username = row.querySelector('[data-vault-user]').value.trim();
+      var password = row.querySelector('[data-vault-pass]').value;
+      var msg = msgEl(slug);
+      if (!username || !password) {
+        if (msg) msg.textContent = 'Saisissez login et mot de passe.';
+        return;
       }
-    }, 300);
+      btn.disabled = true;
+      try {
+        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-CSRF-Token': csrf
+          },
+          body: JSON.stringify({ robotic_username: username, password: password })
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) {
+          if (msg) msg.textContent = data.detail || 'Échec de l\'enregistrement.';
+          return;
+        }
+        row.querySelector('[data-vault-pass]').value = '';
+        var badge = statusCell(slug);
+        if (badge) {
+          badge.className = 'badge badge-ok';
+          badge.textContent = 'Individuel';
+        }
+        if (msg) msg.textContent = 'Credential individuel enregistré.';
+      } catch (e) {
+        if (msg) msg.textContent = 'Erreur réseau.';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-vault-clear]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var slug = btn.getAttribute('data-vault-clear');
+      var msg = msgEl(slug);
+      if (!confirm('Revenir au compte partagé pour cette application ?')) return;
+      btn.disabled = true;
+      try {
+        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
+          method: 'DELETE',
+          headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrf }
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) {
+          if (msg) msg.textContent = data.detail || 'Échec.';
+          return;
+        }
+        var badge = statusCell(slug);
+        if (badge) {
+          badge.className = 'badge badge-muted';
+          badge.textContent = 'Partagé';
+        }
+        var form = formRow(slug);
+        if (form) {
+          form.querySelector('[data-vault-user]').value = '';
+          form.querySelector('[data-vault-pass]').value = '';
+        }
+        if (msg) msg.textContent = 'Override supprimé — compte partagé.';
+      } catch (e) {
+        if (msg) msg.textContent = 'Erreur réseau.';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-vault-test]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var slug = btn.getAttribute('data-vault-test');
+      var msg = msgEl(slug);
+      btn.disabled = true;
+      if (msg) msg.textContent = 'Test en cours…';
+      try {
+        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential/test', {
+          method: 'POST',
+          headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrf }
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (msg) {
+          msg.textContent = data.ok ? 'Connexion réussie.' : (data.error || data.detail || 'Échec du test.');
+        }
+      } catch (e) {
+        if (msg) msg.textContent = 'Erreur réseau.';
+      } finally {
+        btn.disabled = false;
+      }
+    });
   });
 })();
 </script>

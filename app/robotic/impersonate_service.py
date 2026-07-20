@@ -23,13 +23,14 @@ from app.vault.app_credential_service import (
     CredentialDecryptError,
     CredentialNotFoundError,
     EncryptionNotConfiguredError,
-    get_app_credential,
-    get_decrypted_password,
+)
+from app.vault.user_app_credential_service import (
+    CredentialSource,
+    ResolvedCredential,
+    resolve_credential,
 )
 
 logger = logging.getLogger(__name__)
-
-_SUPPORTED_DRIVERS = frozenset({"crushftp", "generic_form", "generic_basic_auth"})
 
 
 class ImpersonationError(Exception):
@@ -45,6 +46,7 @@ class RoboticSessionResult:
     slug: str
     robotic_username: str
     driver: str
+    credential_source: CredentialSource = "shared"
     use_crushftp_cookies: bool = False
 
 
@@ -53,6 +55,7 @@ class BasicAuthHeaderResult:
     auth_header: str
     slug: str
     robotic_username: str
+    credential_source: CredentialSource = "shared"
 
 
 def _cookie_fingerprint(cookies: dict[str, str]) -> dict[str, str]:
@@ -85,6 +88,7 @@ def _audit_impersonate(
     mode: str | None = None,
     robotic_username: str | None = None,
     cookies: dict[str, str] | None = None,
+    credential_source: CredentialSource | None = None,
 ) -> None:
     details: dict = {
         "app_slug": app_slug,
@@ -99,6 +103,8 @@ def _audit_impersonate(
         details["robotic_username"] = robotic_username
     if cookies:
         details["cookies"] = _cookie_fingerprint(cookies)
+    if credential_source:
+        details["credential_source"] = credential_source
     log_action(
         db,
         actor=actor,
@@ -117,8 +123,9 @@ def _load_app_and_credential(
     actor: str,
     ip_address: str | None,
     driver: str,
-) -> tuple[App, str, str]:
-    """Return (app, robotic_username, password). Raises ImpersonationError on failure."""
+    keycloak_user_id: str | None,
+) -> tuple[App, ResolvedCredential, str]:
+    """Return (app, ResolvedCredential, password). Raises ImpersonationError on failure."""
     app = db.query(App).filter_by(slug=app_slug).first()
     if app is None or not app.enabled:
         _audit_impersonate(
@@ -133,9 +140,9 @@ def _load_app_and_credential(
         raise ImpersonationError(f"App '{app_slug}' not found")
 
     try:
-        password = get_decrypted_password(db, app_slug, settings)
-        cred = get_app_credential(db, app_slug)
-        assert cred is not None
+        resolved, password = resolve_credential(
+            db, app_slug, settings, keycloak_user_id=keycloak_user_id
+        )
     except EncryptionNotConfiguredError as exc:
         _audit_impersonate(
             db,
@@ -170,7 +177,7 @@ def _load_app_and_credential(
         )
         raise ImpersonationError(str(exc)) from exc
 
-    return app, cred.robotic_username, password
+    return app, resolved, password
 
 
 async def _impersonate_crushftp(
@@ -178,7 +185,7 @@ async def _impersonate_crushftp(
     app: App,
     app_slug: str,
     settings: Settings,
-    robotic_username: str,
+    resolved: ResolvedCredential,
     password: str,
     *,
     actor: str,
@@ -186,7 +193,7 @@ async def _impersonate_crushftp(
 ) -> RoboticSessionResult:
     driver = CrushFTPDriver()
     try:
-        session = await driver.login(app.upstream_url, robotic_username, password)
+        session = await driver.login(app.upstream_url, resolved.robotic_username, password)
         identity = await driver.get_username(session)
     except RoboticLoginError as exc:
         _audit_impersonate(
@@ -197,12 +204,13 @@ async def _impersonate_crushftp(
             success=False,
             driver="crushftp",
             error="login_failed",
+            credential_source=resolved.source,
         )
         raise ImpersonationError(str(exc)) from exc
     finally:
         password = ""  # noqa: F841
 
-    if identity != robotic_username:
+    if identity != resolved.robotic_username:
         _audit_impersonate(
             db,
             app_slug=app_slug,
@@ -211,6 +219,7 @@ async def _impersonate_crushftp(
             success=False,
             driver="crushftp",
             error="identity_mismatch",
+            credential_source=resolved.source,
         )
         raise ImpersonationError("CrushFTP identity fingerprint mismatch")
 
@@ -223,8 +232,9 @@ async def _impersonate_crushftp(
         success=True,
         driver="crushftp",
         mode=mode,
-        robotic_username=robotic_username,
+        robotic_username=resolved.robotic_username,
         cookies=session.cookies,
+        credential_source=resolved.source,
     )
     return RoboticSessionResult(
         cookies=session.cookies,
@@ -232,8 +242,9 @@ async def _impersonate_crushftp(
         mode=mode,
         fqdn=fqdn,
         slug=app.slug,
-        robotic_username=robotic_username,
+        robotic_username=resolved.robotic_username,
         driver="crushftp",
+        credential_source=resolved.source,
         use_crushftp_cookies=True,
     )
 
@@ -243,16 +254,14 @@ async def _impersonate_generic_form(
     app: App,
     app_slug: str,
     settings: Settings,
-    robotic_username: str,
+    resolved: ResolvedCredential,
     password: str,
     *,
     actor: str,
     ip_address: str | None,
 ) -> RoboticSessionResult:
-    cred = get_app_credential(db, app_slug)
-    assert cred is not None
     try:
-        result = await generic_form_login(cred, app, password)
+        result = await generic_form_login(resolved, app, password)
     except RoboticLoginError as exc:
         _audit_impersonate(
             db,
@@ -262,6 +271,7 @@ async def _impersonate_generic_form(
             success=False,
             driver="generic_form",
             error="login_failed",
+            credential_source=resolved.source,
         )
         raise ImpersonationError(str(exc)) from exc
     finally:
@@ -276,8 +286,9 @@ async def _impersonate_generic_form(
         success=True,
         driver="generic_form",
         mode=mode,
-        robotic_username=robotic_username,
+        robotic_username=resolved.robotic_username,
         cookies=result.cookies,
+        credential_source=resolved.source,
     )
     return RoboticSessionResult(
         cookies=result.cookies,
@@ -285,8 +296,9 @@ async def _impersonate_generic_form(
         mode=mode,
         fqdn=fqdn,
         slug=app.slug,
-        robotic_username=robotic_username,
+        robotic_username=resolved.robotic_username,
         driver="generic_form",
+        credential_source=resolved.source,
         use_crushftp_cookies=False,
     )
 
@@ -298,12 +310,13 @@ async def impersonate(
     *,
     actor: str = "system",
     ip_address: str | None = None,
+    keycloak_user_id: str | None = None,
 ) -> RoboticSessionResult:
     """
     Vault decrypt + driver login + session cookies for cookie-based robotic SSO.
 
     Supports crushftp and generic_form drivers only.
-    generic_basic_auth uses get_basic_auth_header() via Nginx auth_request.
+    Uses per-user override when keycloak_user_id has an active UserAppCredential.
     """
     app = db.query(App).filter_by(slug=app_slug).first()
     driver_name = (app.robotic_driver or "").strip().lower() if app else ""
@@ -351,13 +364,14 @@ async def impersonate(
             f"App '{app_slug}' robotic SSO requires subdomain_proxy or legacy_path_proxy"
         )
 
-    app_obj, robotic_username, password = _load_app_and_credential(
+    app_obj, resolved, password = _load_app_and_credential(
         db,
         app_slug,
         settings,
         actor=actor,
         ip_address=ip_address,
         driver=driver_name,
+        keycloak_user_id=keycloak_user_id,
     )
 
     if driver_name == "crushftp":
@@ -366,7 +380,7 @@ async def impersonate(
             app_obj,
             app_slug,
             settings,
-            robotic_username,
+            resolved,
             password,
             actor=actor,
             ip_address=ip_address,
@@ -376,7 +390,7 @@ async def impersonate(
         app_obj,
         app_slug,
         settings,
-        robotic_username,
+        resolved,
         password,
         actor=actor,
         ip_address=ip_address,
@@ -390,6 +404,7 @@ async def get_basic_auth_header(
     *,
     actor: str = "system",
     ip_address: str | None = None,
+    keycloak_user_id: str | None = None,
 ) -> BasicAuthHeaderResult:
     """
     Return Authorization header for Nginx auth_request (generic_basic_auth).
@@ -438,18 +453,17 @@ async def get_basic_auth_header(
             f"App '{app_slug}' Basic Auth requires subdomain_proxy or legacy_path_proxy"
         )
 
-    app_obj, robotic_username, password = _load_app_and_credential(
+    app_obj, resolved, password = _load_app_and_credential(
         db,
         app_slug,
         settings,
         actor=actor,
         ip_address=ip_address,
         driver="generic_basic_auth",
+        keycloak_user_id=keycloak_user_id,
     )
-    cred = get_app_credential(db, app_slug)
-    assert cred is not None
     try:
-        auth_header = generic_basic_auth_header(cred, password)
+        auth_header = generic_basic_auth_header(resolved, password)
     finally:
         password = ""  # noqa: F841
 
@@ -460,10 +474,12 @@ async def get_basic_auth_header(
         ip_address=ip_address,
         success=True,
         driver="generic_basic_auth",
-        robotic_username=robotic_username,
+        robotic_username=resolved.robotic_username,
+        credential_source=resolved.source,
     )
     return BasicAuthHeaderResult(
         auth_header=auth_header,
         slug=app_obj.slug,
-        robotic_username=robotic_username,
+        robotic_username=resolved.robotic_username,
+        credential_source=resolved.source,
     )

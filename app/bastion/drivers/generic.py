@@ -9,11 +9,16 @@ import httpx
 
 from app.bastion.bastion_fields import parse_login_extra_fields
 from app.bastion.drivers.base import DriverLoginError, DriverLoginResult
-from app.models import App, AppCredential
+from app.models import App
+from app.vault.user_app_credential_service import ResolvedCredential
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 5.0
+
+
+def _username(credential: ResolvedCredential | object) -> str:
+    return str(getattr(credential, "robotic_username", "") or "")
 
 
 def _extract_response_cookies(response: httpx.Response) -> dict[str, str]:
@@ -34,7 +39,7 @@ def _extract_response_cookies(response: httpx.Response) -> dict[str, str]:
 
 
 async def generic_form_login(
-    credential: AppCredential,
+    credential: ResolvedCredential | object,
     app: App,
     password: str,
 ) -> DriverLoginResult:
@@ -58,7 +63,7 @@ async def generic_form_login(
         payload.update(parse_login_extra_fields(app.login_extra_fields))
     except ValueError as exc:
         raise DriverLoginError("Invalid login extra fields JSON") from exc
-    payload[username_field] = credential.robotic_username
+    payload[username_field] = _username(credential)
     payload[password_field] = password
 
     try:
@@ -79,14 +84,14 @@ async def generic_form_login(
     return DriverLoginResult(cookies=cookies)
 
 
-def generic_basic_auth_header(credential: AppCredential, password: str) -> str:
+def generic_basic_auth_header(credential: ResolvedCredential | object, password: str) -> str:
     """
     Build Authorization header value for HTTP Basic Auth.
 
     Never log the return value.
     """
     token = base64.b64encode(
-        f"{credential.robotic_username}:{password}".encode("utf-8")
+        f"{_username(credential)}:{password}".encode("utf-8")
     ).decode("ascii")
     return f"Basic {token}"
 
