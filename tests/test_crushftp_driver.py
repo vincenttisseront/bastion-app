@@ -138,3 +138,35 @@ async def test_fingerprint_detects_crushftp():
     )
     driver = CrushFTPDriver()
     assert await driver.fingerprint(BASE) is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_logout_posts_command_best_effort():
+    route = respx.post(LOGIN_URL).mock(return_value=Response(200, text="<response>success</response>"))
+    driver = CrushFTPDriver()
+    from app.bastion.drivers.crushftp import CrushFTPSession
+
+    session = CrushFTPSession(
+        cookies={"CrushAuth": "ABCDEFGH1234", "currentAuth": "1234"},
+        base_url=BASE + "/",
+    )
+    await driver.logout(session)
+    assert route.called
+    body = route.calls.last.request.content.decode()
+    assert "command=logout" in body
+    assert "c2f=1234" in body
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_logout_swallows_network_errors():
+    respx.post(LOGIN_URL).mock(side_effect=httpx.ConnectError("down"))
+    driver = CrushFTPDriver()
+    from app.bastion.drivers.crushftp import CrushFTPSession
+
+    session = CrushFTPSession(
+        cookies={"CrushAuth": "ABCDEFGH1234", "currentAuth": "1234"},
+        base_url=BASE + "/",
+    )
+    await driver.logout(session)  # must not raise

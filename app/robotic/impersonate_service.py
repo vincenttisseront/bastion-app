@@ -226,10 +226,16 @@ async def _impersonate_crushftp(
     actor: str,
     ip_address: str | None,
 ) -> RoboticSessionResult:
+    # CrushFTP limits concurrent sessions per account. After login succeeds, any
+    # failure (getUsername, identity mismatch, _resolve_target, …) must call
+    # logout() so orphaned CrushAuth sessions do not pile up until idle timeout
+    # ("421 — Max simultaneous user limit reached" in QA is usually leftover
+    # sessions, not a bastion bug). The success path must NOT logout — cookies
+    # are returned to the user's browser for the live session.
     driver = CrushFTPDriver()
+    session = None
     try:
         session = await driver.login(app.upstream_url, resolved.robotic_username, password)
-        identity = await driver.get_username(session)
     except RoboticLoginError as exc:
         _audit_impersonate(
             db,
@@ -245,7 +251,26 @@ async def _impersonate_crushftp(
     finally:
         password = ""  # noqa: F841
 
-    if identity != resolved.robotic_username:
+    try:
+        identity = await driver.get_username(session)
+        if identity != resolved.robotic_username:
+            _audit_impersonate(
+                db,
+                app_slug=app_slug,
+                actor=actor,
+                ip_address=ip_address,
+                success=False,
+                driver="crushftp",
+                error="identity_mismatch",
+                credential_source=resolved.source,
+            )
+            raise ImpersonationError("CrushFTP identity fingerprint mismatch")
+        mode, target_url, fqdn = _resolve_target(app, settings, db)
+    except ImpersonationError:
+        await driver.logout(session)
+        raise
+    except RoboticLoginError as exc:
+        await driver.logout(session)
         _audit_impersonate(
             db,
             app_slug=app_slug,
@@ -253,12 +278,14 @@ async def _impersonate_crushftp(
             ip_address=ip_address,
             success=False,
             driver="crushftp",
-            error="identity_mismatch",
+            error="login_failed",
             credential_source=resolved.source,
         )
-        raise ImpersonationError("CrushFTP identity fingerprint mismatch")
+        raise ImpersonationError(str(exc)) from exc
+    except Exception:
+        await driver.logout(session)
+        raise
 
-    mode, target_url, fqdn = _resolve_target(app, settings, db)
     _audit_impersonate(
         db,
         app_slug=app_slug,

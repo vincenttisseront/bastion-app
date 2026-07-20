@@ -114,6 +114,27 @@ class CrushFTPDriver(RoboticDriver):
             raise RoboticLoginError("CrushFTP getUsername identity check failed")
         return username
 
+    async def logout(self, session: CrushFTPSession) -> None:
+        """
+        Best-effort session close.
+
+        CrushFTP enforces a max simultaneous sessions limit per account. Orphaned
+        CrushAuth sessions (login succeeded, later step failed without logout)
+        accumulate until idle timeout and surface as
+        "421 — Max simultaneous user limit reached". Never raise from here.
+        """
+        url = urljoin(session.base_url, "WebInterface/function/")
+        c2f = _c2f(session.cookies)
+        data: dict[str, str] = {"command": "logout"}
+        if c2f:
+            data["c2f"] = c2f
+        headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())}
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+                await client.post(url, data=data, headers=headers)
+        except httpx.RequestError:
+            pass
+
     async def fingerprint(self, base_url: str) -> bool:
         base = _normalize_base_url(base_url)
         url = urljoin(base, "WebInterface/login.html")

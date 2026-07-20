@@ -54,6 +54,7 @@ async def test_robotic_impersonate_success(db_session: Session, caplog):
         cookies={"CrushAuth": "ABCDEFGH1234", "currentAuth": "1234"},
         base_url="https://crush.example/",
     )
+    logout_mock = AsyncMock()
     with (
         patch(
             "app.robotic.impersonate_service.CrushFTPDriver.login",
@@ -63,6 +64,10 @@ async def test_robotic_impersonate_success(db_session: Session, caplog):
             "app.robotic.impersonate_service.CrushFTPDriver.get_username",
             new=AsyncMock(return_value="robot"),
         ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.logout",
+            new=logout_mock,
+        ),
         caplog.at_level(logging.DEBUG),
     ):
         result = await impersonate(db_session, "transfer", settings, actor="user@test")
@@ -70,6 +75,7 @@ async def test_robotic_impersonate_success(db_session: Session, caplog):
     assert result.cookies["CrushAuth"] == "ABCDEFGH1234"
     assert result.target_url == "/proxy/transfer/"
     assert result.mode == "legacy"
+    logout_mock.assert_not_awaited()
 
     audit = (
         db_session.query(AuditLog)
@@ -99,13 +105,21 @@ async def test_robotic_impersonate_login_failure(db_session: Session):
     settings = _settings()
     set_app_credential(db_session, "transfer", "robot", SECRET_PASSWORD, settings)
 
-    with patch(
-        "app.robotic.impersonate_service.CrushFTPDriver.login",
-        new=AsyncMock(side_effect=RoboticLoginError("CrushFTP login rejected")),
+    logout_mock = AsyncMock()
+    with (
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.login",
+            new=AsyncMock(side_effect=RoboticLoginError("CrushFTP login rejected")),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.logout",
+            new=logout_mock,
+        ),
     ):
         with pytest.raises(ImpersonationError, match="rejected"):
             await impersonate(db_session, "transfer", settings)
 
+    logout_mock.assert_not_awaited()
     audit = (
         db_session.query(AuditLog)
         .filter_by(action="robotic.impersonate")
@@ -115,3 +129,100 @@ async def test_robotic_impersonate_login_failure(db_session: Session):
     assert audit is not None
     assert audit.details["success"] is False
     assert SECRET_PASSWORD not in str(audit.details)
+
+
+@pytest.mark.asyncio
+async def test_impersonate_logout_on_identity_mismatch(db_session: Session):
+    _make_crush_app(db_session)
+    settings = _settings()
+    set_app_credential(db_session, "transfer", "robot", SECRET_PASSWORD, settings)
+
+    fake_session = CrushFTPSession(
+        cookies={"CrushAuth": "MISMATCHCOOKIE1", "currentAuth": "1234"},
+        base_url="https://crush.example/",
+    )
+    logout_mock = AsyncMock()
+    with (
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.login",
+            new=AsyncMock(return_value=fake_session),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.get_username",
+            new=AsyncMock(return_value="other-user"),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.logout",
+            new=logout_mock,
+        ),
+    ):
+        with pytest.raises(ImpersonationError, match="fingerprint mismatch"):
+            await impersonate(db_session, "transfer", settings, actor="user@test")
+
+    logout_mock.assert_awaited_once_with(fake_session)
+
+
+@pytest.mark.asyncio
+async def test_impersonate_logout_on_get_username_failure(db_session: Session):
+    _make_crush_app(db_session)
+    settings = _settings()
+    set_app_credential(db_session, "transfer", "robot", SECRET_PASSWORD, settings)
+
+    fake_session = CrushFTPSession(
+        cookies={"CrushAuth": "GETUSERFAIL1234", "currentAuth": "1234"},
+        base_url="https://crush.example/",
+    )
+    logout_mock = AsyncMock()
+    with (
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.login",
+            new=AsyncMock(return_value=fake_session),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.get_username",
+            new=AsyncMock(side_effect=RoboticLoginError("CrushFTP getUsername rejected")),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.logout",
+            new=logout_mock,
+        ),
+    ):
+        with pytest.raises(ImpersonationError, match="getUsername"):
+            await impersonate(db_session, "transfer", settings, actor="user@test")
+
+    logout_mock.assert_awaited_once_with(fake_session)
+
+
+@pytest.mark.asyncio
+async def test_impersonate_logout_on_resolve_target_failure(db_session: Session):
+    _make_crush_app(db_session)
+    settings = _settings()
+    set_app_credential(db_session, "transfer", "robot", SECRET_PASSWORD, settings)
+
+    fake_session = CrushFTPSession(
+        cookies={"CrushAuth": "RESOLVEFAIL1234", "currentAuth": "1234"},
+        base_url="https://crush.example/",
+    )
+    logout_mock = AsyncMock()
+    with (
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.login",
+            new=AsyncMock(return_value=fake_session),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.get_username",
+            new=AsyncMock(return_value="robot"),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.logout",
+            new=logout_mock,
+        ),
+        patch(
+            "app.robotic.impersonate_service._resolve_target",
+            side_effect=RuntimeError("db boom"),
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="db boom"):
+            await impersonate(db_session, "transfer", settings, actor="user@test")
+
+    logout_mock.assert_awaited_once_with(fake_session)
