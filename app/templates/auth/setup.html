@@ -69,17 +69,23 @@
   </div>
 </div>
 <script>
-  document.getElementById("setup-form").addEventListener("submit", function (event) {
+  document.getElementById("setup-form").addEventListener("submit", async function (event) {
     var password = document.getElementById("password").value;
-    var confirm = document.getElementById("password_confirm").value;
+    var passwordConfirm = document.getElementById("password_confirm").value;
     if (password.length < 12) {
       event.preventDefault();
-      alert("Le mot de passe doit contenir au moins 12 caractères.");
+      await window.bastionAlert({
+        title: 'Mot de passe trop court',
+        message: 'Le mot de passe doit contenir au moins 12 caractères.',
+      });
       return;
     }
-    if (password !== confirm) {
+    if (password !== passwordConfirm) {
       event.preventDefault();
-      alert("Les mots de passe ne correspondent pas.");
+      await window.bastionAlert({
+        title: 'Mots de passe différents',
+        message: 'Les mots de passe ne correspondent pas.',
+      });
     }
   });
 </script>

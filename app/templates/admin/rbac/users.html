@@ -421,7 +421,11 @@
       var confirmMsg = individual
         ? 'Cette application nécessite un credential individuel. Supprimer cet override empêchera cet utilisateur d\'accéder à l\'application jusqu\'à nouvelle configuration.'
         : 'Revenir au compte partagé pour cette application ?';
-      if (!confirm(confirmMsg)) return;
+      if (!(await window.bastionConfirm({
+        title: individual ? 'Supprimer le credential individuel' : 'Revenir au compte partagé',
+        message: confirmMsg,
+        danger: true,
+      }))) return;
       btn.disabled = true;
       try {
         var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {

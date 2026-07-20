@@ -183,7 +183,13 @@
       client_secret: document.getElementById('client_secret').value
     };
     if (!body.client_secret) {
-      if (!realmId) { alert('Saisissez le client secret avant de tester.'); return; }
+      if (!realmId) {
+        await window.bastionAlert({
+          title: 'Client secret requis',
+          message: 'Saisissez le client secret avant de tester.',
+        });
+        return;
+      }
       delete body.client_secret;
     }
     const url = realmId ? ('/admin/realms/' + realmId + '/test') : '/admin/realms/test';

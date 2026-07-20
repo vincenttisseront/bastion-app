@@ -104,7 +104,10 @@
       updateRow(row, payload);
       recalcMetricsFromDom();
     } catch (err) {
-      alert('Échec de la sonde : ' + err.message);
+      window.bastionAlert({
+        title: 'Échec de la sonde',
+        message: 'Échec de la sonde : ' + err.message,
+      });
     } finally {
       setButtonLoading(btn, false);
     }
@@ -122,7 +125,10 @@
       });
       updateMetrics(data.status_counts, data.health_score);
     } catch (err) {
-      alert('Échec du test global : ' + err.message);
+      window.bastionAlert({
+        title: 'Échec du test global',
+        message: 'Échec du test global : ' + err.message,
+      });
     } finally {
       setButtonLoading(btn, false);
     }

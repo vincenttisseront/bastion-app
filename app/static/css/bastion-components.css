@@ -147,6 +147,47 @@
 .alert-close{margin-left:auto;background:none;border:none;cursor:pointer;color:currentColor;opacity:.5;padding:0;line-height:1}
 .alert-close:hover{opacity:1}
 
+/* —— Bastion modal (confirm / alert) —— */
+body.bastion-modal-open{overflow:hidden}
+.bastion-modal{
+  position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;
+  padding:var(--sp-4);
+}
+.bastion-modal[hidden]{display:none!important}
+.bastion-modal-backdrop{
+  position:absolute;inset:0;background:rgba(2,13,24,.72);backdrop-filter:blur(4px);
+}
+.bastion-modal-dialog{
+  position:relative;z-index:1;width:100%;max-width:440px;max-height:min(85vh,640px);
+  display:flex;flex-direction:column;background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--r-lg);box-shadow:0 24px 64px rgba(0,0,0,.45);outline:none;
+}
+.bastion-modal-header{padding:var(--sp-4) var(--sp-5) var(--sp-3);border-bottom:1px solid var(--border-muted)}
+.bastion-modal-title{margin:0;font-size:var(--fs-base);font-weight:600;color:var(--text);line-height:1.4}
+.bastion-modal-body{
+  padding:var(--sp-4) var(--sp-5);overflow:auto;flex:1;min-height:0;
+}
+.bastion-modal-message{font-size:var(--fs-sm);color:var(--text-2);line-height:1.6}
+.bastion-modal-extra{margin-top:var(--sp-4)}
+.bastion-modal-list{
+  margin:0;padding:var(--sp-3) var(--sp-4);list-style:none;
+  background:var(--bg-secondary);border:1px solid var(--border-muted);border-radius:var(--r-md);
+  max-height:160px;overflow:auto;
+}
+.bastion-modal-list li{
+  display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:baseline;
+  padding:var(--sp-2) 0;border-bottom:1px solid var(--border-muted);
+  font-size:var(--fs-sm);color:var(--text);
+}
+.bastion-modal-list li:last-child{border-bottom:none;padding-bottom:0}
+.bastion-modal-list li:first-child{padding-top:0}
+.bastion-modal-list-label{font-weight:600}
+.bastion-modal-list-detail{color:var(--text-3);font-size:var(--fs-xs)}
+.bastion-modal-footer{
+  display:flex;justify-content:flex-end;gap:var(--sp-2);
+  padding:var(--sp-3) var(--sp-5) var(--sp-4);border-top:1px solid var(--border-muted);
+}
+
 .empty-state{display:flex;flex-direction:column;align-items:center;gap:var(--sp-4);padding:var(--sp-12) var(--sp-8);text-align:center}
 .empty-icon{width:64px;height:64px;border-radius:var(--r-xl);background:var(--bg-tertiary);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-3)}
 .empty-title{font-size:var(--fs-base);font-weight:600;color:var(--text-2)}

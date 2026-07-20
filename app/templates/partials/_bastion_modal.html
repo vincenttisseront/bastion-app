@@ -1,0 +1,27 @@
+{# Bastion confirm/alert dialog — single instance, controlled by bastion-modal.js #}
+<div id="bastion-modal" class="bastion-modal" hidden aria-hidden="true">
+  <div class="bastion-modal-backdrop" data-bastion-modal-dismiss></div>
+  <div
+    class="bastion-modal-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="bastion-modal-title"
+    tabindex="-1"
+  >
+    <div class="bastion-modal-header">
+      <h2 id="bastion-modal-title" class="bastion-modal-title">Confirmation</h2>
+    </div>
+    <div class="bastion-modal-body">
+      <div id="bastion-modal-message" class="bastion-modal-message"></div>
+      <div id="bastion-modal-extra" class="bastion-modal-extra" hidden></div>
+    </div>
+    <div class="bastion-modal-footer">
+      <button type="button" class="btn btn-ghost" id="bastion-modal-cancel" data-bastion-modal-dismiss>
+        Annuler
+      </button>
+      <button type="button" class="btn btn-secondary" id="bastion-modal-confirm">
+        Confirmer
+      </button>
+    </div>
+  </div>
+</div>

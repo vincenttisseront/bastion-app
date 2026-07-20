@@ -163,13 +163,16 @@
     }
 
     if (modeSelect) {
-      modeSelect.addEventListener('change', function () {
+      modeSelect.addEventListener('change', async function () {
         if (modeSelect.value === 'individual_required' && initialMode !== 'individual_required') {
-          var ok = confirm(
-            'Attention : les utilisateurs n\'ayant pas encore de credential individuel ' +
-            'configuré ne pourront plus ouvrir cette application jusqu\'à ce qu\'un admin ' +
-            'leur en attribue un.'
-          );
+          var ok = await window.bastionConfirm({
+            title: 'Mode individuel obligatoire',
+            message:
+              'Attention : les utilisateurs n\'ayant pas encore de credential individuel ' +
+              'configuré ne pourront plus ouvrir cette application jusqu\'à ce qu\'un admin ' +
+              'leur en attribue un.',
+            danger: true,
+          });
           if (!ok) {
             modeSelect.value = initialMode;
             applyCredentialMode();
@@ -182,13 +185,23 @@
     }
 
     if (form) {
-      form.addEventListener('submit', function () {
+      var bypassCredModeConfirm = false;
+      form.addEventListener('submit', function (e) {
+        if (bypassCredModeConfirm) return;
         if (modeSelect && modeSelect.value === 'individual_required' && initialMode !== 'individual_required') {
-          return confirm(
-            'Attention : les utilisateurs n\'ayant pas encore de credential individuel ' +
-            'configuré ne pourront plus ouvrir cette application jusqu\'à ce qu\'un admin ' +
-            'leur en attribue un.'
-          );
+          e.preventDefault();
+          window.bastionConfirm({
+            title: 'Mode individuel obligatoire',
+            message:
+              'Attention : les utilisateurs n\'ayant pas encore de credential individuel ' +
+              'configuré ne pourront plus ouvrir cette application jusqu\'à ce qu\'un admin ' +
+              'leur en attribue un.',
+            danger: true,
+          }).then(function (ok) {
+            if (!ok) return;
+            bypassCredModeConfirm = true;
+            form.requestSubmit();
+          });
         }
       });
     }
@@ -218,13 +231,19 @@
 
     saveBtn.addEventListener('click', async function () {
       if (modeSelect && modeSelect.value === 'individual_required') {
-        alert('Compte partagé désactivé en mode individuel obligatoire.');
+        await window.bastionAlert({
+          title: 'Compte partagé désactivé',
+          message: 'Compte partagé désactivé en mode individuel obligatoire.',
+        });
         return;
       }
       var username = userInput ? userInput.value.trim() : '';
       var password = passInput ? passInput.value : '';
       if (!username || !password) {
-        alert('Saisissez utilisateur et mot de passe.');
+        await window.bastionAlert({
+          title: 'Champs requis',
+          message: 'Saisissez utilisateur et mot de passe.',
+        });
         return;
       }
       saveBtn.disabled = true;
@@ -236,7 +255,10 @@
         });
         var data = await resp.json().catch(function () { return {}; });
         if (!resp.ok) {
-          alert(data.detail || 'Échec de l\'enregistrement.');
+          await window.bastionAlert({
+            title: 'Échec',
+            message: data.detail || 'Échec de l\'enregistrement.',
+          });
           return;
         }
         if (passInput) passInput.value = '';

@@ -9,8 +9,16 @@
     return meta ? meta.getAttribute('content') : '';
   }
 
-  function postAction(url, confirmMsg) {
-    if (confirmMsg && !window.confirm(confirmMsg)) return;
+  async function postAction(url, confirmMsg) {
+    if (confirmMsg) {
+      var ok = await window.bastionConfirm({
+        title: 'Confirmer l\'action',
+        message: confirmMsg,
+        confirmLabel: 'Confirmer',
+        danger: true,
+      });
+      if (!ok) return;
+    }
     fetch(url, {
       method: 'POST',
       headers: {
@@ -27,7 +35,10 @@
         window.location.reload();
       })
       .catch(function () {
-        alert('Erreur lors de l\'exécution de l\'action.');
+        window.bastionAlert({
+          title: 'Erreur',
+          message: 'Erreur lors de l\'exécution de l\'action.',
+        });
       });
   }
 

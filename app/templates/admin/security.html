@@ -80,7 +80,7 @@
           </thead>
           <tbody>
             {% for app in subdomain_apps %}
-            <tr>
+            <tr data-app-label="{{ app.label }}" data-app-fqdn="{{ app.public_fqdn or '' }}">
               <td>{{ app.label }} <span class="mono form-hint">{{ app.slug }}</span></td>
               <td class="mono">{{ app.public_fqdn or '—' }}</td>
             </tr>
@@ -148,6 +148,7 @@
   var ackGroup = document.getElementById('infra-ack-group');
   var ack = document.getElementById('infra_ack');
   var wasEnabled = enabled && enabled.getAttribute('data-was-enabled') === '1';
+  var bypassConfirm = false;
 
   function syncAck() {
     if (!ackGroup || !enabled) return;
@@ -158,25 +159,49 @@
   if (enabled) enabled.addEventListener('change', syncAck);
   syncAck();
 
+  function collectSubdomainApps() {
+    var list = [];
+    document.querySelectorAll('#subdomain-sso .data-table tbody tr[data-app-label]').forEach(function (tr) {
+      list.push({
+        label: tr.getAttribute('data-app-label') || '',
+        detail: tr.getAttribute('data-app-fqdn') || '—',
+      });
+    });
+    return list;
+  }
+
   form.addEventListener('submit', function (e) {
+    if (bypassConfirm) return;
     if (!enabled || !enabled.checked || wasEnabled) return;
+    e.preventDefault();
     if (!ack || !ack.checked) {
-      e.preventDefault();
-      alert(
-        "N'activez ce mode que si l'infrastructure réseau est prête pour TOUTES " +
-        "les applications configurées en mode 'Sous-domaine dédié' : DNS wildcard " +
-        "ou entrées dédiées pour chaque sous-domaine, certificats TLS valides, " +
-        "routage Nginx en place. Toute application en mode 'Sous-domaine dédié' " +
-        "sans cette infra prête deviendra inaccessible après activation."
-      );
+      window.bastionAlert({
+        title: 'Confirmation requise',
+        message:
+          "N'activez ce mode que si l'infrastructure réseau est prête pour TOUTES " +
+          "les applications configurées en mode 'Sous-domaine dédié' : DNS wildcard " +
+          "ou entrées dédiées pour chaque sous-domaine, certificats TLS valides, " +
+          "routage Nginx en place. Toute application en mode 'Sous-domaine dédié' " +
+          "sans cette infra prête deviendra inaccessible après activation.",
+      });
       return;
     }
-    var ok = confirm(
-      "Confirmer l'activation du routage par sous-domaine dédié ?\n\n" +
-      "Les applications listées ci-dessus seront redirigées vers leur FQDN " +
-      "après impersonation. Sans DNS/TLS/Nginx prêts, elles seront inaccessibles."
-    );
-    if (!ok) e.preventDefault();
+    var apps = collectSubdomainApps();
+    window.bastionConfirm({
+      title: "Confirmer l'activation du routage par sous-domaine dédié ?",
+      message:
+        'Les applications listées ci-dessous seront redirigées vers leur FQDN ' +
+        'après impersonation. Sans DNS/TLS/Nginx prêts, elles seront inaccessibles.',
+      list: apps.length
+        ? apps
+        : [{ label: 'Aucune application active en mode sous-domaine pour le moment.' }],
+      confirmLabel: 'Activer',
+      danger: true,
+    }).then(function (ok) {
+      if (!ok) return;
+      bypassConfirm = true;
+      form.requestSubmit();
+    });
   });
 })();
 </script>

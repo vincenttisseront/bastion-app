@@ -18,8 +18,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.querySelectorAll('[data-confirm]').forEach(function (el) {
     el.addEventListener('click', function (e) {
-      if (!confirm(el.dataset.confirm || 'Confirmer cette action ?')) {
-        e.preventDefault();
+      if (el.dataset.bastionConfirmOk === '1') {
+        el.dataset.bastionConfirmOk = '';
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      var msg = el.dataset.confirm || 'Confirmer cette action ?';
+      var run = function (ok) {
+        if (!ok) return;
+        el.dataset.bastionConfirmOk = '1';
+        if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.type === 'submit') {
+          el.click();
+        }
+      };
+      if (window.bastionConfirm) {
+        window.bastionConfirm({ message: msg, danger: true }).then(run);
+      } else if (confirm(msg)) {
+        run(true);
       }
     });
   });
