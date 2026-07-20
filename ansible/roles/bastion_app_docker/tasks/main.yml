@@ -340,15 +340,27 @@
     import pathlib
     import app.admin.infrastructure as infra
     import app.auth as auth
+    from app.bastion.drivers import generic as generic_driver
+    from app.models import App
     from app.sso_settings import get_settings
     assert hasattr(infra, "get_core_realm_for_oauth2_export"), "missing get_core_realm_for_oauth2_export"
     text = pathlib.Path(auth.__file__).read_text()
     assert "Do NOT apply RFC1918 bypass" in text, "auth.py missing RFC1918 guard — old image"
     assert "Prefer SSO session" in text or "Prefer SSO" in text, "auth.py missing SSO-over-breakglass"
+    assert hasattr(generic_driver, "generic_form_login"), "missing generic_form_login — old image"
+    assert hasattr(generic_driver, "generic_basic_auth_header"), "missing generic_basic_auth_header — old image"
+    for col in (
+        "login_form_url",
+        "login_username_field",
+        "login_password_field",
+        "login_extra_fields",
+        "login_http_method",
+    ):
+        assert hasattr(App, col), f"App.{col} missing — alembic 011_generic_driver_fields not applied"
     s = get_settings()
     print("rfc1918_bypass_enabled=", s.rfc1918_bypass_enabled)
     assert s.rfc1918_bypass_enabled is False, "RFC1918_BYPASS_ENABLED must be false behind Traefik"
-    print("SSO auth image OK")
+    print("SSO auth + generic vault driver image OK")
     PY
     echo "=== nginx rd=/apps ==="
     docker exec bastion-nginx grep -q 'set \$portal_login_rd /apps' \

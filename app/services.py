@@ -22,8 +22,13 @@ class AppCreate(BaseModel):
     realm_slug: str | None = None
     access_mode: Literal["sso_gate", "subdomain_proxy", "legacy_path_proxy"] = "sso_gate"
     public_fqdn: str | None = None
-    auth_mode: str = "oidc"
+    auth_mode: str = "sso"
     robotic_driver: str | None = None
+    login_form_url: str | None = None
+    login_username_field: str = "username"
+    login_password_field: str = "password"
+    login_extra_fields: str | None = None
+    login_http_method: str = "POST"
     healthcheck_url: str | None = None
     enabled: bool = True
     tile_icon: str | None = None
@@ -39,6 +44,11 @@ class AppUpdate(BaseModel):
     public_fqdn: str | None = None
     auth_mode: str | None = None
     robotic_driver: str | None = None
+    login_form_url: str | None = None
+    login_username_field: str | None = None
+    login_password_field: str | None = None
+    login_extra_fields: str | None = None
+    login_http_method: str | None = None
     healthcheck_url: str | None = None
     enabled: bool | None = None
     tile_icon: str | None = None
@@ -55,6 +65,11 @@ class AppOut(BaseModel):
     public_fqdn: str | None
     auth_mode: str
     robotic_driver: str | None
+    login_form_url: str | None = None
+    login_username_field: str = "username"
+    login_password_field: str = "password"
+    login_extra_fields: str | None = None
+    login_http_method: str = "POST"
     healthcheck_url: str | None
     enabled: bool
     tile_icon: str | None

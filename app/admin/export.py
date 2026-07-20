@@ -114,6 +114,7 @@ def generate_nginx_realms_conf(
 def generate_nginx_apps_conf(db: Session) -> str:
     """Proxy vhosts only — sso_gate apps are catalogue entries without nginx proxy."""
     from app.access_modes import PROXY_ACCESS_MODES, normalize_access_mode
+    from app.bastion.nginx_enforcement import proxy_location_lines
     from app.models import App
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.slug).all()
@@ -130,21 +131,7 @@ def generate_nginx_apps_conf(db: Session) -> str:
             lines.append("")
             continue
 
-        if mode == "subdomain_proxy" and app.public_fqdn:
-            lines.append(f"# [{app.slug}] subdomain_proxy — {app.public_fqdn}")
-            lines.append("server {")
-            lines.append(f"    server_name {app.public_fqdn.strip()};")
-            lines.append(f"    # proxy_pass {app.upstream_url};")
-            lines.append("    # include snippets/subdomain_auth_common.conf;")
-            lines.append("}")
-            lines.append("")
-        elif mode == "legacy_path_proxy":
-            lines.append(f"# [{app.slug}] legacy_path_proxy")
-            lines.append(f"location /proxy/{app.slug}/ {{")
-            lines.append(f"    proxy_pass {app.upstream_url};")
-            lines.append("    # auth_request /internal/oauth2-auth;")
-            lines.append("}")
-            lines.append("")
+        lines.extend(proxy_location_lines(app))
 
     return "\n".join(lines)
 

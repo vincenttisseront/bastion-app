@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -12,6 +13,25 @@ class RoboticDriverError(Exception):
 
 class RoboticLoginError(RoboticDriverError):
     """Login against the upstream application failed."""
+
+
+DriverLoginError = RoboticLoginError
+
+
+@dataclass(frozen=True)
+class SetCookieSpec:
+    """Cookie to set on the portal response after robotic login."""
+
+    name: str
+    value: str
+
+
+@dataclass(frozen=True)
+class DriverLoginResult:
+    """Structured output from a vault robotic driver login attempt."""
+
+    cookies: dict[str, str] = field(default_factory=dict)
+    auth_header: str | None = None
 
 
 class RoboticDriver(ABC):

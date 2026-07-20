@@ -5,6 +5,12 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode, validate_app_access_fields
+from app.bastion.bastion_fields import (
+    normalize_auth_mode,
+    resolve_robotic_driver,
+    validate_generic_form_fields,
+    vault_enabled_for_app,
+)
 from app.admin.export import export_app_catalogue_files
 from app.audit import list_audit_entries, log_action
 from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
@@ -30,7 +36,19 @@ from app.web.flash import base_template_context, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
 from app.web.sessions_service import get_active_sessions, touch_portal_session
 from app.web.templates import render
+from app.vault.app_credential_service import (
+    EncryptionNotConfiguredError,
+    VaultError,
+    get_app_credential,
+    set_app_credential,
+)
+from app.vault.credential_connection_test import (
+    credential_test_legacy_response,
+    test_app_credential_connection,
+)
+from app.testing_framework.throttle import throttle_retry_after
 from app.web.user_context import get_user_context, is_portal_admin, require_admin, require_user
+from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["pages"])
 
@@ -44,6 +62,71 @@ def _normalize_description(raw: str | None) -> str | None:
     if len(text) > _DESC_MAX:
         text = text[:_DESC_MAX]
     return text
+
+
+def _auth_form_values(
+    auth_mode: str = "sso",
+    login_form_url: str = "",
+    login_username_field: str = "username",
+    login_password_field: str = "password",
+    login_http_method: str = "POST",
+    login_extra_fields: str = "",
+) -> dict:
+    return {
+        "auth_mode": normalize_auth_mode(auth_mode),
+        "login_form_url": login_form_url,
+        "login_username_field": login_username_field or "username",
+        "login_password_field": login_password_field or "password",
+        "login_http_method": (login_http_method or "POST").upper(),
+        "login_extra_fields": login_extra_fields,
+    }
+
+
+def _apply_auth_config(
+    app: App,
+    *,
+    auth_mode: str,
+    login_form_url: str,
+    login_username_field: str,
+    login_password_field: str,
+    login_http_method: str,
+    login_extra_fields: str,
+) -> None:
+    mode = normalize_auth_mode(auth_mode)
+    app.auth_mode = mode
+    app.robotic_driver = resolve_robotic_driver(mode, app.robotic_driver)
+    app.login_form_url = (login_form_url or "").strip() or None
+    app.login_username_field = (login_username_field or "username").strip() or "username"
+    app.login_password_field = (login_password_field or "password").strip() or "password"
+    app.login_http_method = (login_http_method or "POST").strip().upper()
+    app.login_extra_fields = (login_extra_fields or "").strip() or None
+
+
+def _validate_auth_fields(
+    access_mode: str,
+    auth_mode: str,
+    login_form_url: str,
+    login_username_field: str,
+    login_password_field: str,
+    login_http_method: str,
+    login_extra_fields: str,
+) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    mode = normalize_access_mode(access_mode)
+    auth = normalize_auth_mode(auth_mode)
+    if mode == "sso_gate" and auth != "sso":
+        errors["auth_mode"] = "Le vault robotic n'est pas disponible en mode SSO Gate."
+    if auth == "generic_form":
+        errors.update(
+            validate_generic_form_fields(
+                login_form_url,
+                login_username_field,
+                login_password_field,
+                login_http_method,
+                login_extra_fields,
+            )
+        )
+    return errors
 
 
 def _ctx(request: Request, settings: Settings, **extra):
@@ -409,6 +492,7 @@ def admin_apps_create(
                 "access_mode": "sso_gate",
                 "public_fqdn": "",
                 "description": "",
+                **_auth_form_values(),
             },
             errors={},
         ),
@@ -424,6 +508,12 @@ def admin_apps_create_post(
     access_mode: str = Form("sso_gate"),
     public_fqdn: str = Form(""),
     description: str = Form(""),
+    auth_mode: str = Form("sso"),
+    login_form_url: str = Form(""),
+    login_username_field: str = Form("username"),
+    login_password_field: str = Form("password"),
+    login_http_method: str = Form("POST"),
+    login_extra_fields: str = Form(""),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
     user=Depends(require_admin),
@@ -431,6 +521,14 @@ def admin_apps_create_post(
     mode = normalize_access_mode(access_mode)
     fqdn = public_fqdn.strip() or None
     desc = _normalize_description(description)
+    auth_values = _auth_form_values(
+        auth_mode,
+        login_form_url,
+        login_username_field,
+        login_password_field,
+        login_http_method,
+        login_extra_fields,
+    )
     form_values = {
         "slug": slug,
         "label": label,
@@ -438,8 +536,20 @@ def admin_apps_create_post(
         "access_mode": mode,
         "public_fqdn": public_fqdn,
         "description": description,
+        **auth_values,
     }
     errors = validate_app_access_fields(mode, upstream_url, fqdn)
+    errors.update(
+        _validate_auth_fields(
+            mode,
+            auth_mode,
+            login_form_url,
+            login_username_field,
+            login_password_field,
+            login_http_method,
+            login_extra_fields,
+        )
+    )
     if len((description or "").strip()) > _DESC_MAX:
         errors["description"] = f"La description ne doit pas dépasser {_DESC_MAX} caractères."
     if db.query(App).filter_by(slug=slug).first():
@@ -456,6 +566,15 @@ def admin_apps_create_post(
         access_mode=mode,
         public_fqdn=fqdn,
         description=desc,
+    )
+    _apply_auth_config(
+        app,
+        auth_mode=auth_mode,
+        login_form_url=login_form_url,
+        login_username_field=login_username_field,
+        login_password_field=login_password_field,
+        login_http_method=login_http_method,
+        login_extra_fields=login_extra_fields,
     )
     db.add(app)
     db.commit()
@@ -490,6 +609,7 @@ def admin_apps_edit(
             app=app,
             errors={},
             logo_url=logo_public_url(app),
+            vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
         ),
     )
 
@@ -504,6 +624,12 @@ def admin_apps_edit_post(
     public_fqdn: str = Form(""),
     description: str = Form(""),
     enabled: str | None = Form(None),
+    auth_mode: str = Form("sso"),
+    login_form_url: str = Form(""),
+    login_username_field: str = Form("username"),
+    login_password_field: str = Form("password"),
+    login_http_method: str = Form("POST"),
+    login_extra_fields: str = Form(""),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -515,6 +641,17 @@ def admin_apps_edit_post(
     fqdn = public_fqdn.strip() or None
     desc = _normalize_description(description)
     errors = validate_app_access_fields(mode, upstream_url, fqdn)
+    errors.update(
+        _validate_auth_fields(
+            mode,
+            auth_mode,
+            login_form_url,
+            login_username_field,
+            login_password_field,
+            login_http_method,
+            login_extra_fields,
+        )
+    )
     if len((description or "").strip()) > _DESC_MAX:
         errors["description"] = f"La description ne doit pas dépasser {_DESC_MAX} caractères."
     if errors:
@@ -523,6 +660,15 @@ def admin_apps_edit_post(
         app.access_mode = mode
         app.public_fqdn = fqdn
         app.description = desc
+        _apply_auth_config(
+            app,
+            auth_mode=auth_mode,
+            login_form_url=login_form_url,
+            login_username_field=login_username_field,
+            login_password_field=login_password_field,
+            login_http_method=login_http_method,
+            login_extra_fields=login_extra_fields,
+        )
         return render(
             "admin/apps/edit.html",
             **_ctx(
@@ -531,6 +677,7 @@ def admin_apps_edit_post(
                 app=app,
                 errors=errors,
                 logo_url=logo_public_url(app),
+                vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
             ),
         )
     app.label = label
@@ -539,12 +686,117 @@ def admin_apps_edit_post(
     app.public_fqdn = fqdn
     app.description = desc
     app.enabled = enabled == "on"
+    _apply_auth_config(
+        app,
+        auth_mode=auth_mode,
+        login_form_url=login_form_url,
+        login_username_field=login_username_field,
+        login_password_field=login_password_field,
+        login_http_method=login_http_method,
+        login_extra_fields=login_extra_fields,
+    )
     db.commit()
     export_app_catalogue_files(db, settings)
     log_action(db, actor=user.email, action="app.updated", target=slug)
     response = RedirectResponse(url="/admin/apps", status_code=302)
     flash_redirect(response, f"Application '{label}' mise à jour.", "success", settings.vault_portal_internal_token or "dev")
     return response
+
+
+class _VaultCredentialBody(BaseModel):
+    robotic_username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+@router.get("/admin/apps/{slug}/credential")
+def admin_app_credential_read(
+    slug: str,
+    db: Session = Depends(get_db),
+    _user=Depends(require_admin),
+):
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    cred = get_app_credential(db, slug)
+    if cred is None:
+        raise HTTPException(status_code=404, detail=f"No credential for app '{slug}'")
+    return {
+        "robotic_username": cred.robotic_username,
+        "is_active": cred.is_active,
+        "created_at": cred.created_at,
+        "rotated_at": cred.rotated_at,
+    }
+
+
+@router.post("/admin/apps/{slug}/credential")
+def admin_app_credential_save(
+    slug: str,
+    body: _VaultCredentialBody,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    try:
+        cred = set_app_credential(
+            db,
+            slug,
+            body.robotic_username.strip(),
+            body.password,
+            settings,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except EncryptionNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except VaultError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "robotic_username": cred.robotic_username,
+        "is_active": cred.is_active,
+    }
+
+
+@router.post("/admin/apps/{slug}/credential/test")
+async def admin_app_credential_test(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    if wait := throttle_retry_after("app_credential", slug, min_interval_seconds=5):
+        return JSONResponse(
+            {"ok": False, "error": f"Trop de tests — réessayez dans {wait:.0f}s"},
+            status_code=429,
+        )
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    result = await test_app_credential_connection(db, app, settings)
+    log_action(
+        db,
+        actor=user.email,
+        action="credential.test",
+        target=f"app:{slug}",
+        details={
+            "resource_type": result.resource_type,
+            "resource_id": slug,
+            "status": result.overall_status.value,
+            "checks": [{"name": c.name, "status": c.status.value} for c in result.checks],
+        },
+        ip_address=_client_ip(request),
+    )
+    body, status = credential_test_legacy_response(result)
+    if status == 503:
+        raise HTTPException(status_code=503, detail=body.get("error", "Encryption not configured"))
+    if status != 200 or not body.get("ok"):
+        return JSONResponse(body, status_code=status if status != 200 else 200)
+    return body
 
 
 @router.post("/admin/apps/{app_id}/logo")

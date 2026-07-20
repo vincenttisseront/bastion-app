@@ -1,0 +1,65 @@
+{# Auth mode + generic form fields — shown when access_mode != sso_gate #}
+{% set current_auth = form_values.auth_mode | default(app.auth_mode if app is defined else 'sso') %}
+{% set normalized_auth = current_auth if current_auth in auth_modes else ('sso' if current_auth in ('oidc', '') else current_auth) %}
+
+<div class="form-section" id="auth-mode-section" hidden>
+  <div class="form-section-header">
+    <div class="form-section-title">Mode d'authentification</div>
+    <div class="form-section-sub">SSO OIDC ou connexion robotic via le vault</div>
+  </div>
+  <div class="form-body">
+  {% if app is defined and app.robotic_driver == 'crushftp' %}
+    <div class="alert alert-info">
+      Cette application utilise le driver CrushFTP (<span class="mono">robotic_driver=crushftp</span>).
+      Le mode vault générique ne s'applique pas — configurez le credential ci-dessous.
+    </div>
+  {% else %}
+    <div class="form-group">
+      <label class="form-label" for="auth_mode">Authentification applicative</label>
+      <select id="auth_mode" name="auth_mode" class="form-select" data-auth-mode-select>
+        {% for mode in auth_modes %}
+        <option value="{{ mode }}"{% if normalized_auth == mode %} selected{% endif %}>{{ auth_mode_labels[mode] }}</option>
+        {% endfor %}
+      </select>
+      {% if errors.auth_mode %}<div class="form-error">{{ errors.auth_mode }}</div>{% endif %}
+    </div>
+  {% endif %}
+
+    <div id="generic-form-fields" hidden>
+      <div class="form-group">
+        <label class="form-label" for="login_form_url">URL du formulaire de login <span class="req">*</span></label>
+        <input type="url" id="login_form_url" name="login_form_url" class="form-input{% if errors.login_form_url %} is-invalid{% endif %}"
+          value="{{ form_values.login_form_url | default(app.login_form_url if app is defined else '') }}">
+        {% if errors.login_form_url %}<div class="form-error">{{ errors.login_form_url }}</div>{% endif %}
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="login_username_field">Champ utilisateur</label>
+          <input type="text" id="login_username_field" name="login_username_field" class="form-input"
+            value="{{ form_values.login_username_field | default(app.login_username_field if app is defined else 'username') }}">
+          {% if errors.login_username_field %}<div class="form-error">{{ errors.login_username_field }}</div>{% endif %}
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login_password_field">Champ mot de passe</label>
+          <input type="text" id="login_password_field" name="login_password_field" class="form-input"
+            value="{{ form_values.login_password_field | default(app.login_password_field if app is defined else 'password') }}">
+          {% if errors.login_password_field %}<div class="form-error">{{ errors.login_password_field }}</div>{% endif %}
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login_http_method">Méthode HTTP</label>
+        <select id="login_http_method" name="login_http_method" class="form-select">
+          <option value="POST"{% if (form_values.login_http_method | default(app.login_http_method if app is defined else 'POST')) == 'POST' %} selected{% endif %}>POST</option>
+          <option value="GET"{% if (form_values.login_http_method | default(app.login_http_method if app is defined else 'POST')) == 'GET' %} selected{% endif %}>GET</option>
+        </select>
+        {% if errors.login_http_method %}<div class="form-error">{{ errors.login_http_method }}</div>{% endif %}
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login_extra_fields">Champs supplémentaires (JSON)</label>
+        <textarea id="login_extra_fields" name="login_extra_fields" class="form-input" rows="3" placeholder='{"remember":"1"}'>{{ form_values.login_extra_fields | default(app.login_extra_fields if app is defined else '') }}</textarea>
+        <p class="form-help">Objet JSON optionnel — champs fixes envoyés avec le login (ex. token CSRF statique).</p>
+        {% if errors.login_extra_fields %}<div class="form-error">{{ errors.login_extra_fields }}</div>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>

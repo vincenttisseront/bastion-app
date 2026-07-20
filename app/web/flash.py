@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import Request, Response
 
 from app.access_modes import ACCESS_MODE_LABELS, ACCESS_MODES
+from app.bastion.bastion_fields import AUTH_MODE_LABELS, AUTH_MODES
 
 FLASH_COOKIE = "portal_flash"
 FLASH_MAX_AGE = 30
@@ -104,6 +105,8 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
         "access_modes": ACCESS_MODES,
         "access_mode_labels": ACCESS_MODE_LABELS,
+        "auth_modes": AUTH_MODES,
+        "auth_mode_labels": AUTH_MODE_LABELS,
         **extra,
     }
     # Keep resolved admin flag even if a caller passed a stale is_admin in extras.

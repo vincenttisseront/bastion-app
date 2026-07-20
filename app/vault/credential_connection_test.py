@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPDriver
+from app.bastion.drivers.generic import (
+    generic_basic_auth_header,
+    generic_basic_auth_probe,
+    generic_form_login,
+)
 from app.models import App
 from app.sso_settings import Settings
 from app.testing_framework.connection_test import (
@@ -34,6 +39,7 @@ async def test_app_credential_connection(
     checks: list[CheckStep] = []
     start = time.monotonic()
     slug = app.slug
+    driver = (app.robotic_driver or "").strip().lower()
 
     try:
         password = get_decrypted_password(db, slug, settings)
@@ -90,38 +96,95 @@ async def test_app_credential_connection(
         CheckStep(name="vault", status=CheckStatus.OK, message="Credential decrypted")
     )
     password_cleared = False
-    driver = CrushFTPDriver()
-    try:
-        session = await driver.login(app.upstream_url, cred.robotic_username, password)
-        password = ""
-        password_cleared = True
-        checks.append(
-            CheckStep(name="login", status=CheckStatus.OK, message="Robotic login OK")
-        )
-        identity = await driver.get_username(session)
-        if identity != cred.robotic_username:
-            checks.append(
-                CheckStep(
-                    name="get_username",
-                    status=CheckStatus.ERROR,
-                    message="Identity mismatch after login",
-                )
-            )
-        else:
-            checks.append(
-                CheckStep(
-                    name="get_username",
-                    status=CheckStatus.OK,
-                    message="Identity fingerprint OK",
-                )
-            )
-    except RoboticLoginError as exc:
-        checks.append(
-            CheckStep(name="login", status=CheckStatus.ERROR, message=str(exc))
-        )
-    finally:
-        if not password_cleared:
+
+    if driver == "generic_form":
+        try:
+            result = await generic_form_login(cred, app, password)
             password = ""
+            password_cleared = True
+            if result.cookies:
+                checks.append(
+                    CheckStep(
+                        name="login",
+                        status=CheckStatus.OK,
+                        message=f"Session cookies received ({len(result.cookies)})",
+                    )
+                )
+            else:
+                checks.append(
+                    CheckStep(
+                        name="login",
+                        status=CheckStatus.ERROR,
+                        message="No session cookies after login",
+                    )
+                )
+        except RoboticLoginError as exc:
+            checks.append(
+                CheckStep(name="login", status=CheckStatus.ERROR, message=str(exc))
+            )
+    elif driver == "generic_basic_auth":
+        try:
+            auth_header = generic_basic_auth_header(cred, password)
+            password = ""
+            password_cleared = True
+            ok = await generic_basic_auth_probe(app, auth_header)
+            if ok:
+                checks.append(
+                    CheckStep(
+                        name="basic_auth",
+                        status=CheckStatus.OK,
+                        message="Upstream accepted Basic Auth",
+                    )
+                )
+            else:
+                checks.append(
+                    CheckStep(
+                        name="basic_auth",
+                        status=CheckStatus.ERROR,
+                        message="Upstream rejected Basic Auth (401/403)",
+                    )
+                )
+        except Exception:
+            checks.append(
+                CheckStep(
+                    name="basic_auth",
+                    status=CheckStatus.ERROR,
+                    message="Basic Auth probe failed",
+                )
+            )
+    else:
+        crush_driver = CrushFTPDriver()
+        try:
+            session = await crush_driver.login(app.upstream_url, cred.robotic_username, password)
+            password = ""
+            password_cleared = True
+            checks.append(
+                CheckStep(name="login", status=CheckStatus.OK, message="Robotic login OK")
+            )
+            identity = await crush_driver.get_username(session)
+            if identity != cred.robotic_username:
+                checks.append(
+                    CheckStep(
+                        name="get_username",
+                        status=CheckStatus.ERROR,
+                        message="Identity mismatch after login",
+                    )
+                )
+            else:
+                checks.append(
+                    CheckStep(
+                        name="get_username",
+                        status=CheckStatus.OK,
+                        message="Identity fingerprint OK",
+                    )
+                )
+        except RoboticLoginError as exc:
+            checks.append(
+                CheckStep(name="login", status=CheckStatus.ERROR, message=str(exc))
+            )
+
+    if not password_cleared:
+        password = ""
 
     return ConnectionTestResult(
         resource_type="app_credential",
