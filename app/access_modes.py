@@ -59,6 +59,13 @@ def validate_app_access_fields(
 
 
 def app_launch_url(app) -> str:
+    driver = getattr(app, "robotic_driver", None)
+
+    # Drivers that set session cookies require an impersonation round-trip first.
+    if driver in ("crushftp", "generic_form"):
+        return f"/api/internal/impersonate/{app.slug}"
+
+    # generic_basic_auth: Nginx auth_request injects on each request — direct link.
     mode = normalize_access_mode(app.access_mode)
     if mode == "sso_gate":
         return app.upstream_url
