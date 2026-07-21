@@ -6,11 +6,15 @@
 {% endblock %}
 
 {% block content %}
-<div class="page" id="sessions-page" data-kind="{{ session_kind | default('all') }}">
+{% set groups = session_groups | default([]) %}
+{% set first = groups[0] if groups else none %}
+<div class="page" id="sessions-page"
+     data-kind="{{ session_kind | default('all') }}"
+     data-selected-email="{{ first.user_email if first else '' }}">
   <div class="page-header">
     <div>
       <h1 class="page-title">Sessions actives</h1>
-      <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> connexion(s) · <span id="sessions-users-count">{{ session_groups | length }}</span> utilisateur(s)</p>
+      <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> connexion(s) · <span id="sessions-users-count">{{ groups | length }}</span> utilisateur(s)</p>
     </div>
     <div class="live-pill"><span class="live-dot"></span>Live</div>
   </div>
@@ -27,90 +31,87 @@
     </a>
   </div>
 
-  <div class="table-wrap session-table">
-    <table class="data-table" id="sessions-table">
-      <thead>
-        <tr>
-          <th>Utilisateur</th>
-          <th>Type</th>
-          <th>Protocole</th>
-          <th>Ressource</th>
-          <th>IP source</th>
-          <th>Durée</th>
-          <th>Cookies</th>
-          <th>Statut</th>
-          {% if is_admin %}<th>Actions</th>{% endif %}
-        </tr>
-      </thead>
-      <tbody id="sessions-tbody">
-        {% for g in session_groups %}
-        <tr class="session-group-row" data-searchable data-user-email="{{ g.user_email }}">
-          <td colspan="{% if is_admin %}9{% else %}8{% endif %}">
-            <div class="session-group-head">
-              <div class="session-group-user">
-                <div class="user-avatar" style="width:28px;height:28px;font-size:10px;">{{ g.user[0] | upper }}</div>
-                <div>
-                  <div style="font-weight:600;">{{ g.user }}</div>
-                  <div class="mono">{{ g.realm }} · {{ g.session_count }} session(s)</div>
-                </div>
-              </div>
-              <div class="session-group-meta mono">
-                <span title="IP source (préférence portail)">{{ g.source_ip }}</span>
-                <span>{{ g.duration }}</span>
-                <span class="badge badge-{{ 'ok' if g.status == 'active' else 'warn' }}">{{ g.status | upper }}</span>
-              </div>
+  <div class="sessions-split" id="sessions-split">
+    <aside class="sessions-user-rail" aria-label="Utilisateurs avec session">
+      <div class="sessions-user-rail-head">Utilisateurs</div>
+      <div class="sessions-user-list" id="sessions-user-list" role="listbox">
+        {% for g in groups %}
+        <button type="button"
+                class="sessions-user-item{% if first and g.user_email == first.user_email %} is-selected{% endif %}"
+                role="option"
+                aria-selected="{{ 'true' if first and g.user_email == first.user_email else 'false' }}"
+                data-user-email="{{ g.user_email }}"
+                data-realm="{{ g.realm }}">
+          <div class="user-avatar sessions-user-avatar">{{ g.user[0] | upper }}</div>
+          <div class="sessions-user-meta">
+            <div class="sessions-user-name">{{ g.user }}</div>
+            <div class="sessions-user-sub mono">{{ g.realm }} · {{ g.session_count }}</div>
+          </div>
+          <span class="sessions-user-status badge badge-{{ 'ok' if g.status == 'active' else 'warn' }}">{{ g.status | upper }}</span>
+        </button>
+        {% else %}
+        <div class="sessions-user-empty" id="sessions-user-empty">Aucun utilisateur</div>
+        {% endfor %}
+      </div>
+    </aside>
+
+    <section class="sessions-detail" id="sessions-detail" aria-live="polite">
+      {% if first %}
+      <div class="sessions-detail-head">
+        <div>
+          <h2 class="sessions-detail-title">{{ first.user }}</h2>
+          <p class="sessions-detail-sub mono">{{ first.user_email }} · {{ first.realm }} · IP {{ first.source_ip }}</p>
+        </div>
+        <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} session(s)</span>
+      </div>
+      <div class="sessions-card-grid" id="sessions-card-grid">
+        {% for s in first.sessions %}
+        <article class="session-card" data-session-id="{{ s.id }}" data-kind="{{ s.kind }}">
+          <header class="session-card-header">
+            <div class="session-card-title-row">
+              <span class="badge badge-{{ 'info' if s.kind == 'user' else 'ok' }}">
+                {{ 'Utilisateur' if s.kind == 'user' else 'Application' }}
+              </span>
+              <span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span>
             </div>
-          </td>
-        </tr>
-        {% for s in g.sessions %}
-        <tr class="session-child-row" data-searchable data-kind="{{ s.kind }}" data-session-id="{{ s.id }}" data-user-email="{{ s.user_email }}">
-          <td class="session-child-indent mono">↳</td>
-          <td>
-            <span class="badge badge-{{ 'info' if s.kind == 'user' else 'ok' }}">
-              {{ 'Utilisateur' if s.kind == 'user' else 'Application' }}
-            </span>
-          </td>
-          <td><span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span></td>
-          <td class="mono">{{ s.target }}</td>
-          <td class="mono">{{ s.source_ip }}</td>
-          <td class="mono session-duration">{{ s.duration }}</td>
-          <td>
-            <span class="session-cookies badge badge-{{ 'ok' if s.cookies_ok else 'warn' }}"
-                  title="{% if s.cookies_issued_at %}émis {{ s.cookies_issued_at }}{% endif %}{% if s.crushauth_age %} · CrushAuth {{ s.crushauth_age }}{% endif %}{% if s.credential_source %} · {{ s.credential_source }}{% endif %}{% if s.robotic_username %} · {{ s.robotic_username }}{% endif %}">
-              {{ s.cookies_label }}
-            </span>
-          </td>
-          <td>
             <span class="badge badge-{{ 'ok' if s.status == 'active' else 'warn' }}">
               {% if s.status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
               {{ s.status | upper }}
             </span>
-          </td>
-          {% if is_admin %}
-          <td>
-            <div class="session-actions">
-              <button type="button" class="btn-isolate" onclick="isolateSession('{{ s.id }}')">Isoler</button>
-              <button type="button" class="btn-rotate" onclick="rotateKeys('{{ s.id }}')">Rotation</button>
-            </div>
-          </td>
-          {% endif %}
-        </tr>
-        {% endfor %}
-        {% else %}
-        <tr class="sessions-empty-row">
-          <td colspan="{% if is_admin %}9{% else %}8{% endif %}">
-            <div class="empty-state">
-              <div class="empty-icon">
-                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+          </header>
+          <div class="session-card-body">
+            <div class="session-card-resource mono">{{ s.target }}</div>
+            <dl class="session-card-facts">
+              <div><dt>IP source</dt><dd class="mono">{{ s.source_ip }}</dd></div>
+              <div><dt>Durée</dt><dd class="mono">{{ s.duration }}</dd></div>
+              <div><dt>Cookies</dt>
+                <dd>
+                  <span class="session-cookies badge badge-{{ 'ok' if s.cookies_ok else 'warn' }}"
+                        title="{% if s.cookies_issued_at %}émis {{ s.cookies_issued_at }}{% endif %}{% if s.crushauth_age %} · CrushAuth {{ s.crushauth_age }}{% endif %}{% if s.credential_source %} · {{ s.credential_source }}{% endif %}{% if s.robotic_username %} · {{ s.robotic_username }}{% endif %}">
+                    {{ s.cookies_label }}
+                  </span>
+                </dd>
               </div>
-              <div class="empty-title">Aucune session active</div>
-              <div class="empty-desc">Les connexions portail et les ouvertures d’applications apparaîtront ici.</div>
-            </div>
-          </td>
-        </tr>
+            </dl>
+          </div>
+          {% if is_admin %}
+          <footer class="session-card-footer session-actions">
+            <button type="button" class="btn-isolate" onclick="isolateSession('{{ s.id }}')">Isoler</button>
+            <button type="button" class="btn-rotate" onclick="rotateKeys('{{ s.id }}')">Rotation</button>
+          </footer>
+          {% endif %}
+        </article>
         {% endfor %}
-      </tbody>
-    </table>
+      </div>
+      {% else %}
+      <div class="sessions-detail-empty" id="sessions-detail-empty">
+        <div class="empty-state">
+          <div class="empty-title">Aucune session active</div>
+          <div class="empty-desc">Les connexions portail et les ouvertures d’applications apparaîtront ici.</div>
+        </div>
+      </div>
+      {% endif %}
+    </section>
   </div>
 </div>
 {% endblock %}
@@ -118,6 +119,7 @@
 {% block scripts %}
 <script>
   window.__SESSIONS_IS_ADMIN__ = {{ 'true' if is_admin else 'false' }};
+  window.__SESSIONS_BOOT__ = {{ session_groups | default([]) | tojson }};
 </script>
 <script src="/static/js/bastion-sessions.js"></script>
 {% endblock %}

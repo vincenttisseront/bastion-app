@@ -3,6 +3,8 @@
 
   var POLL_MS = 15000;
   var isAdmin = window.__SESSIONS_IS_ADMIN__ === true;
+  var groupsCache = Array.isArray(window.__SESSIONS_BOOT__) ? window.__SESSIONS_BOOT__ : [];
+  var selectedEmail = '';
 
   function getCsrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
@@ -71,7 +73,65 @@
     return parts.join(' · ');
   }
 
-  function renderChild(s) {
+  function findGroup(email) {
+    for (var i = 0; i < groupsCache.length; i++) {
+      if (groupsCache[i].user_email === email) return groupsCache[i];
+    }
+    return null;
+  }
+
+  function resolveSelected() {
+    if (selectedEmail && findGroup(selectedEmail)) return selectedEmail;
+    if (groupsCache.length) return groupsCache[0].user_email;
+    return '';
+  }
+
+  function renderUserList() {
+    var list = document.getElementById('sessions-user-list');
+    if (!list) return;
+    selectedEmail = resolveSelected();
+    if (!groupsCache.length) {
+      list.innerHTML = '<div class="sessions-user-empty" id="sessions-user-empty">Aucun utilisateur</div>';
+      return;
+    }
+    list.innerHTML = groupsCache
+      .map(function (g) {
+        var selected = g.user_email === selectedEmail;
+        var initial = (g.user && g.user[0] ? g.user[0] : '?').toUpperCase();
+        var statusClass = g.status === 'active' ? 'ok' : 'warn';
+        return (
+          '<button type="button" class="sessions-user-item' +
+          (selected ? ' is-selected' : '') +
+          '" role="option" aria-selected="' +
+          (selected ? 'true' : 'false') +
+          '" data-user-email="' +
+          escapeHtml(g.user_email) +
+          '" data-realm="' +
+          escapeHtml(g.realm) +
+          '">' +
+          '<div class="user-avatar sessions-user-avatar">' +
+          escapeHtml(initial) +
+          '</div>' +
+          '<div class="sessions-user-meta">' +
+          '<div class="sessions-user-name">' +
+          escapeHtml(g.user) +
+          '</div>' +
+          '<div class="sessions-user-sub mono">' +
+          escapeHtml(g.realm) +
+          ' · ' +
+          escapeHtml(String(g.session_count)) +
+          '</div></div>' +
+          '<span class="sessions-user-status badge badge-' +
+          statusClass +
+          '">' +
+          escapeHtml(String(g.status || '').toUpperCase()) +
+          '</span></button>'
+        );
+      })
+      .join('');
+  }
+
+  function renderSessionCard(s) {
     var statusClass = s.status === 'active' ? 'ok' : 'warn';
     var kindClass = s.kind === 'user' ? 'info' : 'ok';
     var cookieClass = s.cookies_ok ? 'ok' : 'warn';
@@ -79,108 +139,106 @@
       s.status === 'active'
         ? '<span class="live-dot" style="width:6px;height:6px;"></span> '
         : '';
-    var actions = '';
+    var footer = '';
     if (isAdmin) {
-      actions =
-        '<td><div class="session-actions">' +
+      footer =
+        '<footer class="session-card-footer session-actions">' +
         '<button type="button" class="btn-isolate" onclick="isolateSession(\'' +
         escapeHtml(s.id) +
         '\')">Isoler</button>' +
         '<button type="button" class="btn-rotate" onclick="rotateKeys(\'' +
         escapeHtml(s.id) +
-        '\')">Rotation</button>' +
-        '</div></td>';
+        '\')">Rotation</button></footer>';
     }
     return (
-      '<tr class="session-child-row" data-searchable data-kind="' +
-      escapeHtml(s.kind) +
-      '" data-session-id="' +
+      '<article class="session-card" data-session-id="' +
       escapeHtml(s.id) +
-      '" data-user-email="' +
-      escapeHtml(s.user_email) +
+      '" data-kind="' +
+      escapeHtml(s.kind) +
       '">' +
-      '<td class="session-child-indent mono">↳</td>' +
-      '<td><span class="badge badge-' +
+      '<header class="session-card-header">' +
+      '<div class="session-card-title-row">' +
+      '<span class="badge badge-' +
       kindClass +
       '">' +
       kindLabel(s.kind) +
-      '</span></td>' +
-      '<td><span class="proto-tag ' +
+      '</span>' +
+      '<span class="proto-tag ' +
       escapeHtml(String(s.protocol || '').toLowerCase()) +
       '">' +
       escapeHtml(s.protocol) +
-      '</span></td>' +
-      '<td class="mono">' +
+      '</span></div>' +
+      '<span class="badge badge-' +
+      statusClass +
+      '">' +
+      liveDot +
+      escapeHtml(String(s.status || '').toUpperCase()) +
+      '</span></header>' +
+      '<div class="session-card-body">' +
+      '<div class="session-card-resource mono">' +
       escapeHtml(s.target) +
-      '</td>' +
-      '<td class="mono">' +
+      '</div>' +
+      '<dl class="session-card-facts">' +
+      '<div><dt>IP source</dt><dd class="mono">' +
       escapeHtml(s.source_ip) +
-      '</td>' +
-      '<td class="mono session-duration">' +
+      '</dd></div>' +
+      '<div><dt>Durée</dt><dd class="mono">' +
       escapeHtml(s.duration) +
-      '</td>' +
-      '<td><span class="session-cookies badge badge-' +
+      '</dd></div>' +
+      '<div><dt>Cookies</dt><dd><span class="session-cookies badge badge-' +
       cookieClass +
       '" title="' +
       escapeHtml(cookieTitle(s)) +
       '">' +
       escapeHtml(s.cookies_label || '—') +
-      '</span></td>' +
-      '<td><span class="badge badge-' +
-      statusClass +
-      '">' +
-      liveDot +
-      escapeHtml(String(s.status || '').toUpperCase()) +
-      '</span></td>' +
-      actions +
-      '</tr>'
+      '</span></dd></div></dl></div>' +
+      footer +
+      '</article>'
     );
   }
 
-  function renderGroup(g) {
-    var cols = isAdmin ? 9 : 8;
-    var initial = (g.user && g.user[0] ? g.user[0] : '?').toUpperCase();
+  function renderDetail() {
+    var detail = document.getElementById('sessions-detail');
+    if (!detail) return;
+    selectedEmail = resolveSelected();
+    var page = document.getElementById('sessions-page');
+    if (page) page.setAttribute('data-selected-email', selectedEmail || '');
+
+    var g = findGroup(selectedEmail);
+    if (!g) {
+      detail.innerHTML =
+        '<div class="sessions-detail-empty" id="sessions-detail-empty">' +
+        '<div class="empty-state">' +
+        '<div class="empty-title">Aucune session active</div>' +
+        '<div class="empty-desc">Les connexions portail et les ouvertures d’applications apparaîtront ici.</div>' +
+        '</div></div>';
+      return;
+    }
     var statusClass = g.status === 'active' ? 'ok' : 'warn';
-    var head =
-      '<tr class="session-group-row" data-searchable data-user-email="' +
-      escapeHtml(g.user_email) +
-      '"><td colspan="' +
-      cols +
-      '"><div class="session-group-head">' +
-      '<div class="session-group-user">' +
-      '<div class="user-avatar" style="width:28px;height:28px;font-size:10px;">' +
-      escapeHtml(initial) +
-      '</div><div><div style="font-weight:600;">' +
+    detail.innerHTML =
+      '<div class="sessions-detail-head">' +
+      '<div><h2 class="sessions-detail-title">' +
       escapeHtml(g.user) +
-      '</div><div class="mono">' +
-      escapeHtml(g.realm) +
+      '</h2><p class="sessions-detail-sub mono">' +
+      escapeHtml(g.user_email) +
       ' · ' +
-      escapeHtml(String(g.session_count)) +
-      ' session(s)</div></div></div>' +
-      '<div class="session-group-meta mono">' +
-      '<span>' +
+      escapeHtml(g.realm) +
+      ' · IP ' +
       escapeHtml(g.source_ip) +
-      '</span><span>' +
-      escapeHtml(g.duration) +
-      '</span><span class="badge badge-' +
+      '</p></div>' +
+      '<span class="badge badge-' +
       statusClass +
       '">' +
-      escapeHtml(String(g.status || '').toUpperCase()) +
-      '</span></div></div></td></tr>';
-    var children = (g.sessions || []).map(renderChild).join('');
-    return head + children;
+      escapeHtml(String(g.session_count)) +
+      ' session(s)</span></div>' +
+      '<div class="sessions-card-grid" id="sessions-card-grid">' +
+      (g.sessions || []).map(renderSessionCard).join('') +
+      '</div>';
   }
 
-  function emptyRow() {
-    var cols = isAdmin ? 9 : 8;
-    return (
-      '<tr class="sessions-empty-row"><td colspan="' +
-      cols +
-      '"><div class="empty-state">' +
-      '<div class="empty-title">Aucune session active</div>' +
-      '<div class="empty-desc">Les connexions portail et les ouvertures d’applications apparaîtront ici.</div>' +
-      '</div></td></tr>'
-    );
+  function renderAll() {
+    renderUserList();
+    renderDetail();
   }
 
   function updateCounts(counts) {
@@ -195,10 +253,16 @@
     });
   }
 
+  function onUserClick(ev) {
+    var btn = ev.target.closest('.sessions-user-item');
+    if (!btn) return;
+    selectedEmail = btn.getAttribute('data-user-email') || '';
+    renderAll();
+  }
+
   function refreshSessions() {
     var page = document.getElementById('sessions-page');
-    var tbody = document.getElementById('sessions-tbody');
-    if (!page || !tbody) return;
+    if (!page) return;
     var kind = page.getAttribute('data-kind') || 'all';
     var url = '/api/sessions';
     if (kind === 'user' || kind === 'app') url += '?kind=' + encodeURIComponent(kind);
@@ -210,24 +274,24 @@
       })
       .then(function (data) {
         var sessions = data.sessions || [];
-        var groups = data.groups || [];
+        groupsCache = data.groups || [];
         var countEl = document.getElementById('sessions-count');
         if (countEl) countEl.textContent = String(sessions.length);
         var usersEl = document.getElementById('sessions-users-count');
-        if (usersEl) usersEl.textContent = String(groups.length);
+        if (usersEl) usersEl.textContent = String(groupsCache.length);
         updateCounts(data.counts);
-        if (!groups.length) {
-          tbody.innerHTML = emptyRow();
-          return;
-        }
-        tbody.innerHTML = groups.map(renderGroup).join('');
+        renderAll();
       })
       .catch(function () {
         /* silent — keep last render */
       });
   }
 
-  if (document.getElementById('sessions-page')) {
+  var page = document.getElementById('sessions-page');
+  if (page) {
+    selectedEmail = page.getAttribute('data-selected-email') || '';
+    var list = document.getElementById('sessions-user-list');
+    if (list) list.addEventListener('click', onUserClick);
     setInterval(refreshSessions, POLL_MS);
   }
 })();
