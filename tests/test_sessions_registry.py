@@ -148,6 +148,45 @@ def test_sessions_grouped_by_user(client: TestClient, db_session: Session):
     assert group["source_ip"] == "192.168.2.167"
     targets = {s["target"] for s in group["sessions"]}
     assert targets == {"portal", "wiki"}
+    portal = next(s for s in group["sessions"] if s["kind"] == "user")
+    assert portal["resource_title"] == "Portail SSO"
+    assert portal["type_label"] == "Portail"
+    assert "last_seen_ago" in portal
+    assert "client_ip" in portal
+
+
+def test_session_stores_x_real_ip_not_tcp_peer(client: TestClient, db_session: Session):
+    """X-Real-IP must win over the TCP peer (docker nginx / Traefik)."""
+    client.get(
+        "/apps",
+        headers={
+            **USER_HEADERS,
+            "X-Real-IP": "203.0.113.77",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; rv:152.0) Gecko/20100101 Firefox/152.0",
+        },
+    )
+    row = db_session.query(ActiveSession).filter_by(kind="user").one()
+    assert row.source_ip == "203.0.113.77"
+    assert row.details
+    assert row.details.get("user_agent_label") == "Firefox 152 / Windows"
+
+
+def test_sessions_page_master_detail_layout(client: TestClient, db_session: Session):
+    client.get("/apps", headers=USER_HEADERS)
+    resp = client.get("/sessions", headers=USER_HEADERS)
+    assert resp.status_code == 200
+    assert "sessions-user-rail" in resp.text
+    assert "sessions-detail" in resp.text
+    assert "session-card" in resp.text
+    assert "Portail SSO" in resp.text
+    assert "IP client" in resp.text
+
+    admin_page = client.get("/sessions", headers=ADMIN_HEADERS)
+    # admin may have no sessions of their own until touch — trigger one
+    client.get("/apps", headers=ADMIN_HEADERS)
+    admin_page = client.get("/sessions", headers=ADMIN_HEADERS)
+    assert "Révoquer cette session" in admin_page.text
+    assert 'title="Révoquer :' in admin_page.text or "marque la session comme isolée" in admin_page.text
 
 
 def test_isolate_session(client: TestClient, db_session: Session):

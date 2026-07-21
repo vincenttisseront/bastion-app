@@ -111,6 +111,8 @@ async def client_impersonate(
                 credential_source=result.credential_source,
                 robotic_username=result.robotic_username,
                 driver=result.driver,
+                request=request,
+                app_label=app.label,
             ),
         )
 

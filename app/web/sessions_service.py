@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.database import get_db
 from app.models import ActiveSession, App, utcnow
-from app.request_client_ip import client_ip_from_request
+from app.request_client_ip import client_ip_from_request, prefer_client_ip
 from app.sso_settings import Settings, get_settings
+from app.user_agent_label import summarize_user_agent
 from app.web.user_context import UserContext, is_portal_admin, require_admin, require_user
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,11 @@ _ACCESS_MODE_PROTOCOL: dict[str, str] = {
 }
 
 _PORTAL_COOKIE_HINTS = ("_oauth2_proxy", "oauth2_proxy")
+
+_ACTION_TITLES = {
+    "isolate": "Révoquer : marque la session comme isolée et bloque les actions associées.",
+    "rotate": "Rotation : lance le renouvellement des secrets/clés liés à cette session.",
+}
 
 
 def _aware(dt: datetime | None) -> datetime | None:
@@ -52,6 +58,60 @@ def _format_duration(started_at: datetime, last_seen_at: datetime | None = None)
     if minutes:
         return f"{minutes}m {secs:02d}s"
     return f"{secs}s"
+
+
+def _format_last_seen(last_seen_at: datetime | None) -> str:
+    dt = _aware(last_seen_at)
+    if dt is None:
+        return "—"
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+def _relative_ago(last_seen_at: datetime | None) -> str:
+    dt = _aware(last_seen_at)
+    if dt is None:
+        return "—"
+    seconds = max(0, int((utcnow() - dt).total_seconds()))
+    if seconds < 60:
+        return f"il y a {seconds}s"
+    if seconds < 3600:
+        return f"il y a {seconds // 60} min"
+    if seconds < 86400:
+        return f"il y a {seconds // 3600} h"
+    return f"il y a {seconds // 86400} j"
+
+
+def request_client_diagnostics(request: Request | None) -> dict[str, Any]:
+    """User-Agent (+ label) captured on each touch."""
+    if request is None:
+        return {}
+    ua = (request.headers.get("User-Agent") or "").strip()
+    if not ua:
+        return {}
+    return {
+        "user_agent": ua[:500],
+        "user_agent_label": summarize_user_agent(ua),
+    }
+
+
+def portal_cookie_diagnostics(request: Request | None) -> dict[str, Any]:
+    """Presence of oauth2-proxy / realm cookies on the current request."""
+    if request is None:
+        return {}
+    present = [
+        name
+        for name in request.cookies.keys()
+        if any(hint in name for hint in _PORTAL_COOKIE_HINTS)
+        or name in ("portal_realm_slug", "csrf_token")
+    ]
+    oauth_present = [n for n in present if any(h in n for h in _PORTAL_COOKIE_HINTS)]
+    out: dict[str, Any] = {
+        "cookies_present": present,
+        "cookies_ok": bool(oauth_present),
+        "cookies_checked_at": utcnow().isoformat(),
+    }
+    out.update(request_client_diagnostics(request))
+    return out
 
 
 def _portal_session_id(email: str, realm: str) -> str:
@@ -84,30 +144,14 @@ def _merge_details(
     return out
 
 
-def portal_cookie_diagnostics(request: Request | None) -> dict[str, Any]:
-    """Presence of oauth2-proxy / realm cookies on the current request."""
-    if request is None:
-        return {}
-    present = [
-        name
-        for name in request.cookies.keys()
-        if any(hint in name for hint in _PORTAL_COOKIE_HINTS)
-        or name in ("portal_realm_slug", "csrf_token")
-    ]
-    oauth_present = [n for n in present if any(h in n for h in _PORTAL_COOKIE_HINTS)]
-    return {
-        "cookies_present": present,
-        "cookies_ok": bool(oauth_present),
-        "cookies_checked_at": utcnow().isoformat(),
-    }
-
-
 def app_cookie_diagnostics(
     cookies: dict[str, str] | None,
     *,
     credential_source: str | None = None,
     robotic_username: str | None = None,
     driver: str | None = None,
+    request: Request | None = None,
+    app_label: str | None = None,
 ) -> dict[str, Any]:
     """Store robotic cookie presence + fingerprints after a successful impersonate."""
     from app.robotic.impersonate_service import cookie_fingerprint
@@ -126,7 +170,7 @@ def app_cookie_diagnostics(
                 crush_age = _format_duration(issued, utcnow())
         except (ValueError, OverflowError, OSError):
             crush_age = None
-    return {
+    out: dict[str, Any] = {
         "cookies_present": present,
         "cookies_fingerprint": cookie_fingerprint(cookies) if cookies else {},
         "cookies_ok": bool(present),
@@ -136,6 +180,10 @@ def app_cookie_diagnostics(
         "robotic_username": robotic_username,
         "driver": driver,
     }
+    if app_label:
+        out["app_label"] = app_label
+    out.update(request_client_diagnostics(request))
+    return out
 
 
 def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
@@ -144,26 +192,29 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
     ok = details.get("cookies_ok")
     if ok is None:
         ok = bool(present)
-    label_parts: list[str] = []
     if present:
-        label_parts.append(", ".join(present[:4]))
+        label = ", ".join(present[:4])
         if len(present) > 4:
-            label_parts[-1] += f" (+{len(present) - 4})"
+            label += f" (+{len(present) - 4})"
+        cookie_title = "Cookies de session détectés : " + ", ".join(present)
     elif ok is False:
-        label_parts.append("aucun")
+        label = "aucun"
+        cookie_title = "Aucun cookie de session détecté pour cette ressource."
     else:
-        label_parts.append("—")
-    issued = details.get("cookies_issued_at")
-    age = details.get("crushauth_age")
-    validity = "ok" if ok else ("missing" if present == [] or ok is False else "unknown")
+        label = "—"
+        cookie_title = "Statut cookies inconnu (pas encore de diagnostic)."
     return {
-        "cookies_label": label_parts[0] if label_parts else "—",
+        "cookies_label": label,
         "cookies_ok": bool(ok),
-        "cookies_validity": validity,
-        "cookies_issued_at": issued,
-        "crushauth_age": age,
+        "cookies_validity": "ok" if ok else ("missing" if not present else "unknown"),
+        "cookies_title": cookie_title,
+        "cookies_issued_at": details.get("cookies_issued_at"),
+        "crushauth_age": details.get("crushauth_age"),
         "credential_source": details.get("credential_source"),
         "robotic_username": details.get("robotic_username"),
+        "user_agent": details.get("user_agent"),
+        "user_agent_label": details.get("user_agent_label") or "—",
+        "app_label": details.get("app_label"),
     }
 
 
@@ -237,7 +288,7 @@ def _touch_portal_session(
     else:
         row.username = user.username or email
         row.protocol = _protocol_for_user(user)
-        row.source_ip = source_ip or row.source_ip
+        row.source_ip = prefer_client_ip(row.source_ip, source_ip)
         row.last_seen_at = now
         if details:
             row.details = _merge_details(row.details if isinstance(row.details, dict) else None, details)
@@ -255,10 +306,16 @@ def touch_app_session(
     source_ip: str | None,
     *,
     details: dict[str, Any] | None = None,
+    request: Request | None = None,
 ) -> ActiveSession | None:
     """Upsert an application session after launch-ping / impersonate. Never raises."""
     try:
-        return _touch_app_session(db, user, app, source_ip, details=details)
+        merged = dict(details or {})
+        if app.label and "app_label" not in merged:
+            merged["app_label"] = app.label
+        if request is not None:
+            merged = _merge_details(merged, request_client_diagnostics(request)) or {}
+        return _touch_app_session(db, user, app, source_ip, details=merged or None)
     except Exception:
         logger.exception("touch_app_session failed — launch continues without registry")
         try:
@@ -302,7 +359,7 @@ def _touch_app_session(
             row.status = "active"
             row.protocol = _protocol_for_app(app)
             row.username = user.username or email
-        row.source_ip = source_ip or row.source_ip
+        row.source_ip = prefer_client_ip(row.source_ip, source_ip)
         row.last_seen_at = now
         if details:
             row.details = _merge_details(row.details if isinstance(row.details, dict) else None, details)
@@ -314,27 +371,45 @@ def _touch_app_session(
 def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
     details = row.details if isinstance(row.details, dict) else None
     diag = _diagnostics_summary(details)
+    if row.kind == KIND_USER:
+        resource_title = "Portail SSO"
+        resource_subtitle = "Session portail"
+        type_label = "Portail"
+    else:
+        resource_title = diag.get("app_label") or row.target
+        resource_subtitle = f"slug · {row.target}"
+        type_label = "Application"
     return {
         "id": row.id,
         "kind": row.kind,
+        "type_label": type_label,
         "user": row.username or row.user_email,
         "user_email": row.user_email,
         "realm": row.realm,
         "protocol": row.protocol,
         "target": row.target,
+        "resource_title": resource_title,
+        "resource_subtitle": resource_subtitle,
         "source_ip": row.source_ip or "—",
+        "client_ip": row.source_ip or "—",
         "duration": _format_duration(row.started_at, utcnow()),
         "status": row.status,
         "started_at": row.started_at.isoformat() if row.started_at else None,
         "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
+        "last_seen_label": _format_last_seen(row.last_seen_at),
+        "last_seen_ago": _relative_ago(row.last_seen_at),
         "details": details or {},
         "cookies_label": diag["cookies_label"],
         "cookies_ok": diag["cookies_ok"],
         "cookies_validity": diag["cookies_validity"],
+        "cookies_title": diag["cookies_title"],
         "cookies_issued_at": diag["cookies_issued_at"],
         "crushauth_age": diag["crushauth_age"],
         "credential_source": diag["credential_source"],
         "robotic_username": diag["robotic_username"],
+        "user_agent": diag["user_agent"],
+        "user_agent_label": diag["user_agent_label"],
+        "action_titles": _ACTION_TITLES,
     }
 
 

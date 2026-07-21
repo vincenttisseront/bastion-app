@@ -6,6 +6,11 @@
   var groupsCache = Array.isArray(window.__SESSIONS_BOOT__) ? window.__SESSIONS_BOOT__ : [];
   var selectedEmail = '';
 
+  var TITLE_ISOLATE =
+    'Révoquer : marque la session comme isolée et bloque les actions associées.';
+  var TITLE_ROTATE =
+    'Rotation : lance le renouvellement des secrets/clés liés à cette session.';
+
   function getCsrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
     return meta ? meta.getAttribute('content') : '';
@@ -45,11 +50,17 @@
   }
 
   window.isolateSession = function (sessionId) {
-    postAction('/admin/sessions/' + encodeURIComponent(sessionId) + '/isolate', 'Isoler cette session ?');
+    postAction(
+      '/admin/sessions/' + encodeURIComponent(sessionId) + '/isolate',
+      'Révoquer cette session ?'
+    );
   };
 
   window.rotateKeys = function (sessionId) {
-    postAction('/admin/sessions/' + encodeURIComponent(sessionId) + '/rotate-keys', 'Lancer la rotation des clés pour cette session ?');
+    postAction(
+      '/admin/sessions/' + encodeURIComponent(sessionId) + '/rotate-keys',
+      'Lancer la rotation des clés pour cette session ?'
+    );
   };
 
   function escapeHtml(s) {
@@ -58,19 +69,6 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
-  }
-
-  function kindLabel(kind) {
-    return kind === 'app' ? 'Application' : 'Utilisateur';
-  }
-
-  function cookieTitle(s) {
-    var parts = [];
-    if (s.cookies_issued_at) parts.push('émis ' + s.cookies_issued_at);
-    if (s.crushauth_age) parts.push('CrushAuth ' + s.crushauth_age);
-    if (s.credential_source) parts.push(s.credential_source);
-    if (s.robotic_username) parts.push(s.robotic_username);
-    return parts.join(' · ');
   }
 
   function findGroup(email) {
@@ -139,29 +137,38 @@
       s.status === 'active'
         ? '<span class="live-dot" style="width:6px;height:6px;"></span> '
         : '';
+    var titles = s.action_titles || {};
     var footer = '';
     if (isAdmin) {
       footer =
         '<footer class="session-card-footer session-actions">' +
-        '<button type="button" class="btn-isolate" onclick="isolateSession(\'' +
+        '<button type="button" class="btn btn-danger btn-sm btn-isolate" title="' +
+        escapeHtml(titles.isolate || TITLE_ISOLATE) +
+        '" onclick="isolateSession(\'' +
         escapeHtml(s.id) +
-        '\')">Isoler</button>' +
-        '<button type="button" class="btn-rotate" onclick="rotateKeys(\'' +
+        '\')">Révoquer cette session</button>' +
+        '<button type="button" class="btn btn-secondary btn-sm btn-rotate" title="' +
+        escapeHtml(titles.rotate || TITLE_ROTATE) +
+        '" onclick="rotateKeys(\'' +
         escapeHtml(s.id) +
         '\')">Rotation</button></footer>';
     }
+    var cookieTitle = s.cookies_title || '';
+    if (s.cookies_issued_at) cookieTitle += ' · émis ' + s.cookies_issued_at;
+    if (s.crushauth_age) cookieTitle += ' · CrushAuth ' + s.crushauth_age;
+
     return (
-      '<article class="session-card" data-session-id="' +
+      '<article class="card session-card" data-session-id="' +
       escapeHtml(s.id) +
       '" data-kind="' +
       escapeHtml(s.kind) +
       '">' +
-      '<header class="session-card-header">' +
+      '<header class="card-header session-card-header">' +
       '<div class="session-card-title-row">' +
       '<span class="badge badge-' +
       kindClass +
       '">' +
-      kindLabel(s.kind) +
+      escapeHtml(s.type_label || (s.kind === 'app' ? 'Application' : 'Portail')) +
       '</span>' +
       '<span class="proto-tag ' +
       escapeHtml(String(s.protocol || '').toLowerCase()) +
@@ -174,21 +181,34 @@
       liveDot +
       escapeHtml(String(s.status || '').toUpperCase()) +
       '</span></header>' +
-      '<div class="session-card-body">' +
-      '<div class="session-card-resource mono">' +
-      escapeHtml(s.target) +
+      '<div class="card-body session-card-body">' +
+      '<div class="session-card-resource">' +
+      escapeHtml(s.resource_title || s.target) +
+      '</div>' +
+      '<div class="session-card-slug mono">' +
+      escapeHtml(s.resource_subtitle || '') +
       '</div>' +
       '<dl class="session-card-facts">' +
-      '<div><dt>IP source</dt><dd class="mono">' +
-      escapeHtml(s.source_ip) +
+      '<div><dt>IP client</dt><dd class="mono">' +
+      escapeHtml(s.client_ip || s.source_ip || '—') +
       '</dd></div>' +
       '<div><dt>Durée</dt><dd class="mono">' +
       escapeHtml(s.duration) +
       '</dd></div>' +
+      '<div><dt>Dernière activité</dt><dd title="' +
+      escapeHtml(s.last_seen_label || '') +
+      '">' +
+      escapeHtml(s.last_seen_ago || '—') +
+      '</dd></div>' +
+      '<div><dt>Navigateur</dt><dd title="' +
+      escapeHtml(s.user_agent || '') +
+      '">' +
+      escapeHtml(s.user_agent_label || '—') +
+      '</dd></div>' +
       '<div><dt>Cookies</dt><dd><span class="session-cookies badge badge-' +
       cookieClass +
       '" title="' +
-      escapeHtml(cookieTitle(s)) +
+      escapeHtml(cookieTitle) +
       '">' +
       escapeHtml(s.cookies_label || '—') +
       '</span></dd></div></dl></div>' +
@@ -205,12 +225,21 @@
     if (page) page.setAttribute('data-selected-email', selectedEmail || '');
 
     var g = findGroup(selectedEmail);
-    if (!g) {
+    if (!groupsCache.length) {
       detail.innerHTML =
         '<div class="sessions-detail-empty" id="sessions-detail-empty">' +
         '<div class="empty-state">' +
         '<div class="empty-title">Aucune session active</div>' +
         '<div class="empty-desc">Les connexions portail et les ouvertures d’applications apparaîtront ici.</div>' +
+        '</div></div>';
+      return;
+    }
+    if (!g) {
+      detail.innerHTML =
+        '<div class="sessions-detail-empty" id="sessions-detail-empty">' +
+        '<div class="empty-state">' +
+        '<div class="empty-title">Sélectionnez un utilisateur</div>' +
+        '<div class="empty-desc">Choisissez un utilisateur dans le bandeau pour voir le détail de ses sessions.</div>' +
         '</div></div>';
       return;
     }
@@ -223,8 +252,6 @@
       escapeHtml(g.user_email) +
       ' · ' +
       escapeHtml(g.realm) +
-      ' · IP ' +
-      escapeHtml(g.source_ip) +
       '</p></div>' +
       '<span class="badge badge-' +
       statusClass +

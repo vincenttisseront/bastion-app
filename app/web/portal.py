@@ -202,5 +202,5 @@ def app_launch_ping(
         },
         ip_address=_client_ip(request),
     )
-    touch_app_session(db, user, match.app, _client_ip(request))
+    touch_app_session(db, user, match.app, _client_ip(request), request=request)
     return {"ok": True}
