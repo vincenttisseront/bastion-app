@@ -69,13 +69,17 @@ class BasicAuthHeaderResult:
     credential_source: CredentialSource = "shared"
 
 
-def _cookie_fingerprint(cookies: dict[str, str]) -> dict[str, str]:
+def cookie_fingerprint(cookies: dict[str, str]) -> dict[str, str]:
     """Truncated/hashed cookie traces for audit — never full values."""
     out: dict[str, str] = {}
     for key, value in cookies.items():
         digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
         out[key] = f"{value[:2]}…#{digest}" if len(value) >= 2 else f"#{digest}"
     return out
+
+
+def _cookie_fingerprint(cookies: dict[str, str]) -> dict[str, str]:
+    return cookie_fingerprint(cookies)
 
 
 def _resolve_target(

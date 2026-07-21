@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.request_client_ip import client_ip_from_request
 from app.robotic.impersonate_service import (
     ImpersonationCredentialRequiredError,
     ImpersonationError,
@@ -24,13 +25,14 @@ from app.subdomain.subdomain_service import (
     user_has_access,
 )
 from app.testing_framework.throttle import throttle_retry_after_key
+from app.web.sessions_service import app_cookie_diagnostics, touch_app_session
 from app.web.user_context import UserContext, require_user
 
 router = APIRouter(tags=["robotic"])
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 def _check_app_rbac(
@@ -96,6 +98,21 @@ async def client_impersonate(
         )
     except ImpersonationError as exc:
         return _impersonation_error_response(exc)
+
+    app = get_app_by_slug(db, slug)
+    if app is not None:
+        touch_app_session(
+            db,
+            user,
+            app,
+            _client_ip(request),
+            details=app_cookie_diagnostics(
+                result.cookies,
+                credential_source=result.credential_source,
+                robotic_username=result.robotic_username,
+                driver=result.driver,
+            ),
+        )
 
     response = RedirectResponse(url=result.target_url, status_code=302)
     if result.use_crushftp_cookies:

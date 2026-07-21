@@ -14,6 +14,7 @@ from app.rbac.effective_access_service import get_effective_apps_for_user
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context
+from app.request_client_ip import client_ip_from_request
 from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
 from app.web.user_context import UserContext, is_portal_admin, require_user
@@ -33,7 +34,7 @@ def _ctx(request: Request, settings: Settings, **extra):
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 def _resolve_portal_admin(user: UserContext, db: Session, settings: Settings) -> bool:
@@ -126,7 +127,7 @@ def apps_portal(
     if user.is_breakglass:
         return RedirectResponse(url="/dashboard", status_code=302)
 
-    touch_portal_session(db, user, _client_ip(request))
+    touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
     return render(
@@ -150,7 +151,7 @@ def user_profile(
     user: UserContext = Depends(require_user),
 ):
     """End-user profile: identity, app summary, Keycloak account security link."""
-    touch_portal_session(db, user, _client_ip(request))
+    touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
     account_url = _account_console_url(db, user, settings)

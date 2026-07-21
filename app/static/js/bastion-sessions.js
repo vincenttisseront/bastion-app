@@ -62,10 +62,19 @@
     return kind === 'app' ? 'Application' : 'Utilisateur';
   }
 
-  function renderRow(s) {
-    var initial = (s.user && s.user[0] ? s.user[0] : '?').toUpperCase();
+  function cookieTitle(s) {
+    var parts = [];
+    if (s.cookies_issued_at) parts.push('émis ' + s.cookies_issued_at);
+    if (s.crushauth_age) parts.push('CrushAuth ' + s.crushauth_age);
+    if (s.credential_source) parts.push(s.credential_source);
+    if (s.robotic_username) parts.push(s.robotic_username);
+    return parts.join(' · ');
+  }
+
+  function renderChild(s) {
     var statusClass = s.status === 'active' ? 'ok' : 'warn';
     var kindClass = s.kind === 'user' ? 'info' : 'ok';
+    var cookieClass = s.cookies_ok ? 'ok' : 'warn';
     var liveDot =
       s.status === 'active'
         ? '<span class="live-dot" style="width:6px;height:6px;"></span> '
@@ -83,19 +92,14 @@
         '</div></td>';
     }
     return (
-      '<tr data-searchable data-kind="' +
+      '<tr class="session-child-row" data-searchable data-kind="' +
       escapeHtml(s.kind) +
       '" data-session-id="' +
       escapeHtml(s.id) +
+      '" data-user-email="' +
+      escapeHtml(s.user_email) +
       '">' +
-      '<td><div style="display:flex;align-items:center;gap:var(--sp-2);">' +
-      '<div class="user-avatar" style="width:28px;height:28px;font-size:10px;">' +
-      escapeHtml(initial) +
-      '</div><div><div style="font-weight:600;">' +
-      escapeHtml(s.user) +
-      '</div><div class="mono">' +
-      escapeHtml(s.realm) +
-      '</div></div></div></td>' +
+      '<td class="session-child-indent mono">↳</td>' +
       '<td><span class="badge badge-' +
       kindClass +
       '">' +
@@ -115,6 +119,13 @@
       '<td class="mono session-duration">' +
       escapeHtml(s.duration) +
       '</td>' +
+      '<td><span class="session-cookies badge badge-' +
+      cookieClass +
+      '" title="' +
+      escapeHtml(cookieTitle(s)) +
+      '">' +
+      escapeHtml(s.cookies_label || '—') +
+      '</span></td>' +
       '<td><span class="badge badge-' +
       statusClass +
       '">' +
@@ -126,8 +137,42 @@
     );
   }
 
+  function renderGroup(g) {
+    var cols = isAdmin ? 9 : 8;
+    var initial = (g.user && g.user[0] ? g.user[0] : '?').toUpperCase();
+    var statusClass = g.status === 'active' ? 'ok' : 'warn';
+    var head =
+      '<tr class="session-group-row" data-searchable data-user-email="' +
+      escapeHtml(g.user_email) +
+      '"><td colspan="' +
+      cols +
+      '"><div class="session-group-head">' +
+      '<div class="session-group-user">' +
+      '<div class="user-avatar" style="width:28px;height:28px;font-size:10px;">' +
+      escapeHtml(initial) +
+      '</div><div><div style="font-weight:600;">' +
+      escapeHtml(g.user) +
+      '</div><div class="mono">' +
+      escapeHtml(g.realm) +
+      ' · ' +
+      escapeHtml(String(g.session_count)) +
+      ' session(s)</div></div></div>' +
+      '<div class="session-group-meta mono">' +
+      '<span>' +
+      escapeHtml(g.source_ip) +
+      '</span><span>' +
+      escapeHtml(g.duration) +
+      '</span><span class="badge badge-' +
+      statusClass +
+      '">' +
+      escapeHtml(String(g.status || '').toUpperCase()) +
+      '</span></div></div></td></tr>';
+    var children = (g.sessions || []).map(renderChild).join('');
+    return head + children;
+  }
+
   function emptyRow() {
-    var cols = isAdmin ? 8 : 7;
+    var cols = isAdmin ? 9 : 8;
     return (
       '<tr class="sessions-empty-row"><td colspan="' +
       cols +
@@ -165,14 +210,17 @@
       })
       .then(function (data) {
         var sessions = data.sessions || [];
+        var groups = data.groups || [];
         var countEl = document.getElementById('sessions-count');
         if (countEl) countEl.textContent = String(sessions.length);
+        var usersEl = document.getElementById('sessions-users-count');
+        if (usersEl) usersEl.textContent = String(groups.length);
         updateCounts(data.counts);
-        if (!sessions.length) {
+        if (!groups.length) {
           tbody.innerHTML = emptyRow();
           return;
         }
-        tbody.innerHTML = sessions.map(renderRow).join('');
+        tbody.innerHTML = groups.map(renderGroup).join('');
       })
       .catch(function () {
         /* silent — keep last render */

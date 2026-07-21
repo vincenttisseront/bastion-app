@@ -128,6 +128,28 @@ def test_sessions_kind_filter(client: TestClient, db_session: Session):
     assert any(s["target"] == "wiki" for s in apps)
 
 
+def test_sessions_grouped_by_user(client: TestClient, db_session: Session):
+    app = _app(db_session)
+    _grant_launch(db_session, app, "kc-user-alice")
+    client.get("/apps", headers={**USER_HEADERS, "X-Forwarded-For": "192.168.2.167, 10.5.0.3"})
+    client.post(
+        f"/api/apps/{app.id}/launch-ping",
+        headers={**USER_HEADERS, "X-Forwarded-For": "192.168.2.167, 10.5.0.3"},
+    )
+
+    api = client.get("/api/sessions", headers=USER_HEADERS)
+    assert api.status_code == 200
+    body = api.json()
+    assert len(body["sessions"]) == 2
+    assert len(body["groups"]) == 1
+    group = body["groups"][0]
+    assert group["user_email"] == "alice@example.com"
+    assert group["session_count"] == 2
+    assert group["source_ip"] == "192.168.2.167"
+    targets = {s["target"] for s in group["sessions"]}
+    assert targets == {"portal", "wiki"}
+
+
 def test_isolate_session(client: TestClient, db_session: Session):
     client.get("/apps", headers=USER_HEADERS)
     row = db_session.query(ActiveSession).filter_by(kind="user").one()

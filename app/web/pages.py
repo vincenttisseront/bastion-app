@@ -38,7 +38,12 @@ from app.web.app_logos import (
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
-from app.web.sessions_service import get_active_sessions, touch_portal_session
+from app.request_client_ip import client_ip_from_request
+from app.web.sessions_service import (
+    get_active_sessions,
+    group_sessions_by_user,
+    touch_portal_session,
+)
 from app.web.templates import render
 from app.vault.app_credential_service import (
     EncryptionNotConfiguredError,
@@ -170,7 +175,7 @@ def _ctx(request: Request, settings: Settings, **extra):
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 @router.get("/")
@@ -185,7 +190,7 @@ def dashboard(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    touch_portal_session(db, user, _client_ip(request))
+    touch_portal_session(db, user, _client_ip(request), request=request)
     metrics = get_dashboard_metrics(db)
     recent_audit, _ = list_audit_entries(db, limit=8)
     return render(
@@ -204,7 +209,7 @@ def sessions_page(
 ):
     if is_portal_admin(user, db, settings):
         user.is_admin = True
-    touch_portal_session(db, user, _client_ip(request))
+    touch_portal_session(db, user, _client_ip(request), request=request)
     filter_kind = kind if kind in ("user", "app") else None
     sessions = get_active_sessions(db, viewer=user, kind=filter_kind)
     return render(
@@ -213,6 +218,7 @@ def sessions_page(
             request,
             settings,
             sessions=sessions,
+            session_groups=group_sessions_by_user(sessions),
             session_kind=filter_kind or "all",
             session_counts={
                 "all": len(get_active_sessions(db, viewer=user)),

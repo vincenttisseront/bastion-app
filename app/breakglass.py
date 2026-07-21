@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.breakglass_store import verify_breakglass_password
 from app.database import get_db
+from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 
 COOKIE_NAME = "bg_session"
@@ -44,7 +45,7 @@ def validate_breakglass_cookie(cookie_value: str, secret: str) -> bool:
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 @router.post("/login")

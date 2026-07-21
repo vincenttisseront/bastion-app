@@ -35,6 +35,12 @@ server {
     # doublon "SameSite=None; Secure; secure; SameSite=None" → Firefox rejette les cookies → boucle login.
     # proxy_cookie_path / "/; SameSite=None; Secure";
 
+    # CrushFTP pose souvent Domain=<IP backend> même si Host=$host → boucle FQDN / IP OK.
+    proxy_cookie_domain {{ transfer_backend_ip | default('172.24.0.106') }} {{ transfer_domain }};
+    proxy_cookie_domain www.crushftp.com {{ transfer_domain }};
+    proxy_redirect https://{{ transfer_backend_ip | default('172.24.0.106') }}/ https://{{ transfer_domain }}/;
+    proxy_redirect http://{{ transfer_backend_ip | default('172.24.0.106') }}/ https://{{ transfer_domain }}/;
+
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options SAMEORIGIN always;
     add_header X-XSS-Protection "1; mode=block" always;
@@ -69,8 +75,10 @@ server {
         # Cookie navigateur complet — le filtre $transfer_crushftp_backend_cookie (1 seul
         # currentAuth* si _kc_* présent) casse la session new-ui → boucle login.
         proxy_set_header Cookie $http_cookie;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # CrushFTP invalide la session si l'IP change (robotic login depuis docker
+        # vs navigateur). Forcer une IP stable = reverse, pas le client réel.
+        proxy_set_header X-Real-IP $server_addr;
+        proxy_set_header X-Forwarded-For $server_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host $host;
     }
@@ -95,8 +103,8 @@ server {
         # Cookie navigateur complet — le filtre $transfer_crushftp_backend_cookie (1 seul
         # currentAuth* si _kc_* présent) casse la session new-ui → boucle login.
         proxy_set_header Cookie $http_cookie;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $server_addr;
+        proxy_set_header X-Forwarded-For $server_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host $host;
         add_header X-Frame-Options "SAMEORIGIN" always;
@@ -113,8 +121,8 @@ server {
         # Cookie navigateur complet — le filtre $transfer_crushftp_backend_cookie (1 seul
         # currentAuth* si _kc_* présent) casse la session new-ui → boucle login.
         proxy_set_header Cookie $http_cookie;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $server_addr;
+        proxy_set_header X-Forwarded-For $server_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host $host;
 

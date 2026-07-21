@@ -12,6 +12,7 @@ from app.auth_flow import get_default_idp_realm
 from app.breakglass import COOKIE_NAME, validate_breakglass_cookie
 from app.database import get_db
 from app.models import RealmConfig
+from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 
 router = APIRouter()
@@ -62,7 +63,7 @@ def get_realm_proxy_url(realm_slug: Optional[str], settings: Settings, db: Sessi
 
 
 def _client_ip(request: Request) -> str:
-    return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+    return client_ip_from_request(request)
 
 
 def _rfc1918_response(request: Request, settings: Settings) -> Response | None:

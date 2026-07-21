@@ -286,6 +286,7 @@ class ActiveSession(Base):
     status = Column(String, nullable=False, default="active")
     started_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     last_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    details = Column(JSON, nullable=True)  # cookie diagnostics, credential source, …
 
 
 class PortalSettings(Base):

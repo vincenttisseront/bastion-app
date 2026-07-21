@@ -10,7 +10,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Sessions actives</h1>
-      <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> connexion(s) en cours</p>
+      <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> connexion(s) · <span id="sessions-users-count">{{ session_groups | length }}</span> utilisateur(s)</p>
     </div>
     <div class="live-pill"><span class="live-dot"></span>Live</div>
   </div>
@@ -37,22 +37,34 @@
           <th>Ressource</th>
           <th>IP source</th>
           <th>Durée</th>
+          <th>Cookies</th>
           <th>Statut</th>
           {% if is_admin %}<th>Actions</th>{% endif %}
         </tr>
       </thead>
       <tbody id="sessions-tbody">
-        {% for s in sessions %}
-        <tr data-searchable data-kind="{{ s.kind }}" data-session-id="{{ s.id }}">
-          <td>
-            <div style="display:flex;align-items:center;gap:var(--sp-2);">
-              <div class="user-avatar" style="width:28px;height:28px;font-size:10px;">{{ s.user[0] | upper }}</div>
-              <div>
-                <div style="font-weight:600;">{{ s.user }}</div>
-                <div class="mono">{{ s.realm }}</div>
+        {% for g in session_groups %}
+        <tr class="session-group-row" data-searchable data-user-email="{{ g.user_email }}">
+          <td colspan="{% if is_admin %}9{% else %}8{% endif %}">
+            <div class="session-group-head">
+              <div class="session-group-user">
+                <div class="user-avatar" style="width:28px;height:28px;font-size:10px;">{{ g.user[0] | upper }}</div>
+                <div>
+                  <div style="font-weight:600;">{{ g.user }}</div>
+                  <div class="mono">{{ g.realm }} · {{ g.session_count }} session(s)</div>
+                </div>
+              </div>
+              <div class="session-group-meta mono">
+                <span title="IP source (préférence portail)">{{ g.source_ip }}</span>
+                <span>{{ g.duration }}</span>
+                <span class="badge badge-{{ 'ok' if g.status == 'active' else 'warn' }}">{{ g.status | upper }}</span>
               </div>
             </div>
           </td>
+        </tr>
+        {% for s in g.sessions %}
+        <tr class="session-child-row" data-searchable data-kind="{{ s.kind }}" data-session-id="{{ s.id }}" data-user-email="{{ s.user_email }}">
+          <td class="session-child-indent mono">↳</td>
           <td>
             <span class="badge badge-{{ 'info' if s.kind == 'user' else 'ok' }}">
               {{ 'Utilisateur' if s.kind == 'user' else 'Application' }}
@@ -62,6 +74,12 @@
           <td class="mono">{{ s.target }}</td>
           <td class="mono">{{ s.source_ip }}</td>
           <td class="mono session-duration">{{ s.duration }}</td>
+          <td>
+            <span class="session-cookies badge badge-{{ 'ok' if s.cookies_ok else 'warn' }}"
+                  title="{% if s.cookies_issued_at %}émis {{ s.cookies_issued_at }}{% endif %}{% if s.crushauth_age %} · CrushAuth {{ s.crushauth_age }}{% endif %}{% if s.credential_source %} · {{ s.credential_source }}{% endif %}{% if s.robotic_username %} · {{ s.robotic_username }}{% endif %}">
+              {{ s.cookies_label }}
+            </span>
+          </td>
           <td>
             <span class="badge badge-{{ 'ok' if s.status == 'active' else 'warn' }}">
               {% if s.status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
@@ -77,9 +95,10 @@
           </td>
           {% endif %}
         </tr>
+        {% endfor %}
         {% else %}
         <tr class="sessions-empty-row">
-          <td colspan="{% if is_admin %}8{% else %}7{% endif %}">
+          <td colspan="{% if is_admin %}9{% else %}8{% endif %}">
             <div class="empty-state">
               <div class="empty-icon">
                 <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
