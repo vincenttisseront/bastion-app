@@ -93,6 +93,24 @@ def _resolve_target(
     return "legacy", f"/proxy/{app.slug}/", None
 
 
+def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
+    """
+    Base URL for CrushFTP robotic login/getUsername.
+
+    In subdomain mode the browser presents cookies on the public FQDN. Sessions
+    created against upstream_url (often a bare backend IP / Host) are rejected
+    by CrushFTP on the FQDN path (new-ui → login.html). Login must therefore
+    use the same public URL the browser will hit.
+    """
+    from app.portal_settings_service import get_subdomain_sso_enabled
+
+    mode = normalize_access_mode(app.access_mode)
+    fqdn = (app.public_fqdn or "").strip() or None
+    if get_subdomain_sso_enabled(db, settings) and mode == "subdomain_proxy" and fqdn:
+        return f"https://{fqdn}/"
+    return (app.upstream_url or "").rstrip("/") + "/"
+
+
 def _audit_impersonate(
     db: Session,
     *,
@@ -234,8 +252,9 @@ async def _impersonate_crushftp(
     # are returned to the user's browser for the live session.
     driver = CrushFTPDriver()
     session = None
+    login_base = _crushftp_login_base_url(app, settings, db)
     try:
-        session = await driver.login(app.upstream_url, resolved.robotic_username, password)
+        session = await driver.login(login_base, resolved.robotic_username, password)
     except RoboticLoginError as exc:
         _audit_impersonate(
             db,

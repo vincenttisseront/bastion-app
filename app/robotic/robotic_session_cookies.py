@@ -75,7 +75,8 @@ def build_response_cookies(
 
     - mode "subdomain" : Path=/, Domain={shared parent of fqdn and portal}
     - mode "legacy"    : Path=/proxy/{slug}/, no Domain
-    Always httponly=True, secure=True, samesite="lax".
+    Default: httponly=True, secure=True, samesite="lax".
+    CrushFTP currentAuth must stay readable by new-ui JS (httponly=False).
     """
     path, domain = cookie_path_and_domain(mode, slug, fqdn, portal_domain=portal_domain)
     keys = cookie_keys if cookie_keys is not None else tuple(cookies.keys())
@@ -86,11 +87,13 @@ def build_response_cookies(
         value = cookies.get(key)
         if not value:
             continue
+        # CrushFTP sets currentAuth without HttpOnly; JS reads it for c2f.
+        httponly = key != "currentAuth"
         kwargs: dict = {
             "key": key,
             "value": value,
             "path": path,
-            "httponly": True,
+            "httponly": httponly,
             "secure": True,
             "samesite": "lax",
         }

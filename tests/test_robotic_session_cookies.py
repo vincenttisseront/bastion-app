@@ -79,6 +79,10 @@ def test_build_crushftp_sets_shared_domain(caplog):
     assert any("CrushAuth=" in h for h in headers)
     assert any("Domain=ar-systems.fr" in h or "domain=ar-systems.fr" in h for h in headers)
     assert not any("Domain=transfer.ar-systems.fr" in h for h in headers)
+    crush = next(h for h in headers if h.startswith("CrushAuth="))
+    current = next(h for h in headers if h.startswith("currentAuth="))
+    assert "HttpOnly" in crush or "httponly" in crush.lower()
+    assert "HttpOnly" not in current and "httponly" not in current.lower()
 
 
 def test_build_response_cookies_legacy_no_domain():
