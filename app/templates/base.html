@@ -37,7 +37,8 @@
   {% endif %}
 
   {% include 'partials/_bastion_modal.html' %}
-  <script src="/static/js/bastion-modal.js"></script>
+  {# Cache-bust when modal/password open flow changes — bump when editing bastion-modal.js #}
+  <script src="/static/js/bastion-modal.js?v=20260721-identity-open"></script>
   <script src="/static/js/bastion.js"></script>
   {% block scripts %}{% endblock %}
 </body>
