@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import ipaddress
+import logging
+import os
+from typing import Any
 
 from fastapi import Request
 
+logger = logging.getLogger(__name__)
+
 # Intermediate hops on the bastion path (reverse01 → Traefik → nginx → app).
-# Prefer a non-infra address from X-Forwarded-For / X-Real-IP when present.
 _INFRA_NETWORKS = (
     ipaddress.ip_network("10.5.0.0/16"),  # docker vpcbr
     ipaddress.ip_network("172.24.0.0/16"),  # docker01 Traefik / LAN bridge
@@ -15,12 +19,13 @@ _INFRA_NETWORKS = (
     ipaddress.ip_network("127.0.0.0/8"),
 )
 
-
-def _first_ip(value: str | None) -> str | None:
-    if not value:
-        return None
-    part = value.split(",")[0].strip()
-    return part or None
+# Set SESSIONS_IP_PROBE=1 to log the three sources on every resolve (temporary diag).
+_IP_PROBE = os.environ.get("SESSIONS_IP_PROBE", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 
 def is_infra_hop(ip: str | None) -> bool:
@@ -50,8 +55,31 @@ def prefer_client_ip(existing: str | None, new: str | None) -> str | None:
     return existing
 
 
+def client_ip_probe(request: Request) -> dict[str, Any]:
+    """
+    Snapshot of the three IP sources for diagnostics (prompt v2).
+    Does not mutate state — safe to expose to portal admins.
+    """
+    x_real = (request.headers.get("X-Real-IP") or "").strip() or None
+    x_fwd = (request.headers.get("X-Forwarded-For") or "").strip() or None
+    peer = request.client.host if request.client else None
+    resolved = client_ip_from_request(request)
+    return {
+        "x_real_ip": x_real,
+        "x_forwarded_for": x_fwd,
+        "request_client_host": peer,
+        "resolved": resolved or None,
+        "resolved_is_infra": is_infra_hop(resolved),
+    }
+
+
 def _candidates(request: Request) -> list[str]:
     out: list[str] = []
+    # Edge / CDN headers first when present
+    for header in ("CF-Connecting-IP", "True-Client-IP", "X-Client-IP"):
+        val = (request.headers.get(header) or "").strip()
+        if val:
+            out.append(val)
     xff = request.headers.get("X-Forwarded-For") or ""
     for part in xff.split(","):
         ip = part.strip()
@@ -62,7 +90,6 @@ def _candidates(request: Request) -> list[str]:
         out.append(real)
     if request.client and request.client.host:
         out.append(request.client.host)
-    # de-dupe preserving order
     seen: set[str] = set()
     unique: list[str] = []
     for ip in out:
@@ -74,12 +101,25 @@ def _candidates(request: Request) -> list[str]:
 
 def client_ip_from_request(request: Request) -> str:
     """
-    Prefer the leftmost non-infra hop in X-Forwarded-For, then X-Real-IP,
-    then the TCP peer. Skips docker/Traefik LAN addresses when a real client
-    IP is present further in the chain (or as X-Real-IP from the edge).
+    Prefer the leftmost non-infra hop in X-Forwarded-For / edge headers,
+    then X-Real-IP, then the TCP peer.
     """
     candidates = _candidates(request)
+    resolved = ""
     for ip in candidates:
         if not is_infra_hop(ip):
-            return ip
-    return candidates[0] if candidates else ""
+            resolved = ip
+            break
+    if not resolved:
+        resolved = candidates[0] if candidates else ""
+
+    if _IP_PROBE:
+        probe = {
+            "x_real_ip": (request.headers.get("X-Real-IP") or "").strip() or None,
+            "x_forwarded_for": (request.headers.get("X-Forwarded-For") or "").strip() or None,
+            "request_client_host": request.client.host if request.client else None,
+            "resolved": resolved or None,
+        }
+        logger.info("sessions_ip_probe %s", probe)
+
+    return resolved

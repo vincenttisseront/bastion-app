@@ -189,7 +189,11 @@
       escapeHtml(s.resource_subtitle || '') +
       '</div>' +
       '<dl class="session-card-facts">' +
-      '<div><dt>IP client</dt><dd class="mono">' +
+      '<div><dt>IP client</dt><dd class="mono' +
+      (s.client_ip_is_infra ? ' is-infra-ip' : '') +
+      '" title="' +
+      escapeHtml(s.client_ip_note || '') +
+      '">' +
       escapeHtml(s.client_ip || s.source_ip || '—') +
       '</dd></div>' +
       '<div><dt>Durée</dt><dd class="mono">' +

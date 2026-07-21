@@ -1,4 +1,8 @@
-/* Active sessions — user rail + detail cards (tokens from bastion-*) */
+/* Active sessions — strict two-column master/detail (tokens from bastion-*)
+ *
+ * DESKTOP (default): left rail FIXED 280px, right detail flex:1.
+ * Never arrange users as horizontal tiles except on very small phones.
+ */
 
 .session-kind-tabs {
   display: flex;
@@ -39,10 +43,11 @@
   opacity: 0.85;
 }
 
+/* Parent: flex row — NOT grid that collapses under sidebar width */
 .sessions-split {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
   min-height: 28rem;
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
@@ -51,15 +56,21 @@
   box-shadow: var(--sh-card);
 }
 
+/* LEFT: fixed vertical rail */
 .sessions-user-rail {
+  flex: 0 0 280px;
+  width: 280px;
+  max-width: 280px;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
   background: var(--bg-tertiary);
   min-height: 100%;
+  min-width: 0;
 }
 
 .sessions-user-rail-head {
+  flex: 0 0 auto;
   padding: var(--sp-3) var(--sp-4);
   font-size: var(--fs-xs);
   font-weight: 700;
@@ -70,23 +81,27 @@
 }
 
 .sessions-user-list {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: var(--sp-2);
+  overflow-x: hidden;
   overflow-y: auto;
-  flex: 1;
   max-height: min(70vh, 40rem);
 }
 
 .sessions-user-item {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--sp-3);
   width: 100%;
+  flex: 0 0 auto;
   padding: 0.65rem 0.75rem;
   border: 1px solid transparent;
-  border-radius: var(--r-lg);
+  border-left: 3px solid transparent;
+  border-radius: var(--r-md);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -98,9 +113,11 @@
   background: var(--bg-overlay);
 }
 
+/* Selection ≠ connection status (badge) */
 .sessions-user-item.is-selected {
   background: var(--accent-muted);
-  border-color: var(--accent);
+  border-color: transparent;
+  border-left-color: var(--accent);
 }
 
 .sessions-user-avatar {
@@ -142,7 +159,10 @@
   text-align: center;
 }
 
+/* RIGHT: flexible detail pane */
 .sessions-detail {
+  flex: 1 1 auto;
+  min-width: 0;
   padding: var(--sp-5) var(--sp-6);
   overflow-y: auto;
   max-height: min(70vh, 40rem);
@@ -179,7 +199,7 @@
 
 .sessions-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: var(--sp-4);
 }
 
@@ -241,6 +261,10 @@
   color: var(--text);
 }
 
+.session-card-facts dd.is-infra-ip {
+  color: var(--warn);
+}
+
 .session-card-footer {
   padding: var(--sp-3) var(--sp-4);
   border-top: 1px solid var(--border-muted);
@@ -262,19 +286,23 @@
   vertical-align: middle;
 }
 
-@media (max-width: 800px) {
+/* Phones only — keep two columns on tablets / narrow desktop with app sidebar */
+@media (max-width: 560px) {
   .sessions-split {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
   .sessions-user-rail {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: none;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    max-height: 12rem;
+    max-height: 11rem;
   }
 
   .sessions-user-list {
-    max-height: 10rem;
+    max-height: 9rem;
   }
 
   .sessions-detail {

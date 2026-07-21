@@ -81,7 +81,10 @@
             <div class="session-card-resource">{{ s.resource_title }}</div>
             <div class="session-card-slug mono">{{ s.resource_subtitle }}</div>
             <dl class="session-card-facts">
-              <div><dt>IP client</dt><dd class="mono">{{ s.client_ip or s.source_ip }}</dd></div>
+              <div><dt>IP client</dt>
+                <dd class="mono{% if s.client_ip_is_infra %} is-infra-ip{% endif %}"
+                    title="{{ s.client_ip_note or '' }}">{{ s.client_ip or s.source_ip }}</dd>
+              </div>
               <div><dt>Durée</dt><dd class="mono">{{ s.duration }}</dd></div>
               <div><dt>Dernière activité</dt><dd title="{{ s.last_seen_label }}">{{ s.last_seen_ago }}</dd></div>
               <div><dt>Navigateur</dt><dd title="{{ s.user_agent or '' }}">{{ s.user_agent_label }}</dd></div>

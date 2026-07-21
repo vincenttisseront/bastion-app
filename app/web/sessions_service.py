@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.database import get_db
 from app.models import ActiveSession, App, utcnow
-from app.request_client_ip import client_ip_from_request, prefer_client_ip
+from app.request_client_ip import client_ip_from_request, client_ip_probe, is_infra_hop, prefer_client_ip
 from app.sso_settings import Settings, get_settings
 from app.user_agent_label import summarize_user_agent
 from app.web.user_context import UserContext, is_portal_admin, require_admin, require_user
@@ -379,6 +379,20 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         resource_title = diag.get("app_label") or row.target
         resource_subtitle = f"slug · {row.target}"
         type_label = "Application"
+    raw_ip = (row.source_ip or "").strip()
+    infra = bool(raw_ip) and is_infra_hop(raw_ip)
+    if not raw_ip:
+        client_ip_display = "—"
+        client_ip_note = None
+    elif infra:
+        client_ip_display = "indisponible (IP proxy)"
+        client_ip_note = (
+            f"Valeur capturée={raw_ip} (hop infra Traefik/docker). "
+            "La vraie IP client n'a pas traversé la chaîne de proxys."
+        )
+    else:
+        client_ip_display = raw_ip
+        client_ip_note = None
     return {
         "id": row.id,
         "kind": row.kind,
@@ -390,8 +404,11 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         "target": row.target,
         "resource_title": resource_title,
         "resource_subtitle": resource_subtitle,
-        "source_ip": row.source_ip or "—",
-        "client_ip": row.source_ip or "—",
+        "source_ip": raw_ip or "—",
+        "client_ip": client_ip_display,
+        "client_ip_raw": raw_ip or None,
+        "client_ip_is_infra": infra or not raw_ip,
+        "client_ip_note": client_ip_note,
         "duration": _format_duration(row.started_at, utcnow()),
         "status": row.status,
         "started_at": row.started_at.isoformat() if row.started_at else None,
@@ -510,7 +527,7 @@ def list_sessions(
     if is_portal_admin(user, db, settings):
         user.is_admin = True
     sessions = get_active_sessions(db, viewer=user, kind=kind)
-    return {
+    payload: dict[str, Any] = {
         "sessions": sessions,
         "groups": group_sessions_by_user(sessions),
         "counts": {
@@ -519,6 +536,10 @@ def list_sessions(
             "app": len(get_active_sessions(db, viewer=user, kind=KIND_APP)),
         },
     }
+    # Temporary diagnostic for IP capture (admins only) — remove once validated.
+    if user.is_admin:
+        payload["ip_probe"] = client_ip_probe(request)
+    return payload
 
 
 @router.post("/admin/sessions/{session_id}/isolate")

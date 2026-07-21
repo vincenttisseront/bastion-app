@@ -171,6 +171,29 @@ def test_session_stores_x_real_ip_not_tcp_peer(client: TestClient, db_session: S
     assert row.details.get("user_agent_label") == "Firefox 152 / Windows"
 
 
+def test_infra_ip_hidden_in_api_display(client: TestClient, db_session: Session):
+    client.get("/apps", headers={**USER_HEADERS, "X-Real-IP": "172.24.0.108"})
+    api = client.get("/api/sessions", headers=USER_HEADERS).json()
+    portal = next(s for s in api["sessions"] if s["kind"] == "user")
+    assert portal["client_ip"] == "indisponible (IP proxy)"
+    assert portal["client_ip_is_infra"] is True
+    assert portal["client_ip_raw"] == "172.24.0.108"
+
+
+def test_admin_sessions_include_ip_probe(client: TestClient, db_session: Session):
+    client.get("/apps", headers=ADMIN_HEADERS)
+    api = client.get(
+        "/api/sessions",
+        headers={**ADMIN_HEADERS, "X-Real-IP": "203.0.113.9", "X-Forwarded-For": "203.0.113.9, 172.24.0.108"},
+    )
+    assert api.status_code == 200
+    probe = api.json()["ip_probe"]
+    assert probe["x_real_ip"] == "203.0.113.9"
+    assert "172.24.0.108" in (probe["x_forwarded_for"] or "")
+    assert probe["resolved"] == "203.0.113.9"
+    assert probe["resolved_is_infra"] is False
+
+
 def test_sessions_page_master_detail_layout(client: TestClient, db_session: Session):
     client.get("/apps", headers=USER_HEADERS)
     resp = client.get("/sessions", headers=USER_HEADERS)
@@ -180,13 +203,23 @@ def test_sessions_page_master_detail_layout(client: TestClient, db_session: Sess
     assert "session-card" in resp.text
     assert "Portail SSO" in resp.text
     assert "IP client" in resp.text
+    assert "sessions-split" in resp.text
 
-    admin_page = client.get("/sessions", headers=ADMIN_HEADERS)
-    # admin may have no sessions of their own until touch — trigger one
     client.get("/apps", headers=ADMIN_HEADERS)
     admin_page = client.get("/sessions", headers=ADMIN_HEADERS)
     assert "Révoquer cette session" in admin_page.text
-    assert 'title="Révoquer :' in admin_page.text or "marque la session comme isolée" in admin_page.text
+    assert "marque la session comme isolée" in admin_page.text
+
+
+def test_sessions_css_is_strict_two_column_flex():
+    from pathlib import Path
+
+    css = Path("app/static/css/bastion-sessions.css").read_text(encoding="utf-8")
+    assert "flex: 0 0 280px" in css
+    assert "flex: 1 1 auto" in css
+    # Must not collapse to stacked tiles under typical app-sidebar widths
+    assert "max-width: 800px" not in css
+    assert "max-width: 560px" in css
 
 
 def test_isolate_session(client: TestClient, db_session: Session):

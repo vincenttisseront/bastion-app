@@ -48,6 +48,25 @@ def test_skips_infra_xff_hops_for_real_client():
     assert ip == "192.168.2.167"
 
 
+def test_client_ip_probe_exposes_three_sources():
+    from app.request_client_ip import client_ip_probe
+
+    probe = client_ip_probe(
+        _req(
+            headers={
+                "X-Real-IP": "203.0.113.1",
+                "X-Forwarded-For": "203.0.113.1, 172.24.0.108",
+            },
+            host="172.24.0.108",
+        )
+    )
+    assert probe["x_real_ip"] == "203.0.113.1"
+    assert probe["x_forwarded_for"] == "203.0.113.1, 172.24.0.108"
+    assert probe["request_client_host"] == "172.24.0.108"
+    assert probe["resolved"] == "203.0.113.1"
+    assert probe["resolved_is_infra"] is False
+
+
 def test_falls_back_to_x_real_ip():
     assert client_ip_from_request(_req(headers={"X-Real-IP": "10.1.2.3"})) == "10.1.2.3"
 
