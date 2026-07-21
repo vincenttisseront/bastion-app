@@ -156,18 +156,20 @@
     var modeSelect = document.querySelector('[data-credential-mode-select]');
     var sharedFields = document.getElementById('shared-credential-fields');
     var modeHint = document.getElementById('shared-credential-disabled-hint');
+    var identityHint = document.getElementById('identity-credential-hint');
     var form = document.getElementById('app-form');
     var initialMode = modeSelect ? modeSelect.value : 'shared';
 
     function applyCredentialMode() {
       var mode = modeSelect ? modeSelect.value : 'shared';
-      var individual = mode === 'individual_required';
-      if (modeHint) modeHint.hidden = !individual;
-      if (userInput) userInput.disabled = individual;
-      if (passInput) passInput.disabled = individual;
-      if (saveBtn) saveBtn.disabled = individual;
-      if (testBtn) testBtn.disabled = individual;
-      if (sharedFields) sharedFields.style.opacity = individual ? '0.55' : '1';
+      var disableShared = mode === 'individual_required' || mode === 'identite_utilisateur';
+      if (modeHint) modeHint.hidden = mode !== 'individual_required';
+      if (identityHint) identityHint.hidden = mode !== 'identite_utilisateur';
+      if (userInput) userInput.disabled = disableShared;
+      if (passInput) passInput.disabled = disableShared;
+      if (saveBtn) saveBtn.disabled = disableShared;
+      if (testBtn) testBtn.disabled = disableShared;
+      if (sharedFields) sharedFields.style.opacity = disableShared ? '0.55' : '1';
     }
 
     if (modeSelect) {
@@ -242,6 +244,13 @@
         await window.bastionAlert({
           title: 'Compte partagé désactivé',
           message: 'Compte partagé désactivé en mode individuel obligatoire.',
+        });
+        return;
+      }
+      if (modeSelect && modeSelect.value === 'identite_utilisateur') {
+        await window.bastionAlert({
+          title: 'Compte partagé désactivé',
+          message: 'Compte partagé désactivé en mode identité utilisateur.',
         });
         return;
       }

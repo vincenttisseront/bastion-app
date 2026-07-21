@@ -1,16 +1,26 @@
-"""Client open action — GET /api/internal/impersonate/{slug}."""
+"""Client open action — GET /api/internal/impersonate/{slug} + identity POST."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.admin.throttling import (
+    check_identity_attempt_block,
+    clear_identity_failures,
+    record_identity_failure,
+)
+from app.audit import log_action
+from app.bastion.bastion_fields import normalize_credential_mode
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.robotic.impersonate_service import (
     ImpersonationCredentialRequiredError,
     ImpersonationError,
+    ImpersonationIdentityAuthError,
+    ImpersonationPasswordRequiredError,
     get_basic_auth_header,
     impersonate,
 )
@@ -31,8 +41,25 @@ from app.web.user_context import UserContext, require_user
 router = APIRouter(tags=["robotic"])
 
 
+class OpenWithIdentityBody(BaseModel):
+    """Password only — username always comes from the OIDC session server-side."""
+
+    password: str = Field(min_length=1)
+    # Ignored if present — never trusted for identity mode.
+    username: str | None = None
+
+
 def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
+
+
+def _oidc_login_username(user: UserContext) -> str:
+    """Preferred Keycloak login id for apps sharing the IdP identity."""
+    return (user.username or user.email or "").strip()
+
+
+def _identity_user_key(user: UserContext) -> str:
+    return user.keycloak_user_id or user.email or user.username or "unknown"
 
 
 def _check_app_rbac(
@@ -62,6 +89,22 @@ def _impersonation_error_response(exc: ImpersonationError) -> JSONResponse:
             },
             status_code=409,
         )
+    if isinstance(exc, ImpersonationPasswordRequiredError):
+        return JSONResponse(
+            {
+                "error": ImpersonationPasswordRequiredError.error_code,
+                "message": ImpersonationPasswordRequiredError.user_message,
+            },
+            status_code=400,
+        )
+    if isinstance(exc, ImpersonationIdentityAuthError):
+        return JSONResponse(
+            {
+                "error": ImpersonationIdentityAuthError.error_code,
+                "message": ImpersonationIdentityAuthError.user_message,
+            },
+            status_code=401,
+        )
     message = str(exc)
     status = 502
     if "No active credential" in message or "No credential" in message:
@@ -75,30 +118,15 @@ def _impersonation_error_response(exc: ImpersonationError) -> JSONResponse:
     return JSONResponse({"ok": False, "error": message}, status_code=status)
 
 
-@router.get("/api/internal/impersonate/{slug}")
-async def client_impersonate(
-    slug: str,
+def _cookie_redirect(
+    result,
+    *,
+    settings: Settings,
+    db: Session,
+    user: UserContext,
     request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    user: UserContext = Depends(require_user),
-):
-    denied = _check_app_rbac(db, slug, user)
-    if denied is not None:
-        return denied
-
-    try:
-        result = await impersonate(
-            db,
-            slug,
-            settings,
-            actor=user.email or user.username,
-            ip_address=_client_ip(request),
-            keycloak_user_id=user.keycloak_user_id,
-        )
-    except ImpersonationError as exc:
-        return _impersonation_error_response(exc)
-
+    slug: str,
+) -> RedirectResponse:
     app = get_app_by_slug(db, slug)
     if app is not None:
         touch_app_session(
@@ -137,6 +165,136 @@ async def client_impersonate(
             portal_domain=settings.portal_domain,
         )
     return response
+
+
+@router.get("/api/internal/impersonate/{slug}")
+async def client_impersonate(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user),
+):
+    denied = _check_app_rbac(db, slug, user)
+    if denied is not None:
+        return denied
+
+    app = get_app_by_slug(db, slug)
+    if app is not None and normalize_credential_mode(app.credential_mode) == "identite_utilisateur":
+        return JSONResponse(
+            {
+                "error": ImpersonationPasswordRequiredError.error_code,
+                "message": ImpersonationPasswordRequiredError.user_message,
+            },
+            status_code=400,
+        )
+
+    try:
+        result = await impersonate(
+            db,
+            slug,
+            settings,
+            actor=user.email or user.username,
+            ip_address=_client_ip(request),
+            keycloak_user_id=user.keycloak_user_id,
+        )
+    except ImpersonationError as exc:
+        return _impersonation_error_response(exc)
+
+    return _cookie_redirect(
+        result, settings=settings, db=db, user=user, request=request, slug=slug
+    )
+
+
+@router.post("/api/apps/{slug}/open-with-identity")
+async def open_with_identity(
+    slug: str,
+    body: OpenWithIdentityBody,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user),
+):
+    """
+    Open an app in identite_utilisateur mode.
+
+    Username is taken exclusively from the OIDC session (never from the body).
+    Password is used once for the robotic login then discarded — never logged.
+    """
+    denied = _check_app_rbac(db, slug, user)
+    if denied is not None:
+        return denied
+
+    app = get_app_by_slug(db, slug)
+    if app is None or not app.enabled:
+        return JSONResponse({"detail": f"App '{slug}' not found"}, status_code=404)
+    if normalize_credential_mode(app.credential_mode) != "identite_utilisateur":
+        return JSONResponse(
+            {"detail": "This application is not configured for identity password mode"},
+            status_code=400,
+        )
+
+    user_key = _identity_user_key(user)
+    if wait := check_identity_attempt_block(slug, user_key):
+        log_action(
+            db,
+            actor=user.email or user.username,
+            action="robotic.impersonate.blocked_identity",
+            target=f"app:{slug}",
+            details={
+                "app_slug": slug,
+                "success": False,
+                "reason": "too_many_failed_identity_attempts",
+                "credential_mode": "identite_utilisateur",
+            },
+            ip_address=_client_ip(request),
+        )
+        return JSONResponse(
+            {
+                "error": "too_many_attempts",
+                "message": (
+                    "Trop de tentatives échouées. Réessayez dans quelques minutes."
+                ),
+                "retry_after": int(wait) + 1,
+            },
+            status_code=429,
+            headers={"Retry-After": str(int(wait) + 1)},
+        )
+
+    username = _oidc_login_username(user)
+    if not username:
+        return JSONResponse(
+            {
+                "error": "identity_unavailable",
+                "message": "Identité utilisateur indisponible. Reconnectez-vous au portail.",
+            },
+            status_code=400,
+        )
+
+    password = body.password
+    # body.username is intentionally ignored (never trusted).
+    try:
+        result = await impersonate(
+            db,
+            slug,
+            settings,
+            actor=user.email or user.username,
+            ip_address=_client_ip(request),
+            keycloak_user_id=user.keycloak_user_id,
+            ephemeral_username=username,
+            ephemeral_password=password,
+        )
+    except ImpersonationError as exc:
+        record_identity_failure(slug, user_key)
+        return _impersonation_error_response(exc)
+    finally:
+        password = ""  # noqa: F841
+        body.password = ""  # noqa: F841
+
+    clear_identity_failures(slug, user_key)
+    return _cookie_redirect(
+        result, settings=settings, db=db, user=user, request=request, slug=slug
+    )
 
 
 @router.get("/internal/basic-auth-header/{slug}")

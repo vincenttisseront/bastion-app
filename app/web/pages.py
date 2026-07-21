@@ -798,12 +798,15 @@ def admin_app_credential_save(
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
         raise HTTPException(status_code=404)
-    if normalize_credential_mode(app.credential_mode) == "individual_required":
+    if normalize_credential_mode(app.credential_mode) in (
+        "individual_required",
+        "identite_utilisateur",
+    ):
         raise HTTPException(
             status_code=400,
             detail=(
-                "Compte partagé désactivé — cette application est en mode "
-                "individuel obligatoire. Configurez les credentials depuis la fiche RBAC."
+                "Compte partagé désactivé — cette application n'utilise pas le "
+                "credential vault partagé dans ce mode."
             ),
         )
     try:

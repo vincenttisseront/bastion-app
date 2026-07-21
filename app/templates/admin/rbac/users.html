@@ -217,7 +217,10 @@
               <div class="mono form-hint">{{ va.slug }}{% if va.robotic_driver %} · {{ va.robotic_driver }}{% endif %}</div>
             </td>
             <td>
-              {% if va.credential_mode == 'individual_required' %}
+              {% if va.credential_mode == 'identite_utilisateur' %}
+                <span class="badge badge-muted" data-vault-status>Identité utilisateur</span>
+                <div class="form-hint">Mot de passe redemandé à chaque ouverture — pas de credential vault.</div>
+              {% elif va.credential_mode == 'individual_required' %}
                 {% if va.has_override %}
                   <span class="badge badge-ok" data-vault-status>Configuré</span>
                   {% if va.robotic_username %}
@@ -236,7 +239,11 @@
               {% endif %}
             </td>
             <td>
+              {% if va.credential_mode == 'identite_utilisateur' %}
+              <span class="form-hint">—</span>
+              {% else %}
               <button type="button" class="btn btn-ghost btn-sm" data-vault-configure="{{ va.slug }}">Configurer</button>
+              {% endif %}
             </td>
           </tr>
           <tr data-vault-form-row="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}" hidden>

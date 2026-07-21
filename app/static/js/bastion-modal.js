@@ -1,10 +1,12 @@
 /**
- * Bastion themed confirm / alert dialogs (replaces window.confirm / window.alert).
+ * Bastion themed confirm / alert / password dialogs.
  *
  * window.bastionConfirm({ title, message, list, confirmLabel, cancelLabel, danger })
  *   → Promise<boolean>
  * window.bastionAlert({ title, message, confirmLabel })
  *   → Promise<void>
+ * window.bastionPasswordPrompt({ title, message, username, confirmLabel, cancelLabel })
+ *   → Promise<{ ok: boolean, password: string|null }>
  */
 (function () {
   'use strict';
@@ -18,7 +20,8 @@
   var dialogEl = null;
   var pendingResolve = null;
   var previousFocus = null;
-  var mode = 'confirm'; // confirm | alert
+  var mode = 'confirm'; // confirm | alert | password
+  var passwordInput = null;
 
   function ensureDom() {
     if (root) return true;
@@ -54,10 +57,18 @@
     return escapeHtml(text || '').replace(/\n/g, '<br>');
   }
 
+  function clearExtra() {
+    if (!extraEl) return;
+    var pass = extraEl.querySelector('#bastion-modal-password');
+    if (pass) pass.value = '';
+    extraEl.innerHTML = '';
+    extraEl.hidden = true;
+    passwordInput = null;
+  }
+
   function renderList(list) {
     if (!list || !list.length) {
-      extraEl.hidden = true;
-      extraEl.innerHTML = '';
+      clearExtra();
       return;
     }
     var items = list
@@ -82,15 +93,48 @@
     extraEl.hidden = false;
   }
 
+  function renderPasswordFields(username) {
+    extraEl.innerHTML =
+      '<div class="bastion-modal-password-form">' +
+      '<div class="form-group" style="margin-bottom:var(--sp-3);">' +
+      '<label class="form-label" for="bastion-modal-username">Identifiant</label>' +
+      '<input type="text" id="bastion-modal-username" class="form-input" readonly ' +
+      'value="' +
+      escapeHtml(username || '') +
+      '" autocomplete="username">' +
+      '</div>' +
+      '<div class="form-group">' +
+      '<label class="form-label" for="bastion-modal-password">Mot de passe</label>' +
+      '<input type="password" id="bastion-modal-password" class="form-input" ' +
+      'autocomplete="off" autofocus>' +
+      '<p class="form-help" style="margin-top:var(--sp-2);">' +
+      'Transmis uniquement pour cette connexion, non conservé.' +
+      '</p>' +
+      '</div>' +
+      '</div>';
+    extraEl.hidden = false;
+    passwordInput = document.getElementById('bastion-modal-password');
+    if (passwordInput) {
+      passwordInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          close(true);
+        }
+      });
+    }
+  }
+
   function focusables() {
     if (!dialogEl) return [];
-    return Array.prototype.slice.call(
-      dialogEl.querySelectorAll(
-        'button:not([disabled]):not([hidden]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    return Array.prototype.slice
+      .call(
+        dialogEl.querySelectorAll(
+          'button:not([disabled]):not([hidden]), [href], input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
       )
-    ).filter(function (el) {
-      return el.offsetParent !== null || el === document.activeElement;
-    });
+      .filter(function (el) {
+        return el.offsetParent !== null || el === document.activeElement;
+      });
   }
 
   function onKeyDown(e) {
@@ -116,10 +160,16 @@
 
   function close(result) {
     if (!root || root.hidden) return;
+    var passwordValue = null;
+    if (mode === 'password' && passwordInput) {
+      passwordValue = result ? passwordInput.value : null;
+    }
     root.hidden = true;
     root.setAttribute('aria-hidden', 'true');
     root.classList.remove('is-open');
     document.body.classList.remove('bastion-modal-open');
+    if (passwordInput) passwordInput.value = '';
+    clearExtra();
     if (previousFocus && typeof previousFocus.focus === 'function') {
       try {
         previousFocus.focus();
@@ -132,7 +182,9 @@
     pendingResolve = null;
     if (resolve) {
       if (mode === 'alert') resolve();
-      else resolve(Boolean(result));
+      else if (mode === 'password') {
+        resolve({ ok: Boolean(result), password: passwordValue });
+      } else resolve(Boolean(result));
     }
   }
 
@@ -181,5 +233,35 @@
   window.bastionAlert = function (options) {
     if (typeof options === 'string') options = { message: options };
     return open(options || {}, true);
+  };
+
+  window.bastionPasswordPrompt = function (options) {
+    options = options || {};
+    if (!ensureDom()) {
+      return Promise.resolve({ ok: false, password: null });
+    }
+    if (pendingResolve) close(false);
+    mode = 'password';
+    previousFocus = document.activeElement;
+    titleEl.textContent = options.title || 'Mot de passe requis';
+    messageEl.innerHTML = formatMessage(
+      options.message || 'Saisissez votre mot de passe pour ouvrir cette application.'
+    );
+    renderPasswordFields(options.username || '');
+    confirmBtn.textContent = options.confirmLabel || 'Ouvrir';
+    confirmBtn.className = 'btn btn-secondary';
+    cancelBtn.hidden = false;
+    cancelBtn.textContent = options.cancelLabel || 'Annuler';
+    root.hidden = false;
+    root.setAttribute('aria-hidden', 'false');
+    root.classList.add('is-open');
+    document.body.classList.add('bastion-modal-open');
+    setTimeout(function () {
+      if (passwordInput) passwordInput.focus();
+      else confirmBtn.focus();
+    }, 0);
+    return new Promise(function (resolve) {
+      pendingResolve = resolve;
+    });
   };
 })();

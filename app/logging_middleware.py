@@ -1,4 +1,8 @@
-"""Request ID middleware — X-Request-Id correlation for app + nginx logs."""
+"""Request ID middleware — X-Request-Id correlation for app + nginx logs.
+
+Never logs request bodies (including POST /api/apps/{slug}/open-with-identity
+passwords). Keep it that way: do not add body/query dumping here.
+"""
 
 from __future__ import annotations
 

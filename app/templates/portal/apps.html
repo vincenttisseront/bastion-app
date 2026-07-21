@@ -52,6 +52,9 @@
         href="{{ app.launch_url }}"
         class="admin-card app-tile"
         data-app-id="{{ app.id }}"
+        data-app-slug="{{ app.slug }}"
+        data-credential-mode="{{ app.credential_mode | default('shared') }}"
+        data-app-label="{{ app.label }}"
         {% if app.access_mode != 'legacy_path_proxy' %}target="_blank" rel="noopener noreferrer"{% endif %}
       >
         {{ app_tile_icon(app) }}
@@ -62,6 +65,9 @@
         <div class="app-tile-meta">
           {% if app.access_level == 'manage' %}
           <span class="badge badge-ok">Gérée</span>
+          {% endif %}
+          {% if app.credential_mode == 'identite_utilisateur' %}
+          <span class="badge badge-muted">Mot de passe</span>
           {% endif %}
         </div>
         <span class="admin-arrow">Ouvrir →</span>
@@ -103,17 +109,85 @@
 {% block scripts %}
 <script>
 (function () {
+  var identityUsername = {{ (identity_username or '') | tojson }};
+
+  function csrfToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+  }
+
+  function launchPing(appId) {
+    if (!appId) return;
+    try {
+      fetch('/api/apps/' + appId + '/launch-ping', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': csrfToken() },
+        keepalive: true,
+      });
+    } catch (_) { /* fire-and-forget */ }
+  }
+
+  async function openWithIdentity(tile) {
+    var slug = tile.getAttribute('data-app-slug');
+    var label = tile.getAttribute('data-app-label') || slug;
+    if (!slug || !window.bastionPasswordPrompt) return;
+
+    var prompt = await window.bastionPasswordPrompt({
+      title: 'Ouvrir ' + label,
+      message: 'Saisissez votre mot de passe pour établir la session applicative.',
+      username: identityUsername,
+      confirmLabel: 'Ouvrir',
+    });
+    if (!prompt.ok || !prompt.password) return;
+
+    var password = prompt.password;
+    try {
+      var resp = await fetch('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity', {
+        method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'manual',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken(),
+        },
+        body: JSON.stringify({ password: password }),
+      });
+      password = '';
+
+      if (resp.status === 302 || resp.status === 0 || (resp.status >= 300 && resp.status < 400)) {
+        var loc = resp.headers.get('Location') || tile.getAttribute('href');
+        if (tile.getAttribute('target') === '_blank') {
+          window.open(loc, '_blank', 'noopener,noreferrer');
+        } else {
+          window.location.href = loc;
+        }
+        return;
+      }
+
+      var payload = {};
+      try { payload = await resp.json(); } catch (_) {}
+      var msg =
+        payload.message ||
+        payload.detail ||
+        (resp.status === 429
+          ? 'Trop de tentatives échouées. Réessayez dans quelques minutes.'
+          : 'Mot de passe incorrect ou compte verrouillé');
+      await window.bastionAlert({ title: 'Connexion impossible', message: msg });
+    } catch (err) {
+      password = '';
+      await window.bastionAlert({
+        title: 'Connexion impossible',
+        message: 'Impossible de joindre le serveur. Réessayez.',
+      });
+    }
+  }
+
   document.querySelectorAll('.app-tile[data-app-id]:not(.app-tile--disabled)').forEach(function (tile) {
-    tile.addEventListener('click', function () {
-      var id = tile.getAttribute('data-app-id');
-      if (!id) return;
-      try {
-        fetch('/api/apps/' + id + '/launch-ping', {
-          method: 'POST',
-          headers: { 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '' },
-          keepalive: true,
-        });
-      } catch (_) { /* fire-and-forget */ }
+    tile.addEventListener('click', function (e) {
+      launchPing(tile.getAttribute('data-app-id'));
+      if (tile.getAttribute('data-credential-mode') === 'identite_utilisateur') {
+        e.preventDefault();
+        openWithIdentity(tile);
+      }
     });
   });
 })();

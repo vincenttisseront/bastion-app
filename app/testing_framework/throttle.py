@@ -7,6 +7,8 @@ from threading import Lock
 
 _lock = Lock()
 _last_test_at: dict[str, float] = {}
+# Sliding-window failure counts: key → list of monotonic timestamps
+_failure_times: dict[str, list[float]] = {}
 
 
 def _key(resource_type: str, resource_id: str | int) -> str:
@@ -51,6 +53,49 @@ def throttle_retry_after_key(key: str, min_interval_seconds: float = 5) -> float
     return None
 
 
+def failure_block_retry_after(
+    resource_type: str,
+    resource_id: str | int,
+    *,
+    max_failures: int = 5,
+    window_seconds: float = 300,
+) -> float | None:
+    """
+    If too many failures were recorded in the window, return seconds until unlock.
+    Otherwise return None (attempt allowed).
+    """
+    key = _key(resource_type, resource_id)
+    now = time.monotonic()
+    with _lock:
+        times = [t for t in _failure_times.get(key, []) if (now - t) < window_seconds]
+        _failure_times[key] = times
+        if len(times) >= max_failures:
+            oldest = min(times)
+            return window_seconds - (now - oldest)
+    return None
+
+
+def record_failure(
+    resource_type: str,
+    resource_id: str | int,
+    *,
+    window_seconds: float = 300,
+) -> None:
+    key = _key(resource_type, resource_id)
+    now = time.monotonic()
+    with _lock:
+        times = [t for t in _failure_times.get(key, []) if (now - t) < window_seconds]
+        times.append(now)
+        _failure_times[key] = times
+
+
+def clear_failures(resource_type: str, resource_id: str | int) -> None:
+    key = _key(resource_type, resource_id)
+    with _lock:
+        _failure_times.pop(key, None)
+
+
 def reset_throttles() -> None:
     with _lock:
         _last_test_at.clear()
+        _failure_times.clear()

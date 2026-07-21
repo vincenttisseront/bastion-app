@@ -39,13 +39,30 @@ class ImpersonationError(Exception):
 
 
 class ImpersonationCredentialRequiredError(ImpersonationError):
-    """App is individual_required and the user has no override configured."""
+    """individual_required mode and no per-user vault override."""
 
     error_code = "credential_required"
     user_message = (
-        "Aucun credential individuel configuré pour cette application. "
-        "Contactez un administrateur."
+        "Cette application nécessite un credential individuel. "
+        "Contactez votre administrateur."
     )
+
+
+class ImpersonationPasswordRequiredError(ImpersonationError):
+    """App is identite_utilisateur — password must be collected via open-with-identity."""
+
+    error_code = "password_required"
+    user_message = (
+        "Cette application demande votre mot de passe à chaque ouverture. "
+        "Utilisez le formulaire du catalogue."
+    )
+
+
+class ImpersonationIdentityAuthError(ImpersonationError):
+    """Generic auth failure for identity mode (no user enumeration)."""
+
+    error_code = "identity_auth_failed"
+    user_message = "Mot de passe incorrect ou compte verrouillé."
 
 
 @dataclass(frozen=True)
@@ -81,6 +98,12 @@ def cookie_fingerprint(cookies: dict[str, str]) -> dict[str, str]:
 
 def _cookie_fingerprint(cookies: dict[str, str]) -> dict[str, str]:
     return cookie_fingerprint(cookies)
+
+
+def _credential_mode_for_source(source: CredentialSource | None) -> str | None:
+    if source == "user_identity":
+        return "identite_utilisateur"
+    return None
 
 
 def _resolve_target(
@@ -129,6 +152,7 @@ def _audit_impersonate(
     robotic_username: str | None = None,
     cookies: dict[str, str] | None = None,
     credential_source: CredentialSource | None = None,
+    credential_mode: str | None = None,
 ) -> None:
     details: dict = {
         "app_slug": app_slug,
@@ -145,6 +169,8 @@ def _audit_impersonate(
         details["cookies"] = _cookie_fingerprint(cookies)
     if credential_source:
         details["credential_source"] = credential_source
+    if credential_mode:
+        details["credential_mode"] = credential_mode
     log_action(
         db,
         actor=actor,
@@ -270,6 +296,7 @@ async def _impersonate_crushftp(
             driver="crushftp",
             error="login_failed",
             credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
         )
         raise ImpersonationError(str(exc)) from exc
     finally:
@@ -287,6 +314,7 @@ async def _impersonate_crushftp(
                 driver="crushftp",
                 error="identity_mismatch",
                 credential_source=resolved.source,
+                credential_mode=_credential_mode_for_source(resolved.source),
             )
             raise ImpersonationError("CrushFTP identity fingerprint mismatch")
         mode, target_url, fqdn = _resolve_target(app, settings, db)
@@ -304,6 +332,7 @@ async def _impersonate_crushftp(
             driver="crushftp",
             error="login_failed",
             credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
         )
         raise ImpersonationError(str(exc)) from exc
     except Exception:
@@ -321,6 +350,7 @@ async def _impersonate_crushftp(
         robotic_username=resolved.robotic_username,
         cookies=session.cookies,
         credential_source=resolved.source,
+        credential_mode=_credential_mode_for_source(resolved.source),
     )
     return RoboticSessionResult(
         cookies=session.cookies,
@@ -359,6 +389,7 @@ async def _impersonate_generic_form(
             driver="generic_form",
             error="login_failed",
             credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
         )
         raise ImpersonationError(str(exc)) from exc
     finally:
@@ -376,6 +407,7 @@ async def _impersonate_generic_form(
         robotic_username=resolved.robotic_username,
         cookies=result.cookies,
         credential_source=resolved.source,
+        credential_mode=_credential_mode_for_source(resolved.source),
     )
     return RoboticSessionResult(
         cookies=result.cookies,
@@ -401,15 +433,21 @@ async def impersonate(
     actor: str = "system",
     ip_address: str | None = None,
     keycloak_user_id: str | None = None,
+    ephemeral_username: str | None = None,
+    ephemeral_password: str | None = None,
 ) -> RoboticSessionResult:
     """
     Vault decrypt + driver login + session cookies for cookie-based robotic SSO.
 
     Supports crushftp and generic_form drivers only.
     Uses per-user override when keycloak_user_id has an active UserAppCredential.
+
+    For credential_mode=identite_utilisateur, pass ephemeral_username/password
+    from the OIDC session + user-typed password (never from vault, never stored).
     """
     app = db.query(App).filter_by(slug=app_slug).first()
     driver_name = (app.robotic_driver or "").strip().lower() if app else ""
+    cred_mode = normalize_credential_mode(app.credential_mode if app else None)
 
     if app is None or not app.enabled:
         _audit_impersonate(
@@ -420,6 +458,7 @@ async def impersonate(
             success=False,
             driver=driver_name or "unknown",
             error="app_not_found",
+            credential_mode=cred_mode if app else None,
         )
         raise ImpersonationError(f"App '{app_slug}' not found")
 
@@ -432,6 +471,7 @@ async def impersonate(
             success=False,
             driver=driver_name or "unknown",
             error="unsupported_driver",
+            credential_mode=cred_mode,
         )
         if driver_name == "generic_basic_auth":
             raise ImpersonationError(
@@ -449,23 +489,58 @@ async def impersonate(
             success=False,
             driver=driver_name,
             error="invalid_access_mode",
+            credential_mode=cred_mode,
         )
         raise ImpersonationError(
             f"App '{app_slug}' robotic SSO requires subdomain_proxy or legacy_path_proxy"
         )
 
-    app_obj, resolved, password = _load_app_and_credential(
-        db,
-        app_slug,
-        settings,
-        actor=actor,
-        ip_address=ip_address,
-        driver=driver_name,
-        keycloak_user_id=keycloak_user_id,
-    )
+    if cred_mode == "identite_utilisateur":
+        if not ephemeral_username or not ephemeral_password:
+            _audit_impersonate(
+                db,
+                app_slug=app_slug,
+                actor=actor,
+                ip_address=ip_address,
+                success=False,
+                driver=driver_name,
+                error="password_required",
+                credential_mode=cred_mode,
+            )
+            raise ImpersonationPasswordRequiredError(
+                ImpersonationPasswordRequiredError.user_message
+            )
+        resolved = ResolvedCredential(
+            robotic_username=ephemeral_username,
+            app_slug=app_slug,
+            source="user_identity",
+        )
+        password = ephemeral_password
+        app_obj = app
+    else:
+        app_obj, resolved, password = _load_app_and_credential(
+            db,
+            app_slug,
+            settings,
+            actor=actor,
+            ip_address=ip_address,
+            driver=driver_name,
+            keycloak_user_id=keycloak_user_id,
+        )
 
-    if driver_name == "crushftp":
-        return await _impersonate_crushftp(
+    try:
+        if driver_name == "crushftp":
+            return await _impersonate_crushftp(
+                db,
+                app_obj,
+                app_slug,
+                settings,
+                resolved,
+                password,
+                actor=actor,
+                ip_address=ip_address,
+            )
+        return await _impersonate_generic_form(
             db,
             app_obj,
             app_slug,
@@ -475,16 +550,15 @@ async def impersonate(
             actor=actor,
             ip_address=ip_address,
         )
-    return await _impersonate_generic_form(
-        db,
-        app_obj,
-        app_slug,
-        settings,
-        resolved,
-        password,
-        actor=actor,
-        ip_address=ip_address,
-    )
+    except ImpersonationError:
+        if cred_mode == "identite_utilisateur":
+            raise ImpersonationIdentityAuthError(
+                ImpersonationIdentityAuthError.user_message
+            ) from None
+        raise
+    finally:
+        password = ""  # noqa: F841
+        ephemeral_password = None  # noqa: F841
 
 
 async def get_basic_auth_header(

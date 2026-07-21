@@ -26,11 +26,16 @@ ROBOTIC_DRIVERS: frozenset[str] = frozenset(
     {"crushftp", "generic_form", "generic_basic_auth"}
 )
 
-CREDENTIAL_MODES: tuple[str, ...] = ("shared", "individual_required")
+CREDENTIAL_MODES: tuple[str, ...] = (
+    "shared",
+    "individual_required",
+    "identite_utilisateur",
+)
 
 CREDENTIAL_MODE_LABELS: dict[str, str] = {
     "shared": "Partagé (par défaut)",
     "individual_required": "Individuel obligatoire",
+    "identite_utilisateur": "Identité utilisateur (mot de passe à la demande)",
 }
 
 LOGIN_HTTP_METHODS: frozenset[str] = frozenset({"POST", "GET"})

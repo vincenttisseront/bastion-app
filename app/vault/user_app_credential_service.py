@@ -27,7 +27,7 @@ from app.vault.app_credential_service import (
 
 logger = logging.getLogger(__name__)
 
-CredentialSource = Literal["shared", "user_override"]
+CredentialSource = Literal["shared", "user_override", "user_identity"]
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,10 @@ def get_effective_credential(
 
     app = db.query(App).filter_by(slug=app_slug).first()
     mode = normalize_credential_mode(app.credential_mode if app else None)
+
+    # Never use vault credentials for password-on-demand identity mode.
+    if mode == "identite_utilisateur":
+        return None, None
 
     if keycloak_user_id:
         user_cred = get_user_credential(db, app_slug, keycloak_user_id)
