@@ -421,6 +421,11 @@ def _touch_app_session(
             if details.get("session_cookies"):
                 row.last_verified_at = None
                 row.last_verified_status = None
+                merged = row.details if isinstance(row.details, dict) else {}
+                if "consecutive_invalid_count" in merged:
+                    merged = dict(merged)
+                    merged["consecutive_invalid_count"] = 0
+                    row.details = merged
     db.commit()
     db.refresh(row)
     return row
@@ -628,6 +633,53 @@ def get_session_by_id(db: Session, session_id: str) -> ActiveSession | None:
     return db.query(ActiveSession).filter_by(id=session_id).first()
 
 
+def revoke_active_session(
+    db: Session,
+    session: ActiveSession,
+    *,
+    actor: str | None,
+    reason: str = "manual",
+    ip_address: str | None = None,
+    delete: bool = False,
+) -> dict[str, Any]:
+    """
+    Shared revocation path for manual isolate and downstream auto-close.
+
+    delete=True removes the row (auto-revoke after target expired the session).
+    delete=False marks status=isolated (admin « Révoquer » button).
+    """
+    session_id = session.id
+    target = session.target
+    kind = session.kind
+    audit_details: dict[str, Any] = {
+        "session_id": session_id,
+        "kind": kind,
+        "reason": reason,
+    }
+    if delete:
+        # Drop stored robotic cookies with the row
+        db.delete(session)
+        action = "session.closed"
+    else:
+        session.status = "isolated"
+        if isinstance(session.details, dict):
+            cleaned = dict(session.details)
+            cleaned.pop("session_cookies", None)
+            cleaned["consecutive_invalid_count"] = 0
+            session.details = cleaned
+        action = "session.isolated"
+    db.commit()
+    log_action(
+        db,
+        actor=actor or "system",
+        action=action,
+        target=target,
+        details=audit_details,
+        ip_address=ip_address,
+    )
+    return {"session_id": session_id, "action": action, "reason": reason}
+
+
 router = APIRouter(tags=["sessions"])
 
 
@@ -686,12 +738,23 @@ async def live_verify_sessions(
         if target_email != own:
             raise HTTPException(status_code=403, detail="Forbidden")
 
-    verified = await live_verify_user_sessions(db, user_email=target_email)
+    verified = await live_verify_user_sessions(
+        db,
+        user_email=target_email,
+        actor=user.email or user.username,
+        ip_address=client_ip_from_request(request),
+    )
     sessions = get_active_sessions(db, viewer=user)
     return {
         "verified": verified,
+        "revoked": [v["id"] for v in verified if v.get("revoked")],
         "groups": group_sessions_by_user(sessions),
         "sessions": sessions,
+        "counts": {
+            "all": len(get_active_sessions(db, viewer=user)),
+            "user": len(get_active_sessions(db, viewer=user, kind=KIND_USER)),
+            "app": len(get_active_sessions(db, viewer=user, kind=KIND_APP)),
+        },
     }
 
 
@@ -705,17 +768,15 @@ def isolate_session(
     session = get_session_by_id(db, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    session.status = "isolated"
-    db.commit()
-    log_action(
+    result = revoke_active_session(
         db,
+        session,
         actor=user.email,
-        action="session.isolated",
-        target=session.target,
-        details={"session_id": session_id, "kind": session.kind},
+        reason="manual",
         ip_address=client_ip_from_request(request),
+        delete=False,
     )
-    return {"status": "ok", "session_id": session_id}
+    return {"status": "ok", "session_id": result["session_id"]}
 
 
 @router.post("/admin/sessions/{session_id}/rotate-keys")

@@ -335,8 +335,15 @@
       .then(function (data) {
         if (data.groups) {
           groupsCache = data.groups;
-          renderAll();
         }
+        if (data.sessions) {
+          var countEl = document.getElementById('sessions-count');
+          if (countEl) countEl.textContent = String(data.sessions.length);
+        }
+        if (data.counts) updateCounts(data.counts);
+        var usersEl = document.getElementById('sessions-users-count');
+        if (usersEl && data.groups) usersEl.textContent = String(data.groups.length);
+        renderAll();
       })
       .catch(function () {
         /* keep last render */

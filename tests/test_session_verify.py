@@ -9,9 +9,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.bastion.drivers.base import RoboticLoginError
-from app.models import ActiveSession, App, utcnow
+from app.models import ActiveSession, App, AuditLog, utcnow
 from app.web.session_verify import verify_crushftp_session
-
 
 
 def _driven_row(
@@ -52,6 +51,7 @@ def _driven_row(
             "session_cookies": cookies
             or {"CrushAuth": "123_abc", "currentAuth": "cAuth"},
             "app_label": "Transfer",
+            "consecutive_invalid_count": 0,
         },
     )
     db.add(row)
@@ -126,9 +126,11 @@ def test_live_verify_updates_status(client: TestClient, db_session: Session):
     body = resp.json()
     assert body["verified"]
     assert body["verified"][0]["last_verified_status"] == "active"
+    assert body["verified"][0]["revoked"] is False
     db_session.refresh(row)
     assert row.last_verified_status == "active"
     assert row.last_verified_at is not None
+    assert (row.details or {}).get("consecutive_invalid_count") == 0
 
     api = client.get("/api/sessions", headers=ADMIN_HEADERS).json()
     app_sess = next(s for s in api["sessions"] if s["id"] == row.id)
@@ -136,7 +138,7 @@ def test_live_verify_updates_status(client: TestClient, db_session: Session):
     assert app_sess["live_status_label"] == "ACTIVE"
 
 
-def test_live_verify_invalid(client: TestClient, db_session: Session):
+def test_live_verify_first_invalid_does_not_revoke(client: TestClient, db_session: Session):
     row = _driven_row(db_session)
     with patch(
         "app.web.session_verify.CrushFTPDriver.get_username",
@@ -148,9 +150,116 @@ def test_live_verify_invalid(client: TestClient, db_session: Session):
             json={"user_email": "alice@example.com"},
         )
     assert resp.status_code == 200
+    body = resp.json()
+    assert body["verified"][0]["last_verified_status"] == "invalid"
+    assert body["verified"][0]["consecutive_invalid_count"] == 1
+    assert body["verified"][0]["revoked"] is False
+    assert body.get("revoked") == []
     db_session.refresh(row)
     assert row.last_verified_status == "invalid"
+    assert (row.details or {}).get("consecutive_invalid_count") == 1
+    assert db_session.query(ActiveSession).filter_by(id=row.id).one()
+
+
+def test_live_verify_second_invalid_auto_revokes(client: TestClient, db_session: Session):
+    row = _driven_row(db_session)
+    session_id = row.id
+    with patch(
+        "app.web.session_verify.CrushFTPDriver.get_username",
+        new=AsyncMock(side_effect=RoboticLoginError("rejected")),
+    ):
+        client.post(
+            "/api/sessions/live-verify",
+            headers=ADMIN_HEADERS,
+            json={"user_email": "alice@example.com"},
+        )
+        resp = client.post(
+            "/api/sessions/live-verify",
+            headers=ADMIN_HEADERS,
+            json={"user_email": "alice@example.com"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert session_id in body["revoked"]
+    assert body["verified"][0]["revoked"] is True
+    assert body["verified"][0]["reason"] == "downstream_session_expired"
+    assert db_session.query(ActiveSession).filter_by(id=session_id).first() is None
+    audit = (
+        db_session.query(AuditLog)
+        .filter_by(action="session.closed")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.details.get("reason") == "downstream_session_expired"
+    # Session gone from list / counts
     api = client.get("/api/sessions", headers=ADMIN_HEADERS).json()
-    app_sess = next(s for s in api["sessions"] if s["id"] == row.id)
-    assert app_sess["live_status"] == "invalid"
-    assert app_sess["live_status_label"] == "INVALIDE"
+    assert not any(s["id"] == session_id for s in api["sessions"])
+
+
+def test_live_verify_active_resets_invalid_streak(client: TestClient, db_session: Session):
+    row = _driven_row(db_session)
+    reject = AsyncMock(side_effect=RoboticLoginError("rejected"))
+    ok = AsyncMock(return_value="vincent")
+    with patch("app.web.session_verify.CrushFTPDriver.get_username", reject):
+        client.post(
+            "/api/sessions/live-verify",
+            headers=ADMIN_HEADERS,
+            json={"user_email": "alice@example.com"},
+        )
+    db_session.refresh(row)
+    assert (row.details or {}).get("consecutive_invalid_count") == 1
+    with patch("app.web.session_verify.CrushFTPDriver.get_username", ok):
+        client.post(
+            "/api/sessions/live-verify",
+            headers=ADMIN_HEADERS,
+            json={"user_email": "alice@example.com"},
+        )
+    db_session.refresh(row)
+    assert (row.details or {}).get("consecutive_invalid_count") == 0
+    assert row.last_verified_status == "active"
+    # One more invalid after reset → still no revoke
+    with patch("app.web.session_verify.CrushFTPDriver.get_username", reject):
+        resp = client.post(
+            "/api/sessions/live-verify",
+            headers=ADMIN_HEADERS,
+            json={"user_email": "alice@example.com"},
+        )
+    assert resp.json()["verified"][0]["revoked"] is False
+    assert db_session.query(ActiveSession).filter_by(id=row.id).one()
+
+
+def test_live_verify_unknown_is_neutral(client: TestClient, db_session: Session):
+    row = _driven_row(db_session)
+    # First invalid → streak 1
+    with patch(
+        "app.web.session_verify.CrushFTPDriver.get_username",
+        new=AsyncMock(side_effect=RoboticLoginError("rejected")),
+    ):
+        client.post(
+            "/api/sessions/live-verify",
+            headers=ADMIN_HEADERS,
+            json={"user_email": "alice@example.com"},
+        )
+    db_session.refresh(row)
+    assert (row.details or {}).get("consecutive_invalid_count") == 1
+    # Unknown (missing cookies simulation via empty CrushAuth in probe): patch to raise generic?
+    # verify_crushftp returns unknown only without cookies — temporarily clear cookies in details
+    # Better: patch get_username to raise a non-RoboticLoginError → unknown
+    with patch(
+        "app.web.session_verify.CrushFTPDriver.get_username",
+        new=AsyncMock(side_effect=RuntimeError("network blip")),
+    ):
+        resp = client.post(
+            "/api/sessions/live-verify",
+            headers=ADMIN_HEADERS,
+            json={"user_email": "alice@example.com"},
+        )
+    assert resp.status_code == 200
+    body = resp.json()["verified"][0]
+    assert body["last_verified_status"] == "unknown"
+    assert body["revoked"] is False
+    db_session.refresh(row)
+    # Streak unchanged (neither incremented nor reset)
+    assert (row.details or {}).get("consecutive_invalid_count") == 1
+    assert db_session.query(ActiveSession).filter_by(id=row.id).one()
