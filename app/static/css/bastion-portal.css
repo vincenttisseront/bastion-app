@@ -269,6 +269,25 @@ body.page-portal > .main-content {
     background var(--t-base);
 }
 
+button.app-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+button.app-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .app-tile .admin-icon {
   box-shadow: 0 0 16px rgba(16, 185, 129, 0.12);
 }

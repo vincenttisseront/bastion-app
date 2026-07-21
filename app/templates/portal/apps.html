@@ -47,6 +47,32 @@
         </div>
         <span class="admin-arrow app-tile-locked">Contactez un administrateur</span>
       </div>
+      {% elif app.can_launch and app.credential_mode == 'identite_utilisateur' %}
+      {# No impersonate href — middle-click / Enter must not bypass the password modal. #}
+      <button
+        type="button"
+        class="admin-card app-tile"
+        data-app-id="{{ app.id }}"
+        data-app-slug="{{ app.slug }}"
+        data-credential-mode="identite_utilisateur"
+        data-app-label="{{ app.label }}"
+        data-open-with-identity
+        data-open-identity-url="/api/apps/{{ app.slug }}/open-with-identity"
+        {% if app.access_mode != 'legacy_path_proxy' %}data-open-target="_blank"{% endif %}
+      >
+        {{ app_tile_icon(app) }}
+        <div class="admin-title">{{ app.label }}</div>
+        {% if app.description %}
+        <div class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</div>
+        {% endif %}
+        <div class="app-tile-meta">
+          {% if app.access_level == 'manage' %}
+          <span class="badge badge-ok">Gérée</span>
+          {% endif %}
+          <span class="badge badge-muted">Mot de passe</span>
+        </div>
+        <span class="admin-arrow">Ouvrir →</span>
+      </button>
       {% elif app.can_launch %}
       <a
         href="{{ app.launch_url }}"
@@ -65,9 +91,6 @@
         <div class="app-tile-meta">
           {% if app.access_level == 'manage' %}
           <span class="badge badge-ok">Gérée</span>
-          {% endif %}
-          {% if app.credential_mode == 'identite_utilisateur' %}
-          <span class="badge badge-muted">Mot de passe</span>
           {% endif %}
         </div>
         <span class="admin-arrow">Ouvrir →</span>
@@ -129,62 +152,66 @@
   async function openWithIdentity(tile) {
     var slug = tile.getAttribute('data-app-slug');
     var label = tile.getAttribute('data-app-label') || slug;
+    var endpoint =
+      tile.getAttribute('data-open-identity-url') ||
+      ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');
     if (!slug || !window.bastionPasswordPrompt) return;
 
-    var prompt = await window.bastionPasswordPrompt({
+    var result = await window.bastionPasswordPrompt({
       title: 'Ouvrir ' + label,
       message: 'Saisissez votre mot de passe pour établir la session applicative.',
       username: identityUsername,
       confirmLabel: 'Ouvrir',
-    });
-    if (!prompt.ok || !prompt.password) return;
-
-    var password = prompt.password;
-    try {
-      var resp = await fetch('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity', {
-        method: 'POST',
-        credentials: 'same-origin',
-        redirect: 'manual',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken(),
-        },
-        body: JSON.stringify({ password: password }),
-      });
-      password = '';
-
-      if (resp.status === 302 || resp.status === 0 || (resp.status >= 300 && resp.status < 400)) {
-        var loc = resp.headers.get('Location') || tile.getAttribute('href');
-        if (tile.getAttribute('target') === '_blank') {
-          window.open(loc, '_blank', 'noopener,noreferrer');
-        } else {
-          window.location.href = loc;
+      submit: async function (password) {
+        var resp = await fetch(endpoint, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            'X-CSRF-Token': csrfToken(),
+          },
+          body: JSON.stringify({ password: password }),
+        });
+        password = '';
+        if (resp.ok) {
+          var data = await resp.json();
+          if (data && data.ok && data.target_url) {
+            return { ok: true, targetUrl: data.target_url };
+          }
+          return { ok: false, error: 'Réponse serveur invalide.' };
         }
-        return;
-      }
+        var payload = {};
+        try {
+          payload = await resp.json();
+        } catch (_) {}
+        return {
+          ok: false,
+          error:
+            payload.message ||
+            payload.detail ||
+            (resp.status === 429
+              ? 'Trop de tentatives échouées. Réessayez dans quelques minutes.'
+              : 'Mot de passe incorrect ou compte verrouillé'),
+        };
+      },
+    });
 
-      var payload = {};
-      try { payload = await resp.json(); } catch (_) {}
-      var msg =
-        payload.message ||
-        payload.detail ||
-        (resp.status === 429
-          ? 'Trop de tentatives échouées. Réessayez dans quelques minutes.'
-          : 'Mot de passe incorrect ou compte verrouillé');
-      await window.bastionAlert({ title: 'Connexion impossible', message: msg });
-    } catch (err) {
-      password = '';
-      await window.bastionAlert({
-        title: 'Connexion impossible',
-        message: 'Impossible de joindre le serveur. Réessayez.',
-      });
+    if (!result || !result.ok || !result.targetUrl) return;
+    if (tile.getAttribute('data-open-target') === '_blank') {
+      window.open(result.targetUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      window.location.href = result.targetUrl;
     }
   }
 
   document.querySelectorAll('.app-tile[data-app-id]:not(.app-tile--disabled)').forEach(function (tile) {
     tile.addEventListener('click', function (e) {
       launchPing(tile.getAttribute('data-app-id'));
-      if (tile.getAttribute('data-credential-mode') === 'identite_utilisateur') {
+      if (
+        tile.getAttribute('data-credential-mode') === 'identite_utilisateur' ||
+        tile.hasAttribute('data-open-with-identity')
+      ) {
         e.preventDefault();
         openWithIdentity(tile);
       }

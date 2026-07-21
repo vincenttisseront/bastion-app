@@ -16,6 +16,7 @@ from app.admin.throttling import (
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPSession
 from app.models import App, AppGroup, AuditLog, RBACGroup
+from app.rbac.grants_service import AccessGrantCreate, create_grant
 from app.robotic.impersonate_service import (
     ImpersonationIdentityAuthError,
     ImpersonationPasswordRequiredError,
@@ -169,8 +170,10 @@ def test_open_with_identity_uses_session_username_not_body(
             follow_redirects=False,
         )
 
-    assert resp.status_code == 302
-    assert resp.headers["location"] == "/proxy/grommunio/"
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["target_url"] == "/proxy/grommunio/"
     login_mock.assert_awaited_once()
     args = login_mock.await_args.args
     assert args[1] == "vincent.tisseront@ar-systems.fr"
@@ -282,8 +285,10 @@ def test_open_with_identity_success_redirect_and_cookies(
             follow_redirects=False,
         )
 
-    assert resp.status_code == 302
-    assert resp.headers["location"] == "/proxy/grommunio/"
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["target_url"] == "/proxy/grommunio/"
     set_cookie = resp.headers.get("set-cookie", "")
     # CrushFTP cookies may be split across multiple Set-Cookie headers
     cookie_headers = resp.headers.get_list("set-cookie") if hasattr(resp.headers, "get_list") else [set_cookie]
@@ -314,3 +319,32 @@ def test_get_impersonate_rejected_for_identity_mode(
     )
     assert resp.status_code == 400
     assert resp.json()["error"] == "password_required"
+
+
+def test_portal_identity_tile_has_no_impersonate_href(
+    client: TestClient, db_session: Session
+):
+    """Catalogue tile must POST open-with-identity — never link to impersonate."""
+    app = _seed_app(db_session)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+
+    resp = client.get("/apps", headers=USER_HEADERS)
+    assert resp.status_code == 200
+    html = resp.text
+    assert "data-open-with-identity" in html
+    assert 'data-open-identity-url="/api/apps/grommunio/open-with-identity"' in html
+    assert 'data-credential-mode="identite_utilisateur"' in html
+    assert "/api/internal/impersonate/grommunio" not in html
+    assert 'href="/api/internal/impersonate/grommunio"' not in html
+    assert "bastionPasswordPrompt" in html

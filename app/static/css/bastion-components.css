@@ -183,6 +183,7 @@ body.bastion-modal-open{overflow:hidden}
 .bastion-modal-list li:first-child{padding-top:0}
 .bastion-modal-list-label{font-weight:600}
 .bastion-modal-list-detail{color:var(--text-3);font-size:var(--fs-xs)}
+.bastion-modal-password-error{margin-top:var(--sp-2)}
 .bastion-modal-footer{
   display:flex;justify-content:flex-end;gap:var(--sp-2);
   padding:var(--sp-3) var(--sp-5) var(--sp-4);border-top:1px solid var(--border-muted);

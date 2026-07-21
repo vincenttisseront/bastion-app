@@ -118,7 +118,7 @@ def _impersonation_error_response(exc: ImpersonationError) -> JSONResponse:
     return JSONResponse({"ok": False, "error": message}, status_code=status)
 
 
-def _cookie_redirect(
+def _touch_open_session(
     result,
     *,
     settings: Settings,
@@ -126,26 +126,28 @@ def _cookie_redirect(
     user: UserContext,
     request: Request,
     slug: str,
-) -> RedirectResponse:
+) -> None:
     app = get_app_by_slug(db, slug)
-    if app is not None:
-        touch_app_session(
-            db,
-            user,
-            app,
-            _client_ip(request),
-            details=app_cookie_diagnostics(
-                result.cookies,
-                credential_source=result.credential_source,
-                robotic_username=result.robotic_username,
-                driver=result.driver,
-                request=request,
-                app_label=app.label,
-                verify_base_url=result.login_base_url,
-            ),
-        )
+    if app is None:
+        return
+    touch_app_session(
+        db,
+        user,
+        app,
+        _client_ip(request),
+        details=app_cookie_diagnostics(
+            result.cookies,
+            credential_source=result.credential_source,
+            robotic_username=result.robotic_username,
+            driver=result.driver,
+            request=request,
+            app_label=app.label,
+            verify_base_url=result.login_base_url,
+        ),
+    )
 
-    response = RedirectResponse(url=result.target_url, status_code=302)
+
+def _attach_robotic_cookies(response: Response, result, *, settings: Settings) -> None:
     if result.use_crushftp_cookies:
         build_crushftp_response_cookies(
             response,
@@ -164,6 +166,46 @@ def _cookie_redirect(
             fqdn=result.fqdn,
             portal_domain=settings.portal_domain,
         )
+
+
+def _cookie_redirect(
+    result,
+    *,
+    settings: Settings,
+    db: Session,
+    user: UserContext,
+    request: Request,
+    slug: str,
+) -> RedirectResponse:
+    _touch_open_session(
+        result, settings=settings, db=db, user=user, request=request, slug=slug
+    )
+    response = RedirectResponse(url=result.target_url, status_code=302)
+    _attach_robotic_cookies(response, result, settings=settings)
+    return response
+
+
+def _cookie_json_open(
+    result,
+    *,
+    settings: Settings,
+    db: Session,
+    user: UserContext,
+    request: Request,
+    slug: str,
+) -> JSONResponse:
+    """JSON success for fetch clients — Set-Cookie + target_url (no 302 fallback to href)."""
+    _touch_open_session(
+        result, settings=settings, db=db, user=user, request=request, slug=slug
+    )
+    response = JSONResponse(
+        {
+            "ok": True,
+            "target_url": result.target_url,
+            "slug": result.slug,
+        }
+    )
+    _attach_robotic_cookies(response, result, settings=settings)
     return response
 
 
@@ -292,7 +334,9 @@ async def open_with_identity(
         body.password = ""  # noqa: F841
 
     clear_identity_failures(slug, user_key)
-    return _cookie_redirect(
+    # Always JSON for the catalogue modal fetch — never 302 (browsers hide Location
+    # on opaque redirects and the UI used to fall back to the tile impersonate href).
+    return _cookie_json_open(
         result, settings=settings, db=db, user=user, request=request, slug=slug
     )
 
