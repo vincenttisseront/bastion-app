@@ -232,7 +232,13 @@
 .session-card-slug {
   font-size: var(--fs-xs);
   color: var(--text-3);
-  margin: var(--sp-1) 0 var(--sp-3);
+  margin: var(--sp-1) 0 var(--sp-2);
+}
+
+.session-verified-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin-bottom: var(--sp-3);
 }
 
 .session-card-facts {

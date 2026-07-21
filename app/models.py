@@ -287,6 +287,8 @@ class ActiveSession(Base):
     started_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     last_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     details = Column(JSON, nullable=True)  # cookie diagnostics, credential source, …
+    last_verified_at = Column(DateTime(timezone=True), nullable=True)
+    last_verified_status = Column(String, nullable=True)  # active | invalid | unknown
 
 
 class PortalSettings(Base):

@@ -87,10 +87,17 @@ def request_client_diagnostics(request: Request | None) -> dict[str, Any]:
         return {}
     ua = (request.headers.get("User-Agent") or "").strip()
     if not ua:
+        # Some proxies forward the original UA under alternate headers.
+        for header in ("X-Original-User-Agent", "X-Forwarded-User-Agent"):
+            ua = (request.headers.get(header) or "").strip()
+            if ua:
+                break
+    if not ua:
         return {}
     return {
         "user_agent": ua[:500],
         "user_agent_label": summarize_user_agent(ua),
+        "browser_note": None,
     }
 
 
@@ -110,7 +117,15 @@ def portal_cookie_diagnostics(request: Request | None) -> dict[str, Any]:
         "cookies_ok": bool(oauth_present),
         "cookies_checked_at": utcnow().isoformat(),
     }
-    out.update(request_client_diagnostics(request))
+    ua = request_client_diagnostics(request)
+    if ua:
+        out.update(ua)
+    else:
+        out["user_agent_label"] = "Non capturé"
+        out["browser_note"] = (
+            "User-Agent absent sur la requête (proxy / client). "
+            "Rechargez /apps depuis le navigateur après déploiement."
+        )
     return out
 
 
@@ -139,8 +154,18 @@ def _merge_details(
     if not existing and not incoming:
         return None
     out = dict(existing or {})
-    if incoming:
-        out.update(incoming)
+    if not incoming:
+        return out
+    # Never wipe a captured User-Agent with an empty later touch.
+    protected = dict(incoming)
+    for key in ("user_agent", "user_agent_label"):
+        if not protected.get(key) and out.get(key):
+            protected.pop(key, None)
+    # Keep session_cookies / verify_base_url unless explicitly replaced with non-empty
+    for key in ("session_cookies", "verify_base_url"):
+        if key in protected and not protected.get(key) and out.get(key):
+            protected.pop(key, None)
+    out.update(protected)
     return out
 
 
@@ -152,6 +177,7 @@ def app_cookie_diagnostics(
     driver: str | None = None,
     request: Request | None = None,
     app_label: str | None = None,
+    verify_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Store robotic cookie presence + fingerprints after a successful impersonate."""
     from app.robotic.impersonate_service import cookie_fingerprint
@@ -179,10 +205,22 @@ def app_cookie_diagnostics(
         "credential_source": credential_source,
         "robotic_username": robotic_username,
         "driver": driver,
+        # Full cookie values for live getUsername verification (short-lived).
+        "session_cookies": dict(cookies) if cookies else {},
+        "verify_base_url": (verify_base_url or "").strip() or None,
+        "verifiable": (driver or "").strip().lower() in ("crushftp", "generic_form"),
     }
     if app_label:
         out["app_label"] = app_label
-    out.update(request_client_diagnostics(request))
+    ua = request_client_diagnostics(request)
+    if ua:
+        out.update(ua)
+        out["browser_note"] = None
+    else:
+        out["user_agent_label"] = "Session serveur (driver)"
+        out["browser_note"] = (
+            "Session créée côté bastion (robotic), sans User-Agent navigateur propre."
+        )
     return out
 
 
@@ -203,6 +241,19 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
     else:
         label = "—"
         cookie_title = "Statut cookies inconnu (pas encore de diagnostic)."
+    ua_label = details.get("user_agent_label")
+    browser_note = details.get("browser_note")
+    if not ua_label:
+        if details.get("verifiable") or details.get("driver") in ("crushftp", "generic_form"):
+            ua_label = "Session serveur (driver)"
+            browser_note = browser_note or (
+                "Session créée côté bastion, sans User-Agent navigateur propre."
+            )
+        elif details.get("user_agent"):
+            ua_label = summarize_user_agent(details.get("user_agent"))
+        else:
+            ua_label = "Non capturé"
+            browser_note = browser_note or "User-Agent absent sur la requête d’enregistrement."
     return {
         "cookies_label": label,
         "cookies_ok": bool(ok),
@@ -213,8 +264,11 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
         "credential_source": details.get("credential_source"),
         "robotic_username": details.get("robotic_username"),
         "user_agent": details.get("user_agent"),
-        "user_agent_label": details.get("user_agent_label") or "—",
+        "user_agent_label": ua_label,
+        "browser_note": browser_note,
         "app_label": details.get("app_label"),
+        "verifiable": bool(details.get("verifiable")),
+        "driver": details.get("driver"),
     }
 
 
@@ -363,6 +417,10 @@ def _touch_app_session(
         row.last_seen_at = now
         if details:
             row.details = _merge_details(row.details if isinstance(row.details, dict) else None, details)
+            # New impersonate cookies invalidate prior live-check.
+            if details.get("session_cookies"):
+                row.last_verified_at = None
+                row.last_verified_status = None
     db.commit()
     db.refresh(row)
     return row
@@ -393,6 +451,28 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
     else:
         client_ip_display = raw_ip
         client_ip_note = None
+
+    verifiable = bool(diag.get("verifiable"))
+    verified_status = (row.last_verified_status or "").strip().lower() or None
+    if verifiable:
+        # Never show ACTIVE by default for driven sessions — only after live check.
+        if verified_status == "active":
+            live_status = "active"
+            live_status_label = "ACTIVE"
+        elif verified_status == "invalid":
+            live_status = "invalid"
+            live_status_label = "INVALIDE"
+        else:
+            live_status = "unverified"
+            live_status_label = "NON VÉRIFIÉ"
+    else:
+        live_status = row.status if row.status != "isolated" else "isolated"
+        live_status_label = (row.status or "active").upper()
+
+    verified_ago = None
+    if row.last_verified_at:
+        verified_ago = _relative_ago(row.last_verified_at)
+
     return {
         "id": row.id,
         "kind": row.kind,
@@ -411,11 +491,21 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         "client_ip_note": client_ip_note,
         "duration": _format_duration(row.started_at, utcnow()),
         "status": row.status,
+        "live_status": live_status,
+        "live_status_label": live_status_label,
+        "verifiable": verifiable,
+        "last_verified_at": row.last_verified_at.isoformat() if row.last_verified_at else None,
+        "last_verified_status": verified_status,
+        "last_verified_ago": verified_ago,
         "started_at": row.started_at.isoformat() if row.started_at else None,
         "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         "last_seen_label": _format_last_seen(row.last_seen_at),
         "last_seen_ago": _relative_ago(row.last_seen_at),
-        "details": details or {},
+        "details": {
+            k: v
+            for k, v in (details or {}).items()
+            if k != "session_cookies"  # never expose full cookies to the UI/API list
+        },
         "cookies_label": diag["cookies_label"],
         "cookies_ok": diag["cookies_ok"],
         "cookies_validity": diag["cookies_validity"],
@@ -426,6 +516,7 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         "robotic_username": diag["robotic_username"],
         "user_agent": diag["user_agent"],
         "user_agent_label": diag["user_agent_label"],
+        "browser_note": diag.get("browser_note"),
         "action_titles": _ACTION_TITLES,
     }
 
@@ -460,6 +551,30 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
         if s.get("kind") == KIND_USER:
             g["duration"] = s.get("duration") or g["duration"]
             g["user"] = s.get("user") or g["user"]
+            if s.get("user_agent_label") and s.get("user_agent_label") not in (
+                "—",
+                "Non capturé",
+                "Session serveur (driver)",
+            ):
+                g["portal_user_agent_label"] = s.get("user_agent_label")
+                g["portal_user_agent"] = s.get("user_agent")
+    # Enrich driven sessions with portal browser when available
+    for g in groups.values():
+        portal_ua = g.pop("portal_user_agent_label", None)
+        portal_ua_raw = g.pop("portal_user_agent", None)
+        if not portal_ua:
+            continue
+        for s in g["sessions"]:
+            if s.get("verifiable") and (
+                not s.get("user_agent")
+                or s.get("user_agent_label") in (None, "—", "Session serveur (driver)")
+            ):
+                s["user_agent_label"] = f"Navigateur portail : {portal_ua}"
+                s["browser_note"] = (
+                    "Session serveur (driver) ; User-Agent issu de la session portail associée."
+                )
+                if portal_ua_raw:
+                    s["user_agent"] = portal_ua_raw
     return list(groups.values())
 
 
@@ -540,6 +655,44 @@ def list_sessions(
     if user.is_admin:
         payload["ip_probe"] = client_ip_probe(request)
     return payload
+
+
+@router.post("/api/sessions/live-verify")
+async def live_verify_sessions(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_user),
+    settings: Settings = Depends(get_settings),
+):
+    """
+    Auto live-check driven app sessions for one user (selected in the rail).
+    No manual button — called by the existing LIVE poller.
+    """
+    from app.web.session_verify import live_verify_user_sessions
+
+    if is_portal_admin(user, db, settings):
+        user.is_admin = True
+
+    body: dict[str, Any] = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    target_email = (body.get("user_email") or "").strip().lower()
+    if not target_email:
+        raise HTTPException(status_code=400, detail="user_email required")
+    if not user.is_admin:
+        own = (user.email or user.username or "").strip().lower()
+        if target_email != own:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+    verified = await live_verify_user_sessions(db, user_email=target_email)
+    sessions = get_active_sessions(db, viewer=user)
+    return {
+        "verified": verified,
+        "groups": group_sessions_by_user(sessions),
+        "sessions": sessions,
+    }
 
 
 @router.post("/admin/sessions/{session_id}/isolate")

@@ -113,6 +113,7 @@ async def client_impersonate(
                 driver=result.driver,
                 request=request,
                 app_label=app.label,
+                verify_base_url=result.login_base_url,
             ),
         )
 

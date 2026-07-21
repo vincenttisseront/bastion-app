@@ -72,14 +72,20 @@
               <span class="badge badge-{{ 'info' if s.kind == 'user' else 'ok' }}">{{ s.type_label }}</span>
               <span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span>
             </div>
-            <span class="badge badge-{{ 'ok' if s.status == 'active' else 'warn' }}">
-              {% if s.status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
-              {{ s.status | upper }}
+            <span class="badge badge-{{ 'ok' if s.live_status == 'active' else ('err' if s.live_status == 'invalid' else 'warn') }}"
+                  title="{% if s.verifiable %}Statut vérifié auprès de l’app cible (live){% else %}Statut déclaratif côté bastion{% endif %}">
+              {% if s.live_status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
+              {{ s.live_status_label }}
             </span>
           </header>
           <div class="card-body session-card-body">
             <div class="session-card-resource">{{ s.resource_title }}</div>
             <div class="session-card-slug mono">{{ s.resource_subtitle }}</div>
+            {% if s.verifiable %}
+            <div class="session-verified-meta mono">
+              {% if s.last_verified_ago %}Vérifié {{ s.last_verified_ago }}{% else %}En attente de vérification live…{% endif %}
+            </div>
+            {% endif %}
             <dl class="session-card-facts">
               <div><dt>IP client</dt>
                 <dd class="mono{% if s.client_ip_is_infra %} is-infra-ip{% endif %}"
@@ -87,7 +93,7 @@
               </div>
               <div><dt>Durée</dt><dd class="mono">{{ s.duration }}</dd></div>
               <div><dt>Dernière activité</dt><dd title="{{ s.last_seen_label }}">{{ s.last_seen_ago }}</dd></div>
-              <div><dt>Navigateur</dt><dd title="{{ s.user_agent or '' }}">{{ s.user_agent_label }}</dd></div>
+              <div><dt>Navigateur</dt><dd title="{{ s.browser_note or s.user_agent or '' }}">{{ s.user_agent_label }}</dd></div>
               <div><dt>Cookies</dt>
                 <dd>
                   <span class="session-cookies badge badge-{{ 'ok' if s.cookies_ok else 'warn' }}"

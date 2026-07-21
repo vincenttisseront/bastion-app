@@ -129,14 +129,25 @@
       .join('');
   }
 
+  function liveBadgeClass(s) {
+    var st = s.live_status || s.status;
+    if (st === 'active') return 'ok';
+    if (st === 'invalid') return 'err';
+    if (st === 'isolated') return 'warn';
+    return 'warn'; // unverified / unknown
+  }
+
   function renderSessionCard(s) {
-    var statusClass = s.status === 'active' ? 'ok' : 'warn';
+    var statusClass = liveBadgeClass(s);
     var kindClass = s.kind === 'user' ? 'info' : 'ok';
     var cookieClass = s.cookies_ok ? 'ok' : 'warn';
     var liveDot =
-      s.status === 'active'
+      s.live_status === 'active'
         ? '<span class="live-dot" style="width:6px;height:6px;"></span> '
         : '';
+    var statusTitle = s.verifiable
+      ? 'Statut vérifié auprès de l’app cible (live)'
+      : 'Statut déclaratif côté bastion';
     var titles = s.action_titles || {};
     var footer = '';
     if (isAdmin) {
@@ -156,6 +167,16 @@
     var cookieTitle = s.cookies_title || '';
     if (s.cookies_issued_at) cookieTitle += ' · émis ' + s.cookies_issued_at;
     if (s.crushauth_age) cookieTitle += ' · CrushAuth ' + s.crushauth_age;
+
+    var verifiedMeta = '';
+    if (s.verifiable) {
+      verifiedMeta =
+        '<div class="session-verified-meta mono">' +
+        (s.last_verified_ago
+          ? 'Vérifié ' + escapeHtml(s.last_verified_ago)
+          : 'En attente de vérification live…') +
+        '</div>';
+    }
 
     return (
       '<article class="card session-card" data-session-id="' +
@@ -177,9 +198,11 @@
       '</span></div>' +
       '<span class="badge badge-' +
       statusClass +
+      '" title="' +
+      escapeHtml(statusTitle) +
       '">' +
       liveDot +
-      escapeHtml(String(s.status || '').toUpperCase()) +
+      escapeHtml(s.live_status_label || String(s.status || '').toUpperCase()) +
       '</span></header>' +
       '<div class="card-body session-card-body">' +
       '<div class="session-card-resource">' +
@@ -188,6 +211,7 @@
       '<div class="session-card-slug mono">' +
       escapeHtml(s.resource_subtitle || '') +
       '</div>' +
+      verifiedMeta +
       '<dl class="session-card-facts">' +
       '<div><dt>IP client</dt><dd class="mono' +
       (s.client_ip_is_infra ? ' is-infra-ip' : '') +
@@ -205,7 +229,7 @@
       escapeHtml(s.last_seen_ago || '—') +
       '</dd></div>' +
       '<div><dt>Navigateur</dt><dd title="' +
-      escapeHtml(s.user_agent || '') +
+      escapeHtml(s.browser_note || s.user_agent || '') +
       '">' +
       escapeHtml(s.user_agent_label || '—') +
       '</dd></div>' +
@@ -289,6 +313,34 @@
     if (!btn) return;
     selectedEmail = btn.getAttribute('data-user-email') || '';
     renderAll();
+    liveVerifySelected();
+  }
+
+  function liveVerifySelected() {
+    selectedEmail = resolveSelected();
+    if (!selectedEmail) return Promise.resolve();
+    return fetch('/api/sessions/live-verify', {
+      method: 'POST',
+      headers: {
+        'X-CSRF-Token': getCsrfToken(),
+        'Content-Type': 'application/json',
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({ user_email: selectedEmail }),
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('live-verify failed');
+        return r.json();
+      })
+      .then(function (data) {
+        if (data.groups) {
+          groupsCache = data.groups;
+          renderAll();
+        }
+      })
+      .catch(function () {
+        /* keep last render */
+      });
   }
 
   function refreshSessions() {
@@ -312,6 +364,7 @@
         if (usersEl) usersEl.textContent = String(groupsCache.length);
         updateCounts(data.counts);
         renderAll();
+        return liveVerifySelected();
       })
       .catch(function () {
         /* silent — keep last render */
@@ -323,6 +376,7 @@
     selectedEmail = page.getAttribute('data-selected-email') || '';
     var list = document.getElementById('sessions-user-list');
     if (list) list.addEventListener('click', onUserClick);
+    liveVerifySelected();
     setInterval(refreshSessions, POLL_MS);
   }
 })();

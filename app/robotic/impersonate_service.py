@@ -59,6 +59,7 @@ class RoboticSessionResult:
     driver: str
     credential_source: CredentialSource = "shared"
     use_crushftp_cookies: bool = False
+    login_base_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -331,6 +332,7 @@ async def _impersonate_crushftp(
         driver="crushftp",
         credential_source=resolved.source,
         use_crushftp_cookies=True,
+        login_base_url=login_base,
     )
 
 
@@ -385,6 +387,9 @@ async def _impersonate_generic_form(
         driver="generic_form",
         credential_source=resolved.source,
         use_crushftp_cookies=False,
+        login_base_url=(app.upstream_url or app.login_form_url or "").rstrip("/") + "/"
+        if (app.upstream_url or app.login_form_url)
+        else None,
     )
 
 
