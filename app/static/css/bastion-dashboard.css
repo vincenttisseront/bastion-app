@@ -99,8 +99,8 @@
 .audit-time{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-3)}
 
 .session-actions{display:flex;gap:var(--sp-2);align-items:center}
-.btn-isolate{background:var(--err-bg);color:var(--err);border:1px solid rgba(239,68,68,.3);font-size:var(--fs-xs);padding:3px 10px;border-radius:var(--r-full);font-weight:600;cursor:pointer;transition:all var(--t-fast)}
-.btn-isolate:hover{background:rgba(239,68,68,.25)}
+.btn-isolate,.btn-revoke{background:var(--err-bg);color:var(--err);border:1px solid rgba(239,68,68,.3);font-size:var(--fs-xs);padding:3px 10px;border-radius:var(--r-full);font-weight:600;cursor:pointer;transition:all var(--t-fast)}
+.btn-isolate:hover,.btn-revoke:hover{background:rgba(239,68,68,.25)}
 .btn-rotate,.btn-rotate-keys{background:var(--warn-bg);color:var(--warn);border:1px solid rgba(245,158,11,.3);font-size:var(--fs-xs);padding:3px 10px;border-radius:var(--r-full);font-weight:600;cursor:pointer;transition:all var(--t-fast)}
 .btn-rotate:hover,.btn-rotate-keys:hover{background:rgba(245,158,11,.25)}
 

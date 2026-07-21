@@ -34,7 +34,7 @@ _ACCESS_MODE_PROTOCOL: dict[str, str] = {
 _PORTAL_COOKIE_HINTS = ("_oauth2_proxy", "oauth2_proxy")
 
 _ACTION_TITLES = {
-    "isolate": "Révoquer : marque la session comme isolée et bloque les actions associées.",
+    "revoke": "Révoquer : supprime la session du registre bastion et invalide les cookies stockés.",
     "rotate": "Rotation : lance le renouvellement des secrets/clés liés à cette session.",
 }
 
@@ -643,10 +643,10 @@ def revoke_active_session(
     delete: bool = False,
 ) -> dict[str, Any]:
     """
-    Shared revocation path for manual isolate and downstream auto-close.
+    Shared revocation path for admin revoke, isolate, and downstream auto-close.
 
-    delete=True removes the row (auto-revoke after target expired the session).
-    delete=False marks status=isolated (admin « Révoquer » button).
+    delete=True removes the row (admin « Révoquer » + auto-revoke after target expired).
+    delete=False marks status=isolated (POST …/isolate only).
     """
     session_id = session.id
     target = session.target
@@ -758,6 +758,28 @@ async def live_verify_sessions(
     }
 
 
+@router.post("/admin/sessions/{session_id}/revoke")
+def revoke_session(
+    session_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_admin),
+):
+    """Hard revoke: delete the ActiveSession row (admin « Révoquer cette session »)."""
+    session = get_session_by_id(db, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    result = revoke_active_session(
+        db,
+        session,
+        actor=user.email,
+        reason="manual",
+        ip_address=client_ip_from_request(request),
+        delete=True,
+    )
+    return {"status": "ok", "session_id": result["session_id"], "action": result["action"]}
+
+
 @router.post("/admin/sessions/{session_id}/isolate")
 def isolate_session(
     session_id: str,
@@ -765,6 +787,7 @@ def isolate_session(
     db: Session = Depends(get_db),
     user: UserContext = Depends(require_admin),
 ):
+    """Soft isolate: keep the row with status=isolated (not used by the Révoquer button)."""
     session = get_session_by_id(db, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")

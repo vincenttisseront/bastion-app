@@ -106,9 +106,9 @@
           </div>
           {% if is_admin %}
           <footer class="session-card-footer session-actions">
-            <button type="button" class="btn btn-danger btn-sm btn-isolate"
-                    title="{{ s.action_titles.isolate }}"
-                    onclick="isolateSession('{{ s.id }}')">Révoquer cette session</button>
+            <button type="button" class="btn btn-danger btn-sm btn-revoke"
+                    title="{{ s.action_titles.revoke }}"
+                    onclick="revokeSession('{{ s.id }}')">Révoquer cette session</button>
             <button type="button" class="btn btn-secondary btn-sm btn-rotate"
                     title="{{ s.action_titles.rotate }}"
                     onclick="rotateKeys('{{ s.id }}')">Rotation</button>

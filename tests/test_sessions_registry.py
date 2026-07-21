@@ -208,7 +208,30 @@ def test_sessions_page_master_detail_layout(client: TestClient, db_session: Sess
     client.get("/apps", headers=ADMIN_HEADERS)
     admin_page = client.get("/sessions", headers=ADMIN_HEADERS)
     assert "Révoquer cette session" in admin_page.text
-    assert "marque la session comme isolée" in admin_page.text
+    assert "revokeSession(" in admin_page.text
+    assert "isolateSession(" not in admin_page.text
+    assert "rotateKeys(" in admin_page.text
+    assert "supprime la session du registre" in admin_page.text
+
+
+def test_sessions_js_revoke_button_targets_revoke_not_isolate():
+    from pathlib import Path
+
+    js = Path("app/static/js/bastion-sessions.js").read_text(encoding="utf-8")
+    assert "window.revokeSession" in js
+    assert "/revoke'" in js or '/revoke"' in js or "/revoke'," in js
+    # Button label must not call isolate
+    assert "onclick=\"revokeSession(" in js or "onclick=\"revokeSession('" in js or "onclick=\"revokeSession(\\''" in js
+    assert "Révoquer cette session" in js
+    # The revoke handler posts to /revoke, not /isolate
+    revoke_block_start = js.index("window.revokeSession")
+    revoke_block = js[revoke_block_start : revoke_block_start + 280]
+    assert "/revoke" in revoke_block
+    assert "/isolate" not in revoke_block
+    # Rotation stays on its dedicated route
+    rotate_block_start = js.index("window.rotateKeys")
+    rotate_block = js[rotate_block_start : rotate_block_start + 280]
+    assert "/rotate-keys" in rotate_block
 
 
 def test_sessions_css_is_strict_two_column_flex():
@@ -232,3 +255,34 @@ def test_isolate_session(client: TestClient, db_session: Session):
     assert resp.status_code == 200
     db_session.refresh(row)
     assert row.status == "isolated"
+
+
+def test_revoke_session_deletes_row(client: TestClient, db_session: Session):
+    client.get("/apps", headers=USER_HEADERS)
+    row = db_session.query(ActiveSession).filter_by(kind="user").one()
+    session_id = row.id
+    resp = client.post(
+        f"/admin/sessions/{session_id}/revoke",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["session_id"] == session_id
+    assert body["action"] == "session.closed"
+    assert db_session.query(ActiveSession).filter_by(id=session_id).first() is None
+
+
+def test_revoke_clears_isolated_session(client: TestClient, db_session: Session):
+    """Cleanup path for sessions left isolated by the former miswired button."""
+    client.get("/apps", headers=USER_HEADERS)
+    row = db_session.query(ActiveSession).filter_by(kind="user").one()
+    row.status = "isolated"
+    db_session.commit()
+    session_id = row.id
+    resp = client.post(
+        f"/admin/sessions/{session_id}/revoke",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert db_session.query(ActiveSession).filter_by(id=session_id).first() is None

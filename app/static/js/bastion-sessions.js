@@ -6,8 +6,8 @@
   var groupsCache = Array.isArray(window.__SESSIONS_BOOT__) ? window.__SESSIONS_BOOT__ : [];
   var selectedEmail = '';
 
-  var TITLE_ISOLATE =
-    'Révoquer : marque la session comme isolée et bloque les actions associées.';
+  var TITLE_REVOKE =
+    'Révoquer : supprime la session du registre bastion et invalide les cookies stockés.';
   var TITLE_ROTATE =
     'Rotation : lance le renouvellement des secrets/clés liés à cette session.';
 
@@ -49,9 +49,9 @@
       });
   }
 
-  window.isolateSession = function (sessionId) {
+  window.revokeSession = function (sessionId) {
     postAction(
-      '/admin/sessions/' + encodeURIComponent(sessionId) + '/isolate',
+      '/admin/sessions/' + encodeURIComponent(sessionId) + '/revoke',
       'Révoquer cette session ?'
     );
   };
@@ -153,9 +153,9 @@
     if (isAdmin) {
       footer =
         '<footer class="session-card-footer session-actions">' +
-        '<button type="button" class="btn btn-danger btn-sm btn-isolate" title="' +
-        escapeHtml(titles.isolate || TITLE_ISOLATE) +
-        '" onclick="isolateSession(\'' +
+        '<button type="button" class="btn btn-danger btn-sm btn-revoke" title="' +
+        escapeHtml(titles.revoke || TITLE_REVOKE) +
+        '" onclick="revokeSession(\'' +
         escapeHtml(s.id) +
         '\')">Révoquer cette session</button>' +
         '<button type="button" class="btn btn-secondary btn-sm btn-rotate" title="' +
