@@ -114,7 +114,7 @@
 {% block scripts %}
 <script>
 (function () {
-  var appSlug = {{ ('"' + app.slug + '"') if app is defined else 'null' }};
+  var appSlug = {{ app.slug | tojson if app is defined else 'null' }};
 
   function initAuthModeForm() {
     // Access/auth toggles live in bastion.js (initAccessModeForm).
