@@ -57,6 +57,15 @@
         <p class="global-search-state-title" data-global-search-empty-title>Aucun résultat</p>
         <p class="global-search-state-desc">Essayez un autre terme ou une orthographe proche.</p>
       </div>
+      <div class="global-search-state" data-global-search-state="error" hidden>
+        <div class="global-search-state-icon" aria-hidden="true">
+          <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        </div>
+        <p class="global-search-state-title">Erreur de recherche</p>
+        <p class="global-search-state-desc" data-global-search-error-desc>Impossible de récupérer les résultats. Réessayez.</p>
+      </div>
       <div data-global-search-state="results" hidden></div>
     </div>
   </div>

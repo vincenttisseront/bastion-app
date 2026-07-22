@@ -1,6 +1,9 @@
 /**
  * Global search modal — click #global-search-trigger → fetch /api/search.
  * Matching is server-side; this file only handles UI (render, highlight, a11y).
+ *
+ * Single exclusive status machine (never stack idle + loading + empty):
+ *   'idle' | 'too_short' | 'loading' | 'success' | 'empty' | 'error'
  */
 (function (global) {
   "use strict";
@@ -8,6 +11,16 @@
   var MIN_LEN = 2;
   var DEBOUNCE_MS = 200;
   var DISPLAY_LIMIT = 5;
+
+  /** Maps SearchStatus → data-global-search-state panel id in the DOM. */
+  var STATUS_PANEL = {
+    idle: "idle",
+    too_short: "idle",
+    loading: "loading",
+    success: "results",
+    empty: "empty",
+    error: "error",
+  };
 
   var CATEGORY_URLS = {
     applications: "/apps",
@@ -42,7 +55,11 @@
   var flatItems = [];
   var abortCtrl = null;
   var bound = false;
-  var lastQuery = "";
+  /** @type {'idle'|'too_short'|'loading'|'success'|'empty'|'error'} */
+  var status = "idle";
+  /** Monotonic id — ignore responses that are not the latest request. */
+  var requestSeq = 0;
+  var lastIssuedQuery = "";
 
   function $(sel, root) {
     return (root || document).querySelector(sel);
@@ -50,17 +67,6 @@
 
   function $all(sel, root) {
     return Array.prototype.slice.call((root || document).querySelectorAll(sel));
-  }
-
-  function debounce(fn, ms) {
-    return function () {
-      var args = arguments;
-      var ctx = this;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(function () {
-        fn.apply(ctx, args);
-      }, ms);
-    };
   }
 
   function escapeHtml(s) {
@@ -129,9 +135,32 @@
     );
   }
 
-  function setState(name) {
+  function abortInFlight() {
+    if (!abortCtrl) return;
+    try {
+      abortCtrl.abort();
+    } catch (_) {}
+    abortCtrl = null;
+  }
+
+  function clearDebounce() {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+  }
+
+  /**
+   * Apply exactly one UI panel. Never leaves two panels visible.
+   * Also toggles aria-hidden for assistive tech.
+   */
+  function applyStatus(next) {
+    status = next;
+    var panel = STATUS_PANEL[next] || "idle";
     $all("[data-global-search-state]", resultsRoot).forEach(function (el) {
-      el.hidden = el.getAttribute("data-global-search-state") !== name;
+      var match = el.getAttribute("data-global-search-state") === panel;
+      el.hidden = !match;
+      el.setAttribute("aria-hidden", match ? "false" : "true");
     });
   }
 
@@ -145,24 +174,35 @@
     }
   }
 
+  function updateErrorDesc(msg) {
+    var el = $("[data-global-search-error-desc]", resultsRoot);
+    if (!el) return;
+    el.textContent =
+      msg || "Impossible de récupérer les résultats. Réessayez.";
+  }
+
+  function currentQuery() {
+    return input ? (input.value || "").trim() : "";
+  }
+
+  function isStale(seq, q) {
+    return seq !== requestSeq || currentQuery() !== q;
+  }
+
   function close() {
     if (!modal || modal.hidden) return;
     modal.hidden = true;
     modal.setAttribute("aria-hidden", "true");
     modal.classList.remove("is-open");
     document.body.classList.remove("bastion-modal-open");
-    if (debounceTimer) clearTimeout(debounceTimer);
-    if (abortCtrl) {
-      try {
-        abortCtrl.abort();
-      } catch (_) {}
-      abortCtrl = null;
-    }
+    clearDebounce();
+    abortInFlight();
+    requestSeq += 1;
     activeIndex = -1;
     flatItems = [];
-    lastQuery = "";
+    lastIssuedQuery = "";
     if (input) input.value = "";
-    setState("idle");
+    applyStatus("idle");
     if (previousFocus && typeof previousFocus.focus === "function") {
       try {
         previousFocus.focus();
@@ -178,12 +218,15 @@
     modal.setAttribute("aria-hidden", "false");
     modal.classList.add("is-open");
     document.body.classList.add("bastion-modal-open");
-    setState("idle");
+    clearDebounce();
+    abortInFlight();
+    requestSeq += 1;
     activeIndex = -1;
     flatItems = [];
-    lastQuery = "";
+    lastIssuedQuery = "";
+    if (input) input.value = "";
+    applyStatus("idle");
     if (input) {
-      input.value = "";
       setTimeout(function () {
         input.focus();
       }, 0);
@@ -241,6 +284,15 @@
     return a;
   }
 
+  function hasAnyResults(results) {
+    var keys = Object.keys(results || {});
+    for (var i = 0; i < keys.length; i++) {
+      var items = results[keys[i]];
+      if (items && items.length) return true;
+    }
+    return false;
+  }
+
   function renderResults(payload, query) {
     var results = (payload && payload.results) || {};
     var labels = (payload && payload.category_labels) || {};
@@ -250,12 +302,16 @@
 
     flatItems = [];
     container.innerHTML = "";
-    var any = false;
+
+    if (!hasAnyResults(results)) {
+      updateEmptyTitle(query);
+      applyStatus("empty");
+      return;
+    }
 
     keys.forEach(function (key) {
       var items = results[key];
       if (!items || !items.length) return;
-      any = true;
 
       var section = document.createElement("section");
       section.className = "global-search-section";
@@ -293,8 +349,7 @@
         var more = document.createElement("a");
         more.className = "global-search-see-all";
         more.href = CATEGORY_URLS[key] || "#";
-        more.textContent =
-          "Voir tous les résultats (" + items.length + ")";
+        more.textContent = "Voir tous les résultats (" + items.length + ")";
         more.addEventListener("click", function () {
           close();
         });
@@ -304,55 +359,80 @@
       container.appendChild(section);
     });
 
-    if (!any) {
-      updateEmptyTitle(query);
-      setState("empty");
-      return;
-    }
-    setState("results");
+    applyStatus("success");
     highlight(0);
   }
 
-  function runSearch() {
-    if (!input) return;
-    var q = (input.value || "").trim();
-    lastQuery = q;
-    if (q.length < MIN_LEN) {
-      setState("idle");
-      flatItems = [];
-      activeIndex = -1;
-      return;
-    }
-    setState("loading");
-    if (abortCtrl) {
-      try {
-        abortCtrl.abort();
-      } catch (_) {}
-    }
+  function runSearch(q) {
+    lastIssuedQuery = q;
+    var seq = ++requestSeq;
+    abortInFlight();
+    applyStatus("loading");
+
     abortCtrl =
       typeof AbortController !== "undefined" ? new AbortController() : null;
     var opts = { headers: { Accept: "application/json" } };
     if (abortCtrl) opts.signal = abortCtrl.signal;
+
     fetch("/api/search?q=" + encodeURIComponent(q), opts)
       .then(function (r) {
+        if (!r.ok) {
+          var err = new Error("HTTP " + r.status);
+          err.httpStatus = r.status;
+          throw err;
+        }
         return r.json();
       })
       .then(function (data) {
+        if (isStale(seq, q)) return;
         if (!data || data.ok === false) {
           updateEmptyTitle(q);
-          setState("empty");
+          applyStatus("empty");
           return;
         }
         renderResults(data, q);
       })
       .catch(function (err) {
         if (err && err.name === "AbortError") return;
-        updateEmptyTitle(q);
-        setState("empty");
+        if (isStale(seq, q)) return;
+        updateErrorDesc(
+          err && err.message
+            ? "Impossible de récupérer les résultats (" + err.message + ")."
+            : null
+        );
+        applyStatus("error");
       });
   }
 
-  var debouncedSearch = debounce(runSearch, DEBOUNCE_MS);
+  /**
+   * Input handler: resolve status immediately (exclusive), debounce only the fetch.
+   */
+  function onQueryInput() {
+    var q = currentQuery();
+    flatItems = [];
+    activeIndex = -1;
+
+    if (q.length < MIN_LEN) {
+      clearDebounce();
+      abortInFlight();
+      requestSeq += 1;
+      applyStatus(q.length === 0 ? "idle" : "too_short");
+      return;
+    }
+
+    // Hide idle immediately — do not wait for debounce to clear min-chars UI.
+    applyStatus("loading");
+    clearDebounce();
+    debounceTimer = setTimeout(function () {
+      debounceTimer = null;
+      var latest = currentQuery();
+      if (latest.length < MIN_LEN) {
+        applyStatus(latest.length === 0 ? "idle" : "too_short");
+        return;
+      }
+      runSearch(latest);
+    }, DEBOUNCE_MS);
+  }
 
   function focusables() {
     if (!modal) return [];
@@ -385,6 +465,7 @@
       }
       return;
     }
+    if (status !== "success") return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       if (!flatItems.length) return;
@@ -434,9 +515,10 @@
       });
     });
 
-    input.addEventListener("input", debouncedSearch);
-    input.addEventListener("search", debouncedSearch);
+    input.addEventListener("input", onQueryInput);
+    input.addEventListener("search", onQueryInput);
     document.addEventListener("keydown", onKeyDown);
+    applyStatus("idle");
   }
 
   if (document.readyState === "loading") {
@@ -445,5 +527,11 @@
     bindOnce();
   }
 
-  global.BastionGlobalSearch = { open: open, close: close };
+  global.BastionGlobalSearch = {
+    open: open,
+    close: close,
+    getStatus: function () {
+      return status;
+    },
+  };
 })(typeof window !== "undefined" ? window : this);
