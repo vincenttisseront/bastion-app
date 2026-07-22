@@ -227,6 +227,32 @@ server {
         return 503 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>SSO indisponible</title></head><body><h1>SSO indisponible (503)</h1><p>Le proxy applicatif requiert oauth2-proxy, non configuré (<code>vault_sso_portal_oidc_client_secret</code> ou fichier <code>{{ oauth2_core_config_dir }}/client_secret</code>).</p><p>Accès LAN RFC1918 : ouvrez le portail depuis le réseau interne ou configurez le secret Keycloak puis redéployez.</p></body></html>';
     }
 
+    # Browser-facing /api/apps/* — SSO auth, but do not rewrite FastAPI JSON 401/403 to login HTML.
+    location ^~ /api/apps/ {
+        limit_req zone=portal_api burst=60 nodelay;
+        auth_request /portal_auth_check;
+        error_page 401 = @portal_oauth2_signin;
+        proxy_intercept_errors off;
+
+        auth_request_set $auth_user      $upstream_http_x_auth_request_user;
+        auth_request_set $auth_email     $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups    $upstream_http_x_auth_request_groups;
+        auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
+
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+
+        proxy_set_header X-User $auth_preferred;
+        proxy_set_header X-User-Id $auth_user;
+        proxy_set_header X-Email $auth_email;
+        proxy_set_header X-Groups $auth_groups;
+        proxy_set_header X-Preferred-Username $auth_preferred;
+        proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
+        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
     location ^~ /api/admin {
         {% include 'snippets/proxy_portal_admin_location.conf.j2' %}
     }

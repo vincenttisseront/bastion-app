@@ -200,7 +200,7 @@ def test_open_with_identity_password_absent_from_logs(
             follow_redirects=False,
         )
 
-    assert resp.status_code == 401
+    assert resp.status_code == 403
     body = resp.json()
     assert body["error"] == "identity_auth_failed"
     assert "Mot de passe incorrect" in body["message"]
@@ -229,7 +229,7 @@ def test_open_with_identity_rate_limit(client: TestClient, db_session: Session):
                 json={"password": WRONG_PASSWORD},
                 follow_redirects=False,
             )
-            assert resp.status_code == 401
+            assert resp.status_code == 403
 
         blocked = client.post(
             "/api/apps/grommunio/open-with-identity",
@@ -306,6 +306,42 @@ def test_open_with_identity_success_redirect_and_cookies(
     assert audit.details["credential_mode"] == "identite_utilisateur"
     assert audit.details["credential_source"] == "user_identity"
     assert SECRET_PASSWORD not in str(audit.details)
+
+
+def test_open_with_identity_unauthenticated_returns_401(
+    client: TestClient, db_session: Session
+):
+    """Without SSO headers, require_user → 401 JSON (no HTML login — that's Nginx)."""
+    _seed_app(db_session)
+    resp = client.post(
+        "/api/apps/grommunio/open-with-identity",
+        json={"password": SECRET_PASSWORD},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 401
+    assert resp.headers.get("content-type", "").startswith("application/json")
+    assert "Authentication required" in str(resp.json().get("detail", ""))
+
+
+def test_open_with_identity_authenticated_wrong_password_is_json_403_not_login_redirect(
+    client: TestClient, db_session: Session
+):
+    """Wrong app password must stay JSON 403 — never look like a dead portal session."""
+    _seed_app(db_session)
+    with patch(
+        "app.robotic.impersonate_service.CrushFTPDriver.login",
+        new=AsyncMock(side_effect=RoboticLoginError("rejected")),
+    ):
+        resp = client.post(
+            "/api/apps/grommunio/open-with-identity",
+            headers=USER_HEADERS,
+            json={"password": WRONG_PASSWORD},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 403
+    assert resp.headers.get("content-type", "").startswith("application/json")
+    assert resp.json()["error"] == "identity_auth_failed"
+    assert "/auth/login" not in (resp.headers.get("location") or "")
 
 
 def test_get_impersonate_rejected_for_identity_mode(

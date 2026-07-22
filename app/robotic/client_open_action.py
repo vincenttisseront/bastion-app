@@ -98,12 +98,14 @@ def _impersonation_error_response(exc: ImpersonationError) -> JSONResponse:
             status_code=400,
         )
     if isinstance(exc, ImpersonationIdentityAuthError):
+        # 403 — not 401. Nginx has proxy_intercept_errors on + error_page 401 →
+        # /auth/login; a 401 here would look like a dead SSO session to the browser.
         return JSONResponse(
             {
                 "error": ImpersonationIdentityAuthError.error_code,
                 "message": ImpersonationIdentityAuthError.user_message,
             },
-            status_code=401,
+            status_code=403,
         )
     message = str(exc)
     status = 502

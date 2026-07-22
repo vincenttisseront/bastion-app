@@ -151,27 +151,79 @@
   }
 
   async function postOpenWithIdentity(endpoint, password) {
-    var resp = await fetch(endpoint, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'X-CSRF-Token': csrfToken(),
-      },
-      body: JSON.stringify({ password: password }),
-    });
-    if (resp.ok) {
-      var data = await resp.json();
-      if (data && data.ok && data.target_url) {
-        return { ok: true, targetUrl: data.target_url };
-      }
-      return { ok: false, error: 'Réponse serveur invalide.' };
+    var resp;
+    try {
+      resp = await fetch(endpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'manual',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-CSRF-Token': csrfToken(),
+        },
+        body: JSON.stringify({ password: password }),
+      });
+    } catch (_) {
+      return {
+        ok: false,
+        error: 'Impossible de joindre le serveur. Vérifiez votre connexion et réessayez.',
+      };
     }
+
+    // Nginx auth_request failure → 302 /auth/login (opaque redirect = status 0).
+    if (resp.type === 'opaqueredirect' || resp.status === 0 || (resp.status >= 300 && resp.status < 400)) {
+      var loc = '';
+      try { loc = resp.headers.get('Location') || ''; } catch (_) {}
+      if (!loc || loc.indexOf('/auth/login') !== -1 || loc.indexOf('/oauth2/') !== -1) {
+        return {
+          ok: false,
+          error: 'Session expirée ou non reconnue. Rechargez la page et réessayez.',
+        };
+      }
+    }
+
+    var contentType = (resp.headers.get('content-type') || '').toLowerCase();
+    if (contentType.indexOf('application/json') === -1) {
+      if (resp.status === 401 || resp.status === 302 || contentType.indexOf('text/html') !== -1) {
+        return {
+          ok: false,
+          error: 'Session expirée ou non reconnue. Rechargez la page et réessayez.',
+        };
+      }
+      return {
+        ok: false,
+        error: 'Réponse inattendue du serveur. Rechargez la page et réessayez.',
+      };
+    }
+
     var payload = {};
     try {
       payload = await resp.json();
-    } catch (_) {}
+    } catch (_) {
+      return {
+        ok: false,
+        error: 'Session expirée ou non reconnue. Rechargez la page et réessayez.',
+      };
+    }
+
+    if (resp.ok) {
+      if (payload && payload.ok && payload.target_url) {
+        return { ok: true, targetUrl: payload.target_url };
+      }
+      return { ok: false, error: 'Réponse serveur invalide.' };
+    }
+
+    if (resp.status === 401) {
+      return {
+        ok: false,
+        error:
+          payload.message ||
+          payload.detail ||
+          'Session expirée ou non reconnue. Rechargez la page et réessayez.',
+      };
+    }
+
     return {
       ok: false,
       error:
@@ -208,12 +260,7 @@
         continue;
       }
 
-      var outcome;
-      try {
-        outcome = await postOpenWithIdentity(endpoint, password);
-      } catch (_) {
-        outcome = { ok: false, error: 'Impossible de joindre le serveur. Réessayez.' };
-      }
+      var outcome = await postOpenWithIdentity(endpoint, password);
       password = '';
 
       if (outcome.ok && outcome.targetUrl) {
