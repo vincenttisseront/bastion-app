@@ -23,7 +23,7 @@ services:
       - -c
       - |
         set -eu
-        mkdir -p /var/lib/sso-portal/exports /var/lib/sso-portal/uploads/app-logos
+        mkdir -p /var/lib/sso-portal/exports /var/lib/sso-portal/uploads/app-logos /var/lib/sso-portal/keys
         alembic upgrade head
         chown -R 1000:1000 /var/lib/sso-portal
     env_file:
@@ -32,6 +32,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/sso-portal/portal.db}
       EXPORTS_DIR: /var/lib/sso-portal/exports
       PORTAL_DATA_DIR: /var/lib/sso-portal
+      VAULT_KEYS_DIR: /var/lib/sso-portal/keys
       OAUTH2_PROXY_NETWORK_MODE: docker
       OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
     volumes:
@@ -51,6 +52,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/sso-portal/portal.db}
       EXPORTS_DIR: /var/lib/sso-portal/exports
       PORTAL_DATA_DIR: /var/lib/sso-portal
+      VAULT_KEYS_DIR: /var/lib/sso-portal/keys
       OAUTH2_PROXY_NETWORK_MODE: docker
       OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
     volumes:

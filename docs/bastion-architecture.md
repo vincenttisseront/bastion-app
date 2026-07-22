@@ -23,6 +23,8 @@
 7. [Phase 6 — UI admin bastion (cible)](#7-phase-6--ui-admin-bastion-cible)
 8. [Annexes](#8-annexes)
 
+> Vault : voir [§2.4](#24-vault-applicatif) (vault applicatif vs AWX) et [Rotation de la clé Fernet](#rotation-de-la-clé-fernet).
+
 ---
 
 ## 1. Vision produit
@@ -209,21 +211,48 @@ Référence : [SDD-002](sdd/SDD-002-nginx-vhost-portail.md).
 
 ### 2.4 Vault applicatif
 
-#### Modèle `user_app_credentials`
+#### Vault applicatif vs vault Ansible/AWX
 
-| Champ | Rôle |
-|-------|------|
-| `user_email` | Identité SSO |
-| `application_id` | FK `applications` (proxy uniquement) |
-| `app_password_encrypted` | Fernet (clé `PORTAL_VAULT_FERNET_KEY`) |
+Deux notions distinctes coexistent sous le mot « vault » :
 
-Contrainte unique : `(user_email, application_id)`.
+| | **Vault applicatif** (métier) | **Vault Ansible/AWX** (déploiement) |
+|---|---|---|
+| Rôle | Chiffrement au repos des credentials dans `portal.db` | Livraison des secrets d’infra (token interne, OIDC client secret) |
+| Protège | `AppCredential`, `UserAppCredential`, `RealmConfig.*_encrypted` | `vault_portal_internal_token`, `vault_sso_portal_oidc_client_secret` |
+| Clé Fernet | **Gérée par `bastion-app`** (fichiers sous `VAULT_KEYS_DIR`, défaut `{portal_data_dir}/keys`) | *Ne livre plus* la clé métier (Phase B) — secret `vault_portal_vault_fernet_key` conservé temporairement pour migration auto uniquement |
+| Mécanisme | Fernet (`app/secret_crypto.py` + `encryption_key_store.py`) | Credential AWX + Jinja2 `portal.env.j2` (`no_log: true`) |
 
-#### Chiffrement
+#### Clé Fernet (store local)
 
-- Clé persistante : `/var/lib/sso-portal/portal-vault-fernet.key` (Ansible, jamais régénérée au redeploy si existante)
-- API admin : jamais de mot de passe en clair (`app_password_set` bool uniquement)
-- Import JSON bulk : `/api/admin/user-app-credentials/import`
+- Fichiers : `fernet_v{N}.key` + pointeur `current` (permissions `600` / dir `700`)
+- Métadonnées DB : table `encryption_key_versions` (version, dates, statut — **jamais** la matière)
+- Boot `ensure_encryption_key()` : charge active → sinon migre depuis env Phase A → sinon génère `v1`
+- Aliases env historiques encore lus pour migration : `PORTAL_SECRET_ENCRYPTION_KEY` / `VAULT_PORTAL_VAULT_FERNET_KEY`
+- Docker : `VAULT_KEYS_DIR=/var/lib/sso-portal/keys` sur le volume data persistant (même mount que `portal.db`)
+
+#### Colonnes chiffrées
+
+| Table / modèle | Colonne(s) |
+|----------------|------------|
+| `AppCredential` | `encrypted_password` |
+| `UserAppCredential` | `encrypted_password` |
+| `RealmConfig` | `client_secret_encrypted`, `oauth2_cookie_secret_encrypted`, `keycloak_admin_client_secret_encrypted` |
+
+#### Rotation de la clé Fernet
+
+Stratégie : **fenêtre courte in-process**, déclenchée **uniquement** par un admin (Admin → Sécurité → « Forcer le renouvellement »). Aucune rotation automatique même en retard sur la cadence (défaut 180 jours, paramètre admin).
+
+1. Backup `portal.db` + backup du fichier de clé active
+2. Écriture `fernet_v{N+1}.key` (pending)
+3. `rotate_fernet_key()` — transaction unique, rollback complet si échec
+4. Succès → `current` = N+1, ancienne version `retired` (fichier conservé)
+5. Échec → suppression du fichier orphelin N+1, `current` inchangé
+6. Audit `key_rotation` (compteurs + versions, jamais la clé)
+7. Export admin : sauvegarde chiffrée par passphrase (PBKDF2), jamais stockée côté serveur
+
+Surveillance quotidienne (APScheduler) : log `rotation recommended` seulement — ne déclenche jamais.
+
+**Retrait AWX** : étape **séparée** après vérification smoke `verify_fernet_key_migration.yml` sur chaque environnement. Ne pas retirer `vault_portal_vault_fernet_key` dans le même déploiement que l’introduction du store local.
 
 #### Impersonation
 
@@ -240,9 +269,9 @@ Contrainte unique : `(user_email, application_id)`.
 | Risque | Mitigation actuelle | Cible bastion |
 |--------|---------------------|---------------|
 | Pollution cookies SSO vers backend | Filtrage Nginx + scope client | Règle stricte : pas de cookies portail vers upstream |
-| Secret en log | Pas de log password | Maintenir + revue drivers |
-| Driver unique | Échec CrushFTP = 502 | Registry drivers isolés (Lot 5) |
-| Credential non testé | Aucun `last_test_*` | Champs + bouton test admin (Lot 6) |
+| Secret en log | Pas de log password / clé | Maintenir + revue drivers |
+| Perte de la clé Fernet | Fichiers locaux + export passphrase admin + backup preflight du dir keys | Versions retirées conservées pour anciens backups DB |
+| Régénération Docker | Volume data persistant + smoke version inchangée après restart | — |
 
 ---
 
@@ -589,10 +618,12 @@ Aligné [SDD-003](sdd/SDD-003-oauth2-proxy-instances.md).
 
 | Règle | Détail |
 |-------|--------|
-| MUST | Clé Fernet stable (`portal-vault-fernet.key`) |
-| MUST NOT | Régénérer Fernet au redeploy AWX |
-| MUST NOT | Logger mots de passe ou secrets oauth2 |
-| MUST | Import JSON chiffré immédiatement en base |
+| MUST | Clé Fernet en fichiers locaux (`VAULT_KEYS_DIR`), métadonnées version en DB uniquement |
+| MUST NOT | Stocker la matière de clé en base, logs, tickets ou Git |
+| MUST NOT | Rotation automatique (même en retard) — clic admin explicite uniquement |
+| MUST NOT | Retirer `vault_portal_vault_fernet_key` d’AWX avant smoke migration verte multi-env |
+| MUST | Import / set credential → chiffrement immédiat ; export clé = passphrase admin non stockée |
+| MUST | Backup preflight de `portal.db` **et** du répertoire de clés |
 
 ---
 

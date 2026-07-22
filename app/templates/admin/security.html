@@ -122,18 +122,76 @@
   <div class="form-section" id="vault">
     <div class="form-section-header">
       <div class="form-section-title">Coffre-fort applicatif (Fernet)</div>
-      <div class="form-section-sub">Chiffrement des credentials en base</div>
+      <div class="form-section-sub">
+        Clé gérée par l'application (fichier local) —
+        {% if vault_key and vault_key.status_badge == 'recommended' %}
+        <span class="badge" style="background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">Rotation recommandée</span>
+        {% elif vault_key %}
+        <span class="badge badge-ok">OK</span>
+        {% else %}
+        <span class="badge badge-muted">Indisponible</span>
+        {% endif %}
+      </div>
     </div>
     <div class="form-body">
-      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0;">
-        Credentials chiffrés stockés en base (<code class="mono">app_credentials</code>).
-        Clé Fernet : <code class="mono">vault_portal_vault_fernet_key</code>.
-      </p>
+      {% if vault_key %}
+      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+        <table class="data-table">
+          <tbody>
+            <tr><th>Version active</th><td class="mono">v{{ vault_key.version }}</td></tr>
+            <tr><th>Âge</th><td>{{ vault_key.age_days }} jour(s)</td></tr>
+            <tr><th>Cadence recommandée</th><td>{{ vault_key.rotation_days }} jours</td></tr>
+            <tr><th>Prochaine échéance</th>
+              <td>{% if vault_key.next_due_at %}{{ vault_key.next_due_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</td>
+            </tr>
+            <tr><th>Source</th><td class="mono">{{ vault_key.source or '—' }}</td></tr>
+            <tr><th>Répertoire</th><td class="mono">{{ vault_key.keys_dir }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      {% if vault_key.rotation_recommended %}
+      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+        <div class="alert-body">
+          La clé a dépassé la cadence configurée. Aucune rotation automatique :
+          utilisez « Forcer le renouvellement » ci-dessous.
+        </div>
+      </div>
+      {% endif %}
+      {% else %}
+      <p style="color:var(--text-2);font-size:var(--fs-sm);">Statut de clé indisponible.</p>
+      {% endif %}
+
+      <form method="post" action="/admin/security/vault-key/cadence" style="margin-bottom:var(--sp-4);">
+        <div class="form-group">
+          <label class="form-label" for="rotation_days">Cadence recommandée (jours)</label>
+          <input class="form-input" type="number" min="1" max="3650" name="rotation_days" id="rotation_days"
+                 value="{{ vault_key.rotation_days if vault_key else 180 }}" style="max-width:8rem;">
+          <p class="form-help">Surveillance quotidienne uniquement — jamais de rotation sans clic admin.</p>
+        </div>
+        <button type="submit" class="btn btn-secondary btn-sm">Enregistrer la cadence</button>
+      </form>
+
+      <form method="post" action="/admin/security/vault-key/export" style="margin-bottom:var(--sp-4);">
+        <div class="form-group">
+          <label class="form-label" for="export_passphrase">Sauvegarde chiffrée de la clé</label>
+          <input class="form-input" type="password" name="passphrase" id="export_passphrase"
+                 placeholder="Passphrase (≥ 12 car.)" autocomplete="new-password" required minlength="12">
+        </div>
+        <div class="form-group">
+          <input class="form-input" type="password" name="passphrase_confirm"
+                 placeholder="Confirmer la passphrase" autocomplete="new-password" required minlength="12">
+          <p class="form-help">La passphrase n'est jamais stockée. Conservez le fichier hors du serveur.</p>
+        </div>
+        <button type="submit" class="btn btn-secondary btn-sm">Télécharger la sauvegarde</button>
+      </form>
     </div>
     <div class="form-footer">
-      <button type="button" class="btn btn-secondary btn-sm" data-confirm="Lancer la rotation des clés Fernet ?">
-        Rotation secrets
-      </button>
+      <form method="post" action="/admin/security/vault-key/rotate" id="vault-key-rotate-form">
+        <input type="hidden" name="confirm" value="on">
+        <button type="submit" class="btn btn-secondary btn-sm" id="vault-key-rotate-btn">
+          Forcer le renouvellement
+        </button>
+      </form>
     </div>
   </div>
 </div>
@@ -142,6 +200,27 @@
 {% block scripts %}
 <script>
 (function () {
+  var rotateForm = document.getElementById('vault-key-rotate-form');
+  if (rotateForm) {
+    var bypassRotate = false;
+    rotateForm.addEventListener('submit', function (e) {
+      if (bypassRotate) return;
+      e.preventDefault();
+      window.bastionConfirm({
+        title: 'Forcer le renouvellement de la clé Fernet ?',
+        message:
+          'Cette opération va chiffrer à nouveau tous les credentials applicatifs ' +
+          'et peut entraîner une brève indisponibilité du vault. Continuer ?',
+        confirmLabel: 'Renouveler',
+        danger: true,
+      }).then(function (ok) {
+        if (!ok) return;
+        bypassRotate = true;
+        rotateForm.requestSubmit();
+      });
+    });
+  }
+
   var form = document.getElementById('subdomain-sso-form');
   if (!form) return;
   var enabled = document.getElementById('subdomain_sso_enabled');

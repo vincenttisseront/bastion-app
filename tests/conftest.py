@@ -12,6 +12,28 @@ from app.database import get_db
 from app.main import app
 from app.models import Base
 from app.sso_settings import Settings, get_settings
+from app.vault.encryption_key_store import reset_active_cache_for_tests
+
+
+@pytest.fixture(autouse=True)
+def _isolate_fernet_key_store(tmp_path, monkeypatch):
+    """Isolate VAULT_KEYS_DIR per test and clear in-memory key cache."""
+    import os
+
+    reset_active_cache_for_tests()
+    keys = tmp_path / "vault-keys"
+    keys.mkdir()
+    monkeypatch.setenv("VAULT_KEYS_DIR", str(keys))
+    monkeypatch.setenv("PORTAL_DATA_DIR", str(tmp_path / "data"))
+    # Prefer a known test key so lifespan migrate path is deterministic when client starts.
+    if not os.environ.get("PORTAL_SECRET_ENCRYPTION_KEY"):
+        monkeypatch.setenv(
+            "PORTAL_SECRET_ENCRYPTION_KEY", "test-encryption-key-for-pytest-only"
+        )
+    get_settings.cache_clear()
+    yield
+    reset_active_cache_for_tests()
+    get_settings.cache_clear()
 
 
 @pytest.fixture()

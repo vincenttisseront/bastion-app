@@ -369,3 +369,114 @@
     msg: >-
       Edge (vmdmz-reverse01) : proxy_pass {{ bastion_upstream_url }}
       avec Host {{ portal_domain }} (mÃªme schÃ©ma que Keycloak / Traefik).
+
+- name: "SMOKE : post-rotation â€” dÃ©chiffrement credential de test (optionnel)"
+  when: sso_portal_post_rotation_smoke | default(false) | bool
+  block:
+    - name: "SMOKE : decrypt sample ciphertext via bastion-app container"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        docker compose exec -T \
+          -e DATABASE_URL="${DATABASE_URL}" \
+          -e PORTAL_SECRET_ENCRYPTION_KEY="${PORTAL_SECRET_ENCRYPTION_KEY}" \
+          -e VAULT_PORTAL_VAULT_FERNET_KEY="${VAULT_PORTAL_VAULT_FERNET_KEY}" \
+          bastion-app python - <<'PY'
+        import sys
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from app.models import AppCredential, RealmConfig
+        from app.secret_crypto import decrypt_secret
+        from app.sso_settings import Settings
+
+        settings = Settings()
+        engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            ok = 0
+            cred = db.query(AppCredential).filter_by(is_active=True).first()
+            if cred is not None:
+                decrypt_secret(cred.encrypted_password, settings)
+                ok += 1
+            realm = (
+                db.query(RealmConfig)
+                .filter(RealmConfig.client_secret_encrypted.isnot(None))
+                .filter(RealmConfig.client_secret_encrypted != "")
+                .first()
+            )
+            if realm is not None:
+                decrypt_secret(realm.client_secret_encrypted, settings)
+                ok += 1
+            if ok == 0:
+                print("WARN: no AppCredential/RealmConfig ciphertext to verify", file=sys.stderr)
+                sys.exit(0)
+            print(f"OK: decrypted {ok} sample ciphertext(s) with current key")
+        finally:
+            db.close()
+        PY
+      args:
+        executable: /bin/bash
+        chdir: "{{ bastion_app_docker_compose_dir }}"
+      environment:
+        DATABASE_URL: "sqlite:////var/lib/sso-portal/portal.db"
+        PORTAL_SECRET_ENCRYPTION_KEY: "{{ portal_secret_encryption_key | default(vault_portal_vault_fernet_key) }}"
+        VAULT_PORTAL_VAULT_FERNET_KEY: "{{ vault_portal_vault_fernet_key }}"
+      no_log: true
+      register: _post_rotation_decrypt
+
+    - name: "SMOKE : assert post-rotation decrypt OK"
+      ansible.builtin.assert:
+        that:
+          - _post_rotation_decrypt.rc | default(1) == 0
+        fail_msg: >-
+          Post-rotation decrypt failed â€” clÃ© Fernet ou rÃ©-chiffrement incohÃ©rent.
+          Pas de rollback automatique ; restaurer bak-pre-rotation-* manuellement si besoin.
+
+- name: "SMOKE : vérifier migration clé Fernet locale (volume data)"
+  ansible.builtin.include_tasks: verify_fernet_key_migration.yml
+  when: sso_portal_verify_fernet_key_migration | default(true) | bool
+
+- name: "SMOKE : capturer version clé avant cycle down/up"
+  when: sso_portal_verify_fernet_key_migration | default(true) | bool
+  ansible.builtin.slurp:
+    src: "{{ sso_portal_keys_dir }}/current"
+  register: _key_ver_before
+
+- name: "SMOKE : cycle compose stop/start bastion-app (persistance clé)"
+  when: sso_portal_verify_fernet_key_migration | default(true) | bool
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker compose stop bastion-app
+    docker compose start bastion-app
+  args:
+    executable: /bin/bash
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+
+- name: "SMOKE : attendre health après restart"
+  when: sso_portal_verify_fernet_key_migration | default(true) | bool
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8000/api/health"
+    status_code: 200
+  register: _health_after_key
+  retries: 20
+  delay: 2
+  until: _health_after_key.status | default(0) == 200
+
+- name: "SMOKE : assert version clé inchangée après restart"
+  when: sso_portal_verify_fernet_key_migration | default(true) | bool
+  ansible.builtin.slurp:
+    src: "{{ sso_portal_keys_dir }}/current"
+  register: _key_ver_after
+
+- name: "SMOKE : fail si version clé a changé (régénération indésirable)"
+  when: sso_portal_verify_fernet_key_migration | default(true) | bool
+  ansible.builtin.assert:
+    that:
+      - (_key_ver_before.content | b64decode | trim) == (_key_ver_after.content | b64decode | trim)
+    fail_msg: >-
+      Version clé Fernet changée après restart conteneur
+      (avant={{ _key_ver_before.content | b64decode | trim }}
+      après={{ _key_ver_after.content | b64decode | trim }}).
+      Vérifier le volume persistant {{ sso_portal_keys_dir }}.

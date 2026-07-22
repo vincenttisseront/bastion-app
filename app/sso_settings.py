@@ -94,6 +94,22 @@ class Settings(BaseSettings):
             "portal_data_dir",
         ),
     )
+    # Application-managed Fernet key directory (Phase B — not AWX-delivered).
+    # Empty → {portal_data_dir}/keys
+    vault_keys_dir: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "VAULT_KEYS_DIR",
+            "vault_keys_dir",
+        ),
+    )
+    vault_key_rotation_days_default: int = Field(
+        default=180,
+        validation_alias=AliasChoices(
+            "VAULT_KEY_ROTATION_DAYS",
+            "vault_key_rotation_days",
+        ),
+    )
 
     subdomain_sso_enabled: bool = Field(
         default=False,

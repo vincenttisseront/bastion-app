@@ -42,6 +42,14 @@
         - "{{ sso_portal_release_dir }}"
         - "{{ sso_portal_venv | dirname }}"
 
+    - name: Ensure vault keys directory permissions (700)
+      ansible.builtin.file:
+        path: "{{ sso_portal_keys_dir }}"
+        state: directory
+        owner: "{{ sso_portal_user }}"
+        group: "{{ sso_portal_user }}"
+        mode: "0700"
+
     - name: Ensure apply-infra request file exists
       ansible.builtin.file:
         path: "{{ sso_portal_data_dir }}/apply-infra.request"

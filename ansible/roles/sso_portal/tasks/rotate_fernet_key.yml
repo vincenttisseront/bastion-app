@@ -1,0 +1,85 @@
+---
+# Rotate application-vault Fernet key (portal.db re-encrypt).
+# Manual AWX job — not part of standard deploy. Short vault outage during batch.
+#
+# Required extra-vars (never commit; use AWX Survey / Vault credential):
+#   vault_portal_vault_fernet_key          — current (old) key
+#   vault_portal_vault_fernet_key_new      — new Fernet key (Fernet.generate_key())
+#
+# After success: update AWX Vault credential to the new value, redeploy .env,
+# restart bastion-app, then smoke with sso_portal_post_rotation_smoke=true.
+#
+# Doctrine: failure → run failed; NO automatic DB restore (restore bak-pre-rotation-* manually).
+
+- name: "ROTATE : assert old/new Fernet keys present"
+  ansible.builtin.assert:
+    that:
+      - (vault_portal_vault_fernet_key | default('') | length) > 0
+      - (vault_portal_vault_fernet_key_new | default('') | length) > 0
+      - (vault_portal_vault_fernet_key | default('')) != (vault_portal_vault_fernet_key_new | default(''))
+    fail_msg: >-
+      Fournir vault_portal_vault_fernet_key (courante) et
+      vault_portal_vault_fernet_key_new (nouvelle), distinctes. Jamais dans defaults.
+  no_log: true
+
+- name: "ROTATE : stat portal.db"
+  ansible.builtin.stat:
+    path: "{{ sso_portal_db_path }}"
+  register: _rotate_db_stat
+
+- name: "ROTATE : fail si portal.db absent"
+  ansible.builtin.assert:
+    that:
+      - _rotate_db_stat.stat.exists | default(false)
+    fail_msg: "portal.db introuvable à {{ sso_portal_db_path }}"
+
+- name: "ROTATE : backup portal.db bak-pre-rotation"
+  ansible.builtin.copy:
+    src: "{{ sso_portal_db_path }}"
+    dest: >-
+      {{ sso_portal_db_path }}.bak-pre-rotation-{{ ansible_date_time.iso8601_basic_short
+      | default(ansible_date_time.epoch) }}
+    remote_src: true
+    mode: "0640"
+  register: _rotate_backup
+
+- name: "ROTATE : arrêter sso-portal (éviter écritures concurrentes)"
+  ansible.builtin.systemd:
+    name: "{{ sso_portal_service_name | default('sso-portal') }}"
+    state: stopped
+  when: sso_portal_rotation_stop_service | default(true) | bool
+
+- name: "ROTATE : ré-chiffrement batch (clés via env, no_log)"
+  ansible.builtin.command:
+    cmd: >-
+      {{ sso_portal_venv }}/bin/python -m scripts.rotate_fernet_key
+    chdir: "{{ sso_portal_install_dir }}"
+  environment:
+    OLD_FERNET_KEY: "{{ vault_portal_vault_fernet_key }}"
+    NEW_FERNET_KEY: "{{ vault_portal_vault_fernet_key_new }}"
+    ROTATION_DB_PATH: "{{ sso_portal_db_path }}"
+    SKIP_DB_BACKUP: "1"
+    DATABASE_URL: "{{ portal_database_url | default('sqlite:////var/lib/sso-portal/portal.db') }}"
+    PORTAL_SECRET_ENCRYPTION_KEY: "{{ vault_portal_vault_fernet_key }}"
+    VAULT_PORTAL_VAULT_FERNET_KEY: "{{ vault_portal_vault_fernet_key }}"
+  no_log: true
+  register: _rotate_run
+
+- name: "ROTATE : rapport (compteurs uniquement — no secrets)"
+  ansible.builtin.debug:
+    msg: "{{ _rotate_run.stdout_lines | default([]) }}"
+
+- name: "ROTATE : redémarrer sso-portal"
+  ansible.builtin.systemd:
+    name: "{{ sso_portal_service_name | default('sso-portal') }}"
+    state: started
+  when: sso_portal_rotation_stop_service | default(true) | bool
+
+- name: "ROTATE : rappel post-rotation AWX Vault"
+  ansible.builtin.debug:
+    msg: >-
+      Rotation DB OK. Mettre à jour le credential AWX vault_portal_vault_fernet_key
+      avec la nouvelle clé, redéployer le .env (rôle sso_portal / bastion_app_docker),
+      puis smoke avec -e sso_portal_post_rotation_smoke=true.
+      Backup: {{ _rotate_backup.dest | default('n/a') }}.
+      Pas de rollback automatique si le smoke échoue.

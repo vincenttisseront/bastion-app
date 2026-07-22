@@ -1082,6 +1082,7 @@ def admin_security(
     _user=Depends(require_admin),
 ):
     from app.portal_settings_service import get_subdomain_sso_enabled
+    from app.vault.encryption_key_store import get_vault_key_status
 
     subdomain_apps = (
         db.query(App)
@@ -1089,6 +1090,7 @@ def admin_security(
         .order_by(App.label)
         .all()
     )
+    vault_status = get_vault_key_status(db, settings)
     return render(
         "admin/security.html",
         **_ctx(
@@ -1096,7 +1098,134 @@ def admin_security(
             settings,
             subdomain_sso_enabled=get_subdomain_sso_enabled(db, settings),
             subdomain_apps=subdomain_apps,
+            vault_key=vault_status,
         ),
+    )
+
+
+@router.get("/admin/security/vault-key")
+def admin_security_vault_key_redirect():
+    return RedirectResponse(url="/admin/security#vault", status_code=302)
+
+
+@router.post("/admin/security/vault-key/rotate")
+def admin_security_vault_key_rotate(
+    request: Request,
+    confirm: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.vault.key_rotation_service import KeyRotationError, rotate_application_key
+
+    token = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/admin/security#vault", status_code=302)
+    if confirm != "on":
+        flash_redirect(
+            response,
+            "Rotation annulée : confirmation requise.",
+            "error",
+            token,
+        )
+        return response
+    actor = user.email or user.username or "admin"
+    ip = request.headers.get("X-Real-IP") or (
+        request.client.host if request.client else None
+    )
+    try:
+        report = rotate_application_key(
+            db, settings, actor=actor, ip_address=ip
+        )
+        flash_redirect(
+            response,
+            f"Clé Fernet renouvelée (version active). {report.total} secret(s) ré-chiffré(s).",
+            "success",
+            token,
+        )
+    except KeyRotationError:
+        flash_redirect(
+            response,
+            "Échec de la rotation — base inchangée (rollback). Voir les logs admin.",
+            "error",
+            token,
+        )
+    return response
+
+
+@router.post("/admin/security/vault-key/cadence")
+def admin_security_vault_key_cadence(
+    request: Request,
+    rotation_days: int = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.portal_settings_service import set_vault_key_rotation_days
+
+    token = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/admin/security#vault", status_code=302)
+    days = max(1, min(3650, int(rotation_days)))
+    set_vault_key_rotation_days(
+        db,
+        settings,
+        days,
+        actor=user.email or user.username or "admin",
+        ip_address=request.headers.get("X-Real-IP")
+        or (request.client.host if request.client else None),
+    )
+    flash_redirect(
+        response,
+        f"Cadence de rotation enregistrée : {days} jours (aucune rotation automatique).",
+        "success",
+        token,
+    )
+    return response
+
+
+@router.post("/admin/security/vault-key/export")
+def admin_security_vault_key_export(
+    passphrase: str = Form(...),
+    passphrase_confirm: str = Form(...),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    from fastapi.responses import Response
+
+    from app.vault.encryption_key_store import (
+        EncryptionKeyStoreError,
+        export_active_key_backup,
+        get_active_version,
+    )
+
+    if passphrase != passphrase_confirm:
+        response = RedirectResponse(url="/admin/security#vault", status_code=302)
+        flash_redirect(
+            response,
+            "Export annulé : les passphrases ne correspondent pas.",
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
+    try:
+        payload = export_active_key_backup(settings, passphrase)
+    except EncryptionKeyStoreError as exc:
+        response = RedirectResponse(url="/admin/security#vault", status_code=302)
+        flash_redirect(
+            response,
+            str(exc),
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
+    version = get_active_version() or 0
+    return Response(
+        content=payload,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="bastion-fernet-v{version}.backup"'
+            ),
+        },
     )
 
 

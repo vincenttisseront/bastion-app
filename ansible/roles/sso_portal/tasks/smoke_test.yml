@@ -192,6 +192,69 @@
   ansible.builtin.debug:
     msg: "Smoke test SSO portal vert (phase={{ sso_portal_expected_health_phase }})"
 
+- name: "SMOKE : post-rotation — déchiffrement credential de test (optionnel)"
+  when: sso_portal_post_rotation_smoke | default(false) | bool
+  block:
+    - name: "SMOKE : decrypt sample AppCredential / RealmConfig with current Fernet key"
+      ansible.builtin.shell: |
+        set -euo pipefail
+        {{ sso_portal_venv }}/bin/python - <<'PY'
+        import os, sys
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from app.models import AppCredential, RealmConfig
+        from app.secret_crypto import decrypt_secret
+        from app.sso_settings import Settings
+
+        settings = Settings()
+        engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        try:
+            ok = 0
+            cred = db.query(AppCredential).filter_by(is_active=True).first()
+            if cred is not None:
+                decrypt_secret(cred.encrypted_password, settings)
+                ok += 1
+            realm = (
+                db.query(RealmConfig)
+                .filter(RealmConfig.client_secret_encrypted.isnot(None))
+                .filter(RealmConfig.client_secret_encrypted != "")
+                .first()
+            )
+            if realm is not None:
+                decrypt_secret(realm.client_secret_encrypted, settings)
+                ok += 1
+            if ok == 0:
+                print("WARN: no AppCredential/RealmConfig ciphertext to verify", file=sys.stderr)
+                sys.exit(0)
+            print(f"OK: decrypted {ok} sample ciphertext(s) with current key")
+        finally:
+            db.close()
+        PY
+      args:
+        executable: /bin/bash
+        chdir: "{{ sso_portal_install_dir }}"
+      environment:
+        DATABASE_URL: "{{ portal_database_url }}"
+        PORTAL_SECRET_ENCRYPTION_KEY: "{{ portal_vault_fernet_key | default(vault_portal_vault_fernet_key) }}"
+        VAULT_PORTAL_VAULT_FERNET_KEY: "{{ vault_portal_vault_fernet_key | default(portal_vault_fernet_key) }}"
+      no_log: true
+      register: _post_rotation_decrypt
+
+    - name: "SMOKE : assert post-rotation decrypt OK"
+      ansible.builtin.assert:
+        that:
+          - _post_rotation_decrypt.rc | default(1) == 0
+        fail_msg: >-
+          Post-rotation decrypt failed — clé Fernet ou ré-chiffrement incohérent.
+          Pas de rollback automatique ; restaurer bak-pre-rotation-* manuellement si besoin.
+          stdout={{ _post_rotation_decrypt.stdout | default('n/a') }}
+
+- name: "SMOKE : vérifier migration clé Fernet locale"
+  ansible.builtin.include_tasks: verify_fernet_key_migration.yml
+  when: sso_portal_verify_fernet_key_migration | default(true) | bool
+
 - name: "VALIDATE_PURGE : consommation purge-units.list (bare-metal canary)"
   ansible.builtin.include_tasks: validate_purge_units.yml
   tags:

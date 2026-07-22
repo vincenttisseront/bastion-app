@@ -300,5 +300,21 @@ class PortalSettings(Base):
 
     id = Column(Integer, primary_key=True, default=1)
     subdomain_sso_enabled = Column(Boolean, nullable=False, default=False)
+    # Recommended Fernet key rotation cadence (days). Admin-editable; never auto-rotates.
+    vault_key_rotation_days = Column(Integer, nullable=False, default=180)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
+
+
+class EncryptionKeyVersion(Base):
+    """Metadata for application-vault Fernet key versions (never stores key material)."""
+
+    __tablename__ = "encryption_key_versions"
+
+    id = Column(Integer, primary_key=True)
+    version = Column(Integer, unique=True, nullable=False, index=True)
+    status = Column(String, nullable=False, default="active")  # active | retired | pending
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    activated_at = Column(DateTime(timezone=True), nullable=True)
+    retired_at = Column(DateTime(timezone=True), nullable=True)
+    source = Column(String, nullable=True)  # generated | migrated_from_env | rotated

@@ -33,16 +33,57 @@ def ensure_portal_settings(db: Session, settings: Settings) -> PortalSettings:
     """Return singleton row, creating it from env/Settings fallback if missing."""
     row = get_portal_settings_row(db)
     if row is not None:
+        if getattr(row, "vault_key_rotation_days", None) is None:
+            row.vault_key_rotation_days = int(settings.vault_key_rotation_days_default)
+            db.commit()
+            db.refresh(row)
         return row
     row = PortalSettings(
         id=PORTAL_SETTINGS_ID,
         subdomain_sso_enabled=bool(settings.subdomain_sso_enabled),
+        vault_key_rotation_days=int(settings.vault_key_rotation_days_default),
         updated_at=utcnow(),
         updated_by=None,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
+    return row
+
+
+def get_vault_key_rotation_days(db: Session, settings: Settings) -> int:
+    row = get_portal_settings_row(db)
+    if row is None or not getattr(row, "vault_key_rotation_days", None):
+        return max(1, int(settings.vault_key_rotation_days_default))
+    return max(1, int(row.vault_key_rotation_days))
+
+
+def set_vault_key_rotation_days(
+    db: Session,
+    settings: Settings,
+    days: int,
+    *,
+    actor: str,
+    ip_address: str | None = None,
+) -> PortalSettings:
+    row = ensure_portal_settings(db, settings)
+    previous = int(row.vault_key_rotation_days)
+    new_value = max(1, int(days))
+    if previous == new_value:
+        return row
+    row.vault_key_rotation_days = new_value
+    row.updated_at = utcnow()
+    row.updated_by = actor
+    db.commit()
+    db.refresh(row)
+    log_action(
+        db,
+        actor=actor,
+        action="portal_settings.vault_key_rotation_days",
+        target="portal_settings",
+        details={"previous": previous, "new": new_value},
+        ip_address=ip_address,
+    )
     return row
 
 
@@ -96,4 +137,6 @@ __all__ = [
     "ensure_portal_settings",
     "get_subdomain_sso_enabled",
     "set_subdomain_sso_enabled",
+    "get_vault_key_rotation_days",
+    "set_vault_key_rotation_days",
 ]

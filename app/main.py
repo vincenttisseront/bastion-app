@@ -46,12 +46,23 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings)
     logger = logging.getLogger("app.main")
-    if not settings.portal_secret_encryption_key:
-        logger.warning(
-            "PORTAL_SECRET_ENCRYPTION_KEY is not set — OIDC realm create/update will fail"
-        )
     Base.metadata.create_all(bind=engine)
+    from app.database import SessionLocal
+    from app.vault.encryption_key_store import (
+        EncryptionKeyStoreError,
+        ensure_encryption_key,
+    )
     from app.web.app_logos import ensure_logo_dir
+
+    db = SessionLocal()
+    try:
+        version = ensure_encryption_key(db, settings)
+        logger.info("vault encryption key ready version=%s", version)
+    except EncryptionKeyStoreError:
+        logger.exception("vault encryption key store failed — refusing to start")
+        raise
+    finally:
+        db.close()
 
     ensure_logo_dir(settings)
     start_health_scheduler(settings)

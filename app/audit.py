@@ -56,7 +56,10 @@ def derive_severity(action: str) -> str:
         return "error"
     if any(x in action_lower for x in ("warn", "warning")):
         return "warn"
-    if any(x in action_lower for x in ("success", "login", "created", "updated", "valid")):
+    if any(
+        x in action_lower
+        for x in ("success", "login", "created", "updated", "valid", "key_rotation")
+    ):
         return "success"
     return "info"
 

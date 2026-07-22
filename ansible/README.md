@@ -94,7 +94,18 @@ ansible-playbook ansible/linux_sso_portal.yml \
 Secrets AWX (jamais en logs grâce à `no_log` sur le rendu `.env`) :
 - `vault_portal_internal_token`
 - `vault_sso_portal_oidc_client_secret`
-- `vault_portal_vault_fernet_key`
+- `vault_portal_vault_fernet_key` — **temporaire Phase B** : conservé pour migration
+  auto vers fichiers locaux (`VAULT_KEYS_DIR`). Ne pas retirer avant smoke
+  `verify_fernet_key_migration.yml` vert sur tous les environnements.
+
+Clé Fernet métier (Phase B) : gérée par l’app sous `sso_portal_keys_dir`
+(`/var/lib/sso-portal/keys`). Rotation via Admin → Sécurité (in-process), pas via AWX.
+
+Rotation CLI legacy (Phase A, encore disponible) :
+
+```bash
+OLD_FERNET_KEY='...' NEW_FERNET_KEY='...' python -m scripts.rotate_fernet_key
+```
 
 ## Rollback manuel (pas d'auto-rollback smoke)
 

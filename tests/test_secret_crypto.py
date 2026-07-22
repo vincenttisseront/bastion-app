@@ -32,7 +32,10 @@ def test_encryption_falls_back_to_vault_fernet_key():
 
 
 def test_encryption_missing_both_keys():
+    from app.vault.encryption_key_store import reset_active_cache_for_tests
+
+    reset_active_cache_for_tests()
     settings = SimpleNamespace(portal_secret_encryption_key="", vault_portal_vault_fernet_key="")
     assert not encryption_configured(settings)
-    with pytest.raises(ValueError, match="PORTAL_SECRET_ENCRYPTION_KEY"):
+    with pytest.raises(ValueError, match="PORTAL_SECRET_ENCRYPTION_KEY|Aucune clé Fernet"):
         encrypt_secret("x", settings)

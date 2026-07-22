@@ -1,0 +1,73 @@
+---
+# Rotate Fernet key on Docker topology (bastion_app_docker).
+# Same contract as roles/sso_portal/tasks/rotate_fernet_key.yml.
+#
+# Required extra-vars:
+#   vault_portal_vault_fernet_key
+#   vault_portal_vault_fernet_key_new
+
+- name: "ROTATE : assert old/new Fernet keys present"
+  ansible.builtin.assert:
+    that:
+      - (vault_portal_vault_fernet_key | default('') | length) > 0
+      - (vault_portal_vault_fernet_key_new | default('') | length) > 0
+      - (vault_portal_vault_fernet_key | default('')) != (vault_portal_vault_fernet_key_new | default(''))
+    fail_msg: >-
+      Fournir vault_portal_vault_fernet_key et vault_portal_vault_fernet_key_new.
+  no_log: true
+
+- name: "ROTATE : backup portal.db bak-pre-rotation"
+  ansible.builtin.copy:
+    src: "{{ sso_portal_db_path }}"
+    dest: >-
+      {{ sso_portal_db_path }}.bak-pre-rotation-{{ ansible_date_time.iso8601_basic_short
+      | default(ansible_date_time.epoch) }}
+    remote_src: true
+    mode: "0640"
+  register: _rotate_backup
+
+- name: "ROTATE : stop bastion-app (éviter écritures concurrentes)"
+  ansible.builtin.command:
+    cmd: docker compose stop bastion-app
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  when: sso_portal_rotation_stop_service | default(true) | bool
+
+- name: "ROTATE : ré-chiffrement batch via conteneur one-shot"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker compose run --rm --no-deps \
+      -e OLD_FERNET_KEY \
+      -e NEW_FERNET_KEY \
+      -e SKIP_DB_BACKUP=1 \
+      -e ROTATION_DB_PATH=/var/lib/sso-portal/portal.db \
+      -e DATABASE_URL=sqlite:////var/lib/sso-portal/portal.db \
+      -e PORTAL_SECRET_ENCRYPTION_KEY \
+      -e VAULT_PORTAL_VAULT_FERNET_KEY \
+      bastion-app python -m scripts.rotate_fernet_key
+  args:
+    executable: /bin/bash
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    OLD_FERNET_KEY: "{{ vault_portal_vault_fernet_key }}"
+    NEW_FERNET_KEY: "{{ vault_portal_vault_fernet_key_new }}"
+    PORTAL_SECRET_ENCRYPTION_KEY: "{{ vault_portal_vault_fernet_key }}"
+    VAULT_PORTAL_VAULT_FERNET_KEY: "{{ vault_portal_vault_fernet_key }}"
+  no_log: true
+  register: _rotate_run
+
+- name: "ROTATE : rapport (compteurs uniquement)"
+  ansible.builtin.debug:
+    msg: "{{ _rotate_run.stdout_lines | default([]) }}"
+
+- name: "ROTATE : start bastion-app"
+  ansible.builtin.command:
+    cmd: docker compose start bastion-app
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  when: sso_portal_rotation_stop_service | default(true) | bool
+
+- name: "ROTATE : rappel post-rotation AWX Vault"
+  ansible.builtin.debug:
+    msg: >-
+      Rotation DB OK. Mettre à jour AWX Vault vault_portal_vault_fernet_key,
+      redéployer .env, puis smoke -e sso_portal_post_rotation_smoke=true.
+      Backup: {{ _rotate_backup.dest | default('n/a') }}.

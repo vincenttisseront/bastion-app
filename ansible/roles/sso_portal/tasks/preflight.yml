@@ -85,6 +85,21 @@
     mode: "0640"
   when: _db_stat.stat.exists | default(false)
 
+- name: "PREFLIGHT : stat keys dir"
+  ansible.builtin.stat:
+    path: "{{ sso_portal_keys_dir }}"
+  register: _keys_stat
+
+- name: "PREFLIGHT : backup keys dir (tar) si présent"
+  ansible.builtin.archive:
+    path: "{{ sso_portal_keys_dir }}"
+    dest: >-
+      {{ sso_portal_keys_dir }}.bak-{{ ansible_date_time.iso8601_basic_short
+      | default(ansible_date_time.epoch) }}.tgz
+    format: gz
+    mode: "0600"
+  when: _keys_stat.stat.exists | default(false)
+
 - name: "PREFLIGHT : lister listeners sur ports oauth2 attendus"
   ansible.builtin.shell: |
     set -o pipefail

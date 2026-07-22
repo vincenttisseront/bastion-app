@@ -1,0 +1,45 @@
+---
+# Verify Phase B migration on Docker host data dir.
+# Keep vault_portal_vault_fernet_key in AWX until green on every env.
+
+- name: "VERIFY_KEY : stat keys dir + current pointer"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ sso_portal_keys_dir }}"
+    - "{{ sso_portal_keys_dir }}/current"
+  register: _key_stats
+
+- name: "VERIFY_KEY : assert current pointer exists"
+  ansible.builtin.assert:
+    that:
+      - _key_stats.results[0].stat.exists | default(false)
+      - _key_stats.results[0].stat.isdir | default(false)
+      - _key_stats.results[1].stat.exists | default(false)
+      - _key_stats.results[1].stat.isreg | default(false)
+    fail_msg: >-
+      Migration clé Fernet incomplete sous {{ sso_portal_keys_dir }}.
+      Ne pas retirer vault_portal_vault_fernet_key d'AWX.
+
+- name: "VERIFY_KEY : lire version active"
+  ansible.builtin.slurp:
+    src: "{{ sso_portal_keys_dir }}/current"
+  register: _key_version_b64
+
+- name: "VERIFY_KEY : assert fichier fernet_vN.key"
+  ansible.builtin.stat:
+    path: "{{ sso_portal_keys_dir }}/fernet_v{{ (_key_version_b64.content | b64decode | trim) }}.key"
+  register: _key_file_stat
+
+- name: "VERIFY_KEY : assert key file présent"
+  ansible.builtin.assert:
+    that:
+      - _key_file_stat.stat.exists | default(false)
+    fail_msg: "Fichier de clé manquant sous {{ sso_portal_keys_dir }}."
+
+- name: "VERIFY_KEY : OK"
+  ansible.builtin.debug:
+    msg: >-
+      Clé locale v{{ _key_version_b64.content | b64decode | trim }} présente
+      (volume data {{ bastion_app_docker_data_dir }}). Secret AWX à conserver
+      jusqu'à validation manuelle multi-env.

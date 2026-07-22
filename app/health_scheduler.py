@@ -48,6 +48,22 @@ def start_health_scheduler(settings: Settings) -> None:
         # APScheduler may already be closed during lifespan startup. This is non-fatal
         # for the web app: probes are best-effort.
         logger.warning("Health probe scheduler not started (event loop closed)")
+        return
+
+    # Daily watch: flag rotation recommended — never auto-rotates (§8.4).
+    from app.vault.encryption_key_store import check_rotation_recommended_job
+
+    scheduler.add_job(
+        check_rotation_recommended_job,
+        "interval",
+        hours=24,
+        id="vault_key_rotation_watch",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        kwargs={"settings": settings},
+    )
+    logger.info("Vault key rotation watch scheduled (every 24h)")
 
 
 def stop_health_scheduler() -> None:

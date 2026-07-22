@@ -1,0 +1,48 @@
+---
+# Verify Phase B migration: Fernet key file present after ensure_encryption_key().
+# Keep vault_portal_vault_fernet_key in AWX until this check is green on every env.
+# Do NOT remove the AWX secret in the same change that introduces local key files.
+
+- name: "VERIFY_KEY : stat keys dir + current pointer"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ sso_portal_keys_dir }}"
+    - "{{ sso_portal_keys_dir }}/current"
+  register: _key_stats
+
+- name: "VERIFY_KEY : assert current pointer exists"
+  ansible.builtin.assert:
+    that:
+      - _key_stats.results[0].stat.exists | default(false)
+      - _key_stats.results[0].stat.isdir | default(false)
+      - _key_stats.results[1].stat.exists | default(false)
+      - _key_stats.results[1].stat.isreg | default(false)
+    fail_msg: >-
+      Migration clé Fernet incomplete : {{ sso_portal_keys_dir }}/current absent.
+      Ne pas retirer vault_portal_vault_fernet_key d'AWX. Redémarrer bastion-app
+      avec la variable env encore présente pour déclencher key_migrated_from_env.
+
+- name: "VERIFY_KEY : lire version active"
+  ansible.builtin.slurp:
+    src: "{{ sso_portal_keys_dir }}/current"
+  register: _key_version_b64
+
+- name: "VERIFY_KEY : assert fichier fernet_vN.key"
+  ansible.builtin.stat:
+    path: "{{ sso_portal_keys_dir }}/fernet_v{{ (_key_version_b64.content | b64decode | trim) }}.key"
+  register: _key_file_stat
+
+- name: "VERIFY_KEY : assert key file présent"
+  ansible.builtin.assert:
+    that:
+      - _key_file_stat.stat.exists | default(false)
+    fail_msg: >-
+      Pointeur current OK mais fichier de clé manquant sous {{ sso_portal_keys_dir }}.
+
+- name: "VERIFY_KEY : OK — secret AWX encore requis jusqu'à validation manuelle multi-env"
+  ansible.builtin.debug:
+    msg: >-
+      Clé locale v{{ _key_version_b64.content | b64decode | trim }} présente.
+      Conserver vault_portal_vault_fernet_key dans AWX jusqu'à validation
+      explicite sur tous les environnements (retrait = étape séparée).

@@ -48,6 +48,7 @@ sso_portal_default_realm_slug: ar-systems
 sso_portal_expected_health_phase: "5"
 sso_portal_app_version: "0.5.0"
 sso_portal_db_path: "{{ bastion_app_docker_data_dir }}/portal.db"
+sso_portal_keys_dir: "{{ bastion_app_docker_data_dir }}/keys"
 sso_portal_exports_dir: "{{ bastion_app_docker_data_dir }}/exports"
 sso_portal_env_path: "{{ bastion_app_docker_compose_dir }}/.env"
 sso_portal_min_free_disk_mb: 512
@@ -58,6 +59,10 @@ vault_portal_internal_token: ""
 vault_sso_portal_oidc_client_secret: ""
 vault_portal_vault_fernet_key: ""
 portal_secret_encryption_key: ""
+
+# Post-rotation smoke (decrypt check) — activer seulement après rotate_fernet_key
+sso_portal_post_rotation_smoke: false
+sso_portal_verify_fernet_key_migration: true
 
 # oauth2-core config on host (copied into compose dir)
 oauth2_core_config_src: "{{ bastion_app_root }}/docker/oauth2-core"

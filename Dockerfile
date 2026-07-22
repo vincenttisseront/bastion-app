@@ -22,6 +22,7 @@ RUN apt-get update \
 COPY --from=builder /install /usr/local
 COPY alembic.ini /app/alembic.ini
 COPY migrations /app/migrations
+COPY scripts /app/scripts
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
