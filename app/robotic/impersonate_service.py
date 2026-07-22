@@ -388,9 +388,12 @@ async def _impersonate_generic_form(
     *,
     actor: str,
     ip_address: str | None,
+    client_headers: dict[str, str] | None = None,
 ) -> RoboticSessionResult:
     try:
-        result = await generic_form_login(resolved, app, password)
+        result = await generic_form_login(
+            resolved, app, password, client_headers=client_headers
+        )
     except DriverAuthRejectedError as exc:
         _audit_impersonate(
             db,
@@ -475,6 +478,7 @@ async def impersonate(
     keycloak_user_id: str | None = None,
     ephemeral_username: str | None = None,
     ephemeral_password: str | None = None,
+    client_headers: dict[str, str] | None = None,
 ) -> RoboticSessionResult:
     """
     Vault decrypt + driver login + session cookies for cookie-based robotic SSO.
@@ -484,6 +488,9 @@ async def impersonate(
 
     For credential_mode=identite_utilisateur, pass ephemeral_username/password
     from the OIDC session + user-typed password (never from vault, never stored).
+
+    client_headers: optional browser User-Agent / Accept-Language forwarded to the
+    upstream login so session fingerprints (e.g. grommunio-web) match the user.
     """
     app = db.query(App).filter_by(slug=app_slug).first()
     driver_name = (app.robotic_driver or "").strip().lower() if app else ""
@@ -589,6 +596,7 @@ async def impersonate(
             password,
             actor=actor,
             ip_address=ip_address,
+            client_headers=client_headers,
         )
     except ImpersonationTechnicalError:
         raise

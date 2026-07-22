@@ -53,6 +53,18 @@ def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
 
 
+def _browser_fingerprint_headers(request: Request) -> dict[str, str]:
+    """Forward UA / Accept-Language so upstream BrowserFingerprint matches the user."""
+    out: dict[str, str] = {}
+    ua = request.headers.get("user-agent")
+    if ua:
+        out["user-agent"] = ua
+    lang = request.headers.get("accept-language")
+    if lang:
+        out["accept-language"] = lang
+    return out
+
+
 def _oidc_login_username(user: UserContext, identity_format: str | None = "email") -> str:
     """OIDC session → LDAPS/robotic login (default: full email/UPN like sessions)."""
     return resolve_identity_login_username(
@@ -314,6 +326,7 @@ async def client_impersonate(
             actor=user.email or user.username,
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
+            client_headers=_browser_fingerprint_headers(request),
         )
     except ImpersonationError as exc:
         return _impersonation_error_response(exc)
@@ -433,6 +446,7 @@ async def open_with_identity(
             keycloak_user_id=user.keycloak_user_id,
             ephemeral_username=username,
             ephemeral_password=password,
+            client_headers=_browser_fingerprint_headers(request),
         )
     except ImpersonationTechnicalError as exc:
         payload, status = _impersonation_error_payload(exc)

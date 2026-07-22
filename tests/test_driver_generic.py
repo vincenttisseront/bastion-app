@@ -83,7 +83,8 @@ async def test_generic_form_login_401_is_auth_rejected():
 @respx.mock
 @pytest.mark.asyncio
 async def test_generic_form_login_405_without_spa_retry_is_technical():
-    # Path is not /login → no grommunio retry
+    # Path is not /login → bootstrap GET then POST; no grommunio admin API retry
+    respx.get("https://app.example/auth/do").mock(return_value=Response(200, text="<html></html>"))
     respx.post("https://app.example/auth/do").mock(
         return_value=Response(405, headers={"Allow": "GET"})
     )
@@ -138,6 +139,110 @@ async def test_grommunio_api_401_is_auth_rejected():
     app = _generic_app(login_form_url="https://mail.example:8443/api/v1/login")
     with pytest.raises(DriverAuthRejectedError, match="rejected credentials"):
         await generic_form_login(_credential(), app, SECRET_PASSWORD)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_grommunio_web_get_then_post_success_303():
+    """grommunio-web: GET /web/ for session + hidden fields, POST ?logon → 303."""
+    get_route = respx.get("https://webmail.example/web/").mock(
+        return_value=Response(
+            200,
+            text=(
+                '<form action="?logon" method="post">'
+                '<input type="hidden" name="csrf" value="tok-csrf-9">'
+                '<input type="text" name="username">'
+                '<input type="password" name="password">'
+                "</form>"
+            ),
+            headers=[
+                ("set-cookie", "__Secure-GROMMUNIO_WEB=sess-from-get; Path=/; Secure"),
+                ("set-cookie", "__Secure-encryption-store-key=enc-key; Path=/; Secure"),
+            ],
+        )
+    )
+    post_route = respx.post("https://webmail.example/web/?logon").mock(
+        return_value=Response(
+            303,
+            headers=[
+                ("location", "https://webmail.example/web/"),
+                ("set-cookie", "__Secure-GROMMUNIO_WEB=sess-after-login; Path=/; Secure"),
+                ("set-cookie", "domainname=ar-systems.fr; Path=/; Secure"),
+            ],
+        )
+    )
+    app = _generic_app(
+        login_form_url="https://webmail.example/web/?logon",
+        login_username_field="username",
+        login_password_field="password",
+    )
+    result = await generic_form_login(
+        _credential(),
+        app,
+        SECRET_PASSWORD,
+        client_headers={
+            "user-agent": "Mozilla/5.0 (TestBrowser)",
+            "accept-language": "fr-FR,fr;q=0.9",
+        },
+    )
+    assert get_route.called
+    assert post_route.called
+    post_req = post_route.calls.last.request
+    assert post_req.headers.get("user-agent") == "Mozilla/5.0 (TestBrowser)"
+    assert post_req.headers.get("accept-language") == "fr-FR,fr;q=0.9"
+    body = post_req.content
+    assert b"username=robot" in body
+    assert SECRET_PASSWORD.encode() in body
+    assert b"csrf=tok-csrf-9" in body
+    assert result.cookies["__Secure-GROMMUNIO_WEB"] == "sess-after-login"
+    assert result.cookies["__Secure-encryption-store-key"] == "enc-key"
+    assert result.cookies["domainname"] == "ar-systems.fr"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_grommunio_web_failed_login_page_not_treated_as_success():
+    """Failed logon returns 200 + Set-Cookie + login HTML — must not look like success."""
+    respx.get("https://webmail.example/web/").mock(
+        return_value=Response(
+            200,
+            text='<form action="?logon"><input name="username"><input name="password"></form>',
+            headers=[("set-cookie", "__Secure-GROMMUNIO_WEB=pre; Path=/")],
+        )
+    )
+    respx.post("https://webmail.example/web/?logon").mock(
+        return_value=Response(
+            200,
+            text=(
+                '<form action="?logon" method="post">'
+                '<input type="text" name="username" id="username">'
+                '<input type="password" name="password" id="password">'
+                "</form>"
+            ),
+            headers=[
+                ("set-cookie", "__Secure-GROMMUNIO_WEB=failed-sess; Path=/"),
+                ("x-grommunio-hresult", "MAPI_E_LOGON_FAILED"),
+            ],
+        )
+    )
+    app = _generic_app(
+        login_form_url="https://webmail.example/web/?logon",
+        login_username_field="username",
+        login_password_field="password",
+    )
+    with pytest.raises(DriverAuthRejectedError, match="rejected credentials"):
+        await generic_form_login(_credential(), app, SECRET_PASSWORD)
+
+
+def test_extract_hidden_form_fields():
+    from app.bastion.drivers.generic import extract_hidden_form_fields
+
+    html = (
+        '<input type="hidden" name="csrf" value="abc">'
+        "<input type='hidden' name='token' value='xyz'>"
+        '<input type="text" name="username" value="nope">'
+    )
+    assert extract_hidden_form_fields(html) == {"csrf": "abc", "token": "xyz"}
 
 
 @respx.mock

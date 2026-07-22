@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -15,12 +16,27 @@ from app.vault.user_app_credential_service import ResolvedCredential
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 5.0
+_TIMEOUT = 10.0
 
 # JSON body keys that become session cookies (grommunio-admin API, etc.)
 _JSON_COOKIE_KEYS: tuple[str, ...] = (
     "grommunioAuthJwt",
     "csrf",
+)
+
+_HIDDEN_INPUT_RE = re.compile(
+    r"""<input\b(?=[^>]*\btype\s*=\s*["']hidden["'])[^>]*>""",
+    re.IGNORECASE,
+)
+_ATTR_RE = re.compile(
+    r"""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""",
+)
+
+# Headers mirrored from the browser so apps like grommunio-web store a matching
+# BrowserFingerprint (User-Agent + Accept-Language) in the PHP session.
+_BROWSER_HEADER_NAMES: tuple[str, ...] = (
+    "user-agent",
+    "accept-language",
 )
 
 
@@ -52,6 +68,11 @@ def _extract_response_cookies(response: httpx.Response) -> dict[str, str]:
     return out
 
 
+def _cookies_from_client(client: httpx.AsyncClient) -> dict[str, str]:
+    """All cookies accumulated in the client jar (GET + POST)."""
+    return {name: value for name, value in client.cookies.items() if value}
+
+
 def _cookies_from_json_body(response: httpx.Response) -> dict[str, str]:
     """Synthesize cookies from JSON login APIs (e.g. grommunio-admin JWT)."""
     content_type = (response.headers.get("content-type") or "").lower()
@@ -71,6 +92,20 @@ def _cookies_from_json_body(response: httpx.Response) -> dict[str, str]:
     return out
 
 
+def extract_hidden_form_fields(html: str) -> dict[str, str]:
+    """Extract ``<input type="hidden" name=… value=…>`` pairs (CSRF tokens, etc.)."""
+    out: dict[str, str] = {}
+    for tag in _HIDDEN_INPUT_RE.findall(html or ""):
+        attrs: dict[str, str] = {}
+        for match in _ATTR_RE.finditer(tag):
+            key = match.group(1).lower()
+            attrs[key] = match.group(2) or match.group(3) or match.group(4) or ""
+        name = attrs.get("name")
+        if name:
+            out[name] = attrs.get("value", "")
+    return out
+
+
 def _path_is_spa_login(login_url: str) -> bool:
     path = (urlparse(login_url).path or "").rstrip("/") or "/"
     return path == "/login" or path.endswith("/login")
@@ -82,19 +117,87 @@ def _grommunio_admin_api_url(login_url: str) -> str:
     return urlunparse(parsed._replace(path="/api/v1/login", query="", fragment=""))
 
 
+def _login_page_url(login_url: str) -> str:
+    """URL to GET for session/CSRF bootstrap (strip query like ``?logon``)."""
+    parsed = urlparse(login_url)
+    return urlunparse(parsed._replace(query="", fragment=""))
+
+
 def _safe_url_for_log(url: str) -> str:
     """Strip query string that might contain secrets."""
     parsed = urlparse(url)
     return urlunparse(parsed._replace(query="", fragment=""))
 
 
+def _browser_headers(client_headers: dict[str, str] | None) -> dict[str, str]:
+    if not client_headers:
+        return {}
+    out: dict[str, str] = {}
+    for key, value in client_headers.items():
+        if key.lower() in _BROWSER_HEADER_NAMES and value:
+            # Preserve canonical header names for httpx
+            if key.lower() == "user-agent":
+                out["User-Agent"] = value
+            elif key.lower() == "accept-language":
+                out["Accept-Language"] = value
+    return out
+
+
+def _looks_like_login_html(body: str) -> bool:
+    sample = body[:12000] if body else ""
+    if 'name="password"' not in sample and "name='password'" not in sample:
+        return False
+    return (
+        "?logon" in sample
+        or 'name="username"' in sample
+        or "name='username'" in sample
+        or 'id="username"' in sample
+    )
+
+
+def _grommunio_hresult_failed(response: httpx.Response) -> bool:
+    hresult = (response.headers.get("x-grommunio-hresult") or "").strip()
+    if not hresult:
+        return False
+    return hresult.upper() not in ("NOERROR", "0", "S_OK")
+
+
+def _is_auth_failure(response: httpx.Response) -> bool:
+    if response.status_code in (401, 403):
+        return True
+    if _grommunio_hresult_failed(response):
+        return True
+    if response.status_code == 200 and _looks_like_login_html(response.text or ""):
+        return True
+    return False
+
+
+def _is_auth_success(response: httpx.Response) -> bool:
+    if response.status_code in (301, 302, 303, 307, 308):
+        return not _grommunio_hresult_failed(response)
+    if response.status_code == 200 and not _is_auth_failure(response):
+        return True
+    return False
+
+
 async def generic_form_login(
     credential: ResolvedCredential | object,
     app: App,
     password: str,
+    *,
+    client_headers: dict[str, str] | None = None,
 ) -> DriverLoginResult:
     """
     POST/GET login form with vault credentials; return session cookies.
+
+    For HTML form apps (e.g. grommunio-web):
+      1. GET the login page (same httpx session) to obtain session/CSRF cookies
+         and any hidden form fields.
+      2. POST credentials + hidden fields with the browser's User-Agent /
+         Accept-Language so PHP BrowserFingerprint matches the real user.
+      3. Treat 303/redirect or non-login HTML as success; X-grommunio-Hresult
+         or a redisplayed login form as auth rejection (never treat bare
+         Set-Cookie on a failed login page as success).
 
     Never logs or returns the plaintext password.
     """
@@ -114,26 +217,56 @@ async def generic_form_login(
     except ValueError as exc:
         raise DriverUpstreamError("Invalid login extra fields JSON") from exc
 
-    def _payload(uf: str, pf: str) -> dict[str, str]:
+    headers = _browser_headers(client_headers)
+    log_url = _safe_url_for_log(login_url)
+
+    def _payload(uf: str, pf: str, hidden: dict[str, str] | None = None) -> dict[str, str]:
         body = dict(extra)
+        if hidden:
+            body.update(hidden)
         body[uf] = _username(credential)
         body[pf] = password
         return body
 
-    log_url = _safe_url_for_log(login_url)
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT,
+            follow_redirects=False,
+            headers=headers or None,
+        ) as client:
+            hidden_fields: dict[str, str] = {}
+            if method == "POST" and not _path_is_spa_login(login_url):
+                page_url = _login_page_url(login_url)
+                logger.info("generic_form bootstrap GET %s", _safe_url_for_log(page_url))
+                bootstrap = await client.get(page_url)
+                if bootstrap.status_code >= 500:
+                    raise DriverUpstreamError(
+                        f"Upstream login page returned HTTP {bootstrap.status_code}"
+                    )
+                if 200 <= bootstrap.status_code < 400:
+                    hidden_fields = extract_hidden_form_fields(bootstrap.text or "")
+                    if hidden_fields:
+                        logger.info(
+                            "generic_form: extracted hidden fields %s",
+                            sorted(hidden_fields.keys()),
+                        )
+
             if method == "GET":
-                response = await client.get(login_url, params=_payload(username_field, password_field))
+                response = await client.get(
+                    login_url, params=_payload(username_field, password_field, hidden_fields)
+                )
             else:
                 response = await client.post(
-                    login_url, data=_payload(username_field, password_field)
+                    login_url,
+                    data=_payload(username_field, password_field, hidden_fields),
+                    headers={
+                        **headers,
+                        "Referer": _login_page_url(login_url),
+                        "Origin": f"{urlparse(login_url).scheme}://{urlparse(login_url).netloc}",
+                    },
                 )
                 # grommunio-admin SPA: GET /login is HTML, POST → 405; real API is /api/v1/login
-                if (
-                    response.status_code == 405
-                    and _path_is_spa_login(login_url)
-                ):
+                if response.status_code == 405 and _path_is_spa_login(login_url):
                     api_url = _grommunio_admin_api_url(login_url)
                     logger.info(
                         "generic_form: SPA POST 405 on %s — retrying %s (user/pass)",
@@ -144,8 +277,46 @@ async def generic_form_login(
                     log_url = _safe_url_for_log(login_url)
                     username_field, password_field = "user", "pass"
                     response = await client.post(
-                        login_url, data=_payload(username_field, password_field)
+                        login_url,
+                        data=_payload(username_field, password_field),
                     )
+
+            status = response.status_code
+            logger.info("generic_form login url=%s status=%s", log_url, status)
+
+            if status in (404, 405) or status >= 500:
+                allow = response.headers.get("allow", "")
+                logger.warning(
+                    "generic_form upstream technical error url=%s status=%s allow=%s",
+                    log_url,
+                    status,
+                    allow or "-",
+                )
+                raise DriverUpstreamError(f"Upstream returned HTTP {status}")
+
+            if _is_auth_failure(response):
+                hresult = response.headers.get("x-grommunio-hresult", "")
+                logger.info(
+                    "generic_form auth rejected url=%s status=%s hresult=%s",
+                    log_url,
+                    status,
+                    hresult or "-",
+                )
+                raise DriverAuthRejectedError("Upstream rejected credentials")
+
+            if not _is_auth_success(response):
+                raise DriverUpstreamError(f"Upstream returned unexpected HTTP {status}")
+
+            cookies = _cookies_from_client(client)
+            if not cookies:
+                cookies = _extract_response_cookies(response)
+            if not cookies:
+                cookies = _cookies_from_json_body(response)
+
+            if not cookies:
+                raise DriverAuthRejectedError("Upstream returned no session cookies")
+
+            return DriverLoginResult(cookies=cookies)
     except httpx.TimeoutException as exc:
         logger.warning("generic_form login timeout url=%s", log_url)
         raise DriverUpstreamError("Generic form login timed out") from exc
@@ -154,34 +325,6 @@ async def generic_form_login(
         raise DriverUpstreamError("Generic form login network error") from exc
     finally:
         password = ""  # noqa: F841
-
-    status = response.status_code
-    logger.info("generic_form login url=%s status=%s", log_url, status)
-
-    if status in (401, 403):
-        raise DriverAuthRejectedError("Upstream rejected credentials")
-
-    if status in (404, 405) or status >= 500:
-        allow = response.headers.get("allow", "")
-        logger.warning(
-            "generic_form upstream technical error url=%s status=%s allow=%s",
-            log_url,
-            status,
-            allow or "-",
-        )
-        raise DriverUpstreamError(f"Upstream returned HTTP {status}")
-
-    cookies = _extract_response_cookies(response)
-    if not cookies:
-        cookies = _cookies_from_json_body(response)
-
-    if not cookies:
-        # 2xx/3xx without session usually means form redisplay = bad credentials
-        if 200 <= status < 400:
-            raise DriverAuthRejectedError("Upstream returned no session cookies")
-        raise DriverUpstreamError(f"Upstream returned HTTP {status} without session")
-
-    return DriverLoginResult(cookies=cookies)
 
 
 def generic_basic_auth_header(credential: ResolvedCredential | object, password: str) -> str:
