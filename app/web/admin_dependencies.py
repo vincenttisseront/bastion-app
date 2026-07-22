@@ -49,11 +49,14 @@ _TYPE_LABELS = {
 
 def _row_view(row) -> dict:
     outdated = (row.status or "").startswith("outdated_")
+    is_direct = bool(getattr(row, "is_direct", True))
     return {
         "ecosystem": row.ecosystem,
         "name": row.name,
         "dep_type": row.dep_type,
         "type_label": _TYPE_LABELS.get(row.dep_type, row.dep_type),
+        "is_direct": is_direct,
+        "direct_label": "direct" if is_direct else "transitif",
         "declared_version": row.declared_version or "",
         "current_version": row.current_version,
         "latest_version": row.latest_version or "",

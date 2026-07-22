@@ -335,6 +335,8 @@ class DependencySnapshot(Base):
     current_version = Column(String, nullable=False)  # installed / locked
     latest_version = Column(String, nullable=True)
     dep_type = Column(String, nullable=False, default="runtime")  # runtime | dev
+    # True = declared in pyproject.toml / package.json; False = npm lockfile transitive
+    is_direct = Column(Boolean, nullable=False, default=True)
     status = Column(String, nullable=False, default="unknown")
     # up_to_date | outdated_patch | outdated_minor | outdated_major | unknown
     last_checked_at = Column(DateTime(timezone=True), nullable=True)

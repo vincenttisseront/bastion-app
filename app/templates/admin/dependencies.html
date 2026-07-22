@@ -87,6 +87,7 @@
             data-declared="{{ p.declared_version }}"
             data-current="{{ p.current_version }}"
             data-latest="{{ p.latest_version }}"
+            data-direct="{{ '1' if p.is_direct else '0' }}"
             data-status-rank="{% if p.status == 'outdated_major' %}4{% elif p.status == 'outdated_minor' %}3{% elif p.status == 'outdated_patch' %}2{% elif p.status == 'up_to_date' %}1{% else %}0{% endif %}"
           >
             <td>
@@ -96,6 +97,9 @@
             </td>
             <td>
               <div style="font-weight:600;">{{ p.name }}</div>
+              {% if p.ecosystem == 'npm' %}
+              <span class="badge badge-{{ 'ok' if p.is_direct else 'muted' }}" title="{% if p.is_direct %}Déclaré dans package.json{% else %}Résolu via le lockfile uniquement{% endif %}">{{ p.direct_label }}</span>
+              {% endif %}
               {% if p.notes == 'unlocked' %}
               <span class="badge badge-muted" title="Contrainte package.json (pas de lockfile)">non verrouillé</span>
               {% elif p.notes == 'not_installed' %}
@@ -106,7 +110,7 @@
               {% endif %}
             </td>
             <td><span class="badge badge-muted">{{ p.type_label }}</span></td>
-            <td class="mono">{{ p.declared_version or '—' }}</td>
+            <td class="mono">{% if p.declared_version %}{{ p.declared_version }}{% else %}—{% endif %}</td>
             <td class="mono">{{ p.current_version }}</td>
             <td class="mono">
               {% if p.latest_version %}
@@ -238,6 +242,7 @@
           ecosystem: tr.getAttribute('data-ecosystem'),
           name: tr.getAttribute('data-pkg-name'),
           type: tr.getAttribute('data-type'),
+          is_direct: tr.getAttribute('data-direct') === '1',
           declared_version: tr.getAttribute('data-declared'),
           current_version: tr.getAttribute('data-current'),
           target_version: tr.getAttribute('data-latest'),

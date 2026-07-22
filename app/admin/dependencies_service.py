@@ -59,6 +59,7 @@ class LocalDependency:
     current_version: str  # installed / locked
     dep_type: str  # runtime | dev
     notes: str | None = None
+    is_direct: bool = True  # False = npm lockfile transitive
 
 
 def resolve_manifest_root() -> Path:
@@ -210,32 +211,6 @@ def parse_python_dependencies(
     return out
 
 
-def _load_npm_lock_versions(repo_root: Path) -> dict[str, str] | None:
-    """Return package name → locked version, or None if no lockfile."""
-    lock_path = repo_root / "package-lock.json"
-    pnpm_path = repo_root / "pnpm-lock.yaml"
-    if lock_path.is_file():
-        data = json.loads(lock_path.read_text(encoding="utf-8"))
-        packages = data.get("packages") or {}
-        versions: dict[str, str] = {}
-        for key, meta in packages.items():
-            if not key or key == "":
-                continue
-            prefix = "node_modules/"
-            if not key.startswith(prefix):
-                continue
-            rest = key[len(prefix) :]
-            if "/node_modules/" in rest:
-                continue
-            ver = (meta or {}).get("version")
-            if ver:
-                versions[rest] = str(ver)
-        return versions
-    if pnpm_path.is_file():
-        return _parse_pnpm_lock_versions(pnpm_path)
-    return None
-
-
 def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
     """Best-effort parse of pnpm-lock.yaml without a YAML dependency for package versions."""
     versions: dict[str, str] = {}
@@ -265,12 +240,57 @@ def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
     return versions
 
 
+def _load_npm_lock_entries(repo_root: Path) -> dict[str, dict[str, Any]] | None:
+    """
+    Return package name → {version, dep_type} for top-level lockfile entries.
+    None if no lockfile is present.
+    """
+    lock_path = repo_root / "package-lock.json"
+    pnpm_path = repo_root / "pnpm-lock.yaml"
+    if lock_path.is_file():
+        data = json.loads(lock_path.read_text(encoding="utf-8"))
+        packages = data.get("packages") or {}
+        entries: dict[str, dict[str, Any]] = {}
+        for key, meta in packages.items():
+            if not key or key == "":
+                continue
+            prefix = "node_modules/"
+            if not key.startswith(prefix):
+                continue
+            rest = key[len(prefix) :]
+            # Prefer top-level installs (skip nested node_modules copies)
+            if "/node_modules/" in rest:
+                continue
+            ver = (meta or {}).get("version")
+            if not ver:
+                continue
+            is_dev = bool((meta or {}).get("dev"))
+            entries[rest] = {
+                "version": str(ver),
+                "dep_type": "dev" if is_dev else "runtime",
+            }
+        return entries
+    if pnpm_path.is_file():
+        versions = _parse_pnpm_lock_versions(pnpm_path)
+        return {
+            name: {"version": ver, "dep_type": "runtime"}
+            for name, ver in versions.items()
+        }
+    return None
+
+
 def parse_npm_dependencies(
     package_json_file: Path | None = None,
     *,
     repo_root: Path | None = None,
     require_manifest: bool = True,
 ) -> list[LocalDependency]:
+    """
+    Inventory npm packages from the lockfile (all resolved deps) when present.
+
+    package.json only marks which packages are direct (is_direct) and their
+    declared ranges; transitive lockfile packages are included with is_direct=False.
+    """
     root = repo_root or resolve_manifest_root()
     pkg_path = package_json_file or (root / "package.json")
     if not pkg_path.is_file():
@@ -285,24 +305,46 @@ def parse_npm_dependencies(
     data = json.loads(pkg_path.read_text(encoding="utf-8"))
     deps = dict(data.get("dependencies") or {})
     dev_deps = dict(data.get("devDependencies") or {})
-    locked = _load_npm_lock_versions(root)
+    direct_specs: dict[str, tuple[str, str]] = {}
+    for name, spec in deps.items():
+        direct_specs[str(name)] = (str(spec), "runtime")
+    for name, spec in dev_deps.items():
+        direct_specs[str(name)] = (str(spec), "dev")
 
+    locked = _load_npm_lock_entries(root)
     out: list[LocalDependency] = []
-    seen: set[str] = set()
 
-    def add(name: str, range_spec: str, dep_type: str) -> None:
-        if name in seen:
-            return
-        seen.add(name)
-        declared = str(range_spec)
-        if locked is None:
-            current = declared
-            notes = "unlocked"
-        elif name in locked:
-            current = locked[name]
+    if locked is None:
+        # No lockfile: fall back to package.json directs only
+        for name, (declared, dep_type) in sorted(direct_specs.items()):
+            out.append(
+                LocalDependency(
+                    ecosystem="npm",
+                    name=name,
+                    declared_version=declared,
+                    current_version=declared,
+                    dep_type=dep_type,
+                    notes="unlocked",
+                    is_direct=True,
+                )
+            )
+        return out
+
+    # Lockfile is source of truth: every top-level package entry
+    all_names = set(locked.keys()) | set(direct_specs.keys())
+    for name in sorted(all_names):
+        is_direct = name in direct_specs
+        if is_direct:
+            declared, dep_type = direct_specs[name]
+        else:
+            declared = ""
+            dep_type = locked.get(name, {}).get("dep_type", "runtime")
+        if name in locked:
+            current = locked[name]["version"]
             notes = None
         else:
-            current = declared
+            # Declared in package.json but missing from lock (edge case)
+            current = declared or "—"
             notes = "unlocked"
         out.append(
             LocalDependency(
@@ -312,13 +354,9 @@ def parse_npm_dependencies(
                 current_version=current,
                 dep_type=dep_type,
                 notes=notes,
+                is_direct=is_direct,
             )
         )
-
-    for name, spec in deps.items():
-        add(str(name), str(spec), "runtime")
-    for name, spec in dev_deps.items():
-        add(str(name), str(spec), "dev")
     return out
 
 
@@ -383,6 +421,7 @@ def sync_local_to_db(
                 declared_version=dep.declared_version,
                 current_version=dep.current_version,
                 dep_type=dep.dep_type,
+                is_direct=dep.is_direct,
                 status="unknown",
                 notes=dep.notes,
             )
@@ -391,6 +430,7 @@ def sync_local_to_db(
             row.declared_version = dep.declared_version
             row.current_version = dep.current_version
             row.dep_type = dep.dep_type
+            row.is_direct = dep.is_direct
             row.notes = dep.notes
             if row.latest_version:
                 row.status = compute_status(row.current_version, row.latest_version)
@@ -522,6 +562,7 @@ def snapshots_to_export(
                 "ecosystem": r.ecosystem,
                 "name": r.name,
                 "type": r.dep_type,
+                "is_direct": bool(r.is_direct),
                 "declared_version": r.declared_version,
                 "current_version": r.current_version,
                 "latest_version": r.latest_version,

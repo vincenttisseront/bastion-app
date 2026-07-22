@@ -50,6 +50,7 @@ def _dep(
     dep_type: str,
     *,
     declared: str | None = None,
+    is_direct: bool = True,
 ) -> LocalDependency:
     return LocalDependency(
         ecosystem=ecosystem,
@@ -57,6 +58,7 @@ def _dep(
         declared_version=declared if declared is not None else current,
         current_version=current,
         dep_type=dep_type,
+        is_direct=is_direct,
     )
 
 
@@ -193,7 +195,18 @@ def test_parse_npm_with_lockfile(tmp_path: Path):
                 "packages": {
                     "": {"name": "demo"},
                     "node_modules/left-pad": {"version": "1.3.0"},
-                    "node_modules/@playwright/test": {"version": "1.49.1"},
+                    "node_modules/@playwright/test": {
+                        "version": "1.49.1",
+                        "dev": True,
+                    },
+                    "node_modules/playwright": {
+                        "version": "1.49.1",
+                        "dev": True,
+                    },
+                    "node_modules/playwright-core": {
+                        "version": "1.49.1",
+                        "dev": True,
+                    },
                 },
             }
         ),
@@ -201,12 +214,25 @@ def test_parse_npm_with_lockfile(tmp_path: Path):
     )
     deps = parse_npm_dependencies(tmp_path / "package.json", repo_root=tmp_path)
     by_name = {d.name: d for d in deps}
+    assert set(by_name) == {
+        "left-pad",
+        "@playwright/test",
+        "playwright",
+        "playwright-core",
+    }
     assert by_name["left-pad"].current_version == "1.3.0"
     assert by_name["left-pad"].declared_version == "^1.3.0"
     assert by_name["left-pad"].dep_type == "runtime"
+    assert by_name["left-pad"].is_direct is True
     assert by_name["@playwright/test"].current_version == "1.49.1"
     assert by_name["@playwright/test"].dep_type == "dev"
+    assert by_name["@playwright/test"].is_direct is True
     assert by_name["@playwright/test"].notes is None
+    assert by_name["playwright"].is_direct is False
+    assert by_name["playwright"].declared_version == ""
+    assert by_name["playwright"].current_version == "1.49.1"
+    assert by_name["playwright"].dep_type == "dev"
+    assert by_name["playwright-core"].is_direct is False
 
 
 def test_parse_npm_without_lockfile_unlocked(tmp_path: Path):
@@ -219,6 +245,7 @@ def test_parse_npm_without_lockfile_unlocked(tmp_path: Path):
     assert deps[0].notes == "unlocked"
     assert deps[0].declared_version == "^1.49.0"
     assert deps[0].current_version == "^1.49.0"
+    assert deps[0].is_direct is True
 
 
 def test_parse_npm_manifest_missing_raises(tmp_path: Path):
@@ -228,12 +255,19 @@ def test_parse_npm_manifest_missing_raises(tmp_path: Path):
 
 def test_parse_npm_real_package_json():
     deps = parse_npm_dependencies()
-    names = {d.name for d in deps}
-    assert "@playwright/test" in names
-    pw = next(d for d in deps if d.name == "@playwright/test")
-    assert pw.notes is None  # package-lock.json present at repo root
-    assert pw.current_version  # locked version
+    by_name = {d.name: d for d in deps}
+    assert "@playwright/test" in by_name
+    pw = by_name["@playwright/test"]
+    assert pw.notes is None
+    assert pw.current_version
     assert pw.declared_version.startswith("^")
+    assert pw.is_direct is True
+    # Transitives from package-lock.json (Playwright chain)
+    assert "playwright" in by_name
+    assert by_name["playwright"].is_direct is False
+    assert "playwright-core" in by_name
+    assert by_name["playwright-core"].is_direct is False
+    assert len(deps) >= 3
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +366,40 @@ def test_export_structure(db_session: Session):
     assert pkg["type"] == "runtime"
     assert pkg["declared_version"] == ">=0.115"
     assert pkg["status"] == "outdated_minor"
+    assert pkg["is_direct"] is True
+
+
+def test_export_outdated_filter_only(db_session: Session):
+    sync_local_to_db(
+        db_session,
+        python_deps=[
+            _dep("python", "fastapi", "0.115.0", "runtime", declared=">=0.115"),
+            _dep("python", "httpx", "0.28.0", "runtime", declared=">=0.28"),
+        ],
+        npm_deps=[
+            _dep("npm", "playwright", "1.49.0", "dev", declared="", is_direct=False),
+        ],
+    )
+    rows = {r.name: r for r in db_session.query(DependencySnapshot).all()}
+    rows["fastapi"].latest_version = "0.118.2"
+    rows["fastapi"].status = "outdated_minor"
+    rows["httpx"].latest_version = "0.28.0"
+    rows["httpx"].status = "up_to_date"
+    rows["playwright"].latest_version = "1.61.1"
+    rows["playwright"].status = "outdated_minor"
+    db_session.commit()
+
+    from app.admin.dependencies_service import list_snapshots
+
+    outdated = list_snapshots(db_session, outdated_only=True)
+    names = {r.name for r in outdated}
+    assert names == {"fastapi", "playwright"}
+    payload = snapshots_to_export(outdated)
+    assert all(p["status"].startswith("outdated_") for p in payload["packages"])
+    assert {p["name"]: p["is_direct"] for p in payload["packages"]} == {
+        "fastapi": True,
+        "playwright": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +477,9 @@ def test_dependencies_export_and_page_after_refresh(
     assert page.status_code == 200
     assert "fastapi" in page.text.lower() or "FastAPI" in page.text
     assert "@playwright/test" in page.text
+    assert "playwright-core" in page.text or "playwright" in page.text
+    assert "direct" in page.text
+    assert "transitif" in page.text
     assert "Déclaré" in page.text
     assert "Installé" in page.text
     assert "MAJ disponible" in page.text or "MAJ disponibles" in page.text
@@ -421,7 +492,8 @@ def test_dependencies_export_and_page_after_refresh(
     assert isinstance(data["packages"], list)
     assert any(p["name"].lower() == "fastapi" for p in data["packages"])
     assert any(p["name"] == "@playwright/test" for p in data["packages"])
-    assert all("declared_version" in p for p in data["packages"])
+    assert any(p["name"] == "playwright" and p["is_direct"] is False for p in data["packages"])
+    assert all("declared_version" in p and "is_direct" in p for p in data["packages"])
 
     outdated = client.get(
         "/admin/dependencies/export.json?status=outdated",
