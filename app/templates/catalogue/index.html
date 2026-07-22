@@ -45,10 +45,17 @@
 
 {% block scripts %}
 <script>
-document.getElementById('catalogue-search')?.addEventListener('input', function (e) {
-  const q = e.target.value.toLowerCase();
-  document.querySelectorAll('.app-card').forEach(function (card) {
-    card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+document.addEventListener('DOMContentLoaded', function () {
+  if (!window.BastionFuzzy) return;
+  window.BastionFuzzy.init({
+    inputId: 'catalogue-search',
+    itemSelector: '.app-card',
+    getKey: function (el) { return el.dataset.fuzzyKey || ''; },
+    extraMatch: function (el) {
+      var active = document.querySelector('.filter-chip.active[data-filter]');
+      var filter = active ? active.dataset.filter : 'all';
+      return filter === 'all' || el.dataset.mode === filter;
+    },
   });
 });
 </script>

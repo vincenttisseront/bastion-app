@@ -25,7 +25,7 @@
       </thead>
       <tbody>
         {% for app in apps %}
-        <tr data-searchable>
+        <tr data-searchable data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }}">
           <td>{{ app.label }}</td>
           <td class="mono">{{ app.slug }}</td>
           <td class="mono truncate" style="max-width:200px;">{{ app.upstream_url }}</td>
@@ -55,11 +55,14 @@
 
 {% block scripts %}
 <script>
-document.getElementById('apps-search')?.addEventListener('input', function (e) {
-  const q = e.target.value.toLowerCase();
-  document.querySelectorAll('#apps-table tbody tr[data-searchable]').forEach(function (row) {
-    row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
-  });
+document.addEventListener('DOMContentLoaded', function () {
+  if (window.BastionFuzzy) {
+    window.BastionFuzzy.init({
+      inputId: 'apps-search',
+      itemSelector: '#apps-table tbody tr[data-searchable]',
+      getKey: function (el) { return el.dataset.fuzzyKey || ''; },
+    });
+  }
 });
 </script>
 {% endblock %}

@@ -1,4 +1,4 @@
-<div class="app-card" data-mode="{{ app.access_mode | default('sso_gate') }}" data-searchable>
+<div class="app-card" data-mode="{{ app.access_mode | default('sso_gate') }}" data-searchable data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}">
   <a href="{{ app_launch_url(app) }}" class="app-card-link"{% if app.access_mode != 'legacy_path_proxy' %} target="_blank" rel="noopener noreferrer"{% endif %}>
     <div class="app-card-icon">
       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

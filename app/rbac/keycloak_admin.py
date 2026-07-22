@@ -68,6 +68,105 @@ async def search_keycloak_users(
     return data if isinstance(data, list) else []
 
 
+def _fold_text(value: str) -> str:
+    """Lowercase + strip accents for fuzzy comparison (stdlib only)."""
+    import unicodedata
+
+    norm = unicodedata.normalize("NFKD", value or "")
+    return "".join(c for c in norm if not unicodedata.combining(c)).casefold()
+
+
+def _user_search_fields(user: dict) -> list[str]:
+    fields = [
+        user.get("username") or "",
+        user.get("email") or "",
+        user.get("firstName") or "",
+        user.get("lastName") or "",
+        " ".join(
+            p
+            for p in (user.get("firstName") or "", user.get("lastName") or "")
+            if p
+        ),
+    ]
+    return [f for f in fields if f]
+
+
+def score_user_against_query(query: str, user: dict) -> float:
+    """difflib ratio in [0, 1] — best field match (substring boost)."""
+    from difflib import SequenceMatcher
+
+    q = _fold_text(query)
+    if not q:
+        return 0.0
+    best = 0.0
+    for field in _user_search_fields(user):
+        f = _fold_text(field)
+        if not f:
+            continue
+        if q == f:
+            return 1.0
+        if q in f:
+            best = max(best, 0.92)
+        best = max(best, SequenceMatcher(None, q, f).ratio())
+    return best
+
+
+async def search_keycloak_users_fuzzy(
+    realm: RealmConfig,
+    query: str,
+    settings: Settings,
+    *,
+    limit: int = 8,
+    min_score: float = 0.52,
+    broad_max: int = 100,
+) -> list[dict]:
+    """
+    Option A — Keycloak candidate pool + stdlib fuzzy rank.
+
+    Keycloak Admin `/users?search=` is prefix/substring-oriented (no typo tolerance).
+    We fetch the native match plus a broader prefix pool (first 2 chars, max=100 —
+    reasonable for typical iBanFirst realms), then rank with SequenceMatcher and
+    return the top ``limit`` above ``min_score``. Native hits are always kept.
+    No new dependency (difflib / unicodedata).
+    """
+    q = (query or "").strip()
+    if len(q) < 2:
+        return []
+
+    native = await search_keycloak_users(realm, q, settings, max_results=20)
+    prefix = q[:2]
+    broad: list[dict] = []
+    if prefix.casefold() != q.casefold():
+        broad = await search_keycloak_users(
+            realm, prefix, settings, max_results=broad_max
+        )
+
+    by_id: dict[str, dict] = {}
+    for user in native + broad:
+        uid = user.get("id")
+        if isinstance(uid, str) and uid:
+            by_id[uid] = user
+
+    native_ids = {
+        u.get("id") for u in native if isinstance(u.get("id"), str)
+    }
+    ranked: list[tuple[float, dict]] = []
+    for user in by_id.values():
+        score = score_user_against_query(q, user)
+        if user.get("id") in native_ids:
+            score = max(score, 0.99)
+        if score >= min_score or user.get("id") in native_ids:
+            ranked.append((score, user))
+
+    ranked.sort(
+        key=lambda item: (
+            -item[0],
+            (item[1].get("username") or item[1].get("email") or ""),
+        )
+    )
+    return [user for _, user in ranked[: max(1, limit)]]
+
+
 async def fetch_user_groups(
     realm: RealmConfig, keycloak_user_id: str, settings: Settings
 ) -> list[dict]:

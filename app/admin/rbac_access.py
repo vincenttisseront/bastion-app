@@ -32,7 +32,7 @@ from app.rbac.keycloak_admin import (
     fetch_group_members,
     fetch_keycloak_user,
     fetch_user_groups,
-    search_keycloak_users,
+    search_keycloak_users_fuzzy,
 )
 from app.sso_settings import Settings, get_settings
 from app.vault.user_app_credential_service import get_user_credential, has_user_override
@@ -185,7 +185,7 @@ async def admin_rbac_users_search(
             status_code=400,
         )
     try:
-        results = await search_keycloak_users(realm, q, settings)
+        results = await search_keycloak_users_fuzzy(realm, q, settings, limit=8)
     except ValueError as exc:
         return JSONResponse({"ok": False, "errors": {"_form": str(exc)}}, status_code=400)
     return JSONResponse(

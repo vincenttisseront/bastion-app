@@ -175,17 +175,17 @@ def test_user_search_mocked(client, db_session):
     realm = _realm(db_session)
     token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
     search_url = "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vincent&max=20"
+    prefix_url = "https://kc.example.com/admin/realms/AR-SYSTEMS/users?search=vi&max=100"
     respx.post(token_url).respond(200, json={"access_token": "t"})
-    respx.get(search_url).respond(
-        200,
-        json=[
-            {
-                "id": "user-1",
-                "username": "vincent.tisseront",
-                "email": "vincent@example.com",
-            }
-        ],
-    )
+    payload = [
+        {
+            "id": "user-1",
+            "username": "vincent.tisseront",
+            "email": "vincent@example.com",
+        }
+    ]
+    respx.get(search_url).respond(200, json=payload)
+    respx.get(prefix_url).respond(200, json=payload)
 
     resp = client.get(
         f"/admin/rbac/users/search?realm_id={realm.id}&q=vincent",

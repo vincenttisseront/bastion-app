@@ -41,12 +41,13 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   var search = document.getElementById('app-search');
-  if (search) {
-    search.addEventListener('input', function () {
-      var q = search.value.toLowerCase();
-      document.querySelectorAll('[data-searchable]').forEach(function (el) {
-        el.style.display = el.textContent.toLowerCase().includes(q) ? '' : 'none';
-      });
+  if (search && window.BastionFuzzy) {
+    window.BastionFuzzy.init({
+      inputId: 'app-search',
+      itemSelector: '[data-searchable]',
+      getKey: function (el) {
+        return (el.dataset && el.dataset.fuzzyKey) || el.textContent || '';
+      },
     });
   }
 
@@ -69,6 +70,12 @@ document.addEventListener('DOMContentLoaded', function () {
         });
       }
       chip.classList.add('active');
+      // Catalogue (and similar): let BastionFuzzy combine text + chip filters.
+      if (window.BastionFuzzy && window.BastionFuzzy.reapplyAll &&
+          document.getElementById('catalogue-search')) {
+        window.BastionFuzzy.reapplyAll();
+        return;
+      }
       var filter = chip.dataset.filter;
       document.querySelectorAll('[data-mode], [data-severity]').forEach(function (el) {
         var mode = el.dataset.mode || el.dataset.severity;

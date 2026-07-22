@@ -32,12 +32,18 @@
           <span class="badge badge-muted">Aucun realm configuré</span>
         {% endfor %}
       </div>
+      <div style="padding:0 var(--sp-4) var(--sp-3);">
+        <label class="topbar-search" style="max-width:100%;" for="rbac-groups-search">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="search" id="rbac-groups-search" placeholder="Rechercher un groupe…" autocomplete="off" aria-label="Recherche groupes RBAC">
+        </label>
+      </div>
       <div class="table-wrap" style="border:none;border-radius:0;">
-        <table class="data-table">
+        <table class="data-table" id="rbac-groups-table">
           <thead><tr><th>Nom</th><th>Chemin</th><th>Realm</th><th>Dernière sync</th><th>Statut</th></tr></thead>
           <tbody>
             {% for g in groups %}
-            <tr>
+            <tr data-searchable data-fuzzy-key="{{ g.name }} {{ g.path or '' }} {{ g.realm_slug or '' }}{% if g.realm_id and realms_by_id.get(g.realm_id) %} {{ realms_by_id.get(g.realm_id).slug }}{% endif %}">
               <td class="mono">
                 <a href="/admin/rbac/groups/{{ g.id }}">{{ g.name }}</a>
               </td>
@@ -125,4 +131,17 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  if (!window.BastionFuzzy) return;
+  window.BastionFuzzy.init({
+    inputId: 'rbac-groups-search',
+    itemSelector: '#rbac-groups-table tbody tr[data-searchable]',
+    getKey: function (el) { return el.dataset.fuzzyKey || ''; },
+  });
+});
+</script>
 {% endblock %}

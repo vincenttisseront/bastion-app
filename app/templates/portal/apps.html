@@ -17,14 +17,24 @@
 
 <main class="portal-main">
   <div class="portal-header">
-    <h1 class="page-title">Bonjour {{ greeting_name }}</h1>
-    <p class="page-sub">
+    <div class="portal-header-row" style="display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:flex-end;justify-content:space-between;">
+      <div>
+        <h1 class="page-title">Bonjour {{ greeting_name }}</h1>
+        <p class="page-sub">
+          {% if apps %}
+            {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
+          {% else %}
+            Aucune application disponible
+          {% endif %}
+        </p>
+      </div>
       {% if apps %}
-        {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
-      {% else %}
-        Aucune application disponible
+      <label class="topbar-search" style="max-width:260px;flex:1;" for="app-search">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="search" id="app-search" placeholder="Rechercher…" autocomplete="off" aria-label="Recherche applications">
+      </label>
       {% endif %}
-    </p>
+    </div>
   </div>
 
   {% if apps %}
@@ -33,6 +43,8 @@
       {% if app.needs_credential_setup %}
       <div
         class="admin-card app-tile app-tile--disabled"
+        data-searchable
+        data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
         data-app-id="{{ app.id }}"
         title="Cette application nécessite une configuration par votre administrateur avant le premier accès."
         aria-disabled="true"
@@ -52,6 +64,8 @@
       <button
         type="button"
         class="admin-card app-tile"
+        data-searchable
+        data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
         data-app-id="{{ app.id }}"
         data-app-slug="{{ app.slug }}"
         data-credential-mode="identite_utilisateur"
@@ -77,6 +91,8 @@
       <a
         href="{{ app.launch_url }}"
         class="admin-card app-tile"
+        data-searchable
+        data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
         data-app-id="{{ app.id }}"
         data-app-slug="{{ app.slug }}"
         data-credential-mode="{{ app.credential_mode | default('shared') }}"
@@ -98,6 +114,8 @@
       {% else %}
       <div
         class="admin-card app-tile app-tile--disabled"
+        data-searchable
+        data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
         data-app-id="{{ app.id }}"
         title="Accès lecture seule — ouverture non autorisée"
         aria-disabled="true"
