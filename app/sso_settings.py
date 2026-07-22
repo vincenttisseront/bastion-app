@@ -77,6 +77,15 @@ class Settings(BaseSettings):
             "portal_secret_encryption_key",
         ),
     )
+    # SQLCipher file-level key (32-byte hex). Distinct from Fernet column key.
+    # Prefer keys/db_encryption.key; env used for AWX bootstrap / migration to file.
+    vault_portal_db_encryption_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "VAULT_PORTAL_DB_ENCRYPTION_KEY",
+            "vault_portal_db_encryption_key",
+        ),
+    )
 
     database_url: str = Field(
         default="sqlite:///var/lib/sso-portal/portal.db",

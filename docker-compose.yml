@@ -24,6 +24,8 @@ services:
       - |
         set -eu
         mkdir -p /var/lib/sso-portal/exports /var/lib/sso-portal/uploads/app-logos /var/lib/sso-portal/keys
+        # Encrypt plaintext portal.db before Alembic/app expect SQLCipher (idempotent).
+        python /app/scripts/encrypt_portal_db.py
         alembic upgrade head
         chown -R 1000:1000 /var/lib/sso-portal
     env_file:

@@ -299,6 +299,9 @@
   register: _compose_build
   changed_when: true
 
+- name: "Encrypt portal.db with SQLCipher (before compose up / Alembic)"
+  ansible.builtin.import_tasks: encrypt_portal_db.yml
+
 - name: "Docker compose up migrate + stack"
   ansible.builtin.command:
     cmd: docker compose up -d --remove-orphans --force-recreate

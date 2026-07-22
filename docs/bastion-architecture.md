@@ -272,6 +272,34 @@ Surveillance quotidienne (APScheduler) : log `rotation recommended` seulement �
 | Secret en log | Pas de log password / clé | Maintenir + revue drivers |
 | Perte de la clé Fernet | Fichiers locaux + export passphrase admin + backup preflight du dir keys | Versions retirées conservées pour anciens backups DB |
 | Régénération Docker | Volume data persistant + smoke version inchangée après restart | — |
+| Vol du fichier `portal.db` / backup / snapshot | Colonnes vault seules chiffrées Fernet | **SQLCipher** — fichier entier chiffré (voir §2.4.1) |
+
+---
+
+### 2.4.1 Chiffrement au repos (SQLCipher)
+
+Complément du vault Fernet (défense en profondeur) : AES-256 sur **tout** le fichier `portal.db`
+(et donc les backups `portal.db.bak-*` produits après activation).
+
+| | **Fernet (colonnes)** | **SQLCipher (fichier)** |
+|---|---|---|
+| Périmètre | Credentials / secrets réversibles (3–4 colonnes) | Intégralité de `portal.db` |
+| Clé | `fernet_v{N}.key` sous `VAULT_KEYS_DIR` | `db_encryption.key` (même répertoire) |
+| Bootstrap AWX | `vault_portal_vault_fernet_key` (migration temporaire) | `vault_portal_db_encryption_key` (64 hex = `openssl rand -hex 32`) |
+| Injection | Application (`secret_crypto`) | `PRAGMA key` via événement SQLAlchemy `connect` (jamais dans l’URL) |
+| Driver | stdlib / SQLAlchemy | `sqlcipher3-binary` (wheels Linux ; image Docker `python:3.12-slim`) |
+
+**Activation / migration** : `scripts/encrypt_portal_db.py` (idempotent) — backup
+`portal.db.bak-pre-sqlcipher-{ts}`, `sqlcipher_export`, replace atomique. Exécuté **avant**
+`alembic upgrade head` et le redémarrage app (compose migrate + tâches Ansible
+`encrypt_portal_db.yml`).
+
+**Debug manuel** : `sqlite3 portal.db` / `import sqlite3` échouent volontairement une fois
+chiffré. Utiliser `sqlcipher` CLI + `PRAGMA key = "x'<hex>'"` ou l’engine applicatif
+(`app.db_cipher.create_portal_engine`).
+
+**Rotation SQLCipher** : hors scope immédiat (`PRAGMA rekey`) — conserver la clé avec les
+backups (même règle que Fernet). Cadence cible alignée sur 180 jours (à valider IT).
 
 ---
 
@@ -619,11 +647,14 @@ Aligné [SDD-003](sdd/SDD-003-oauth2-proxy-instances.md).
 | Règle | Détail |
 |-------|--------|
 | MUST | Clé Fernet en fichiers locaux (`VAULT_KEYS_DIR`), métadonnées version en DB uniquement |
+| MUST | Clé SQLCipher en fichier `db_encryption.key` (ou bootstrap `vault_portal_db_encryption_key`) |
+| MUST NOT | Réutiliser la clé Fernet comme clé SQLCipher (couches indépendantes) |
 | MUST NOT | Stocker la matière de clé en base, logs, tickets ou Git |
 | MUST NOT | Rotation automatique (même en retard) — clic admin explicite uniquement |
 | MUST NOT | Retirer `vault_portal_vault_fernet_key` d’AWX avant smoke migration verte multi-env |
 | MUST | Import / set credential → chiffrement immédiat ; export clé = passphrase admin non stockée |
 | MUST | Backup preflight de `portal.db` **et** du répertoire de clés |
+| MUST | Conversion SQLCipher (`encrypt_portal_db.py`) avant Alembic / redémarrage app |
 
 ---
 

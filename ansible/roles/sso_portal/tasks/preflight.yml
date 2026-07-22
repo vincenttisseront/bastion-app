@@ -61,10 +61,12 @@
       - (vault_portal_internal_token | default(portal_internal_token) | default('') | length) > 0
       - (vault_sso_portal_oidc_client_secret | default(sso_portal_oidc_client_secret) | default('') | length) > 0
       - (vault_portal_vault_fernet_key | default(portal_vault_fernet_key) | default('') | length) > 0
+      - (vault_portal_db_encryption_key | default('') | length) == 64
     fail_msg: >-
       Secrets Vault manquants ou vides. Vérifier AWX Vault :
       vault_portal_internal_token, vault_sso_portal_oidc_client_secret,
-      vault_portal_vault_fernet_key. Fail-fast avant mutation.
+      vault_portal_vault_fernet_key, vault_portal_db_encryption_key
+      (64 hex chars — openssl rand -hex 32). Fail-fast avant mutation.
 
 - name: "PREFLIGHT : assurer data dir"
   ansible.builtin.file:

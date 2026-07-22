@@ -1,0 +1,26 @@
+---
+# Encrypt plaintext portal.db via one-shot container (idempotent).
+# Runs before compose up (migrate service also runs the script as a safety net).
+
+- name: "SQLCipher : encrypt portal.db via migrate image (idempotent)"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker compose run --rm --no-deps \
+      -e DATABASE_URL="sqlite:////var/lib/sso-portal/portal.db" \
+      -e PORTAL_DATA_DIR=/var/lib/sso-portal \
+      -e VAULT_KEYS_DIR=/var/lib/sso-portal/keys \
+      -e VAULT_PORTAL_DB_ENCRYPTION_KEY="${VAULT_PORTAL_DB_ENCRYPTION_KEY}" \
+      bastion-app-migrate \
+      python /app/scripts/encrypt_portal_db.py
+  args:
+    executable: /bin/bash
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+    VAULT_PORTAL_DB_ENCRYPTION_KEY: "{{ vault_portal_db_encryption_key | default('') }}"
+  register: _encrypt_db
+  changed_when: >-
+    'replaced' in (_encrypt_db.stdout | default(''))
+    or 'exporting SQLCipher' in (_encrypt_db.stdout | default(''))
+  failed_when: _encrypt_db.rc != 0
+  no_log: true

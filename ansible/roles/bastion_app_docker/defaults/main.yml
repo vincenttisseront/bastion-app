@@ -58,6 +58,7 @@ sso_portal_backup_retention_days: 14
 vault_portal_internal_token: ""
 vault_sso_portal_oidc_client_secret: ""
 vault_portal_vault_fernet_key: ""
+vault_portal_db_encryption_key: ""
 portal_secret_encryption_key: ""
 
 # Post-rotation smoke (decrypt check) — activer seulement après rotate_fernet_key

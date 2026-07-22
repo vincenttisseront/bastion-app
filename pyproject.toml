@@ -27,6 +27,8 @@ dependencies = [
     "Pillow>=10.0",
     "alembic>=1.14.0",
     "apscheduler>=3.10.4",
+    # Linux wheels only (Docker/prod). Windows/macOS stay on stdlib sqlite for tests.
+    "sqlcipher3-binary>=0.6.0; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]

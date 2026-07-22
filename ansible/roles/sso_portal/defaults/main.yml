@@ -105,6 +105,7 @@ sso_portal_python_min_version: "3.10"
 #   vault_portal_internal_token
 #   vault_sso_portal_oidc_client_secret
 #   vault_portal_vault_fernet_key
+#   vault_portal_db_encryption_key   — SQLCipher (64 hex chars)
 # Rotation (tâche rotate_fernet_key.yml, hors deploy standard) :
 #   vault_portal_vault_fernet_key_new
 # Aliases locaux (mappés dans portal.env.j2) :

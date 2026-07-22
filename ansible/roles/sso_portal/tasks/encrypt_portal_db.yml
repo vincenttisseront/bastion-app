@@ -1,0 +1,21 @@
+---
+# Encrypt plaintext portal.db with SQLCipher (idempotent).
+# Must run after .env is rendered and packages installed, before Alembic / app start.
+
+- name: "SQLCipher : encrypt portal.db (idempotent)"
+  become: true
+  become_user: "{{ sso_portal_user }}"
+  ansible.builtin.command:
+    cmd: "{{ sso_portal_venv }}/bin/python {{ sso_portal_install_dir }}/scripts/encrypt_portal_db.py"
+    chdir: "{{ sso_portal_install_dir }}"
+  environment:
+    DATABASE_URL: "{{ portal_database_url }}"
+    PORTAL_DATA_DIR: "{{ sso_portal_data_dir | default('/var/lib/sso-portal') }}"
+    VAULT_KEYS_DIR: "{{ sso_portal_keys_dir | default('/var/lib/sso-portal/keys') }}"
+    VAULT_PORTAL_DB_ENCRYPTION_KEY: "{{ vault_portal_db_encryption_key | default('') }}"
+  register: _encrypt_db
+  changed_when: >-
+    'replaced' in (_encrypt_db.stdout | default(''))
+    or 'exporting SQLCipher' in (_encrypt_db.stdout | default(''))
+  failed_when: _encrypt_db.rc != 0
+  no_log: true

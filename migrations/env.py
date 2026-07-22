@@ -7,12 +7,13 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import pool
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from app.db_cipher import create_portal_engine  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.sso_settings import get_settings  # noqa: E402
 
@@ -42,11 +43,11 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    configuration = config.get_section(config.config_ini_section) or {}
-    configuration["sqlalchemy.url"] = get_url()
-    connectable = engine_from_config(
-        configuration,
-        prefix="sqlalchemy.",
+    get_settings.cache_clear()
+    settings = get_settings()
+    connectable = create_portal_engine(
+        settings.database_url,
+        settings,
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:

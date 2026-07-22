@@ -290,6 +290,9 @@
       no_log: true
       notify: Restart sso-portal
 
+    - name: Encrypt portal.db with SQLCipher (before Alembic)
+      ansible.builtin.import_tasks: encrypt_portal_db.yml
+
     - name: Apply Alembic migrations
       become: true
       become_user: "{{ sso_portal_user }}"
@@ -298,6 +301,8 @@
         chdir: "{{ sso_portal_install_dir }}"
       environment:
         DATABASE_URL: "{{ portal_database_url }}"
+        PORTAL_DATA_DIR: "{{ sso_portal_data_dir | default('/var/lib/sso-portal') }}"
+        VAULT_KEYS_DIR: "{{ sso_portal_keys_dir | default('/var/lib/sso-portal/keys') }}"
       register: _alembic
       changed_when: "'Running upgrade' in (_alembic.stdout | default(''))"
       failed_when: _alembic.rc != 0

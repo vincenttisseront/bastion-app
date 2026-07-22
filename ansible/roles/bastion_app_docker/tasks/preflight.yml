@@ -34,9 +34,11 @@
     that:
       - vault_portal_internal_token | length > 0
       - (portal_secret_encryption_key | length > 0) or (vault_portal_vault_fernet_key | length > 0)
+      - vault_portal_db_encryption_key | default('') | length == 64
     fail_msg: >-
-      Secrets manquants : vault_portal_internal_token et
-      portal_secret_encryption_key / vault_portal_vault_fernet_key requis.
+      Secrets manquants : vault_portal_internal_token,
+      portal_secret_encryption_key / vault_portal_vault_fernet_key, et
+      vault_portal_db_encryption_key (64 hex chars, openssl rand -hex 32) requis.
 
 - name: "PREFLIGHT : stat portal.db"
   ansible.builtin.stat:

@@ -97,6 +97,9 @@ Secrets AWX (jamais en logs grâce à `no_log` sur le rendu `.env`) :
 - `vault_portal_vault_fernet_key` — **temporaire Phase B** : conservé pour migration
   auto vers fichiers locaux (`VAULT_KEYS_DIR`). Ne pas retirer avant smoke
   `verify_fernet_key_migration.yml` vert sur tous les environnements.
+- `vault_portal_db_encryption_key` — SQLCipher (chiffrement fichier `portal.db`),
+  **64 caractères hex** (`openssl rand -hex 32`). Persisté sous
+  `{VAULT_KEYS_DIR}/db_encryption.key` au premier boot. Distinct de la clé Fernet.
 
 Clé Fernet métier (Phase B) : gérée par l’app sous `sso_portal_keys_dir`
 (`/var/lib/sso-portal/keys`). Rotation via Admin → Sécurité (in-process), pas via AWX.
