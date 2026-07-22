@@ -432,17 +432,17 @@
           Post-rotation decrypt failed â€” clÃ© Fernet ou rÃ©-chiffrement incohÃ©rent.
           Pas de rollback automatique ; restaurer bak-pre-rotation-* manuellement si besoin.
 
-- name: "SMOKE : vérifier migration clé Fernet locale (volume data)"
+- name: "SMOKE : verify local Fernet key migration (data volume)"
   ansible.builtin.include_tasks: verify_fernet_key_migration.yml
   when: sso_portal_verify_fernet_key_migration | default(true) | bool
 
-- name: "SMOKE : capturer version clé avant cycle down/up"
+- name: "SMOKE : capture key version before down/up cycle"
   when: sso_portal_verify_fernet_key_migration | default(true) | bool
   ansible.builtin.slurp:
     src: "{{ sso_portal_keys_dir }}/current"
   register: _key_ver_before
 
-- name: "SMOKE : cycle compose stop/start bastion-app (persistance clé)"
+- name: "SMOKE : compose stop/start bastion-app (key persistence)"
   when: sso_portal_verify_fernet_key_migration | default(true) | bool
   ansible.builtin.shell: |
     set -euo pipefail
@@ -454,7 +454,7 @@
   environment:
     SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
 
-- name: "SMOKE : attendre health après restart"
+- name: "SMOKE : wait health after restart"
   when: sso_portal_verify_fernet_key_migration | default(true) | bool
   ansible.builtin.uri:
     url: "http://127.0.0.1:8000/api/health"
@@ -464,19 +464,19 @@
   delay: 2
   until: _health_after_key.status | default(0) == 200
 
-- name: "SMOKE : assert version clé inchangée après restart"
+- name: "SMOKE : assert key version unchanged after restart"
   when: sso_portal_verify_fernet_key_migration | default(true) | bool
   ansible.builtin.slurp:
     src: "{{ sso_portal_keys_dir }}/current"
   register: _key_ver_after
 
-- name: "SMOKE : fail si version clé a changé (régénération indésirable)"
+- name: "SMOKE : fail if key version changed (undesired regeneration)"
   when: sso_portal_verify_fernet_key_migration | default(true) | bool
   ansible.builtin.assert:
     that:
       - (_key_ver_before.content | b64decode | trim) == (_key_ver_after.content | b64decode | trim)
     fail_msg: >-
-      Version clé Fernet changée après restart conteneur
-      (avant={{ _key_ver_before.content | b64decode | trim }}
-      après={{ _key_ver_after.content | b64decode | trim }}).
-      Vérifier le volume persistant {{ sso_portal_keys_dir }}.
+      Fernet key version changed after container restart
+      (before={{ _key_ver_before.content | b64decode | trim }}
+      after={{ _key_ver_after.content | b64decode | trim }}).
+      Check persistent volume {{ sso_portal_keys_dir }}.
