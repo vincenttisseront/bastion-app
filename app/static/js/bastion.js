@@ -51,6 +51,23 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Deep-link from global search: /apps#app-{slug}
+  (function highlightAppFromHash() {
+    var raw = (location.hash || '').replace(/^#/, '');
+    if (!raw || raw.indexOf('app-') !== 0) return;
+    var tile = document.getElementById(raw);
+    if (!tile || !tile.classList.contains('app-tile')) return;
+    try {
+      tile.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (err) {
+      tile.scrollIntoView(true);
+    }
+    tile.classList.add('app-tile--highlight');
+    window.setTimeout(function () {
+      tile.classList.remove('app-tile--highlight');
+    }, 2000);
+  })();
+
   var sidebarSearch = document.getElementById('sidebar-search');
   if (sidebarSearch) {
     sidebarSearch.addEventListener('input', function () {

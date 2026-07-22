@@ -131,6 +131,8 @@ def test_global_search_user_only_applications(client, db_session):
     assert set(data["results"].keys()) == {"applications"}
     labels = [r["label"] for r in data["results"]["applications"]]
     assert "Grafana" in labels
+    urls = [r["url"] for r in data["results"]["applications"]]
+    assert any(u == "/apps#app-grafana" for u in urls)
     for forbidden in ADMIN_CATEGORY_KEYS:
         assert forbidden not in data["results"]
 
@@ -274,4 +276,26 @@ def test_portal_apps_keeps_single_app_search_id(client, db_session):
     resp = client.get("/apps", headers=USER_HEADERS)
     assert resp.status_code == 200
     assert resp.text.count('id="app-search"') == 1
+    assert 'id="app-wiki"' in resp.text
     assert 'id="global-search-trigger"' not in resp.text  # portal hide_chrome
+
+
+def test_search_applications_anchor_uses_app_prefix(client, db_session):
+    from app.web.global_search import _search_applications
+    from app.web.user_context import UserContext
+
+    group = _group(db_session)
+    app = _app(db_session, slug="grafana", label="Grafana", description="Metrics")
+    _grant_app(db_session, app, group)
+    user = UserContext(
+        email="alice@example.com",
+        username="alice",
+        groups=["team-ops"],
+        keycloak_user_id="kc-user-alice",
+        realm_slug="ar-systems",
+        auth_source="headers",
+        is_admin=False,
+    )
+    hits = _search_applications(db_session, user, "grafana")
+    assert hits
+    assert hits[0]["url"] == "/apps#app-grafana"

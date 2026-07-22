@@ -132,7 +132,7 @@ def test_user_portal_view_only_disabled_tile(client: TestClient, db_session: Ses
     assert "SSO Gate" not in resp.text
     assert "Sous-domaine" not in resp.text
     assert "access_mode" not in resp.text
-    assert "slug" not in resp.text
+    assert 'id="app-reports"' in resp.text
     assert "grant" not in resp.text.lower()
     assert "Mon profil" in resp.text
     assert 'href="/profile"' in resp.text

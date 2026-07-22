@@ -68,7 +68,7 @@ def _search_applications(db: Session, user: UserContext, q: str) -> list[dict[st
                 score,
                 _hit(
                     app.label or app.slug,
-                    f"/apps#{app.slug}",
+                    f"/apps#app-{app.slug}",
                     sublabel=(app.description or "").strip() or None,
                 ),
             )

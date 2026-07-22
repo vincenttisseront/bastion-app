@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260722-app-hash">
 {% endblock %}
 
 {% block content %}
@@ -42,10 +42,12 @@
     {% for app in apps %}
       {% if app.needs_credential_setup %}
       <div
+        id="app-{{ app.slug }}"
         class="admin-card app-tile app-tile--disabled"
         data-searchable
         data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
         data-app-id="{{ app.id }}"
+        data-app-slug="{{ app.slug }}"
         title="Cette application nécessite une configuration par votre administrateur avant le premier accès."
         aria-disabled="true"
       >
@@ -63,6 +65,7 @@
       {# No impersonate href — middle-click / Enter must not bypass the password modal. #}
       <button
         type="button"
+        id="app-{{ app.slug }}"
         class="admin-card app-tile"
         data-searchable
         data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
@@ -89,6 +92,7 @@
       </button>
       {% elif app.can_launch %}
       <a
+        id="app-{{ app.slug }}"
         href="{{ app.launch_url }}"
         class="admin-card app-tile"
         data-searchable
@@ -113,10 +117,12 @@
       </a>
       {% else %}
       <div
+        id="app-{{ app.slug }}"
         class="admin-card app-tile app-tile--disabled"
         data-searchable
         data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
         data-app-id="{{ app.id }}"
+        data-app-slug="{{ app.slug }}"
         title="Accès lecture seule — ouverture non autorisée"
         aria-disabled="true"
       >
