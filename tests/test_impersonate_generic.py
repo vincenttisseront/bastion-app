@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.admin.throttling import reset_test_rate_limits
 from app.bastion.drivers.base import DriverLoginResult, DriverLoginError
+from app.bastion.drivers.generic import DriverAuthRejectedError, DriverUpstreamError
 from app.models import App, AppGroup, AuditLog, RBACGroup
 from app.robotic.impersonate_service import (
     ImpersonationError,
+    ImpersonationTechnicalError,
     get_basic_auth_header,
     impersonate,
 )
@@ -129,10 +131,25 @@ async def test_generic_form_impersonate_login_failure(db_session: Session):
 
     with patch(
         "app.robotic.impersonate_service.generic_form_login",
-        new=AsyncMock(side_effect=DriverLoginError("Generic form login rejected")),
+        new=AsyncMock(side_effect=DriverAuthRejectedError("Upstream rejected credentials")),
     ):
         with pytest.raises(ImpersonationError, match="rejected"):
             await impersonate(db_session, "wiki", settings)
+
+
+@pytest.mark.asyncio
+async def test_generic_form_impersonate_upstream_technical(db_session: Session):
+    _make_generic_form_app(db_session)
+    settings = _settings()
+    set_app_credential(db_session, "wiki", "robot", SECRET_PASSWORD, settings)
+
+    with patch(
+        "app.robotic.impersonate_service.generic_form_login",
+        new=AsyncMock(side_effect=DriverUpstreamError("Upstream returned HTTP 405")),
+    ):
+        with pytest.raises(ImpersonationTechnicalError) as exc_info:
+            await impersonate(db_session, "wiki", settings)
+    assert "Erreur technique" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

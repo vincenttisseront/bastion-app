@@ -32,6 +32,14 @@
         <label class="form-label" for="login_form_url">URL du formulaire de login <span class="req">*</span></label>
         <input type="url" id="login_form_url" name="login_form_url" class="form-input{% if errors.login_form_url %} is-invalid{% endif %}"
           value="{{ form_values.login_form_url | default(app.login_form_url if app is defined else '') }}">
+        <p class="form-help">
+          Endpoint qui accepte un POST form-urlencoded. Pour grommunio-admin :
+          <span class="mono">https://hôte:8443/api/v1/login</span>
+          (champs <span class="mono">user</span> / <span class="mono">pass</span>) —
+          pas la page SPA <span class="mono">/login</span> (POST → 405).
+          Si l’URL pointe encore vers <span class="mono">/login</span>, le driver retente
+          automatiquement <span class="mono">/api/v1/login</span> après un 405.
+        </p>
         {% if errors.login_form_url %}<div class="form-error">{{ errors.login_form_url }}</div>{% endif %}
       </div>
       <div class="form-row">

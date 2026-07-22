@@ -15,12 +15,14 @@ from app.admin.throttling import (
 )
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPSession
+from app.bastion.drivers.generic import DriverAuthRejectedError, DriverUpstreamError
 from app.bastion.bastion_fields import resolve_identity_login_username
 from app.models import App, AppGroup, AuditLog, RBACGroup
 from app.rbac.grants_service import AccessGrantCreate, create_grant
 from app.robotic.impersonate_service import (
     ImpersonationIdentityAuthError,
     ImpersonationPasswordRequiredError,
+    ImpersonationTechnicalError,
     impersonate,
 )
 from app.sso_settings import Settings
@@ -61,16 +63,18 @@ def _settings(**kwargs) -> Settings:
     return Settings(**defaults)
 
 
-def _seed_app(db: Session, *, with_group: bool = True) -> App:
-    app = App(
-        slug="grommunio",
-        label="Grommunio",
-        upstream_url="https://mail.example/",
-        robotic_driver="crushftp",
-        access_mode="legacy_path_proxy",
-        credential_mode="identite_utilisateur",
-        enabled=True,
-    )
+def _seed_app(db: Session, *, with_group: bool = True, **app_kwargs) -> App:
+    defaults = {
+        "slug": "grommunio",
+        "label": "Grommunio",
+        "upstream_url": "https://mail.example/",
+        "robotic_driver": "crushftp",
+        "access_mode": "legacy_path_proxy",
+        "credential_mode": "identite_utilisateur",
+        "enabled": True,
+    }
+    defaults.update(app_kwargs)
+    app = App(**defaults)
     db.add(app)
     db.commit()
     db.refresh(app)
@@ -366,6 +370,89 @@ def test_open_with_identity_authenticated_wrong_password_is_json_403_not_login_r
     assert resp.headers.get("content-type", "").startswith("application/json")
     assert resp.json()["error"] == "identity_auth_failed"
     assert "/auth/login" not in (resp.headers.get("location") or "")
+
+
+def test_open_with_identity_generic_auth_rejected_message(
+    client: TestClient, db_session: Session
+):
+    _seed_app(
+        db_session,
+        robotic_driver="generic_form",
+        auth_mode="generic_form",
+        login_form_url="https://mail.example:8443/api/v1/login",
+        login_username_field="user",
+        login_password_field="pass",
+    )
+    with patch(
+        "app.robotic.impersonate_service.generic_form_login",
+        new=AsyncMock(side_effect=DriverAuthRejectedError("Upstream rejected credentials")),
+    ):
+        resp = client.post(
+            "/api/apps/grommunio/open-with-identity",
+            headers=USER_HEADERS,
+            json={"password": WRONG_PASSWORD},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["error"] == "identity_auth_failed"
+    assert "Mot de passe incorrect" in body["message"]
+
+
+def test_open_with_identity_generic_technical_error_message(
+    client: TestClient, db_session: Session
+):
+    _seed_app(
+        db_session,
+        robotic_driver="generic_form",
+        auth_mode="generic_form",
+        login_form_url="https://mail.example:8443/login?redirect=/",
+        login_username_field="username",
+        login_password_field="password",
+    )
+    with patch(
+        "app.robotic.impersonate_service.generic_form_login",
+        new=AsyncMock(side_effect=DriverUpstreamError("Upstream returned HTTP 405")),
+    ):
+        resp = client.post(
+            "/api/apps/grommunio/open-with-identity",
+            headers=USER_HEADERS,
+            json={"password": SECRET_PASSWORD},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["error"] == "upstream_technical_error"
+    assert "Erreur technique" in body["message"]
+    assert "Mot de passe incorrect" not in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_identity_generic_upstream_error_not_wrapped_as_auth(
+    db_session: Session,
+):
+    _seed_app(
+        db_session,
+        with_group=False,
+        robotic_driver="generic_form",
+        auth_mode="generic_form",
+        login_form_url="https://mail.example/api/v1/login",
+    )
+    with patch(
+        "app.robotic.impersonate_service.generic_form_login",
+        new=AsyncMock(side_effect=DriverUpstreamError("Upstream returned HTTP 405")),
+    ):
+        with pytest.raises(ImpersonationTechnicalError) as exc_info:
+            await impersonate(
+                db_session,
+                "grommunio",
+                _settings(),
+                actor="user@test",
+                ephemeral_username=FULL_EMAIL,
+                ephemeral_password=SECRET_PASSWORD,
+            )
+    assert not isinstance(exc_info.value, ImpersonationIdentityAuthError)
+    assert "Erreur technique" in str(exc_info.value)
 
 
 def test_get_impersonate_rejected_for_identity_mode(

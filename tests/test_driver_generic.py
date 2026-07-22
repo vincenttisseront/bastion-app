@@ -12,6 +12,8 @@ from httpx import Response
 
 from app.bastion.drivers.base import DriverLoginError
 from app.bastion.drivers.generic import (
+    DriverAuthRejectedError,
+    DriverUpstreamError,
     generic_basic_auth_header,
     generic_form_login,
 )
@@ -64,25 +66,85 @@ async def test_generic_form_login_ok_extracts_cookies():
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_generic_form_login_no_cookies_raises():
+async def test_generic_form_login_no_cookies_raises_auth_rejected():
     respx.post("https://app.example/login").mock(return_value=Response(200))
-    with pytest.raises(DriverLoginError, match="no session cookies"):
+    with pytest.raises(DriverAuthRejectedError, match="no session cookies"):
         await generic_form_login(_credential(), _generic_app(), SECRET_PASSWORD)
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_generic_form_login_401_raises():
+async def test_generic_form_login_401_is_auth_rejected():
     respx.post("https://app.example/login").mock(return_value=Response(401))
-    with pytest.raises(DriverLoginError, match="no session cookies"):
+    with pytest.raises(DriverAuthRejectedError, match="rejected credentials"):
         await generic_form_login(_credential(), _generic_app(), SECRET_PASSWORD)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_generic_form_login_405_without_spa_retry_is_technical():
+    # Path is not /login → no grommunio retry
+    respx.post("https://app.example/auth/do").mock(
+        return_value=Response(405, headers={"Allow": "GET"})
+    )
+    app = _generic_app(login_form_url="https://app.example/auth/do")
+    with pytest.raises(DriverUpstreamError, match="HTTP 405"):
+        await generic_form_login(_credential(), app, SECRET_PASSWORD)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_grommunio_spa_405_retries_api_v1_login_jwt():
+    spa = respx.post("https://mail.example:8443/login").mock(
+        return_value=Response(405, headers={"Allow": "GET, HEAD"})
+    )
+    api = respx.post("https://mail.example:8443/api/v1/login").mock(
+        return_value=Response(
+            200,
+            json={
+                "grommunioAuthJwt": "eyJhbGciOi.test.jwt",
+                "csrf": "csrf-token-1",
+            },
+            headers={"content-type": "application/json"},
+        )
+    )
+    app = _generic_app(
+        login_form_url="https://mail.example:8443/login?redirect=/",
+        login_username_field="username",
+        login_password_field="password",
+    )
+    result = await generic_form_login(_credential(), app, SECRET_PASSWORD)
+    assert spa.called
+    assert api.called
+    request = api.calls.last.request
+    assert b"user=robot" in request.content
+    assert b"pass=" in request.content
+    assert SECRET_PASSWORD.encode() in request.content
+    assert b"username=" not in request.content
+    assert result.cookies["grommunioAuthJwt"] == "eyJhbGciOi.test.jwt"
+    assert result.cookies["csrf"] == "csrf-token-1"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_grommunio_api_401_is_auth_rejected():
+    respx.post("https://mail.example:8443/api/v1/login").mock(
+        return_value=Response(
+            401,
+            json={"error": "Invalid username or password"},
+            headers={"content-type": "application/json"},
+        )
+    )
+    app = _generic_app(login_form_url="https://mail.example:8443/api/v1/login")
+    with pytest.raises(DriverAuthRejectedError, match="rejected credentials"):
+        await generic_form_login(_credential(), app, SECRET_PASSWORD)
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_generic_form_login_timeout():
     respx.post("https://app.example/login").mock(side_effect=httpx.TimeoutException("timeout"))
-    with pytest.raises(DriverLoginError, match="timed out"):
+    with pytest.raises(DriverUpstreamError, match="timed out"):
         await generic_form_login(_credential(), _generic_app(), SECRET_PASSWORD)
 
 

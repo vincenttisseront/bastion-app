@@ -24,6 +24,7 @@ from app.robotic.impersonate_service import (
     ImpersonationError,
     ImpersonationIdentityAuthError,
     ImpersonationPasswordRequiredError,
+    ImpersonationTechnicalError,
     get_basic_auth_header,
     impersonate,
 )
@@ -113,6 +114,14 @@ def _impersonation_error_response(exc: ImpersonationError) -> JSONResponse:
                 "message": ImpersonationIdentityAuthError.user_message,
             },
             status_code=403,
+        )
+    if isinstance(exc, ImpersonationTechnicalError):
+        return JSONResponse(
+            {
+                "error": ImpersonationTechnicalError.error_code,
+                "message": ImpersonationTechnicalError.user_message,
+            },
+            status_code=502,
         )
     message = str(exc)
     status = 502
@@ -335,6 +344,9 @@ async def open_with_identity(
             ephemeral_username=username,
             ephemeral_password=password,
         )
+    except ImpersonationTechnicalError as exc:
+        # Misconfiguration / upstream bug — do not count toward password lockout.
+        return _impersonation_error_response(exc)
     except ImpersonationError as exc:
         record_identity_failure(slug, user_key)
         return _impersonation_error_response(exc)

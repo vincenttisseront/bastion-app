@@ -15,6 +15,8 @@ from app.bastion.bastion_fields import normalize_credential_mode
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPDriver
 from app.bastion.drivers.generic import (
+    DriverAuthRejectedError,
+    DriverUpstreamError,
     generic_basic_auth_header,
     generic_form_login,
 )
@@ -63,6 +65,16 @@ class ImpersonationIdentityAuthError(ImpersonationError):
 
     error_code = "identity_auth_failed"
     user_message = "Mot de passe incorrect ou compte verrouillé."
+
+
+class ImpersonationTechnicalError(ImpersonationError):
+    """Upstream misconfiguration or unexpected HTTP (not a credential mistake)."""
+
+    error_code = "upstream_technical_error"
+    user_message = (
+        "Erreur technique lors de la connexion à l'application. "
+        "Contactez votre administrateur."
+    )
 
 
 @dataclass(frozen=True)
@@ -379,6 +391,34 @@ async def _impersonate_generic_form(
 ) -> RoboticSessionResult:
     try:
         result = await generic_form_login(resolved, app, password)
+    except DriverAuthRejectedError as exc:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver="generic_form",
+            error="login_failed",
+            credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
+        )
+        raise ImpersonationError(str(exc)) from exc
+    except DriverUpstreamError as exc:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver="generic_form",
+            error="upstream_technical",
+            credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
+        )
+        raise ImpersonationTechnicalError(
+            ImpersonationTechnicalError.user_message
+        ) from exc
     except RoboticLoginError as exc:
         _audit_impersonate(
             db,
@@ -550,6 +590,8 @@ async def impersonate(
             actor=actor,
             ip_address=ip_address,
         )
+    except ImpersonationTechnicalError:
+        raise
     except ImpersonationError:
         if cred_mode == "identite_utilisateur":
             raise ImpersonationIdentityAuthError(
