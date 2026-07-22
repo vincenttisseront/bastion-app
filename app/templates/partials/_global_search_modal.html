@@ -15,8 +15,10 @@
           <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
         <input type="search" id="global-search-input" placeholder="Rechercher applications, utilisateurs…"
-               autocomplete="off" aria-label="Terme de recherche" aria-controls="global-search-results">
+               autocomplete="off" aria-label="Terme de recherche" aria-controls="global-search-results"
+               aria-autocomplete="list">
       </label>
+      <kbd class="global-search-kbd" title="Fermer">Échap</kbd>
       <button type="button" class="icon-btn global-search-close" data-global-search-dismiss aria-label="Fermer">
         <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -24,14 +26,36 @@
       </button>
     </div>
     <div class="bastion-modal-body global-search-body" id="global-search-results" role="listbox" aria-live="polite">
-      <div class="global-search-hint" data-global-search-state="idle">
-        Saisissez au moins 2 caractères…
+      <div class="global-search-state" data-global-search-state="idle">
+        <div class="global-search-state-icon" aria-hidden="true">
+          <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </div>
+        <p class="global-search-state-title">Recherche globale</p>
+        <p class="global-search-state-desc">Saisissez au moins 2 caractères pour lancer la recherche.</p>
       </div>
-      <div class="global-search-hint" data-global-search-state="loading" hidden>
-        Recherche…
+      <div class="global-search-state" data-global-search-state="loading" hidden>
+        <div class="global-search-skeleton" aria-hidden="true">
+          <div class="global-search-skeleton-row"></div>
+          <div class="global-search-skeleton-row"></div>
+          <div class="global-search-skeleton-row"></div>
+          <div class="global-search-skeleton-row"></div>
+        </div>
+        <p class="global-search-state-desc global-search-loading-label">
+          <span class="global-search-spinner" aria-hidden="true"></span>
+          Recherche en cours…
+        </p>
       </div>
-      <div class="global-search-hint" data-global-search-state="empty" hidden>
-        Aucun résultat
+      <div class="global-search-state" data-global-search-state="empty" hidden>
+        <div class="global-search-state-icon" aria-hidden="true">
+          <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <line x1="8" y1="11" x2="14" y2="11"/>
+          </svg>
+        </div>
+        <p class="global-search-state-title" data-global-search-empty-title>Aucun résultat</p>
+        <p class="global-search-state-desc">Essayez un autre terme ou une orthographe proche.</p>
       </div>
       <div data-global-search-state="results" hidden></div>
     </div>
