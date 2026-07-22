@@ -1081,6 +1081,7 @@ def admin_security(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
+    from app.db_cipher import get_db_encryption_status
     from app.portal_settings_service import get_subdomain_sso_enabled
     from app.vault.encryption_key_store import get_vault_key_status
 
@@ -1091,6 +1092,7 @@ def admin_security(
         .all()
     )
     vault_status = get_vault_key_status(db, settings)
+    db_encryption = get_db_encryption_status(settings)
     return render(
         "admin/security.html",
         **_ctx(
@@ -1099,6 +1101,7 @@ def admin_security(
             subdomain_sso_enabled=get_subdomain_sso_enabled(db, settings),
             subdomain_apps=subdomain_apps,
             vault_key=vault_status,
+            db_encryption=db_encryption,
         ),
     )
 
@@ -1242,7 +1245,7 @@ def admin_security_subdomain_sso(
 
     want_enabled = enabled == "on"
     if want_enabled and infra_ack != "on":
-        response = RedirectResponse(url="/admin/security", status_code=302)
+        response = RedirectResponse(url="/admin/security#subdomain-sso", status_code=302)
         flash_redirect(
             response,
             "Activation refusée : confirmez d'abord que l'infrastructure sous-domaine est prête.",
@@ -1259,7 +1262,7 @@ def admin_security_subdomain_sso(
         ip_address=request.headers.get("X-Real-IP")
         or (request.client.host if request.client else None),
     )
-    response = RedirectResponse(url="/admin/security", status_code=302)
+    response = RedirectResponse(url="/admin/security#subdomain-sso", status_code=302)
     flash_redirect(
         response,
         "Routage par sous-domaine "

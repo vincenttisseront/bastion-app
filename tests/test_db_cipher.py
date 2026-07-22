@@ -10,6 +10,7 @@ from app.db_cipher import (
     assert_db_cipher_state,
     create_portal_engine,
     db_encryption_key_path,
+    get_db_encryption_status,
     normalize_db_encryption_key,
     pragma_key_sql,
     probe_plaintext_readable,
@@ -114,6 +115,35 @@ def test_create_portal_engine_plaintext_memory(tmp_path, monkeypatch):
         from sqlalchemy import text
 
         assert conn.execute(text("SELECT 1")).scalar() == 1
+
+
+def test_get_db_encryption_status_disabled(tmp_path, monkeypatch):
+    monkeypatch.setenv("VAULT_KEYS_DIR", str(tmp_path / "keys"))
+    monkeypatch.delenv("VAULT_PORTAL_DB_ENCRYPTION_KEY", raising=False)
+    get_settings.cache_clear()
+    settings = Settings(database_url="sqlite://", vault_portal_db_encryption_key="")
+    status = get_db_encryption_status(settings)
+    assert status.enabled is False
+    assert status.status_badge == "muted"
+    assert "clair" in status.status_label.lower() or "Désactivé" in status.status_label
+
+
+def test_get_db_encryption_status_env_ready(tmp_path, monkeypatch):
+    keys = tmp_path / "keys"
+    keys.mkdir()
+    monkeypatch.setenv("VAULT_KEYS_DIR", str(keys))
+    monkeypatch.setenv("VAULT_PORTAL_DB_ENCRYPTION_KEY", "ab" * 32)
+    get_settings.cache_clear()
+    settings = Settings(
+        database_url="sqlite://",
+        vault_portal_db_encryption_key="ab" * 32,
+        vault_keys_dir=str(keys),
+    )
+    status = get_db_encryption_status(settings)
+    assert status.enabled is True
+    assert status.source == "env"
+    assert status.status_badge in ("ok", "error")  # error if no sqlcipher on Windows
+    assert status.status_label in ("Prêt", "Driver SQLCipher manquant")
 
 
 @pytest.mark.skipif(

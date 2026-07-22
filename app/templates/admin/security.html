@@ -5,15 +5,37 @@
 {% block content %}
 {% set subdomain_sso_enabled = subdomain_sso_enabled | default(false) %}
 {% set subdomain_apps = subdomain_apps | default([]) %}
-<div class="page">
+{% set vault_key = vault_key | default(none) %}
+{% set db_encryption = db_encryption | default(none) %}
+<div class="page" id="security-page">
   <div class="page-header">
     <div>
       <h1 class="page-title">Sécurité</h1>
-      <p class="page-sub">Clés API, TLS et routage SSO sous-domaine</p>
+      <p class="page-sub">Clés API, TLS, SSO sous-domaine, coffre Fernet et chiffrement SQLCipher</p>
     </div>
   </div>
 
-  <div class="form-section">
+  <div class="tabs" role="tablist" aria-label="Sections sécurité" id="security-tabs">
+    <a href="#api" class="tab active" role="tab" data-tab="api" id="tab-api" aria-selected="true">Clés API</a>
+    <a href="#tls" class="tab" role="tab" data-tab="tls" id="tab-tls">TLS</a>
+    <a href="#subdomain-sso" class="tab" role="tab" data-tab="subdomain-sso" id="tab-subdomain-sso">SSO sous-domaine</a>
+    <a href="#vault" class="tab" role="tab" data-tab="vault" id="tab-vault">
+      Coffre Fernet
+      {% if vault_key and vault_key.status_badge == 'recommended' %}
+      <span class="badge" style="margin-left:6px;background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">!</span>
+      {% endif %}
+    </a>
+    <a href="#db-encryption" class="tab" role="tab" data-tab="db-encryption" id="tab-db-encryption">
+      Chiffrement DB
+      {% if db_encryption and db_encryption.status_badge in ('warn', 'error') %}
+      <span class="badge" style="margin-left:6px;background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">!</span>
+      {% elif db_encryption and db_encryption.status_badge == 'ok' %}
+      <span class="badge badge-ok" style="margin-left:6px;">OK</span>
+      {% endif %}
+    </a>
+  </div>
+
+  <div class="form-section security-panel" id="api" role="tabpanel" aria-labelledby="tab-api">
     <div class="form-section-header">
       <div class="form-section-title">Clés API internes</div>
       <div class="form-section-sub">Routes machine-to-machine <span class="mono">/api/admin/*</span></div>
@@ -26,7 +48,7 @@
     </div>
   </div>
 
-  <div class="form-section">
+  <div class="form-section security-panel" id="tls" role="tabpanel" aria-labelledby="tab-tls" hidden>
     <div class="form-section-header">
       <div class="form-section-title">TLS / Certificats</div>
       <div class="form-section-sub">Terminaison Nginx + Let's Encrypt</div>
@@ -39,7 +61,7 @@
     </div>
   </div>
 
-  <div class="form-section" id="subdomain-sso">
+  <div class="form-section security-panel" id="subdomain-sso" role="tabpanel" aria-labelledby="tab-subdomain-sso" hidden>
     <div class="form-section-header">
       <div class="form-section-title">Routage par sous-domaine dédié (SSO)</div>
       <div class="form-section-sub">
@@ -119,7 +141,7 @@
     </div>
   </div>
 
-  <div class="form-section" id="vault">
+  <div class="form-section security-panel" id="vault" role="tabpanel" aria-labelledby="tab-vault" hidden>
     <div class="form-section-header">
       <div class="form-section-title">Coffre-fort applicatif (Fernet)</div>
       <div class="form-section-sub">
@@ -194,12 +216,166 @@
       </form>
     </div>
   </div>
+
+  <div class="form-section security-panel" id="db-encryption" role="tabpanel" aria-labelledby="tab-db-encryption" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">Chiffrement au repos (SQLCipher)</div>
+      <div class="form-section-sub">
+        Fichier <span class="mono">portal.db</span> entier —
+        {% if db_encryption %}
+          {% if db_encryption.status_badge == 'ok' %}
+          <span class="badge badge-ok">{{ db_encryption.status_label }}</span>
+          {% elif db_encryption.status_badge == 'warn' %}
+          <span class="badge" style="background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">{{ db_encryption.status_label }}</span>
+          {% elif db_encryption.status_badge == 'error' %}
+          <span class="badge badge-err">{{ db_encryption.status_label }}</span>
+          {% else %}
+          <span class="badge badge-muted">{{ db_encryption.status_label }}</span>
+          {% endif %}
+        {% else %}
+        <span class="badge badge-muted">Indisponible</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="form-body">
+      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0 0 var(--sp-4);">
+        Couche indépendante du coffre Fernet : AES-256 sur tout le fichier SQLite
+        (y compris backups). Les credentials restent aussi protégés par Fernet
+        (défense en profondeur).
+      </p>
+
+      {% if db_encryption %}
+      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+        <table class="data-table">
+          <tbody>
+            <tr>
+              <th>État</th>
+              <td>{{ db_encryption.status_label }}</td>
+            </tr>
+            <tr>
+              <th>Clé configurée</th>
+              <td>
+                {% if db_encryption.enabled %}
+                <span class="badge badge-ok">Oui</span>
+                {% else %}
+                <span class="badge badge-muted">Non</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th>Source de la clé</th>
+              <td class="mono">
+                {% if db_encryption.source == 'file' %}fichier db_encryption.key
+                {% elif db_encryption.source == 'env' %}variable d'environnement
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th>Fichier clé</th>
+              <td>
+                {% if db_encryption.key_file_present %}
+                <span class="badge badge-ok">Présent</span>
+                {% else %}
+                <span class="badge badge-muted">Absent</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th>Driver sqlcipher3</th>
+              <td>
+                {% if db_encryption.sqlcipher_available %}
+                <span class="badge badge-ok">Disponible</span>
+                {% else %}
+                <span class="badge badge-muted">Non installé</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th>Fichier DB</th>
+              <td class="mono">{{ db_encryption.db_path or '—' }}</td>
+            </tr>
+            <tr>
+              <th>DB chiffrée</th>
+              <td>
+                {% if db_encryption.db_encrypted is none %}
+                <span class="badge badge-muted">{% if db_encryption.db_exists %}Inconnu{% else %}Absent / vide{% endif %}</span>
+                {% elif db_encryption.db_encrypted %}
+                <span class="badge badge-ok">Oui</span>
+                {% else %}
+                <span class="badge" style="background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">Non (clair)</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th>Répertoire clés</th>
+              <td class="mono">{{ db_encryption.keys_dir }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {% if db_encryption.status_badge == 'warn' %}
+      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+        <div class="alert-body">
+          Une clé SQLCipher est configurée mais <span class="mono">portal.db</span> est encore
+          en clair. Exécutez <span class="mono">python scripts/encrypt_portal_db.py</span>
+          avant le prochain redémarrage (déjà prévu dans le déploiement Ansible / migrate Docker).
+        </div>
+      </div>
+      {% elif db_encryption.status_badge == 'error' and not db_encryption.enabled %}
+      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+        <div class="alert-body">
+          Le fichier semble chiffré mais aucune clé n'est configurée
+          (<span class="mono">(VAULT_PORTAL_DB_ENCRYPTION_KEY</span> /
+          <span class="mono">db_encryption.key)</span>.
+        </div>
+      </div>
+      {% elif not db_encryption.enabled %}
+      <div class="alert" style="margin-bottom:var(--sp-4);">
+        <div class="alert-body" style="color:var(--text-2);font-size:var(--fs-sm);">
+          Mode clair (dev / tests). En production, fournir
+          <span class="mono">vault_portal_db_encryption_key</span>
+          (64 hex — <span class="mono">openssl rand -hex 32</span>) via AWX Vault.
+        </div>
+      </div>
+      {% endif %}
+      {% else %}
+      <p style="color:var(--text-2);font-size:var(--fs-sm);">Statut de chiffrement indisponible.</p>
+      {% endif %}
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
+  var VALID = ['api', 'tls', 'subdomain-sso', 'vault', 'db-encryption'];
+  var DEFAULT = 'api';
+
+  function currentTab() {
+    var h = (location.hash || '').replace(/^#/, '');
+    return VALID.indexOf(h) >= 0 ? h : DEFAULT;
+  }
+
+  function activate(id) {
+    document.querySelectorAll('.security-panel').forEach(function (panel) {
+      var on = panel.id === id;
+      panel.hidden = !on;
+      panel.setAttribute('aria-hidden', on ? 'false' : 'true');
+    });
+    document.querySelectorAll('#security-tabs .tab').forEach(function (tab) {
+      var on = tab.getAttribute('data-tab') === id;
+      tab.classList.toggle('active', on);
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+
+  activate(currentTab());
+  window.addEventListener('hashchange', function () {
+    activate(currentTab());
+  });
+
   var rotateForm = document.getElementById('vault-key-rotate-form');
   if (rotateForm) {
     var bypassRotate = false;

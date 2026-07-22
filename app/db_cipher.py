@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import stat
+from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
@@ -30,6 +31,23 @@ _HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
 
 class DbEncryptionError(RuntimeError):
     """Fatal SQLCipher / DB encryption configuration error."""
+
+
+@dataclass(frozen=True)
+class DbEncryptionStatus:
+    """Read-only status for Admin → Sécurité (never includes key material)."""
+
+    enabled: bool
+    key_file_present: bool
+    env_configured: bool
+    source: str | None  # file | env | None
+    db_path: str | None
+    db_exists: bool
+    db_encrypted: bool | None
+    sqlcipher_available: bool
+    status_badge: str  # ok | warn | muted | error
+    status_label: str
+    keys_dir: str
 
 
 def _import_sqlcipher():
@@ -227,3 +245,74 @@ def assert_db_cipher_state(database_url: str, key_hex: str | None) -> None:
             f"{db_path} is still plaintext but a SQLCipher key is configured. "
             "Run scripts/encrypt_portal_db.py before starting the app / Alembic."
         )
+
+def _sqlcipher_available() -> bool:
+    try:
+        import importlib.util
+
+        return importlib.util.find_spec("sqlcipher3") is not None
+    except Exception:
+        return False
+
+
+def get_db_encryption_status(settings: Settings) -> DbEncryptionStatus:
+    """Build UI status for SQLCipher at-rest encryption (no key material exposed)."""
+    keys_dir = resolve_keys_dir(settings)
+    key_path = keys_dir / DB_ENCRYPTION_KEY_FILENAME
+    key_file_present = False
+    if key_path.is_file():
+        try:
+            key_file_present = bool(key_path.read_text(encoding="ascii").strip())
+        except OSError:
+            key_file_present = False
+    env_configured = bool((settings.vault_portal_db_encryption_key or "").strip())
+    enabled = key_file_present or env_configured
+    if key_file_present:
+        source: str | None = "file"
+    elif env_configured:
+        source = "env"
+    else:
+        source = None
+
+    sqlcipher_ok = _sqlcipher_available()
+    db_path: str | None = None
+    db_exists = False
+    db_encrypted: bool | None = None
+
+    if not is_memory_database_url(settings.database_url):
+        try:
+            path = sqlite_path_from_url(settings.database_url)
+            db_path = str(path)
+            if path.is_file() and path.stat().st_size > 0:
+                db_exists = True
+                db_encrypted = not probe_plaintext_readable(path)
+        except DbEncryptionError:
+            db_path = settings.database_url
+
+    if not enabled:
+        if db_exists and db_encrypted:
+            badge, label = "error", "Clé manquante"
+        else:
+            badge, label = "muted", "Désactivé (fichier en clair)"
+    elif not sqlcipher_ok:
+        badge, label = "error", "Driver SQLCipher manquant"
+    elif db_exists and db_encrypted is False:
+        badge, label = "warn", "Migration requise"
+    elif db_exists and db_encrypted:
+        badge, label = "ok", "Actif"
+    else:
+        badge, label = "ok", "Prêt"
+
+    return DbEncryptionStatus(
+        enabled=enabled,
+        key_file_present=key_file_present,
+        env_configured=env_configured,
+        source=source,
+        db_path=db_path,
+        db_exists=db_exists,
+        db_encrypted=db_encrypted,
+        sqlcipher_available=sqlcipher_ok,
+        status_badge=badge,
+        status_label=label,
+        keys_dir=str(keys_dir),
+    )

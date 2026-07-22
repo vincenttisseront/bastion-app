@@ -161,3 +161,6 @@ def test_admin_security_page_shows_enabled_when_seeded(
     assert "Activé" in resp.text
     assert "transfer.example.fr" in resp.text
     assert 'name="enabled"' in resp.text and "checked" in resp.text
+    assert 'id="security-tabs"' in resp.text
+    assert "Chiffrement au repos (SQLCipher)" in resp.text
+    assert "Désactivé (fichier en clair)" in resp.text or "Chiffrement DB" in resp.text
