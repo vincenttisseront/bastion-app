@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/bastion.css?v=20260722-alert-hidden">
+  <link rel="stylesheet" href="/static/css/bastion.css?v=20260722-global-search">
   {% block head_extra %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% if hide_chrome %}page-login{% else %}app-layout{% endif %}{% endblock %}">
@@ -37,11 +37,13 @@
   {% endif %}
 
   {% include 'partials/_bastion_modal.html' %}
+  {% include 'partials/_global_search_modal.html' %}
   {# Cache-bust when modal/password open flow changes — bump when editing bastion-modal.js #}
   <script src="/static/js/bastion-modal.js?v=20260721-identity-open"></script>
   <script src="/static/js/vendor/fuse.min.js"></script>
   <script src="/static/js/bastion-fuzzy-search.js?v=20260722-fuzzy"></script>
-  <script src="/static/js/bastion.js?v=20260722-fuzzy"></script>
+  <script src="/static/js/bastion-global-search.js?v=20260722-global"></script>
+  <script src="/static/js/bastion.js?v=20260722-global"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

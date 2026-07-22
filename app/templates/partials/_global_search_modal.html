@@ -1,0 +1,39 @@
+{# Global search modal — opened from #global-search-trigger in the admin topbar #}
+<div id="global-search-modal" class="bastion-modal global-search-modal" hidden aria-hidden="true">
+  <div class="bastion-modal-backdrop" data-global-search-dismiss></div>
+  <div
+    class="bastion-modal-dialog global-search-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="global-search-title"
+    tabindex="-1"
+  >
+    <div class="bastion-modal-header global-search-header">
+      <h2 id="global-search-title" class="bastion-modal-title visually-hidden">Recherche globale</h2>
+      <label class="topbar-search global-search-input-wrap" for="global-search-input">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="search" id="global-search-input" placeholder="Rechercher applications, utilisateurs…"
+               autocomplete="off" aria-label="Terme de recherche" aria-controls="global-search-results">
+      </label>
+      <button type="button" class="icon-btn global-search-close" data-global-search-dismiss aria-label="Fermer">
+        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="bastion-modal-body global-search-body" id="global-search-results" role="listbox" aria-live="polite">
+      <div class="global-search-hint" data-global-search-state="idle">
+        Saisissez au moins 2 caractères…
+      </div>
+      <div class="global-search-hint" data-global-search-state="loading" hidden>
+        Recherche…
+      </div>
+      <div class="global-search-hint" data-global-search-state="empty" hidden>
+        Aucun résultat
+      </div>
+      <div data-global-search-state="results" hidden></div>
+    </div>
+  </div>
+</div>

@@ -68,12 +68,12 @@ async def search_keycloak_users(
     return data if isinstance(data, list) else []
 
 
-def _fold_text(value: str) -> str:
-    """Lowercase + strip accents for fuzzy comparison (stdlib only)."""
-    import unicodedata
+from app.search_fuzzy import fold_text, score_query_against_fields
 
-    norm = unicodedata.normalize("NFKD", value or "")
-    return "".join(c for c in norm if not unicodedata.combining(c)).casefold()
+
+def _fold_text(value: str) -> str:
+    """Backward-compatible alias — prefer app.search_fuzzy.fold_text."""
+    return fold_text(value)
 
 
 def _user_search_fields(user: dict) -> list[str]:
@@ -93,22 +93,7 @@ def _user_search_fields(user: dict) -> list[str]:
 
 def score_user_against_query(query: str, user: dict) -> float:
     """difflib ratio in [0, 1] — best field match (substring boost)."""
-    from difflib import SequenceMatcher
-
-    q = _fold_text(query)
-    if not q:
-        return 0.0
-    best = 0.0
-    for field in _user_search_fields(user):
-        f = _fold_text(field)
-        if not f:
-            continue
-        if q == f:
-            return 1.0
-        if q in f:
-            best = max(best, 0.92)
-        best = max(best, SequenceMatcher(None, q, f).ratio())
-    return best
+    return score_query_against_fields(query, _user_search_fields(user))
 
 
 async def search_keycloak_users_fuzzy(

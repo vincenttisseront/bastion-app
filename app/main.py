@@ -28,6 +28,7 @@ from app.web.admin_logs import router as admin_logs_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context
+from app.web.global_search import router as global_search_router
 from app.web.health_service import router as health_router
 from app.web.metrics_service import router as metrics_router
 from app.web.pages import router as pages_router
@@ -144,6 +145,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 app.include_router(pages_router)
 app.include_router(portal_router)
+app.include_router(global_search_router)
 app.include_router(health_router)
 app.include_router(admin_realms_router)
 app.include_router(infrastructure_router)
