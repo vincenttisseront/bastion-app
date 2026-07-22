@@ -147,11 +147,16 @@
         cp -a "${root}/${d}" "${work}/"
       fi
     done
-    for f in Dockerfile docker-compose.yml docker-compose.publish.yml pyproject.toml alembic.ini README.md; do
+    for f in Dockerfile docker-compose.yml docker-compose.publish.yml pyproject.toml \
+      alembic.ini README.md package.json package-lock.json .dockerignore; do
       if [ -f "${root}/${f}" ]; then
         cp -a "${root}/${f}" "${work}/"
       fi
     done
+    # Manifestes npm requis pour Admin → Dépendances (COPY dans le Dockerfile runtime).
+    test -f "${work}/pyproject.toml"
+    test -f "${work}/package.json"
+    test -f "${work}/package-lock.json"
     # Ne jamais embarquer secrets / data / caches
     rm -rf "${work}/.git" "${work}/.venv" "${work}/node_modules" "${work}/data" \
       "${work}/docker/oauth2-core/oauth2-proxy.cfg" 2>/dev/null || true
