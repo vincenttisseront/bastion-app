@@ -30,6 +30,7 @@ class AppCreate(BaseModel):
     login_extra_fields: str | None = None
     login_http_method: str = "POST"
     credential_mode: Literal["shared", "individual_required", "identite_utilisateur"] = "shared"
+    identity_format: Literal["email", "username"] = "email"
     healthcheck_url: str | None = None
     enabled: bool = True
     tile_icon: str | None = None
@@ -51,6 +52,7 @@ class AppUpdate(BaseModel):
     login_extra_fields: str | None = None
     login_http_method: str | None = None
     credential_mode: Literal["shared", "individual_required", "identite_utilisateur"] | None = None
+    identity_format: Literal["email", "username"] | None = None
     healthcheck_url: str | None = None
     enabled: bool | None = None
     tile_icon: str | None = None
@@ -73,6 +75,7 @@ class AppOut(BaseModel):
     login_extra_fields: str | None = None
     login_http_method: str = "POST"
     credential_mode: str = "shared"
+    identity_format: str = "email"
     healthcheck_url: str | None
     enabled: bool
     tile_icon: str | None

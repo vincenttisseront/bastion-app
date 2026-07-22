@@ -157,6 +157,7 @@
     var sharedFields = document.getElementById('shared-credential-fields');
     var modeHint = document.getElementById('shared-credential-disabled-hint');
     var identityHint = document.getElementById('identity-credential-hint');
+    var identityFormatFields = document.getElementById('identity-format-fields');
     var form = document.getElementById('app-form');
     var initialMode = modeSelect ? modeSelect.value : 'shared';
 
@@ -165,6 +166,7 @@
       var disableShared = mode === 'individual_required' || mode === 'identite_utilisateur';
       if (modeHint) modeHint.hidden = mode !== 'individual_required';
       if (identityHint) identityHint.hidden = mode !== 'identite_utilisateur';
+      if (identityFormatFields) identityFormatFields.hidden = mode !== 'identite_utilisateur';
       if (userInput) userInput.disabled = disableShared;
       if (passInput) passInput.disabled = disableShared;
       if (saveBtn) saveBtn.disabled = disableShared;

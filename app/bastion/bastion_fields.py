@@ -38,6 +38,17 @@ CREDENTIAL_MODE_LABELS: dict[str, str] = {
     "identite_utilisateur": "Identité utilisateur (mot de passe à la demande)",
 }
 
+# How identite_utilisateur maps OIDC session → robotic/LDAPS login name.
+IDENTITY_FORMATS: tuple[str, ...] = (
+    "email",  # UPN / mail — default (Grommunio, most LDAPS)
+    "username",  # short preferred_username / sAMAccountName-style
+)
+
+IDENTITY_FORMAT_LABELS: dict[str, str] = {
+    "email": "Email / UPN complet (ex. user@domaine.fr)",
+    "username": "Identifiant court (preferred_username)",
+}
+
 LOGIN_HTTP_METHODS: frozenset[str] = frozenset({"POST", "GET"})
 
 
@@ -57,6 +68,46 @@ def normalize_credential_mode(value: str | None) -> str:
     if lowered in CREDENTIAL_MODES:
         return lowered
     return "shared"
+
+
+def normalize_identity_format(value: str | None) -> str:
+    if not value:
+        return "email"
+    lowered = value.strip().lower()
+    if lowered in IDENTITY_FORMATS:
+        return lowered
+    return "email"
+
+
+def resolve_identity_login_username(
+    *,
+    email: str | None,
+    username: str | None,
+    identity_format: str | None = "email",
+) -> str:
+    """
+    Build the robotic/LDAPS login id from the OIDC session.
+
+    Default ``email`` matches sessions/audit (user.email) and LDAPS UPN apps
+    such as Grommunio. ``username`` keeps the short preferred_username.
+    """
+    fmt = normalize_identity_format(identity_format)
+    mail = (email or "").strip()
+    short = (username or "").strip()
+
+    if fmt == "username":
+        if short and "@" not in short:
+            return short
+        if mail and "@" in mail:
+            return mail.split("@", 1)[0]
+        return short or mail
+
+    # email / UPN
+    if mail and "@" in mail:
+        return mail
+    if short and "@" in short:
+        return short
+    return mail or short
 
 
 def resolve_robotic_driver(auth_mode: str, existing: str | None = None) -> str | None:

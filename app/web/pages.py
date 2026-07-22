@@ -10,6 +10,7 @@ from app.access_modes import normalize_access_mode, validate_app_access_fields
 from app.bastion.bastion_fields import (
     normalize_auth_mode,
     normalize_credential_mode,
+    normalize_identity_format,
     resolve_robotic_driver,
     validate_generic_form_fields,
     vault_enabled_for_app,
@@ -131,6 +132,7 @@ def _apply_auth_config(
     login_http_method: str,
     login_extra_fields: str,
     credential_mode: str = "shared",
+    identity_format: str = "email",
 ) -> None:
     mode = normalize_auth_mode(auth_mode)
     app.auth_mode = mode
@@ -141,6 +143,7 @@ def _apply_auth_config(
     app.login_http_method = (login_http_method or "POST").strip().upper()
     app.login_extra_fields = (login_extra_fields or "").strip() or None
     app.credential_mode = normalize_credential_mode(credential_mode)
+    app.identity_format = normalize_identity_format(identity_format)
 
 
 def _validate_auth_fields(
@@ -680,6 +683,7 @@ def admin_apps_edit_post(
     login_http_method: str = Form("POST"),
     login_extra_fields: str = Form(""),
     credential_mode: str = Form("shared"),
+    identity_format: str = Form("email"),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -719,6 +723,7 @@ def admin_apps_edit_post(
             login_http_method=login_http_method,
             login_extra_fields=login_extra_fields,
             credential_mode=credential_mode,
+            identity_format=identity_format,
         )
         return render(
             "admin/apps/edit.html",
@@ -746,6 +751,7 @@ def admin_apps_edit_post(
         login_http_method=login_http_method,
         login_extra_fields=login_extra_fields,
         credential_mode=credential_mode,
+        identity_format=identity_format,
     )
     db.commit()
     _warn_if_fqdn_cookie_domain_incompatible(

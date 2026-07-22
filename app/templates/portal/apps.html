@@ -56,6 +56,7 @@
         data-app-slug="{{ app.slug }}"
         data-credential-mode="identite_utilisateur"
         data-app-label="{{ app.label }}"
+        data-identity-username="{{ app.identity_login }}"
         data-open-with-identity
         data-open-identity-url="/api/apps/{{ app.slug }}/open-with-identity"
         {% if app.access_mode != 'legacy_path_proxy' %}data-open-target="_blank"{% endif %}
@@ -132,8 +133,6 @@
 {% block scripts %}
 <script>
 (function () {
-  var identityUsername = {{ (identity_username or '') | tojson }};
-
   function csrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
     return (meta && meta.content) || '';
@@ -238,6 +237,7 @@
   async function openWithIdentity(tile) {
     var slug = tile.getAttribute('data-app-slug');
     var label = tile.getAttribute('data-app-label') || slug;
+    var identityUsername = tile.getAttribute('data-identity-username') || '';
     var endpoint =
       tile.getAttribute('data-open-identity-url') ||
       ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');

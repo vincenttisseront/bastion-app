@@ -43,6 +43,8 @@ class App(Base):
     login_extra_fields = Column(Text, nullable=True)
     login_http_method = Column(String, default="POST", nullable=False)
     credential_mode = Column(String, default="shared", nullable=False)
+    # identite_utilisateur: "email" (UPN) or "username" (short preferred_username)
+    identity_format = Column(String, default="email", nullable=False)
     healthcheck_url = Column(String, nullable=True)
     enabled = Column(Boolean, default=True)
     tile_icon = Column(String, nullable=True)

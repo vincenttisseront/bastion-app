@@ -13,7 +13,10 @@ from app.admin.throttling import (
     record_identity_failure,
 )
 from app.audit import log_action
-from app.bastion.bastion_fields import normalize_credential_mode
+from app.bastion.bastion_fields import (
+    normalize_credential_mode,
+    resolve_identity_login_username,
+)
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.robotic.impersonate_service import (
@@ -53,9 +56,13 @@ def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
 
 
-def _oidc_login_username(user: UserContext) -> str:
-    """Preferred Keycloak login id for apps sharing the IdP identity."""
-    return (user.username or user.email or "").strip()
+def _oidc_login_username(user: UserContext, identity_format: str | None = "email") -> str:
+    """OIDC session → LDAPS/robotic login (default: full email/UPN like sessions)."""
+    return resolve_identity_login_username(
+        email=user.email,
+        username=user.username,
+        identity_format=identity_format,
+    )
 
 
 def _identity_user_key(user: UserContext) -> str:
@@ -305,7 +312,7 @@ async def open_with_identity(
             headers={"Retry-After": str(int(wait) + 1)},
         )
 
-    username = _oidc_login_username(user)
+    username = _oidc_login_username(user, getattr(app, "identity_format", None))
     if not username:
         return JSONResponse(
             {

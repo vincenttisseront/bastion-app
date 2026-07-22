@@ -15,6 +15,7 @@ from app.admin.throttling import (
 )
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPSession
+from app.bastion.bastion_fields import resolve_identity_login_username
 from app.models import App, AppGroup, AuditLog, RBACGroup
 from app.rbac.grants_service import AccessGrantCreate, create_grant
 from app.robotic.impersonate_service import (
@@ -33,10 +34,13 @@ KC_USER = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff0001"
 
 USER_HEADERS = {
     "X-Email": "vincent.tisseront@ar-systems.fr",
-    "X-Preferred-Username": "vincent.tisseront@ar-systems.fr",
+    # Short preferred_username (Keycloak often sends local-part only)
+    "X-Preferred-Username": "vincent.tisseront",
     "X-Groups": "transfer-users",
     "X-User-Id": KC_USER,
 }
+
+FULL_EMAIL = "vincent.tisseront@ar-systems.fr"
 
 
 @pytest.fixture(autouse=True)
@@ -136,6 +140,25 @@ async def test_identity_login_failure_is_generic(db_session: Session, caplog):
     assert WRONG_PASSWORD not in str(audit.details)
 
 
+def test_resolve_identity_login_username_prefers_email_by_default():
+    assert (
+        resolve_identity_login_username(
+            email=FULL_EMAIL,
+            username="vincent.tisseront",
+            identity_format="email",
+        )
+        == FULL_EMAIL
+    )
+    assert (
+        resolve_identity_login_username(
+            email=FULL_EMAIL,
+            username="vincent.tisseront",
+            identity_format="username",
+        )
+        == "vincent.tisseront"
+    )
+
+
 def test_open_with_identity_uses_session_username_not_body(
     client: TestClient, db_session: Session
 ):
@@ -153,7 +176,7 @@ def test_open_with_identity_uses_session_username_not_body(
         ),
         patch(
             "app.robotic.impersonate_service.CrushFTPDriver.get_username",
-            new=AsyncMock(return_value="vincent.tisseront@ar-systems.fr"),
+            new=AsyncMock(return_value=FULL_EMAIL),
         ),
         patch(
             "app.robotic.impersonate_service.CrushFTPDriver.logout",
@@ -176,9 +199,10 @@ def test_open_with_identity_uses_session_username_not_body(
     assert body["target_url"] == "/proxy/grommunio/"
     login_mock.assert_awaited_once()
     args = login_mock.await_args.args
-    assert args[1] == "vincent.tisseront@ar-systems.fr"
+    assert args[1] == FULL_EMAIL
     assert args[2] == SECRET_PASSWORD
     assert "attacker-spoofed" not in str(args)
+    assert args[1] != "vincent.tisseront"  # must not use short preferred_username
 
 
 def test_open_with_identity_password_absent_from_logs(
@@ -271,7 +295,7 @@ def test_open_with_identity_success_redirect_and_cookies(
         ),
         patch(
             "app.robotic.impersonate_service.CrushFTPDriver.get_username",
-            new=AsyncMock(return_value="vincent.tisseront@ar-systems.fr"),
+            new=AsyncMock(return_value=FULL_EMAIL),
         ),
         patch(
             "app.robotic.impersonate_service.CrushFTPDriver.logout",
@@ -381,6 +405,8 @@ def test_portal_identity_tile_has_no_impersonate_href(
     assert "data-open-with-identity" in html
     assert 'data-open-identity-url="/api/apps/grommunio/open-with-identity"' in html
     assert 'data-credential-mode="identite_utilisateur"' in html
+    assert f'data-identity-username="{FULL_EMAIL}"' in html
+    assert 'data-identity-username="vincent.tisseront"' not in html
     assert "/api/internal/impersonate/grommunio" not in html
     assert 'href="/api/internal/impersonate/grommunio"' not in html
     assert "bastionPasswordPrompt" in html

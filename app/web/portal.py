@@ -69,7 +69,10 @@ def _portal_page_ctx(
 
 
 def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
-    from app.bastion.bastion_fields import normalize_credential_mode
+    from app.bastion.bastion_fields import (
+        normalize_credential_mode,
+        resolve_identity_login_username,
+    )
     from app.web.app_logos import logo_public_url
     from app.vault.user_app_credential_service import needs_individual_credential_setup
 
@@ -85,6 +88,13 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
         )
         can_launch = entry.can_launch and not needs_credential_setup
         cred_mode = normalize_credential_mode(entry.app.credential_mode)
+        identity_login = ""
+        if cred_mode == "identite_utilisateur":
+            identity_login = resolve_identity_login_username(
+                email=user.email,
+                username=user.username,
+                identity_format=getattr(entry.app, "identity_format", None),
+            )
         tiles.append(
             {
                 "id": entry.app.id,
@@ -97,6 +107,7 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
                 "can_launch": can_launch,
                 "needs_credential_setup": needs_credential_setup,
                 "credential_mode": cred_mode,
+                "identity_login": identity_login,
                 "launch_url": app_launch_url(entry.app),
                 "logo_url": logo_public_url(entry.app),
                 "tile_icon": entry.app.tile_icon,
@@ -133,7 +144,6 @@ def apps_portal(
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
-    identity_username = (user.username or user.email or "").strip()
     return render(
         "portal/apps.html",
         **_portal_page_ctx(
@@ -143,7 +153,6 @@ def apps_portal(
             portal_admin=portal_admin,
             apps=tiles,
             greeting_name=user.first_name,
-            identity_username=identity_username,
         ),
     )
 

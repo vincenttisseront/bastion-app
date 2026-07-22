@@ -13,6 +13,8 @@ from app.bastion.bastion_fields import (
     AUTH_MODES,
     CREDENTIAL_MODE_LABELS,
     CREDENTIAL_MODES,
+    IDENTITY_FORMAT_LABELS,
+    IDENTITY_FORMATS,
 )
 
 FLASH_COOKIE = "portal_flash"
@@ -114,6 +116,8 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "auth_mode_labels": AUTH_MODE_LABELS,
         "credential_modes": CREDENTIAL_MODES,
         "credential_mode_labels": CREDENTIAL_MODE_LABELS,
+        "identity_formats": IDENTITY_FORMATS,
+        "identity_format_labels": IDENTITY_FORMAT_LABELS,
         "portal_domain": getattr(settings, "portal_domain", "") or "",
         **extra,
     }
