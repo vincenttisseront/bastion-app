@@ -21,7 +21,5 @@ portal.db
 ansible
 docker/nginx
 playwright.config.ts
-package.json
-package-lock.json
 CURSOR_CONTEXT.md
 **/.DS_Store
