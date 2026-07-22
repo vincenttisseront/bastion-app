@@ -7,9 +7,10 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Dépendances</h1>
-      <p class="page-sub">
-        {{ python_count }} paquet{{ 's' if python_count != 1 else '' }} Python
-        · {{ npm_count }} paquet{{ 's' if npm_count != 1 else '' }} npm
+      <p class="page-sub" id="dep-summary-line">
+        {{ summary.total }} package{{ 's' if summary.total != 1 else '' }}
+        · {{ summary.outdated }} MAJ disponible{{ 's' if summary.outdated != 1 else '' }}
+        · {{ summary.up_to_date }} à jour
         {% if last_checked_at %}
         · dernière vérif. {{ last_checked_at }}
         {% else %}
@@ -21,7 +22,8 @@
       <form method="post" action="/admin/dependencies/refresh" style="margin:0;">
         <button type="submit" class="btn btn-primary btn-sm">Actualiser</button>
       </form>
-      <a href="/admin/dependencies/export.json" class="btn btn-ghost btn-sm">Exporter JSON</a>
+      <a href="/admin/dependencies/export.json?status=outdated" class="btn btn-secondary btn-sm">Export MAJ (JSON)</a>
+      <a href="/admin/dependencies/export.json" class="btn btn-ghost btn-sm">Export tout (JSON)</a>
     </div>
   </div>
 
@@ -30,12 +32,19 @@
       <label class="form-label" for="dep-filter-q">Recherche</label>
       <input type="search" id="dep-filter-q" class="form-input" placeholder="Nom du paquet…" autocomplete="off">
     </div>
-    <div class="form-group" style="margin:0;min-width:180px;">
-      <label class="form-label" for="dep-filter-status">Statut</label>
-      <select id="dep-filter-status" class="form-input">
-        <option value="all">Tous</option>
-        <option value="outdated">Obsolètes seulement</option>
-      </select>
+    <div class="form-group" style="margin:0;">
+      <label class="form-label">Filtre</label>
+      <div style="display:flex;gap:var(--sp-2);">
+        <button type="button" class="btn {% if summary.outdated %}btn-secondary{% else %}btn-ghost{% endif %} btn-sm dep-filter-btn{% if summary.outdated %} active{% endif %}" data-filter="outdated" id="dep-filter-outdated">MAJ disponibles</button>
+        <button type="button" class="btn {% if summary.outdated %}btn-ghost{% else %}btn-secondary{% endif %} btn-sm dep-filter-btn{% if not summary.outdated %} active{% endif %}" data-filter="all" id="dep-filter-all">Tous</button>
+      </div>
+    </div>
+    <div class="form-group" style="margin:0;margin-left:auto;">
+      <label class="form-label">Plan de MAJ</label>
+      <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;">
+        <button type="button" class="btn btn-ghost btn-sm" id="dep-select-outdated">Tout sélectionner (MAJ)</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="dep-export-plan">Exporter le plan (JSON)</button>
+      </div>
     </div>
   </div>
 
@@ -56,11 +65,13 @@
       <table class="data-table dep-table" data-sortable>
         <thead>
           <tr>
+            <th style="width:2.5rem;" title="Plan de MAJ"></th>
             <th data-sort="name">Paquet</th>
             <th data-sort="type">Type</th>
-            <th>Version actuelle</th>
-            <th>Dernière version</th>
-            <th data-sort="status">Statut</th>
+            <th>Déclaré</th>
+            <th>Installé</th>
+            <th>Dernière</th>
+            <th data-sort="status">MAJ</th>
           </tr>
         </thead>
         <tbody>
@@ -69,8 +80,20 @@
             class="{% if p.is_major %}dep-row-major{% endif %}"
             data-name="{{ p.name | lower }}"
             data-status="{{ p.status }}"
+            data-outdated="{{ '1' if p.is_outdated else '0' }}"
+            data-ecosystem="{{ p.ecosystem }}"
+            data-pkg-name="{{ p.name }}"
+            data-type="{{ p.dep_type }}"
+            data-declared="{{ p.declared_version }}"
+            data-current="{{ p.current_version }}"
+            data-latest="{{ p.latest_version }}"
             data-status-rank="{% if p.status == 'outdated_major' %}4{% elif p.status == 'outdated_minor' %}3{% elif p.status == 'outdated_patch' %}2{% elif p.status == 'up_to_date' %}1{% else %}0{% endif %}"
           >
+            <td>
+              {% if p.is_outdated and p.latest_version %}
+              <input type="checkbox" class="dep-plan-check" aria-label="Inclure {{ p.name }} dans le plan de MAJ">
+              {% endif %}
+            </td>
             <td>
               <div style="font-weight:600;">{{ p.name }}</div>
               {% if p.notes == 'unlocked' %}
@@ -82,16 +105,35 @@
               <div class="form-help" style="color:var(--danger, #b91c1c);" title="{{ p.check_error }}">Erreur de lookup</div>
               {% endif %}
             </td>
-            <td><span class="badge badge-muted">{{ p.dep_type }}</span></td>
+            <td><span class="badge badge-muted">{{ p.type_label }}</span></td>
+            <td class="mono">{{ p.declared_version or '—' }}</td>
             <td class="mono">{{ p.current_version }}</td>
-            <td class="mono">{% if p.latest_version %}{{ p.latest_version }}{% else %}—{% endif %}</td>
+            <td class="mono">
+              {% if p.latest_version %}
+                {{ p.latest_version }}
+                {% if p.is_outdated %}
+                <span class="badge badge-{{ p.badge }}" style="margin-left:6px;">{{ p.status_label }}</span>
+                {% endif %}
+              {% else %}
+                —
+                {% if p.status == 'unknown' %}
+                <span class="badge badge-muted" style="margin-left:6px;">n/a</span>
+                {% endif %}
+              {% endif %}
+            </td>
             <td>
-              <span class="badge badge-{{ p.badge }}">{{ p.status_label }}</span>
+              {% if p.is_outdated %}
+              <span class="badge badge-{{ p.badge }}">MAJ</span>
+              {% elif p.status == 'up_to_date' %}
+              <span class="badge badge-ok">ok</span>
+              {% else %}
+              <span class="badge badge-muted">—</span>
+              {% endif %}
             </td>
           </tr>
           {% else %}
           <tr class="dep-empty-row">
-            <td colspan="5">
+            <td colspan="7">
               <div class="empty-state">
                 <div class="empty-icon">
                   <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
@@ -119,6 +161,7 @@
 <style>
   .dep-row-major td { background: color-mix(in srgb, var(--danger, #b91c1c) 6%, transparent); }
   #dep-tabs .tab { cursor: pointer; border: none; background: transparent; font: inherit; color: inherit; }
+  .dep-filter-btn.active { outline: 2px solid var(--accent, #2563eb); outline-offset: 1px; }
 </style>
 
 <script>
@@ -128,6 +171,8 @@
     python: document.getElementById('panel-python'),
     npm: document.getElementById('panel-npm')
   };
+  var filterMode = {{ ('outdated' if summary.outdated else 'all') | tojson }};
+  var qInput = document.getElementById('dep-filter-q');
 
   function activate(name) {
     tabs.forEach(function (t) {
@@ -146,24 +191,81 @@
     t.addEventListener('click', function () { activate(t.getAttribute('data-tab')); });
   });
 
-  var qInput = document.getElementById('dep-filter-q');
-  var statusSelect = document.getElementById('dep-filter-status');
-
   function applyFilters() {
     var q = (qInput && qInput.value || '').trim().toLowerCase();
-    var statusMode = statusSelect && statusSelect.value || 'all';
     document.querySelectorAll('.dep-table tbody tr[data-name]').forEach(function (tr) {
       var name = tr.getAttribute('data-name') || '';
-      var st = tr.getAttribute('data-status') || '';
-      var outdated = st.indexOf('outdated_') === 0;
+      var outdated = tr.getAttribute('data-outdated') === '1';
       var matchQ = !q || name.indexOf(q) !== -1;
-      var matchS = statusMode !== 'outdated' || outdated;
+      var matchS = filterMode !== 'outdated' || outdated;
       tr.hidden = !(matchQ && matchS);
     });
   }
 
+  document.querySelectorAll('.dep-filter-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      filterMode = btn.getAttribute('data-filter') || 'all';
+      document.querySelectorAll('.dep-filter-btn').forEach(function (b) {
+        b.classList.toggle('active', b === btn);
+        b.classList.toggle('btn-secondary', b === btn);
+        b.classList.toggle('btn-ghost', b !== btn);
+      });
+      applyFilters();
+    });
+  });
+
   if (qInput) qInput.addEventListener('input', applyFilters);
-  if (statusSelect) statusSelect.addEventListener('change', applyFilters);
+  applyFilters();
+
+  var selectBtn = document.getElementById('dep-select-outdated');
+  if (selectBtn) {
+    selectBtn.addEventListener('click', function () {
+      document.querySelectorAll('.dep-table tbody tr[data-outdated="1"]').forEach(function (tr) {
+        var cb = tr.querySelector('.dep-plan-check');
+        if (cb && !tr.hidden) cb.checked = true;
+      });
+    });
+  }
+
+  var exportPlanBtn = document.getElementById('dep-export-plan');
+  if (exportPlanBtn) {
+    exportPlanBtn.addEventListener('click', function () {
+      var packages = [];
+      document.querySelectorAll('.dep-plan-check:checked').forEach(function (cb) {
+        var tr = cb.closest('tr');
+        if (!tr) return;
+        packages.push({
+          ecosystem: tr.getAttribute('data-ecosystem'),
+          name: tr.getAttribute('data-pkg-name'),
+          type: tr.getAttribute('data-type'),
+          declared_version: tr.getAttribute('data-declared'),
+          current_version: tr.getAttribute('data-current'),
+          target_version: tr.getAttribute('data-latest'),
+          status: tr.getAttribute('data-status')
+        });
+      });
+      if (!packages.length) {
+        window.alert('Sélectionnez au moins un paquet obsolète (case à cocher) pour exporter le plan.');
+        return;
+      }
+      var payload = {
+        generated_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+        kind: 'upgrade_plan',
+        note: 'Export manuel uniquement — aucune installation déclenchée depuis Bastion.',
+        packages: packages
+      };
+      var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      var day = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = 'bastion-dependencies-plan-' + day + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+  }
 
   document.querySelectorAll('.dep-table[data-sortable] th[data-sort]').forEach(function (th) {
     th.style.cursor = 'pointer';
@@ -181,8 +283,8 @@
           av = a.getAttribute('data-name') || '';
           bv = b.getAttribute('data-name') || '';
         } else if (key === 'type') {
-          av = a.children[1].textContent.trim().toLowerCase();
-          bv = b.children[1].textContent.trim().toLowerCase();
+          av = a.getAttribute('data-type') || '';
+          bv = b.getAttribute('data-type') || '';
         } else {
           av = parseInt(a.getAttribute('data-status-rank') || '0', 10);
           bv = parseInt(b.getAttribute('data-status-rank') || '0', 10);

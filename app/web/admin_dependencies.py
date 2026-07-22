@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.admin.dependencies_service import (
+    ManifestMissingError,
+    count_summary,
     last_checked_summary,
     list_snapshots,
     refresh_latest_versions,
@@ -25,10 +27,10 @@ router = APIRouter(tags=["admin-dependencies"])
 
 _STATUS_LABELS = {
     "up_to_date": "À jour",
-    "outdated_patch": "Patch",
-    "outdated_minor": "Mineur",
-    "outdated_major": "Majeur",
-    "unknown": "Inconnu",
+    "outdated_patch": "patch",
+    "outdated_minor": "minor",
+    "outdated_major": "major",
+    "unknown": "n/a",
 }
 
 _STATUS_BADGE = {
@@ -39,12 +41,20 @@ _STATUS_BADGE = {
     "unknown": "muted",
 }
 
+_TYPE_LABELS = {
+    "runtime": "prod",
+    "dev": "dev",
+}
+
 
 def _row_view(row) -> dict:
+    outdated = (row.status or "").startswith("outdated_")
     return {
         "ecosystem": row.ecosystem,
         "name": row.name,
         "dep_type": row.dep_type,
+        "type_label": _TYPE_LABELS.get(row.dep_type, row.dep_type),
+        "declared_version": row.declared_version or "",
         "current_version": row.current_version,
         "latest_version": row.latest_version or "",
         "status": row.status,
@@ -56,6 +66,7 @@ def _row_view(row) -> dict:
             row.last_checked_at.strftime("%Y-%m-%d %H:%M UTC") if row.last_checked_at else ""
         ),
         "is_major": row.status == "outdated_major",
+        "is_outdated": outdated,
     }
 
 
@@ -70,6 +81,7 @@ def admin_dependencies_page(
     python_rows = [_row_view(r) for r in rows if r.ecosystem == "python"]
     npm_rows = [_row_view(r) for r in rows if r.ecosystem == "npm"]
     last_at = last_checked_summary(rows)
+    summary = count_summary(rows)
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/dependencies.html",
@@ -78,6 +90,7 @@ def admin_dependencies_page(
         npm_packages=npm_rows,
         python_count=len(python_rows),
         npm_count=len(npm_rows),
+        summary=summary,
         last_checked_at=last_at.strftime("%Y-%m-%d %H:%M UTC") if last_at else None,
         has_snapshots=bool(rows),
     )
@@ -91,8 +104,12 @@ def admin_dependencies_refresh(
     _user=Depends(require_admin),
 ):
     token = settings.vault_portal_internal_token or "dev"
-    result = refresh_latest_versions(db)
     response = RedirectResponse(url="/admin/dependencies", status_code=302)
+    try:
+        result = refresh_latest_versions(db)
+    except ManifestMissingError as exc:
+        flash_redirect(response, str(exc), "error", token)
+        return response
     if result.get("throttled"):
         flash_redirect(response, result["message"], "error", token)
     elif result.get("errors"):
@@ -117,7 +134,8 @@ def admin_dependencies_export(
     rows = list_snapshots(db, outdated_only=outdated_only)
     payload = snapshots_to_export(rows)
     date_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    filename = f"bastion-dependencies-{date_stamp}.json"
+    suffix = "-outdated" if outdated_only else ""
+    filename = f"bastion-dependencies{suffix}-{date_stamp}.json"
     return JSONResponse(
         content=payload,
         headers={

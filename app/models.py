@@ -331,7 +331,8 @@ class DependencySnapshot(Base):
     id = Column(Integer, primary_key=True)
     ecosystem = Column(String, nullable=False, index=True)  # python | npm
     name = Column(String, nullable=False)
-    current_version = Column(String, nullable=False)
+    declared_version = Column(String, nullable=True)  # constraint from manifest (^x / >=y)
+    current_version = Column(String, nullable=False)  # installed / locked
     latest_version = Column(String, nullable=True)
     dep_type = Column(String, nullable=False, default="runtime")  # runtime | dev
     status = Column(String, nullable=False, default="unknown")

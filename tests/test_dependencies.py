@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.admin.dependencies_service import (
     LocalDependency,
+    ManifestMissingError,
     compute_status,
     fetch_npm_latest,
     fetch_pypi_latest,
@@ -40,6 +41,23 @@ def _reset_dep_throttle():
     reset_throttles()
     yield
     reset_throttles()
+
+
+def _dep(
+    ecosystem: str,
+    name: str,
+    current: str,
+    dep_type: str,
+    *,
+    declared: str | None = None,
+) -> LocalDependency:
+    return LocalDependency(
+        ecosystem=ecosystem,
+        name=name,
+        declared_version=declared if declared is not None else current,
+        current_version=current,
+        dep_type=dep_type,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -103,8 +121,10 @@ dev = [
     deps = parse_python_dependencies(pyproject, version_resolver=resolver)
     by_name = {d.name: d for d in deps}
     assert by_name["fastapi"].current_version == "0.115.0"
+    assert by_name["fastapi"].declared_version == ">=0.115"
     assert by_name["fastapi"].dep_type == "runtime"
     assert by_name["uvicorn"].current_version == "0.49.0"
+    assert by_name["uvicorn"].declared_version == "[standard]>=0.49"
     assert by_name["PyJWT"].current_version == "2.9.0"
     assert by_name["pytest"].dep_type == "dev"
     assert by_name["pytest"].current_version == "8.3.3"
@@ -125,7 +145,20 @@ dependencies = ["totally-missing-pkg>=1.0"]
     assert len(deps) == 1
     assert deps[0].name == "totally-missing-pkg"
     assert deps[0].notes == "not_installed"
-    assert "totally-missing-pkg" in deps[0].current_version
+    assert deps[0].declared_version == ">=1.0"
+    assert deps[0].current_version == "—"
+
+
+def test_parse_python_manifest_missing_raises(tmp_path: Path):
+    missing = tmp_path / "no-such-pyproject.toml"
+    with pytest.raises(ManifestMissingError) as exc:
+        parse_python_dependencies(missing)
+    assert "pyproject.toml" in str(exc.value).lower() or "introuvable" in str(exc.value)
+
+
+def test_parse_python_manifest_missing_silent_when_optional(tmp_path: Path):
+    missing = tmp_path / "no-such-pyproject.toml"
+    assert parse_python_dependencies(missing, require_manifest=False) == []
 
 
 def test_parse_python_real_pyproject():
@@ -134,6 +167,7 @@ def test_parse_python_real_pyproject():
     names = {d.name.lower() for d in deps}
     assert "fastapi" in names
     assert "pytest" in names
+    assert all(d.declared_version for d in deps)
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +202,7 @@ def test_parse_npm_with_lockfile(tmp_path: Path):
     deps = parse_npm_dependencies(tmp_path / "package.json", repo_root=tmp_path)
     by_name = {d.name: d for d in deps}
     assert by_name["left-pad"].current_version == "1.3.0"
+    assert by_name["left-pad"].declared_version == "^1.3.0"
     assert by_name["left-pad"].dep_type == "runtime"
     assert by_name["@playwright/test"].current_version == "1.49.1"
     assert by_name["@playwright/test"].dep_type == "dev"
@@ -182,7 +217,13 @@ def test_parse_npm_without_lockfile_unlocked(tmp_path: Path):
     deps = parse_npm_dependencies(tmp_path / "package.json", repo_root=tmp_path)
     assert len(deps) == 1
     assert deps[0].notes == "unlocked"
+    assert deps[0].declared_version == "^1.49.0"
     assert deps[0].current_version == "^1.49.0"
+
+
+def test_parse_npm_manifest_missing_raises(tmp_path: Path):
+    with pytest.raises(ManifestMissingError):
+        parse_npm_dependencies(tmp_path / "missing-package.json", repo_root=tmp_path)
 
 
 def test_parse_npm_real_package_json():
@@ -192,6 +233,7 @@ def test_parse_npm_real_package_json():
     pw = next(d for d in deps if d.name == "@playwright/test")
     assert pw.notes is None  # package-lock.json present at repo root
     assert pw.current_version  # locked version
+    assert pw.declared_version.startswith("^")
 
 
 # ---------------------------------------------------------------------------
@@ -236,11 +278,11 @@ def test_fetch_pypi_timeout():
 @respx.mock
 def test_refresh_latest_versions_partial_errors(db_session: Session):
     python_deps = [
-        LocalDependency("python", "fastapi", "0.115.0", "runtime"),
-        LocalDependency("python", "missing-pkg", "1.0.0", "runtime"),
+        _dep("python", "fastapi", "0.115.0", "runtime", declared=">=0.115"),
+        _dep("python", "missing-pkg", "1.0.0", "runtime", declared=">=1.0"),
     ]
     npm_deps = [
-        LocalDependency("npm", "@playwright/test", "1.49.0", "dev"),
+        _dep("npm", "@playwright/test", "1.49.0", "dev", declared="^1.49.0"),
     ]
     respx.get("https://pypi.org/pypi/fastapi/json").mock(
         return_value=httpx.Response(200, json={"info": {"version": "0.118.2"}})
@@ -265,6 +307,7 @@ def test_refresh_latest_versions_partial_errors(db_session: Session):
     rows = {r.name: r for r in db_session.query(DependencySnapshot).all()}
     assert rows["fastapi"].status == "outdated_minor"
     assert rows["fastapi"].latest_version == "0.118.2"
+    assert rows["fastapi"].declared_version == ">=0.115"
     assert rows["missing-pkg"].status == "unknown"
     assert rows["missing-pkg"].check_error
     assert rows["@playwright/test"].status == "outdated_minor"
@@ -273,7 +316,7 @@ def test_refresh_latest_versions_partial_errors(db_session: Session):
 def test_export_structure(db_session: Session):
     sync_local_to_db(
         db_session,
-        python_deps=[LocalDependency("python", "fastapi", "0.115.0", "runtime")],
+        python_deps=[_dep("python", "fastapi", "0.115.0", "runtime", declared=">=0.115")],
         npm_deps=[],
     )
     row = db_session.query(DependencySnapshot).one()
@@ -283,10 +326,12 @@ def test_export_structure(db_session: Session):
 
     payload = snapshots_to_export([row])
     assert "generated_at" in payload
-    assert payload["packages"][0]["ecosystem"] == "python"
-    assert payload["packages"][0]["name"] == "fastapi"
-    assert payload["packages"][0]["type"] == "runtime"
-    assert payload["packages"][0]["status"] == "outdated_minor"
+    pkg = payload["packages"][0]
+    assert pkg["ecosystem"] == "python"
+    assert pkg["name"] == "fastapi"
+    assert pkg["type"] == "runtime"
+    assert pkg["declared_version"] == ">=0.115"
+    assert pkg["status"] == "outdated_minor"
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +350,9 @@ def test_dependencies_ok_for_admin(client: TestClient):
     assert "Dépendances" in resp.text
     assert "Python (backend)" in resp.text
     assert "npm (tests e2e)" in resp.text
+    assert "Export MAJ" in resp.text
+    assert "Export tout" in resp.text
+    assert "Plan de MAJ" in resp.text
 
 
 def test_dependencies_export_forbidden(client: TestClient):
@@ -314,6 +362,28 @@ def test_dependencies_export_forbidden(client: TestClient):
         follow_redirects=False,
     )
     assert resp.status_code in (302, 403)
+
+
+def test_refresh_flash_on_missing_manifest(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    missing = tmp_path / "pyproject.toml"
+
+    def boom(*_a, **_k):
+        raise ManifestMissingError(missing)
+
+    monkeypatch.setattr(
+        "app.web.admin_dependencies.refresh_latest_versions",
+        boom,
+    )
+    resp = client.post(
+        "/admin/dependencies/refresh",
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    # Flash is in signed cookie — follow redirect to see message, or check Set-Cookie
+    assert "portal_flash" in resp.cookies or "set-cookie" in {k.lower() for k in resp.headers}
 
 
 @respx.mock
@@ -339,6 +409,9 @@ def test_dependencies_export_and_page_after_refresh(
     assert page.status_code == 200
     assert "fastapi" in page.text.lower() or "FastAPI" in page.text
     assert "@playwright/test" in page.text
+    assert "Déclaré" in page.text
+    assert "Installé" in page.text
+    assert "MAJ disponible" in page.text or "MAJ disponibles" in page.text
 
     export = client.get("/admin/dependencies/export.json", headers=ADMIN_HEADERS)
     assert export.status_code == 200
@@ -346,13 +419,15 @@ def test_dependencies_export_and_page_after_refresh(
     data = export.json()
     assert "generated_at" in data
     assert isinstance(data["packages"], list)
-    assert any(p["name"] == "fastapi" or p["name"].lower() == "fastapi" for p in data["packages"])
+    assert any(p["name"].lower() == "fastapi" for p in data["packages"])
     assert any(p["name"] == "@playwright/test" for p in data["packages"])
+    assert all("declared_version" in p for p in data["packages"])
 
     outdated = client.get(
         "/admin/dependencies/export.json?status=outdated",
         headers=ADMIN_HEADERS,
     )
     assert outdated.status_code == 200
+    assert "outdated" in outdated.headers.get("content-disposition", "")
     for pkg in outdated.json()["packages"]:
         assert pkg["status"].startswith("outdated_")

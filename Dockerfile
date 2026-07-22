@@ -23,10 +23,13 @@ COPY --from=builder /install /usr/local
 COPY alembic.ini /app/alembic.ini
 COPY migrations /app/migrations
 COPY scripts /app/scripts
+# Manifests for Admin → Dépendances inventory (not shipped via site-packages).
+COPY pyproject.toml package.json package-lock.json /app/
 
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    BASTION_MANIFEST_ROOT=/app
 
 USER bastion
 EXPOSE 8000

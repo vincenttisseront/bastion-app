@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import tomllib
 from dataclasses import dataclass
@@ -19,12 +20,6 @@ from app.models import DependencySnapshot, utcnow
 from app.testing_framework.throttle import throttle_retry_after
 
 logger = logging.getLogger(__name__)
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-PACKAGE_JSON_PATH = REPO_ROOT / "package.json"
-PACKAGE_LOCK_PATH = REPO_ROOT / "package-lock.json"
-PNPM_LOCK_PATH = REPO_ROOT / "pnpm-lock.yaml"
 
 LOOKUP_TIMEOUT_SECONDS = 5.0
 REFRESH_THROTTLE_SECONDS = 30.0
@@ -44,13 +39,51 @@ _SEMVER_RE = re.compile(
 )
 
 
+class ManifestMissingError(FileNotFoundError):
+    """Raised when pyproject.toml / package.json is not present in the runtime image."""
+
+    def __init__(self, path: Path, *, hint: str | None = None):
+        self.path = path
+        msg = (
+            f"{path.name} introuvable ({path}) — "
+            + (hint or "vérifier le Dockerfile (COPY des manifestes vers BASTION_MANIFEST_ROOT)")
+        )
+        super().__init__(msg)
+
+
 @dataclass(frozen=True)
 class LocalDependency:
     ecosystem: str  # python | npm
     name: str
-    current_version: str
+    declared_version: str  # constraint from manifest
+    current_version: str  # installed / locked
     dep_type: str  # runtime | dev
     notes: str | None = None
+
+
+def resolve_manifest_root() -> Path:
+    """
+    Locate directory that holds pyproject.toml / package.json.
+
+    Docker runtime installs the app into site-packages, so Path(__file__) is NOT
+    the repo root — manifests are copied to /app (BASTION_MANIFEST_ROOT).
+    """
+    env = (os.environ.get("BASTION_MANIFEST_ROOT") or "").strip()
+    if env:
+        return Path(env)
+    source_root = Path(__file__).resolve().parents[2]
+    for candidate in (Path("/app"), Path.cwd(), source_root):
+        if (candidate / "pyproject.toml").is_file() or (candidate / "package.json").is_file():
+            return candidate
+    return Path("/app")
+
+
+def pyproject_path(root: Path | None = None) -> Path:
+    return (root or resolve_manifest_root()) / "pyproject.toml"
+
+
+def package_json_path(root: Path | None = None) -> Path:
+    return (root or resolve_manifest_root()) / "package.json"
 
 
 def compute_status(current: str | None, latest: str | None) -> str:
@@ -72,7 +105,6 @@ def _parse_semver(value: str | None) -> tuple[int, int, int] | None:
     if not value:
         return None
     cleaned = value.strip()
-    # Drop PEP 440 local/dev suffixes after + or common prerelease markers for core compare
     cleaned = cleaned.split("+", 1)[0]
     cleaned = cleaned.split("!", 1)[0]
     m = _SEMVER_RE.match(cleaned)
@@ -90,13 +122,27 @@ def _requirement_name(spec: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _declared_constraint(spec: str, name: str) -> str:
+    """Return constraint part of a requirement (e.g. '>=0.115' or '[standard]>=0.49')."""
+    s = spec.strip()
+    m = re.match(rf"(?i)^{re.escape(name)}(\[[^\]]*\])?(.*)$", s)
+    if not m:
+        return s
+    extras = m.group(1) or ""
+    rest = (m.group(2) or "").strip()
+    if extras and rest:
+        return f"{extras}{rest}"
+    if extras:
+        return extras
+    return rest or s
+
+
 def _resolve_python_installed(declared_name: str) -> str | None:
     """Return installed distribution version, or None if not found."""
     candidates = [declared_name]
     alias = _PYTHON_DIST_ALIASES.get(declared_name.lower())
     if alias and alias not in candidates:
         candidates.append(alias)
-    # importlib often accepts canonical case-insensitive names
     for candidate in candidates:
         try:
             return importlib_metadata.version(candidate)
@@ -106,12 +152,20 @@ def _resolve_python_installed(declared_name: str) -> str | None:
 
 
 def parse_python_dependencies(
-    pyproject_path: Path | None = None,
+    pyproject_file: Path | None = None,
     *,
     version_resolver=_resolve_python_installed,
+    require_manifest: bool = True,
 ) -> list[LocalDependency]:
-    path = pyproject_path or PYPROJECT_PATH
+    path = pyproject_file or pyproject_path()
     if not path.is_file():
+        msg = (
+            f"pyproject.toml introuvable dans le conteneur ({path}) — "
+            "vérifier le Dockerfile"
+        )
+        logger.error(msg)
+        if require_manifest:
+            raise ManifestMissingError(path, hint="vérifier le Dockerfile")
         return []
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     project = data.get("project") or {}
@@ -130,17 +184,19 @@ def parse_python_dependencies(
         if key in seen:
             return
         seen.add(key)
+        declared = _declared_constraint(str(spec), name)
         installed = version_resolver(name)
         if installed:
             current = installed
             notes = None
         else:
-            current = spec.strip()
+            current = "—"
             notes = "not_installed"
         out.append(
             LocalDependency(
                 ecosystem="python",
                 name=name,
+                declared_version=declared,
                 current_version=current,
                 dep_type=dep_type,
                 notes=notes,
@@ -165,12 +221,10 @@ def _load_npm_lock_versions(repo_root: Path) -> dict[str, str] | None:
         for key, meta in packages.items():
             if not key or key == "":
                 continue
-            # packages["node_modules/foo"] or packages["node_modules/@scope/pkg"]
             prefix = "node_modules/"
             if not key.startswith(prefix):
                 continue
             rest = key[len(prefix) :]
-            # Skip nested deps under another package's node_modules
             if "/node_modules/" in rest:
                 continue
             ver = (meta or {}).get("version")
@@ -178,17 +232,13 @@ def _load_npm_lock_versions(repo_root: Path) -> dict[str, str] | None:
                 versions[rest] = str(ver)
         return versions
     if pnpm_path.is_file():
-        # Minimal pnpm lock support: importers / packages blocks vary by lockfileVersion.
-        # Prefer npm lock in this repo; if only pnpm exists, parse packages: keys.
-        versions = _parse_pnpm_lock_versions(pnpm_path)
-        return versions
+        return _parse_pnpm_lock_versions(pnpm_path)
     return None
 
 
 def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
     """Best-effort parse of pnpm-lock.yaml without a YAML dependency for package versions."""
     versions: dict[str, str] = {}
-    # Match lines like:  /@playwright/test@1.49.0:  or  playwright@1.49.0:
     pkg_re = re.compile(
         r"^\s{2}['\"]?(?:/(?P<scoped>@[^/@]+/[^/@]+)|(?P<name>[^/@][^@]*))@(?P<ver>[^:'\"]+)"
     )
@@ -216,13 +266,21 @@ def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
 
 
 def parse_npm_dependencies(
-    package_json_path: Path | None = None,
+    package_json_file: Path | None = None,
     *,
     repo_root: Path | None = None,
+    require_manifest: bool = True,
 ) -> list[LocalDependency]:
-    pkg_path = package_json_path or PACKAGE_JSON_PATH
-    root = repo_root or (pkg_path.parent if package_json_path else REPO_ROOT)
+    root = repo_root or resolve_manifest_root()
+    pkg_path = package_json_file or (root / "package.json")
     if not pkg_path.is_file():
+        msg = (
+            f"package.json introuvable dans le conteneur ({pkg_path}) — "
+            "vérifier le Dockerfile"
+        )
+        logger.error(msg)
+        if require_manifest:
+            raise ManifestMissingError(pkg_path, hint="vérifier le Dockerfile")
         return []
     data = json.loads(pkg_path.read_text(encoding="utf-8"))
     deps = dict(data.get("dependencies") or {})
@@ -236,19 +294,21 @@ def parse_npm_dependencies(
         if name in seen:
             return
         seen.add(name)
+        declared = str(range_spec)
         if locked is None:
-            current = str(range_spec)
+            current = declared
             notes = "unlocked"
         elif name in locked:
             current = locked[name]
             notes = None
         else:
-            current = str(range_spec)
+            current = declared
             notes = "unlocked"
         out.append(
             LocalDependency(
                 ecosystem="npm",
                 name=name,
+                declared_version=declared,
                 current_version=current,
                 dep_type=dep_type,
                 notes=notes,
@@ -280,7 +340,6 @@ def fetch_pypi_latest(name: str, *, client: httpx.Client | None = None) -> str:
 
 
 def fetch_npm_latest(name: str, *, client: httpx.Client | None = None) -> str:
-    # Scoped packages need encoding: @scope/pkg → @scope%2Fpkg
     encoded = name.replace("/", "%2F")
     url = f"https://registry.npmjs.org/{encoded}/latest"
     own = client is None
@@ -321,6 +380,7 @@ def sync_local_to_db(
             row = DependencySnapshot(
                 ecosystem=dep.ecosystem,
                 name=dep.name,
+                declared_version=dep.declared_version,
                 current_version=dep.current_version,
                 dep_type=dep.dep_type,
                 status="unknown",
@@ -328,6 +388,7 @@ def sync_local_to_db(
             )
             db.add(row)
         else:
+            row.declared_version = dep.declared_version
             row.current_version = dep.current_version
             row.dep_type = dep.dep_type
             row.notes = dep.notes
@@ -356,6 +417,7 @@ def refresh_latest_versions(
     """
     Sync local packages then lookup latest versions on PyPI / npm registry.
     Returns summary dict; never raises for per-package lookup failures.
+    Raises ManifestMissingError when manifests cannot be read (unless deps injected).
     """
     if not skip_throttle:
         wait = throttle_retry_after(
@@ -460,6 +522,7 @@ def snapshots_to_export(
                 "ecosystem": r.ecosystem,
                 "name": r.name,
                 "type": r.dep_type,
+                "declared_version": r.declared_version,
                 "current_version": r.current_version,
                 "latest_version": r.latest_version,
                 "status": r.status,
@@ -479,3 +542,14 @@ def snapshots_to_export(
 def last_checked_summary(rows: list[DependencySnapshot]) -> datetime | None:
     times = [r.last_checked_at for r in rows if r.last_checked_at]
     return max(times) if times else None
+
+
+def count_summary(rows: list[DependencySnapshot]) -> dict[str, int]:
+    outdated = sum(1 for r in rows if (r.status or "").startswith("outdated_"))
+    up_to_date = sum(1 for r in rows if r.status == "up_to_date")
+    return {
+        "total": len(rows),
+        "outdated": outdated,
+        "up_to_date": up_to_date,
+        "unknown": len(rows) - outdated - up_to_date,
+    }
