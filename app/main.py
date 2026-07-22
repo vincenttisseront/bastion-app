@@ -24,6 +24,7 @@ from app.robotic.client_open_action import router as robotic_router
 from app.services import router as apps_router
 from app.subdomain.subdomain_auth import router as subdomain_router
 from app.vault.routes import router as vault_router
+from app.web.admin_dependencies import router as admin_dependencies_router
 from app.web.admin_logs import router as admin_logs_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
@@ -152,6 +153,7 @@ app.include_router(infrastructure_router)
 app.include_router(admin_rbac_groups_router)
 app.include_router(admin_rbac_access_router)
 app.include_router(admin_logs_router)
+app.include_router(admin_dependencies_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)
 app.include_router(sessions_router)

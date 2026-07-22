@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block title %}Dépendances{% endblock %}
+{% block breadcrumb %}Admin / Dépendances{% endblock %}
+
+{% block content %}
+<div class="page" id="dependencies-page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Dépendances</h1>
+      <p class="page-sub">
+        {{ python_count }} paquet{{ 's' if python_count != 1 else '' }} Python
+        · {{ npm_count }} paquet{{ 's' if npm_count != 1 else '' }} npm
+        {% if last_checked_at %}
+        · dernière vérif. {{ last_checked_at }}
+        {% else %}
+        · jamais vérifié
+        {% endif %}
+      </p>
+    </div>
+    <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;">
+      <form method="post" action="/admin/dependencies/refresh" style="margin:0;">
+        <button type="submit" class="btn btn-primary btn-sm">Actualiser</button>
+      </form>
+      <a href="/admin/dependencies/export.json" class="btn btn-ghost btn-sm">Exporter JSON</a>
+    </div>
+  </div>
+
+  <div class="form-row" style="gap:var(--sp-3);margin-bottom:var(--sp-4);flex-wrap:wrap;align-items:flex-end;">
+    <div class="form-group" style="margin:0;min-width:200px;flex:1;">
+      <label class="form-label" for="dep-filter-q">Recherche</label>
+      <input type="search" id="dep-filter-q" class="form-input" placeholder="Nom du paquet…" autocomplete="off">
+    </div>
+    <div class="form-group" style="margin:0;min-width:180px;">
+      <label class="form-label" for="dep-filter-status">Statut</label>
+      <select id="dep-filter-status" class="form-input">
+        <option value="all">Tous</option>
+        <option value="outdated">Obsolètes seulement</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Écosystèmes" id="dep-tabs">
+    <button type="button" class="tab active" role="tab" data-tab="python" id="tab-python" aria-selected="true">
+      Python (backend)
+      <span class="badge badge-muted" style="margin-left:6px;">{{ python_count }}</span>
+    </button>
+    <button type="button" class="tab" role="tab" data-tab="npm" id="tab-npm" aria-selected="false">
+      npm (tests e2e)
+      <span class="badge badge-muted" style="margin-left:6px;">{{ npm_count }}</span>
+    </button>
+  </div>
+
+  {% macro dep_table(packages, panel_id, tab_id, empty_msg) %}
+  <div class="form-section dep-panel" id="{{ panel_id }}" role="tabpanel" aria-labelledby="{{ tab_id }}"{% if panel_id != 'panel-python' %} hidden{% endif %}>
+    <div class="table-wrap">
+      <table class="data-table dep-table" data-sortable>
+        <thead>
+          <tr>
+            <th data-sort="name">Paquet</th>
+            <th data-sort="type">Type</th>
+            <th>Version actuelle</th>
+            <th>Dernière version</th>
+            <th data-sort="status">Statut</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in packages %}
+          <tr
+            class="{% if p.is_major %}dep-row-major{% endif %}"
+            data-name="{{ p.name | lower }}"
+            data-status="{{ p.status }}"
+            data-status-rank="{% if p.status == 'outdated_major' %}4{% elif p.status == 'outdated_minor' %}3{% elif p.status == 'outdated_patch' %}2{% elif p.status == 'up_to_date' %}1{% else %}0{% endif %}"
+          >
+            <td>
+              <div style="font-weight:600;">{{ p.name }}</div>
+              {% if p.notes == 'unlocked' %}
+              <span class="badge badge-muted" title="Contrainte package.json (pas de lockfile)">non verrouillé</span>
+              {% elif p.notes == 'not_installed' %}
+              <span class="badge badge-muted" title="Distribution introuvable via importlib.metadata">non installé</span>
+              {% endif %}
+              {% if p.check_error %}
+              <div class="form-help" style="color:var(--danger, #b91c1c);" title="{{ p.check_error }}">Erreur de lookup</div>
+              {% endif %}
+            </td>
+            <td><span class="badge badge-muted">{{ p.dep_type }}</span></td>
+            <td class="mono">{{ p.current_version }}</td>
+            <td class="mono">{% if p.latest_version %}{{ p.latest_version }}{% else %}—{% endif %}</td>
+            <td>
+              <span class="badge badge-{{ p.badge }}">{{ p.status_label }}</span>
+            </td>
+          </tr>
+          {% else %}
+          <tr class="dep-empty-row">
+            <td colspan="5">
+              <div class="empty-state">
+                <div class="empty-icon">
+                  <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                    <line x1="12" y1="22.08" x2="12" y2="12"/>
+                  </svg>
+                </div>
+                <div class="empty-title">{{ empty_msg }}</div>
+                <div class="empty-sub">Cliquez sur Actualiser pour inventorer les paquets locaux et interroger les registres.</div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endmacro %}
+
+  {{ dep_table(python_packages, 'panel-python', 'tab-python', 'Aucun paquet Python en base') }}
+  {{ dep_table(npm_packages, 'panel-npm', 'tab-npm', 'Aucun paquet npm en base') }}
+</div>
+
+<style>
+  .dep-row-major td { background: color-mix(in srgb, var(--danger, #b91c1c) 6%, transparent); }
+  #dep-tabs .tab { cursor: pointer; border: none; background: transparent; font: inherit; color: inherit; }
+</style>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll('#dep-tabs [data-tab]');
+  var panels = {
+    python: document.getElementById('panel-python'),
+    npm: document.getElementById('panel-npm')
+  };
+
+  function activate(name) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute('data-tab') === name;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    Object.keys(panels).forEach(function (key) {
+      if (!panels[key]) return;
+      if (key === name) panels[key].removeAttribute('hidden');
+      else panels[key].setAttribute('hidden', '');
+    });
+  }
+
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () { activate(t.getAttribute('data-tab')); });
+  });
+
+  var qInput = document.getElementById('dep-filter-q');
+  var statusSelect = document.getElementById('dep-filter-status');
+
+  function applyFilters() {
+    var q = (qInput && qInput.value || '').trim().toLowerCase();
+    var statusMode = statusSelect && statusSelect.value || 'all';
+    document.querySelectorAll('.dep-table tbody tr[data-name]').forEach(function (tr) {
+      var name = tr.getAttribute('data-name') || '';
+      var st = tr.getAttribute('data-status') || '';
+      var outdated = st.indexOf('outdated_') === 0;
+      var matchQ = !q || name.indexOf(q) !== -1;
+      var matchS = statusMode !== 'outdated' || outdated;
+      tr.hidden = !(matchQ && matchS);
+    });
+  }
+
+  if (qInput) qInput.addEventListener('input', applyFilters);
+  if (statusSelect) statusSelect.addEventListener('change', applyFilters);
+
+  document.querySelectorAll('.dep-table[data-sortable] th[data-sort]').forEach(function (th) {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', function () {
+      var key = th.getAttribute('data-sort');
+      var table = th.closest('table');
+      var tbody = table.querySelector('tbody');
+      var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr[data-name]'));
+      var asc = th.getAttribute('data-asc') !== '1';
+      table.querySelectorAll('th[data-sort]').forEach(function (h) { h.removeAttribute('data-asc'); });
+      th.setAttribute('data-asc', asc ? '1' : '0');
+      rows.sort(function (a, b) {
+        var av, bv;
+        if (key === 'name') {
+          av = a.getAttribute('data-name') || '';
+          bv = b.getAttribute('data-name') || '';
+        } else if (key === 'type') {
+          av = a.children[1].textContent.trim().toLowerCase();
+          bv = b.children[1].textContent.trim().toLowerCase();
+        } else {
+          av = parseInt(a.getAttribute('data-status-rank') || '0', 10);
+          bv = parseInt(b.getAttribute('data-status-rank') || '0', 10);
+          return asc ? av - bv : bv - av;
+        }
+        if (av < bv) return asc ? -1 : 1;
+        if (av > bv) return asc ? 1 : -1;
+        return 0;
+      });
+      rows.forEach(function (r) { tbody.appendChild(r); });
+    });
+  });
+})();
+</script>
+{% endblock %}

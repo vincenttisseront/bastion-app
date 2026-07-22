@@ -318,3 +318,25 @@ class EncryptionKeyVersion(Base):
     activated_at = Column(DateTime(timezone=True), nullable=True)
     retired_at = Column(DateTime(timezone=True), nullable=True)
     source = Column(String, nullable=True)  # generated | migrated_from_env | rotated
+
+
+class DependencySnapshot(Base):
+    """Inventory of Python / npm packages with local vs registry versions."""
+
+    __tablename__ = "dependency_snapshots"
+    __table_args__ = (
+        UniqueConstraint("ecosystem", "name", name="uq_dependency_ecosystem_name"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    ecosystem = Column(String, nullable=False, index=True)  # python | npm
+    name = Column(String, nullable=False)
+    current_version = Column(String, nullable=False)
+    latest_version = Column(String, nullable=True)
+    dep_type = Column(String, nullable=False, default="runtime")  # runtime | dev
+    status = Column(String, nullable=False, default="unknown")
+    # up_to_date | outdated_patch | outdated_minor | outdated_major | unknown
+    last_checked_at = Column(DateTime(timezone=True), nullable=True)
+    check_error = Column(String, nullable=True)
+    # e.g. unlocked constraint when npm lockfile is missing
+    notes = Column(String, nullable=True)
