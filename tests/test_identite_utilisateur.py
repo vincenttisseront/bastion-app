@@ -286,6 +286,7 @@ def test_open_with_identity_rate_limit(client: TestClient, db_session: Session):
 def test_open_with_identity_success_redirect_and_cookies(
     client: TestClient, db_session: Session
 ):
+    """JSON clients still get 200 + Set-Cookie (API contract)."""
     _seed_app(db_session)
     fake_session = CrushFTPSession(
         cookies={"CrushAuth": "GOODCOOKIE99", "currentAuth": "99"},
@@ -334,6 +335,67 @@ def test_open_with_identity_success_redirect_and_cookies(
     assert audit.details["credential_mode"] == "identite_utilisateur"
     assert audit.details["credential_source"] == "user_identity"
     assert SECRET_PASSWORD not in str(audit.details)
+
+
+def test_open_with_identity_form_post_success_is_303_with_cookies(
+    client: TestClient, db_session: Session
+):
+    """HTML form POST → 303 + Set-Cookie (top-level nav honors Domain=parent)."""
+    _seed_app(db_session)
+    fake_session = CrushFTPSession(
+        cookies={"CrushAuth": "FORMCOOKIE88", "currentAuth": "88"},
+        base_url="https://mail.example/",
+    )
+
+    with (
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.login",
+            new=AsyncMock(return_value=fake_session),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.get_username",
+            new=AsyncMock(return_value=FULL_EMAIL),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.logout",
+            new=AsyncMock(),
+        ),
+    ):
+        resp = client.post(
+            "/api/apps/grommunio/open-with-identity",
+            headers={**USER_HEADERS, "Accept": "text/html"},
+            data={"password": SECRET_PASSWORD},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 303
+    assert resp.headers.get("location") == "/proxy/grommunio/"
+    joined = " ".join(resp.headers.get_list("set-cookie"))
+    assert "CrushAuth" in joined or "FORMCOOKIE88" in joined
+
+
+def test_open_with_identity_form_post_wrong_password_flashes_on_apps(
+    client: TestClient, db_session: Session
+):
+    """Form navigation cannot show JSON — flash error + 303 back to /apps."""
+    _seed_app(db_session)
+    with patch(
+        "app.robotic.impersonate_service.CrushFTPDriver.login",
+        new=AsyncMock(side_effect=RoboticLoginError("rejected")),
+    ):
+        resp = client.post(
+            "/api/apps/grommunio/open-with-identity",
+            headers={**USER_HEADERS, "Accept": "text/html"},
+            data={"password": WRONG_PASSWORD},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 303
+    assert resp.headers.get("location") == "/apps"
+    assert "/auth/login" not in (resp.headers.get("location") or "")
+    set_cookie = " ".join(resp.headers.get_list("set-cookie"))
+    assert "portal_flash" in set_cookie
+    assert WRONG_PASSWORD not in set_cookie
 
 
 def test_open_with_identity_unauthenticated_returns_401(
@@ -427,6 +489,30 @@ def test_open_with_identity_generic_technical_error_message(
     assert "Mot de passe incorrect" not in body["message"]
 
 
+def test_open_with_identity_form_technical_error_flashes(
+    client: TestClient, db_session: Session
+):
+    _seed_app(
+        db_session,
+        robotic_driver="generic_form",
+        auth_mode="generic_form",
+        login_form_url="https://mail.example:8443/api/v1/login",
+    )
+    with patch(
+        "app.robotic.impersonate_service.generic_form_login",
+        new=AsyncMock(side_effect=DriverUpstreamError("Upstream returned HTTP 405")),
+    ):
+        resp = client.post(
+            "/api/apps/grommunio/open-with-identity",
+            headers={**USER_HEADERS, "Accept": "text/html"},
+            data={"password": SECRET_PASSWORD},
+            follow_redirects=False,
+        )
+    assert resp.status_code == 303
+    assert resp.headers.get("location") == "/apps"
+    assert "portal_flash" in " ".join(resp.headers.get_list("set-cookie"))
+
+
 @pytest.mark.asyncio
 async def test_identity_generic_upstream_error_not_wrapped_as_auth(
     db_session: Session,
@@ -497,3 +583,6 @@ def test_portal_identity_tile_has_no_impersonate_href(
     assert "/api/internal/impersonate/grommunio" not in html
     assert 'href="/api/internal/impersonate/grommunio"' not in html
     assert "bastionPasswordPrompt" in html
+    assert "submitOpenWithIdentityForm" in html
+    assert "JSON.stringify({ password:" not in html
+    assert "fetch(endpoint" not in html

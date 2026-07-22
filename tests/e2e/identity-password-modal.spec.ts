@@ -1,5 +1,6 @@
 /**
- * Real Chromium check: modal "Ouvrir" must POST /open-with-identity (not a no-op).
+ * Real Chromium check: modal "Ouvrir" must POST a real HTML form to
+ * /open-with-identity (top-level navigation — not fetch/XHR).
  */
 import { test, expect } from "@playwright/test";
 import http from "node:http";
@@ -46,19 +47,8 @@ async function startStaticServer(): Promise<{ baseURL: string; close: () => Prom
   };
 }
 
-test("modal Ouvrir posts to open-with-identity", async ({ page }) => {
+test("modal Ouvrir submits HTML form to open-with-identity", async ({ page }) => {
   const staticSrv = await startStaticServer();
-
-  const posts: { url: string; body: string }[] = [];
-  await page.route("**/api/apps/grommunio/open-with-identity", async (route) => {
-    const req = route.request();
-    posts.push({ url: req.url(), body: req.postData() || "" });
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ ok: true, target_url: "/proxy/grommunio/" }),
-    });
-  });
 
   const confirmClicks: string[] = [];
   await page.exposeFunction("__noteConfirmClick", (msg: string) => {
@@ -71,7 +61,6 @@ test("modal Ouvrir posts to open-with-identity", async ({ page }) => {
       (e) => {
         const t = e.target as Element | null;
         if (t && typeof t.closest === "function" && t.closest("#bastion-modal-confirm")) {
-          // Diagnostic: prove confirm receives a real click.
           // @ts-expect-error harness bridge
           window.__noteConfirmClick?.("open-modal button clicked");
         }
@@ -91,14 +80,19 @@ test("modal Ouvrir posts to open-with-identity", async ({ page }) => {
     await expect.poll(() => confirmClicks.length).toBeGreaterThan(0);
     expect(confirmClicks[0]).toBe("open-modal button clicked");
 
-    await expect.poll(() => posts.length).toBe(1);
-    expect(posts[0].url).toContain("/api/apps/grommunio/open-with-identity");
-    expect(posts[0].body).toContain("SecretPass-ForE2E");
-    expect(posts[0].url).not.toContain("/api/internal/impersonate/");
-
     await expect
-      .poll(async () => page.evaluate(() => (window as { __lastTargetUrl?: string }).__lastTargetUrl))
-      .toBe("/proxy/grommunio/");
+      .poll(async () =>
+        page.evaluate(() => (window as { __lastFormAction?: string }).__lastFormAction)
+      )
+      .toContain("/api/apps/grommunio/open-with-identity");
+
+    const formMeta = await page.evaluate(() => ({
+      method: (window as { __lastFormMethod?: string }).__lastFormMethod,
+      body: (window as { __lastFormBody?: string }).__lastFormBody,
+    }));
+    expect(formMeta.method?.toLowerCase()).toBe("post");
+    expect(formMeta.body).toContain("password=SecretPass-ForE2E");
+    expect(formMeta.body).not.toContain("/api/internal/impersonate/");
   } finally {
     await staticSrv.close();
   }

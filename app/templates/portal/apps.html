@@ -59,7 +59,6 @@
         data-identity-username="{{ app.identity_login }}"
         data-open-with-identity
         data-open-identity-url="/api/apps/{{ app.slug }}/open-with-identity"
-        {% if app.access_mode != 'legacy_path_proxy' %}data-open-target="_blank"{% endif %}
       >
         {{ app_tile_icon(app) }}
         <div class="admin-title">{{ app.label }}</div>
@@ -149,89 +148,32 @@
     } catch (_) { /* fire-and-forget */ }
   }
 
-  async function postOpenWithIdentity(endpoint, password) {
-    var resp;
-    try {
-      resp = await fetch(endpoint, {
-        method: 'POST',
-        credentials: 'same-origin',
-        redirect: 'manual',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-CSRF-Token': csrfToken(),
-        },
-        body: JSON.stringify({ password: password }),
-      });
-    } catch (_) {
-      return {
-        ok: false,
-        error: 'Impossible de joindre le serveur. Vérifiez votre connexion et réessayez.',
-      };
-    }
+  /**
+   * Real top-level form POST — not fetch/XHR.
+   * Browsers ignore Set-Cookie Domain=parent on fetch responses from the portal
+   * host; a document navigation honors Domain=ar-systems.fr so webmail gets the session.
+   */
+  function submitOpenWithIdentityForm(endpoint, password) {
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = endpoint;
+    form.acceptCharset = 'UTF-8';
+    form.style.display = 'none';
 
-    // Nginx auth_request failure → 302 /auth/login (opaque redirect = status 0).
-    if (resp.type === 'opaqueredirect' || resp.status === 0 || (resp.status >= 300 && resp.status < 400)) {
-      var loc = '';
-      try { loc = resp.headers.get('Location') || ''; } catch (_) {}
-      if (!loc || loc.indexOf('/auth/login') !== -1 || loc.indexOf('/oauth2/') !== -1) {
-        return {
-          ok: false,
-          error: 'Session expirée ou non reconnue. Rechargez la page et réessayez.',
-        };
-      }
-    }
+    var pw = document.createElement('input');
+    pw.type = 'hidden';
+    pw.name = 'password';
+    pw.value = password;
+    form.appendChild(pw);
 
-    var contentType = (resp.headers.get('content-type') || '').toLowerCase();
-    if (contentType.indexOf('application/json') === -1) {
-      if (resp.status === 401 || resp.status === 302 || contentType.indexOf('text/html') !== -1) {
-        return {
-          ok: false,
-          error: 'Session expirée ou non reconnue. Rechargez la page et réessayez.',
-        };
-      }
-      return {
-        ok: false,
-        error: 'Réponse inattendue du serveur. Rechargez la page et réessayez.',
-      };
-    }
+    var csrf = document.createElement('input');
+    csrf.type = 'hidden';
+    csrf.name = 'csrf_token';
+    csrf.value = csrfToken();
+    form.appendChild(csrf);
 
-    var payload = {};
-    try {
-      payload = await resp.json();
-    } catch (_) {
-      return {
-        ok: false,
-        error: 'Session expirée ou non reconnue. Rechargez la page et réessayez.',
-      };
-    }
-
-    if (resp.ok) {
-      if (payload && payload.ok && payload.target_url) {
-        return { ok: true, targetUrl: payload.target_url };
-      }
-      return { ok: false, error: 'Réponse serveur invalide.' };
-    }
-
-    if (resp.status === 401) {
-      return {
-        ok: false,
-        error:
-          payload.message ||
-          payload.detail ||
-          'Session expirée ou non reconnue. Rechargez la page et réessayez.',
-      };
-    }
-
-    return {
-      ok: false,
-      error:
-        payload.message ||
-        payload.detail ||
-        (resp.status === 429
-          ? 'Trop de tentatives échouées. Réessayez dans quelques minutes.'
-          : 'Mot de passe incorrect ou compte verrouillé'),
-    };
+    document.body.appendChild(form);
+    form.submit();
   }
 
   async function openWithIdentity(tile) {
@@ -243,36 +185,27 @@
       ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');
     if (!slug || !window.bastionPasswordPrompt) return;
 
-    var lastError = '';
-    while (true) {
-      var prompt = await window.bastionPasswordPrompt({
-        title: 'Ouvrir ' + label,
-        message: 'Saisissez votre mot de passe pour établir la session applicative.',
-        username: identityUsername,
-        confirmLabel: 'Ouvrir',
-        error: lastError,
-      });
-      if (!prompt || !prompt.ok) return;
+    var prompt = await window.bastionPasswordPrompt({
+      title: 'Ouvrir ' + label,
+      message: 'Saisissez votre mot de passe pour établir la session applicative.',
+      username: identityUsername,
+      confirmLabel: 'Ouvrir',
+    });
+    if (!prompt || !prompt.ok) return;
 
-      var password = prompt.password || '';
-      if (!password) {
-        lastError = 'Mot de passe requis.';
-        continue;
+    var password = prompt.password || '';
+    if (!password) {
+      if (window.bastionAlert) {
+        window.bastionAlert({
+          title: 'Mot de passe requis',
+          message: 'Saisissez votre mot de passe pour ouvrir cette application.',
+        });
       }
-
-      var outcome = await postOpenWithIdentity(endpoint, password);
-      password = '';
-
-      if (outcome.ok && outcome.targetUrl) {
-        if (tile.getAttribute('data-open-target') === '_blank') {
-          window.open(outcome.targetUrl, '_blank', 'noopener,noreferrer');
-        } else {
-          window.location.href = outcome.targetUrl;
-        }
-        return;
-      }
-      lastError = outcome.error || 'Mot de passe incorrect ou compte verrouillé';
+      return;
     }
+
+    submitOpenWithIdentityForm(endpoint, password);
+    password = '';
   }
 
   document.addEventListener('click', function (e) {

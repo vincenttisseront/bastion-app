@@ -140,9 +140,29 @@ var ACCESS_MODE_COPY = {
   }
 };
 
+function normalizeHostname(value) {
+  var raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+  // URL or path-ish input → use the browser URL parser
+  if (raw.indexOf('://') !== -1 || raw.indexOf('/') !== -1 || raw.indexOf('?') !== -1 || raw.indexOf('#') !== -1) {
+    try {
+      var href = raw.indexOf('://') !== -1 ? raw : ('https://' + raw);
+      var host = new URL(href).hostname || '';
+      return host.replace(/^\.+|\.+$/g, '');
+    } catch (e) {
+      /* fall through */
+    }
+  }
+  raw = raw.replace(/^\.+|\.+$/g, '');
+  // host:port (not IPv6)
+  var portMatch = raw.match(/^([^:]+):(\d+)$/);
+  if (portMatch) return portMatch[1];
+  return raw;
+}
+
 function sharedParentDomain(fqdn, portalDomain) {
-  var fqdnLabels = String(fqdn || '').replace(/^\.+|\.+$/g, '').toLowerCase().split('.');
-  var portalLabels = String(portalDomain || '').replace(/^\.+|\.+$/g, '').toLowerCase().split('.');
+  var fqdnLabels = normalizeHostname(fqdn).split('.');
+  var portalLabels = normalizeHostname(portalDomain).split('.');
   if (!fqdnLabels[0] || !portalLabels[0]) return null;
   var common = [];
   var i = 0;
@@ -157,6 +177,10 @@ function sharedParentDomain(fqdn, portalDomain) {
   if (common.length < 2) return null;
   return common.reverse().join('.');
 }
+
+// Exported for unit tests / console checks
+window.bastionNormalizeHostname = normalizeHostname;
+window.bastionSharedParentDomain = sharedParentDomain;
 
 function initAccessModeForm() {
   var form = document.getElementById('app-form');

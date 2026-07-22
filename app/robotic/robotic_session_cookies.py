@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import Response
 
@@ -11,6 +13,36 @@ logger = logging.getLogger(__name__)
 
 # CrushFTP legacy cookie names (used when cookie_keys not specified).
 CRUSHFTP_COOKIE_KEYS = ("CrushAuth", "currentAuth")
+
+_HOST_PORT_RE = re.compile(r"^(.+):(\d+)$")
+
+
+def normalize_hostname(value: str | None) -> str:
+    """
+    Extract a bare hostname from a FQDN, URL, or host:port string.
+
+    Used before shared-parent comparison and cookie Domain= computation so that
+    ``https://webmail.ar-systems.fr/`` or ``webmail.ar-systems.fr:443`` still
+    resolve to the same parent as ``portal.ar-systems.fr``.
+    """
+    raw = (value or "").strip().lower()
+    if not raw:
+        return ""
+    if "://" in raw or "/" in raw or "?" in raw or "#" in raw:
+        parsed = urlparse(raw if "://" in raw else f"//{raw}", scheme="")
+        host = (parsed.hostname or "").strip(".")
+        if host:
+            return host
+    raw = raw.strip(".")
+    match = _HOST_PORT_RE.match(raw)
+    if match and match.group(1).count(":") == 0:
+        # host:port (not IPv6)
+        return match.group(1).strip(".")
+    # Bracketed IPv6 with optional port — urlparse handles best via // prefix
+    if raw.startswith("["):
+        parsed = urlparse(f"//{raw}")
+        return (parsed.hostname or "").strip(".")
+    return raw
 
 
 def shared_parent_domain(fqdn: str, portal_domain: str) -> str | None:
@@ -22,9 +54,14 @@ def shared_parent_domain(fqdn: str, portal_domain: str) -> str | None:
     portal.example.fr is rejected; Domain=example.fr works for both.
     Requires at least two labels (e.g. example.fr), never a bare TLD.
     """
-    fqdn_labels = fqdn.strip().strip(".").lower().split(".")
-    portal_labels = portal_domain.strip().strip(".").lower().split(".")
-    if not fqdn_labels or not portal_labels or "" in fqdn_labels or "" in portal_labels:
+    fqdn_labels = normalize_hostname(fqdn).split(".")
+    portal_labels = normalize_hostname(portal_domain).split(".")
+    if (
+        not fqdn_labels
+        or not portal_labels
+        or "" in fqdn_labels
+        or "" in portal_labels
+    ):
         return None
     common: list[str] = []
     for a, b in zip(reversed(fqdn_labels), reversed(portal_labels)):
