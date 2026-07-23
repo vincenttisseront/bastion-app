@@ -66,7 +66,8 @@
 | Emplacement | Effet |
 |-------------|--------|
 | `app/web/pages.py` (`catalogue_page`) | Filtre le catalogue pour les non-admins lorsque `X-Groups` est non vide |
-| `app/subdomain/subdomain_service.py` (`get_app_allowed_groups` / `user_has_access`) | Contrôle d'accès subdomain SSO : groupes autorisés via `AppGroup` ; liste vide = accès ouvert |
+| `app/subdomain/subdomain_service.py` (`get_app_allowed_groups` / `user_has_access`) | Legacy AppGroup (encore utilisé côté impersonate robotic) |
+| `app/subdomain/subdomain_auth.py` (`/internal/subdomain-auth`) | **AccessGrant launch+** (corrigé 2026-07-23) — voir `docs/audit-gestion-sessions.md` |
 | `app/services.py` | API interne CRUD `/{slug}/groups` (lien App ↔ Groupe) |
 | Encart UI admin RBAC | Affichage legacy uniquement |
 

@@ -139,6 +139,24 @@ def get_effective_apps_for_user(
     return sorted(by_app.values(), key=lambda e: (e.app.label or "").lower())
 
 
+def user_can_launch_application(
+    db: Session,
+    *,
+    application_id: int,
+    keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
+) -> bool:
+    """True if effective AccessGrant grants at least ``launch`` on this application."""
+    for entry in get_effective_apps_for_user(
+        db,
+        keycloak_user_id=keycloak_user_id,
+        group_names=group_names,
+    ):
+        if entry.application_id == application_id and entry.can_launch:
+            return True
+    return False
+
+
 def user_has_portal_admin_role(
     db: Session,
     *,

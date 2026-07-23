@@ -101,6 +101,11 @@ def _parse_groups(raw: str | None) -> list[str]:
     return [_normalize_group_name(g) for g in raw.split(",") if g.strip()]
 
 
+def parse_groups_header(raw: str | None) -> list[str]:
+    """Public alias for OIDC ``groups`` claim / X-Groups header parsing."""
+    return _parse_groups(raw)
+
+
 def _is_admin_via_groups(groups: list[str], auth_source: str, settings: Settings) -> bool:
     if auth_source == "breakglass":
         return True
