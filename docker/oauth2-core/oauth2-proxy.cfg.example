@@ -15,6 +15,7 @@ cookie_secret = "REPLACE_WITH_32_BYTE_URLSAFE_BASE64"
 code_challenge_method = "S256"
 scope = "openid profile email"
 email_domains = ["*"]
+insecure_oidc_allow_unverified_email = true
 cookie_secure = true
 cookie_httponly = true
 # Session lifetime — keep in sync with app/admin/export.py generate_oauth2_proxy_config()

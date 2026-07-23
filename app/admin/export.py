@@ -63,6 +63,10 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
         'code_challenge_method = "S256"',
         f'scope = "{realm.scopes}"',
         "email_domains = [\"*\"]",
+        # Keycloak/AD may expose an email claim with email_verified=false.
+        # Without this, oauth2-proxy can omit/refuse the email for some users,
+        # and identity_format=email apps (e.g. Grommunio) fall back to username.
+        "insecure_oidc_allow_unverified_email = true",
         "cookie_secure = true",
         "cookie_httponly = true",
         # Session lifetime (PROPOSED — validate with security):

@@ -298,6 +298,7 @@ def test_export_generates_expected_files(client: TestClient, db_session: Session
     assert nginx_file.is_file()
     content = proxy_file.read_text(encoding="utf-8")
     assert 'provider = "oidc"' in content
+    assert 'insecure_oidc_allow_unverified_email = true' in content
     assert "super-secret-value" in content
     assert "nginx-portal-realms.conf" in response.json()["paths"]["nginx_realms_conf"]
 
