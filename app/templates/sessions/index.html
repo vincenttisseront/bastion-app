@@ -108,6 +108,12 @@
             {% if s.sso_logout %}
             <div class="session-sso-logout-banner" title="{{ s.sso_logout.residual_note or '' }}">{{ s.sso_logout.label }}</div>
             {% endif %}
+            {% if s.identity_binding and s.identity_binding.unusual %}
+            <div class="session-binding-banner"
+                 title="Ancrage {{ s.identity_binding.first_ip_subnet or '—' }} / {{ (s.identity_binding.first_fingerprint_hash or '')[:8] }}… → dernier {{ s.identity_binding.last_ip_subnet or '—' }} / {{ (s.identity_binding.last_fingerprint_hash or '')[:8] }}… ({{ s.identity_binding.mismatch_count }} écart(s))">
+              ⚠ IP/empreinte inhabituelle
+            </div>
+            {% endif %}
             <div class="session-card-resource">{{ s.resource_title }}</div>
             <div class="session-card-slug mono">{{ s.resource_subtitle }}</div>
             {% if s.verifiable %}

@@ -1,4 +1,4 @@
-"""Internal token authentication for admin/machine-to-machine routes."""
+"""Security helpers: internal token auth + identity binding."""
 
 from fastapi import Depends, HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer

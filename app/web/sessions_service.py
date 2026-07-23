@@ -525,6 +525,16 @@ def expire_stale_sessions(db: Session) -> int:
             db.rollback()
         except Exception:
             pass
+    try:
+        from app.security.session_binding_service import purge_stale_sso_session_anchors
+
+        purge_stale_sso_session_anchors(db)
+    except Exception:
+        logger.exception("sso session anchor purge failed")
+        try:
+            db.rollback()
+        except Exception:
+            pass
     return len(to_delete)
 
 
@@ -693,7 +703,7 @@ def _touch_app_session(
     return row
 
 
-def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
+def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any]:
     details = row.details if isinstance(row.details, dict) else None
     diag = _diagnostics_summary(details)
     protocol = (row.protocol or "").upper()
@@ -766,6 +776,22 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
             _parse_iso_dt(details.get("sso_logout_requested_at"))
         )
 
+    identity_binding = None
+    if row.kind == KIND_USER and db is not None:
+        from app.security.session_binding_service import (
+            binding_summary_for_breakglass_jti,
+            binding_summary_for_sso_user,
+        )
+
+        if is_breakglass:
+            identity_binding = binding_summary_for_breakglass_jti(
+                db, (details or {}).get("jti")
+            )
+        else:
+            identity_binding = binding_summary_for_sso_user(
+                db, username=row.username, email=row.user_email
+            )
+
     action_titles = dict(_ACTION_TITLES)
     if is_breakglass:
         action_titles["revoke"] = (
@@ -795,6 +821,7 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         "client_ip_raw": raw_ip or None,
         "client_ip_is_infra": infra or not raw_ip,
         "client_ip_note": client_ip_note,
+        "identity_binding": identity_binding,
         "duration": _format_duration(row.started_at, utcnow()),
         "status": row.status,
         "live_status": live_status,
@@ -818,15 +845,15 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         "cookies_ok": diag["cookies_ok"],
         "cookies_validity": diag["cookies_validity"],
         "cookies_title": diag["cookies_title"],
-        "cookies_issued_at": diag["cookies_issued_at"],
-        "crushauth_age": diag["crushauth_age"],
-        "credential_source": diag["credential_source"],
-        "robotic_username": diag["robotic_username"],
-        "user_agent": diag["user_agent"],
+        "cookies_issued_at": diag.get("cookies_issued_at"),
+        "crushauth_age": diag.get("crushauth_age"),
+        "user_agent": diag.get("user_agent"),
         "user_agent_label": diag["user_agent_label"],
         "browser_note": diag.get("browser_note"),
         "can_revoke": True,
         "can_rotate": row.kind == KIND_APP,
+        "show_disconnect": (not is_breakglass)
+        and (auth_family == "oidc" or row.kind == KIND_APP),
         "action_titles": action_titles,
     }
 
@@ -962,7 +989,7 @@ def get_active_sessions(
             email = (viewer.email or viewer.username or "").strip().lower()
             q = q.filter(ActiveSession.user_email == email)
         rows = q.order_by(ActiveSession.last_seen_at.desc()).all()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_dict(r, db=db) for r in rows]
     except Exception:
         logger.exception("get_active_sessions failed")
         try:

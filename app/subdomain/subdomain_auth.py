@@ -26,6 +26,10 @@ from app.breakglass import (
 from app.database import get_db
 from app.models import App
 from app.rbac.effective_access_service import user_can_launch_application
+from app.security.session_binding_service import (
+    evaluate_breakglass_binding,
+    evaluate_sso_binding,
+)
 from app.sso_settings import Settings, get_settings
 from app.web.user_context import parse_groups_header
 
@@ -194,6 +198,12 @@ async def subdomain_auth(
                 auth_source="oidc",
             )
 
+        try:
+            evaluate_sso_binding(db, request, username=actor)
+            db.commit()
+        except Exception:
+            db.rollback()
+
         return Response(
             status_code=200,
             headers={
@@ -210,6 +220,19 @@ async def subdomain_auth(
     if bg_cookie and validate_breakglass_cookie(bg_cookie, db=db, settings=settings):
         payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
         username = str((payload or {}).get("sub") or "breakglass")
+        jti = str((payload or {}).get("jti") or "")
+        if jti and not evaluate_breakglass_binding(
+            db, request, jti=jti, username=username
+        ):
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+            return Response(status_code=401)
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
         response = Response(
             status_code=200,
             headers={

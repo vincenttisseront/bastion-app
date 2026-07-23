@@ -11,6 +11,7 @@ from app.admin.export import realm_oauth2_proxy_url
 from app.auth_flow import get_default_idp_realm
 from app.breakglass import (
     COOKIE_NAME,
+    decode_breakglass_token_with_fallback,
     maybe_refresh_breakglass_cookie,
     set_breakglass_cookie,
     validate_breakglass_cookie,
@@ -18,6 +19,10 @@ from app.breakglass import (
 from app.database import get_db
 from app.models import RealmConfig
 from app.request_client_ip import client_ip_from_request
+from app.security.session_binding_service import (
+    evaluate_breakglass_binding,
+    evaluate_sso_binding,
+)
 from app.sso_settings import Settings, get_settings
 
 router = APIRouter()
@@ -127,10 +132,38 @@ async def oauth2_auth(
     # Otherwise a leftover bg_session sends /apps → 302 /dashboard and never hits oauth2.
     oauth2_resp = await _oauth2_proxy_auth_response(request, settings, db)
     if oauth2_resp is not None and oauth2_resp.status_code in (200, 202):
+        username = (
+            oauth2_resp.headers.get("X-Auth-Request-Email")
+            or oauth2_resp.headers.get("X-Auth-Request-Preferred-Username")
+            or oauth2_resp.headers.get("X-Auth-Request-User")
+            or None
+        )
+        try:
+            evaluate_sso_binding(db, request, username=username)
+            db.commit()
+        except Exception:
+            db.rollback()
         return oauth2_resp
 
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie and validate_breakglass_cookie(bg_cookie, db=db, settings=settings):
+        payload, _fb = decode_breakglass_token_with_fallback(
+            bg_cookie, settings, db=db
+        )
+        jti = str((payload or {}).get("jti") or "")
+        username = str((payload or {}).get("sub") or "breakglass")
+        if jti and not evaluate_breakglass_binding(
+            db, request, jti=jti, username=username
+        ):
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+            return Response(status_code=401)
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
         response = Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
         refreshed = maybe_refresh_breakglass_cookie(bg_cookie, db=db, settings=settings)
         if refreshed:

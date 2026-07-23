@@ -265,6 +265,9 @@ class BreakGlassSession(Base):
     issued sessions so an admin can revoke one ``jti`` without rotating the
     shared HS256 secret. Rows past ``expires_at`` may be purged after a short
     retention window (see ``purge_expired_breakglass_sessions``).
+
+    Identity-binding columns (IP subnet + fingerprint) detect session hijacking
+    after theft of a still-valid cookie (see ``app.security.session_binding_service``).
     """
 
     __tablename__ = "breakglass_sessions"
@@ -278,6 +281,29 @@ class BreakGlassSession(Base):
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     revoked_by = Column(String, nullable=True)
     revoked_reason = Column(String, nullable=True)
+    # Login anchor (nullable for rows created before identity-binding deploy).
+    first_ip_subnet = Column(String, nullable=True)
+    first_fingerprint_hash = Column(String, nullable=True)
+    last_ip_subnet = Column(String, nullable=True)
+    last_fingerprint_hash = Column(String, nullable=True)
+    mismatch_count = Column(Integer, nullable=True, default=0)
+
+
+class SsoSessionAnchor(Base):
+    """SSO (oauth2-proxy) identity binding keyed by cookie hash (never plaintext)."""
+
+    __tablename__ = "sso_session_anchors"
+
+    id = Column(Integer, primary_key=True)
+    cookie_hash = Column(String, unique=True, nullable=False, index=True)
+    username = Column(String, nullable=True, index=True)
+    first_ip_subnet = Column(String, nullable=True)
+    first_fingerprint_hash = Column(String, nullable=True)
+    last_ip_subnet = Column(String, nullable=True)
+    last_fingerprint_hash = Column(String, nullable=True)
+    mismatch_count = Column(Integer, nullable=False, default=0)
+    first_seen = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    last_seen = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
 class AuditLog(Base):

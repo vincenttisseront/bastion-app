@@ -13,8 +13,9 @@
 | 4 | Révoquer toutes les sessions app + logout Keycloak (par utilisateur) | **Corrigé** (2026-07-23) |
 | 5 | Vue `/sessions` enrichie (OIDC vs BREAKGLASS, filtre, badge logout) | **Corrigé** (2026-07-23) |
 | 6 | TTL break-glass configurable + idle | Idle 30 min fait ; durée absolue encore hardcodée |
+| 7 | Contrôle IP/empreinte anti-hijacking | **Corrigé** (2026-07-23) — A=WARN, B=blocage, C hors périmètre |
 
-> **Clôture du cycle d’audit (§0 → §9)** : les points 1–5 du plan prioritaire sont traités dans le code. Le point 6 (TTL break-glass configurable) reste hors scope de cette vague (idle 30 min déjà en place). Point 2 : outil de conformité livré ; valeurs Keycloak prod à confirmer via Admin → Alignement sessions SSO.
+> **Clôture du cycle d’audit (§0 → §9)** : les points 1–5 du plan prioritaire sont traités dans le code. Le point 6 (TTL break-glass configurable) reste hors scope de cette vague (idle 30 min déjà en place). Point 2 : outil de conformité livré ; valeurs Keycloak prod à confirmer via Admin → Alignement sessions SSO. Point 7 : voir `audit-protection-usurpation-identite.md`.
 
 ---
 
@@ -154,6 +155,16 @@ Retirer un `AccessGrant` coupe l'accès direct par URL **immédiatement** (proch
 3. Prod : attendre échéance max (ou session idle Keycloak) → redirect login propre, **pas** 500/502 nginx/oauth2.
 
 Statut test E2E au 2026-07-23 : **non exécuté** depuis l’agent (pas d’accès prod longue durée).
+
+---
+
+## §5 / Point 7 — Contrôle IP/empreinte anti-hijacking
+
+| Date | Statut | Résumé |
+|------|--------|--------|
+| 2026-07-23 | **Corrigé** | Family B = STEPUP `401` ; family A = WARN only ; family C hors périmètre. |
+
+Voir `docs/audit-protection-usurpation-identite.md` (clôture + décisions §7).
 
 ---
 

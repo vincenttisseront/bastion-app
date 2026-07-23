@@ -277,7 +277,10 @@ def _breakglass_login_response(
     rd: str,
 ) -> RedirectResponse:
     token, jti = issue_breakglass_token(
-        db, username, resolve_breakglass_signing_secret(settings, db=db)
+        db,
+        username,
+        resolve_breakglass_signing_secret(settings, db=db),
+        request=request,
     )
     db.commit()
     response = RedirectResponse(url=rd, status_code=302)

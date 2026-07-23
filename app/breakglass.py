@@ -212,7 +212,13 @@ def register_breakglass_session(
     return row
 
 
-def issue_breakglass_token(db: Session, username: str, secret: str) -> tuple[str, str]:
+def issue_breakglass_token(
+    db: Session,
+    username: str,
+    secret: str,
+    *,
+    request: Request | None = None,
+) -> tuple[str, str]:
     """Create JWT + BreakGlassSession row. Returns ``(token, jti)``."""
     jti = str(uuid4())
     token = create_breakglass_token(username, secret, jti=jti)
@@ -222,13 +228,17 @@ def issue_breakglass_token(db: Session, username: str, secret: str) -> tuple[str
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=COOKIE_MAX_AGE)
     issued = payload.get("iat")
     issued_at = _aware_exp(issued) or datetime.now(timezone.utc)
-    register_breakglass_session(
+    row = register_breakglass_session(
         db,
         jti=jti,
         username=username,
         expires_at=expires_at,
         issued_at=issued_at,
     )
+    if request is not None:
+        from app.security.session_binding_service import apply_breakglass_login_anchor
+
+        apply_breakglass_login_anchor(db, row, request)
     return token, jti
 
 
@@ -486,7 +496,9 @@ async def breakglass_login(
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     signing = resolve_breakglass_signing_secret(settings, db=db)
-    token, jti = issue_breakglass_token(db, body.username, signing)
+    token, jti = issue_breakglass_token(
+        db, body.username, signing, request=request
+    )
     db.commit()
     set_breakglass_cookie(response, token, settings)
     log_action(
