@@ -18,6 +18,7 @@ email_domains = ["*"]
 insecure_oidc_allow_unverified_email = true
 cookie_secure = true
 cookie_httponly = true
+cookie_samesite = "lax"
 # Session lifetime — keep in sync with app/admin/export.py generate_oauth2_proxy_config()
 cookie_expire = "12h"
 cookie_refresh = "1h"

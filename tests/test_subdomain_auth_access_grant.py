@@ -20,6 +20,8 @@ OIDC_URL = "http://127.0.0.1:4180/oauth2/auth"
 def _settings(*, rfc1918: bool = False) -> Settings:
     return Settings(
         vault_portal_internal_token="test-secret",
+        breakglass_jwt_secret="test-bg-jwt-secret",
+        breakglass_jwt_secret_fallback_enabled=True,
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         portal_domain="portal.test",
         database_url="sqlite://",
@@ -195,7 +197,7 @@ def test_subdomain_auth_breakglass_bypasses_grants(client, db_session):
     _realm(db_session)
     _app(db_session)
     respx.get(OIDC_URL).mock(return_value=Response(401))
-    token = create_breakglass_token("bg-admin", "test-secret")
+    token = create_breakglass_token("bg-admin", "test-bg-jwt-secret")
 
     resp = client.get(
         "/internal/subdomain-auth",

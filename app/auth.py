@@ -130,10 +130,9 @@ async def oauth2_auth(
         return oauth2_resp
 
     bg_cookie = request.cookies.get(COOKIE_NAME)
-    secret = settings.vault_portal_internal_token
-    if bg_cookie and validate_breakglass_cookie(bg_cookie, secret, db=db):
+    if bg_cookie and validate_breakglass_cookie(bg_cookie, db=db, settings=settings):
         response = Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
-        refreshed = maybe_refresh_breakglass_cookie(bg_cookie, secret, db=db)
+        refreshed = maybe_refresh_breakglass_cookie(bg_cookie, db=db, settings=settings)
         if refreshed:
             # Remaining TTL until absolute exp (browser Max-Age hint only; JWT exp is authoritative).
             set_breakglass_cookie(response, refreshed, settings)

@@ -54,6 +54,22 @@ class Settings(BaseSettings):
             "vault_portal_internal_token",
         ),
     )
+    # HMAC key for bg_session JWT — must NOT be the Bearer internal token.
+    breakglass_jwt_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "BREAKGLASS_JWT_SECRET",
+            "breakglass_jwt_secret",
+        ),
+    )
+    # Temporary: accept cookies signed with VAULT_PORTAL_INTERNAL_TOKEN during migration.
+    breakglass_jwt_secret_fallback_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "BREAKGLASS_JWT_SECRET_FALLBACK_ENABLED",
+            "breakglass_jwt_secret_fallback_enabled",
+        ),
+    )
     vault_sso_portal_oidc_client_secret: str = Field(
         default="",
         validation_alias=AliasChoices(

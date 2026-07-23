@@ -68,6 +68,9 @@ def test_generate_oauth2_proxy_config_includes_pkce(db_session: Session):
     assert 'insecure_oidc_allow_unverified_email = true' in cfg
     assert 'cookie_expire = "12h"' in cfg
     assert 'cookie_refresh = "1h"' in cfg
+    assert 'cookie_samesite = "lax"' in cfg
+    assert "cookie_secure = true" in cfg
+    assert "cookie_httponly = true" in cfg
 
 
 def test_nginx_realms_conf_uses_docker_dns(db_session: Session):

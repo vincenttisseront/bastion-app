@@ -69,6 +69,7 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
         "insecure_oidc_allow_unverified_email = true",
         "cookie_secure = true",
         "cookie_httponly = true",
+        'cookie_samesite = "lax"',
         # Session lifetime (PROPOSED — validate with security):
         # cookie_expire = Max-Age of each issued cookie (oauth2-proxy default was 168h).
         # cookie_refresh re-issues the cookie before Max-Age; combined with a long IdP

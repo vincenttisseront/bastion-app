@@ -13,6 +13,7 @@ from app.main import app
 from app.models import Base
 from app.sso_settings import Settings, get_settings
 from app.vault.encryption_key_store import reset_active_cache_for_tests
+from app.breakglass import reset_breakglass_ephemeral_secret_for_tests
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +22,7 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
     import os
 
     reset_active_cache_for_tests()
+    reset_breakglass_ephemeral_secret_for_tests()
     keys = tmp_path / "vault-keys"
     keys.mkdir()
     monkeypatch.setenv("VAULT_KEYS_DIR", str(keys))
@@ -33,6 +35,7 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
     get_settings.cache_clear()
     yield
     reset_active_cache_for_tests()
+    reset_breakglass_ephemeral_secret_for_tests()
     get_settings.cache_clear()
 
 
@@ -75,6 +78,8 @@ def client(db_engine):
     def override_get_settings():
         return Settings(
             vault_portal_internal_token="test-secret",
+            breakglass_jwt_secret="test-bg-jwt-secret",
+            breakglass_jwt_secret_fallback_enabled=True,
             portal_secret_encryption_key="test-encryption-key-for-pytest-only",
             database_url="sqlite://",
         )

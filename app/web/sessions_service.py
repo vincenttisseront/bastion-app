@@ -554,13 +554,13 @@ def touch_portal_session(
 
 
 def _breakglass_jti_from_request(request: Request) -> str | None:
-    from app.breakglass import COOKIE_NAME, decode_breakglass_token
+    from app.breakglass import COOKIE_NAME, decode_breakglass_token_with_fallback
     from app.sso_settings import get_settings
 
     raw = request.cookies.get(COOKIE_NAME)
     if not raw:
         return None
-    payload = decode_breakglass_token(raw, get_settings().vault_portal_internal_token)
+    payload, _fb = decode_breakglass_token_with_fallback(raw, get_settings())
     jti = (payload or {}).get("jti")
     return str(jti) if jti else None
 

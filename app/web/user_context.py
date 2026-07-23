@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.breakglass import COOKIE_NAME, decode_breakglass_token, validate_breakglass_cookie
+from app.breakglass import (
+    COOKIE_NAME,
+    decode_breakglass_token_with_fallback,
+    validate_breakglass_cookie,
+)
 from app.database import get_db
 from app.rbac.effective_access_service import user_has_portal_admin_role
 from app.sso_settings import Settings, get_settings
@@ -177,9 +181,9 @@ def get_user_context(
     if not email and not username:
         bg_cookie = request.cookies.get(COOKIE_NAME)
         if bg_cookie and validate_breakglass_cookie(
-            bg_cookie, settings.vault_portal_internal_token, db=db
+            bg_cookie, db=db, settings=settings
         ):
-            payload = decode_breakglass_token(bg_cookie, settings.vault_portal_internal_token)
+            payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings)
             if not payload:
                 return None
             username = payload.get("sub", "breakglass")

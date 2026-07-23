@@ -56,6 +56,10 @@ sso_portal_backup_retention_days: 14
 
 # Secrets (override via Vault / AWX extra-vars — never commit)
 vault_portal_internal_token: ""
+# Dedicated HMAC for bg_session JWT (must differ from vault_portal_internal_token).
+breakglass_jwt_secret: ""
+# Accept cookies signed with vault_portal_internal_token during migration (disable after renew).
+breakglass_jwt_secret_fallback_enabled: true
 vault_sso_portal_oidc_client_secret: ""
 vault_portal_vault_fernet_key: ""
 vault_portal_db_encryption_key: ""

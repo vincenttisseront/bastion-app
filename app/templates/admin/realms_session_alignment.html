@@ -9,7 +9,7 @@
       <h1 class="page-title">Alignement sessions SSO</h1>
       <p class="page-sub">
         Cible bastion : cookie_expire={{ target_cookie_expire }}, cookie_refresh={{ target_cookie_refresh }},
-        Keycloak ssoSessionMaxLifespan ≤ 12h (43200s).
+        cookie_secure / httponly / samesite=lax, Keycloak ssoSessionMaxLifespan ≤ 12h (43200s).
       </p>
     </div>
     <div style="display:flex; gap:var(--sp-2); align-items:center;">
@@ -37,6 +37,7 @@
             <th>Realm</th>
             <th>cookie_expire</th>
             <th>cookie_refresh</th>
+            <th>Flags (secure/httponly/samesite)</th>
             <th>Export = générateur</th>
             <th>ssoSessionMaxLifespan</th>
             <th>ssoSessionIdleTimeout</th>
@@ -53,6 +54,18 @@
             </td>
             <td class="mono">{{ r.cookie_expire_export or '—' }} <span class="form-hint">(gén. {{ r.cookie_expire_generator }})</span></td>
             <td class="mono">{{ r.cookie_refresh_export or '—' }} <span class="form-hint">(gén. {{ r.cookie_refresh_generator }})</span></td>
+            <td>
+              {% if r.cookie_flags_ok is sameas true %}
+                <span class="badge badge-ok">OK</span>
+              {% elif r.cookie_flags_ok is sameas false %}
+                <span class="badge badge-err">écart</span>
+              {% else %}
+                <span class="badge badge-muted">—</span>
+              {% endif %}
+              <div class="form-hint mono">
+                {{ r.cookie_secure_export or '—' }}/{{ r.cookie_httponly_export or '—' }}/{{ r.cookie_samesite_export or '—' }}
+              </div>
+            </td>
             <td>
               {% if r.export_matches_generator is sameas true %}
                 <span class="badge badge-ok">oui</span>

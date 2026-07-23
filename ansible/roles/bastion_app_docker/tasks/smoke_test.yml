@@ -358,6 +358,21 @@
   changed_when: false
   failed_when: false
 
+- name: "SMOKE : oauth2-proxy-core cfg has cookie_secure/httponly/samesite"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cfg="{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    test -f "$cfg"
+    grep -E 'cookie_secure\s*=\s*true' "$cfg"
+    grep -E 'cookie_httponly\s*=\s*true' "$cfg"
+    grep -E 'cookie_samesite\s*=\s*"lax"' "$cfg"
+    echo "oauth2 cookie_secure/httponly/samesite=lax OK ($cfg)"
+  args:
+    executable: /bin/bash
+  register: _oauth2_flags_smoke
+  changed_when: false
+  failed_when: false
+
 - name: "SMOKE : fail if cookie TTL missing after apply-infra"
   ansible.builtin.fail:
     msg: >-
@@ -366,6 +381,15 @@
       stdout={{ _oauth2_ttl_smoke.stdout | default('') }}
       stderr={{ _oauth2_ttl_smoke.stderr | default('') }}
   when: _oauth2_ttl_smoke.rc | default(1) != 0
+
+- name: "SMOKE : fail if cookie flags missing after apply-infra"
+  ansible.builtin.fail:
+    msg: >-
+      oauth2-proxy.cfg sans cookie_secure=true / cookie_httponly=true / cookie_samesite="lax" ?
+      Relancer infrastructure apply + apply-infra-docker apres deploiement bastion-app.
+      stdout={{ _oauth2_flags_smoke.stdout | default('') }}
+      stderr={{ _oauth2_flags_smoke.stderr | default('') }}
+  when: _oauth2_flags_smoke.rc | default(1) != 0
 
 - name: "SMOKE : fail if user_id_claim=sub missing after apply-infra"
   ansible.builtin.fail:

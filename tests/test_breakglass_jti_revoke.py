@@ -152,6 +152,8 @@ def _admin_headers() -> dict[str, str]:
 def _settings() -> Settings:
     return Settings(
         vault_portal_internal_token=SECRET,
+        breakglass_jwt_secret=SECRET,
+        breakglass_jwt_secret_fallback_enabled=True,
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         portal_domain="portal.test",
         database_url="sqlite://",

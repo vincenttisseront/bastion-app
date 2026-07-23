@@ -26,6 +26,9 @@ from app.sso_settings import Settings
 TARGET_COOKIE_EXPIRE = "12h"
 TARGET_COOKIE_REFRESH = "1h"
 TARGET_COOKIE_EXPIRE_SECONDS = 12 * 3600
+TARGET_COOKIE_SECURE = "true"
+TARGET_COOKIE_HTTPONLY = "true"
+TARGET_COOKIE_SAMESITE = "lax"
 
 
 @dataclass
@@ -37,6 +40,13 @@ class RealmSessionAlignment:
     cookie_refresh_export: str | None
     cookie_expire_generator: str
     cookie_refresh_generator: str
+    cookie_secure_export: str | None
+    cookie_httponly_export: str | None
+    cookie_samesite_export: str | None
+    cookie_secure_generator: str
+    cookie_httponly_generator: str
+    cookie_samesite_generator: str
+    cookie_flags_ok: bool | None
     export_path: str | None
     export_matches_generator: bool | None
     sso_session_max_lifespan_s: int | None
@@ -54,13 +64,40 @@ _COOKIE_RE = re.compile(
     r'^\s*cookie_(expire|refresh)\s*=\s*"([^"]+)"\s*$',
     re.MULTILINE,
 )
+_COOKIE_FLAG_RE = re.compile(
+    r'^\s*cookie_(secure|httponly)\s*=\s*(true|false)\s*$',
+    re.MULTILINE | re.IGNORECASE,
+)
+_COOKIE_SAMESITE_RE = re.compile(
+    r'^\s*cookie_samesite\s*=\s*"([^"]+)"\s*$',
+    re.MULTILINE | re.IGNORECASE,
+)
 
 
 def parse_oauth2_cookie_settings(cfg_text: str) -> dict[str, str | None]:
-    found: dict[str, str | None] = {"cookie_expire": None, "cookie_refresh": None}
+    found: dict[str, str | None] = {
+        "cookie_expire": None,
+        "cookie_refresh": None,
+        "cookie_secure": None,
+        "cookie_httponly": None,
+        "cookie_samesite": None,
+    }
     for match in _COOKIE_RE.finditer(cfg_text or ""):
         found[f"cookie_{match.group(1)}"] = match.group(2)
+    for match in _COOKIE_FLAG_RE.finditer(cfg_text or ""):
+        found[f"cookie_{match.group(1)}"] = match.group(2).lower()
+    sm = _COOKIE_SAMESITE_RE.search(cfg_text or "")
+    if sm:
+        found["cookie_samesite"] = sm.group(1).lower()
     return found
+
+
+def cookie_flags_conform(parsed: dict[str, str | None]) -> bool:
+    return (
+        (parsed.get("cookie_secure") or "").lower() == TARGET_COOKIE_SECURE
+        and (parsed.get("cookie_httponly") or "").lower() == TARGET_COOKIE_HTTPONLY
+        and (parsed.get("cookie_samesite") or "").lower() == TARGET_COOKIE_SAMESITE
+    )
 
 
 def _duration_to_seconds(value: str | None) -> int | None:
@@ -206,10 +243,17 @@ async def build_session_alignment_report(
             )
             export_expire = exported.get("cookie_expire")
             export_refresh = exported.get("cookie_refresh")
+            export_secure = exported.get("cookie_secure")
+            export_httponly = exported.get("cookie_httponly")
+            export_samesite = exported.get("cookie_samesite")
             export_matches = (
                 export_expire == gen.get("cookie_expire")
                 and export_refresh == gen.get("cookie_refresh")
             )
+            flags_ok = cookie_flags_conform(exported)
+        else:
+            export_secure = export_httponly = export_samesite = None
+            flags_ok = cookie_flags_conform(gen)
 
         max_ls = idle = client_max = None
         kc_error: str | None = None
@@ -232,6 +276,12 @@ async def build_session_alignment_report(
             export_matches=export_matches,
             keycloak_error=kc_error,
         )
+        if flags_ok is False:
+            coherent = False
+            notes.append(
+                "flags cookie manquants ou incorrects "
+                '(attendu: cookie_secure=true, cookie_httponly=true, cookie_samesite="lax")'
+            )
         rows.append(
             RealmSessionAlignment(
                 realm_slug=realm.slug,
@@ -241,6 +291,13 @@ async def build_session_alignment_report(
                 cookie_refresh_export=export_refresh,
                 cookie_expire_generator=gen.get("cookie_expire") or TARGET_COOKIE_EXPIRE,
                 cookie_refresh_generator=gen.get("cookie_refresh") or TARGET_COOKIE_REFRESH,
+                cookie_secure_export=export_secure,
+                cookie_httponly_export=export_httponly,
+                cookie_samesite_export=export_samesite,
+                cookie_secure_generator=TARGET_COOKIE_SECURE,
+                cookie_httponly_generator=TARGET_COOKIE_HTTPONLY,
+                cookie_samesite_generator=TARGET_COOKIE_SAMESITE,
+                cookie_flags_ok=flags_ok,
                 export_path=str(export_path) if export_path else None,
                 export_matches_generator=export_matches,
                 sso_session_max_lifespan_s=max_ls,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -18,6 +20,8 @@ from app.models import BreakGlassSession, utcnow
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 
+logger = logging.getLogger(__name__)
+
 COOKIE_NAME = "bg_session"
 # Absolute TTL — PROPOSED / documented in architecture (8h). Validated on every decode.
 COOKIE_MAX_AGE = 8 * 3600
@@ -27,6 +31,9 @@ IDLE_TIMEOUT_SECONDS = 30 * 60
 _IDLE_TOUCH_MIN_SECONDS = 60
 # Keep revoked/expired session rows for audit before purge (documented, not arbitrary).
 BREAKGLASS_SESSION_RETENTION_DAYS = 7
+
+# Process-lifetime secret when BREAKGLASS_JWT_SECRET is unset (dev / first boot).
+_EPHEMERAL_JWT_SECRET: str | None = None
 
 router = APIRouter(prefix="/api/admin/breakglass", tags=["breakglass"])
 
@@ -38,6 +45,68 @@ class BreakglassLoginBody(BaseModel):
 
 class BreakglassRevokeBody(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
+
+
+def reset_breakglass_ephemeral_secret_for_tests() -> None:
+    """Clear process-lifetime auto-generated JWT secret (tests only)."""
+    global _EPHEMERAL_JWT_SECRET
+    _EPHEMERAL_JWT_SECRET = None
+
+
+def resolve_breakglass_signing_secret(settings: Settings) -> str:
+    """
+    Secret used to *sign* new ``bg_session`` JWTs.
+
+    Prefer ``BREAKGLASS_JWT_SECRET``. If unset, generate a process-lifetime
+    secret (logged once) — set the env var in vault for durable production use.
+    """
+    dedicated = (settings.breakglass_jwt_secret or "").strip()
+    if dedicated:
+        return dedicated
+    global _EPHEMERAL_JWT_SECRET
+    if _EPHEMERAL_JWT_SECRET is None:
+        _EPHEMERAL_JWT_SECRET = secrets.token_urlsafe(32)
+        logger.warning(
+            "BREAKGLASS_JWT_SECRET unset — using ephemeral process secret; "
+            "set BREAKGLASS_JWT_SECRET in vault for durable break-glass cookies"
+        )
+    return _EPHEMERAL_JWT_SECRET
+
+
+def _legacy_breakglass_hmac_secret(settings: Settings) -> str:
+    return (settings.vault_portal_internal_token or "").strip()
+
+
+def decode_breakglass_token_with_fallback(
+    cookie_value: str,
+    settings: Settings,
+) -> tuple[dict[str, Any] | None, bool]:
+    """
+    Decode ``bg_session`` trying the dedicated JWT secret first, then (if enabled)
+    the legacy ``VAULT_PORTAL_INTERNAL_TOKEN`` HMAC key.
+
+    Returns ``(payload, used_legacy_fallback)``.
+    """
+    primary = resolve_breakglass_signing_secret(settings)
+    payload = decode_breakglass_token(cookie_value, primary)
+    if payload is not None:
+        return payload, False
+
+    if not settings.breakglass_jwt_secret_fallback_enabled:
+        return None, False
+
+    legacy = _legacy_breakglass_hmac_secret(settings)
+    if not legacy or legacy == primary:
+        return None, False
+
+    payload = decode_breakglass_token(cookie_value, legacy)
+    if payload is not None:
+        logger.info(
+            "breakglass JWT accepted via legacy VAULT_PORTAL_INTERNAL_TOKEN fallback "
+            "(disable BREAKGLASS_JWT_SECRET_FALLBACK_ENABLED once all sessions renewed)"
+        )
+        return payload, True
+    return None, False
 
 
 def _aware_exp(exp: Any) -> datetime | None:
@@ -201,21 +270,7 @@ def decode_breakglass_token(cookie_value: str, secret: str) -> dict[str, Any] | 
     return payload
 
 
-def validate_breakglass_cookie(
-    cookie_value: str,
-    secret: str,
-    db: Session | None = None,
-) -> bool:
-    """
-    Validate break-glass JWT (absolute exp + idle + jti denylist).
-
-    Tokens without ``jti`` (pre-revocation deploy) are rejected cleanly.
-    When ``db`` is provided, revoked/unknown jti are rejected. Callers that
-    enforce auth (oauth2-auth, user_context) must pass ``db``.
-    """
-    payload = decode_breakglass_token(cookie_value, secret)
-    if payload is None:
-        return False
+def _jti_allowed(payload: dict[str, Any], db: Session | None) -> bool:
     jti = payload.get("jti")
     if not jti or not isinstance(jti, str):
         return False
@@ -224,20 +279,65 @@ def validate_breakglass_cookie(
     return True
 
 
+def validate_breakglass_cookie(
+    cookie_value: str,
+    secret: str | None = None,
+    db: Session | None = None,
+    *,
+    settings: Settings | None = None,
+) -> bool:
+    """
+    Validate break-glass JWT (absolute exp + idle + jti denylist).
+
+    Pass ``settings=`` to use ``BREAKGLASS_JWT_SECRET`` with optional legacy
+    ``VAULT_PORTAL_INTERNAL_TOKEN`` fallback. Pass ``secret=`` for explicit
+    single-key validation (unit tests).
+    """
+    if settings is not None:
+        payload, _used_fallback = decode_breakglass_token_with_fallback(
+            cookie_value, settings
+        )
+        if payload is None:
+            return False
+        return _jti_allowed(payload, db)
+    if not secret:
+        return False
+    payload = decode_breakglass_token(cookie_value, secret)
+    if payload is None:
+        return False
+    return _jti_allowed(payload, db)
+
+
 def maybe_refresh_breakglass_cookie(
     cookie_value: str,
-    secret: str,
+    secret: str | None = None,
     db: Session | None = None,
+    *,
+    settings: Settings | None = None,
 ) -> str | None:
     """
     If the token is valid and idle window should slide, return a new JWT.
     Absolute ``exp`` and ``jti`` are preserved from the original token.
+
+    When ``settings`` is provided, validation may use the legacy fallback, but
+    the refreshed token is always signed with ``resolve_breakglass_signing_secret``
+    (upgrades old cookies to the dedicated HMAC key).
     """
-    if not validate_breakglass_cookie(cookie_value, secret, db=db):
-        return None
-    payload = decode_breakglass_token(cookie_value, secret)
-    if payload is None:
-        return None
+    if settings is not None:
+        payload, _used_fallback = decode_breakglass_token_with_fallback(
+            cookie_value, settings
+        )
+        if payload is None or not _jti_allowed(payload, db):
+            return None
+        sign_secret = resolve_breakglass_signing_secret(settings)
+    else:
+        if not secret or not validate_breakglass_cookie(cookie_value, secret, db=db):
+            return None
+        payload = decode_breakglass_token(cookie_value, secret)
+        if payload is None:
+            return None
+        sign_secret = secret
+
     jti = payload.get("jti")
     if not jti:
         return None
@@ -257,7 +357,7 @@ def maybe_refresh_breakglass_cookie(
         "type": "bg",
         "jti": jti,
     }
-    return jwt.encode(refreshed, secret, algorithm="HS256")
+    return jwt.encode(refreshed, sign_secret, algorithm="HS256")
 
 
 def set_breakglass_cookie(
@@ -309,8 +409,15 @@ async def breakglass_login(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    if not settings.vault_portal_internal_token:
-        raise HTTPException(status_code=503, detail="Internal token not configured")
+    # Need either dedicated JWT secret, vault token (legacy), or ephemeral will be used.
+    if not (
+        (settings.breakglass_jwt_secret or "").strip()
+        or (settings.vault_portal_internal_token or "").strip()
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="Break-glass JWT secret not configured (BREAKGLASS_JWT_SECRET)",
+        )
 
     if not verify_breakglass_password(db, body.username, body.password):
         log_action(
@@ -321,9 +428,8 @@ async def breakglass_login(
         )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token, jti = issue_breakglass_token(
-        db, body.username, settings.vault_portal_internal_token
-    )
+    signing = resolve_breakglass_signing_secret(settings)
+    token, jti = issue_breakglass_token(db, body.username, signing)
     db.commit()
     set_breakglass_cookie(response, token, settings)
     log_action(
@@ -345,8 +451,8 @@ async def breakglass_logout(
 ):
     username = "unknown"
     bg_cookie = request.cookies.get(COOKIE_NAME)
-    if bg_cookie and settings.vault_portal_internal_token:
-        payload = decode_breakglass_token(bg_cookie, settings.vault_portal_internal_token)
+    if bg_cookie:
+        payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings)
         if payload:
             username = payload.get("sub", "unknown")
             jti = payload.get("jti")
@@ -362,29 +468,38 @@ async def breakglass_logout(
                 except LookupError:
                     pass
         else:
-            try:
-                # Logout even if idle-expired: read sub without idle check
-                raw = jwt.decode(
-                    bg_cookie,
-                    settings.vault_portal_internal_token,
-                    algorithms=["HS256"],
-                    options={"verify_exp": False},
-                )
-                username = raw.get("sub", "unknown")
-                jti = raw.get("jti")
-                if jti:
-                    try:
-                        revoke_breakglass_jti(
-                            db,
-                            str(jti),
-                            revoked_by=str(username),
-                            reason="logout",
-                        )
-                        db.commit()
-                    except LookupError:
-                        pass
-            except jwt.PyJWTError:
-                pass
+            # Logout even if idle-expired: try decode without idle via both secrets
+            for sec in (
+                resolve_breakglass_signing_secret(settings),
+                _legacy_breakglass_hmac_secret(settings),
+            ):
+                if not sec:
+                    continue
+                try:
+                    raw = jwt.decode(
+                        bg_cookie,
+                        sec,
+                        algorithms=["HS256"],
+                        options={"verify_exp": False},
+                    )
+                    if raw.get("type") != "bg":
+                        continue
+                    username = raw.get("sub", "unknown")
+                    jti = raw.get("jti")
+                    if jti:
+                        try:
+                            revoke_breakglass_jti(
+                                db,
+                                str(jti),
+                                revoked_by=str(username),
+                                reason="logout",
+                            )
+                            db.commit()
+                        except LookupError:
+                            pass
+                    break
+                except jwt.PyJWTError:
+                    continue
 
     response.delete_cookie(key=COOKIE_NAME)
     log_action(

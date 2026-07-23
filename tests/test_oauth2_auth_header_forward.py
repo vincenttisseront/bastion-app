@@ -12,6 +12,8 @@ from app.sso_settings import Settings, get_settings
 def _settings() -> Settings:
     return Settings(
         vault_portal_internal_token="test-secret",
+        breakglass_jwt_secret="test-bg-jwt-secret",
+        breakglass_jwt_secret_fallback_enabled=True,
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         portal_domain="portal.test",
         database_url="sqlite://",
@@ -116,7 +118,7 @@ def test_oauth2_auth_prefers_sso_over_breakglass_cookie(client, db_session):
     _override_settings(client, settings)
     _add_default_realm(db_session)
 
-    bg_token = create_breakglass_token("admin", settings.vault_portal_internal_token)
+    bg_token = create_breakglass_token("admin", settings.breakglass_jwt_secret)
     respx.get("http://127.0.0.1:4180/oauth2/auth").mock(
         return_value=Response(
             202,
@@ -147,7 +149,7 @@ def test_oauth2_auth_falls_back_to_breakglass_when_sso_401(client, db_session):
     _override_settings(client, settings)
     _add_default_realm(db_session)
 
-    bg_token = create_breakglass_token("admin", settings.vault_portal_internal_token)
+    bg_token = create_breakglass_token("admin", settings.breakglass_jwt_secret)
     respx.get("http://127.0.0.1:4180/oauth2/auth").mock(return_value=Response(401))
 
     resp = client.get(

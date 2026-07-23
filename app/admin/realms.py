@@ -229,7 +229,10 @@ async def admin_realms_session_alignment(
     """Compare oauth2-proxy cookie TTL (export) vs Keycloak ssoSessionMaxLifespan."""
     from app.admin.session_alignment import (
         TARGET_COOKIE_EXPIRE,
+        TARGET_COOKIE_HTTPONLY,
         TARGET_COOKIE_REFRESH,
+        TARGET_COOKIE_SAMESITE,
+        TARGET_COOKIE_SECURE,
         build_session_alignment_report,
     )
 
@@ -242,6 +245,9 @@ async def admin_realms_session_alignment(
             rows=rows,
             target_cookie_expire=TARGET_COOKIE_EXPIRE,
             target_cookie_refresh=TARGET_COOKIE_REFRESH,
+            target_cookie_secure=TARGET_COOKIE_SECURE,
+            target_cookie_httponly=TARGET_COOKIE_HTTPONLY,
+            target_cookie_samesite=TARGET_COOKIE_SAMESITE,
             all_coherent=all(r.coherent for r in rows) if rows else False,
         ),
     )
@@ -255,7 +261,10 @@ async def api_realms_session_alignment(
 ):
     from app.admin.session_alignment import (
         TARGET_COOKIE_EXPIRE,
+        TARGET_COOKIE_HTTPONLY,
         TARGET_COOKIE_REFRESH,
+        TARGET_COOKIE_SAMESITE,
+        TARGET_COOKIE_SECURE,
         build_session_alignment_report,
     )
 
@@ -266,6 +275,9 @@ async def api_realms_session_alignment(
             "target": {
                 "cookie_expire": TARGET_COOKIE_EXPIRE,
                 "cookie_refresh": TARGET_COOKIE_REFRESH,
+                "cookie_secure": TARGET_COOKIE_SECURE,
+                "cookie_httponly": TARGET_COOKIE_HTTPONLY,
+                "cookie_samesite": TARGET_COOKIE_SAMESITE,
                 "sso_session_max_lifespan_max_s": 12 * 3600,
             },
             "realms": [r.to_dict() for r in rows],

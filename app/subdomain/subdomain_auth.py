@@ -18,7 +18,7 @@ from app.audit import log_action
 from app.auth import get_realm_proxy_url
 from app.breakglass import (
     COOKIE_NAME,
-    decode_breakglass_token,
+    decode_breakglass_token_with_fallback,
     maybe_refresh_breakglass_cookie,
     set_breakglass_cookie,
     validate_breakglass_cookie,
@@ -207,10 +207,9 @@ async def subdomain_auth(
     # Rationale (2026-07-23): break-glass is the LAN recovery path when IdP is down;
     # requiring grants would block the only remaining admin access to subdomain apps.
     bg_cookie = request.cookies.get(COOKIE_NAME)
-    secret = settings.vault_portal_internal_token
-    if bg_cookie and validate_breakglass_cookie(bg_cookie, secret, db=db):
-        payload = decode_breakglass_token(bg_cookie, secret) or {}
-        username = str(payload.get("sub") or "breakglass")
+    if bg_cookie and validate_breakglass_cookie(bg_cookie, db=db, settings=settings):
+        payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings)
+        username = str((payload or {}).get("sub") or "breakglass")
         response = Response(
             status_code=200,
             headers={
@@ -219,7 +218,7 @@ async def subdomain_auth(
                 "X-Auth-App": app.slug,
             },
         )
-        refreshed = maybe_refresh_breakglass_cookie(bg_cookie, secret, db=db)
+        refreshed = maybe_refresh_breakglass_cookie(bg_cookie, db=db, settings=settings)
         if refreshed:
             set_breakglass_cookie(response, refreshed, settings)
         return response

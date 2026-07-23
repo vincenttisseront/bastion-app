@@ -89,7 +89,11 @@ async def test_build_report_uses_keycloak_timeouts(db_session: Session, tmp_path
     export_dir = tmp_path / "oauth2" / "ar-systems"
     export_dir.mkdir(parents=True)
     (export_dir / "oauth2-proxy.cfg").write_text(
-        'cookie_expire = "12h"\ncookie_refresh = "1h"\n',
+        'cookie_expire = "12h"\n'
+        'cookie_refresh = "1h"\n'
+        "cookie_secure = true\n"
+        "cookie_httponly = true\n"
+        'cookie_samesite = "lax"\n',
         encoding="utf-8",
     )
 

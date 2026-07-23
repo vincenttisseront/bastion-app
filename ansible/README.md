@@ -93,6 +93,8 @@ ansible-playbook ansible/linux_sso_portal.yml \
 
 Secrets AWX (jamais en logs grâce à `no_log` sur le rendu `.env`) :
 - `vault_portal_internal_token`
+- `breakglass_jwt_secret` (HMAC `bg_session` — distinct du token Bearer)
+- `breakglass_jwt_secret_fallback_enabled` (transition ; désactiver après renouvellement)
 - `vault_sso_portal_oidc_client_secret`
 - `vault_portal_vault_fernet_key` — **temporaire Phase B** : conservé pour migration
   auto vers fichiers locaux (`VAULT_KEYS_DIR`). Ne pas retirer avant smoke
