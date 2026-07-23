@@ -17,7 +17,7 @@ from app.web.flash import base_template_context
 from app.request_client_ip import client_ip_from_request
 from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
-from app.web.user_context import UserContext, is_portal_admin, require_user
+from app.web.user_context import UserContext, is_portal_admin, require_user_enriched
 
 router = APIRouter(tags=["portal"])
 
@@ -130,30 +130,17 @@ def _account_console_url(db: Session, user: UserContext, settings: Settings) -> 
     return f"{realm.issuer_url.rstrip('/')}/account/"
 
 
-async def _enrich_user_email(
-    db: Session, settings: Settings, user: UserContext
-) -> UserContext:
-    """Fill user.email from Keycloak when the SSO session only has a short username."""
-    from app.rbac.oidc_email import looks_like_email, resolve_user_email
-
-    resolved = await resolve_user_email(db, settings, user)
-    if looks_like_email(resolved):
-        user.email = resolved
-    return user
-
-
 @router.get("/apps")
 async def apps_portal(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    user: UserContext = Depends(require_user),
+    user: UserContext = Depends(require_user_enriched),
 ):
     """User home: grid of applications the caller may access."""
     if user.is_breakglass:
         return RedirectResponse(url="/dashboard", status_code=302)
 
-    await _enrich_user_email(db, settings, user)
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
@@ -175,10 +162,9 @@ async def user_profile(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    user: UserContext = Depends(require_user),
+    user: UserContext = Depends(require_user_enriched),
 ):
     """End-user profile: identity, app summary, Keycloak account security link."""
-    await _enrich_user_email(db, settings, user)
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
@@ -199,11 +185,11 @@ async def user_profile(
 
 
 @router.post("/api/apps/{app_id}/launch-ping")
-def app_launch_ping(
+async def app_launch_ping(
     app_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    user: UserContext = Depends(require_user),
+    user: UserContext = Depends(require_user_enriched),
 ):
     """Fire-and-forget audit when the user clicks Open on a tile."""
     entries = get_effective_apps_for_user(

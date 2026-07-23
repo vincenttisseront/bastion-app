@@ -254,6 +254,25 @@ def require_user(
     return user
 
 
+async def require_user_enriched(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> UserContext:
+    """Like require_user, but fills email from Keycloak when X-Email is missing/short."""
+    user = require_user(request, db=db, settings=settings)
+    if user.is_breakglass or not user.keycloak_user_id:
+        return user
+    from app.rbac.oidc_email import looks_like_email, resolve_user_email
+
+    if looks_like_email(user.email):
+        return user
+    resolved = await resolve_user_email(db, settings, user)
+    if looks_like_email(resolved):
+        user.email = resolved
+    return user
+
+
 def require_admin(
     request: Request,
     db: Session = Depends(get_db),

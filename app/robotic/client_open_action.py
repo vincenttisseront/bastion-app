@@ -42,7 +42,7 @@ from app.subdomain.subdomain_service import (
 from app.testing_framework.throttle import throttle_retry_after_key
 from app.web.flash import flash_redirect
 from app.web.sessions_service import app_cookie_diagnostics, touch_app_session
-from app.web.user_context import UserContext, require_user
+from app.web.user_context import UserContext, require_user_enriched
 
 router = APIRouter(tags=["robotic"])
 
@@ -307,7 +307,7 @@ async def client_impersonate(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    user: UserContext = Depends(require_user),
+    user: UserContext = Depends(require_user_enriched),
 ):
     denied = _check_app_rbac(db, slug, user)
     if denied is not None:
@@ -347,7 +347,7 @@ async def open_with_identity(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    user: UserContext = Depends(require_user),
+    user: UserContext = Depends(require_user_enriched),
 ):
     """
     Open an app in identite_utilisateur mode.
@@ -419,17 +419,7 @@ async def open_with_identity(
             )
         return _identity_error_redirect(settings=settings, message=message)
 
-    from app.rbac.oidc_email import looks_like_email, resolve_user_email
-
-    # If oauth2-proxy omitted X-Email (unverified/missing claim), recover from Keycloak.
-    resolved_email = await resolve_user_email(db, settings, user)
-    if looks_like_email(resolved_email):
-        user.email = resolved_email
-    username = _oidc_login_username(
-        user,
-        getattr(app, "identity_format", None),
-        email=resolved_email,
-    )
+    username = _oidc_login_username(user, getattr(app, "identity_format", None))
     if not username:
         message = "Identité utilisateur indisponible. Reconnectez-vous au portail."
         return _identity_error_response(
@@ -510,7 +500,7 @@ async def basic_auth_header(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    user: UserContext = Depends(require_user),
+    user: UserContext = Depends(require_user_enriched),
 ):
     """
     Nginx auth_request handler — returns X-Robotic-Authorization header only.

@@ -150,6 +150,40 @@ def _protocol_for_user(user: UserContext) -> str:
     return "OIDC"
 
 
+def _looks_like_email(value: str | None) -> bool:
+    text = (value or "").strip()
+    return bool(text) and "@" in text
+
+
+def _heal_short_session_emails(
+    db: Session,
+    *,
+    full_email: str,
+    username: str | None,
+) -> None:
+    """Rewrite registry rows that stored preferred_username as user_email (Hervé case)."""
+    if not _looks_like_email(full_email):
+        return
+    full = full_email.strip().lower()
+    shorts: set[str] = set()
+    if username:
+        u = username.strip().lower()
+        if u and "@" not in u:
+            shorts.add(u)
+    local = full.split("@", 1)[0]
+    if local and local != full:
+        shorts.add(local)
+    if not shorts:
+        return
+    rows = (
+        db.query(ActiveSession)
+        .filter(ActiveSession.user_email.in_(sorted(shorts)))
+        .all()
+    )
+    for row in rows:
+        row.user_email = full
+
+
 def _protocol_for_app(app: App) -> str:
     return _ACCESS_MODE_PROTOCOL.get(app.access_mode or "sso_gate", "HTTPS")
 
@@ -344,6 +378,8 @@ def _touch_portal_session(
 ) -> ActiveSession:
     email = (user.email or user.username or "unknown").strip().lower()
     realm = user.realm_slug or "ar-systems"
+    if _looks_like_email(email):
+        _heal_short_session_emails(db, full_email=email, username=user.username)
     session_id = _portal_session_id(email, realm)
     now = utcnow()
     row = db.query(ActiveSession).filter_by(id=session_id).first()
@@ -364,6 +400,7 @@ def _touch_portal_session(
         )
         db.add(row)
     else:
+        row.user_email = email
         row.username = user.username or email
         row.protocol = _protocol_for_user(user)
         row.source_ip = prefer_client_ip(row.source_ip, source_ip)
@@ -413,6 +450,8 @@ def _touch_app_session(
 ) -> ActiveSession:
     email = (user.email or user.username or "unknown").strip().lower()
     realm = user.realm_slug or app.realm_slug or "ar-systems"
+    if _looks_like_email(email):
+        _heal_short_session_emails(db, full_email=email, username=user.username)
     session_id = _app_session_id(email, app.slug)
     now = utcnow()
     row = db.query(ActiveSession).filter_by(id=session_id).first()
@@ -433,6 +472,7 @@ def _touch_app_session(
         )
         db.add(row)
     else:
+        row.user_email = email
         if row.status != "isolated":
             row.status = "active"
             row.protocol = _protocol_for_app(app)

@@ -94,7 +94,10 @@ async def resolve_user_email(
         return session_email
 
     realm = _realm_for_user(db, user, settings)
-    if realm is None or not realm.groups_sync_enabled:
+    if realm is None:
+        return session_email
+    # Need Admin API credentials — do not require groups_sync_enabled (email lookup ≠ group sync).
+    if not realm.keycloak_admin_client_id or not realm.keycloak_admin_client_secret_encrypted:
         return session_email
 
     try:
