@@ -1,10 +1,13 @@
-"""Generic robotic vault driver — HTML form login and HTTP Basic Auth."""
+"""Generic robotic vault driver — HTML form login, HTTP Basic Auth, and X-WSSE."""
 
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import re
+import secrets
+from datetime import datetime, timezone
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -339,6 +342,37 @@ def generic_basic_auth_header(credential: ResolvedCredential | object, password:
     return f"Basic {token}"
 
 
+def generic_wsse_header(
+    username: str,
+    password: str,
+    *,
+    nonce: bytes | None = None,
+    created: str | None = None,
+) -> str:
+    """
+    Build a fresh X-WSSE UsernameToken header value (without the ``X-WSSE:`` prefix).
+
+    MUST be called anew for every outgoing request — never cache/memoize the result.
+    A reused nonce/Created would look like a replay attack to the target app.
+
+    SHA-1 is mandated by the WSSE UsernameToken profile itself (legacy protocol
+    constraint, not an application security choice). Do not "upgrade" the digest
+    algorithm without confirming the target API supports an alternate profile.
+
+    Never log ``password`` or the raw digest input.
+    """
+    nonce_bytes = nonce if nonce is not None else secrets.token_bytes(16)
+    nonce_b64 = base64.b64encode(nonce_bytes).decode("ascii")
+    created_ts = created or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Digest input: raw nonce bytes + created (UTF-8) + password (UTF-8) — NOT nonce_b64.
+    digest_input = nonce_bytes + created_ts.encode("utf-8") + password.encode("utf-8")
+    digest = base64.b64encode(hashlib.sha1(digest_input).digest()).decode("ascii")  # noqa: S324
+    return (
+        f'UsernameToken Username="{username}", PasswordDigest="{digest}", '
+        f'Nonce="{nonce_b64}", Created="{created_ts}"'
+    )
+
+
 async def generic_basic_auth_probe(
     app: App,
     auth_header: str,
@@ -348,6 +382,30 @@ async def generic_basic_auth_probe(
     if not url:
         return False
     headers = {"Authorization": auth_header}
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+            response = await client.head(url, headers=headers)
+            if response.status_code == 405:
+                response = await client.get(url, headers=headers)
+    except httpx.RequestError:
+        return False
+    return response.status_code not in (401, 403)
+
+
+async def generic_wsse_probe(
+    app: App,
+    username: str,
+    password: str,
+) -> bool:
+    """HEAD/GET upstream with a fresh X-WSSE header; success = not 401/403."""
+    url = (app.upstream_url or "").strip()
+    if not url:
+        return False
+    wsse = generic_wsse_header(username, password)
+    headers = {
+        "X-WSSE": wsse,
+        "Authorization": 'WSSE profile="UsernameToken"',
+    }
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
             response = await client.head(url, headers=headers)

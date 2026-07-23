@@ -221,6 +221,7 @@ function initAccessModeForm() {
   var authSection = document.getElementById('auth-mode-section');
   var authSelect = document.querySelector('[data-auth-mode-select]');
   var genericFields = document.getElementById('generic-form-fields');
+  var wsseHelp = document.getElementById('generic-wsse-help');
   if (!select || !labelEl || !helpEl) return;
 
   function syncFqdnCookieWarning() {
@@ -252,8 +253,15 @@ function initAccessModeForm() {
   }
 
   function applyAuthMode() {
-    if (!authSelect || !genericFields) return;
-    genericFields.hidden = (authSelect.value !== 'generic_form');
+    if (!authSelect) return;
+    var mode = authSelect.value;
+    // generic_form only — keep hidden for generic_basic_auth and generic_wsse
+    if (genericFields) {
+      genericFields.hidden = (mode !== 'generic_form');
+    }
+    if (wsseHelp) {
+      wsseHelp.hidden = (mode !== 'generic_wsse');
+    }
   }
 
   select.addEventListener('change', applyMode);

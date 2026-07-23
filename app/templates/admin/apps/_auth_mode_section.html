@@ -24,6 +24,10 @@
         {% endfor %}
       </select>
       {% if errors.auth_mode %}<div class="form-error">{{ errors.auth_mode }}</div>{% endif %}
+      <p id="generic-wsse-help" class="form-help" hidden>
+        En-tête X-WSSE (UsernameToken, digest SHA-1) régénéré à chaque requête par Nginx.
+        Renseignez un identifiant et un mot de passe dans le credential vault ci-dessous.
+      </p>
     </div>
   {% endif %}
 

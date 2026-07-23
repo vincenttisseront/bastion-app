@@ -65,7 +65,8 @@ def app_launch_url(app) -> str:
     if driver in ("crushftp", "generic_form"):
         return f"/api/internal/impersonate/{app.slug}"
 
-    # generic_basic_auth: Nginx auth_request injects on each request — direct link.
+    # generic_basic_auth / generic_wsse: Nginx auth_request injects on each
+    # request — direct link (no cookie impersonation round-trip).
     mode = normalize_access_mode(app.access_mode)
     if mode == "sso_gate":
         return app.upstream_url

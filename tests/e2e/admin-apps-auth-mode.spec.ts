@@ -34,7 +34,9 @@ test.describe("admin apps auth-mode toggles", () => {
       <option value="sso" selected>SSO</option>
       <option value="generic_form">Vault — Formulaire de login</option>
       <option value="generic_basic_auth">Vault — Basic Auth</option>
+      <option value="generic_wsse">Vault — X-WSSE (UsernameToken)</option>
     </select>
+    <p id="generic-wsse-help" hidden>WSSE help</p>
     <div id="generic-form-fields" hidden>
       <input id="login_form_url" name="login_form_url" />
     </div>
@@ -45,6 +47,7 @@ test.describe("admin apps auth-mode toggles", () => {
 
     const authSection = page.locator("#auth-mode-section");
     const genericFields = page.locator("#generic-form-fields");
+    const wsseHelp = page.locator("#generic-wsse-help");
 
     await expect(authSection).toBeHidden();
     await expect(genericFields).toBeHidden();
@@ -52,9 +55,19 @@ test.describe("admin apps auth-mode toggles", () => {
     await page.selectOption("#access_mode", "subdomain_proxy");
     await expect(authSection).toBeVisible();
     await expect(genericFields).toBeHidden();
+    await expect(wsseHelp).toBeHidden();
 
     await page.selectOption("#auth_mode", "generic_form");
     await expect(genericFields).toBeVisible();
+    await expect(wsseHelp).toBeHidden();
+
+    await page.selectOption("#auth_mode", "generic_wsse");
+    await expect(genericFields).toBeHidden();
+    await expect(wsseHelp).toBeVisible();
+
+    await page.selectOption("#auth_mode", "generic_basic_auth");
+    await expect(genericFields).toBeHidden();
+    await expect(wsseHelp).toBeHidden();
 
     await page.selectOption("#auth_mode", "sso");
     await expect(genericFields).toBeHidden();

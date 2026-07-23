@@ -17,6 +17,7 @@ from app.robotic.impersonate_service import (
     ImpersonationError,
     ImpersonationTechnicalError,
     get_basic_auth_header,
+    get_wsse_header,
     impersonate,
 )
 from app.sso_settings import Settings
@@ -72,6 +73,22 @@ def _make_basic_auth_app(db: Session) -> App:
         upstream_url="https://grafana.example/",
         robotic_driver="generic_basic_auth",
         auth_mode="generic_basic_auth",
+        access_mode="legacy_path_proxy",
+        enabled=True,
+    )
+    db.add(app)
+    db.commit()
+    db.refresh(app)
+    return app
+
+
+def _make_wsse_app(db: Session) -> App:
+    app = App(
+        slug="ovh-api",
+        label="OVH API",
+        upstream_url="https://api.example/",
+        robotic_driver="generic_wsse",
+        auth_mode="generic_wsse",
         access_mode="legacy_path_proxy",
         enabled=True,
     )
@@ -233,3 +250,98 @@ def test_basic_auth_header_throttled(client: TestClient, db_session: Session):
 
     assert first.status_code == 200
     assert second.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_wsse_header_success(db_session: Session, caplog):
+    _make_wsse_app(db_session)
+    settings = _settings()
+    set_app_credential(db_session, "ovh-api", "robot", SECRET_PASSWORD, settings)
+
+    with caplog.at_level(logging.DEBUG):
+        result = await get_wsse_header(db_session, "ovh-api", settings, actor="user@test")
+
+    assert result.wsse_header.startswith('UsernameToken Username="robot"')
+    assert "PasswordDigest=" in result.wsse_header
+    assert "Nonce=" in result.wsse_header
+    assert "Created=" in result.wsse_header
+    assert SECRET_PASSWORD not in result.wsse_header
+    audit = (
+        db_session.query(AuditLog)
+        .filter_by(action="robotic.impersonate.generic")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.details["driver"] == "generic_wsse"
+    assert "wsse_nonce" in audit.details
+    assert "wsse_created" in audit.details
+    assert "PasswordDigest" not in str(audit.details)
+    assert SECRET_PASSWORD not in str(audit.details)
+    assert SECRET_PASSWORD not in "\n".join(r.getMessage() for r in caplog.records)
+
+
+def test_wsse_header_route_returns_header_not_body(client: TestClient, db_session: Session):
+    app = _make_wsse_app(db_session)
+    _seed_rbac(db_session, app)
+    set_app_credential(db_session, "ovh-api", "robot", SECRET_PASSWORD, _settings())
+
+    resp = client.get("/internal/wsse-header/ovh-api", headers=USER_HEADERS)
+
+    assert resp.status_code == 200
+    wsse = resp.headers.get("x-wsse-authorization", "")
+    assert wsse.startswith('UsernameToken Username="robot"')
+    assert "PasswordDigest=" in wsse
+    assert resp.text == ""
+    assert SECRET_PASSWORD not in resp.text
+    assert SECRET_PASSWORD not in str(resp.headers)
+
+
+def test_wsse_header_rbac_denied(client: TestClient, db_session: Session):
+    app = _make_wsse_app(db_session)
+    set_app_credential(db_session, "ovh-api", "robot", SECRET_PASSWORD, _settings())
+    # Restrict to a group the caller does not belong to.
+    group = RBACGroup(name="other-team")
+    db_session.add(group)
+    db_session.commit()
+    db_session.refresh(group)
+    db_session.add(AppGroup(app_id=app.id, group_id=group.id))
+    db_session.commit()
+
+    resp = client.get("/internal/wsse-header/ovh-api", headers=USER_HEADERS)
+
+    assert resp.status_code == 403
+    assert "x-wsse-authorization" not in {k.lower() for k in resp.headers.keys()}
+
+
+def test_wsse_header_throttled_never_reuses_header(client: TestClient, db_session: Session):
+    app = _make_wsse_app(db_session)
+    _seed_rbac(db_session, app)
+    set_app_credential(db_session, "ovh-api", "robot", SECRET_PASSWORD, _settings())
+
+    first = client.get("/internal/wsse-header/ovh-api", headers=USER_HEADERS)
+    second = client.get("/internal/wsse-header/ovh-api", headers=USER_HEADERS)
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    # Throttle must refuse — never return a previously generated UsernameToken.
+    assert "x-wsse-authorization" not in {k.lower() for k in second.headers.keys()}
+    assert second.headers.get("x-wsse-authorization") is None
+    first_header = first.headers.get("x-wsse-authorization")
+    assert first_header
+    assert first_header != second.headers.get("x-wsse-authorization")
+
+
+def test_wsse_impersonate_route_rejects_cookie_path(client: TestClient, db_session: Session):
+    app = _make_wsse_app(db_session)
+    _seed_rbac(db_session, app)
+    set_app_credential(db_session, "ovh-api", "robot", SECRET_PASSWORD, _settings())
+
+    resp = client.get(
+        "/api/internal/impersonate/ovh-api",
+        headers=USER_HEADERS,
+        follow_redirects=False,
+    )
+    # Cookie impersonation is unsupported — WSSE is Nginx auth_request only.
+    assert resp.status_code in (400, 403, 409, 500) or resp.status_code >= 400
+    assert SECRET_PASSWORD not in resp.text

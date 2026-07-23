@@ -65,6 +65,23 @@ def test_launch_url_generic_basic_auth_stays_direct():
     assert app_launch_url(sub) == "https://grafana.example.fr"
 
 
+def test_launch_url_generic_wsse_stays_direct():
+    app = _app(
+        slug="ovh-api",
+        robotic_driver="generic_wsse",
+        access_mode="legacy_path_proxy",
+    )
+    assert app_launch_url(app) == "/proxy/ovh-api/"
+
+    sub = _app(
+        slug="ovh-api",
+        robotic_driver="generic_wsse",
+        access_mode="subdomain_proxy",
+        public_fqdn="api.example.fr",
+    )
+    assert app_launch_url(sub) == "https://api.example.fr"
+
+
 def test_launch_url_sso_without_driver_unchanged():
     app = _app(
         slug="wiki",

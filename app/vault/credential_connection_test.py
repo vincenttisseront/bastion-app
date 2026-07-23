@@ -12,6 +12,7 @@ from app.bastion.drivers.generic import (
     generic_basic_auth_header,
     generic_basic_auth_probe,
     generic_form_login,
+    generic_wsse_probe,
 )
 from app.models import App
 from app.sso_settings import Settings
@@ -154,6 +155,36 @@ async def test_app_credential_connection(
                     name="basic_auth",
                     status=CheckStatus.ERROR,
                     message="Basic Auth probe failed",
+                )
+            )
+    elif driver == "generic_wsse":
+        try:
+            username = resolved.robotic_username
+            ok = await generic_wsse_probe(app, username, password)
+            password = ""
+            password_cleared = True
+            if ok:
+                checks.append(
+                    CheckStep(
+                        name="wsse",
+                        status=CheckStatus.OK,
+                        message="Upstream accepted X-WSSE",
+                    )
+                )
+            else:
+                checks.append(
+                    CheckStep(
+                        name="wsse",
+                        status=CheckStatus.ERROR,
+                        message="Upstream rejected X-WSSE (401/403)",
+                    )
+                )
+        except Exception:
+            checks.append(
+                CheckStep(
+                    name="wsse",
+                    status=CheckStatus.ERROR,
+                    message="X-WSSE probe failed",
                 )
             )
     else:

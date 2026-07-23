@@ -19,6 +19,7 @@ from app.bastion.drivers.generic import (
     DriverUpstreamError,
     generic_basic_auth_header,
     generic_form_login,
+    generic_wsse_header,
 )
 from app.models import App
 from app.sso_settings import Settings
@@ -99,6 +100,18 @@ class BasicAuthHeaderResult:
     credential_source: CredentialSource = "shared"
 
 
+@dataclass(frozen=True)
+class WsseHeaderResult:
+    """Fresh X-WSSE UsernameToken value for Nginx auth_request (never cache)."""
+
+    wsse_header: str
+    slug: str
+    robotic_username: str
+    credential_source: CredentialSource = "shared"
+    nonce_b64: str | None = None
+    created: str | None = None
+
+
 def cookie_fingerprint(cookies: dict[str, str]) -> dict[str, str]:
     """Truncated/hashed cookie traces for audit — never full values."""
     out: dict[str, str] = {}
@@ -165,6 +178,8 @@ def _audit_impersonate(
     cookies: dict[str, str] | None = None,
     credential_source: CredentialSource | None = None,
     credential_mode: str | None = None,
+    wsse_nonce: str | None = None,
+    wsse_created: str | None = None,
 ) -> None:
     details: dict = {
         "app_slug": app_slug,
@@ -183,6 +198,11 @@ def _audit_impersonate(
         details["credential_source"] = credential_source
     if credential_mode:
         details["credential_mode"] = credential_mode
+    # Nonce/Created are public by WSSE design; never log password or PasswordDigest.
+    if wsse_nonce:
+        details["wsse_nonce"] = wsse_nonce
+    if wsse_created:
+        details["wsse_created"] = wsse_created
     log_action(
         db,
         actor=actor,
@@ -524,6 +544,10 @@ async def impersonate(
             raise ImpersonationError(
                 f"App '{app_slug}' uses Basic Auth — access via proxy URL (Nginx auth_request)"
             )
+        if driver_name == "generic_wsse":
+            raise ImpersonationError(
+                f"App '{app_slug}' uses X-WSSE — access via proxy URL (Nginx auth_request)"
+            )
         raise ImpersonationError(f"App '{app_slug}' is not configured for robotic cookie SSO")
 
     mode = normalize_access_mode(app.access_mode)
@@ -696,4 +720,106 @@ async def get_basic_auth_header(
         slug=app_obj.slug,
         robotic_username=resolved.robotic_username,
         credential_source=resolved.source,
+    )
+
+
+async def get_wsse_header(
+    db: Session,
+    app_slug: str,
+    settings: Settings,
+    *,
+    actor: str = "system",
+    ip_address: str | None = None,
+    keycloak_user_id: str | None = None,
+) -> WsseHeaderResult:
+    """
+    Return a fresh X-WSSE UsernameToken for Nginx auth_request (generic_wsse).
+
+    Never cache the result — nonce/Created must be unique per call.
+    Secret and PasswordDigest never appear in audit details or response body.
+    """
+    app = db.query(App).filter_by(slug=app_slug).first()
+    driver_name = (app.robotic_driver or "").strip().lower() if app else ""
+
+    if app is None or not app.enabled:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver=driver_name or "generic_wsse",
+            error="app_not_found",
+        )
+        raise ImpersonationError(f"App '{app_slug}' not found")
+
+    if driver_name != "generic_wsse":
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver=driver_name or "unknown",
+            error="unsupported_driver",
+        )
+        raise ImpersonationError(f"App '{app_slug}' is not configured for X-WSSE robotic SSO")
+
+    mode = normalize_access_mode(app.access_mode)
+    if mode not in PROXY_ACCESS_MODES:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver="generic_wsse",
+            error="invalid_access_mode",
+        )
+        raise ImpersonationError(
+            f"App '{app_slug}' X-WSSE requires subdomain_proxy or legacy_path_proxy"
+        )
+
+    app_obj, resolved, password = _load_app_and_credential(
+        db,
+        app_slug,
+        settings,
+        actor=actor,
+        ip_address=ip_address,
+        driver="generic_wsse",
+        keycloak_user_id=keycloak_user_id,
+    )
+    try:
+        wsse_header = generic_wsse_header(resolved.robotic_username, password)
+    finally:
+        password = ""  # noqa: F841
+
+    # Parse public Nonce/Created from the generated header for audit (no digest).
+    nonce_b64: str | None = None
+    created: str | None = None
+    for part in wsse_header.split(", "):
+        if part.startswith('Nonce="') and part.endswith('"'):
+            nonce_b64 = part[len('Nonce="') : -1]
+        elif part.startswith('Created="') and part.endswith('"'):
+            created = part[len('Created="') : -1]
+
+    _audit_impersonate(
+        db,
+        app_slug=app_slug,
+        actor=actor,
+        ip_address=ip_address,
+        success=True,
+        driver="generic_wsse",
+        robotic_username=resolved.robotic_username,
+        credential_source=resolved.source,
+        wsse_nonce=nonce_b64,
+        wsse_created=created,
+    )
+    return WsseHeaderResult(
+        wsse_header=wsse_header,
+        slug=app_obj.slug,
+        robotic_username=resolved.robotic_username,
+        credential_source=resolved.source,
+        nonce_b64=nonce_b64,
+        created=created,
     )

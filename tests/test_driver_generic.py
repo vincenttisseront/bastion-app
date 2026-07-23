@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
+import re
 
 import httpx
 import pytest
@@ -16,10 +18,19 @@ from app.bastion.drivers.generic import (
     DriverUpstreamError,
     generic_basic_auth_header,
     generic_form_login,
+    generic_wsse_header,
 )
 from app.models import App, AppCredential
 
 SECRET_PASSWORD = "GenericDriverSecret-MustNotLeak"
+
+# Known WSSE UsernameToken digest vector (SHA-1 mandated by the WSSE profile).
+_WSSE_NONCE = bytes([0x01] * 16)
+_WSSE_CREATED = "2024-01-15T12:00:00Z"
+_WSSE_USER = "alice"
+_WSSE_PASS = "s3cr3t"
+_WSSE_DIGEST = "7GYmWkd1PfFEOIUtG8SDZBp61IQ="
+_WSSE_NONCE_B64 = "AQEBAQEBAQEBAQEBAQEBAQ=="
 
 
 def _generic_app(**kwargs) -> App:
@@ -273,3 +284,51 @@ def test_generic_basic_auth_header_not_in_repr(caplog):
     with pytest.raises(DriverLoginError):
         raise DriverLoginError("login failed")
     assert SECRET_PASSWORD not in "login failed"
+
+
+def test_generic_wsse_header_known_digest_vector():
+    """PasswordDigest = base64(sha1(raw_nonce + created + password))."""
+    expected = base64.b64encode(
+        hashlib.sha1(  # noqa: S324 — WSSE profile mandates SHA-1
+            _WSSE_NONCE + _WSSE_CREATED.encode() + _WSSE_PASS.encode()
+        ).digest()
+    ).decode()
+    assert expected == _WSSE_DIGEST
+
+    header = generic_wsse_header(
+        _WSSE_USER,
+        _WSSE_PASS,
+        nonce=_WSSE_NONCE,
+        created=_WSSE_CREATED,
+    )
+    assert header == (
+        f'UsernameToken Username="{_WSSE_USER}", PasswordDigest="{_WSSE_DIGEST}", '
+        f'Nonce="{_WSSE_NONCE_B64}", Created="{_WSSE_CREATED}"'
+    )
+    assert _WSSE_PASS not in header
+    # Nonce in header is base64, not raw bytes hex
+    assert _WSSE_NONCE_B64 in header
+
+
+def test_generic_wsse_header_fresh_each_call():
+    first = generic_wsse_header(_WSSE_USER, _WSSE_PASS)
+    second = generic_wsse_header(_WSSE_USER, _WSSE_PASS)
+    assert first != second
+
+    def _attr(header: str, name: str) -> str:
+        match = re.search(rf'{name}="([^"]*)"', header)
+        assert match, header
+        return match.group(1)
+
+    assert _attr(first, "Nonce") != _attr(second, "Nonce")
+    assert _attr(first, "PasswordDigest") != _attr(second, "PasswordDigest")
+    # Created may collide within the same second; Nonce/Digest must still differ.
+
+
+def test_generic_wsse_header_password_never_in_value_or_logs(caplog):
+    with caplog.at_level(logging.DEBUG):
+        header = generic_wsse_header("robot", SECRET_PASSWORD)
+    assert SECRET_PASSWORD not in header
+    assert SECRET_PASSWORD not in caplog.text
+    assert "PasswordDigest=" in header
+    assert header.startswith("UsernameToken Username=")

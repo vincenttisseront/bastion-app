@@ -8,12 +8,14 @@ AUTH_MODES: tuple[str, ...] = (
     "sso",
     "generic_form",
     "generic_basic_auth",
+    "generic_wsse",
 )
 
 AUTH_MODE_LABELS: dict[str, str] = {
     "sso": "SSO",
     "generic_form": "Vault — Formulaire de login",
     "generic_basic_auth": "Vault — Basic Auth",
+    "generic_wsse": "Vault — X-WSSE (UsernameToken)",
 }
 
 # Legacy DB values treated as SSO.
@@ -23,7 +25,7 @@ _AUTH_MODE_ALIASES: dict[str, str] = {
 }
 
 ROBOTIC_DRIVERS: frozenset[str] = frozenset(
-    {"crushftp", "generic_form", "generic_basic_auth"}
+    {"crushftp", "generic_form", "generic_basic_auth", "generic_wsse"}
 )
 
 CREDENTIAL_MODES: tuple[str, ...] = (
@@ -117,6 +119,8 @@ def resolve_robotic_driver(auth_mode: str, existing: str | None = None) -> str |
         return "generic_form"
     if mode == "generic_basic_auth":
         return "generic_basic_auth"
+    if mode == "generic_wsse":
+        return "generic_wsse"
     if mode == "sso" and (existing or "").strip().lower() == "crushftp":
         return "crushftp"
     return None
@@ -126,7 +130,11 @@ def vault_enabled_for_app(auth_mode: str | None, robotic_driver: str | None) -> 
     driver = (robotic_driver or "").strip().lower()
     if driver in ROBOTIC_DRIVERS:
         return True
-    return normalize_auth_mode(auth_mode) in ("generic_form", "generic_basic_auth")
+    return normalize_auth_mode(auth_mode) in (
+        "generic_form",
+        "generic_basic_auth",
+        "generic_wsse",
+    )
 
 
 def validate_generic_form_fields(

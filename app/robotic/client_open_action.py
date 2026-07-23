@@ -27,6 +27,7 @@ from app.robotic.impersonate_service import (
     ImpersonationPasswordRequiredError,
     ImpersonationTechnicalError,
     get_basic_auth_header,
+    get_wsse_header,
     impersonate,
 )
 from app.robotic.robotic_session_cookies import (
@@ -532,4 +533,47 @@ async def basic_auth_header(
     return Response(
         status_code=200,
         headers={"X-Robotic-Authorization": result.auth_header},
+    )
+
+
+@router.get("/internal/wsse-header/{slug}")
+async def wsse_header(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    """
+    Nginx auth_request handler — returns a fresh X-Wsse-Authorization header.
+
+    Never called directly by browsers; consumed internally by Nginx.
+    On throttle: 429 with no header (never reuse a previously generated nonce).
+    """
+    throttle_key = f"wsse_header:{slug}:{user.email or user.username}"
+    if wait := throttle_retry_after_key(throttle_key, min_interval_seconds=5):
+        # Refuse rather than serve a cached/reused UsernameToken (replay risk).
+        return Response(status_code=429, headers={"Retry-After": str(int(wait) + 1)})
+
+    denied = _check_app_rbac(db, slug, user)
+    if denied is not None:
+        return Response(status_code=denied.status_code)
+
+    try:
+        result = await get_wsse_header(
+            db,
+            slug,
+            settings,
+            actor=user.email or user.username,
+            ip_address=_client_ip(request),
+            keycloak_user_id=user.keycloak_user_id,
+        )
+    except ImpersonationCredentialRequiredError:
+        return Response(status_code=409)
+    except ImpersonationError:
+        return Response(status_code=403)
+
+    return Response(
+        status_code=200,
+        headers={"X-Wsse-Authorization": result.wsse_header},
     )
