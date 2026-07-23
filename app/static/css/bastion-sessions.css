@@ -80,6 +80,96 @@
   border-bottom: 1px solid var(--border-muted);
 }
 
+.sessions-user-filter-wrap {
+  flex: 0 0 auto;
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.sessions-user-filter {
+  width: 100%;
+  font-size: var(--fs-sm);
+  padding: 0.4rem 0.6rem;
+}
+
+.sessions-user-families {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.sessions-family-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.35rem;
+  border-radius: var(--r-sm);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+
+.sessions-family-oidc {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+  border-color: transparent;
+}
+
+.sessions-family-breakglass {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+  border-color: transparent;
+}
+
+.sessions-family-app {
+  background: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border-color: transparent;
+}
+
+.sessions-user-logout {
+  margin-top: 0.3rem;
+  font-size: 0.65rem;
+  color: #b45309;
+  line-height: 1.3;
+}
+
+.sessions-user-item.has-sso-logout {
+  border-left-color: #f59e0b;
+}
+
+.session-sso-logout-banner {
+  padding: 0.45rem 0.65rem;
+  margin-bottom: var(--sp-2);
+  border-radius: var(--r-md);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #92400e;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.session-card-breakglass {
+  border-top: 2px solid rgba(245, 158, 11, 0.55);
+}
+
+.session-card-oidc {
+  border-top: 2px solid rgba(59, 130, 246, 0.45);
+}
+
+.proto-tag.oidc {
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
+}
+
+.proto-tag.breakglass {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
 .sessions-user-list {
   flex: 1 1 auto;
   display: flex;

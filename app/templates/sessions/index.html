@@ -34,10 +34,15 @@
   <div class="sessions-split" id="sessions-split">
     <aside class="sessions-user-rail" aria-label="Utilisateurs avec session">
       <div class="sessions-user-rail-head">Utilisateurs</div>
+      <div class="sessions-user-filter-wrap">
+        <label class="visually-hidden" for="sessions-user-filter">Filtrer les utilisateurs</label>
+        <input type="search" id="sessions-user-filter" class="sessions-user-filter form-input"
+               placeholder="Filtrer nom, email, realm…" autocomplete="off">
+      </div>
       <div class="sessions-user-list" id="sessions-user-list" role="listbox">
         {% for g in groups %}
         <button type="button"
-                class="sessions-user-item{% if first and g.user_email == first.user_email %} is-selected{% endif %}"
+                class="sessions-user-item{% if first and g.user_email == first.user_email %} is-selected{% endif %}{% if g.sso_logout %} has-sso-logout{% endif %}"
                 role="option"
                 aria-selected="{{ 'true' if first and g.user_email == first.user_email else 'false' }}"
                 data-user-email="{{ g.user_email }}"
@@ -46,6 +51,14 @@
           <div class="sessions-user-meta">
             <div class="sessions-user-name">{{ g.user }}</div>
             <div class="sessions-user-sub mono">{{ g.realm }} · {{ g.session_count }}</div>
+            <div class="sessions-user-families">
+              {% for f in g.auth_families | default([]) %}
+              <span class="sessions-family-chip sessions-family-{{ f }}">{% if f == 'oidc' %}OIDC{% elif f == 'breakglass' %}BG{% elif f == 'app' %}APP{% else %}{{ f }}{% endif %}</span>
+              {% endfor %}
+            </div>
+            {% if g.sso_logout %}
+            <div class="sessions-user-logout mono" title="{{ g.sso_logout.residual_note or '' }}">{{ g.sso_logout.label }}</div>
+            {% endif %}
           </div>
           <span class="sessions-user-status badge badge-{{ 'ok' if g.status == 'active' else 'warn' }}">{{ g.status | upper }}</span>
         </button>
@@ -64,37 +77,50 @@
         </div>
         <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;">
           <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} session(s)</span>
-          {% if is_admin %}
+          {% if is_admin and first.show_disconnect %}
           <button type="button" class="btn btn-danger btn-sm"
                   title="Révoque sessions robotic/vault + logout Keycloak. Hors break-glass. Délai résiduel cookie ~1h possible."
                   onclick="disconnectUser({{ first.user_email | tojson }}, {{ first.realm | tojson }})">Déconnecter cet utilisateur</button>
+          {% elif is_admin and first.has_breakglass and not first.has_oidc and not first.has_app %}
+          <span class="form-hint" title="Break-glass n’a pas de session Keycloak">Utiliser « Révoquer » sur la session break-glass</span>
           {% endif %}
         </div>
       </div>
+      {% if first.sso_logout %}
+      <div class="session-sso-logout-banner" style="margin-bottom:var(--sp-3);" title="{{ first.sso_logout.residual_note or '' }}">{{ first.sso_logout.label }}</div>
+      {% endif %}
       <div id="disconnect-user-result" style="margin:0 0 var(--sp-3);"></div>
       <div class="sessions-card-grid" id="sessions-card-grid">
         {% for s in first.sessions %}
-        <article class="card session-card" data-session-id="{{ s.id }}" data-kind="{{ s.kind }}">
+        <article class="card session-card session-card-{{ s.auth_family | default('oidc') }}" data-session-id="{{ s.id }}" data-kind="{{ s.kind }}" data-auth-family="{{ s.auth_family | default('') }}">
           <header class="card-header session-card-header">
             <div class="session-card-title-row">
-              <span class="badge badge-{{ 'info' if s.kind == 'user' else 'ok' }}">{{ s.type_label }}</span>
+              <span class="badge badge-{{ 'warn' if s.auth_family == 'breakglass' else ('ok' if s.kind == 'app' else 'info') }}">{{ s.type_label }}</span>
               <span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span>
             </div>
-            <span class="badge badge-{{ 'ok' if s.live_status == 'active' else ('err' if s.live_status == 'invalid' else 'warn') }}"
-                  title="{% if s.verifiable %}Statut vérifié auprès de l’app cible (live){% else %}Statut déclaratif côté bastion{% endif %}">
+            <span class="badge badge-{{ 'ok' if s.live_status == 'active' else ('err' if s.live_status == 'invalid' else ('info' if s.live_status == 'declarative' else 'warn')) }}"
+                  title="{% if s.verifiable %}Statut vérifié auprès de l’app cible (live){% elif s.freshness %}{{ s.freshness.note }}{% else %}Statut déclaratif côté bastion{% endif %}">
               {% if s.live_status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
               {{ s.live_status_label }}
             </span>
           </header>
           <div class="card-body session-card-body">
+            {% if s.sso_logout %}
+            <div class="session-sso-logout-banner" title="{{ s.sso_logout.residual_note or '' }}">{{ s.sso_logout.label }}</div>
+            {% endif %}
             <div class="session-card-resource">{{ s.resource_title }}</div>
             <div class="session-card-slug mono">{{ s.resource_subtitle }}</div>
             {% if s.verifiable %}
             <div class="session-verified-meta mono">
               {% if s.last_verified_ago %}Vérifié {{ s.last_verified_ago }}{% else %}En attente de vérification live…{% endif %}
             </div>
+            {% elif s.freshness %}
+            <div class="session-verified-meta mono" title="{{ s.freshness.note }}">Âge {{ s.freshness.age_label }} · {{ s.freshness.policy_label }}</div>
             {% endif %}
             <dl class="session-card-facts">
+              <div><dt>Type</dt>
+                <dd>{% if s.auth_family == 'oidc' %}OIDC / Keycloak{% elif s.auth_family == 'breakglass' %}Break-glass (hors Keycloak){% else %}Application robotic/vault{% endif %}</dd>
+              </div>
               <div><dt>IP client</dt>
                 <dd class="mono{% if s.client_ip_is_infra %} is-infra-ip{% endif %}"
                     title="{{ s.client_ip_note or '' }}">{{ s.client_ip or s.source_ip }}</dd>
@@ -120,9 +146,11 @@
             <button type="button" class="btn btn-danger btn-sm btn-revoke"
                     title="{{ s.action_titles.revoke }}"
                     onclick="revokeSession('{{ s.id }}')">Révoquer cette session</button>
+            {% if s.can_rotate %}
             <button type="button" class="btn btn-secondary btn-sm btn-rotate"
                     title="{{ s.action_titles.rotate }}"
                     onclick="rotateKeys('{{ s.id }}')">Rotation</button>
+            {% endif %}
           </footer>
           {% endif %}
         </article>

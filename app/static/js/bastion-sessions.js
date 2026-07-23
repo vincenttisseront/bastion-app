@@ -5,6 +5,7 @@
   var isAdmin = window.__SESSIONS_IS_ADMIN__ === true;
   var groupsCache = Array.isArray(window.__SESSIONS_BOOT__) ? window.__SESSIONS_BOOT__ : [];
   var selectedEmail = '';
+  var railFilter = '';
 
   var TITLE_REVOKE =
     'Révoquer : supprime la session du registre bastion et invalide les cookies stockés.';
@@ -80,26 +81,77 @@
 
   function resolveSelected() {
     if (selectedEmail && findGroup(selectedEmail)) return selectedEmail;
+    var filtered = filteredGroups();
+    if (filtered.length) return filtered[0].user_email;
     if (groupsCache.length) return groupsCache[0].user_email;
     return '';
+  }
+
+  function filteredGroups() {
+    var q = (railFilter || '').trim().toLowerCase();
+    if (!q) return groupsCache.slice();
+    return groupsCache.filter(function (g) {
+      var hay = [
+        g.user,
+        g.user_email,
+        g.realm,
+        (g.auth_families || []).join(' '),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+  }
+
+  function familyChips(g) {
+    var families = g.auth_families || [];
+    if (!families.length) return '';
+    return families
+      .map(function (f) {
+        var label =
+          f === 'oidc' ? 'OIDC' : f === 'breakglass' ? 'BG' : f === 'app' ? 'APP' : f;
+        return (
+          '<span class="sessions-family-chip sessions-family-' +
+          escapeHtml(f) +
+          '">' +
+          escapeHtml(label) +
+          '</span>'
+        );
+      })
+      .join('');
   }
 
   function renderUserList() {
     var list = document.getElementById('sessions-user-list');
     if (!list) return;
     selectedEmail = resolveSelected();
+    var visible = filteredGroups();
     if (!groupsCache.length) {
-      list.innerHTML = '<div class="sessions-user-empty" id="sessions-user-empty">Aucun utilisateur</div>';
+      list.innerHTML =
+        '<div class="sessions-user-empty" id="sessions-user-empty">Aucun utilisateur</div>';
       return;
     }
-    list.innerHTML = groupsCache
+    if (!visible.length) {
+      list.innerHTML =
+        '<div class="sessions-user-empty" id="sessions-user-empty">Aucun résultat pour ce filtre</div>';
+      return;
+    }
+    list.innerHTML = visible
       .map(function (g) {
         var selected = g.user_email === selectedEmail;
         var initial = (g.user && g.user[0] ? g.user[0] : '?').toUpperCase();
         var statusClass = g.status === 'active' ? 'ok' : 'warn';
+        var logoutHint = g.sso_logout
+          ? '<div class="sessions-user-logout mono" title="' +
+            escapeHtml(g.sso_logout.residual_note || '') +
+            '">' +
+            escapeHtml(g.sso_logout.label || 'Déconnexion demandée') +
+            '</div>'
+          : '';
         return (
           '<button type="button" class="sessions-user-item' +
           (selected ? ' is-selected' : '') +
+          (g.sso_logout ? ' has-sso-logout' : '') +
           '" role="option" aria-selected="' +
           (selected ? 'true' : 'false') +
           '" data-user-email="' +
@@ -118,7 +170,12 @@
           escapeHtml(g.realm) +
           ' · ' +
           escapeHtml(String(g.session_count)) +
-          '</div></div>' +
+          '</div>' +
+          '<div class="sessions-user-families">' +
+          familyChips(g) +
+          '</div>' +
+          logoutHint +
+          '</div>' +
           '<span class="sessions-user-status badge badge-' +
           statusClass +
           '">' +
@@ -134,12 +191,15 @@
     if (st === 'active') return 'ok';
     if (st === 'invalid') return 'err';
     if (st === 'isolated') return 'warn';
+    if (st === 'declarative') return 'info';
     return 'warn'; // unverified / unknown
   }
 
   function renderSessionCard(s) {
     var statusClass = liveBadgeClass(s);
-    var kindClass = s.kind === 'user' ? 'info' : 'ok';
+    var family = s.auth_family || (s.kind === 'app' ? 'app' : 'oidc');
+    var kindClass =
+      family === 'breakglass' ? 'warn' : family === 'app' ? 'ok' : 'info';
     var cookieClass = s.cookies_ok ? 'ok' : 'warn';
     var liveDot =
       s.live_status === 'active'
@@ -147,22 +207,28 @@
         : '';
     var statusTitle = s.verifiable
       ? 'Statut vérifié auprès de l’app cible (live)'
-      : 'Statut déclaratif côté bastion';
+      : s.freshness && s.freshness.note
+        ? s.freshness.note
+        : 'Statut déclaratif côté bastion';
     var titles = s.action_titles || {};
     var footer = '';
     if (isAdmin) {
-      footer =
-        '<footer class="session-card-footer session-actions">' +
+      var buttons =
         '<button type="button" class="btn btn-danger btn-sm btn-revoke" title="' +
         escapeHtml(titles.revoke || TITLE_REVOKE) +
         '" onclick="revokeSession(\'' +
         escapeHtml(s.id) +
-        '\')">Révoquer cette session</button>' +
-        '<button type="button" class="btn btn-secondary btn-sm btn-rotate" title="' +
-        escapeHtml(titles.rotate || TITLE_ROTATE) +
-        '" onclick="rotateKeys(\'' +
-        escapeHtml(s.id) +
-        '\')">Rotation</button></footer>';
+        '\')">Révoquer cette session</button>';
+      if (s.can_rotate !== false && s.kind === 'app') {
+        buttons +=
+          '<button type="button" class="btn btn-secondary btn-sm btn-rotate" title="' +
+          escapeHtml(titles.rotate || TITLE_ROTATE) +
+          '" onclick="rotateKeys(\'' +
+          escapeHtml(s.id) +
+          '\')">Rotation</button>';
+      }
+      footer =
+        '<footer class="session-card-footer session-actions">' + buttons + '</footer>';
     }
     var cookieTitle = s.cookies_title || '';
     if (s.cookies_issued_at) cookieTitle += ' · émis ' + s.cookies_issued_at;
@@ -176,20 +242,50 @@
           ? 'Vérifié ' + escapeHtml(s.last_verified_ago)
           : 'En attente de vérification live…') +
         '</div>';
+    } else if (s.freshness) {
+      verifiedMeta =
+        '<div class="session-verified-meta mono" title="' +
+        escapeHtml(s.freshness.note || '') +
+        '">Âge ' +
+        escapeHtml(s.freshness.age_label || '—') +
+        ' · ' +
+        escapeHtml(s.freshness.policy_label || '') +
+        '</div>';
+    }
+
+    var logoutBanner = '';
+    if (s.sso_logout && s.sso_logout.label) {
+      logoutBanner =
+        '<div class="session-sso-logout-banner" title="' +
+        escapeHtml(s.sso_logout.residual_note || '') +
+        '">' +
+        escapeHtml(s.sso_logout.label) +
+        '</div>';
     }
 
     return (
-      '<article class="card session-card" data-session-id="' +
+      '<article class="card session-card session-card-' +
+      escapeHtml(family) +
+      '" data-session-id="' +
       escapeHtml(s.id) +
       '" data-kind="' +
       escapeHtml(s.kind) +
+      '" data-auth-family="' +
+      escapeHtml(family) +
       '">' +
       '<header class="card-header session-card-header">' +
       '<div class="session-card-title-row">' +
       '<span class="badge badge-' +
       kindClass +
       '">' +
-      escapeHtml(s.type_label || (s.kind === 'app' ? 'Application' : 'Portail')) +
+      escapeHtml(
+        s.type_label ||
+          (family === 'breakglass'
+            ? 'Break-glass'
+            : s.kind === 'app'
+              ? 'Application'
+              : 'Portail OIDC')
+      ) +
       '</span>' +
       '<span class="proto-tag ' +
       escapeHtml(String(s.protocol || '').toLowerCase()) +
@@ -205,6 +301,7 @@
       escapeHtml(s.live_status_label || String(s.status || '').toUpperCase()) +
       '</span></header>' +
       '<div class="card-body session-card-body">' +
+      logoutBanner +
       '<div class="session-card-resource">' +
       escapeHtml(s.resource_title || s.target) +
       '</div>' +
@@ -213,6 +310,15 @@
       '</div>' +
       verifiedMeta +
       '<dl class="session-card-facts">' +
+      '<div><dt>Type</dt><dd>' +
+      escapeHtml(
+        family === 'oidc'
+          ? 'OIDC / Keycloak'
+          : family === 'breakglass'
+            ? 'Break-glass (hors Keycloak)'
+            : 'Application robotic/vault'
+      ) +
+      '</dd></div>' +
       '<div><dt>IP client</dt><dd class="mono' +
       (s.client_ip_is_infra ? ' is-infra-ip' : '') +
       '" title="' +
@@ -268,7 +374,7 @@
         '</div></div>';
       return;
     }
-    if (!g) {
+    if (!g || (railFilter && filteredGroups().every(function (x) { return x.user_email !== g.user_email; }))) {
       detail.innerHTML =
         '<div class="sessions-detail-empty" id="sessions-detail-empty">' +
         '<div class="empty-state">' +
@@ -279,7 +385,7 @@
     }
     var statusClass = g.status === 'active' ? 'ok' : 'warn';
     var disconnectBtn = '';
-    if (isAdmin) {
+    if (isAdmin && g.show_disconnect !== false && (g.has_oidc || g.has_app)) {
       disconnectBtn =
         '<button type="button" class="btn btn-danger btn-sm" ' +
         'title="Révoque sessions robotic/vault + logout Keycloak. Hors break-glass. Délai résiduel cookie ~1h possible." ' +
@@ -288,6 +394,18 @@
         ', ' +
         JSON.stringify(g.realm) +
         ')">Déconnecter cet utilisateur</button>';
+    } else if (isAdmin && g.has_breakglass && !g.has_oidc && !g.has_app) {
+      disconnectBtn =
+        '<span class="form-hint" title="Break-glass n’a pas de session Keycloak">Utiliser « Révoquer » sur la session break-glass</span>';
+    }
+    var logoutBanner = '';
+    if (g.sso_logout && g.sso_logout.label) {
+      logoutBanner =
+        '<div class="session-sso-logout-banner" style="margin-bottom:var(--sp-3);" title="' +
+        escapeHtml(g.sso_logout.residual_note || '') +
+        '">' +
+        escapeHtml(g.sso_logout.label) +
+        '</div>';
     }
     detail.innerHTML =
       '<div class="sessions-detail-head">' +
@@ -297,7 +415,10 @@
       escapeHtml(g.user_email) +
       ' · ' +
       escapeHtml(g.realm) +
-      '</p></div>' +
+      '</p>' +
+      '<div class="sessions-user-families" style="margin-top:6px;">' +
+      familyChips(g) +
+      '</div></div>' +
       '<div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;">' +
       '<span class="badge badge-' +
       statusClass +
@@ -306,6 +427,7 @@
       ' session(s)</span>' +
       disconnectBtn +
       '</div></div>' +
+      logoutBanner +
       '<div id="disconnect-user-result" style="margin:0 0 var(--sp-3);"></div>' +
       '<div class="sessions-card-grid" id="sessions-card-grid">' +
       (g.sessions || []).map(renderSessionCard).join('') +
@@ -383,11 +505,10 @@
           residual +
           '</div>';
       }
-      if (app.revoked_count) {
-        setTimeout(function () {
-          window.location.reload();
-        }, 1200);
-      }
+      // Refresh list so SSO logout badge appears without full reload delay
+      setTimeout(function () {
+        refreshSessions();
+      }, 400);
     } catch (e) {
       if (resultEl) {
         resultEl.innerHTML =
@@ -488,6 +609,13 @@
     selectedEmail = page.getAttribute('data-selected-email') || '';
     var list = document.getElementById('sessions-user-list');
     if (list) list.addEventListener('click', onUserClick);
+    var filterInput = document.getElementById('sessions-user-filter');
+    if (filterInput) {
+      filterInput.addEventListener('input', function () {
+        railFilter = filterInput.value || '';
+        renderAll();
+      });
+    }
     liveVerifySelected();
     setInterval(refreshSessions, POLL_MS);
   }

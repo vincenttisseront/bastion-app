@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.database import get_db
-from app.models import ActiveSession, App, utcnow
+from app.models import ActiveSession, App, AuditLog, utcnow
 from app.request_client_ip import client_ip_from_request, client_ip_probe, is_infra_hop, prefer_client_ip
 from app.sso_settings import Settings, get_settings
 from app.user_agent_label import summarize_user_agent
@@ -32,6 +32,13 @@ KIND_USER = "user"
 KIND_APP = "app"
 
 _PROTOCOL_BREAKGLASS = "BREAKGLASS"
+_PROTOCOL_OIDC = "OIDC"
+
+# Portal cookie policy (oauth2-proxy) — declarative freshness only, not live-verify.
+OAUTH2_COOKIE_EXPIRE = timedelta(hours=12)
+OAUTH2_COOKIE_REFRESH = timedelta(hours=1)
+# Badge window after Admin API logout (= cookie_refresh residual).
+SSO_LOGOUT_RESIDUAL_WINDOW = OAUTH2_COOKIE_REFRESH
 
 _ACCESS_MODE_PROTOCOL: dict[str, str] = {
     "sso_gate": "HTTPS",
@@ -53,6 +60,168 @@ def _aware(dt: datetime | None) -> datetime | None:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _parse_iso_dt(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return _aware(value)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        raw = value.strip().replace("Z", "+00:00")
+        return _aware(datetime.fromisoformat(raw))
+    except ValueError:
+        return None
+
+
+def _sso_logout_badge(requested_at: datetime | None, *, now: datetime | None = None) -> dict[str, Any] | None:
+    """Declarative residual badge after Keycloak Admin logout (not live-verified)."""
+    if requested_at is None:
+        return None
+    now = now or utcnow()
+    requested_at = _aware(requested_at)
+    if requested_at is None:
+        return None
+    age = now - requested_at
+    if age < timedelta(0) or age > SSO_LOGOUT_RESIDUAL_WINDOW:
+        return None
+    hhmm = requested_at.astimezone(timezone.utc).strftime("%H:%M")
+    remaining = SSO_LOGOUT_RESIDUAL_WINDOW - age
+    remaining_m = max(1, int(remaining.total_seconds() // 60))
+    return {
+        "requested_at": requested_at.isoformat(),
+        "requested_hhmm": hhmm,
+        "label": f"Déconnexion demandée à {hhmm} UTC — effective sous ~{remaining_m} min",
+        "residual_note": (
+            "Logout Keycloak Admin enregistré. Le cookie oauth2-proxy peut rester "
+            "valide jusqu'à cookie_refresh ≈ 1 h — pas de vérification live OIDC."
+        ),
+        "window_hours": SSO_LOGOUT_RESIDUAL_WINDOW.total_seconds() / 3600.0,
+    }
+
+
+def mark_sso_logout_requested(
+    db: Session,
+    *,
+    emails: set[str] | None = None,
+    usernames: set[str] | None = None,
+    actor: str | None = None,
+    at: datetime | None = None,
+) -> int:
+    """
+    Stamp portal OIDC sessions so /sessions can show a residual logout badge.
+
+    Does not touch BREAKGLASS rows (no Keycloak session). Returns rows updated.
+    """
+    emails = {e.strip().lower() for e in (emails or set()) if e and e.strip()}
+    usernames = {u.strip().lower() for u in (usernames or set()) if u and u.strip()}
+    if not emails and not usernames:
+        return 0
+    now = at or utcnow()
+    clauses = []
+    if emails:
+        clauses.append(ActiveSession.user_email.in_(emails))
+        clauses.append(ActiveSession.username.in_(emails))
+    if usernames:
+        clauses.append(ActiveSession.username.in_(usernames))
+        clauses.append(ActiveSession.user_email.in_(usernames))
+    rows = (
+        db.query(ActiveSession)
+        .filter(
+            ActiveSession.kind == KIND_USER,
+            ActiveSession.status == "active",
+            ActiveSession.protocol != _PROTOCOL_BREAKGLASS,
+            or_(*clauses),
+        )
+        .all()
+    )
+    stamp = now.isoformat()
+    updated = 0
+    for row in rows:
+        details = dict(row.details) if isinstance(row.details, dict) else {}
+        details["sso_logout_requested_at"] = stamp
+        if actor:
+            details["sso_logout_requested_by"] = actor
+        row.details = details
+        updated += 1
+    if updated:
+        db.commit()
+    return updated
+
+
+def recent_sso_logout_by_identity(
+    db: Session, *, now: datetime | None = None
+) -> dict[str, dict[str, Any]]:
+    """
+    Map lowercased email/username → logout badge from recent successful audits
+    and/or stamps on portal rows (fallback if stamp missing).
+    """
+    now = now or utcnow()
+    since = now - SSO_LOGOUT_RESIDUAL_WINDOW
+    out: dict[str, dict[str, Any]] = {}
+
+    audits = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == "sessions.revoke_sso",
+            AuditLog.created_at >= since,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    for entry in audits:
+        details = entry.details if isinstance(entry.details, dict) else {}
+        if details.get("ok") is False:
+            continue
+        badge = _sso_logout_badge(_aware(entry.created_at), now=now)
+        if not badge:
+            continue
+        keys = set()
+        for k in (details.get("user_email"), details.get("username"), entry.target):
+            if isinstance(k, str) and k.strip():
+                keys.add(k.strip().lower())
+        for key in keys:
+            if key not in out:
+                out[key] = badge
+    return out
+
+
+def _portal_freshness(
+    row: ActiveSession, *, protocol: str
+) -> dict[str, Any]:
+    """
+    Honest declarative freshness for OIDC / BREAKGLASS — not live-verify.
+
+    There is no cheap equivalent of robotic live-verify for oauth2-proxy cookies
+    without impersonating the user browser cookie; we surface age + known TTLs.
+    """
+    started = _aware(row.started_at) or utcnow()
+    age = utcnow() - started
+    if protocol == _PROTOCOL_BREAKGLASS:
+        idle, absolute = BREAKGLASS_IDLE_TTL, BREAKGLASS_ABSOLUTE_TTL
+        policy = (
+            f"idle ≈ {int(idle.total_seconds() // 60)} min · "
+            f"absolu ≈ {int(absolute.total_seconds() // 3600)} h"
+        )
+    else:
+        idle, absolute = OAUTH2_COOKIE_REFRESH, OAUTH2_COOKIE_EXPIRE
+        policy = (
+            f"cookie_refresh ≈ {int(idle.total_seconds() // 3600)} h · "
+            f"cookie_expire ≈ {int(absolute.total_seconds() // 3600)} h"
+        )
+    return {
+        "mode": "declarative",
+        "age_seconds": int(max(0, age.total_seconds())),
+        "age_label": _format_duration(started, utcnow()),
+        "policy_label": policy,
+        "note": (
+            "Statut déclaratif du registre bastion — pas de vérification live "
+            "équivalent à live-verify (apps robotic)."
+        ),
+    }
 
 
 def _format_duration(started_at: datetime, last_seen_at: datetime | None = None) -> str:
@@ -525,14 +694,24 @@ def _touch_app_session(
 def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
     details = row.details if isinstance(row.details, dict) else None
     diag = _diagnostics_summary(details)
+    protocol = (row.protocol or "").upper()
+    is_breakglass = protocol == _PROTOCOL_BREAKGLASS
     if row.kind == KIND_USER:
-        resource_title = "Portail SSO"
-        resource_subtitle = "Session portail"
-        type_label = "Portail"
+        if is_breakglass:
+            resource_title = "Portail break-glass"
+            resource_subtitle = "Session d'urgence (hors Keycloak)"
+            type_label = "Break-glass"
+            auth_family = "breakglass"
+        else:
+            resource_title = "Portail SSO"
+            resource_subtitle = "Session OIDC (oauth2-proxy)"
+            type_label = "Portail OIDC"
+            auth_family = "oidc"
     else:
         resource_title = diag.get("app_label") or row.target
         resource_subtitle = f"slug · {row.target}"
         type_label = "Application"
+        auth_family = "app"
     raw_ip = (row.source_ip or "").strip()
     infra = bool(raw_ip) and is_infra_hop(raw_ip)
     if not raw_ip:
@@ -550,6 +729,7 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
 
     verifiable = bool(diag.get("verifiable"))
     verified_status = (row.last_verified_status or "").strip().lower() or None
+    freshness: dict[str, Any] | None = None
     if verifiable:
         # Never show ACTIVE by default for driven sessions — only after live check.
         if verified_status == "active":
@@ -561,6 +741,15 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         else:
             live_status = "unverified"
             live_status_label = "NON VÉRIFIÉ"
+    elif row.kind == KIND_USER:
+        # Honest declarative badge — not equivalent to app live-verify.
+        freshness = _portal_freshness(row, protocol=protocol)
+        if row.status == "isolated":
+            live_status = "isolated"
+            live_status_label = "ISOLÉ"
+        else:
+            live_status = "declarative"
+            live_status_label = "REGISTRE"
     else:
         live_status = row.status if row.status != "isolated" else "isolated"
         live_status_label = (row.status or "active").upper()
@@ -569,16 +758,34 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
     if row.last_verified_at:
         verified_ago = _relative_ago(row.last_verified_at)
 
+    sso_logout = None
+    if auth_family == "oidc" and details:
+        sso_logout = _sso_logout_badge(
+            _parse_iso_dt(details.get("sso_logout_requested_at"))
+        )
+
+    action_titles = dict(_ACTION_TITLES)
+    if is_breakglass:
+        action_titles["revoke"] = (
+            "Révoquer : denylist jti break-glass + suppression du registre."
+        )
+    elif auth_family == "oidc":
+        action_titles["revoke"] = (
+            "Révoquer : retire la ligne du registre bastion uniquement "
+            "(ne coupe pas le cookie oauth2-proxy / Keycloak — utiliser Déconnecter)."
+        )
+
     return {
         "id": row.id,
         "kind": row.kind,
         "type_label": type_label,
+        "auth_family": auth_family,
         "user": row.username or row.user_email,
         "user_email": row.user_email,
         "realm": row.realm,
         "protocol": row.protocol,
         "target": row.target,
-        "jti": (details or {}).get("jti") if (row.protocol or "").upper() == _PROTOCOL_BREAKGLASS else None,
+        "jti": (details or {}).get("jti") if is_breakglass else None,
         "resource_title": resource_title,
         "resource_subtitle": resource_subtitle,
         "source_ip": raw_ip or "—",
@@ -591,6 +798,8 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         "live_status": live_status,
         "live_status_label": live_status_label,
         "verifiable": verifiable,
+        "freshness": freshness,
+        "sso_logout": sso_logout,
         "last_verified_at": row.last_verified_at.isoformat() if row.last_verified_at else None,
         "last_verified_status": verified_status,
         "last_verified_ago": verified_ago,
@@ -614,7 +823,9 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         "user_agent": diag["user_agent"],
         "user_agent_label": diag["user_agent_label"],
         "browser_note": diag.get("browser_note"),
-        "action_titles": _ACTION_TITLES,
+        "can_revoke": True,
+        "can_rotate": row.kind == KIND_APP,
+        "action_titles": action_titles,
     }
 
 
@@ -633,10 +844,25 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
                 "duration": s.get("duration") or "—",
                 "session_count": 0,
                 "sessions": [],
+                "has_oidc": False,
+                "has_breakglass": False,
+                "has_app": False,
+                "show_disconnect": False,
+                "sso_logout": None,
+                "auth_families": [],
             }
         g = groups[key]
         g["sessions"].append(s)
         g["session_count"] = len(g["sessions"])
+        family = s.get("auth_family")
+        if family == "oidc":
+            g["has_oidc"] = True
+        elif family == "breakglass":
+            g["has_breakglass"] = True
+        elif family == "app" or s.get("kind") == KIND_APP:
+            g["has_app"] = True
+        if s.get("sso_logout") and not g.get("sso_logout"):
+            g["sso_logout"] = s["sso_logout"]
         # Prefer portal IP, else first non-empty / non-dash
         if s.get("kind") == KIND_USER and s.get("source_ip") not in (None, "", "—"):
             g["source_ip"] = s["source_ip"]
@@ -659,6 +885,16 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
     for g in groups.values():
         portal_ua = g.pop("portal_user_agent_label", None)
         portal_ua_raw = g.pop("portal_user_agent", None)
+        families = []
+        if g["has_oidc"]:
+            families.append("oidc")
+        if g["has_breakglass"]:
+            families.append("breakglass")
+        if g["has_app"]:
+            families.append("app")
+        g["auth_families"] = families
+        # Disconnect = revoke-all apps + Keycloak logout — not for break-glass-only users
+        g["show_disconnect"] = bool(g["has_oidc"] or g["has_app"])
         if not portal_ua:
             continue
         for s in g["sessions"]:
@@ -673,6 +909,36 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
                 if portal_ua_raw:
                     s["user_agent"] = portal_ua_raw
     return list(groups.values())
+
+
+def enrich_session_groups_sso_logout(
+    db: Session, groups: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Attach residual SSO logout badges from audits when session stamp is missing."""
+    by_id = recent_sso_logout_by_identity(db)
+    if not by_id:
+        return groups
+    for g in groups:
+        if g.get("sso_logout"):
+            continue
+        if not g.get("has_oidc"):
+            continue
+        email = (g.get("user_email") or "").strip().lower()
+        user = (g.get("user") or "").strip().lower()
+        badge = by_id.get(email) or by_id.get(user)
+        if badge:
+            g["sso_logout"] = badge
+            for s in g.get("sessions") or []:
+                if s.get("auth_family") == "oidc" and not s.get("sso_logout"):
+                    s["sso_logout"] = badge
+    return groups
+
+
+def build_session_groups(
+    db: Session, sessions: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Group sessions for /sessions UI and attach residual SSO logout badges."""
+    return enrich_session_groups_sso_logout(db, group_sessions_by_user(sessions))
 
 
 def get_active_sessions(
@@ -948,7 +1214,7 @@ def list_sessions(
     sessions = get_active_sessions(db, viewer=user, kind=kind)
     payload: dict[str, Any] = {
         "sessions": sessions,
-        "groups": group_sessions_by_user(sessions),
+        "groups": build_session_groups(db, sessions),
         "counts": {
             "all": len(get_active_sessions(db, viewer=user)),
             "user": len(get_active_sessions(db, viewer=user, kind=KIND_USER)),
@@ -1000,7 +1266,7 @@ async def live_verify_sessions(
     return {
         "verified": verified,
         "revoked": [v["id"] for v in verified if v.get("revoked")],
-        "groups": group_sessions_by_user(sessions),
+        "groups": build_session_groups(db, sessions),
         "sessions": sessions,
         "counts": {
             "all": len(get_active_sessions(db, viewer=user)),

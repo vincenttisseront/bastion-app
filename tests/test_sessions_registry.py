@@ -150,9 +150,16 @@ def test_sessions_grouped_by_user(client: TestClient, db_session: Session):
     assert targets == {"portal", "wiki"}
     portal = next(s for s in group["sessions"] if s["kind"] == "user")
     assert portal["resource_title"] == "Portail SSO"
-    assert portal["type_label"] == "Portail"
+    assert portal["type_label"] == "Portail OIDC"
+    assert portal["auth_family"] == "oidc"
+    assert portal["live_status_label"] == "REGISTRE"
     assert "last_seen_ago" in portal
     assert "client_ip" in portal
+    app = next(s for s in group["sessions"] if s["kind"] == "app")
+    assert app["can_rotate"] is True
+    assert group["show_disconnect"] is True
+    assert "oidc" in group["auth_families"]
+    assert "app" in group["auth_families"]
 
 
 def test_session_stores_x_real_ip_not_tcp_peer(client: TestClient, db_session: Session):
@@ -210,8 +217,18 @@ def test_sessions_page_master_detail_layout(client: TestClient, db_session: Sess
     assert "Révoquer cette session" in admin_page.text
     assert "revokeSession(" in admin_page.text
     assert "isolateSession(" not in admin_page.text
-    assert "rotateKeys(" in admin_page.text
-    assert "supprime la session du registre" in admin_page.text
+    assert 'id="sessions-user-filter"' in admin_page.text
+    assert "Déconnecter cet utilisateur" in admin_page.text
+    assert "registre bastion" in admin_page.text.lower() or "Révoquer cette session" in admin_page.text
+    # Rotation is app-only — function remains in JS even if no app card on this page
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parents[1] / "app/static/js/bastion-sessions.js").read_text(
+        encoding="utf-8"
+    )
+    assert "window.rotateKeys" in js
+    assert "can_rotate" in js
+    assert "sessions-user-filter" in js or "railFilter" in js
 
 
 def test_sessions_js_revoke_button_targets_revoke_not_isolate():

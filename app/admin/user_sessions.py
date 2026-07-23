@@ -21,6 +21,7 @@ from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 from app.web.sessions_service import (
     identity_match_keys,
+    mark_sso_logout_requested,
     revoke_all_app_sessions_for_user,
 )
 from app.web.user_context import UserContext, require_admin
@@ -143,10 +144,28 @@ async def _do_revoke_sso(
     if not uid:
         raise ValueError("Réponse Keycloak sans id utilisateur")
     result = await logout_keycloak_user(realm, uid, settings)
+    emails, usernames = identity_match_keys(
+        email=kc_user.get("email"),
+        username=kc_user.get("username"),
+    )
+    # Also match the path identity when it was an email/username
+    path_emails, path_usernames = identity_match_keys(
+        email=identity, username=identity
+    )
+    emails |= path_emails
+    usernames |= path_usernames
+    mark_sso_logout_requested(
+        db,
+        emails=emails,
+        usernames=usernames,
+        actor=actor,
+    )
     details = {
         "ok": True,
         "realm_slug": result.get("realm_slug"),
         "residual_note": SSO_LOGOUT_RESIDUAL_NOTE,
+        "user_email": (kc_user.get("email") or "").strip().lower() or None,
+        "username": (kc_user.get("username") or "").strip().lower() or None,
     }
     if via:
         details["via"] = via

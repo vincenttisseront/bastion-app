@@ -11,8 +11,36 @@
 | 2 | Cookie oauth2 12h/1h + alignement Keycloak `ssoSessionMaxLifespan` | **Outil de vérif. livré** — valeurs prod à confirmer via Admin |
 | 3 | Révocation break-glass (jti + denylist) | **Corrigé** (2026-07-23) |
 | 4 | Révoquer toutes les sessions app + logout Keycloak (par utilisateur) | **Corrigé** (2026-07-23) |
-| 5 | Vue `/sessions` enrichie | Partiel (jti BREAKGLASS + revoke via registre + bouton déconnexion) |
+| 5 | Vue `/sessions` enrichie (OIDC vs BREAKGLASS, filtre, badge logout) | **Corrigé** (2026-07-23) |
 | 6 | TTL break-glass configurable + idle | Idle 30 min fait ; durée absolue encore hardcodée |
+
+> **Clôture du cycle d’audit (§0 → §9)** : les points 1–5 du plan prioritaire sont traités dans le code. Le point 6 (TTL break-glass configurable) reste hors scope de cette vague (idle 30 min déjà en place). Point 2 : outil de conformité livré ; valeurs Keycloak prod à confirmer via Admin → Alignement sessions SSO.
+
+---
+
+## §8 / Point 5 — Enrichir `/sessions` (OIDC vs BREAKGLASS)
+
+### Tableau comparatif `kind=user` vs `kind=app` (avant → après)
+
+| Capacité | `kind=app` (réf.) | `kind=user` avant | `kind=user` après |
+|---|---|---|---|
+| Rail utilisateurs + détail | Oui (UI partagée) | Oui (même composant) | **Inchangé** (réutilisé) |
+| Filtre / recherche dans le rail | Non (liste seule) | Non | **Oui** (`#sessions-user-filter`, même rail) |
+| Badge statut live ACTIVE/INVALIDE | Oui (`live-verify`) | Badge « ACTIVE » déclaratif trompeur | **REGISTRE** + âge + `cookie_refresh`/`cookie_expire` (pas de faux live-verify) |
+| Horodatage vérification | « Vérifié il y a Xs » | Absent | Âge session + politique cookie documentée |
+| Lien `revoke-sso` / disconnect | N/A | Absent | Badge « Déconnexion demandée à HH:MM — sous ~Nm » (fenêtre = `cookie_refresh` 1 h) |
+| Distinction OIDC vs BREAKGLASS | N/A | Proto-tag seulement | Type explicite + chips OIDC/BG + actions différenciées |
+| Révoquer unitaire | Oui | Oui (BG + denylist jti) | Oui ; rotate **masqué** hors app |
+| Déconnecter (apps + SSO) | Via point 4 | Bouton toujours affiché | Affiché si OIDC ou app ; **masqué** si break-glass seul |
+
+**Pourquoi pas de live-verify OIDC** : pas d’API équivalente simple à interroger le cookie oauth2-proxy d’un autre utilisateur sans son cookie navigateur. Alternative retenue = fraîcheur déclarative + badge post-logout Admin API.
+
+### Implémentation réelle
+
+- **Sérialisation** : `auth_family` (`oidc` / `breakglass` / `app`), `freshness`, `sso_logout`, `can_rotate`, `show_disconnect`
+- **Stamp** : `mark_sso_logout_requested()` après logout Keycloak réussi ; badge expiré après `SSO_LOGOUT_RESIDUAL_WINDOW` (1 h)
+- **UI** : filtre rail, chips famille, bannière logout, actions différenciées
+- **Tests** : `tests/test_sessions_user_enrichment.py`
 
 ---
 

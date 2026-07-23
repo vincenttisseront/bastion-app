@@ -41,8 +41,8 @@ from app.web.flash import base_template_context, flash_redirect
 from app.web.metrics_service import get_dashboard_metrics
 from app.request_client_ip import client_ip_from_request
 from app.web.sessions_service import (
+    build_session_groups,
     get_active_sessions,
-    group_sessions_by_user,
     touch_portal_session,
 )
 from app.web.templates import render
@@ -221,7 +221,7 @@ def sessions_page(
             request,
             settings,
             sessions=sessions,
-            session_groups=group_sessions_by_user(sessions),
+            session_groups=build_session_groups(db, sessions),
             session_kind=filter_kind or "all",
             session_counts={
                 "all": len(get_active_sessions(db, viewer=user)),
