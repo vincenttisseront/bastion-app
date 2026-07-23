@@ -540,7 +540,7 @@ def touch_portal_session(
     try:
         merged = _merge_details(details, portal_cookie_diagnostics(request) if request else None)
         if user.is_breakglass and request is not None:
-            jti = _breakglass_jti_from_request(request)
+            jti = _breakglass_jti_from_request(request, db=db)
             if jti:
                 merged = _merge_details(merged, {"jti": jti, "auth_source": "breakglass"})
         return _touch_portal_session(db, user, source_ip, details=merged)
@@ -553,14 +553,16 @@ def touch_portal_session(
         return None
 
 
-def _breakglass_jti_from_request(request: Request) -> str | None:
+def _breakglass_jti_from_request(
+    request: Request, db: Session | None = None
+) -> str | None:
     from app.breakglass import COOKIE_NAME, decode_breakglass_token_with_fallback
     from app.sso_settings import get_settings
 
     raw = request.cookies.get(COOKIE_NAME)
     if not raw:
         return None
-    payload, _fb = decode_breakglass_token_with_fallback(raw, get_settings())
+    payload, _fb = decode_breakglass_token_with_fallback(raw, get_settings(), db=db)
     jti = (payload or {}).get("jti")
     return str(jti) if jti else None
 

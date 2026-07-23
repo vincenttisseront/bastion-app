@@ -277,7 +277,7 @@ def _breakglass_login_response(
     rd: str,
 ) -> RedirectResponse:
     token, jti = issue_breakglass_token(
-        db, username, resolve_breakglass_signing_secret(settings)
+        db, username, resolve_breakglass_signing_secret(settings, db=db)
     )
     db.commit()
     response = RedirectResponse(url=rd, status_code=302)
@@ -1083,6 +1083,8 @@ def admin_security(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
+    from app.breakglass import resolve_breakglass_signing_secret_with_source
+    from app.breakglass_secret_service import build_breakglass_secret_status
     from app.db_cipher import get_db_encryption_status
     from app.portal_settings_service import get_subdomain_sso_enabled
     from app.vault.encryption_key_store import get_vault_key_status
@@ -1095,6 +1097,15 @@ def admin_security(
     )
     vault_status = get_vault_key_status(db, settings)
     db_encryption = get_db_encryption_status(settings)
+    bg_secret, bg_source = resolve_breakglass_signing_secret_with_source(
+        settings, db=db
+    )
+    breakglass_secret = build_breakglass_secret_status(
+        settings,
+        db,
+        effective_secret=bg_secret,
+        effective_source=bg_source,
+    )
     return render(
         "admin/security.html",
         **_ctx(
@@ -1104,8 +1115,68 @@ def admin_security(
             subdomain_apps=subdomain_apps,
             vault_key=vault_status,
             db_encryption=db_encryption,
+            breakglass_secret=breakglass_secret.to_public_dict(),
         ),
     )
+
+
+@router.post("/admin/security/breakglass-jwt-secret/generate")
+def admin_security_breakglass_jwt_secret_generate(
+    request: Request,
+    confirm: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.breakglass_secret_service import (
+        env_breakglass_secret_defined,
+        generate_or_rotate_ui_breakglass_secret,
+    )
+
+    token = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/admin/security#breakglass-jwt", status_code=302)
+    if env_breakglass_secret_defined(settings):
+        flash_redirect(
+            response,
+            "Secret déjà défini via BREAKGLASS_JWT_SECRET (AWX) — génération UI désactivée.",
+            "error",
+            token,
+        )
+        return response
+    if confirm != "on":
+        flash_redirect(
+            response,
+            "Génération annulée : confirmation requise.",
+            "error",
+            token,
+        )
+        return response
+    actor = user.email or user.username or "admin"
+    ip = request.headers.get("X-Real-IP") or (
+        request.client.host if request.client else None
+    )
+    try:
+        generate_or_rotate_ui_breakglass_secret(
+            db, settings, actor=actor, ip_address=ip
+        )
+    except PermissionError as exc:
+        flash_redirect(response, str(exc), "error", token)
+        return response
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", token)
+        return response
+
+    from app.breakglass_secret_service import get_ui_breakglass_previous_secret
+
+    if get_ui_breakglass_previous_secret(db, settings):
+        msg = (
+            "Secret break-glass régénéré (rotation). Les cookies déjà émis restent "
+            "valides pendant la transition."
+        )
+    else:
+        msg = "Secret break-glass dédié généré et actif."
+    flash_redirect(response, msg, "success", token)
+    return response
 
 
 @router.get("/admin/security/vault-key")

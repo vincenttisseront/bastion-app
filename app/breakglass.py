@@ -53,59 +53,114 @@ def reset_breakglass_ephemeral_secret_for_tests() -> None:
     _EPHEMERAL_JWT_SECRET = None
 
 
-def resolve_breakglass_signing_secret(settings: Settings) -> str:
-    """
-    Secret used to *sign* new ``bg_session`` JWTs.
+def _legacy_breakglass_hmac_secret(settings: Settings) -> str:
+    return (settings.vault_portal_internal_token or "").strip()
 
-    Prefer ``BREAKGLASS_JWT_SECRET``. If unset, generate a process-lifetime
-    secret (logged once) — set the env var in vault for durable production use.
+
+def resolve_breakglass_signing_secret_with_source(
+    settings: Settings,
+    db: Session | None = None,
+) -> tuple[str, "SigningSource"]:
     """
+    Secret used to *sign* new ``bg_session`` JWTs (single active source).
+
+    Priority:
+    1. ``BREAKGLASS_JWT_SECRET`` (env / AWX)
+    2. UI-generated secret in ``portal_settings`` (if env absent)
+    3. Legacy ``VAULT_PORTAL_INTERNAL_TOKEN``
+    4. Process-lifetime ephemeral (dev / last resort)
+
+    Returns ``(secret, source)`` where source is env|ui|legacy|ephemeral.
+    """
+    from app.breakglass_secret_service import SigningSource, get_ui_breakglass_secret
+
     dedicated = (settings.breakglass_jwt_secret or "").strip()
     if dedicated:
-        return dedicated
+        return dedicated, "env"
+
+    ui = get_ui_breakglass_secret(db, settings)
+    if ui:
+        return ui, "ui"
+
+    legacy = _legacy_breakglass_hmac_secret(settings)
+    if legacy:
+        return legacy, "legacy"
+
     global _EPHEMERAL_JWT_SECRET
     if _EPHEMERAL_JWT_SECRET is None:
         _EPHEMERAL_JWT_SECRET = secrets.token_urlsafe(32)
         logger.warning(
-            "BREAKGLASS_JWT_SECRET unset — using ephemeral process secret; "
-            "set BREAKGLASS_JWT_SECRET in vault for durable break-glass cookies"
+            "BREAKGLASS_JWT_SECRET unset and no UI secret — using ephemeral process "
+            "secret; set BREAKGLASS_JWT_SECRET via AWX or generate from Admin → Sécurité"
         )
-    return _EPHEMERAL_JWT_SECRET
+    source: SigningSource = "ephemeral"
+    return _EPHEMERAL_JWT_SECRET, source
 
 
-def _legacy_breakglass_hmac_secret(settings: Settings) -> str:
-    return (settings.vault_portal_internal_token or "").strip()
+def resolve_breakglass_signing_secret(
+    settings: Settings,
+    db: Session | None = None,
+) -> str:
+    """Secret used to *sign* new ``bg_session`` JWTs (see ``*_with_source``)."""
+    secret, _source = resolve_breakglass_signing_secret_with_source(settings, db=db)
+    return secret
+
+
+def _validation_secrets(
+    settings: Settings,
+    db: Session | None = None,
+) -> list[tuple[str, str]]:
+    """
+    Ordered unique secrets accepted during transition.
+
+    Signing uses a single source; validation may accept env, UI current/previous,
+    and legacy vault token when fallback is enabled.
+    """
+    from app.breakglass_secret_service import (
+        get_ui_breakglass_previous_secret,
+        get_ui_breakglass_secret,
+        secrets_equal,
+    )
+
+    out: list[tuple[str, str]] = []
+
+    def add(secret: str | None, label: str) -> None:
+        if not secret:
+            return
+        if any(secrets_equal(secret, existing) for existing, _ in out):
+            return
+        out.append((secret, label))
+
+    primary, source = resolve_breakglass_signing_secret_with_source(settings, db=db)
+    add(primary, source)
+    add(get_ui_breakglass_secret(db, settings), "ui")
+    add(get_ui_breakglass_previous_secret(db, settings), "ui_previous")
+    if settings.breakglass_jwt_secret_fallback_enabled:
+        add(_legacy_breakglass_hmac_secret(settings), "legacy")
+    return out
 
 
 def decode_breakglass_token_with_fallback(
     cookie_value: str,
     settings: Settings,
+    db: Session | None = None,
 ) -> tuple[dict[str, Any] | None, bool]:
     """
-    Decode ``bg_session`` trying the dedicated JWT secret first, then (if enabled)
-    the legacy ``VAULT_PORTAL_INTERNAL_TOKEN`` HMAC key.
+    Decode ``bg_session`` trying active + transition secrets.
 
-    Returns ``(payload, used_legacy_fallback)``.
+    Returns ``(payload, used_legacy_fallback)`` — legacy means vault token only.
     """
-    primary = resolve_breakglass_signing_secret(settings)
-    payload = decode_breakglass_token(cookie_value, primary)
-    if payload is not None:
-        return payload, False
-
-    if not settings.breakglass_jwt_secret_fallback_enabled:
-        return None, False
-
-    legacy = _legacy_breakglass_hmac_secret(settings)
-    if not legacy or legacy == primary:
-        return None, False
-
-    payload = decode_breakglass_token(cookie_value, legacy)
-    if payload is not None:
-        logger.info(
-            "breakglass JWT accepted via legacy VAULT_PORTAL_INTERNAL_TOKEN fallback "
-            "(disable BREAKGLASS_JWT_SECRET_FALLBACK_ENABLED once all sessions renewed)"
-        )
-        return payload, True
+    for secret, label in _validation_secrets(settings, db=db):
+        payload = decode_breakglass_token(cookie_value, secret)
+        if payload is not None:
+            used_legacy = label == "legacy"
+            if used_legacy:
+                logger.info(
+                    "breakglass JWT accepted via legacy VAULT_PORTAL_INTERNAL_TOKEN "
+                    "fallback (disable BREAKGLASS_JWT_SECRET_FALLBACK_ENABLED once "
+                    "all sessions renewed)"
+                )
+            return payload, used_legacy
     return None, False
 
 
@@ -289,13 +344,12 @@ def validate_breakglass_cookie(
     """
     Validate break-glass JWT (absolute exp + idle + jti denylist).
 
-    Pass ``settings=`` to use ``BREAKGLASS_JWT_SECRET`` with optional legacy
-    ``VAULT_PORTAL_INTERNAL_TOKEN`` fallback. Pass ``secret=`` for explicit
-    single-key validation (unit tests).
+    Pass ``settings=`` to use resolved signing secret + transition secrets
+    (UI / legacy). Pass ``secret=`` for explicit single-key validation (unit tests).
     """
     if settings is not None:
         payload, _used_fallback = decode_breakglass_token_with_fallback(
-            cookie_value, settings
+            cookie_value, settings, db=db
         )
         if payload is None:
             return False
@@ -319,17 +373,17 @@ def maybe_refresh_breakglass_cookie(
     If the token is valid and idle window should slide, return a new JWT.
     Absolute ``exp`` and ``jti`` are preserved from the original token.
 
-    When ``settings`` is provided, validation may use the legacy fallback, but
+    When ``settings`` is provided, validation may use transition secrets, but
     the refreshed token is always signed with ``resolve_breakglass_signing_secret``
-    (upgrades old cookies to the dedicated HMAC key).
+    (upgrades old cookies to the active dedicated HMAC key).
     """
     if settings is not None:
         payload, _used_fallback = decode_breakglass_token_with_fallback(
-            cookie_value, settings
+            cookie_value, settings, db=db
         )
         if payload is None or not _jti_allowed(payload, db):
             return None
-        sign_secret = resolve_breakglass_signing_secret(settings)
+        sign_secret = resolve_breakglass_signing_secret(settings, db=db)
     else:
         if not secret or not validate_breakglass_cookie(cookie_value, secret, db=db):
             return None
@@ -409,9 +463,12 @@ async def breakglass_login(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    # Need either dedicated JWT secret, vault token (legacy), or ephemeral will be used.
+    # Need env secret, UI secret, vault token (legacy), or ephemeral will be used.
+    from app.breakglass_secret_service import get_ui_breakglass_secret
+
     if not (
         (settings.breakglass_jwt_secret or "").strip()
+        or get_ui_breakglass_secret(db, settings)
         or (settings.vault_portal_internal_token or "").strip()
     ):
         raise HTTPException(
@@ -428,7 +485,7 @@ async def breakglass_login(
         )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    signing = resolve_breakglass_signing_secret(settings)
+    signing = resolve_breakglass_signing_secret(settings, db=db)
     token, jti = issue_breakglass_token(db, body.username, signing)
     db.commit()
     set_breakglass_cookie(response, token, settings)
@@ -452,7 +509,7 @@ async def breakglass_logout(
     username = "unknown"
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie:
-        payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings)
+        payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
         if payload:
             username = payload.get("sub", "unknown")
             jti = payload.get("jti")
@@ -468,13 +525,21 @@ async def breakglass_logout(
                 except LookupError:
                     pass
         else:
-            # Logout even if idle-expired: try decode without idle via both secrets
-            for sec in (
-                resolve_breakglass_signing_secret(settings),
+            # Logout even if idle-expired: try decode without idle via transition secrets
+            from app.breakglass_secret_service import get_ui_breakglass_previous_secret
+            from app.breakglass_secret_service import get_ui_breakglass_secret
+
+            candidates = [
+                resolve_breakglass_signing_secret(settings, db=db),
+                get_ui_breakglass_secret(db, settings) or "",
+                get_ui_breakglass_previous_secret(db, settings) or "",
                 _legacy_breakglass_hmac_secret(settings),
-            ):
-                if not sec:
+            ]
+            seen: set[str] = set()
+            for sec in candidates:
+                if not sec or sec in seen:
                     continue
+                seen.add(sec)
                 try:
                     raw = jwt.decode(
                         bg_cookie,

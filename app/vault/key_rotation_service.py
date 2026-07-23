@@ -19,7 +19,7 @@ from cryptography.fernet import InvalidToken
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.models import AppCredential, RealmConfig, UserAppCredential, utcnow
+from app.models import AppCredential, PortalSettings, RealmConfig, UserAppCredential, utcnow
 from app.secret_crypto import decrypt_with_key, encrypt_with_key
 from app.sso_settings import Settings
 
@@ -42,6 +42,7 @@ class RotationReport:
     realm_client_secrets: int = 0
     realm_oauth2_cookie_secrets: int = 0
     realm_admin_client_secrets: int = 0
+    portal_breakglass_jwt_secrets: int = 0
     duration_ms: float = 0.0
     error: str | None = None
 
@@ -53,6 +54,7 @@ class RotationReport:
             + self.realm_client_secrets
             + self.realm_oauth2_cookie_secrets
             + self.realm_admin_client_secrets
+            + self.portal_breakglass_jwt_secrets
         )
 
     def to_audit_details(self) -> dict[str, Any]:
@@ -100,6 +102,7 @@ def rotate_fernet_key(
         "realm_client_secrets": 0,
         "realm_oauth2_cookie_secrets": 0,
         "realm_admin_client_secrets": 0,
+        "portal_breakglass_jwt_secrets": 0,
     }
 
     try:
@@ -139,6 +142,28 @@ def rotate_fernet_key(
                     new_material,
                 )
                 counts["realm_admin_client_secrets"] += 1
+
+        for portal in db.query(PortalSettings).all():
+            if (
+                portal.breakglass_jwt_secret_encrypted
+                and str(portal.breakglass_jwt_secret_encrypted).strip()
+            ):
+                portal.breakglass_jwt_secret_encrypted = _reencrypt_field(
+                    portal.breakglass_jwt_secret_encrypted,
+                    old_material,
+                    new_material,
+                )
+                counts["portal_breakglass_jwt_secrets"] += 1
+            if (
+                portal.breakglass_jwt_secret_previous_encrypted
+                and str(portal.breakglass_jwt_secret_previous_encrypted).strip()
+            ):
+                portal.breakglass_jwt_secret_previous_encrypted = _reencrypt_field(
+                    portal.breakglass_jwt_secret_previous_encrypted,
+                    old_material,
+                    new_material,
+                )
+                counts["portal_breakglass_jwt_secrets"] += 1
 
         db.commit()
     except Exception as exc:

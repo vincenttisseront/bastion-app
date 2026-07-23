@@ -208,7 +208,7 @@ async def subdomain_auth(
     # requiring grants would block the only remaining admin access to subdomain apps.
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie and validate_breakglass_cookie(bg_cookie, db=db, settings=settings):
-        payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings)
+        payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
         username = str((payload or {}).get("sub") or "breakglass")
         response = Response(
             status_code=200,

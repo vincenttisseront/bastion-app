@@ -183,7 +183,9 @@ def get_user_context(
         if bg_cookie and validate_breakglass_cookie(
             bg_cookie, db=db, settings=settings
         ):
-            payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings)
+            payload, _fb = decode_breakglass_token_with_fallback(
+                bg_cookie, settings, db=db
+            )
             if not payload:
                 return None
             username = payload.get("sub", "breakglass")

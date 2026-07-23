@@ -7,11 +7,12 @@
 {% set subdomain_apps = subdomain_apps | default([]) %}
 {% set vault_key = vault_key | default(none) %}
 {% set db_encryption = db_encryption | default(none) %}
+{% set breakglass_secret = breakglass_secret | default({}) %}
 <div class="page" id="security-page">
   <div class="page-header">
     <div>
       <h1 class="page-title">Sécurité</h1>
-      <p class="page-sub">Clés API, TLS, SSO sous-domaine, coffre Fernet et chiffrement SQLCipher</p>
+      <p class="page-sub">Clés API, TLS, SSO sous-domaine, break-glass JWT, coffre Fernet et chiffrement SQLCipher</p>
     </div>
   </div>
 
@@ -19,6 +20,14 @@
     <a href="#api" class="tab active" role="tab" data-tab="api" id="tab-api" aria-selected="true">Clés API</a>
     <a href="#tls" class="tab" role="tab" data-tab="tls" id="tab-tls">TLS</a>
     <a href="#subdomain-sso" class="tab" role="tab" data-tab="subdomain-sso" id="tab-subdomain-sso">SSO sous-domaine</a>
+    <a href="#breakglass-jwt" class="tab" role="tab" data-tab="breakglass-jwt" id="tab-breakglass-jwt">
+      Break-glass JWT
+      {% if breakglass_secret and not breakglass_secret.conforming %}
+      <span class="badge" style="margin-left:6px;background:var(--danger-bg, #fee2e2);color:var(--danger, #991b1b);">!</span>
+      {% elif breakglass_secret and breakglass_secret.conforming %}
+      <span class="badge badge-ok" style="margin-left:6px;">OK</span>
+      {% endif %}
+    </a>
     <a href="#vault" class="tab" role="tab" data-tab="vault" id="tab-vault">
       Coffre Fernet
       {% if vault_key and vault_key.status_badge == 'recommended' %}
@@ -138,6 +147,103 @@
           <button type="submit" class="btn btn-secondary btn-sm">Enregistrer</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div class="form-section security-panel" id="breakglass-jwt" role="tabpanel" aria-labelledby="tab-breakglass-jwt" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">Secret HMAC break-glass (<span class="mono">bg_session</span>)</div>
+      <div class="form-section-sub">
+        Statut :
+        {% if breakglass_secret.conforming %}
+        <span class="badge badge-ok">Conforme</span>
+        {% else %}
+        <span class="badge" style="background:var(--danger-bg, #fee2e2);color:var(--danger, #991b1b);">
+          Non conforme — signature encore basée sur VAULT_PORTAL_INTERNAL_TOKEN
+        </span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="form-body">
+      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0 0 var(--sp-4);">
+        Canal principal : variable d'environnement <code class="mono">BREAKGLASS_JWT_SECRET</code>
+        (AWX / Ansible). L'UI ne génère un secret que si cette variable est absente —
+        filet de sécurité, sans conflit avec le canal as-code. Aucune valeur n'est
+        jamais affichée en clair.
+      </p>
+
+      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+        <table class="data-table">
+          <tbody>
+            <tr>
+              <th><code class="mono">BREAKGLASS_JWT_SECRET</code> (env) défini ?</th>
+              <td>{% if breakglass_secret.env_defined %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-muted">Non</span>{% endif %}</td>
+            </tr>
+            <tr>
+              <th>Secret UI généré et actif (si env absent) ?</th>
+              <td>{% if breakglass_secret.ui_secret_active %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-muted">Non</span>{% endif %}</td>
+            </tr>
+            <tr>
+              <th>Secret effectif distinct de <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> ?</th>
+              <td>{% if breakglass_secret.effective_distinct_from_vault_token %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge" style="background:var(--danger-bg, #fee2e2);color:var(--danger, #991b1b);">Non</span>{% endif %}</td>
+            </tr>
+            <tr>
+              <th>Fallback legacy actif ?</th>
+              <td>{% if breakglass_secret.legacy_fallback_enabled %}<span class="badge badge-muted">Oui</span>{% else %}<span class="badge badge-ok">Non</span>{% endif %}</td>
+            </tr>
+            <tr>
+              <th>Source de signature active</th>
+              <td class="mono">{{ breakglass_secret.effective_source or '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {% if breakglass_secret.env_defined %}
+      <div class="alert" style="margin-bottom:var(--sp-4);background:var(--ok-bg, #ecfdf5);color:var(--ok, #065f46);">
+        <div class="alert-body">
+          Le secret est géré par AWX (<code class="mono">BREAKGLASS_JWT_SECRET</code>).
+          La génération depuis l'UI est désactivée pour ne pas entrer en conflit avec
+          le canal as-code.
+        </div>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" disabled title="Env déjà définie">
+        Générer un secret dédié
+      </button>
+      {% elif breakglass_secret.can_generate %}
+      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+        <div class="alert-body">
+          Aucun secret dédié : les nouvelles signatures utilisent encore
+          <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> (ou un secret éphémère).
+          Générez un secret dédié ci-dessous, ou déployez la variable via AWX.
+        </div>
+      </div>
+      <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
+            onsubmit="return confirm('Générer un secret HMAC dédié pour les cookies break-glass ? Les nouvelles signatures utiliseront ce secret immédiatement. Les cookies déjà émis restent valides grâce au fallback de transition.');">
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:flex-start;gap:var(--sp-3);cursor:pointer;">
+            <input type="checkbox" name="confirm" value="on" required style="margin-top:3px;">
+            <span>Je confirme la génération d'un secret dédié (valeur aléatoire côté serveur, jamais affichée).</span>
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Générer un secret dédié</button>
+      </form>
+      {% elif breakglass_secret.can_rotate %}
+      <p class="form-help" style="margin-bottom:var(--sp-3);">
+        Un secret UI est déjà actif. Vous pouvez le régénérer (rotation) : l'ancienne
+        valeur reste acceptée en validation pendant la transition.
+      </p>
+      <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
+            onsubmit="return confirm('Régénérer (rotation) le secret break-glass UI ? Les nouvelles signatures utiliseront la nouvelle valeur ; les cookies déjà émis restent valides.');">
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:flex-start;gap:var(--sp-3);cursor:pointer;">
+            <input type="checkbox" name="confirm" value="on" required style="margin-top:3px;">
+            <span>Je confirme la rotation du secret UI (valeur aléatoire côté serveur).</span>
+          </label>
+        </div>
+        <button type="submit" class="btn btn-secondary btn-sm">Régénérer (rotation)</button>
+      </form>
+      {% endif %}
     </div>
   </div>
 
