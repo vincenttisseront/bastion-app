@@ -65,6 +65,8 @@ def test_generate_oauth2_proxy_config_includes_pkce(db_session: Session):
     cfg = generate_oauth2_proxy_config(realm, settings)
     assert 'http_address = "0.0.0.0:4180"' in cfg
     assert 'code_challenge_method = "S256"' in cfg
+    assert 'cookie_expire = "12h"' in cfg
+    assert 'cookie_refresh = "1h"' in cfg
 
 
 def test_nginx_realms_conf_uses_docker_dns(db_session: Session):

@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.admin.export import realm_oauth2_proxy_url
 from app.auth_flow import get_default_idp_realm
-from app.breakglass import COOKIE_NAME, validate_breakglass_cookie
+from app.breakglass import (
+    COOKIE_NAME,
+    maybe_refresh_breakglass_cookie,
+    set_breakglass_cookie,
+    validate_breakglass_cookie,
+)
 from app.database import get_db
 from app.models import RealmConfig
 from app.request_client_ip import client_ip_from_request
@@ -119,10 +124,14 @@ async def oauth2_auth(
         return oauth2_resp
 
     bg_cookie = request.cookies.get(COOKIE_NAME)
-    if bg_cookie and validate_breakglass_cookie(
-        bg_cookie, settings.vault_portal_internal_token
-    ):
-        return Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
+    secret = settings.vault_portal_internal_token
+    if bg_cookie and validate_breakglass_cookie(bg_cookie, secret):
+        response = Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
+        refreshed = maybe_refresh_breakglass_cookie(bg_cookie, secret)
+        if refreshed:
+            # Remaining TTL until absolute exp (browser Max-Age hint only; JWT exp is authoritative).
+            set_breakglass_cookie(response, refreshed, settings)
+        return response
 
     if oauth2_resp is not None:
         return oauth2_resp

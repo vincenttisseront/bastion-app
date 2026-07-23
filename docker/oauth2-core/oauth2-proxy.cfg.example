@@ -17,6 +17,9 @@ scope = "openid profile email"
 email_domains = ["*"]
 cookie_secure = true
 cookie_httponly = true
+# Session lifetime — keep in sync with app/admin/export.py generate_oauth2_proxy_config()
+cookie_expire = "12h"
+cookie_refresh = "1h"
 set_xauthrequest = true
 pass_access_token = false
 pass_authorization_header = true

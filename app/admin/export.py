@@ -65,6 +65,13 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
         "email_domains = [\"*\"]",
         "cookie_secure = true",
         "cookie_httponly = true",
+        # Session lifetime (PROPOSED — validate with security):
+        # cookie_expire = Max-Age of each issued cookie (oauth2-proxy default was 168h).
+        # cookie_refresh re-issues the cookie before Max-Age; combined with a long IdP
+        # refresh token this can still extend the SSO session until Keycloak's
+        # ssoSessionMaxLifespan / clientSessionMaxLifespan. Align those to ≤ cookie_expire.
+        'cookie_expire = "12h"',
+        'cookie_refresh = "1h"',
         "set_xauthrequest = true",
         # Keycloak subject UUID → X-Auth-Request-User (matched by AccessGrant.keycloak_user_id).
         # Preferred-Username stays the human login; Nginx maps it to X-User / X-User-Id.

@@ -110,17 +110,13 @@ def test_oauth2_auth_header_forward_request_error_returns_503(client, db_session
 @respx.mock
 def test_oauth2_auth_prefers_sso_over_breakglass_cookie(client, db_session):
     """Leftover bg_session must not hide a valid oauth2 session (/apps steal)."""
-    import jwt
+    from app.breakglass import create_breakglass_token
 
     settings = _settings()
     _override_settings(client, settings)
     _add_default_realm(db_session)
 
-    bg_token = jwt.encode(
-        {"sub": "admin", "type": "bg"},
-        settings.vault_portal_internal_token,
-        algorithm="HS256",
-    )
+    bg_token = create_breakglass_token("admin", settings.vault_portal_internal_token)
     respx.get("http://127.0.0.1:4180/oauth2/auth").mock(
         return_value=Response(
             202,
@@ -145,17 +141,13 @@ def test_oauth2_auth_prefers_sso_over_breakglass_cookie(client, db_session):
 
 @respx.mock
 def test_oauth2_auth_falls_back_to_breakglass_when_sso_401(client, db_session):
-    import jwt
+    from app.breakglass import create_breakglass_token
 
     settings = _settings()
     _override_settings(client, settings)
     _add_default_realm(db_session)
 
-    bg_token = jwt.encode(
-        {"sub": "admin", "type": "bg"},
-        settings.vault_portal_internal_token,
-        algorithm="HS256",
-    )
+    bg_token = create_breakglass_token("admin", settings.vault_portal_internal_token)
     respx.get("http://127.0.0.1:4180/oauth2/auth").mock(return_value=Response(401))
 
     resp = client.get(

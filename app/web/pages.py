@@ -19,7 +19,7 @@ from app.admin.export import export_app_catalogue_files
 from app.audit import list_audit_entries, log_action
 from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
 from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
-from app.breakglass import COOKIE_MAX_AGE, COOKIE_NAME, create_breakglass_token
+from app.breakglass import COOKIE_NAME, create_breakglass_token, set_breakglass_cookie
 from app.breakglass_store import (
     create_initial_breakglass_account,
     has_active_breakglass_account,
@@ -273,14 +273,7 @@ def _breakglass_login_response(
 ) -> RedirectResponse:
     token = create_breakglass_token(username, settings.vault_portal_internal_token)
     response = RedirectResponse(url=rd, status_code=302)
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=token,
-        max_age=COOKIE_MAX_AGE,
-        httponly=True,
-        secure=False,
-        samesite="lax",
-    )
+    set_breakglass_cookie(response, token, settings)
     log_action(
         db,
         actor=username,

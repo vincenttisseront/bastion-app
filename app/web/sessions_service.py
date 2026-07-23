@@ -20,10 +20,17 @@ from app.web.user_context import UserContext, is_portal_admin, require_admin, re
 
 logger = logging.getLogger(__name__)
 
-SESSION_IDLE_TTL = timedelta(hours=8)
+# Registry TTLs for /sessions (ActiveSession rows). Independent of browser cookies but
+# should stay aligned so the UI does not show "ghost" sessions after auth is dead.
+SESSION_IDLE_TTL = timedelta(hours=8)  # OIDC / app: idle since last_seen
+SESSION_ABSOLUTE_TTL = timedelta(hours=12)  # OIDC: hard wall from started_at (≈ cookie_expire)
+BREAKGLASS_IDLE_TTL = timedelta(minutes=30)  # match breakglass IDLE_TIMEOUT_SECONDS
+BREAKGLASS_ABSOLUTE_TTL = timedelta(hours=8)  # match breakglass COOKIE_MAX_AGE
 
 KIND_USER = "user"
 KIND_APP = "app"
+
+_PROTOCOL_BREAKGLASS = "BREAKGLASS"
 
 _ACCESS_MODE_PROTOCOL: dict[str, str] = {
     "sso_gate": "HTTPS",
@@ -139,7 +146,7 @@ def _app_session_id(email: str, slug: str) -> str:
 
 def _protocol_for_user(user: UserContext) -> str:
     if user.is_breakglass:
-        return "BREAKGLASS"
+        return _PROTOCOL_BREAKGLASS
     return "OIDC"
 
 
@@ -272,22 +279,39 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _ttls_for_row(row: ActiveSession) -> tuple[timedelta, timedelta]:
+    """Return (idle_ttl, absolute_ttl) for a registry row."""
+    if (row.protocol or "").upper() == _PROTOCOL_BREAKGLASS:
+        return BREAKGLASS_IDLE_TTL, BREAKGLASS_ABSOLUTE_TTL
+    return SESSION_IDLE_TTL, SESSION_ABSOLUTE_TTL
+
+
 def expire_stale_sessions(db: Session) -> int:
-    """Delete active rows idle longer than SESSION_IDLE_TTL. Returns deleted count."""
-    cutoff = utcnow() - SESSION_IDLE_TTL
+    """
+    Delete active rows that exceeded idle or absolute TTL.
+    Absolute TTL prevents duration from growing forever when last_seen keeps updating.
+    """
+    now = utcnow()
     stale = (
         db.query(ActiveSession)
-        .filter(
-            ActiveSession.status == "active",
-            ActiveSession.last_seen_at < cutoff,
-        )
+        .filter(ActiveSession.status == "active")
         .all()
     )
+    to_delete: list[ActiveSession] = []
     for row in stale:
+        idle_ttl, absolute_ttl = _ttls_for_row(row)
+        started = _aware(row.started_at)
+        last_seen = _aware(row.last_seen_at) or started
+        if started is not None and started < now - absolute_ttl:
+            to_delete.append(row)
+            continue
+        if last_seen is not None and last_seen < now - idle_ttl:
+            to_delete.append(row)
+    for row in to_delete:
         db.delete(row)
-    if stale:
+    if to_delete:
         db.commit()
-    return len(stale)
+    return len(to_delete)
 
 
 def touch_portal_session(
