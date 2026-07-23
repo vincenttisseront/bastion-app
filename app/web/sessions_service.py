@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -732,12 +733,14 @@ def revoke_active_session(
     reason: str = "manual",
     ip_address: str | None = None,
     delete: bool = False,
+    log_audit: bool = True,
 ) -> dict[str, Any]:
     """
     Shared revocation path for admin revoke, isolate, and downstream auto-close.
 
     delete=True removes the row (admin « Révoquer » + auto-revoke after target expired).
     delete=False marks status=isolated (POST …/isolate only).
+    log_audit=False skips the per-session audit entry (used by revoke-all which logs once).
     """
     session_id = session.id
     target = session.target
@@ -782,15 +785,151 @@ def revoke_active_session(
             session.details = cleaned
         action = "session.isolated"
     db.commit()
+    if log_audit:
+        log_action(
+            db,
+            actor=actor or "system",
+            action=action,
+            target=target,
+            details=audit_details,
+            ip_address=ip_address,
+        )
+    return {"session_id": session_id, "action": action, "reason": reason}
+
+
+def identity_match_keys(
+    *,
+    email: str | None = None,
+    username: str | None = None,
+) -> tuple[set[str], set[str]]:
+    """Build email/username sets used to match ActiveSession rows for one person."""
+    emails: set[str] = set()
+    usernames: set[str] = set()
+    if email:
+        e = email.strip().lower()
+        if e:
+            emails.add(e)
+            if "@" in e:
+                usernames.add(e.split("@", 1)[0])
+    if username:
+        u = username.strip().lower()
+        if u:
+            usernames.add(u)
+            if "@" in u:
+                emails.add(u)
+    return emails, usernames
+
+
+def list_active_app_sessions_for_identity(
+    db: Session,
+    *,
+    emails: set[str] | None = None,
+    usernames: set[str] | None = None,
+) -> list[ActiveSession]:
+    """Active robotic/vault (kind=app) sessions matching any of the identity keys."""
+    expire_stale_sessions(db)
+    emails = {e.strip().lower() for e in (emails or set()) if e and e.strip()}
+    usernames = {u.strip().lower() for u in (usernames or set()) if u and u.strip()}
+    if not emails and not usernames:
+        return []
+    clauses = []
+    if emails:
+        clauses.append(ActiveSession.user_email.in_(emails))
+        clauses.append(ActiveSession.username.in_(emails))
+    if usernames:
+        clauses.append(ActiveSession.username.in_(usernames))
+        clauses.append(ActiveSession.user_email.in_(usernames))
+    return (
+        db.query(ActiveSession)
+        .filter(
+            ActiveSession.kind == KIND_APP,
+            ActiveSession.status == "active",
+            or_(*clauses),
+        )
+        .order_by(ActiveSession.last_seen_at.desc())
+        .all()
+    )
+
+
+def revoke_all_app_sessions_for_user(
+    db: Session,
+    *,
+    identity: str,
+    emails: set[str] | None = None,
+    usernames: set[str] | None = None,
+    actor: str | None,
+    ip_address: str | None = None,
+    reason: str = "revoke_all_app",
+) -> dict[str, Any]:
+    """
+    Revoke every active kind=app session for an identity via revoke_active_session.
+
+    Continues on per-session failures; returns a detailed summary and one audit entry
+    (sessions.revoke_all_app). Does not touch break-glass or kind=user portal rows.
+    """
+    rows = list_active_app_sessions_for_identity(db, emails=emails, usernames=usernames)
+    session_ids = [r.id for r in rows]
+    revoked: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for sid in session_ids:
+        session = get_session_by_id(db, sid)
+        if not session:
+            failed.append(
+                {
+                    "session_id": sid,
+                    "target": None,
+                    "error": "session déjà absente du registre",
+                }
+            )
+            continue
+        target = session.target
+        try:
+            revoke_active_session(
+                db,
+                session,
+                actor=actor,
+                reason=reason,
+                ip_address=ip_address,
+                delete=True,
+                log_audit=False,
+            )
+            revoked.append({"session_id": sid, "target": target})
+        except Exception as exc:
+            logger.exception("revoke_all: failed for session %s", sid)
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            failed.append(
+                {
+                    "session_id": sid,
+                    "target": target,
+                    "error": str(exc) or exc.__class__.__name__,
+                }
+            )
+
+    summary = {
+        "identity": identity,
+        "revoked_count": len(revoked),
+        "failed_count": len(failed),
+        "revoked": revoked,
+        "failed": failed,
+    }
     log_action(
         db,
         actor=actor or "system",
-        action=action,
-        target=target,
-        details=audit_details,
+        action="sessions.revoke_all_app",
+        target=identity,
+        details={
+            "revoked_count": summary["revoked_count"],
+            "failed_count": summary["failed_count"],
+            "revoked": revoked,
+            "failed": failed,
+            "reason": reason,
+        },
         ip_address=ip_address,
     )
-    return {"session_id": session_id, "action": action, "reason": reason}
+    return summary
 
 
 router = APIRouter(tags=["sessions"])

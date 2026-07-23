@@ -82,5 +82,7 @@ Le compte de service realm-management doit disposer **à minima** de :
 
 - `query-groups` — import / liste des groupes
 - `view-users` — membres de groupe, recherche utilisateur, groupes d'un utilisateur
+- `manage-users` — **logout Admin API** (`POST /admin/realms/{realm}/users/{id}/logout`) pour « Déconnecter cet utilisateur » / `sessions.revoke_sso`. Confirmé dans le code Keycloak (`UserResource.logout` → `auth.users().requireManage` → rôle `MANAGE_USERS`). Sans ce rôle, le bastion renvoie HTTP 400 avec un message explicite (pas un 500 générique).
+- `view-realm` — lecture des paramètres de session realm (outil d’alignement cookie / SSO)
 
-Sans `view-users`, les endpoints membres / recherche renvoient HTTP 403 avec un message explicite côté bastion-app.
+Sans `view-users`, les endpoints membres / recherche renvoient HTTP 403 côté Keycloak, traduit en message explicite côté bastion-app.

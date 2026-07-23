@@ -29,12 +29,79 @@ def _view_users_error() -> str:
     )
 
 
+def _manage_users_error() -> str:
+    return (
+        "Le compte de service n'a pas le rôle realm-management:manage-users. "
+        "Ce rôle est requis pour POST /admin/realms/{realm}/users/{id}/logout "
+        "(Keycloak UserResource.logout → auth.users().requireManage)."
+    )
+
+
+# Residual window after Admin API logout: oauth2-proxy keeps its local cookie until
+# cookie_refresh (~1h) or an active revalidation. Documented for UI honesty.
+SSO_LOGOUT_RESIDUAL_NOTE = (
+    "Sessions Keycloak invalidées côté IdP. Le cookie oauth2-proxy local peut rester "
+    "valide jusqu'au prochain refresh (cookie_refresh ≈ 1 h avec la config actuelle) "
+    "ou jusqu'à une revalidation active — la coupure portail n'est pas instantanée."
+)
+
+
 async def _admin_get(realm: RealmConfig, settings: Settings, path: str) -> httpx.Response:
     token = await get_admin_token(realm, settings)
     base, realm_name = _issuer_parts(realm.issuer_url)
     url = f"{base}/admin/realms/{realm_name}{path}"
     async with httpx.AsyncClient(timeout=10.0) as client:
         return await client.get(url, headers={"Authorization": f"Bearer {token}"})
+
+
+async def _admin_post(
+    realm: RealmConfig, settings: Settings, path: str
+) -> httpx.Response:
+    token = await get_admin_token(realm, settings)
+    base, realm_name = _issuer_parts(realm.issuer_url)
+    url = f"{base}/admin/realms/{realm_name}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            return await client.post(
+                url, headers={"Authorization": f"Bearer {token}"}
+            )
+    except httpx.TimeoutException as exc:
+        raise ValueError(
+            f"Keycloak injoignable ou timeout lors de l'appel admin ({path})"
+        ) from exc
+    except httpx.RequestError as exc:
+        raise ValueError(
+            f"Keycloak injoignable lors de l'appel admin ({path}): {exc}"
+        ) from exc
+
+
+async def logout_keycloak_user(
+    realm: RealmConfig, keycloak_user_id: str, settings: Settings
+) -> dict:
+    """
+    Invalidate all Keycloak sessions for a user via Admin API.
+
+    Endpoint: POST /admin/realms/{realm}/users/{id}/logout
+    Required realm-management role: manage-users (requireManage on UserResource).
+    """
+    uid = (keycloak_user_id or "").strip()
+    if not uid:
+        raise ValueError("Identifiant utilisateur Keycloak manquant")
+    resp = await _admin_post(realm, settings, f"/users/{uid}/logout")
+    if resp.status_code == 403:
+        raise ValueError(_manage_users_error())
+    if resp.status_code == 404:
+        raise ValueError("Utilisateur Keycloak introuvable pour le logout SSO")
+    if resp.status_code >= 400:
+        raise ValueError(
+            f"Échec logout Keycloak Admin API (HTTP {resp.status_code})"
+        )
+    return {
+        "ok": True,
+        "keycloak_user_id": uid,
+        "realm_slug": realm.slug,
+        "residual_note": SSO_LOGOUT_RESIDUAL_NOTE,
+    }
 
 
 async def fetch_group_members(

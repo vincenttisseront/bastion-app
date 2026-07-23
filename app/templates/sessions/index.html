@@ -62,8 +62,16 @@
           <h2 class="sessions-detail-title">{{ first.user }}</h2>
           <p class="sessions-detail-sub mono">{{ first.user_email }} · {{ first.realm }}</p>
         </div>
-        <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} session(s)</span>
+        <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;">
+          <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} session(s)</span>
+          {% if is_admin %}
+          <button type="button" class="btn btn-danger btn-sm"
+                  title="Révoque sessions robotic/vault + logout Keycloak. Hors break-glass. Délai résiduel cookie ~1h possible."
+                  onclick="disconnectUser({{ first.user_email | tojson }}, {{ first.realm | tojson }})">Déconnecter cet utilisateur</button>
+          {% endif %}
+        </div>
       </div>
+      <div id="disconnect-user-result" style="margin:0 0 var(--sp-3);"></div>
       <div class="sessions-card-grid" id="sessions-card-grid">
         {% for s in first.sessions %}
         <article class="card session-card" data-session-id="{{ s.id }}" data-kind="{{ s.kind }}">

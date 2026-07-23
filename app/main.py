@@ -13,6 +13,7 @@ from app.admin.infrastructure import router as infrastructure_router
 from app.admin.realms import router as admin_realms_router
 from app.admin.rbac_access import router as admin_rbac_access_router
 from app.admin.rbac_groups import router as admin_rbac_groups_router
+from app.admin.user_sessions import router as admin_user_sessions_router
 from app.breakglass import router as breakglass_router
 from app.database import engine
 from app.health_scheduler import start_health_scheduler, stop_health_scheduler
@@ -152,6 +153,7 @@ app.include_router(admin_realms_router)
 app.include_router(infrastructure_router)
 app.include_router(admin_rbac_groups_router)
 app.include_router(admin_rbac_access_router)
+app.include_router(admin_user_sessions_router)
 app.include_router(admin_logs_router)
 app.include_router(admin_dependencies_router)
 app.include_router(audit_router)

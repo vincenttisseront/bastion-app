@@ -10,9 +10,26 @@
 | 1 | Enforce AccessGrant sur auth_request subdomain | **Corrigé** (2026-07-23) |
 | 2 | Cookie oauth2 12h/1h + alignement Keycloak `ssoSessionMaxLifespan` | **Outil de vérif. livré** — valeurs prod à confirmer via Admin |
 | 3 | Révocation break-glass (jti + denylist) | **Corrigé** (2026-07-23) |
-| 4 | Kill-switch multi-types | À faire (après 1–3) |
-| 5 | Vue `/sessions` enrichie | Partiel (jti BREAKGLASS + revoke via registre) |
+| 4 | Révoquer toutes les sessions app + logout Keycloak (par utilisateur) | **Corrigé** (2026-07-23) |
+| 5 | Vue `/sessions` enrichie | Partiel (jti BREAKGLASS + revoke via registre + bouton déconnexion) |
 | 6 | TTL break-glass configurable + idle | Idle 30 min fait ; durée absolue encore hardcodée |
+
+---
+
+## §8 / Point 4 — Révoquer toutes les sessions (app + SSO) par utilisateur
+
+| Date | Statut | Résumé |
+|------|--------|--------|
+| 2026-07-23 | **Corrigé** | `revoke-all` robotic/vault + Keycloak Admin logout + bouton combiné (hors break-glass). |
+
+### Implémentation réelle
+
+- **(a) App** : `POST /admin/users/{identity}/sessions/revoke-all` — réutilise `revoke_active_session` pour chaque session `kind=app` active ; audit consolidé `sessions.revoke_all_app` avec liste révoquées / échecs (pas d’arrêt sur la première erreur).
+- **(b) SSO** : `POST /admin/users/{identity}/sessions/revoke-sso` — `POST /admin/realms/{realm}/users/{id}/logout` via `get_admin_token()` ; rôle requis **`realm-management:manage-users`** (documenté dans `docs/rbac-enforcement-audit.md` §7).
+- **Combiné** : `POST /admin/users/{identity}/sessions/disconnect` — (a) puis (b), réponses séparées `app_sessions` / `sso` (jamais un statut global trompeur).
+- **UI** : bouton « Déconnecter cet utilisateur » sur fiche RBAC utilisateurs et `/sessions` — résultats détaillés des deux leviers ; break-glass hors périmètre.
+- **Délai résiduel SSO** : après logout Admin API, le cookie oauth2-proxy local peut rester valide jusqu’au prochain **`cookie_refresh` (≈ 1 h)** ou une revalidation active — documenté dans l’UI et `SSO_LOGOUT_RESIDUAL_NOTE` (pas de coupure portail instantanée annoncée).
+- **Tests** : `pytest -k "revoke_all or keycloak_logout"`
 
 ---
 
@@ -83,7 +100,7 @@ Retirer un `AccessGrant` coupe l'accès direct par URL **immédiatement** (proch
 - UI : **Admin → Realms → Alignement sessions SSO** (`/admin/realms/session-alignment`)
 - JSON : `GET /api/admin/realms/session-alignment`
 - Lit : fichier export `exports/oauth2/{slug}/oauth2-proxy.cfg` (+ miroir core) **et** Keycloak Admin API (`ssoSessionMaxLifespan`, idle, client session max).
-- Prérequis : compte de service realm avec **`view-realm`** (en plus de `view-users` / `query-groups`).
+- Prérequis : compte de service realm avec **`view-realm`** (en plus de `view-users` / `query-groups` ; et **`manage-users`** pour le logout Admin API du point 4).
 
 ### Tableau de conformité (à remplir après apply + ouverture de la page)
 

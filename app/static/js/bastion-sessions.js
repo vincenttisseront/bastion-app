@@ -278,6 +278,17 @@
       return;
     }
     var statusClass = g.status === 'active' ? 'ok' : 'warn';
+    var disconnectBtn = '';
+    if (isAdmin) {
+      disconnectBtn =
+        '<button type="button" class="btn btn-danger btn-sm" ' +
+        'title="Révoque sessions robotic/vault + logout Keycloak. Hors break-glass. Délai résiduel cookie ~1h possible." ' +
+        'onclick="disconnectUser(' +
+        JSON.stringify(g.user_email) +
+        ', ' +
+        JSON.stringify(g.realm) +
+        ')">Déconnecter cet utilisateur</button>';
+    }
     detail.innerHTML =
       '<div class="sessions-detail-head">' +
       '<div><h2 class="sessions-detail-title">' +
@@ -287,15 +298,103 @@
       ' · ' +
       escapeHtml(g.realm) +
       '</p></div>' +
+      '<div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;">' +
       '<span class="badge badge-' +
       statusClass +
       '">' +
       escapeHtml(String(g.session_count)) +
-      ' session(s)</span></div>' +
+      ' session(s)</span>' +
+      disconnectBtn +
+      '</div></div>' +
+      '<div id="disconnect-user-result" style="margin:0 0 var(--sp-3);"></div>' +
       '<div class="sessions-card-grid" id="sessions-card-grid">' +
       (g.sessions || []).map(renderSessionCard).join('') +
       '</div>';
   }
+
+  window.disconnectUser = async function (userEmail, realmSlug) {
+    var ok = window.bastionConfirm
+      ? await window.bastionConfirm({
+          title: 'Déconnecter cet utilisateur ?',
+          message:
+            'Révoque les sessions robotic/vault puis logout Keycloak Admin. ' +
+            'Le break-glass n’est pas concerné. Le cookie portail peut rester ' +
+            'valide jusqu’à ~1 h (cookie_refresh).',
+          confirmLabel: 'Déconnecter',
+          danger: true,
+        })
+      : window.confirm('Déconnecter cet utilisateur ?');
+    if (!ok) return;
+    var resultEl = document.getElementById('disconnect-user-result');
+    if (resultEl) resultEl.innerHTML = '<div class="form-hint">Déconnexion en cours…</div>';
+    try {
+      var url =
+        '/admin/users/' +
+        encodeURIComponent(userEmail) +
+        '/sessions/disconnect?realm_slug=' +
+        encodeURIComponent(realmSlug || '');
+      var resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'X-CSRF-Token': getCsrfToken(),
+        },
+        credentials: 'same-origin',
+      });
+      var data = await resp.json().catch(function () {
+        return {};
+      });
+      var app = data.app_sessions || {};
+      var sso = data.sso || {};
+      var appLine =
+        app.ok === false
+          ? 'Sessions app : échec — ' + (app.error || 'erreur')
+          : 'Sessions app : ' +
+            (app.revoked_count || 0) +
+            ' révoquée(s)' +
+            (app.failed_count ? ', ' + app.failed_count + ' échec(s)' : '');
+      if (app.failed && app.failed.length) {
+        appLine +=
+          ' (' +
+          app.failed
+            .map(function (f) {
+              return (f.target || f.session_id) + ': ' + (f.error || '');
+            })
+            .join('; ') +
+          ')';
+      }
+      var ssoLine = sso.ok
+        ? 'SSO Keycloak : logout OK'
+        : 'SSO Keycloak : échec — ' + (sso.error || data.error || 'erreur');
+      var residual = sso.residual_note
+        ? '<p class="form-hint" style="margin-top:8px;">' +
+          escapeHtml(sso.residual_note) +
+          '</p>'
+        : '';
+      if (resultEl) {
+        resultEl.innerHTML =
+          '<div class="alert ' +
+          (app.ok !== false && sso.ok ? 'alert-ok' : 'alert-warn') +
+          '" style="margin:0;"><div>' +
+          escapeHtml(appLine) +
+          '</div><div style="margin-top:8px;">' +
+          escapeHtml(ssoLine) +
+          '</div>' +
+          residual +
+          '</div>';
+      }
+      if (app.revoked_count) {
+        setTimeout(function () {
+          window.location.reload();
+        }, 1200);
+      }
+    } catch (e) {
+      if (resultEl) {
+        resultEl.innerHTML =
+          '<div class="alert alert-err" style="margin:0;">Erreur réseau.</div>';
+      }
+    }
+  };
 
   function renderAll() {
     renderUserList();
