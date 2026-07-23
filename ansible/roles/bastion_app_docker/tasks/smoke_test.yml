@@ -362,7 +362,7 @@
   ansible.builtin.fail:
     msg: >-
       oauth2-proxy.cfg sans cookie_expire="12h" / cookie_refresh="1h" ?
-      Relancer infrastructure apply + apply-infra-docker après déploiement bastion-app.
+      Relancer infrastructure apply + apply-infra-docker apres deploiement bastion-app.
       stdout={{ _oauth2_ttl_smoke.stdout | default('') }}
       stderr={{ _oauth2_ttl_smoke.stderr | default('') }}
   when: _oauth2_ttl_smoke.rc | default(1) != 0
@@ -371,7 +371,7 @@
   ansible.builtin.fail:
     msg: >-
       oauth2-proxy.cfg sans user_id_claim="sub" ? relancer infrastructure apply
-      + apply-infra-docker aprï¿½s dï¿½ploiement bastion-app (AccessGrant portal_admin
+      + apply-infra-docker apres deploiement bastion-app (AccessGrant portal_admin
       ne matchera pas sans subject Keycloak).
       stdout={{ _oauth2_sub_smoke.stdout | default('') }}
       stderr={{ _oauth2_sub_smoke.stderr | default('') }}
@@ -391,7 +391,7 @@
   ansible.builtin.debug:
     msg: >-
       Edge (vmdmz-reverse01) : proxy_pass {{ bastion_upstream_url }}
-      avec Host {{ portal_domain }} (mï¿½me schï¿½ma que Keycloak / Traefik).
+      avec Host {{ portal_domain }} (meme schema que Keycloak / Traefik).
 
 - name: "SMOKE : SQLCipher â€” portal.db illisible sans clÃ©"
   ansible.builtin.shell: |
@@ -415,7 +415,7 @@
   changed_when: false
   failed_when: _sqlcipher_smoke.rc != 0
 
-- name: "SMOKE : post-rotation ? dï¿½chiffrement credential de test (optionnel)"
+- name: "SMOKE : post-rotation - dechiffrement credential de test (optionnel)"
   when: sso_portal_post_rotation_smoke | default(false) | bool
   block:
     - name: "SMOKE : decrypt sample ciphertext via bastion-app container"
@@ -480,7 +480,7 @@
         that:
           - _post_rotation_decrypt.rc | default(1) == 0
         fail_msg: >-
-          Post-rotation decrypt failed ? clï¿½ Fernet ou rï¿½-chiffrement incohï¿½rent.
+          Post-rotation decrypt failed ? cle Fernet ou re-chiffrement incoherent.
           Pas de rollback automatique ; restaurer bak-pre-rotation-* manuellement si besoin.
 
 - name: "SMOKE : verify local Fernet key migration (data volume)"
