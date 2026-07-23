@@ -65,10 +65,15 @@ def _browser_fingerprint_headers(request: Request) -> dict[str, str]:
     return out
 
 
-def _oidc_login_username(user: UserContext, identity_format: str | None = "email") -> str:
+def _oidc_login_username(
+    user: UserContext,
+    identity_format: str | None = "email",
+    *,
+    email: str | None = None,
+) -> str:
     """OIDC session → LDAPS/robotic login (default: full email/UPN like sessions)."""
     return resolve_identity_login_username(
-        email=user.email,
+        email=email if email is not None else user.email,
         username=user.username,
         identity_format=identity_format,
     )
@@ -414,7 +419,17 @@ async def open_with_identity(
             )
         return _identity_error_redirect(settings=settings, message=message)
 
-    username = _oidc_login_username(user, getattr(app, "identity_format", None))
+    from app.rbac.oidc_email import looks_like_email, resolve_user_email
+
+    # If oauth2-proxy omitted X-Email (unverified/missing claim), recover from Keycloak.
+    resolved_email = await resolve_user_email(db, settings, user)
+    if looks_like_email(resolved_email):
+        user.email = resolved_email
+    username = _oidc_login_username(
+        user,
+        getattr(app, "identity_format", None),
+        email=resolved_email,
+    )
     if not username:
         message = "Identité utilisateur indisponible. Reconnectez-vous au portail."
         return _identity_error_response(

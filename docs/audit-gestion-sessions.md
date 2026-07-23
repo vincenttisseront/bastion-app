@@ -23,3 +23,15 @@
 ### Effet attendu en prod
 
 Retirer un `AccessGrant` coupe l'accès direct par URL **immédiatement** (prochaine requête `auth_request`), sans attendre l'expiration du cookie oauth2-proxy.
+
+---
+
+## Email OIDC manquant (Hervé vs Vincent) — 2026-07-23
+
+| Cause possible | Diagnostic | Correctif |
+|---|---|---|
+| `emailVerified=false` + oauth2-proxy sans flag | Admin → RBAC → Utilisateur → badge emailVerified | `insecure_oidc_allow_unverified_email` (export) + **apply infra** |
+| Champ Email vide dans Keycloak/AD | Même écran : warning « Pas d'email dans Keycloak » | Remplir Email (ou mapper LDAP `mail` / `userPrincipalName`) |
+| Claim absent malgré Email KC | Fallback runtime bastion | `resolve_user_email()` (Admin API) sur `/apps`, `/profile`, `open-with-identity` |
+
+Comparer Hervé et Vincent sur **Admin → RBAC → Utilisateurs** : Email + emailVerified doivent être équivalents si les fiches Keycloak le sont.

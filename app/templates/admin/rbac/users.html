@@ -81,7 +81,30 @@
   {% if kc_user %}
   <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
     <h2 class="card-title">{{ kc_user.username or kc_user.email }}</h2>
-    <p class="page-sub mono">{{ kc_user.email or '—' }} · ID {{ keycloak_user_id }}</p>
+    <p class="page-sub mono">ID {{ keycloak_user_id }}</p>
+    {% if kc_email_diag %}
+    <div style="margin-top:var(--sp-3); display:grid; gap:var(--sp-2);">
+      <div>
+        <span class="form-label">Email Keycloak (claim OIDC)</span>
+        <div class="mono">{{ kc_email_diag.email or '—' }}</div>
+      </div>
+      <div>
+        <span class="form-label">emailVerified</span>
+        {% if kc_email_diag.email_verified is sameas true %}
+          <span class="badge badge-ok">true</span>
+        {% elif kc_email_diag.email_verified is sameas false %}
+          <span class="badge badge-warn">false</span>
+        {% else %}
+          <span class="badge badge-muted">—</span>
+        {% endif %}
+      </div>
+      {% if kc_email_diag.warning %}
+      <div class="alert alert-warn" style="margin:0;">{{ kc_email_diag.warning }}</div>
+      {% else %}
+      <div class="alert alert-ok" style="margin:0;">Email prêt pour X-Email / apps identity_format=email (ex. Grommunio).</div>
+      {% endif %}
+    </div>
+    {% endif %}
     <div style="margin-top:var(--sp-3);">
       <span class="form-label">Groupes Keycloak (lecture seule)</span>
       <ul style="margin:var(--sp-2) 0 0; padding-left:var(--sp-4);">

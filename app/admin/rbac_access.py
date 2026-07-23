@@ -219,6 +219,7 @@ async def admin_rbac_users_page(
 
     kc_user = None
     kc_groups: list[dict] = []
+    kc_email_diag: dict | None = None
     direct_grants: list = []
     effective_grants: list[dict] = []
     user_error: str | None = None
@@ -227,6 +228,9 @@ async def admin_rbac_users_page(
         try:
             kc_user = await fetch_keycloak_user(selected_realm, keycloak_user_id, settings)
             if kc_user:
+                from app.rbac.oidc_email import keycloak_email_diagnostics
+
+                kc_email_diag = keycloak_email_diagnostics(kc_user)
                 raw_groups = await fetch_user_groups(selected_realm, keycloak_user_id, settings)
                 kc_groups = raw_groups
                 direct_grants = list_grants(db, keycloak_user_id=keycloak_user_id)
@@ -282,6 +286,7 @@ async def admin_rbac_users_page(
             selected_realm=selected_realm,
             keycloak_user_id=keycloak_user_id,
             kc_user=kc_user,
+            kc_email_diag=kc_email_diag,
             kc_groups=kc_groups,
             direct_grants=[serialize_grant(g, db) for g in direct_grants],
             effective_grants=effective_grants,

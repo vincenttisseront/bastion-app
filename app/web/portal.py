@@ -130,8 +130,20 @@ def _account_console_url(db: Session, user: UserContext, settings: Settings) -> 
     return f"{realm.issuer_url.rstrip('/')}/account/"
 
 
+async def _enrich_user_email(
+    db: Session, settings: Settings, user: UserContext
+) -> UserContext:
+    """Fill user.email from Keycloak when the SSO session only has a short username."""
+    from app.rbac.oidc_email import looks_like_email, resolve_user_email
+
+    resolved = await resolve_user_email(db, settings, user)
+    if looks_like_email(resolved):
+        user.email = resolved
+    return user
+
+
 @router.get("/apps")
-def apps_portal(
+async def apps_portal(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -141,6 +153,7 @@ def apps_portal(
     if user.is_breakglass:
         return RedirectResponse(url="/dashboard", status_code=302)
 
+    await _enrich_user_email(db, settings, user)
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
@@ -158,13 +171,14 @@ def apps_portal(
 
 
 @router.get("/profile")
-def user_profile(
+async def user_profile(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user),
 ):
     """End-user profile: identity, app summary, Keycloak account security link."""
+    await _enrich_user_email(db, settings, user)
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)

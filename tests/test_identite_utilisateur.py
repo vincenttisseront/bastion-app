@@ -209,6 +209,85 @@ def test_open_with_identity_uses_session_username_not_body(
     assert args[1] != "vincent.tisseront"  # must not use short preferred_username
 
 
+def test_open_with_identity_recovers_email_from_keycloak(
+    client: TestClient, db_session: Session
+):
+    """Hervé case: X-Email empty/short → Keycloak Admin email used for UPN login."""
+    from app.models import RealmConfig
+    from app.secret_crypto import encrypt_secret
+    from app.sso_settings import Settings
+
+    _seed_app(db_session)
+    settings = Settings(
+        vault_portal_internal_token="test-secret",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+    )
+    realm = RealmConfig(
+        slug="ar-systems",
+        name="AR-SYSTEMS",
+        issuer_url="https://kc.example.com/realms/AR-SYSTEMS",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("secret", settings),
+        redirect_uri="https://portal.test/oauth2/ar-systems/callback",
+        oauth2_proxy_port=4180,
+        is_default=True,
+        enabled=True,
+        groups_sync_enabled=True,
+        keycloak_admin_client_id="admin-cli",
+        keycloak_admin_client_secret_encrypted=encrypt_secret("admin-secret", settings),
+    )
+    db_session.add(realm)
+    db_session.commit()
+
+    fake_session = CrushFTPSession(
+        cookies={"CrushAuth": "IDCOOKIE1234", "currentAuth": "abcd"},
+        base_url="https://mail.example/",
+    )
+    login_mock = AsyncMock(return_value=fake_session)
+    short_headers = {
+        "X-Email": "herve.tisseront",
+        "X-Preferred-Username": "herve.tisseront",
+        "X-Groups": "transfer-users",
+        "X-User-Id": KC_USER,
+        "X-Portal-Realm-Slug": "ar-systems",
+    }
+
+    with (
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.login",
+            new=login_mock,
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.get_username",
+            new=AsyncMock(return_value="herve.tisseront@ar-systems.fr"),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.logout",
+            new=AsyncMock(),
+        ),
+        patch(
+            "app.rbac.oidc_email.fetch_keycloak_user",
+            new=AsyncMock(
+                return_value={
+                    "id": KC_USER,
+                    "username": "herve.tisseront",
+                    "email": "herve.tisseront@ar-systems.fr",
+                    "emailVerified": False,
+                }
+            ),
+        ),
+    ):
+        resp = client.post(
+            "/api/apps/grommunio/open-with-identity",
+            headers=short_headers,
+            json={"password": SECRET_PASSWORD},
+            follow_redirects=False,
+        )
+
+    assert resp.status_code == 200
+    assert login_mock.await_args.args[1] == "herve.tisseront@ar-systems.fr"
+
+
 def test_open_with_identity_password_absent_from_logs(
     client: TestClient, db_session: Session, caplog
 ):

@@ -389,5 +389,6 @@ def serialize_user_search_result(user: dict) -> dict[str, Any]:
         "id": user.get("id"),
         "username": user.get("username"),
         "email": user.get("email"),
+        "emailVerified": user.get("emailVerified"),
         "display": display,
     }
