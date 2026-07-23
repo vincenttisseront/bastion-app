@@ -344,6 +344,29 @@
   changed_when: false
   failed_when: false
 
+- name: "SMOKE : oauth2-proxy-core cfg has cookie_expire=12h and cookie_refresh=1h"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cfg="{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    test -f "$cfg"
+    grep -E 'cookie_expire\s*=\s*"12h"' "$cfg"
+    grep -E 'cookie_refresh\s*=\s*"1h"' "$cfg"
+    echo "oauth2 cookie_expire=12h cookie_refresh=1h OK ($cfg)"
+  args:
+    executable: /bin/bash
+  register: _oauth2_ttl_smoke
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : fail if cookie TTL missing after apply-infra"
+  ansible.builtin.fail:
+    msg: >-
+      oauth2-proxy.cfg sans cookie_expire="12h" / cookie_refresh="1h" ?
+      Relancer infrastructure apply + apply-infra-docker après déploiement bastion-app.
+      stdout={{ _oauth2_ttl_smoke.stdout | default('') }}
+      stderr={{ _oauth2_ttl_smoke.stderr | default('') }}
+  when: _oauth2_ttl_smoke.rc | default(1) != 0
+
 - name: "SMOKE : fail if user_id_claim=sub missing after apply-infra"
   ansible.builtin.fail:
     msg: >-

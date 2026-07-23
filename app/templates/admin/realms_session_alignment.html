@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Alignement sessions SSO{% endblock %}
+{% block breadcrumb %}Admin / Realms / Alignement sessions{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Alignement sessions SSO</h1>
+      <p class="page-sub">
+        Cible bastion : cookie_expire={{ target_cookie_expire }}, cookie_refresh={{ target_cookie_refresh }},
+        Keycloak ssoSessionMaxLifespan ≤ 12h (43200s).
+      </p>
+    </div>
+    <div style="display:flex; gap:var(--sp-2); align-items:center;">
+      {% if all_coherent %}
+        <span class="badge badge-ok">Tous conformes</span>
+      {% else %}
+        <span class="badge badge-warn">Écarts détectés</span>
+      {% endif %}
+      <a href="/admin/realms" class="btn btn-ghost btn-sm">← Realms</a>
+      <a href="/api/admin/realms/session-alignment" class="btn btn-ghost btn-sm">JSON</a>
+    </div>
+  </div>
+
+  <div class="alert alert-info" style="margin-bottom:var(--sp-4);">
+    Lit le fichier d’export oauth2-proxy (après apply infra) et interroge Keycloak Admin API
+    (compte de service du realm — rôle <span class="mono">view-realm</span> requis).
+    Ne remplace pas le test manuel refresh &gt; 1h / déconnexion à 12h.
+  </div>
+
+  <div class="card" style="padding:0;">
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Realm</th>
+            <th>cookie_expire</th>
+            <th>cookie_refresh</th>
+            <th>Export = générateur</th>
+            <th>ssoSessionMaxLifespan</th>
+            <th>ssoSessionIdleTimeout</th>
+            <th>Cohérent</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr>
+            <td>
+              <div class="mono">{{ r.realm_slug }}</div>
+              <div class="form-hint">{{ r.realm_name }}</div>
+            </td>
+            <td class="mono">{{ r.cookie_expire_export or '—' }} <span class="form-hint">(gén. {{ r.cookie_expire_generator }})</span></td>
+            <td class="mono">{{ r.cookie_refresh_export or '—' }} <span class="form-hint">(gén. {{ r.cookie_refresh_generator }})</span></td>
+            <td>
+              {% if r.export_matches_generator is sameas true %}
+                <span class="badge badge-ok">oui</span>
+              {% elif r.export_matches_generator is sameas false %}
+                <span class="badge badge-err">non</span>
+              {% else %}
+                <span class="badge badge-muted">fichier absent</span>
+              {% endif %}
+            </td>
+            <td class="mono">
+              {% if r.sso_session_max_lifespan_s is not none %}
+                {{ r.sso_session_max_lifespan_s }}s
+                {% if r.sso_session_max_lifespan_s > 43200 %}
+                  <span class="badge badge-err">&gt; 12h</span>
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td class="mono">{% if r.sso_session_idle_timeout_s is not none %}{{ r.sso_session_idle_timeout_s }}s{% else %}—{% endif %}</td>
+            <td>
+              {% if r.coherent %}
+                <span class="badge badge-ok">oui</span>
+              {% else %}
+                <span class="badge badge-err">non</span>
+              {% endif %}
+            </td>
+            <td style="max-width:320px; font-size:0.85rem;">
+              {% for n in r.notes %}
+                <div>{{ n }}</div>
+              {% endfor %}
+              {% if r.export_path %}
+                <div class="form-hint mono truncate" title="{{ r.export_path }}">{{ r.export_path }}</div>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8">
+              <div class="empty-state" style="padding:var(--sp-6);">
+                <div class="empty-title">Aucun realm activé</div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

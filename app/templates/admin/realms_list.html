@@ -9,7 +9,10 @@
       <h1 class="page-title">Realms OIDC</h1>
       <p class="page-sub">Configurations IdP et export oauth2-proxy</p>
     </div>
-    <a href="/admin/realms/new" class="btn btn-primary btn-sm">+ Créer</a>
+    <div style="display:flex; gap:var(--sp-2);">
+      <a href="/admin/realms/session-alignment" class="btn btn-ghost btn-sm">Alignement sessions SSO</a>
+      <a href="/admin/realms/new" class="btn btn-primary btn-sm">+ Créer</a>
+    </div>
   </div>
 
   {% if schema_error %}

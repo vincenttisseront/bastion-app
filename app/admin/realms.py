@@ -219,6 +219,61 @@ def admin_realms_list(
     )
 
 
+@router.get("/admin/realms/session-alignment")
+async def admin_realms_session_alignment(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    """Compare oauth2-proxy cookie TTL (export) vs Keycloak ssoSessionMaxLifespan."""
+    from app.admin.session_alignment import (
+        TARGET_COOKIE_EXPIRE,
+        TARGET_COOKIE_REFRESH,
+        build_session_alignment_report,
+    )
+
+    rows = await build_session_alignment_report(db, settings)
+    return render(
+        "admin/realms_session_alignment.html",
+        **_ctx(
+            request,
+            settings,
+            rows=rows,
+            target_cookie_expire=TARGET_COOKIE_EXPIRE,
+            target_cookie_refresh=TARGET_COOKIE_REFRESH,
+            all_coherent=all(r.coherent for r in rows) if rows else False,
+        ),
+    )
+
+
+@router.get("/api/admin/realms/session-alignment")
+async def api_realms_session_alignment(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    from app.admin.session_alignment import (
+        TARGET_COOKIE_EXPIRE,
+        TARGET_COOKIE_REFRESH,
+        build_session_alignment_report,
+    )
+
+    rows = await build_session_alignment_report(db, settings)
+    return JSONResponse(
+        {
+            "ok": True,
+            "target": {
+                "cookie_expire": TARGET_COOKIE_EXPIRE,
+                "cookie_refresh": TARGET_COOKIE_REFRESH,
+                "sso_session_max_lifespan_max_s": 12 * 3600,
+            },
+            "realms": [r.to_dict() for r in rows],
+            "all_coherent": all(r.coherent for r in rows) if rows else False,
+        }
+    )
+
+
 @router.get("/admin/realms/new")
 def admin_realms_new(
     request: Request,
