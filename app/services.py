@@ -1,4 +1,4 @@
-"""Application catalogue CRUD and RBAC group management."""
+"""Application catalogue CRUD (mutations via internal token)."""
 
 from datetime import datetime, timezone
 from typing import Literal
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.database import get_db
-from app.models import App, AppGroup, RBACGroup
+from app.models import App
 from app.security import require_internal_token
 from app.web.user_context import require_user_enriched
 
@@ -93,18 +93,6 @@ class AppOut(BaseModel):
     tile_icon: str | None
     description: str | None = None
     logo_path: str | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class GroupLinkBody(BaseModel):
-    group_name: str
-    realm_slug: str | None = None
-
-
-class GroupOut(BaseModel):
-    name: str
-    realm_slug: str | None
 
     model_config = {"from_attributes": True}
 
@@ -207,90 +195,5 @@ def delete_app(
         actor="system",
         action="app.delete",
         target=f"app:{slug}",
-        ip_address=_client_ip(request),
-    )
-
-
-@router.get("/{slug}/groups", response_model=list[GroupOut])
-def list_app_groups(
-    slug: str,
-    db: Session = Depends(get_db),
-):
-    app = _get_app_or_404(db, slug)
-    return [GroupOut.model_validate(link.group) for link in app.groups]
-
-
-@router.post("/{slug}/groups", response_model=GroupOut, status_code=201)
-def add_app_group(
-    slug: str,
-    body: GroupLinkBody,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    app = _get_app_or_404(db, slug)
-
-    group = db.query(RBACGroup).filter_by(name=body.group_name).first()
-    if not group:
-        group = RBACGroup(name=body.group_name, realm_slug=body.realm_slug)
-        db.add(group)
-        db.flush()
-
-    existing = (
-        db.query(AppGroup)
-        .filter_by(app_id=app.id, group_id=group.id)
-        .first()
-    )
-    if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Group '{body.group_name}' already linked to app '{slug}'",
-        )
-
-    link = AppGroup(app_id=app.id, group_id=group.id)
-    db.add(link)
-    db.commit()
-    db.refresh(group)
-
-    log_action(
-        db,
-        actor="system",
-        action="app.group.add",
-        target=f"app:{slug}/group:{body.group_name}",
-        ip_address=_client_ip(request),
-    )
-    return GroupOut.model_validate(group)
-
-
-@router.delete("/{slug}/groups/{group_name}", status_code=204)
-def remove_app_group(
-    slug: str,
-    group_name: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    app = _get_app_or_404(db, slug)
-    group = db.query(RBACGroup).filter_by(name=group_name).first()
-    if not group:
-        raise HTTPException(status_code=404, detail=f"Group '{group_name}' not found")
-
-    link = (
-        db.query(AppGroup)
-        .filter_by(app_id=app.id, group_id=group.id)
-        .first()
-    )
-    if not link:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Group '{group_name}' not linked to app '{slug}'",
-        )
-
-    db.delete(link)
-    db.commit()
-
-    log_action(
-        db,
-        actor="system",
-        action="app.group.remove",
-        target=f"app:{slug}/group:{group_name}",
         ip_address=_client_ip(request),
     )

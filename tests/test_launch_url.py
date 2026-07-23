@@ -13,10 +13,11 @@ from app.access_modes import app_launch_url
 from app.admin.throttling import reset_test_rate_limits
 from app.bastion.drivers.base import DriverLoginResult
 from app.bastion.drivers.crushftp import CrushFTPSession
-from app.models import App, AppGroup, RBACGroup
+from app.models import App, RBACGroup
 from app.robotic.impersonate_service import _resolve_target
 from app.sso_settings import Settings
 from app.vault.app_credential_service import set_app_credential
+from app.rbac.grants_service import AccessGrantCreate, create_grant
 
 SECRET = "LaunchUrlSecret-MustNotLeak"
 
@@ -170,7 +171,17 @@ def _seed_crush(db: Session, *, access_mode: str = "legacy_path_proxy", fqdn: st
     db.add(group)
     db.commit()
     db.refresh(group)
-    db.add(AppGroup(app_id=app.id, group_id=group.id))
+    create_grant(
+        db,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        granted_by="test",
+    )
     db.commit()
     return app
 
@@ -232,7 +243,17 @@ def test_impersonate_generic_form_302_to_proxy(client: TestClient, db_session: S
     db_session.add(group)
     db_session.commit()
     db_session.refresh(group)
-    db_session.add(AppGroup(app_id=app.id, group_id=group.id))
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        granted_by="test",
+    )
     db_session.commit()
     set_app_credential(
         db_session,

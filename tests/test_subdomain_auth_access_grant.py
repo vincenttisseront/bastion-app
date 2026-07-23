@@ -7,7 +7,7 @@ from httpx import Response
 from sqlalchemy.orm import Session
 
 from app.breakglass import COOKIE_NAME, create_breakglass_token
-from app.models import App, AuditLog, RealmConfig
+from app.models import AccessGrant, App, AuditLog, RealmConfig
 from app.rbac.grants_service import AccessGrantCreate, create_grant, delete_grant
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings, get_settings
@@ -192,10 +192,13 @@ def test_subdomain_auth_revoked_grant_cuts_access_immediately(client, db_session
 
 
 @respx.mock
-def test_subdomain_auth_breakglass_bypasses_grants(client, db_session):
+def test_breakglass_access_grant_without_grant_returns_200(client, db_session):
+    """Break-glass emergency admin: full app access without any AccessGrant (2026-07-23)."""
     _override_settings(client, _settings())
     _realm(db_session)
     _app(db_session)
+    # Explicit: no AccessGrant rows for this app / user.
+    assert db_session.query(AccessGrant).count() == 0
     respx.get(OIDC_URL).mock(return_value=Response(401))
     token = create_breakglass_token("bg-admin", "test-bg-jwt-secret")
 

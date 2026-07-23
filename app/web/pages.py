@@ -31,7 +31,7 @@ from app.breakglass_store import (
     verify_breakglass_password,
 )
 from app.database import get_db
-from app.models import App, AppGroup, RBACGroup, RealmConfig
+from app.models import App, RBACGroup, RealmConfig
 from app.rbac.grants_service import count_grants_by_application
 from app.robotic.robotic_session_cookies import shared_parent_domain
 from app.sso_settings import Settings, get_settings
@@ -254,19 +254,19 @@ def catalogue_page(
     settings: Settings = Depends(get_settings),
     user=Depends(require_user),
 ):
-    apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    from app.rbac.effective_access_service import get_effective_apps_for_user
+
     if is_portal_admin(user, db, settings):
         user.is_admin = True
-    if not user.is_admin and user.groups:
-        allowed_ids = {
-            link.app_id
-            for link in db.query(AppGroup)
-            .join(RBACGroup)
-            .filter(RBACGroup.name.in_(user.groups))
-            .all()
-        }
-        if allowed_ids:
-            apps = [a for a in apps if a.id in allowed_ids]
+        apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    else:
+        # Single source of truth: AccessGrant (legacy group↔app links backfilled as launch).
+        entries = get_effective_apps_for_user(
+            db,
+            keycloak_user_id=user.keycloak_user_id,
+            group_names=user.groups,
+        )
+        apps = [e.app for e in entries]
     grant_counts = count_grants_by_application(db) if user.is_admin else {}
     return render(
         "catalogue/index.html",
@@ -1057,7 +1057,6 @@ def admin_rbac(
     realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
     groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
     apps = db.query(App).order_by(App.label).all()
-    links = db.query(AppGroup).all()
     realms_by_id = {r.id: r for r in realms}
     return render(
         "admin/rbac.html",
@@ -1068,7 +1067,6 @@ def admin_rbac(
             realms_by_id=realms_by_id,
             groups=groups,
             apps=apps,
-            links=links,
             active_tab="groups",
         ),
     )

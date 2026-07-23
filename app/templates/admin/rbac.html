@@ -93,42 +93,6 @@
         </table>
       </div>
     </div>
-
-    <div class="card" style="padding:0;">
-      <div class="card-header" style="padding:var(--sp-4);">
-        <span class="card-title">Associations App ↔ Groupe (legacy)</span>
-        <span class="badge badge-muted">{{ links | length }}</span>
-      </div>
-      <p class="form-hint" style="padding:0 var(--sp-4) var(--sp-3);">
-        Les nouveaux droits administratifs utilisent <a href="/admin/rbac/users">AccessGrant</a>.
-        <code>AppGroup</code> reste <strong>encore utilisé au runtime</strong> pour filtrer le catalogue et le contrôle d'accès subdomain — ne pas supprimer sans migration (voir <code>docs/rbac-enforcement-audit.md</code>).
-      </p>
-      <div class="table-wrap" style="border:none;border-radius:0;">
-        <table class="data-table">
-          <thead><tr><th>Application</th><th>Groupe ID</th></tr></thead>
-          <tbody>
-            {% for link in links %}
-            <tr>
-              <td class="mono">{{ link.app_id }}</td>
-              <td class="mono">{{ link.group_id }}</td>
-            </tr>
-            {% else %}
-            <tr>
-              <td colspan="2">
-                <div class="empty-state" style="padding:var(--sp-6);">
-                  <div class="empty-icon">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/></svg>
-                  </div>
-                  <div class="empty-title">Aucune association</div>
-                  <div class="empty-desc">Liez des applications à des groupes pour restreindre l'accès catalogue.</div>
-                </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
   </div>
 </div>
 {% endblock %}

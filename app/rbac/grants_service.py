@@ -313,6 +313,34 @@ def create_grant(db: Session, data: AccessGrantCreate, granted_by: str) -> Acces
     return grant
 
 
+def is_portal_admin_system_grant(grant: AccessGrant) -> bool:
+    """True for AccessGrant rows that confer system_role=portal_admin."""
+    return (
+        (grant.resource_type or "") == "system_role"
+        and (grant.system_role or "") == "portal_admin"
+    )
+
+
+def is_self_portal_admin_grant(
+    grant: AccessGrant,
+    *,
+    actor_keycloak_user_id: str | None,
+) -> bool:
+    """
+    True when ``grant`` is the actor's own user-scoped portal_admin grant.
+
+    Group-scoped portal_admin grants are not treated as self-owned (an admin may
+    still manage group membership / revoke a group role that happens to include them).
+    """
+    if not is_portal_admin_system_grant(grant):
+        return False
+    if (grant.subject_type or "") != "user":
+        return False
+    actor = (actor_keycloak_user_id or "").strip()
+    subject = (grant.keycloak_user_id or "").strip()
+    return bool(actor) and actor == subject
+
+
 def delete_grant(db: Session, grant_id: int) -> AccessGrant | None:
     grant = db.query(AccessGrant).filter_by(id=grant_id).first()
     if grant:

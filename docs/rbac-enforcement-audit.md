@@ -71,8 +71,10 @@
 | `app/services.py` | API interne CRUD `/{slug}/groups` (lien App ↔ Groupe) |
 | Encart UI admin RBAC | Affichage legacy uniquement |
 
-**Verdict :** `AppGroup` n'est **pas** un reliquat inerte. Suppression = risque de régression catalogue/subdomain.  
-**Plan :** conserver jusqu'à migration explicite vers `AccessGrant` (hors scope de la vue croisée Application).
+**Verdict (historique 2026-07-15) :** `AppGroup` n'était **pas** un reliquat inerte.  
+**Réaudit + fusion 2026-07-23 :** bascule directe livrée — voir `docs/audit-rbac-renforcement.md` §2.2
+(`AccessGrant` unique ; modèle/table `AppGroup` supprimés).  
+Note : `/internal/subdomain-auth` utilisait déjà `AccessGrant` launch+ (correctif sessions).
 
 ---
 

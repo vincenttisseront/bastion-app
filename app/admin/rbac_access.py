@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.bastion.bastion_fields import vault_enabled_for_app
 from app.database import get_db
-from app.models import App, RBACGroup, RealmConfig
+from app.models import AccessGrant, App, RBACGroup, RealmConfig
 from app.rbac.grants_service import (
     ACCESS_LEVELS,
     SYSTEM_ROLES,
@@ -22,6 +22,8 @@ from app.rbac.grants_service import (
     compute_effective_grants,
     create_grant,
     delete_grant,
+    is_portal_admin_system_grant,
+    is_self_portal_admin_grant,
     list_grants,
     list_users_with_direct_grants,
     serialize_grant,
@@ -44,10 +46,56 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-rbac-access"], dependencies=[Depends(require_admin)])
 
+_SELF_REVOKE_PORTAL_ADMIN_MSG = "Vous ne pouvez pas retirer votre propre rôle admin"
+
 
 def _wants_json(request: Request) -> bool:
     accept = request.headers.get("accept", "")
     return "application/json" in accept or request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+
+def _log_grant_mutation(
+    db: Session,
+    *,
+    actor: str,
+    grant,
+    request: Request,
+    created: bool,
+) -> None:
+    """Generic grant audit + dedicated portal_admin actions when applicable."""
+    generic = "rbac.grant.created" if created else "rbac.grant.deleted"
+    details = {
+        "subject_type": grant.subject_type,
+        "rbac_group_id": grant.rbac_group_id,
+        "keycloak_user_id": grant.keycloak_user_id,
+        "resource_type": grant.resource_type,
+        "application_id": grant.application_id,
+        "system_role": grant.system_role,
+    }
+    if created:
+        details["access_level"] = grant.access_level
+    log_action(
+        db,
+        actor=actor,
+        action=generic,
+        target=f"grant:{grant.id}",
+        details=details,
+        ip_address=_client_ip(request),
+    )
+    if is_portal_admin_system_grant(grant):
+        log_action(
+            db,
+            actor=actor,
+            action="portal_admin_grant_created" if created else "portal_admin_grant_revoked",
+            target=f"grant:{grant.id}",
+            details={
+                "subject_type": grant.subject_type,
+                "rbac_group_id": grant.rbac_group_id,
+                "keycloak_user_id": grant.keycloak_user_id,
+                "system_role": grant.system_role,
+            },
+            ip_address=_client_ip(request),
+        )
 
 
 def _client_ip(request: Request) -> str:
@@ -472,22 +520,12 @@ async def admin_rbac_grants_create(
     grant = create_grant(db, data, user.email)
     db.commit()
 
-    target = f"grant:{grant.id}"
-    log_action(
+    _log_grant_mutation(
         db,
         actor=user.email,
-        action="rbac.grant.created",
-        target=target,
-        details={
-            "subject_type": grant.subject_type,
-            "rbac_group_id": grant.rbac_group_id,
-            "keycloak_user_id": grant.keycloak_user_id,
-            "resource_type": grant.resource_type,
-            "application_id": grant.application_id,
-            "system_role": grant.system_role,
-            "access_level": grant.access_level,
-        },
-        ip_address=_client_ip(request),
+        grant=grant,
+        request=request,
+        created=True,
     )
 
     if _wants_json(request):
@@ -508,24 +546,37 @@ def admin_rbac_grants_delete(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    existing = db.query(AccessGrant).filter_by(id=grant_id).first()
+    if not existing:
+        raise HTTPException(status_code=404, detail="Grant introuvable")
+
+    if is_self_portal_admin_grant(
+        existing, actor_keycloak_user_id=user.keycloak_user_id
+    ):
+        if _wants_json(request) or request.method == "DELETE":
+            return JSONResponse(
+                {"ok": False, "detail": _SELF_REVOKE_PORTAL_ADMIN_MSG},
+                status_code=400,
+            )
+        response = RedirectResponse(url=redirect_url or "/admin/rbac/users", status_code=302)
+        flash_redirect(
+            response,
+            _SELF_REVOKE_PORTAL_ADMIN_MSG,
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
+
     grant = delete_grant(db, grant_id)
     if not grant:
         raise HTTPException(status_code=404, detail="Grant introuvable")
 
-    log_action(
+    _log_grant_mutation(
         db,
         actor=user.email,
-        action="rbac.grant.deleted",
-        target=f"grant:{grant_id}",
-        details={
-            "subject_type": grant.subject_type,
-            "rbac_group_id": grant.rbac_group_id,
-            "keycloak_user_id": grant.keycloak_user_id,
-            "resource_type": grant.resource_type,
-            "application_id": grant.application_id,
-            "system_role": grant.system_role,
-        },
-        ip_address=_client_ip(request),
+        grant=grant,
+        request=request,
+        created=False,
     )
     db.commit()
 

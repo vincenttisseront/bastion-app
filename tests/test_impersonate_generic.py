@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.admin.throttling import reset_test_rate_limits
 from app.bastion.drivers.base import DriverLoginResult, DriverLoginError
 from app.bastion.drivers.generic import DriverAuthRejectedError, DriverUpstreamError
-from app.models import App, AppGroup, AuditLog, RBACGroup
+from app.models import App, AuditLog, RBACGroup
 from app.robotic.impersonate_service import (
     ImpersonationError,
     ImpersonationTechnicalError,
@@ -22,6 +22,7 @@ from app.robotic.impersonate_service import (
 )
 from app.sso_settings import Settings
 from app.vault.app_credential_service import set_app_credential
+from app.rbac.grants_service import AccessGrantCreate, create_grant
 
 SECRET_PASSWORD = "ImpersonateGenericSecret-MustNotLeak"
 
@@ -103,7 +104,17 @@ def _seed_rbac(db: Session, app: App) -> None:
     db.add(group)
     db.commit()
     db.refresh(group)
-    db.add(AppGroup(app_id=app.id, group_id=group.id))
+    create_grant(
+        db,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        granted_by="test",
+    )
     db.commit()
 
 
@@ -305,7 +316,17 @@ def test_wsse_header_rbac_denied(client: TestClient, db_session: Session):
     db_session.add(group)
     db_session.commit()
     db_session.refresh(group)
-    db_session.add(AppGroup(app_id=app.id, group_id=group.id))
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        granted_by="test",
+    )
     db_session.commit()
 
     resp = client.get("/internal/wsse-header/ovh-api", headers=USER_HEADERS)

@@ -35,11 +35,8 @@ from app.robotic.robotic_session_cookies import (
     build_response_cookies,
 )
 from app.sso_settings import Settings, get_settings
-from app.subdomain.subdomain_service import (
-    get_app_allowed_groups,
-    get_app_by_slug,
-    user_has_access,
-)
+from app.subdomain.subdomain_service import get_app_by_slug
+from app.rbac.effective_access_service import user_can_launch_application
 from app.testing_framework.throttle import throttle_retry_after_key
 from app.web.flash import flash_redirect
 from app.web.sessions_service import app_cookie_diagnostics, touch_app_session
@@ -119,16 +116,22 @@ def _check_app_rbac(
     slug: str,
     user: UserContext,
 ) -> JSONResponse | None:
+    """Authorize robotic open / header endpoints via AccessGrant launch+."""
     app = get_app_by_slug(db, slug)
     if app is None:
         return JSONResponse({"detail": f"App '{slug}' not found"}, status_code=404)
-    if not user.is_admin:
-        app_groups = get_app_allowed_groups(db, app.id)
-        if not user_has_access(user.groups, app_groups):
-            return JSONResponse(
-                {"detail": "Access denied to this application"},
-                status_code=403,
-            )
+    if user.is_admin:
+        return None
+    if not user_can_launch_application(
+        db,
+        application_id=app.id,
+        keycloak_user_id=user.keycloak_user_id,
+        group_names=user.groups,
+    ):
+        return JSONResponse(
+            {"detail": "Access denied to this application"},
+            status_code=403,
+        )
     return None
 
 

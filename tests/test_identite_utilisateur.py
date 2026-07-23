@@ -17,7 +17,7 @@ from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPSession
 from app.bastion.drivers.generic import DriverAuthRejectedError, DriverUpstreamError
 from app.bastion.bastion_fields import resolve_identity_login_username
-from app.models import App, AppGroup, AuditLog, RBACGroup
+from app.models import App, AuditLog, RBACGroup
 from app.rbac.grants_service import AccessGrantCreate, create_grant
 from app.robotic.impersonate_service import (
     ImpersonationIdentityAuthError,
@@ -83,7 +83,17 @@ def _seed_app(db: Session, *, with_group: bool = True, **app_kwargs) -> App:
         db.add(group)
         db.commit()
         db.refresh(group)
-        db.add(AppGroup(app_id=app.id, group_id=group.id))
+        create_grant(
+            db,
+            AccessGrantCreate(
+                subject_type="group",
+                rbac_group_id=group.id,
+                resource_type="application",
+                application_id=app.id,
+                access_level="launch",
+            ),
+            granted_by="test",
+        )
         db.commit()
     return app
 

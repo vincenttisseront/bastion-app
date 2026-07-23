@@ -59,7 +59,6 @@ class App(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-    groups = relationship("AppGroup", back_populates="app", cascade="all, delete-orphan")
     credentials = relationship(
         "AppCredential",
         back_populates="app",
@@ -94,7 +93,6 @@ class RBACGroup(Base):
         ),
     )
 
-    app_links = relationship("AppGroup", back_populates="group")
     access_grants = relationship(
         "AccessGrant",
         back_populates="rbac_group",
@@ -140,19 +138,6 @@ class AccessGrant(Base):
             name="ck_access_grant_resource_exclusive",
         ),
     )
-
-
-class AppGroup(Base):
-    """Association App <-> RBACGroup (authorized access)."""
-
-    __tablename__ = "app_groups"
-
-    id = Column(Integer, primary_key=True)
-    app_id = Column(Integer, ForeignKey("apps.id"), nullable=False)
-    group_id = Column(Integer, ForeignKey("rbac_groups.id"), nullable=False)
-
-    app = relationship("App", back_populates="groups")
-    group = relationship("RBACGroup", back_populates="app_links")
 
 
 class AppCredential(Base):
