@@ -176,7 +176,9 @@ def get_user_context(
 
     if not email and not username:
         bg_cookie = request.cookies.get(COOKIE_NAME)
-        if bg_cookie and validate_breakglass_cookie(bg_cookie, settings.vault_portal_internal_token):
+        if bg_cookie and validate_breakglass_cookie(
+            bg_cookie, settings.vault_portal_internal_token, db=db
+        ):
             payload = decode_breakglass_token(bg_cookie, settings.vault_portal_internal_token)
             if not payload:
                 return None

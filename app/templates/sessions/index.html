@@ -102,6 +102,9 @@
                   </span>
                 </dd>
               </div>
+              {% if s.protocol == 'BREAKGLASS' and s.jti %}
+              <div><dt>jti</dt><dd class="mono" title="Identifiant JWT break-glass">{{ s.jti[:8] }}…</dd></div>
+              {% endif %}
             </dl>
           </div>
           {% if is_admin %}

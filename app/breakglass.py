@@ -1,18 +1,20 @@
-"""Break-glass login, JWT cookie, and admin routes."""
+"""Break-glass login, JWT cookie, session jti denylist, and admin routes."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.breakglass_store import verify_breakglass_password
 from app.database import get_db
+from app.models import BreakGlassSession, utcnow
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 
@@ -23,6 +25,8 @@ COOKIE_MAX_AGE = 8 * 3600
 IDLE_TIMEOUT_SECONDS = 30 * 60
 # Re-issue cookie at most this often when sliding idle (avoid Set-Cookie spam).
 _IDLE_TOUCH_MIN_SECONDS = 60
+# Keep revoked/expired session rows for audit before purge (documented, not arbitrary).
+BREAKGLASS_SESSION_RETENTION_DAYS = 7
 
 router = APIRouter(prefix="/api/admin/breakglass", tags=["breakglass"])
 
@@ -32,7 +36,25 @@ class BreakglassLoginBody(BaseModel):
     password: str
 
 
-def create_breakglass_token(username: str, secret: str) -> str:
+class BreakglassRevokeBody(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
+def _aware_exp(exp: Any) -> datetime | None:
+    if isinstance(exp, datetime):
+        return exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)
+    if isinstance(exp, (int, float)):
+        return datetime.fromtimestamp(exp, tz=timezone.utc)
+    return None
+
+
+def create_breakglass_token(
+    username: str,
+    secret: str,
+    *,
+    jti: str | None = None,
+) -> str:
+    """Build a break-glass JWT. Always includes a unique ``jti`` claim."""
     now = datetime.now(timezone.utc)
     payload = {
         "sub": username,
@@ -40,8 +62,115 @@ def create_breakglass_token(username: str, secret: str) -> str:
         "exp": now + timedelta(seconds=COOKIE_MAX_AGE),
         "last": int(now.timestamp()),
         "type": "bg",
+        "jti": jti or str(uuid4()),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def register_breakglass_session(
+    db: Session,
+    *,
+    jti: str,
+    username: str,
+    expires_at: datetime,
+    issued_at: datetime | None = None,
+) -> BreakGlassSession:
+    """Persist a newly issued break-glass session (metadata only — no credentials)."""
+    row = BreakGlassSession(
+        jti=jti,
+        username=username,
+        issued_at=issued_at or utcnow(),
+        expires_at=expires_at,
+        revoked=False,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def issue_breakglass_token(db: Session, username: str, secret: str) -> tuple[str, str]:
+    """Create JWT + BreakGlassSession row. Returns ``(token, jti)``."""
+    jti = str(uuid4())
+    token = create_breakglass_token(username, secret, jti=jti)
+    payload = jwt.decode(token, secret, algorithms=["HS256"])
+    expires_at = _aware_exp(payload.get("exp"))
+    if expires_at is None:
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=COOKIE_MAX_AGE)
+    issued = payload.get("iat")
+    issued_at = _aware_exp(issued) or datetime.now(timezone.utc)
+    register_breakglass_session(
+        db,
+        jti=jti,
+        username=username,
+        expires_at=expires_at,
+        issued_at=issued_at,
+    )
+    return token, jti
+
+
+def is_breakglass_jti_revoked(db: Session, jti: str) -> bool:
+    """True only if this jti was explicitly revoked (denylist lookup)."""
+    if not jti:
+        return True
+    row = db.query(BreakGlassSession).filter_by(jti=jti, revoked=True).first()
+    return row is not None
+
+
+def revoke_breakglass_jti(
+    db: Session,
+    jti: str,
+    *,
+    revoked_by: str,
+    reason: str | None = None,
+) -> BreakGlassSession:
+    """Mark a break-glass session revoked. Raises LookupError if missing."""
+    row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+    if row is None:
+        raise LookupError("breakglass session not found")
+    if row.revoked:
+        return row
+    row.revoked = True
+    row.revoked_at = utcnow()
+    row.revoked_by = revoked_by
+    row.revoked_reason = (reason or "").strip() or None
+    db.flush()
+    return row
+
+
+def list_breakglass_sessions(
+    db: Session,
+    *,
+    include_expired: bool = True,
+    limit: int = 100,
+) -> list[BreakGlassSession]:
+    """Active (+ optional recent history) break-glass sessions, newest first."""
+    now = utcnow()
+    q = db.query(BreakGlassSession).order_by(BreakGlassSession.issued_at.desc())
+    if not include_expired:
+        q = q.filter(
+            BreakGlassSession.expires_at > now,
+            BreakGlassSession.revoked.is_(False),
+        )
+    return q.limit(max(1, min(limit, 500))).all()
+
+
+def purge_expired_breakglass_sessions(
+    db: Session,
+    *,
+    retention_days: int = BREAKGLASS_SESSION_RETENTION_DAYS,
+) -> int:
+    """Delete rows whose expires_at is older than retention_days (audit window)."""
+    cutoff = utcnow() - timedelta(days=max(0, retention_days))
+    rows = (
+        db.query(BreakGlassSession)
+        .filter(BreakGlassSession.expires_at < cutoff)
+        .all()
+    )
+    for row in rows:
+        db.delete(row)
+    if rows:
+        db.commit()
+    return len(rows)
 
 
 def decode_breakglass_token(cookie_value: str, secret: str) -> dict[str, Any] | None:
@@ -72,36 +201,53 @@ def decode_breakglass_token(cookie_value: str, secret: str) -> dict[str, Any] | 
     return payload
 
 
-def validate_breakglass_cookie(cookie_value: str, secret: str) -> bool:
-    """Validate the break-glass JWT (absolute exp + idle). Returns True if usable."""
-    return decode_breakglass_token(cookie_value, secret) is not None
+def validate_breakglass_cookie(
+    cookie_value: str,
+    secret: str,
+    db: Session | None = None,
+) -> bool:
+    """
+    Validate break-glass JWT (absolute exp + idle + jti denylist).
+
+    Tokens without ``jti`` (pre-revocation deploy) are rejected cleanly.
+    When ``db`` is provided, revoked/unknown jti are rejected. Callers that
+    enforce auth (oauth2-auth, user_context) must pass ``db``.
+    """
+    payload = decode_breakglass_token(cookie_value, secret)
+    if payload is None:
+        return False
+    jti = payload.get("jti")
+    if not jti or not isinstance(jti, str):
+        return False
+    if db is not None and is_breakglass_jti_revoked(db, jti):
+        return False
+    return True
 
 
 def maybe_refresh_breakglass_cookie(
     cookie_value: str,
     secret: str,
+    db: Session | None = None,
 ) -> str | None:
     """
     If the token is valid and idle window should slide, return a new JWT.
-    Absolute ``exp`` is preserved from the original token (hard wall from login).
+    Absolute ``exp`` and ``jti`` are preserved from the original token.
     """
+    if not validate_breakglass_cookie(cookie_value, secret, db=db):
+        return None
     payload = decode_breakglass_token(cookie_value, secret)
     if payload is None:
+        return None
+    jti = payload.get("jti")
+    if not jti:
         return None
     now = datetime.now(timezone.utc)
     now_ts = int(now.timestamp())
     last = int(payload.get("last") or now_ts)
     if now_ts - last < _IDLE_TOUCH_MIN_SECONDS:
         return None
-    exp = payload.get("exp")
-    if isinstance(exp, datetime):
-        exp_dt = exp if exp.tzinfo else exp.replace(tzinfo=timezone.utc)
-    elif isinstance(exp, (int, float)):
-        exp_dt = datetime.fromtimestamp(exp, tz=timezone.utc)
-    else:
-        return None
-    # Do not extend past absolute expiry
-    if now >= exp_dt:
+    exp_dt = _aware_exp(payload.get("exp"))
+    if exp_dt is None or now >= exp_dt:
         return None
     refreshed = {
         "sub": payload.get("sub"),
@@ -109,6 +255,7 @@ def maybe_refresh_breakglass_cookie(
         "exp": exp_dt,
         "last": now_ts,
         "type": "bg",
+        "jti": jti,
     }
     return jwt.encode(refreshed, secret, algorithm="HS256")
 
@@ -135,6 +282,25 @@ def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
 
 
+def _serialize_session(row: BreakGlassSession) -> dict[str, Any]:
+    now = utcnow()
+    exp = row.expires_at
+    if exp is not None and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    active = (not row.revoked) and (exp is None or exp > now)
+    return {
+        "jti": row.jti,
+        "username": row.username,
+        "issued_at": row.issued_at.isoformat() if row.issued_at else None,
+        "expires_at": row.expires_at.isoformat() if row.expires_at else None,
+        "revoked": bool(row.revoked),
+        "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
+        "revoked_by": row.revoked_by,
+        "revoked_reason": row.revoked_reason,
+        "active": active,
+    }
+
+
 @router.post("/login")
 async def breakglass_login(
     body: BreakglassLoginBody,
@@ -155,12 +321,16 @@ async def breakglass_login(
         )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_breakglass_token(body.username, settings.vault_portal_internal_token)
+    token, jti = issue_breakglass_token(
+        db, body.username, settings.vault_portal_internal_token
+    )
+    db.commit()
     set_breakglass_cookie(response, token, settings)
     log_action(
         db,
         actor=body.username,
         action="breakglass.login",
+        details={"jti": jti},
         ip_address=_client_ip(request),
     )
     return {"status": "ok", "username": body.username}
@@ -179,6 +349,18 @@ async def breakglass_logout(
         payload = decode_breakglass_token(bg_cookie, settings.vault_portal_internal_token)
         if payload:
             username = payload.get("sub", "unknown")
+            jti = payload.get("jti")
+            if jti:
+                try:
+                    revoke_breakglass_jti(
+                        db,
+                        str(jti),
+                        revoked_by=str(username),
+                        reason="logout",
+                    )
+                    db.commit()
+                except LookupError:
+                    pass
         else:
             try:
                 # Logout even if idle-expired: read sub without idle check
@@ -189,6 +371,18 @@ async def breakglass_logout(
                     options={"verify_exp": False},
                 )
                 username = raw.get("sub", "unknown")
+                jti = raw.get("jti")
+                if jti:
+                    try:
+                        revoke_breakglass_jti(
+                            db,
+                            str(jti),
+                            revoked_by=str(username),
+                            reason="logout",
+                        )
+                        db.commit()
+                    except LookupError:
+                        pass
             except jwt.PyJWTError:
                 pass
 
@@ -200,3 +394,67 @@ async def breakglass_logout(
         ip_address=_client_ip(request),
     )
     return {"status": "ok"}
+
+
+@router.get("/sessions")
+def breakglass_sessions_list(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    active_only: bool = False,
+    limit: int = 100,
+):
+    """List break-glass sessions (active + recent history) for admin revocation UI."""
+    from app.web.user_context import get_user_context, is_portal_admin
+
+    admin = get_user_context(request, settings, db=db)
+    if admin is None or not is_portal_admin(admin, db, settings):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    rows = list_breakglass_sessions(
+        db, include_expired=not active_only, limit=limit
+    )
+    return {
+        "sessions": [_serialize_session(r) for r in rows],
+        "retention_days": BREAKGLASS_SESSION_RETENTION_DAYS,
+    }
+
+
+@router.post("/sessions/{jti}/revoke")
+def breakglass_session_revoke(
+    jti: str,
+    request: Request,
+    body: BreakglassRevokeBody | None = None,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Revoke one break-glass JWT by jti — effective on the next authenticated request."""
+    from app.web.user_context import get_user_context, is_portal_admin
+
+    admin = get_user_context(request, settings, db=db)
+    if admin is None or not is_portal_admin(admin, db, settings):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    reason = (body.reason if body else None) or "manual"
+    try:
+        row = revoke_breakglass_jti(
+            db,
+            jti,
+            revoked_by=admin.email or admin.username,
+            reason=reason,
+        )
+        db.commit()
+    except LookupError:
+        raise HTTPException(status_code=404, detail="Break-glass session not found") from None
+
+    log_action(
+        db,
+        actor=admin.email or admin.username,
+        action="breakglass_session_revoked",
+        target=row.username,
+        details={
+            "jti": row.jti,
+            "username": row.username,
+            "reason": row.revoked_reason,
+        },
+        ip_address=_client_ip(request),
+    )
+    return {"status": "ok", "jti": row.jti, "username": row.username, "revoked": True}

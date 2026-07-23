@@ -345,6 +345,16 @@ def expire_stale_sessions(db: Session) -> int:
         db.delete(row)
     if to_delete:
         db.commit()
+    try:
+        from app.breakglass import purge_expired_breakglass_sessions
+
+        purge_expired_breakglass_sessions(db)
+    except Exception:
+        logger.exception("breakglass session purge failed")
+        try:
+            db.rollback()
+        except Exception:
+            pass
     return len(to_delete)
 
 
@@ -359,6 +369,10 @@ def touch_portal_session(
     """Upsert a portal (SSO / break-glass) user session. Never raises to callers."""
     try:
         merged = _merge_details(details, portal_cookie_diagnostics(request) if request else None)
+        if user.is_breakglass and request is not None:
+            jti = _breakglass_jti_from_request(request)
+            if jti:
+                merged = _merge_details(merged, {"jti": jti, "auth_source": "breakglass"})
         return _touch_portal_session(db, user, source_ip, details=merged)
     except Exception:
         logger.exception("touch_portal_session failed — page continues without registry")
@@ -367,6 +381,18 @@ def touch_portal_session(
         except Exception:
             pass
         return None
+
+
+def _breakglass_jti_from_request(request: Request) -> str | None:
+    from app.breakglass import COOKIE_NAME, decode_breakglass_token
+    from app.sso_settings import get_settings
+
+    raw = request.cookies.get(COOKIE_NAME)
+    if not raw:
+        return None
+    payload = decode_breakglass_token(raw, get_settings().vault_portal_internal_token)
+    jti = (payload or {}).get("jti")
+    return str(jti) if jti else None
 
 
 def _touch_portal_session(
@@ -551,6 +577,7 @@ def _row_to_dict(row: ActiveSession) -> dict[str, Any]:
         "realm": row.realm,
         "protocol": row.protocol,
         "target": row.target,
+        "jti": (details or {}).get("jti") if (row.protocol or "").upper() == _PROTOCOL_BREAKGLASS else None,
         "resource_title": resource_title,
         "resource_subtitle": resource_subtitle,
         "source_ip": raw_ip or "—",
@@ -720,6 +747,28 @@ def revoke_active_session(
         "kind": kind,
         "reason": reason,
     }
+    # Break-glass portal rows: also denylist the JWT jti so the cookie dies immediately.
+    details = session.details if isinstance(session.details, dict) else {}
+    jti = details.get("jti")
+    if (
+        jti
+        and (session.protocol or "").upper() == _PROTOCOL_BREAKGLASS
+        and delete
+    ):
+        try:
+            from app.breakglass import revoke_breakglass_jti
+
+            revoke_breakglass_jti(
+                db,
+                str(jti),
+                revoked_by=actor or "system",
+                reason=reason,
+            )
+            audit_details["jti"] = jti
+            audit_details["breakglass_revoked"] = True
+        except LookupError:
+            audit_details["jti"] = jti
+            audit_details["breakglass_revoked"] = False
     if delete:
         # Drop stored robotic cookies with the row
         db.delete(session)

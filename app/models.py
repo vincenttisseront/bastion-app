@@ -258,6 +258,28 @@ class BreakGlassAccount(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
+class BreakGlassSession(Base):
+    """Break-glass JWT session registry (jti denylist for targeted revocation).
+
+    The JWT remains the source of truth for identity/expiry. This table stores
+    issued sessions so an admin can revoke one ``jti`` without rotating the
+    shared HS256 secret. Rows past ``expires_at`` may be purged after a short
+    retention window (see ``purge_expired_breakglass_sessions``).
+    """
+
+    __tablename__ = "breakglass_sessions"
+
+    id = Column(Integer, primary_key=True)
+    jti = Column(String, unique=True, nullable=False, index=True)
+    username = Column(String, nullable=False, index=True)
+    issued_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked = Column(Boolean, nullable=False, default=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by = Column(String, nullable=True)
+    revoked_reason = Column(String, nullable=True)
+
+
 class AuditLog(Base):
     """Admin action audit journal."""
 

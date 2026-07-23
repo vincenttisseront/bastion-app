@@ -239,7 +239,13 @@
       escapeHtml(cookieTitle) +
       '">' +
       escapeHtml(s.cookies_label || '—') +
-      '</span></dd></div></dl></div>' +
+      '</span></dd></div>' +
+      (String(s.protocol || '').toUpperCase() === 'BREAKGLASS' && s.jti
+        ? '<div><dt>jti</dt><dd class="mono" title="Identifiant JWT break-glass">' +
+          escapeHtml(String(s.jti).slice(0, 8)) +
+          '…</dd></div>'
+        : '') +
+      '</dl></div>' +
       footer +
       '</article>'
     );

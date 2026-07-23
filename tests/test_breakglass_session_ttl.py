@@ -27,6 +27,7 @@ def test_create_token_has_exp_and_last():
     assert "exp" in payload
     assert "last" in payload
     assert "iat" in payload
+    assert "jti" in payload
 
 
 def test_validate_rejects_expired_absolute():
@@ -38,6 +39,7 @@ def test_validate_rejects_expired_absolute():
             "exp": now - timedelta(hours=1),
             "last": int(now.timestamp()),
             "type": "bg",
+            "jti": "expired-jti",
         },
         SECRET,
         algorithm="HS256",
@@ -54,6 +56,7 @@ def test_validate_rejects_idle_timeout():
             "exp": now + timedelta(hours=7),
             "last": int((now - timedelta(seconds=IDLE_TIMEOUT_SECONDS + 5)).timestamp()),
             "type": "bg",
+            "jti": "idle-jti",
         },
         SECRET,
         algorithm="HS256",
@@ -77,6 +80,7 @@ def test_refresh_slides_last_without_extending_exp():
             "exp": original_exp,
             "last": int((now - timedelta(minutes=2)).timestamp()),
             "type": "bg",
+            "jti": "refresh-jti",
         },
         SECRET,
         algorithm="HS256",
@@ -85,6 +89,7 @@ def test_refresh_slides_last_without_extending_exp():
     assert refreshed is not None
     payload = jwt.decode(refreshed, SECRET, algorithms=["HS256"])
     assert payload["sub"] == "admin"
+    assert payload["jti"] == "refresh-jti"
     # Absolute exp preserved (within 2s)
     new_exp = payload["exp"]
     if isinstance(new_exp, datetime):

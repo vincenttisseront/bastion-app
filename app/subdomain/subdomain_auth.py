@@ -208,7 +208,7 @@ async def subdomain_auth(
     # requiring grants would block the only remaining admin access to subdomain apps.
     bg_cookie = request.cookies.get(COOKIE_NAME)
     secret = settings.vault_portal_internal_token
-    if bg_cookie and validate_breakglass_cookie(bg_cookie, secret):
+    if bg_cookie and validate_breakglass_cookie(bg_cookie, secret, db=db):
         payload = decode_breakglass_token(bg_cookie, secret) or {}
         username = str(payload.get("sub") or "breakglass")
         response = Response(
@@ -219,7 +219,7 @@ async def subdomain_auth(
                 "X-Auth-App": app.slug,
             },
         )
-        refreshed = maybe_refresh_breakglass_cookie(bg_cookie, secret)
+        refreshed = maybe_refresh_breakglass_cookie(bg_cookie, secret, db=db)
         if refreshed:
             set_breakglass_cookie(response, refreshed, settings)
         return response
