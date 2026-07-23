@@ -44,7 +44,7 @@ from app.web.flash import flash_redirect
 from app.web.sessions_service import app_cookie_diagnostics, touch_app_session
 from app.web.user_context import UserContext, require_user_enriched
 
-router = APIRouter(tags=["robotic"])
+router = APIRouter(tags=["robotic"], dependencies=[Depends(require_user_enriched)])
 
 _APPS_CATALOGUE = "/apps"
 

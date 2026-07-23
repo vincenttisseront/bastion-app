@@ -39,7 +39,7 @@ from app.web.user_context import require_admin
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["admin-realms"])
+router = APIRouter(tags=["admin-realms"], dependencies=[Depends(require_admin)])
 
 
 def _port_collision_message(new_port: int) -> str:

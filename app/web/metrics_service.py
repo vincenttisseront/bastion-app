@@ -6,9 +6,14 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import App, AuditLog
 from app.web.sessions_service import count_active_sessions
-from app.web.user_context import require_user
+from app.web.user_context import require_admin
 
-router = APIRouter(prefix="/api", tags=["metrics"])
+# Router-level admin guard — metrics are operational/security sensitive.
+router = APIRouter(
+    prefix="/api",
+    tags=["metrics"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 def get_dashboard_metrics(db: Session) -> dict:
@@ -32,8 +37,5 @@ def get_dashboard_metrics(db: Session) -> dict:
 
 
 @router.get("/metrics")
-def get_metrics(
-    db: Session = Depends(get_db),
-    _user=Depends(require_user),
-):
+def get_metrics(db: Session = Depends(get_db)):
     return get_dashboard_metrics(db)

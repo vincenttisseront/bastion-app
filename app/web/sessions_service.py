@@ -1236,7 +1236,11 @@ def revoke_all_app_sessions_for_user(
     return summary
 
 
-router = APIRouter(tags=["sessions"])
+router = APIRouter(tags=["sessions"], dependencies=[Depends(require_user)])
+admin_router = APIRouter(
+    tags=["sessions-admin"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 @router.get("/api/sessions")
@@ -1314,7 +1318,7 @@ async def live_verify_sessions(
     }
 
 
-@router.post("/admin/sessions/{session_id}/revoke")
+@admin_router.post("/admin/sessions/{session_id}/revoke")
 def revoke_session(
     session_id: str,
     request: Request,
@@ -1336,7 +1340,7 @@ def revoke_session(
     return {"status": "ok", "session_id": result["session_id"], "action": result["action"]}
 
 
-@router.post("/admin/sessions/{session_id}/isolate")
+@admin_router.post("/admin/sessions/{session_id}/isolate")
 def isolate_session(
     session_id: str,
     request: Request,
@@ -1358,7 +1362,7 @@ def isolate_session(
     return {"status": "ok", "session_id": result["session_id"]}
 
 
-@router.post("/admin/sessions/{session_id}/rotate-keys")
+@admin_router.post("/admin/sessions/{session_id}/rotate-keys")
 def rotate_keys(
     session_id: str,
     request: Request,

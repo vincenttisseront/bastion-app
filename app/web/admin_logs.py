@@ -18,7 +18,7 @@ from app.web.log_masking import format_details_for_display
 from app.web.templates import render
 from app.web.user_context import require_admin
 
-router = APIRouter(tags=["admin-logs"])
+router = APIRouter(tags=["admin-logs"], dependencies=[Depends(require_admin)])
 
 _PAGE_SIZE = 50
 

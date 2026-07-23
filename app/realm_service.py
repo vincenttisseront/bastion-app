@@ -14,7 +14,11 @@ from app.secret_crypto import encrypt_secret
 from app.security import require_internal_token
 from app.sso_settings import Settings, get_settings
 
-router = APIRouter(prefix="/api/admin/realms", tags=["realms"])
+router = APIRouter(
+    prefix="/api/admin/realms",
+    tags=["realms"],
+    dependencies=[Depends(require_internal_token)],
+)
 
 
 class RealmCreate(BaseModel):
@@ -75,7 +79,6 @@ def _client_ip(request: Request) -> str:
 @router.get("", response_model=list[RealmOut])
 def list_realms(
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     return db.query(RealmConfig).all()
 
@@ -86,7 +89,6 @@ def create_realm(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _token: str = Depends(require_internal_token),
 ):
     existing = db.query(RealmConfig).filter_by(slug=body.slug).first()
     if existing:
@@ -138,7 +140,6 @@ def delete_realm(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _token: str = Depends(require_internal_token),
 ):
     realm = db.query(RealmConfig).filter_by(slug=slug).first()
     if not realm:
@@ -166,7 +167,6 @@ def export_realms(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _token: str = Depends(require_internal_token),
 ):
     path = export_nginx_realms_conf(db, settings)
     log_action(

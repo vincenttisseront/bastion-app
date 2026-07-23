@@ -31,7 +31,11 @@ from app.sso_settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/internal/infrastructure", tags=["infrastructure"])
+router = APIRouter(
+    prefix="/api/internal/infrastructure",
+    tags=["infrastructure"],
+    dependencies=[Depends(require_internal_token)],
+)
 
 MANIFEST_FILENAME = "infrastructure-manifest.json"
 
@@ -198,7 +202,6 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
 def get_infrastructure_manifest(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _token: str = Depends(require_internal_token),
 ):
     return build_infrastructure_manifest(db, settings)
 
@@ -207,7 +210,6 @@ def get_infrastructure_manifest(
 def post_infrastructure_apply(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _token: str = Depends(require_internal_token),
 ):
     manifest = apply_infrastructure(db, settings)
     status = "partial" if manifest.get("partial") else "ok"

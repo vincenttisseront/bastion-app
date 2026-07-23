@@ -18,7 +18,7 @@ from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import throttle_retry_after
 from app.web.user_context import require_admin
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["health"], dependencies=[Depends(require_admin)])
 
 
 def _client_ip(request: Request) -> str:

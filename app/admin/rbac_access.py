@@ -42,7 +42,7 @@ from app.web.user_context import require_admin
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["admin-rbac-access"])
+router = APIRouter(tags=["admin-rbac-access"], dependencies=[Depends(require_admin)])
 
 
 def _wants_json(request: Request) -> bool:

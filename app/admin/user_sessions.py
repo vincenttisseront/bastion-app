@@ -28,7 +28,7 @@ from app.web.user_context import UserContext, require_admin
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["admin-user-sessions"])
+router = APIRouter(tags=["admin-user-sessions"], dependencies=[Depends(require_admin)])
 
 
 def _resolve_realm(

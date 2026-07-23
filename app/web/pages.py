@@ -72,6 +72,16 @@ from app.web.user_context import get_user_context, is_portal_admin, require_admi
 from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["pages"])
+# Authenticated (non-admin) pages — new routes inherit require_user.
+authenticated_router = APIRouter(
+    tags=["pages-user"],
+    dependencies=[Depends(require_user)],
+)
+# Admin pages — new routes inherit require_admin.
+admin_router = APIRouter(
+    tags=["pages-admin"],
+    dependencies=[Depends(require_admin)],
+)
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +201,7 @@ def root():
     return RedirectResponse(url="/apps", status_code=302)
 
 
-@router.get("/dashboard")
+@admin_router.get("/dashboard")
 def dashboard(
     request: Request,
     db: Session = Depends(get_db),
@@ -207,7 +217,7 @@ def dashboard(
     )
 
 
-@router.get("/sessions")
+@authenticated_router.get("/sessions")
 def sessions_page(
     request: Request,
     db: Session = Depends(get_db),
@@ -237,7 +247,7 @@ def sessions_page(
     )
 
 
-@router.get("/catalogue")
+@authenticated_router.get("/catalogue")
 def catalogue_page(
     request: Request,
     db: Session = Depends(get_db),
@@ -490,8 +500,8 @@ def error_500(request: Request, settings: Settings = Depends(get_settings)):
 # --- Admin ---
 
 
-@router.get("/admin")
-@router.get("/admin/dashboard")
+@admin_router.get("/admin")
+@admin_router.get("/admin/dashboard")
 def admin_dashboard(
     request: Request,
     db: Session = Depends(get_db),
@@ -513,22 +523,20 @@ def admin_dashboard(
     )
 
 
-@router.get("/admin/apps")
+@admin_router.get("/admin/apps")
 def admin_apps_list(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
 ):
     apps = db.query(App).order_by(App.slug).all()
     return render("admin/apps/list.html", **_ctx(request, settings, apps=apps))
 
 
-@router.get("/admin/apps/create")
+@admin_router.get("/admin/apps/create")
 def admin_apps_create(
     request: Request,
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
 ):
     return render(
         "admin/apps/create.html",
@@ -549,7 +557,7 @@ def admin_apps_create(
     )
 
 
-@router.post("/admin/apps/create")
+@admin_router.post("/admin/apps/create")
 def admin_apps_create_post(
     request: Request,
     slug: str = Form(...),
@@ -647,13 +655,12 @@ def admin_apps_create_post(
     return response
 
 
-@router.get("/admin/apps/{slug}/edit")
+@admin_router.get("/admin/apps/{slug}/edit")
 def admin_apps_edit(
     slug: str,
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
 ):
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
@@ -671,7 +678,7 @@ def admin_apps_edit(
     )
 
 
-@router.post("/admin/apps/{slug}/edit")
+@admin_router.post("/admin/apps/{slug}/edit")
 def admin_apps_edit_post(
     slug: str,
     request: Request,
@@ -777,11 +784,10 @@ class _VaultCredentialBody(BaseModel):
     password: str = Field(min_length=1)
 
 
-@router.get("/admin/apps/{slug}/credential")
+@admin_router.get("/admin/apps/{slug}/credential")
 def admin_app_credential_read(
     slug: str,
     db: Session = Depends(get_db),
-    _user=Depends(require_admin),
 ):
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
@@ -797,7 +803,7 @@ def admin_app_credential_read(
     }
 
 
-@router.post("/admin/apps/{slug}/credential")
+@admin_router.post("/admin/apps/{slug}/credential")
 def admin_app_credential_save(
     slug: str,
     body: _VaultCredentialBody,
@@ -841,7 +847,7 @@ def admin_app_credential_save(
     }
 
 
-@router.post("/admin/apps/{slug}/credential/test")
+@admin_router.post("/admin/apps/{slug}/credential/test")
 async def admin_app_credential_test(
     slug: str,
     request: Request,
@@ -879,12 +885,11 @@ async def admin_app_credential_test(
     return body
 
 
-@router.get("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+@admin_router.get("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
 def admin_user_app_credential_read(
     slug: str,
     keycloak_user_id: str,
     db: Session = Depends(get_db),
-    _user=Depends(require_admin),
 ):
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
@@ -906,7 +911,7 @@ def admin_user_app_credential_read(
     }
 
 
-@router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+@admin_router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
 def admin_user_app_credential_save(
     slug: str,
     keycloak_user_id: str,
@@ -942,7 +947,7 @@ def admin_user_app_credential_save(
     }
 
 
-@router.delete("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+@admin_router.delete("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
 def admin_user_app_credential_delete(
     slug: str,
     keycloak_user_id: str,
@@ -963,7 +968,7 @@ def admin_user_app_credential_delete(
     return {"ok": True, "deleted": deleted, "has_override": False, "credential_source": "shared"}
 
 
-@router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential/test")
+@admin_router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential/test")
 async def admin_user_app_credential_test(
     slug: str,
     keycloak_user_id: str,
@@ -1006,7 +1011,7 @@ async def admin_user_app_credential_test(
     return body
 
 
-@router.post("/admin/apps/{app_id}/logo")
+@admin_router.post("/admin/apps/{app_id}/logo")
 async def admin_app_logo_upload(
     app_id: int,
     file: UploadFile = File(...),
@@ -1027,7 +1032,7 @@ async def admin_app_logo_upload(
     return {"ok": True, "logo_url": logo_public_url(app)}
 
 
-@router.delete("/admin/apps/{app_id}/logo")
+@admin_router.delete("/admin/apps/{app_id}/logo")
 def admin_app_logo_delete(
     app_id: int,
     db: Session = Depends(get_db),
@@ -1043,12 +1048,11 @@ def admin_app_logo_delete(
     return {"ok": True}
 
 
-@router.get("/admin/rbac")
+@admin_router.get("/admin/rbac")
 def admin_rbac(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
 ):
     realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
     groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
@@ -1070,21 +1074,19 @@ def admin_rbac(
     )
 
 
-@router.get("/admin/resources")
+@admin_router.get("/admin/resources")
 def admin_resources(
     request: Request,
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
 ):
     return render("admin/resources.html", **_ctx(request, settings, resources=[]))
 
 
-@router.get("/admin/security")
+@admin_router.get("/admin/security")
 def admin_security(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
 ):
     from app.breakglass import resolve_breakglass_signing_secret_with_source
     from app.breakglass_secret_service import build_breakglass_secret_status
@@ -1123,7 +1125,7 @@ def admin_security(
     )
 
 
-@router.post("/admin/security/breakglass-jwt-secret/generate")
+@admin_router.post("/admin/security/breakglass-jwt-secret/generate")
 def admin_security_breakglass_jwt_secret_generate(
     request: Request,
     confirm: str | None = Form(None),
@@ -1182,12 +1184,12 @@ def admin_security_breakglass_jwt_secret_generate(
     return response
 
 
-@router.get("/admin/security/vault-key")
+@admin_router.get("/admin/security/vault-key")
 def admin_security_vault_key_redirect():
     return RedirectResponse(url="/admin/security#vault", status_code=302)
 
 
-@router.post("/admin/security/vault-key/rotate")
+@admin_router.post("/admin/security/vault-key/rotate")
 def admin_security_vault_key_rotate(
     request: Request,
     confirm: str | None = Form(None),
@@ -1231,7 +1233,7 @@ def admin_security_vault_key_rotate(
     return response
 
 
-@router.post("/admin/security/vault-key/cadence")
+@admin_router.post("/admin/security/vault-key/cadence")
 def admin_security_vault_key_cadence(
     request: Request,
     rotation_days: int = Form(...),
@@ -1261,12 +1263,11 @@ def admin_security_vault_key_cadence(
     return response
 
 
-@router.post("/admin/security/vault-key/export")
+@admin_router.post("/admin/security/vault-key/export")
 def admin_security_vault_key_export(
     passphrase: str = Form(...),
     passphrase_confirm: str = Form(...),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
 ):
     from fastapi.responses import Response
 
@@ -1308,7 +1309,7 @@ def admin_security_vault_key_export(
     )
 
 
-@router.post("/admin/security/subdomain-sso")
+@admin_router.post("/admin/security/subdomain-sso")
 def admin_security_subdomain_sso(
     request: Request,
     enabled: str | None = Form(None),
@@ -1349,12 +1350,11 @@ def admin_security_subdomain_sso(
     return response
 
 
-@router.get("/admin/health")
+@admin_router.get("/admin/health")
 def admin_health(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
 ):
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     probes = [probe_row_from_app(app) for app in apps]

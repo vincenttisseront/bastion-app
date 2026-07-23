@@ -22,7 +22,7 @@ from app.web.user_context import UserContext, is_portal_admin, require_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["search"])
+router = APIRouter(tags=["search"], dependencies=[Depends(require_user)])
 
 MIN_QUERY_LEN = 2
 RESULT_LIMIT = 8

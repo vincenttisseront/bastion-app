@@ -18,9 +18,10 @@ from app.sso_settings import Settings, get_settings
 from app.web.flash import base_template_context
 from app.web.constants import APP_VERSION
 from app.web.templates import render
-from app.web.user_context import require_user
+from app.web.user_context import require_admin
 
-router = APIRouter(tags=["audit"])
+# Router-level admin guard — new routes on this router inherit require_admin.
+router = APIRouter(tags=["audit"], dependencies=[Depends(require_admin)])
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -48,7 +49,6 @@ def audit_page(
     severity: str | None = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_user),
 ):
     df = _parse_date(date_from)
     dt = _parse_date_end(date_to)

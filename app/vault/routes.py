@@ -27,7 +27,11 @@ from app.vault.credential_connection_test import (
     test_app_credential_connection,
 )
 
-router = APIRouter(prefix="/api/admin/apps", tags=["admin-vault"])
+router = APIRouter(
+    prefix="/api/admin/apps",
+    tags=["admin-vault"],
+    dependencies=[Depends(require_internal_token)],
+)
 
 
 class CredentialSetBody(BaseModel):
@@ -62,7 +66,6 @@ def create_or_replace_credential(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _token: str = Depends(require_internal_token),
 ):
     get_app_by_slug_or_404(db, slug)
     try:
@@ -86,7 +89,6 @@ def create_or_replace_credential(
 def read_credential(
     slug: str,
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     get_app_by_slug_or_404(db, slug)
     cred = get_app_credential(db, slug)
@@ -100,7 +102,6 @@ def delete_credential(
     slug: str,
     request: Request,
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     get_app_by_slug_or_404(db, slug)
     deactivate_app_credential(
@@ -118,7 +119,6 @@ async def test_credential(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _token: str = Depends(require_internal_token),
 ):
     if wait := throttle_retry_after("app_credential", slug, min_interval_seconds=5):
         return JSONResponse(

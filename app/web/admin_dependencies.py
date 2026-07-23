@@ -23,7 +23,7 @@ from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
 
-router = APIRouter(tags=["admin-dependencies"])
+router = APIRouter(tags=["admin-dependencies"], dependencies=[Depends(require_admin)])
 
 _STATUS_LABELS = {
     "up_to_date": "À jour",

@@ -22,8 +22,13 @@ USER_HEADERS = {
 
 
 def test_logs_rbac_forbidden_for_non_admin(client: TestClient):
-    resp = client.get("/admin/logs", headers=USER_HEADERS)
-    assert resp.status_code == 403
+    resp = client.get(
+        "/admin/logs", headers=USER_HEADERS, follow_redirects=False
+    )
+    # require_admin → 403; HTML handler redirects authenticated users to /apps.
+    assert resp.status_code in (302, 403)
+    if resp.status_code == 302:
+        assert "/apps" in (resp.headers.get("location") or "")
 
 
 def test_logs_filter_by_action_and_actor(client: TestClient, db_session: Session):

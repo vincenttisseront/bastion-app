@@ -19,7 +19,7 @@ from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
 from app.web.user_context import UserContext, is_portal_admin, require_user_enriched
 
-router = APIRouter(tags=["portal"])
+router = APIRouter(tags=["portal"], dependencies=[Depends(require_user_enriched)])
 
 # Human-readable access status for end-user surfaces (never expose raw levels).
 _ACCESS_STATUS = {

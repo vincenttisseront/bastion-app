@@ -11,8 +11,20 @@ from app.audit import log_action
 from app.database import get_db
 from app.models import App, AppGroup, RBACGroup
 from app.security import require_internal_token
+from app.web.user_context import require_user_enriched
 
-router = APIRouter(prefix="/api/apps", tags=["apps"])
+# Authenticated catalogue reads (portal alignment). Mutations use ``router`` below.
+authenticated_router = APIRouter(
+    prefix="/api/apps",
+    tags=["apps"],
+    dependencies=[Depends(require_user_enriched)],
+)
+# Machine-to-machine catalogue mutations.
+router = APIRouter(
+    prefix="/api/apps",
+    tags=["apps"],
+    dependencies=[Depends(require_internal_token)],
+)
 
 
 class AppCreate(BaseModel):
@@ -117,13 +129,13 @@ def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
 
 
-@router.get("", response_model=list[AppOut])
+@authenticated_router.get("", response_model=list[AppOut])
 def list_apps(db: Session = Depends(get_db)):
     apps = db.query(App).filter_by(enabled=True).all()
     return [_app_to_out(app) for app in apps]
 
 
-@router.get("/{slug}", response_model=AppOut)
+@authenticated_router.get("/{slug}", response_model=AppOut)
 def get_app(slug: str, db: Session = Depends(get_db)):
     return _app_to_out(_get_app_or_404(db, slug))
 
@@ -133,7 +145,6 @@ def create_app(
     body: AppCreate,
     request: Request,
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     existing = db.query(App).filter_by(slug=body.slug).first()
     if existing:
@@ -160,7 +171,6 @@ def update_app(
     body: AppUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     app = _get_app_or_404(db, slug)
     updates = body.model_dump(exclude_unset=True)
@@ -186,7 +196,6 @@ def delete_app(
     slug: str,
     request: Request,
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     app = _get_app_or_404(db, slug)
     app.enabled = False
@@ -206,7 +215,6 @@ def delete_app(
 def list_app_groups(
     slug: str,
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     app = _get_app_or_404(db, slug)
     return [GroupOut.model_validate(link.group) for link in app.groups]
@@ -218,7 +226,6 @@ def add_app_group(
     body: GroupLinkBody,
     request: Request,
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     app = _get_app_or_404(db, slug)
 
@@ -260,7 +267,6 @@ def remove_app_group(
     group_name: str,
     request: Request,
     db: Session = Depends(get_db),
-    _token: str = Depends(require_internal_token),
 ):
     app = _get_app_or_404(db, slug)
     group = db.query(RBACGroup).filter_by(name=group_name).first()
