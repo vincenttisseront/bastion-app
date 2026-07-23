@@ -38,7 +38,11 @@ GRACE_WINDOW_SECONDS = 5
 # Process-lifetime secret when BREAKGLASS_JWT_SECRET is unset (dev / first boot).
 _EPHEMERAL_JWT_SECRET: str | None = None
 
+# Public: login / logout (cannot require an existing portal session).
 router = APIRouter(prefix="/api/admin/breakglass", tags=["breakglass"])
+# Admin list/revoke — ``require_admin`` attached in ``main`` (avoids circular import
+# with ``user_context`` which imports this module for cookie validation).
+admin_router = APIRouter(prefix="/api/admin/breakglass", tags=["breakglass"])
 
 
 class BreakglassLoginBody(BaseModel):
@@ -435,12 +439,19 @@ def process_breakglass_auth_request(
     request: Request,
     cookie_value: str,
     settings: Settings,
+    *,
+    rotate: bool = True,
 ) -> BreakglassAuthResult:
     """
     Full protected-request pipeline for ``bg_session``.
 
     Order: decode → chain_revoked → revoked → superseded(+grace) → IP/fingerprint
-    → rotate (or resync tip on grace) → OK.
+    → optional rotate (or resync tip on grace) → OK.
+
+    ``rotate=False`` for nginx ``auth_request`` handlers: Set-Cookie on the auth
+    subresponse is not forwarded to the browser, so rotating there would mark the
+    still-held cookie as superseded and cut the chain after the grace window.
+    Rotation must run on the main FastAPI response (middleware) instead.
     """
     from app.security.identity_binding import fingerprint_from_request
     from app.security.session_binding_service import evaluate_breakglass_binding
@@ -478,22 +489,31 @@ def process_breakglass_auth_request(
     if row.superseded_by is not None:
         if _within_grace(row):
             tip = current_chain_tip(db, chain_id) or row
-            log_action(
-                db,
-                actor=username,
-                action="breakglass_cookie_grace_reuse",
-                target=chain_id,
-                details={
-                    "chain_id": chain_id,
-                    "jti_presented": jti,
-                    "jti_current": tip.jti,
-                },
-                ip_address=client_ip or None,
-            )
+            if rotate:
+                log_action(
+                    db,
+                    actor=username,
+                    action="breakglass_cookie_grace_reuse",
+                    target=chain_id,
+                    details={
+                        "chain_id": chain_id,
+                        "jti_presented": jti,
+                        "jti_current": tip.jti,
+                    },
+                    ip_address=client_ip or None,
+                )
             if not evaluate_breakglass_binding(
                 db, request, jti=tip.jti, username=username
             ):
                 return BreakglassAuthResult(ok=False)
+            if not rotate:
+                return BreakglassAuthResult(
+                    ok=True,
+                    payload=payload,
+                    username=username,
+                    jti=tip.jti,
+                    chain_id=chain_id,
+                )
             tip_token = encode_breakglass_claims(
                 payload, secret, jti=tip.jti, touch_last=True
             )
@@ -526,6 +546,15 @@ def process_breakglass_auth_request(
 
     if not evaluate_breakglass_binding(db, request, jti=jti, username=username):
         return BreakglassAuthResult(ok=False)
+
+    if not rotate:
+        return BreakglassAuthResult(
+            ok=True,
+            payload=payload,
+            username=username,
+            jti=jti,
+            chain_id=chain_id,
+        )
 
     # Re-load after possible audit commit inside binding (weak drift).
     row = db.query(BreakGlassSession).filter_by(jti=jti).first()
@@ -951,20 +980,13 @@ async def breakglass_logout(
     return {"status": "ok"}
 
 
-@router.get("/sessions")
+@admin_router.get("/sessions")
 def breakglass_sessions_list(
-    request: Request,
     db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
     active_only: bool = False,
     limit: int = 100,
 ):
     """List break-glass sessions grouped by rotation chain for admin UI."""
-    from app.web.user_context import get_user_context, is_portal_admin
-
-    admin = get_user_context(request, settings, db=db)
-    if admin is None or not is_portal_admin(admin, db, settings):
-        raise HTTPException(status_code=403, detail="Admin access required")
     chains = list_breakglass_chains(
         db, include_expired=not active_only, limit=limit
     )
@@ -990,7 +1012,7 @@ def breakglass_sessions_list(
     }
 
 
-@router.post("/sessions/{jti}/revoke")
+@admin_router.post("/sessions/{jti}/revoke")
 def breakglass_session_revoke(
     jti: str,
     request: Request,
@@ -999,10 +1021,11 @@ def breakglass_session_revoke(
     settings: Settings = Depends(get_settings),
 ):
     """Revoke a break-glass JWT and cut its entire rotation chain."""
-    from app.web.user_context import get_user_context, is_portal_admin
+    # Router is mounted with Depends(require_admin); resolve actor for audit.
+    from app.web.user_context import get_user_context
 
     admin = get_user_context(request, settings, db=db)
-    if admin is None or not is_portal_admin(admin, db, settings):
+    if admin is None:
         raise HTTPException(status_code=403, detail="Admin access required")
     reason = (body.reason if body else None) or "manual"
     try:

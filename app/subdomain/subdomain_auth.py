@@ -19,7 +19,6 @@ from app.auth import get_realm_proxy_url
 from app.breakglass import (
     COOKIE_NAME,
     process_breakglass_auth_request,
-    set_breakglass_cookie,
 )
 from app.database import get_db
 from app.models import App
@@ -213,8 +212,9 @@ async def subdomain_auth(
     # requiring grants would block the only remaining admin access to subdomain apps.
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie:
+        # rotate=False: nginx auth_request does not forward Set-Cookie.
         result = process_breakglass_auth_request(
-            db, request, bg_cookie, settings
+            db, request, bg_cookie, settings, rotate=False
         )
         try:
             db.commit()
@@ -222,7 +222,7 @@ async def subdomain_auth(
             db.rollback()
         if not result.ok:
             return Response(status_code=401)
-        response = Response(
+        return Response(
             status_code=200,
             headers={
                 "X-Auth-Source": "breakglass",
@@ -230,9 +230,6 @@ async def subdomain_auth(
                 "X-Auth-App": app.slug,
             },
         )
-        if result.set_cookie:
-            set_breakglass_cookie(response, result.set_cookie, settings)
-        return response
 
     if oauth2_unreachable:
         return Response(status_code=503)

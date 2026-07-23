@@ -62,10 +62,15 @@ def db_session(db_engine):
 
 
 @pytest.fixture()
-def client(db_engine):
+def client(db_engine, monkeypatch):
     from fastapi import Request
 
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
+    # Middleware opens its own session (request.state.db is already closed).
+    monkeypatch.setattr(
+        "app.breakglass_cookie_middleware.SessionLocal",
+        session_factory,
+    )
 
     def override_get_db(request: Request):
         db = session_factory()
@@ -83,6 +88,12 @@ def client(db_engine):
             portal_secret_encryption_key="test-encryption-key-for-pytest-only",
             database_url="sqlite://",
         )
+
+    # Middleware calls get_settings() directly (not Depends).
+    monkeypatch.setattr(
+        "app.breakglass_cookie_middleware.get_settings",
+        override_get_settings,
+    )
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_settings] = override_get_settings

@@ -12,7 +12,6 @@ from app.auth_flow import get_default_idp_realm
 from app.breakglass import (
     COOKIE_NAME,
     process_breakglass_auth_request,
-    set_breakglass_cookie,
 )
 from app.database import get_db
 from app.models import RealmConfig
@@ -115,13 +114,14 @@ async def oauth2_auth(
 ):
     """Portal-only auth_request (`/portal_auth_check`).
 
-    Intentionally does **not** enforce per-app AccessGrant: the catalogue
-    (`/apps`, `/dashboard`) must stay reachable for any authenticated user.
+    Intentionally does **not** enforce per-app AccessGrant: the generic portal
+    launcher (``/apps``) must stay reachable for any authenticated user.
+    FastAPI ``GET /dashboard`` is separate and remains ``require_admin``.
     Application URL enforcement lives in ``/internal/subdomain-auth``.
     """
     # Do NOT apply RFC1918 bypass here. Behind Traefik/vpcbr, X-Real-IP is often
     # 10.5.0.0/16 — a bypass would return 200 with no identity and break SSO
-    # (auth OK → /dashboard 401 → /auth/login loop). LAN recovery = break-glass.
+    # (auth OK → portal 401 → /auth/login loop). LAN recovery = break-glass.
 
     # Prefer SSO session over break-glass when both cookies are present.
     # Otherwise a leftover bg_session sends /apps → 302 /dashboard and never hits oauth2.
@@ -142,8 +142,9 @@ async def oauth2_auth(
 
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie:
+        # rotate=False: nginx auth_request does not forward Set-Cookie.
         result = process_breakglass_auth_request(
-            db, request, bg_cookie, settings
+            db, request, bg_cookie, settings, rotate=False
         )
         try:
             db.commit()
@@ -151,10 +152,7 @@ async def oauth2_auth(
             db.rollback()
         if not result.ok:
             return Response(status_code=401)
-        response = Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
-        if result.set_cookie:
-            set_breakglass_cookie(response, result.set_cookie, settings)
-        return response
+        return Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
 
     if oauth2_resp is not None:
         return oauth2_resp

@@ -358,7 +358,8 @@ def test_list_chains_groups_rotations(db_session):
     assert chains[0]["status"] == "active"
 
 
-def test_oauth2_auth_sets_rotated_cookie(client: TestClient, db_session):
+def test_oauth2_auth_does_not_rotate_cookie(client: TestClient, db_session):
+    """auth_request must not rotate: nginx does not forward Set-Cookie."""
     token, jti = issue_breakglass_token(
         db_session, "admin", "test-bg-jwt-secret", request=_request()
     )
@@ -375,7 +376,30 @@ def test_oauth2_auth_sets_rotated_cookie(client: TestClient, db_session):
     )
     assert r1.status_code == 200
     set_cookie = r1.headers.get("set-cookie") or ""
+    assert COOKIE_NAME not in set_cookie
+    row = db_session.query(BreakGlassSession).filter_by(jti=jti).first()
+    assert row.superseded_by is None
+
+
+def test_portal_page_rotates_breakglass_cookie(client: TestClient, db_session):
+    token, jti = issue_breakglass_token(
+        db_session, "admin", "test-bg-jwt-secret", request=_request()
+    )
+    db_session.commit()
+    r = client.get(
+        "/admin/apps/create",
+        headers={
+            "X-Real-IP": "203.0.113.10",
+            "User-Agent": "Mozilla/5.0 TestBrowser/1.0",
+            "Accept-Language": "fr-FR",
+            "Accept-Encoding": "gzip",
+            "Cookie": f"{COOKIE_NAME}={token}",
+        },
+    )
+    assert r.status_code == 200
+    set_cookie = r.headers.get("set-cookie") or ""
     assert COOKIE_NAME in set_cookie
+    db_session.expire_all()
     row = db_session.query(BreakGlassSession).filter_by(jti=jti).first()
     assert row.superseded_by is not None
 

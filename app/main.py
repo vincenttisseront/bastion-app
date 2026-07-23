@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -14,14 +14,17 @@ from app.admin.realms import router as admin_realms_router
 from app.admin.rbac_access import router as admin_rbac_access_router
 from app.admin.rbac_groups import router as admin_rbac_groups_router
 from app.admin.user_sessions import router as admin_user_sessions_router
+from app.breakglass import admin_router as breakglass_admin_router
 from app.breakglass import router as breakglass_router
 from app.database import engine
 from app.health_scheduler import start_health_scheduler, stop_health_scheduler
 from app.logging_config import configure_logging
+from app.breakglass_cookie_middleware import BreakglassCookieRotationMiddleware
 from app.logging_middleware import RequestIdMiddleware
 from app.models import Base
 from app.realm_service import router as realm_router
 from app.robotic.client_open_action import router as robotic_router
+from app.services import authenticated_router as apps_read_router
 from app.services import router as apps_router
 from app.subdomain.subdomain_auth import router as subdomain_router
 from app.vault.routes import router as vault_router
@@ -33,10 +36,14 @@ from app.web.flash import base_template_context
 from app.web.global_search import router as global_search_router
 from app.web.health_service import router as health_router
 from app.web.metrics_service import router as metrics_router
+from app.web.pages import admin_router as pages_admin_router
+from app.web.pages import authenticated_router as pages_user_router
 from app.web.pages import router as pages_router
 from app.web.portal import router as portal_router
+from app.web.sessions_service import admin_router as sessions_admin_router
 from app.web.sessions_service import router as sessions_router
 from app.web.templates import render
+from app.web.user_context import require_admin
 from app.sso_settings import get_settings
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -82,6 +89,7 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestIdMiddleware)
+app.add_middleware(BreakglassCookieRotationMiddleware)
 
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
@@ -146,6 +154,8 @@ async def generic_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(pages_router)
+app.include_router(pages_user_router)
+app.include_router(pages_admin_router)
 app.include_router(portal_router)
 app.include_router(global_search_router)
 app.include_router(health_router)
@@ -159,8 +169,13 @@ app.include_router(admin_dependencies_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)
 app.include_router(sessions_router)
+app.include_router(sessions_admin_router)
 app.include_router(auth_router)
 app.include_router(breakglass_router)
+# Admin break-glass session APIs — guard attached here to avoid circular import
+# with user_context (which imports breakglass for cookie validation).
+app.include_router(breakglass_admin_router, dependencies=[Depends(require_admin)])
+app.include_router(apps_read_router)
 app.include_router(apps_router)
 app.include_router(realm_router)
 app.include_router(subdomain_router)
