@@ -552,7 +552,16 @@ def touch_portal_session(
         if user.is_breakglass and request is not None:
             jti = _breakglass_jti_from_request(request, db=db)
             if jti:
-                merged = _merge_details(merged, {"jti": jti, "auth_source": "breakglass"})
+                bg_meta: dict[str, Any] = {"jti": jti, "auth_source": "breakglass"}
+                try:
+                    from app.models import BreakGlassSession
+
+                    bg_row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+                    if bg_row is not None:
+                        bg_meta["chain_id"] = bg_row.chain_id or jti
+                except Exception:
+                    pass
+                merged = _merge_details(merged, bg_meta)
         return _touch_portal_session(db, user, source_ip, details=merged)
     except Exception:
         logger.exception("touch_portal_session failed — page continues without registry")

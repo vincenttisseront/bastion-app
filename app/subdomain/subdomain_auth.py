@@ -18,18 +18,13 @@ from app.audit import log_action
 from app.auth import get_realm_proxy_url
 from app.breakglass import (
     COOKIE_NAME,
-    decode_breakglass_token_with_fallback,
-    maybe_refresh_breakglass_cookie,
+    process_breakglass_auth_request,
     set_breakglass_cookie,
-    validate_breakglass_cookie,
 )
 from app.database import get_db
 from app.models import App
 from app.rbac.effective_access_service import user_can_launch_application
-from app.security.session_binding_service import (
-    evaluate_breakglass_binding,
-    evaluate_sso_binding,
-)
+from app.security.session_binding_service import evaluate_sso_binding
 from app.sso_settings import Settings, get_settings
 from app.web.user_context import parse_groups_header
 
@@ -217,33 +212,26 @@ async def subdomain_auth(
     # Rationale (2026-07-23): break-glass is the LAN recovery path when IdP is down;
     # requiring grants would block the only remaining admin access to subdomain apps.
     bg_cookie = request.cookies.get(COOKIE_NAME)
-    if bg_cookie and validate_breakglass_cookie(bg_cookie, db=db, settings=settings):
-        payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
-        username = str((payload or {}).get("sub") or "breakglass")
-        jti = str((payload or {}).get("jti") or "")
-        if jti and not evaluate_breakglass_binding(
-            db, request, jti=jti, username=username
-        ):
-            try:
-                db.commit()
-            except Exception:
-                db.rollback()
-            return Response(status_code=401)
+    if bg_cookie:
+        result = process_breakglass_auth_request(
+            db, request, bg_cookie, settings
+        )
         try:
             db.commit()
         except Exception:
             db.rollback()
+        if not result.ok:
+            return Response(status_code=401)
         response = Response(
             status_code=200,
             headers={
                 "X-Auth-Source": "breakglass",
-                "X-Auth-User": username,
+                "X-Auth-User": result.username or "breakglass",
                 "X-Auth-App": app.slug,
             },
         )
-        refreshed = maybe_refresh_breakglass_cookie(bg_cookie, db=db, settings=settings)
-        if refreshed:
-            set_breakglass_cookie(response, refreshed, settings)
+        if result.set_cookie:
+            set_breakglass_cookie(response, result.set_cookie, settings)
         return response
 
     if oauth2_unreachable:

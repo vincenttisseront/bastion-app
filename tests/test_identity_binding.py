@@ -211,8 +211,17 @@ def test_breakglass_oauth2_auth_401_on_strong_drift(client: TestClient, db_sessi
         },
     )
     assert r2.status_code == 401
-    row = db_session.query(BreakGlassSession).filter_by(jti=jti).first()
-    assert int(row.mismatch_count or 0) >= 1
+    # Binding is evaluated against the chain tip during grace reuse.
+    tip = (
+        db_session.query(BreakGlassSession)
+        .filter(
+            BreakGlassSession.chain_id == jti,
+            BreakGlassSession.superseded_by.is_(None),
+        )
+        .first()
+    )
+    assert tip is not None
+    assert int(tip.mismatch_count or 0) >= 1
     assert db_session.query(AuditLog).filter_by(action=ACTION_HIJACK).count() >= 1
 
 

@@ -287,6 +287,11 @@ class BreakGlassSession(Base):
     last_ip_subnet = Column(String, nullable=True)
     last_fingerprint_hash = Column(String, nullable=True)
     mismatch_count = Column(Integer, nullable=True, default=0)
+    # Rotation chain (anti-replay): same chain_id across jti rotations from one login.
+    chain_id = Column(String, nullable=True, index=True)
+    superseded_by = Column(String, nullable=True, index=True)
+    superseded_at = Column(DateTime(timezone=True), nullable=True)
+    chain_revoked = Column(Boolean, nullable=False, default=False)
 
 
 class SsoSessionAnchor(Base):

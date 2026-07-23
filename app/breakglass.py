@@ -28,9 +28,12 @@ COOKIE_MAX_AGE = 8 * 3600
 # Idle timeout — PROPOSED for admin break-glass (stricter than SSO). Sliding via ``last`` claim.
 IDLE_TIMEOUT_SECONDS = 30 * 60
 # Re-issue cookie at most this often when sliding idle (avoid Set-Cookie spam).
+# Kept for maybe_refresh; auth_request paths now rotate jti every request instead.
 _IDLE_TOUCH_MIN_SECONDS = 60
 # Keep revoked/expired session rows for audit before purge (documented, not arbitrary).
 BREAKGLASS_SESSION_RETENTION_DAYS = 7
+# Grace window after rotation: old cookie still accepted briefly (parallel requests / race).
+GRACE_WINDOW_SECONDS = 5
 
 # Process-lifetime secret when BREAKGLASS_JWT_SECRET is unset (dev / first boot).
 _EPHEMERAL_JWT_SECRET: str | None = None
@@ -45,6 +48,29 @@ class BreakglassLoginBody(BaseModel):
 
 class BreakglassRevokeBody(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
+
+
+class BreakglassAuthResult:
+    """Outcome of protected-request processing (rotation / replay / grace)."""
+
+    __slots__ = ("ok", "payload", "set_cookie", "username", "jti", "chain_id")
+
+    def __init__(
+        self,
+        *,
+        ok: bool,
+        payload: dict[str, Any] | None = None,
+        set_cookie: str | None = None,
+        username: str = "",
+        jti: str = "",
+        chain_id: str | None = None,
+    ) -> None:
+        self.ok = ok
+        self.payload = payload
+        self.set_cookie = set_cookie
+        self.username = username
+        self.jti = jti
+        self.chain_id = chain_id
 
 
 def reset_breakglass_ephemeral_secret_for_tests() -> None:
@@ -198,6 +224,7 @@ def register_breakglass_session(
     username: str,
     expires_at: datetime,
     issued_at: datetime | None = None,
+    chain_id: str | None = None,
 ) -> BreakGlassSession:
     """Persist a newly issued break-glass session (metadata only — no credentials)."""
     row = BreakGlassSession(
@@ -206,6 +233,10 @@ def register_breakglass_session(
         issued_at=issued_at or utcnow(),
         expires_at=expires_at,
         revoked=False,
+        chain_id=chain_id or jti,
+        chain_revoked=False,
+        superseded_by=None,
+        superseded_at=None,
     )
     db.add(row)
     db.flush()
@@ -234,6 +265,7 @@ def issue_breakglass_token(
         username=username,
         expires_at=expires_at,
         issued_at=issued_at,
+        chain_id=jti,
     )
     if request is not None:
         from app.security.session_binding_service import apply_breakglass_login_anchor
@@ -242,12 +274,67 @@ def issue_breakglass_token(
     return token, jti
 
 
+def ensure_breakglass_chain_id(row: BreakGlassSession) -> str:
+    """Warm-deploy: treat missing chain_id as a single-jti chain."""
+    if not (row.chain_id or "").strip():
+        row.chain_id = row.jti
+    return str(row.chain_id)
+
+
+def _within_grace(row: BreakGlassSession, *, now: datetime | None = None) -> bool:
+    if not row.superseded_by or row.superseded_at is None:
+        return False
+    now = now or utcnow()
+    superseded_at = row.superseded_at
+    if superseded_at.tzinfo is None:
+        superseded_at = superseded_at.replace(tzinfo=timezone.utc)
+    return (now - superseded_at).total_seconds() <= GRACE_WINDOW_SECONDS
+
+
+def current_chain_tip(
+    db: Session, chain_id: str
+) -> BreakGlassSession | None:
+    """Return the non-superseded row for a chain (current jti)."""
+    return (
+        db.query(BreakGlassSession)
+        .filter(
+            BreakGlassSession.chain_id == chain_id,
+            BreakGlassSession.superseded_by.is_(None),
+        )
+        .order_by(BreakGlassSession.issued_at.desc())
+        .first()
+    )
+
+
+def mark_chain_revoked(db: Session, chain_id: str) -> int:
+    """Set chain_revoked=True on every row of the chain. Returns rows touched."""
+    rows = (
+        db.query(BreakGlassSession).filter(BreakGlassSession.chain_id == chain_id).all()
+    )
+    for row in rows:
+        row.chain_revoked = True
+    db.flush()
+    return len(rows)
+
+
 def is_breakglass_jti_revoked(db: Session, jti: str) -> bool:
-    """True only if this jti was explicitly revoked (denylist lookup)."""
+    """
+    True if this jti must not authenticate.
+
+    Covers explicit admin revoke, whole-chain cut, and superseded cookies outside
+    the grace window. Tokens with no registry row keep prior behaviour (not blocked
+    solely by missing row — unit tests without register still work).
+    """
     if not jti:
         return True
-    row = db.query(BreakGlassSession).filter_by(jti=jti, revoked=True).first()
-    return row is not None
+    row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+    if row is None:
+        return False
+    if bool(row.chain_revoked) or bool(row.revoked):
+        return True
+    if row.superseded_by and not _within_grace(row):
+        return True
+    return False
 
 
 def revoke_breakglass_jti(
@@ -257,18 +344,203 @@ def revoke_breakglass_jti(
     revoked_by: str,
     reason: str | None = None,
 ) -> BreakGlassSession:
-    """Mark a break-glass session revoked. Raises LookupError if missing."""
+    """
+    Revoke a break-glass session and cut its entire rotation chain.
+
+    ``revoked*`` fields are set on the targeted jti (audit); ``chain_revoked`` is
+    set on every row sharing the same ``chain_id`` (enforcement).
+    """
     row = db.query(BreakGlassSession).filter_by(jti=jti).first()
     if row is None:
         raise LookupError("breakglass session not found")
-    if row.revoked:
-        return row
-    row.revoked = True
-    row.revoked_at = utcnow()
-    row.revoked_by = revoked_by
-    row.revoked_reason = (reason or "").strip() or None
+    chain_id = ensure_breakglass_chain_id(row)
+    if not row.revoked:
+        row.revoked = True
+        row.revoked_at = utcnow()
+        row.revoked_by = revoked_by
+        row.revoked_reason = (reason or "").strip() or None
+    mark_chain_revoked(db, chain_id)
     db.flush()
     return row
+
+
+def encode_breakglass_claims(
+    payload: dict[str, Any],
+    secret: str,
+    *,
+    jti: str,
+    touch_last: bool = True,
+) -> str:
+    """Re-encode claims preserving absolute ``exp`` / ``iat``; optionally slide ``last``."""
+    now = datetime.now(timezone.utc)
+    now_ts = int(now.timestamp())
+    exp_dt = _aware_exp(payload.get("exp"))
+    if exp_dt is None:
+        exp_dt = now + timedelta(seconds=COOKIE_MAX_AGE)
+    last = now_ts if touch_last else int(payload.get("last") or now_ts)
+    claims = {
+        "sub": payload.get("sub"),
+        "iat": payload.get("iat"),
+        "exp": exp_dt,
+        "last": last,
+        "type": "bg",
+        "jti": jti,
+    }
+    return jwt.encode(claims, secret, algorithm="HS256")
+
+
+def rotate_breakglass_session(
+    db: Session,
+    row: BreakGlassSession,
+    payload: dict[str, Any],
+    secret: str,
+) -> tuple[str, BreakGlassSession]:
+    """
+    Advance the rotation chain: new jti row + mark old superseded.
+
+    Preserves absolute ``expires_at`` and login identity anchors (first_*).
+    """
+    chain_id = ensure_breakglass_chain_id(row)
+    jti_next = str(uuid4())
+    now = utcnow()
+    exp_at = row.expires_at
+    if exp_at is not None and exp_at.tzinfo is None:
+        exp_at = exp_at.replace(tzinfo=timezone.utc)
+    new_row = BreakGlassSession(
+        jti=jti_next,
+        chain_id=chain_id,
+        username=row.username,
+        issued_at=now,
+        expires_at=exp_at,
+        revoked=False,
+        chain_revoked=False,
+        superseded_by=None,
+        superseded_at=None,
+        first_ip_subnet=row.first_ip_subnet,
+        first_fingerprint_hash=row.first_fingerprint_hash,
+        last_ip_subnet=row.last_ip_subnet,
+        last_fingerprint_hash=row.last_fingerprint_hash,
+        mismatch_count=int(row.mismatch_count or 0),
+    )
+    db.add(new_row)
+    row.superseded_by = jti_next
+    row.superseded_at = now
+    db.flush()
+    token = encode_breakglass_claims(payload, secret, jti=jti_next, touch_last=True)
+    return token, new_row
+
+
+def process_breakglass_auth_request(
+    db: Session,
+    request: Request,
+    cookie_value: str,
+    settings: Settings,
+) -> BreakglassAuthResult:
+    """
+    Full protected-request pipeline for ``bg_session``.
+
+    Order: decode → chain_revoked → revoked → superseded(+grace) → IP/fingerprint
+    → rotate (or resync tip on grace) → OK.
+    """
+    from app.security.identity_binding import fingerprint_from_request
+    from app.security.session_binding_service import evaluate_breakglass_binding
+
+    payload, _fb = decode_breakglass_token_with_fallback(
+        cookie_value, settings, db=db
+    )
+    if payload is None:
+        return BreakglassAuthResult(ok=False)
+
+    jti = payload.get("jti")
+    username = str(payload.get("sub") or "breakglass")
+    if not jti or not isinstance(jti, str):
+        return BreakglassAuthResult(ok=False)
+
+    row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+    if row is None:
+        # Legacy token without registry: allow without rotation (cannot chain).
+        return BreakglassAuthResult(
+            ok=True, payload=payload, username=username, jti=jti
+        )
+
+    chain_id = ensure_breakglass_chain_id(row)
+    client_ip = client_ip_from_request(request)
+    fp = fingerprint_from_request(request)
+
+    if bool(row.chain_revoked):
+        return BreakglassAuthResult(ok=False)
+
+    if bool(row.revoked):
+        return BreakglassAuthResult(ok=False)
+
+    secret = resolve_breakglass_signing_secret(settings, db=db)
+
+    if row.superseded_by is not None:
+        if _within_grace(row):
+            tip = current_chain_tip(db, chain_id) or row
+            log_action(
+                db,
+                actor=username,
+                action="breakglass_cookie_grace_reuse",
+                target=chain_id,
+                details={
+                    "chain_id": chain_id,
+                    "jti_presented": jti,
+                    "jti_current": tip.jti,
+                },
+                ip_address=client_ip or None,
+            )
+            if not evaluate_breakglass_binding(
+                db, request, jti=tip.jti, username=username
+            ):
+                return BreakglassAuthResult(ok=False)
+            tip_token = encode_breakglass_claims(
+                payload, secret, jti=tip.jti, touch_last=True
+            )
+            return BreakglassAuthResult(
+                ok=True,
+                payload=payload,
+                set_cookie=tip_token,
+                username=username,
+                jti=tip.jti,
+                chain_id=chain_id,
+            )
+
+        mark_chain_revoked(db, chain_id)
+        log_action(
+            db,
+            actor=username,
+            action="breakglass_cookie_replay_detected",
+            target=chain_id,
+            details={
+                "severity": "high",
+                "chain_id": chain_id,
+                "jti_presented": jti,
+                "username": username,
+                "fingerprint": fp,
+                "superseded_by": row.superseded_by,
+            },
+            ip_address=client_ip or None,
+        )
+        return BreakglassAuthResult(ok=False)
+
+    if not evaluate_breakglass_binding(db, request, jti=jti, username=username):
+        return BreakglassAuthResult(ok=False)
+
+    # Re-load after possible audit commit inside binding (weak drift).
+    row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+    if row is None or row.superseded_by or bool(row.chain_revoked) or bool(row.revoked):
+        return BreakglassAuthResult(ok=False)
+
+    new_token, new_row = rotate_breakglass_session(db, row, payload, secret)
+    return BreakglassAuthResult(
+        ok=True,
+        payload=payload,
+        set_cookie=new_token,
+        username=username,
+        jti=new_row.jti,
+        chain_id=chain_id,
+    )
 
 
 def list_breakglass_sessions(
@@ -277,15 +549,79 @@ def list_breakglass_sessions(
     include_expired: bool = True,
     limit: int = 100,
 ) -> list[BreakGlassSession]:
-    """Active (+ optional recent history) break-glass sessions, newest first."""
+    """Raw rows newest first (prefer ``list_breakglass_chains`` for admin UI)."""
     now = utcnow()
     q = db.query(BreakGlassSession).order_by(BreakGlassSession.issued_at.desc())
     if not include_expired:
         q = q.filter(
             BreakGlassSession.expires_at > now,
             BreakGlassSession.revoked.is_(False),
+            BreakGlassSession.chain_revoked.is_(False),
         )
     return q.limit(max(1, min(limit, 500))).all()
+
+
+def list_breakglass_chains(
+    db: Session,
+    *,
+    include_expired: bool = True,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """One entry per rotation chain for admin listing."""
+    now = utcnow()
+    rows = (
+        db.query(BreakGlassSession)
+        .order_by(BreakGlassSession.issued_at.asc())
+        .all()
+    )
+    by_chain: dict[str, list[BreakGlassSession]] = {}
+    for row in rows:
+        cid = (row.chain_id or row.jti or "").strip() or row.jti
+        by_chain.setdefault(cid, []).append(row)
+
+    chains: list[dict[str, Any]] = []
+    for chain_id, members in by_chain.items():
+        first = members[0]
+        tip = next((m for m in reversed(members) if not m.superseded_by), members[-1])
+        max_exp = max(
+            (
+                m.expires_at
+                if m.expires_at.tzinfo
+                else m.expires_at.replace(tzinfo=timezone.utc)
+            )
+            for m in members
+            if m.expires_at is not None
+        )
+        chain_revoked = any(bool(m.chain_revoked) for m in members)
+        expired = max_exp <= now
+        if not include_expired and (expired or chain_revoked):
+            continue
+        if chain_revoked:
+            status = "chain_revoked"
+        elif expired:
+            status = "expired"
+        else:
+            status = "active"
+        chains.append(
+            {
+                "chain_id": chain_id,
+                "username": tip.username or first.username,
+                "rotation_count": max(0, len(members) - 1),
+                "jti_current": tip.jti,
+                "issued_at": first.issued_at.isoformat() if first.issued_at else None,
+                "expires_at": max_exp.isoformat() if max_exp else None,
+                "status": status,
+                "active": status == "active",
+                "chain_revoked": chain_revoked,
+                "member_count": len(members),
+            }
+        )
+
+    chains.sort(
+        key=lambda c: c.get("issued_at") or "",
+        reverse=True,
+    )
+    return chains[: max(1, min(limit, 500))]
 
 
 def purge_expired_breakglass_sessions(
@@ -293,18 +629,37 @@ def purge_expired_breakglass_sessions(
     *,
     retention_days: int = BREAKGLASS_SESSION_RETENTION_DAYS,
 ) -> int:
-    """Delete rows whose expires_at is older than retention_days (audit window)."""
+    """
+    Purge whole chains whose newest ``expires_at`` is older than retention.
+
+    Never leaves orphan rows from a partially purged chain.
+    """
     cutoff = utcnow() - timedelta(days=max(0, retention_days))
-    rows = (
-        db.query(BreakGlassSession)
-        .filter(BreakGlassSession.expires_at < cutoff)
-        .all()
-    )
+    rows = db.query(BreakGlassSession).all()
+    by_chain: dict[str, list[BreakGlassSession]] = {}
     for row in rows:
+        cid = (row.chain_id or row.jti or "").strip() or row.jti
+        by_chain.setdefault(cid, []).append(row)
+
+    to_delete: list[BreakGlassSession] = []
+    for members in by_chain.values():
+        max_exp = max(
+            (
+                m.expires_at
+                if m.expires_at.tzinfo
+                else m.expires_at.replace(tzinfo=timezone.utc)
+            )
+            for m in members
+            if m.expires_at is not None
+        )
+        if max_exp < cutoff:
+            to_delete.extend(members)
+
+    for row in to_delete:
         db.delete(row)
-    if rows:
+    if to_delete:
         db.commit()
-    return len(rows)
+    return len(to_delete)
 
 
 def decode_breakglass_token(cookie_value: str, secret: str) -> dict[str, Any] | None:
@@ -451,13 +806,21 @@ def _serialize_session(row: BreakGlassSession) -> dict[str, Any]:
     exp = row.expires_at
     if exp is not None and exp.tzinfo is None:
         exp = exp.replace(tzinfo=timezone.utc)
-    active = (not row.revoked) and (exp is None or exp > now)
+    active = (
+        (not row.revoked)
+        and (not bool(row.chain_revoked))
+        and (exp is None or exp > now)
+        and not row.superseded_by
+    )
     return {
         "jti": row.jti,
+        "chain_id": row.chain_id or row.jti,
         "username": row.username,
         "issued_at": row.issued_at.isoformat() if row.issued_at else None,
         "expires_at": row.expires_at.isoformat() if row.expires_at else None,
         "revoked": bool(row.revoked),
+        "chain_revoked": bool(row.chain_revoked),
+        "superseded_by": row.superseded_by,
         "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
         "revoked_by": row.revoked_by,
         "revoked_reason": row.revoked_reason,
@@ -596,17 +959,33 @@ def breakglass_sessions_list(
     active_only: bool = False,
     limit: int = 100,
 ):
-    """List break-glass sessions (active + recent history) for admin revocation UI."""
+    """List break-glass sessions grouped by rotation chain for admin UI."""
     from app.web.user_context import get_user_context, is_portal_admin
 
     admin = get_user_context(request, settings, db=db)
     if admin is None or not is_portal_admin(admin, db, settings):
         raise HTTPException(status_code=403, detail="Admin access required")
-    rows = list_breakglass_sessions(
+    chains = list_breakglass_chains(
         db, include_expired=not active_only, limit=limit
     )
     return {
-        "sessions": [_serialize_session(r) for r in rows],
+        "chains": chains,
+        # Backward-compatible alias: one synthetic entry per chain (current jti).
+        "sessions": [
+            {
+                "jti": c["jti_current"],
+                "chain_id": c["chain_id"],
+                "username": c["username"],
+                "issued_at": c["issued_at"],
+                "expires_at": c["expires_at"],
+                "revoked": c["status"] == "chain_revoked",
+                "chain_revoked": c["chain_revoked"],
+                "rotation_count": c["rotation_count"],
+                "status": c["status"],
+                "active": c["active"],
+            }
+            for c in chains
+        ],
         "retention_days": BREAKGLASS_SESSION_RETENTION_DAYS,
     }
 
@@ -619,7 +998,7 @@ def breakglass_session_revoke(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    """Revoke one break-glass JWT by jti — effective on the next authenticated request."""
+    """Revoke a break-glass JWT and cut its entire rotation chain."""
     from app.web.user_context import get_user_context, is_portal_admin
 
     admin = get_user_context(request, settings, db=db)
@@ -644,9 +1023,18 @@ def breakglass_session_revoke(
         target=row.username,
         details={
             "jti": row.jti,
+            "chain_id": row.chain_id or row.jti,
             "username": row.username,
             "reason": row.revoked_reason,
+            "chain_revoked": True,
         },
         ip_address=_client_ip(request),
     )
-    return {"status": "ok", "jti": row.jti, "username": row.username, "revoked": True}
+    return {
+        "status": "ok",
+        "jti": row.jti,
+        "chain_id": row.chain_id or row.jti,
+        "username": row.username,
+        "revoked": True,
+        "chain_revoked": True,
+    }

@@ -143,7 +143,7 @@
                 </dd>
               </div>
               {% if s.protocol == 'BREAKGLASS' and s.jti %}
-              <div><dt>jti</dt><dd class="mono" title="Identifiant JWT break-glass">{{ s.jti[:8] }}…</dd></div>
+              <div><dt>jti courant</dt><dd class="mono" title="Identifiant JWT break-glass (chaîne)">{{ s.jti[:8] }}…{% if s.details and s.details.chain_id %} · chaîne {{ s.details.chain_id[:8] }}…{% endif %}</dd></div>
               {% endif %}
             </dl>
           </div>

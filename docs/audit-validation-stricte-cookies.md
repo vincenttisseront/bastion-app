@@ -81,6 +81,17 @@ en attendant le prochain run AWX — cocher ici une fois confirmé sur l’insta
 
 ---
 
+## Anti-replay break-glass (au-delà de la révocation admin)
+
+| Date | Statut | Résumé |
+|------|--------|--------|
+| 2026-07-23 | **Corrigé** | Rotation `jti` à chaque requête protégée + détection de réutilisation (chaîne `chain_id`, grâce 5s). |
+
+Complète la denylist admin (`jti` révoqué) : un cookie **encore valide** rejoué après rotation
+est détecté. Voir `docs/audit-rotation-anti-replay-cookies.md`.
+
+---
+
 ## Gap #3 — Flags oauth2-proxy
 
 | Date | Statut | Résumé |

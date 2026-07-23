@@ -14,8 +14,9 @@
 | 5 | Vue `/sessions` enrichie (OIDC vs BREAKGLASS, filtre, badge logout) | **Corrigé** (2026-07-23) |
 | 6 | TTL break-glass configurable + idle | Idle 30 min fait ; durée absolue encore hardcodée |
 | 7 | Contrôle IP/empreinte anti-hijacking | **Corrigé** (2026-07-23) — A=WARN, B=blocage, C hors périmètre |
+| 8 | Rotation cookie BG + détection réutilisation | **Corrigé** (2026-07-23) — chaîne `chain_id`, grâce 5s |
 
-> **Clôture du cycle d’audit (§0 → §9)** : les points 1–5 du plan prioritaire sont traités dans le code. Le point 6 (TTL break-glass configurable) reste hors scope de cette vague (idle 30 min déjà en place). Point 2 : outil de conformité livré ; valeurs Keycloak prod à confirmer via Admin → Alignement sessions SSO. Point 7 : voir `audit-protection-usurpation-identite.md`.
+> **Clôture du cycle d’audit (§0 → §9)** : les points 1–5 du plan prioritaire sont traités dans le code. Le point 6 (TTL break-glass configurable) reste hors scope de cette vague (idle 30 min déjà en place). Point 2 : outil de conformité livré ; valeurs Keycloak prod à confirmer via Admin → Alignement sessions SSO. Point 7 : voir `audit-protection-usurpation-identite.md`. Point 8 : voir `audit-rotation-anti-replay-cookies.md`.
 
 ---
 
@@ -77,6 +78,14 @@
 - **UI** : `/sessions` stocke `jti` dans `details` ; « Révoquer » sur une ligne BREAKGLASS appelle aussi la denylist
 - **Purge** : `purge_expired_breakglass_sessions` (rétention **7 jours** après `expires_at`) branchée sur `expire_stale_sessions`
 - **Tests** : `pytest -k breakglass` (dont revoke → 401 immédiat sur `/internal/oauth2-auth`)
+
+### Extension — rotation + anti-replay (2026-07-23)
+
+| Date | Statut | Résumé |
+|------|--------|--------|
+| 2026-07-23 | **Corrigé** | Rotation `jti` à chaque auth_request ; réutilisation hors grâce 5s → `chain_revoked` sur toute la chaîne. |
+
+Voir `docs/audit-rotation-anti-replay-cookies.md`.
 
 ---
 
