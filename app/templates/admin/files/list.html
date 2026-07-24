@@ -13,31 +13,101 @@
 
   {% if messages %}{% include 'partials/_flash.html' %}{% endif %}
 
-  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <div class="form-section-title" style="margin-bottom:var(--sp-3);">Nouveau fichier</div>
-    <form method="post" action="/admin/files" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
-      <div class="form-group">
-        <label class="form-label" for="slug">Slug</label>
-        <input id="slug" name="slug" class="form-input" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="client-installer">
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);" id="file-deposit-root">
+    <div class="form-section-title" style="margin-bottom:var(--sp-3);">Déposer un fichier</div>
+
+    <div
+      class="file-dropzone"
+      id="file-dropzone"
+      role="button"
+      tabindex="0"
+      aria-label="Déposer un fichier"
+    >
+      <div class="file-dropzone-inner" id="file-dropzone-empty">
+        <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 16V4m0 0l-4 4m4-4l4 4"/>
+          <path d="M20 16v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2"/>
+        </svg>
+        <span>Glisser-déposer un fichier ici, ou cliquer pour parcourir</span>
       </div>
-      <div class="form-group">
-        <label class="form-label" for="label">Libellé</label>
-        <input id="label" name="label" class="form-input" required placeholder="Installateur client">
+      <input type="file" id="file-deposit-input" hidden>
+    </div>
+
+    <p class="form-help" id="file-deposit-flash" hidden style="margin-top:var(--sp-3);"></p>
+
+    <div id="file-resolve-panel" class="file-resolve-panel" hidden>
+      <div class="file-resolve-preview" id="file-resolve-preview"></div>
+
+      <fieldset class="file-resolve-mode" style="border:0; padding:0; margin:var(--sp-3) 0 0;">
+        <legend class="form-label" style="margin-bottom:var(--sp-2);">Rattachement</legend>
+
+        <label class="form-check" style="display:flex; gap:var(--sp-2); align-items:flex-start; margin-bottom:var(--sp-2);">
+          <input type="radio" name="deposit_mode" value="existing" id="mode-existing">
+          <span>
+            Nouvelle version d'un fichier existant
+            <div id="existing-fields" style="margin-top:var(--sp-2); display:none;">
+              <label class="form-label" for="existing-search">Rechercher un fichier</label>
+              <input type="text" id="existing-search" class="form-input" placeholder="Rechercher un fichier…" autocomplete="off">
+              <input type="hidden" id="existing-file-id" value="">
+              <div id="existing-suggestions" class="file-suggest-list" hidden></div>
+              <p class="form-help" id="existing-selected" hidden></p>
+            </div>
+          </span>
+        </label>
+
+        <label class="form-check" style="display:flex; gap:var(--sp-2); align-items:flex-start;">
+          <input type="radio" name="deposit_mode" value="new" id="mode-new" checked>
+          <span>
+            Nouveau fichier
+            <div id="new-fields" style="margin-top:var(--sp-2);">
+              <div class="form-row" style="flex-wrap:wrap; gap:var(--sp-3);">
+                <div class="form-group">
+                  <label class="form-label" for="new-label">Libellé</label>
+                  <input id="new-label" class="form-input" required placeholder="Client Installer">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="new-slug">Slug</label>
+                  <input id="new-slug" class="form-input" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="client-installer">
+                </div>
+                <div class="form-group" style="flex:1; min-width:200px;">
+                  <label class="form-label" for="new-description">Description</label>
+                  <input id="new-description" class="form-input" placeholder="Optionnel">
+                </div>
+              </div>
+            </div>
+          </span>
+        </label>
+      </fieldset>
+
+      <div class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); margin-top:var(--sp-3); align-items:flex-end;">
+        <div class="form-group">
+          <label class="form-label" for="deposit-version">Version</label>
+          <input id="deposit-version" class="form-input" required placeholder="2.4.0" pattern="\d+\.\d+\.\d+.*">
+        </div>
+        <div class="form-group">
+          <span class="form-label">Canal</span>
+          <div style="display:flex; gap:var(--sp-3); margin-top:var(--sp-2);">
+            <label class="form-check"><input type="radio" name="deposit_channel" value="beta"> Bêta</label>
+            <label class="form-check"><input type="radio" name="deposit_channel" value="stable" checked> Stable</label>
+          </div>
+        </div>
+        <div class="form-group" style="flex:1; min-width:200px;">
+          <label class="form-label" for="deposit-changelog">Changelog</label>
+          <input id="deposit-changelog" class="form-input" placeholder="Optionnel">
+        </div>
       </div>
-      <div class="form-group" style="flex:1; min-width:200px;">
-        <label class="form-label" for="description">Description</label>
-        <input id="description" name="description" class="form-input" placeholder="Optionnel">
+
+      <p class="form-error" id="file-resolve-error" hidden style="margin-top:var(--sp-3);"></p>
+
+      <div style="display:flex; gap:var(--sp-2); justify-content:flex-end; margin-top:var(--sp-4);">
+        <button type="button" class="btn btn-ghost btn-sm" id="file-deposit-cancel">Annuler</button>
+        <button type="button" class="btn btn-primary btn-sm" id="file-deposit-publish">Publier</button>
       </div>
-      <label class="form-check" style="margin-bottom:var(--sp-2);">
-        <input type="checkbox" name="is_active" value="1" checked>
-        Actif
-      </label>
-      <button type="submit" class="btn btn-primary btn-sm">Créer</button>
-    </form>
+    </div>
   </div>
 
   <div class="table-wrap">
-    <table class="data-table">
+    <table class="data-table" id="files-catalogue-table">
       <thead>
         <tr>
           <th>Libellé</th>
@@ -48,9 +118,9 @@
           <th></th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="files-catalogue-body">
         {% for f in files %}
-        <tr>
+        <tr data-file-id="{{ f.id }}">
           <td>{{ f.label }}</td>
           <td class="mono">{{ f.slug }}</td>
           <td class="mono">{{ f.stable_label or '—' }}</td>
@@ -63,11 +133,11 @@
           <td><a href="/admin/files/{{ f.id }}" class="btn btn-ghost btn-sm">Détail</a></td>
         </tr>
         {% else %}
-        <tr>
+        <tr class="files-empty-row">
           <td colspan="6">
             <div class="empty-state">
               <div class="empty-title">Aucun fichier</div>
-              <div class="empty-desc">Créez un fichier catalogue ci-dessus.</div>
+              <div class="empty-desc">Déposez un fichier ci-dessus pour démarrer le catalogue.</div>
             </div>
           </td>
         </tr>
@@ -76,4 +146,316 @@
     </table>
   </div>
 </div>
+
+<script>
+(function () {
+  var dropzone = document.getElementById('file-dropzone');
+  var input = document.getElementById('file-deposit-input');
+  var panel = document.getElementById('file-resolve-panel');
+  var preview = document.getElementById('file-resolve-preview');
+  var errEl = document.getElementById('file-resolve-error');
+  var flashEl = document.getElementById('file-deposit-flash');
+  var selectedFile = null;
+  var slugTouched = false;
+  var suggestTimer = null;
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  function slugify(text) {
+    return String(text || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .replace(/-{2,}/g, '-');
+  }
+
+  function labelFromFilename(name) {
+    var base = String(name || '').replace(/\.[^.]+$/, '');
+    return base.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  function extractSemVer(name) {
+    var m = String(name || '').match(/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/);
+    return m ? m[1] : '';
+  }
+
+  function setMode(mode) {
+    var existing = document.getElementById('mode-existing');
+    var neu = document.getElementById('mode-new');
+    if (mode === 'existing') existing.checked = true;
+    else neu.checked = true;
+    document.getElementById('existing-fields').style.display = mode === 'existing' ? 'block' : 'none';
+    document.getElementById('new-fields').style.display = mode === 'new' ? 'block' : 'none';
+  }
+
+  function showError(msg) {
+    errEl.textContent = msg || '';
+    errEl.hidden = !msg;
+  }
+
+  function showFlash(msg, kind) {
+    if (!msg) {
+      flashEl.hidden = true;
+      flashEl.textContent = '';
+      return;
+    }
+    flashEl.hidden = false;
+    flashEl.textContent = msg;
+    flashEl.style.color = kind === 'error' ? 'var(--err)' : 'var(--ok, var(--accent))';
+  }
+
+  function resetDeposit() {
+    selectedFile = null;
+    input.value = '';
+    panel.hidden = true;
+    showError('');
+    slugTouched = false;
+    document.getElementById('existing-file-id').value = '';
+    document.getElementById('existing-search').value = '';
+    document.getElementById('existing-selected').hidden = true;
+    document.getElementById('existing-suggestions').hidden = true;
+    document.getElementById('new-label').value = '';
+    document.getElementById('new-slug').value = '';
+    document.getElementById('new-description').value = '';
+    document.getElementById('deposit-version').value = '';
+    document.getElementById('deposit-changelog').value = '';
+    var stable = document.querySelector('input[name="deposit_channel"][value="stable"]');
+    if (stable) stable.checked = true;
+    setMode('new');
+  }
+
+  function renderCatalogue(files) {
+    var tbody = document.getElementById('files-catalogue-body');
+    if (!tbody) return;
+    if (!files || !files.length) {
+      tbody.innerHTML =
+        '<tr class="files-empty-row"><td colspan="6"><div class="empty-state">' +
+        '<div class="empty-title">Aucun fichier</div>' +
+        '<div class="empty-desc">Déposez un fichier ci-dessus pour démarrer le catalogue.</div>' +
+        '</div></td></tr>';
+      return;
+    }
+    tbody.innerHTML = files.map(function (f) {
+      return (
+        '<tr data-file-id="' + f.id + '">' +
+        '<td>' + escapeHtml(f.label) + '</td>' +
+        '<td class="mono">' + escapeHtml(f.slug) + '</td>' +
+        '<td class="mono">' + escapeHtml(f.stable_label || '—') + '</td>' +
+        '<td class="mono">' + escapeHtml(f.beta_label || '—') + '</td>' +
+        '<td><span class="badge badge-' + (f.is_active ? 'ok' : 'muted') + '">' +
+        (f.is_active ? 'Actif' : 'Inactif') + '</span></td>' +
+        '<td><a href="/admin/files/' + f.id + '" class="btn btn-ghost btn-sm">Détail</a></td>' +
+        '</tr>'
+      );
+    }).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function applySelection(file) {
+    selectedFile = file;
+    showFlash('');
+    showError('');
+    preview.textContent = file.name + ' · ' + formatSize(file.size);
+    panel.hidden = false;
+
+    var label = labelFromFilename(file.name);
+    document.getElementById('new-label').value = label;
+    document.getElementById('new-slug').value = slugify(label);
+    slugTouched = false;
+    document.getElementById('deposit-version').value = extractSemVer(file.name);
+
+    var q = label || file.name;
+    fetch('/admin/files/resolve-name?q=' + encodeURIComponent(q), {
+      headers: { Accept: 'application/json' }
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.best) {
+          setMode('existing');
+          document.getElementById('existing-file-id').value = String(data.best.id);
+          document.getElementById('existing-search').value = data.best.label + ' (' + data.best.slug + ')';
+          var sel = document.getElementById('existing-selected');
+          sel.hidden = false;
+          sel.textContent = 'Sélectionné : ' + data.best.label + ' · ' + data.best.slug;
+        } else {
+          setMode('new');
+        }
+      })
+      .catch(function () { setMode('new'); });
+  }
+
+  function openPicker() { input.click(); }
+
+  dropzone.addEventListener('click', openPicker);
+  dropzone.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(); }
+  });
+  dropzone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    dropzone.classList.add('file-dropzone--active');
+  });
+  dropzone.addEventListener('dragleave', function () {
+    dropzone.classList.remove('file-dropzone--active');
+  });
+  dropzone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropzone.classList.remove('file-dropzone--active');
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) applySelection(f);
+  });
+  input.addEventListener('change', function () {
+    if (input.files && input.files[0]) applySelection(input.files[0]);
+  });
+
+  document.getElementById('mode-existing').addEventListener('change', function () {
+    if (this.checked) setMode('existing');
+  });
+  document.getElementById('mode-new').addEventListener('change', function () {
+    if (this.checked) setMode('new');
+  });
+
+  document.getElementById('new-label').addEventListener('input', function () {
+    if (!slugTouched) document.getElementById('new-slug').value = slugify(this.value);
+  });
+  document.getElementById('new-slug').addEventListener('input', function () {
+    slugTouched = true;
+  });
+
+  document.getElementById('existing-search').addEventListener('input', function () {
+    var q = this.value.trim();
+    var box = document.getElementById('existing-suggestions');
+    clearTimeout(suggestTimer);
+    if (q.length < 1) {
+      box.hidden = true;
+      box.innerHTML = '';
+      return;
+    }
+    suggestTimer = setTimeout(function () {
+      fetch('/admin/files/resolve-name?q=' + encodeURIComponent(q), {
+        headers: { Accept: 'application/json' }
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          var results = (data && data.results) || [];
+          if (!results.length) {
+            box.hidden = true;
+            box.innerHTML = '';
+            return;
+          }
+          box.hidden = false;
+          box.innerHTML = results.map(function (item) {
+            return (
+              '<button type="button" class="file-suggest-item" data-id="' + item.id + '" ' +
+              'data-label="' + escapeHtml(item.label) + '" data-slug="' + escapeHtml(item.slug) + '">' +
+              '<strong>' + escapeHtml(item.label) + '</strong> <span class="mono">' + escapeHtml(item.slug) + '</span>' +
+              '</button>'
+            );
+          }).join('');
+        });
+    }, 180);
+  });
+
+  document.getElementById('existing-suggestions').addEventListener('click', function (e) {
+    var btn = e.target.closest('.file-suggest-item');
+    if (!btn) return;
+    document.getElementById('existing-file-id').value = btn.getAttribute('data-id');
+    document.getElementById('existing-search').value =
+      btn.getAttribute('data-label') + ' (' + btn.getAttribute('data-slug') + ')';
+    var sel = document.getElementById('existing-selected');
+    sel.hidden = false;
+    sel.textContent = 'Sélectionné : ' + btn.getAttribute('data-label') + ' · ' + btn.getAttribute('data-slug');
+    document.getElementById('existing-suggestions').hidden = true;
+  });
+
+  document.getElementById('file-deposit-cancel').addEventListener('click', resetDeposit);
+
+  document.getElementById('file-deposit-publish').addEventListener('click', function () {
+    if (!selectedFile) {
+      showError('Sélectionnez un fichier.');
+      return;
+    }
+    var mode = document.querySelector('input[name="deposit_mode"]:checked');
+    mode = mode ? mode.value : 'new';
+    var channelEl = document.querySelector('input[name="deposit_channel"]:checked');
+    var channel = channelEl ? channelEl.value : 'stable';
+    var version = document.getElementById('deposit-version').value.trim();
+    if (!version) {
+      showError('La version est obligatoire.');
+      return;
+    }
+
+    var fd = new FormData();
+    fd.append('upload', selectedFile, selectedFile.name);
+    fd.append('mode', mode);
+    fd.append('version_label', version);
+    fd.append('channel', channel);
+    fd.append('changelog', document.getElementById('deposit-changelog').value || '');
+
+    if (mode === 'existing') {
+      var fid = document.getElementById('existing-file-id').value;
+      if (!fid) {
+        showError('Choisissez un fichier catalogue existant.');
+        return;
+      }
+      fd.append('file_id', fid);
+    } else {
+      var label = document.getElementById('new-label').value.trim();
+      var slug = document.getElementById('new-slug').value.trim();
+      if (!label || !slug) {
+        showError('Libellé et slug sont obligatoires pour un nouveau fichier.');
+        return;
+      }
+      fd.append('label', label);
+      fd.append('slug', slug);
+      fd.append('description', document.getElementById('new-description').value || '');
+    }
+
+    var btn = document.getElementById('file-deposit-publish');
+    btn.disabled = true;
+    showError('');
+
+    fetch('/admin/files/deposit', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: fd
+    })
+      .then(function (r) {
+        return r.json().then(function (data) {
+          return { ok: r.ok, status: r.status, data: data };
+        });
+      })
+      .then(function (res) {
+        btn.disabled = false;
+        if (!res.ok || !res.data || !res.data.ok) {
+          showError((res.data && res.data.detail) || 'Échec du dépôt');
+          return;
+        }
+        var msg = res.data.message || 'Version publiée';
+        if (res.data.files) renderCatalogue(res.data.files);
+        resetDeposit();
+        showFlash(msg, 'success');
+      })
+      .catch(function () {
+        btn.disabled = false;
+        showError('Échec réseau du dépôt');
+      });
+  });
+})();
+</script>
 {% endblock %}

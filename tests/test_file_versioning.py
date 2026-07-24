@@ -522,3 +522,166 @@ def test_file_download_requires_launch(client, db_session: Session, monkeypatch,
         },
     )
     assert resp.status_code == 403
+
+
+ADMIN_HEADERS = {
+    "X-Email": "admin@example.com",
+    "X-Groups": "portal-admins",
+}
+
+
+def test_files_deposit_new(client, db_session: Session, monkeypatch, tmp_path):
+    monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
+    get_settings.cache_clear()
+
+    resp = client.post(
+        "/admin/files/deposit",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={
+            "mode": "new",
+            "label": "Client Installer",
+            "slug": "client-installer",
+            "description": "Installateur",
+            "version_label": "2.4.0",
+            "channel": "stable",
+            "changelog": "first",
+        },
+        files={"upload": ("client-installer-2.4.0.zip", b"zip-bytes", "application/zip")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["file"]["slug"] == "client-installer"
+    assert body["version"]["version_label"] == "2.4.0"
+
+    from app.models import FileResource, FileVersion
+
+    fr = db_session.query(FileResource).filter_by(slug="client-installer").one()
+    versions = db_session.query(FileVersion).filter_by(file_id=fr.id).all()
+    assert len(versions) == 1
+    assert versions[0].version_label == "2.4.0"
+    assert versions[0].channel == "stable"
+
+
+def test_files_deposit_existing(client, db_session: Session, monkeypatch, tmp_path):
+    monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
+    get_settings.cache_clear()
+    settings = get_settings()
+
+    fr = _file(db_session, slug="vpn-client", label="VPN Client")
+    store_file_version(
+        db_session,
+        file=fr,
+        channel="stable",
+        version_label="1.0.0",
+        filename="vpn-1.0.0.exe",
+        content_type="application/octet-stream",
+        data=b"v1",
+        uploaded_by="admin@test",
+        settings=settings,
+    )
+    db_session.commit()
+    file_id = fr.id
+
+    from app.models import FileResource, FileVersion
+
+    before = db_session.query(FileResource).count()
+
+    resp = client.post(
+        "/admin/files/deposit",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={
+            "mode": "existing",
+            "file_id": str(file_id),
+            "version_label": "1.1.0",
+            "channel": "beta",
+            "changelog": "bump",
+        },
+        files={"upload": ("vpn-1.1.0.exe", b"v2-bytes", "application/octet-stream")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["file"]["id"] == file_id
+    assert body["version"]["version_label"] == "1.1.0"
+    assert body["version"]["channel"] == "beta"
+
+    db_session.expire_all()
+    assert db_session.query(FileResource).count() == before
+    labels = {
+        v.version_label
+        for v in db_session.query(FileVersion).filter_by(file_id=file_id).all()
+    }
+    assert labels == {"1.0.0", "1.1.0"}
+
+
+def test_files_deposit_rollback(client, db_session: Session, monkeypatch, tmp_path):
+    """mode=new must not leave an orphan FileResource if version creation fails."""
+    monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
+    get_settings.cache_clear()
+
+    from app.models import FileResource, FileVersion
+
+    before_files = db_session.query(FileResource).count()
+    before_versions = db_session.query(FileVersion).count()
+
+    # Invalid SemVer → store_file_version fails after FileResource flush.
+    resp = client.post(
+        "/admin/files/deposit",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={
+            "mode": "new",
+            "label": "Orphan Candidate",
+            "slug": "orphan-candidate",
+            "version_label": "not-a-semver",
+            "channel": "stable",
+        },
+        files={"upload": ("orphan.bin", b"data", "application/octet-stream")},
+    )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["ok"] is False
+
+    db_session.expire_all()
+    assert db_session.query(FileResource).filter_by(slug="orphan-candidate").first() is None
+    assert db_session.query(FileResource).count() == before_files
+    assert db_session.query(FileVersion).count() == before_versions
+
+    # Same orchestration path when version_label is already used (simulated).
+    def _boom(*_a, **_k):
+        raise ValueError("La version « 9.9.9 » existe déjà pour ce fichier")
+
+    monkeypatch.setattr("app.admin.files.store_file_version", _boom)
+    resp2 = client.post(
+        "/admin/files/deposit",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={
+            "mode": "new",
+            "label": "Boom File",
+            "slug": "boom-file",
+            "version_label": "9.9.9",
+            "channel": "stable",
+        },
+        files={"upload": ("boom.bin", b"boom", "application/octet-stream")},
+    )
+    assert resp2.status_code == 400, resp2.text
+    db_session.expire_all()
+    assert db_session.query(FileResource).filter_by(slug="boom-file").first() is None
+    assert db_session.query(FileResource).count() == before_files
+
+
+def test_files_resolve_name(client, db_session: Session):
+    _file(db_session, slug="client-installer", label="Client Installer")
+    _file(db_session, slug="other-tool", label="Other Tool")
+    db_session.commit()
+
+    resp = client.get(
+        "/admin/files/resolve-name",
+        params={"q": "client-installer"},
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["best"] is not None
+    assert body["best"]["slug"] == "client-installer"
+    assert any(r["slug"] == "client-installer" for r in body["results"])

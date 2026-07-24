@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -16,11 +16,13 @@ from app.files.service import (
     create_file_resource,
     delete_channel_assignment,
     promote_file_version,
+    resolve_storage_path,
     store_file_version,
 )
 from app.models import FileChannelAssignment, FileResource, FileVersion, RBACGroup, RealmConfig
 from app.rbac.grants_service import ACCESS_LEVELS, build_file_access_view
 from app.request_client_ip import client_ip_from_request
+from app.search_fuzzy import score_query_against_fields
 from app.sso_settings import Settings, get_settings
 from app.web.flash import flash_redirect
 from app.web.templates import render
@@ -29,6 +31,10 @@ from app.web.user_context import require_admin
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-files"], dependencies=[Depends(require_admin)])
+
+_RESOLVE_MIN_SCORE = 0.52
+_RESOLVE_STRONG_SCORE = 0.78
+_RESOLVE_LIMIT = 8
 
 
 def _ctx(request: Request, settings: Settings, **extra):
@@ -42,27 +48,15 @@ def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
 
 
-def _file_or_404(db: Session, file_id: int) -> FileResource:
-    fr = db.query(FileResource).filter_by(id=file_id).first()
-    if not fr:
-        raise HTTPException(status_code=404, detail="Fichier introuvable")
-    return fr
+def _wants_json(request: Request) -> bool:
+    accept = request.headers.get("accept", "")
+    return (
+        "application/json" in accept
+        or request.headers.get("x-requested-with") == "XMLHttpRequest"
+    )
 
 
-def _version_or_404(db: Session, file_id: int, version_id: int) -> FileVersion:
-    version = db.query(FileVersion).filter_by(id=version_id, file_id=file_id).first()
-    if not version:
-        raise HTTPException(status_code=404, detail="Version introuvable")
-    return version
-
-
-@router.get("/admin/files")
-def admin_files_list(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
-):
+def _file_catalogue_rows(db: Session) -> list[dict]:
     files = db.query(FileResource).order_by(FileResource.label).all()
     rows = []
     for fr in files:
@@ -86,7 +80,209 @@ def admin_files_list(
                 "version_count": len(versions),
             }
         )
-    return render("admin/files/list.html", **_ctx(request, settings, files=rows))
+    return rows
+
+
+def _unlink_blob(storage_path: str | None, settings: Settings) -> None:
+    if not storage_path:
+        return
+    try:
+        resolve_storage_path(storage_path, settings).unlink(missing_ok=True)
+    except (OSError, ValueError):
+        logger.exception("failed to clean orphan blob path=%s", storage_path)
+
+
+def _file_or_404(db: Session, file_id: int) -> FileResource:
+    fr = db.query(FileResource).filter_by(id=file_id).first()
+    if not fr:
+        raise HTTPException(status_code=404, detail="Fichier introuvable")
+    return fr
+
+
+def _version_or_404(db: Session, file_id: int, version_id: int) -> FileVersion:
+    version = db.query(FileVersion).filter_by(id=version_id, file_id=file_id).first()
+    if not version:
+        raise HTTPException(status_code=404, detail="Version introuvable")
+    return version
+
+
+@router.get("/admin/files")
+def admin_files_list(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    return render(
+        "admin/files/list.html",
+        **_ctx(request, settings, files=_file_catalogue_rows(db)),
+    )
+
+
+@router.get("/admin/files/resolve-name")
+def admin_files_resolve_name(
+    q: str = Query("", min_length=0),
+    db: Session = Depends(get_db),
+    _user=Depends(require_admin),
+):
+    """Fuzzy autocomplete on FileResource label + slug."""
+    query = (q or "").strip()
+    if not query:
+        return JSONResponse({"ok": True, "results": [], "best": None})
+
+    scored: list[tuple[float, dict]] = []
+    for fr in db.query(FileResource).order_by(FileResource.label).all():
+        score = score_query_against_fields(query, [fr.label or "", fr.slug or ""])
+        if score < _RESOLVE_MIN_SCORE:
+            continue
+        scored.append(
+            (
+                score,
+                {
+                    "id": fr.id,
+                    "slug": fr.slug,
+                    "label": fr.label,
+                    "description": fr.description,
+                    "score": round(score, 3),
+                },
+            )
+        )
+    scored.sort(key=lambda pair: (-pair[0], (pair[1]["label"] or "").casefold()))
+    results = [item for _, item in scored[:_RESOLVE_LIMIT]]
+    best = results[0] if results and results[0]["score"] >= _RESOLVE_STRONG_SCORE else None
+    return JSONResponse({"ok": True, "results": results, "best": best})
+
+
+@router.post("/admin/files/deposit")
+async def admin_files_deposit(
+    request: Request,
+    mode: str = Form(...),
+    version_label: str = Form(...),
+    channel: str = Form("stable"),
+    changelog: str = Form(""),
+    upload: UploadFile = File(...),
+    file_id: int | None = Form(None),
+    label: str = Form(""),
+    slug: str = Form(""),
+    description: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Single-shot deposit: optional FileResource create + FileVersion upload."""
+    mode_norm = (mode or "").strip().lower()
+    if mode_norm not in ("new", "existing"):
+        detail = 'mode must be "new" or "existing"'
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "detail": detail}, status_code=400)
+        raise HTTPException(status_code=400, detail=detail)
+
+    data = await upload.read()
+    created_resource = False
+    written_path: str | None = None
+    fr: FileResource | None = None
+    version: FileVersion | None = None
+
+    try:
+        if mode_norm == "new":
+            fr = create_file_resource(
+                db,
+                slug=slug,
+                label=label,
+                description=description or None,
+                created_by=user.email,
+            )
+            created_resource = True
+        else:
+            if not file_id:
+                raise ValueError("file_id is required when mode=existing")
+            fr = db.query(FileResource).filter_by(id=file_id).first()
+            if not fr:
+                raise ValueError("Fichier introuvable")
+
+        version = store_file_version(
+            db,
+            file=fr,
+            channel=channel,
+            version_label=version_label,
+            filename=upload.filename or "upload.bin",
+            content_type=upload.content_type,
+            data=data,
+            uploaded_by=user.email,
+            changelog=changelog or None,
+            settings=settings,
+            encrypt=True,
+        )
+        written_path = version.storage_path
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        _unlink_blob(written_path, settings)
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
+        response = RedirectResponse(url="/admin/files", status_code=302)
+        flash_redirect(
+            response, str(exc), "error", settings.vault_portal_internal_token or "dev"
+        )
+        return response
+    except Exception:
+        db.rollback()
+        _unlink_blob(written_path, settings)
+        logger.exception("deposit failed")
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "detail": "Échec du dépôt"}, status_code=500)
+        raise
+
+    assert fr is not None and version is not None
+    if created_resource:
+        log_action(
+            db,
+            actor=user.email,
+            action="file.created",
+            target=f"file:{fr.id}",
+            details={"slug": fr.slug, "label": fr.label, "via": "deposit"},
+            ip_address=_client_ip(request),
+        )
+    log_action(
+        db,
+        actor=user.email,
+        action="file.version.published",
+        target=f"file:{fr.id}:version:{version.id}",
+        details={
+            "channel": version.channel,
+            "version_label": version.version_label,
+            "checksum_sha256": version.checksum_sha256,
+            "size_bytes": version.size_bytes,
+            "original_filename": version.original_filename,
+            "encrypted": version.encrypted,
+            "via": "deposit",
+            "mode": mode_norm,
+        },
+        ip_address=_client_ip(request),
+    )
+
+    payload = {
+        "ok": True,
+        "file": {"id": fr.id, "slug": fr.slug, "label": fr.label},
+        "version": {
+            "id": version.id,
+            "version_label": version.version_label,
+            "channel": version.channel,
+        },
+        "message": f"Version {version.version_label} publiée sur {fr.slug}",
+        "files": _file_catalogue_rows(db),
+    }
+    if _wants_json(request):
+        return JSONResponse(payload)
+
+    response = RedirectResponse(url=f"/admin/files/{fr.id}", status_code=302)
+    flash_redirect(
+        response,
+        payload["message"],
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
 
 
 @router.post("/admin/files")
