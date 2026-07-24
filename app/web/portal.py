@@ -74,6 +74,7 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
         resolve_identity_login_username,
     )
     from app.web.app_logos import logo_public_url
+    from app.web.portal_enrichment import enrich_tile
     from app.vault.user_app_credential_service import needs_individual_credential_setup
 
     entries = get_effective_apps_for_user(
@@ -95,24 +96,23 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
                 username=user.username,
                 identity_format=getattr(entry.app, "identity_format", None),
             )
-        tiles.append(
-            {
-                "id": entry.app.id,
-                "slug": entry.app.slug,
-                "label": entry.app.label,
-                "description": entry.app.description or "",
-                "access_mode": entry.app.access_mode,
-                "access_level": entry.access_level,
-                "access_status": _ACCESS_STATUS.get(entry.access_level, "Accès"),
-                "can_launch": can_launch,
-                "needs_credential_setup": needs_credential_setup,
-                "credential_mode": cred_mode,
-                "identity_login": identity_login,
-                "launch_url": app_launch_url(entry.app),
-                "logo_url": logo_public_url(entry.app),
-                "tile_icon": entry.app.tile_icon,
-            }
-        )
+        tile = {
+            "id": entry.app.id,
+            "slug": entry.app.slug,
+            "label": entry.app.label,
+            "description": entry.app.description or "",
+            "access_mode": entry.app.access_mode,
+            "access_level": entry.access_level,
+            "access_status": _ACCESS_STATUS.get(entry.access_level, "Accès"),
+            "can_launch": can_launch,
+            "needs_credential_setup": needs_credential_setup,
+            "credential_mode": cred_mode,
+            "identity_login": identity_login,
+            "launch_url": app_launch_url(entry.app),
+            "logo_url": logo_public_url(entry.app),
+            "tile_icon": entry.app.tile_icon,
+        }
+        tiles.append(enrich_tile(entry.app, tile))
     return tiles
 
 
@@ -144,6 +144,10 @@ async def apps_portal(
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
+    from app.web.portal_enrichment import PORTAL_FILTERS, recent_sessions_for_user
+
+    apps_by_slug = {t["slug"]: t for t in tiles}
+    recent = recent_sessions_for_user(db, user, apps_by_slug=apps_by_slug)
     return render(
         "portal/apps.html",
         **_portal_page_ctx(
@@ -153,6 +157,8 @@ async def apps_portal(
             portal_admin=portal_admin,
             apps=tiles,
             greeting_name=user.first_name,
+            recent_sessions=recent,
+            portal_filters=PORTAL_FILTERS,
         ),
     )
 

@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-portal-v2">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-stitch-apps">
 {% endblock %}
 
 {% block content %}
@@ -20,79 +20,170 @@
     <div class="portal-hero-copy">
       <p class="portal-eyebrow">Compte</p>
       <h1 class="page-title">Mon profil</h1>
-      <p class="page-sub">Identité, applications et sécurité sur Bastion Pro</p>
+      <p class="page-sub">Identité, sécurité et préférences Bastion Pro</p>
     </div>
   </section>
 
-  <div class="portal-profile-stack">
-    <section class="card portal-profile-card portal-identity-card">
-      <div class="card-body portal-identity">
-        <span class="portal-avatar portal-avatar--xl" aria-hidden="true">{{ portal_user.initials }}</span>
-        <div class="portal-identity-copy">
-          <div class="portal-identity-name">{{ portal_user.display_name }}</div>
-          <div class="portal-identity-email">{{ portal_user.email }}</div>
-          <span class="badge {% if is_admin or is_portal_admin %}badge-ok{% else %}badge-muted{% endif %}">{{ role_label }}</span>
-        </div>
-      </div>
-    </section>
+  <div class="portal-profile-layout">
+    <nav class="portal-profile-nav card" aria-label="Sections du profil">
+      <a href="#section-general" class="portal-profile-nav-link is-active" data-profile-nav>Général</a>
+      <a href="#section-security" class="portal-profile-nav-link" data-profile-nav>Sécurité</a>
+      <a href="#section-prefs" class="portal-profile-nav-link" data-profile-nav>Préférences</a>
+      <span class="portal-profile-nav-disabled" title="Non disponible dans cette version">Notifications</span>
+      <span class="portal-profile-nav-disabled" title="Non disponible dans cette version">Jetons API</span>
+    </nav>
 
-    <section class="card portal-profile-card">
-      <div class="card-header">
-        <h2 class="card-title">Mes applications</h2>
-        <a href="/apps" class="btn btn-ghost btn-sm">Voir tout</a>
-      </div>
-      <div class="card-body">
-        {% if apps %}
-        <p class="portal-profile-count">
-          {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
-        </p>
-        <div class="portal-apps-preview" aria-label="Aperçu des applications">
-          {% for app in apps_preview %}
-          <a class="portal-apps-preview-item" href="/apps" title="{{ app.description or app.label }}">
-            <span class="portal-apps-preview-tile">{{ app_preview_icon(app) }}</span>
-            <span class="portal-apps-preview-label truncate">{{ app.label }}</span>
-            <span class="portal-apps-preview-chevron" aria-hidden="true">→</span>
-          </a>
-          {% endfor %}
+    <div class="portal-profile-stack">
+      <section id="section-general" class="card portal-profile-card portal-identity-card">
+        <div class="card-header">
+          <h2 class="card-title">Identité</h2>
         </div>
-        {% else %}
-        <p class="text-2">Aucune application pour le moment.</p>
-        {% endif %}
-      </div>
-    </section>
+        <div class="card-body portal-identity">
+          <span class="portal-avatar portal-avatar--xl" aria-hidden="true">{{ portal_user.initials }}</span>
+          <div class="portal-identity-copy">
+            <div class="portal-identity-name">{{ portal_user.display_name }}</div>
+            <div class="portal-identity-email">{{ portal_user.email }}</div>
+            <span class="badge {% if is_admin or is_portal_admin %}badge-ok{% else %}badge-muted{% endif %}">{{ role_label }}</span>
+          </div>
+        </div>
+        <div class="card-body portal-identity-fields">
+          <div class="portal-field-row">
+            <div>
+              <div class="form-label">Nom affiché</div>
+              <div class="portal-field-value">{{ portal_user.display_name }}</div>
+            </div>
+          </div>
+          <div class="portal-field-row">
+            <div>
+              <div class="form-label">Email</div>
+              <div class="portal-field-value mono">{{ portal_user.email }}</div>
+            </div>
+            {% if account_url %}
+            <a class="btn btn-ghost btn-sm" href="{{ account_url }}" target="_blank" rel="noopener noreferrer">Modifier</a>
+            {% endif %}
+          </div>
+          <div class="portal-field-row">
+            <div>
+              <div class="form-label">Identifiant</div>
+              <div class="portal-field-value mono">{{ portal_user.username }}</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-    <section class="card portal-profile-card">
-      <div class="card-header">
-        <h2 class="card-title">Sécurité du compte</h2>
-      </div>
-      <div class="card-body">
-        {% if portal_user.is_breakglass %}
-        <p class="portal-security-note">
-          <span class="badge badge-warn">Compte de secours local</span>
-        </p>
-        <p class="text-2">
-          Ce compte d'urgence est géré localement et n'utilise pas le portail d'identité.
-          Le mot de passe et les sessions ne sont pas modifiables ici.
-        </p>
-        {% elif account_url %}
-        <p class="text-2">
-          Mot de passe, authentification renforcée et sessions actives sont gérés
-          dans votre espace compte.
-        </p>
-        <p class="portal-security-actions">
-          <a href="{{ account_url }}" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
-            Gérer la sécurité du compte
-          </a>
-        </p>
-        {% else %}
-        <p class="text-2">
-          La gestion de la sécurité du compte n'est pas disponible pour le moment.
-          Contactez un administrateur si besoin.
-        </p>
-        {% endif %}
-      </div>
-    </section>
+      <section id="section-apps" class="card portal-profile-card">
+        <div class="card-header">
+          <h2 class="card-title">Mes applications</h2>
+          <a href="/apps" class="btn btn-ghost btn-sm">Voir tout</a>
+        </div>
+        <div class="card-body">
+          {% if apps %}
+          <p class="portal-profile-count">
+            {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
+          </p>
+          <div class="portal-apps-preview" aria-label="Aperçu des applications">
+            {% for app in apps_preview %}
+            <a class="portal-apps-preview-item" href="/apps" title="{{ app.description or app.label }}">
+              <span class="portal-apps-preview-tile">{{ app_preview_icon(app) }}</span>
+              <span class="portal-apps-preview-label truncate">{{ app.label }}</span>
+              <span class="portal-apps-preview-chevron" aria-hidden="true">→</span>
+            </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-2">Aucune application pour le moment.</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section id="section-security" class="card portal-profile-card">
+        <div class="card-header">
+          <h2 class="card-title">Sécurité du compte</h2>
+        </div>
+        <div class="card-body">
+          {% if portal_user.is_breakglass %}
+          <p class="portal-security-note">
+            <span class="badge badge-warn">Compte de secours local</span>
+          </p>
+          <p class="text-2">
+            Ce compte d'urgence est géré localement et n'utilise pas le portail d'identité.
+            Le mot de passe et les sessions ne sont pas modifiables ici.
+          </p>
+          {% elif account_url %}
+          <div class="portal-security-grid">
+            <div class="portal-security-card">
+              <div class="form-label">Mot de passe &amp; MFA</div>
+              <p class="text-2">Gérés dans votre espace compte identité.</p>
+              <a href="{{ account_url }}" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
+                Gérer la sécurité du compte
+              </a>
+            </div>
+            <div class="portal-security-card">
+              <div class="form-label">Sessions SSO</div>
+              <p class="text-2">Révocation et appareils connectés via la console compte.</p>
+              <a href="{{ account_url }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer">
+                Ouvrir la console
+              </a>
+            </div>
+          </div>
+          {% else %}
+          <p class="text-2">
+            La gestion de la sécurité du compte n'est pas disponible pour le moment.
+            Contactez un administrateur si besoin.
+          </p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section id="section-prefs" class="card portal-profile-card">
+        <div class="card-header">
+          <h2 class="card-title">Préférences</h2>
+        </div>
+        <div class="card-body">
+          <div class="form-label" id="theme-pref-label">Thème d'affichage</div>
+          <p class="group-config-hint" style="margin:var(--sp-2) 0 var(--sp-3);">Enregistré dans ce navigateur (pas de sync serveur).</p>
+          <div class="portal-theme-choices" role="radiogroup" aria-labelledby="theme-pref-label">
+            <label class="portal-theme-choice">
+              <input type="radio" name="theme-pref" value="light" data-theme-pref>
+              <span>Clair</span>
+            </label>
+            <label class="portal-theme-choice">
+              <input type="radio" name="theme-pref" value="dark" data-theme-pref>
+              <span>Sombre</span>
+            </label>
+            <label class="portal-theme-choice">
+              <input type="radio" name="theme-pref" value="system" data-theme-pref>
+              <span>Système</span>
+            </label>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </main>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var prefs = document.querySelectorAll('[data-theme-pref]');
+  if (!prefs.length || !window.BastionTheme) return;
+  var current = window.BastionTheme.getPreference();
+  prefs.forEach(function (el) {
+    el.checked = el.value === current;
+    el.addEventListener('change', function () {
+      if (el.checked) window.BastionTheme.setPreference(el.value);
+    });
+  });
+
+  document.querySelectorAll('[data-profile-nav]').forEach(function (link) {
+    link.addEventListener('click', function () {
+      document.querySelectorAll('[data-profile-nav]').forEach(function (l) {
+        l.classList.toggle('is-active', l === link);
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

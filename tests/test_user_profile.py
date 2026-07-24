@@ -76,18 +76,18 @@ def test_user_profile_accessible_authenticated(client: TestClient, db_session: S
     assert "Identité" in resp.text
     assert "Mes applications" in resp.text
     assert "Sécurité du compte" in resp.text
+    assert "Préférences" in resp.text
     assert "alice@example.com" in resp.text
     assert "Utilisateur" in resp.text
     assert "Administrateur" not in resp.text
     assert "portal-avatar" in resp.text
     assert "portal-identity-name" in resp.text
-    assert "Nom affiché" not in resp.text
-    assert "E-mail" not in resp.text
-    assert "Rôle" not in resp.text
+    assert "Nom affiché" in resp.text
     assert "access_mode" not in resp.text
     assert "slug" not in resp.text
     assert "grant" not in resp.text.lower()
     assert "team-ops" not in resp.text
+    assert "data-theme-pref" in resp.text
 
 
 def test_user_profile_security_hidden_for_breakglass(
