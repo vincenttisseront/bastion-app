@@ -109,11 +109,34 @@ def _version_or_404(db: Session, file_id: int, version_id: int) -> FileVersion:
 @router.get("/admin/files")
 def admin_files_list(
     request: Request,
-    folder_id: int | None = None,
+    folder_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
 ):
-    """CrushFTP browser lives at /files — keep admin URL as redirect."""
-    qs = f"?folder_id={folder_id}" if folder_id is not None else ""
-    return RedirectResponse(url=f"/files{qs}", status_code=302)
+    """Admin chrome browser (works for break-glass; does not bounce via /files)."""
+    from app.files.service import list_folder_contents
+
+    listing = list_folder_contents(
+        db,
+        folder_id=folder_id,
+        keycloak_user_id=getattr(user, "keycloak_user_id", None),
+        group_names=getattr(user, "groups", None) or [],
+        is_portal_admin=True,
+    )
+    return render(
+        "files/browser.html",
+        **_ctx(
+            request,
+            settings,
+            listing=listing,
+            folder_id=folder_id,
+            admin_chrome=True,
+            portal_user=user,
+            is_admin=True,
+            is_portal_admin=True,
+        ),
+    )
 
 
 @router.get("/admin/files/resolve-name")

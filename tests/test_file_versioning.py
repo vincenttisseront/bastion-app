@@ -681,3 +681,17 @@ def test_files_rights_no_access_hidden(db_session: Session, monkeypatch, tmp_pat
         is_portal_admin=False,
     )
     assert nested["files"] == []
+
+
+def test_files_browser_reachable_for_breakglass(client):
+    """Regression: break-glass must not be bounced /files → /dashboard."""
+    headers = {
+        "X-Email": "admin@breakglass.local",
+        "X-Preferred-Username": "bg-admin",
+        "X-Groups": "portal-admins",
+        "X-Portal-Auth-Source": "breakglass",
+    }
+    for path in ("/files", "/admin/files"):
+        resp = client.get(path, headers=headers, follow_redirects=False)
+        assert resp.status_code == 200, f"{path} -> {resp.status_code}"
+        assert "/dashboard" not in (resp.headers.get("location") or "")

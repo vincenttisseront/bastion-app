@@ -41,7 +41,7 @@ def _client_ip(request: Request) -> str:
 
 
 def _portal_admin(user: UserContext, db: Session, settings: Settings) -> bool:
-    if user.is_admin:
+    if user.is_admin or user.is_breakglass:
         return True
     from app.web.portal import _resolve_portal_admin
 
@@ -72,19 +72,19 @@ async def files_browser_page(
     settings: Settings = Depends(get_settings),
     user: UserContext = Depends(require_user_enriched),
 ):
-    if user.is_breakglass:
-        return RedirectResponse(url="/dashboard", status_code=302)
+    # Break-glass admins must reach the browser (sidebar → /files|/admin/files).
+    # Portal /apps still redirects break-glass to /dashboard; files does not.
 
     from app.web.portal import _portal_page_ctx, _resolve_portal_admin, touch_portal_session
 
     touch_portal_session(db, user, _client_ip(request), request=request)
-    portal_admin = _resolve_portal_admin(user, db, settings)
+    portal_admin = _resolve_portal_admin(user, db, settings) or user.is_breakglass
     listing = list_folder_contents(
         db,
         folder_id=folder_id,
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
-        is_portal_admin=bool(portal_admin or user.is_admin),
+        is_portal_admin=bool(portal_admin or user.is_admin or user.is_breakglass),
     )
     return render(
         "files/browser.html",
@@ -92,10 +92,11 @@ async def files_browser_page(
             request,
             settings,
             user=user,
-            portal_admin=portal_admin,
+            portal_admin=bool(portal_admin),
             listing=listing,
             folder_id=folder_id,
             greeting_name=user.first_name,
+            admin_chrome=False,
         ),
     )
 

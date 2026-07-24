@@ -1,11 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Fichiers{% endblock %}
-{% block body_class %}page-portal{% endblock %}
+{% block body_class %}{% if not admin_chrome %}page-portal{% endif %}{% endblock %}
+{% block breadcrumb %}{% if admin_chrome %}Admin / Fichiers{% endif %}{% endblock %}
 
 {% block head_extra %}
+{% if not admin_chrome %}
 <link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-files-browser">
+{% endif %}
 <style>
 .fb-shell{max-width:1100px;margin:0 auto;padding:var(--sp-4) var(--sp-4) var(--sp-8);}
+{% if admin_chrome %}.fb-shell{max-width:none;padding:0 0 var(--sp-6);}{% endif %}
 .fb-toolbar{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3);}
 .fb-crumb{display:flex;flex-wrap:wrap;gap:var(--sp-1);align-items:center;font-size:var(--fs-sm);margin-bottom:var(--sp-3);}
 .fb-crumb a{color:var(--text-2);text-decoration:none;}
@@ -34,22 +38,34 @@
 {% endblock %}
 
 {% block content %}
+{% if not admin_chrome %}
 <div class="portal-shell">
 {% include "portal/_topbar.html" %}
-
 {% if messages %}
 <div class="flash-container portal-flash">{% include 'partials/_flash.html' %}</div>
 {% endif %}
+{% else %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Fichiers</h1>
+      <p class="page-sub">Navigateur par dossiers — dépôt sans formulaire</p>
+    </div>
+  </div>
+  {% if messages %}{% include 'partials/_flash.html' %}{% endif %}
+{% endif %}
 
+{% set base_path = '/admin/files' if admin_chrome else '/files' %}
 <main class="fb-shell" id="fb-root"
   data-folder-id="{{ folder_id if folder_id is not none else '' }}"
-  data-can-manage="{{ '1' if listing.can_manage else '0' }}">
+  data-can-manage="{{ '1' if listing.can_manage else '0' }}"
+  data-base-path="{{ base_path }}">
 
   <div class="fb-crumb" id="fb-crumb">
-    <a href="/files" data-folder="">Accueil</a>
+    <a href="{{ base_path }}" data-folder="">Accueil</a>
     {% for seg in listing.breadcrumb %}
       <span class="sep">/</span>
-      <a href="/files?folder_id={{ seg.id }}" data-folder="{{ seg.id }}">{{ seg.name }}</a>
+      <a href="{{ base_path }}?folder_id={{ seg.id }}" data-folder="{{ seg.id }}">{{ seg.name }}</a>
     {% endfor %}
   </div>
 
@@ -107,6 +123,7 @@
       </tbody>
     </table>
   </div>
+</main>
 </div>
 
 <div class="fb-drawer" id="fb-drawer" aria-hidden="true">
@@ -126,14 +143,11 @@
   var body = document.getElementById('fb-body');
   var canManage = root.getAttribute('data-can-manage') === '1';
   var folderId = root.getAttribute('data-folder-id') || '';
+  var basePath = root.getAttribute('data-base-path') || '/files';
   var progress = document.getElementById('fb-progress');
   var bar = progress.querySelector('span');
   var menu = document.getElementById('fb-menu');
   var drawer = document.getElementById('fb-drawer');
-
-  function currentFolderParam() {
-    return folderId === '' ? null : Number(folderId);
-  }
 
   function formatSize(n) {
     if (n == null) return '—';
@@ -149,9 +163,9 @@
     canManage = !!listing.can_manage;
 
     var crumb = document.getElementById('fb-crumb');
-    var html = '<a href="/files" data-folder="">Accueil</a>';
+    var html = '<a href="' + basePath + '" data-folder="">Accueil</a>';
     (listing.breadcrumb || []).forEach(function (seg) {
-      html += '<span class="sep">/</span><a href="/files?folder_id=' + seg.id + '" data-folder="' + seg.id + '">' + escapeHtml(seg.name) + '</a>';
+      html += '<span class="sep">/</span><a href="' + basePath + '?folder_id=' + seg.id + '" data-folder="' + seg.id + '">' + escapeHtml(seg.name) + '</a>';
     });
     crumb.innerHTML = html;
 
@@ -177,7 +191,7 @@
         '</div></td></tr>';
     }
     body.innerHTML = rows;
-    history.replaceState(null, '', folderId ? ('/files?folder_id=' + folderId) : '/files');
+    history.replaceState(null, '', folderId ? (basePath + '?folder_id=' + folderId) : basePath);
   }
 
   function escapeHtml(s) {
@@ -378,8 +392,6 @@
       fetch('/files/versions/' + ch.getAttribute('data-id') + '/channel', {
         method: 'PATCH', body: fd, headers: { Accept: 'application/json' }
       }).then(function () {
-        openHistory(Number(document.querySelector('.fb-more') && 0));
-        /* reopen current from title context — refresh listing instead */
         refresh();
         drawer.classList.remove('is-open');
       });
