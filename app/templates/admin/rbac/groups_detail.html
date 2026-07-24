@@ -49,48 +49,9 @@
       <span class="card-title">Droits accordés au groupe</span>
       <span class="badge badge-muted">{{ grant_rows | length }}</span>
     </div>
-    <div class="table-wrap" style="border:none;border-radius:0;">
-      <table class="data-table">
-        <thead><tr><th>Ressource</th><th>Niveau</th><th>Accordé par</th><th></th></tr></thead>
-        <tbody>
-          {% for g in grant_rows %}
-          <tr>
-            <td>
-              {% if g.resource_type == 'application' %}
-                {% if g.application_id %}
-                  <a href="/admin/rbac/applications/{{ g.application_id }}">Application · {{ g.application_label or g.application_id }}</a>
-                {% else %}
-                  Application · {{ g.application_label or g.application_id }}
-                {% endif %}
-              {% elif g.resource_type == 'file' %}
-                {% if g.file_id %}
-                  <a href="/admin/files/{{ g.file_id }}">Fichier · {{ g.file_label or g.file_id }}</a>
-                {% else %}
-                  Fichier · {{ g.file_label or g.file_id }}
-                {% endif %}
-              {% elif g.resource_type == 'folder' %}
-                Dossier · {{ g.folder_name or g.folder_id }}
-              {% elif g.resource_type == 'rbac_role' %}
-                Rôle RBAC · {{ g.rbac_role_name or g.rbac_role_id }}
-              {% else %}
-                Rôle · {{ g.system_role_label or g.system_role }}
-              {% endif %}
-            </td>
-            <td><span class="badge badge-info">{{ g.access_level }}</span></td>
-            <td class="mono">{{ g.granted_by }}</td>
-            <td>
-              <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
-                <input type="hidden" name="redirect_url" value="/admin/rbac/groups/{{ group.id }}">
-                <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
-              </form>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="4"><div class="empty-desc" style="padding:var(--sp-4);">Aucun droit accordé à ce groupe.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    {% with grant_rows=grant_rows, redirect_url='/admin/rbac/groups/' ~ group.id, show_granted_by=true, empty_message='Aucun droit accordé à ce groupe.' %}
+    {% include "admin/rbac/_grants_by_category.html" %}
+    {% endwith %}
     <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
       <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter un droit</div>
       <form method="post" action="/admin/rbac/grants" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">

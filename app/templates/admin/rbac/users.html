@@ -278,36 +278,11 @@
     <div class="card" style="padding:0;">
       <div class="card-header" style="padding:var(--sp-4);">
         <span class="card-title">Droits individuels</span>
+        <span class="badge badge-muted">{{ direct_grants | length }}</span>
       </div>
-      <div class="table-wrap" style="border:none;border-radius:0;">
-        <table class="data-table">
-          <thead><tr><th>Ressource</th><th>Niveau</th><th></th></tr></thead>
-          <tbody>
-            {% for g in direct_grants %}
-            <tr>
-              <td>
-                {% if g.resource_type == 'application' and g.application_id %}
-                  <a href="/admin/rbac/applications/{{ g.application_id }}">{{ g.application_label }}</a>
-                {% elif g.resource_type == 'application' %}
-                  {{ g.application_label }}
-                {% else %}
-                  {{ g.system_role_label }}
-                {% endif %}
-              </td>
-              <td><span class="badge badge-info">{{ g.access_level }}</span></td>
-              <td>
-                <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
-                  <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&keycloak_user_id={{ keycloak_user_id }}">
-                  <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
-                </form>
-              </td>
-            </tr>
-            {% else %}
-            <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">Aucun droit direct.</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      {% with grant_rows=direct_grants, redirect_url='/admin/rbac/users?realm_id=' ~ selected_realm.id ~ '&keycloak_user_id=' ~ keycloak_user_id, show_granted_by=false, show_actions=true, empty_message='Aucun droit direct.' %}
+      {% include "admin/rbac/_grants_by_category.html" %}
+      {% endwith %}
       <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
         <form method="post" action="/admin/rbac/grants" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
           <input type="hidden" name="subject_type" value="user">
@@ -328,30 +303,9 @@
         <span class="card-title">Droits effectifs</span>
         <span class="badge badge-muted">{{ effective_grants | length }}</span>
       </div>
-      <div class="table-wrap" style="border:none;border-radius:0;">
-        <table class="data-table">
-          <thead><tr><th>Ressource</th><th>Niveau</th><th>Provenance</th></tr></thead>
-          <tbody>
-            {% for g in effective_grants %}
-            <tr>
-              <td>
-                {% if g.resource_type == 'application' and g.application_id %}
-                  <a href="/admin/rbac/applications/{{ g.application_id }}">{{ g.application_label }}</a>
-                {% elif g.resource_type == 'application' %}
-                  {{ g.application_label }}
-                {% else %}
-                  {{ g.system_role_label }}
-                {% endif %}
-              </td>
-              <td><span class="badge badge-info">{{ g.access_level }}</span></td>
-              <td>{{ g.source }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">Aucun droit effectif.</div></td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+      {% with grant_rows=effective_grants, show_granted_by=false, show_source=true, show_actions=false, empty_message='Aucun droit effectif.' %}
+      {% include "admin/rbac/_grants_by_category.html" %}
+      {% endwith %}
     </div>
   </div>
 

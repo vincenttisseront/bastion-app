@@ -1,0 +1,175 @@
+{# Grouped grant tables by category.
+   Expects: grant_rows, empty_message
+   Optional: redirect_url, show_granted_by, show_source, show_actions
+#}
+{% set show_granted_by = show_granted_by | default(false) %}
+{% set show_source = show_source | default(false) %}
+{% set show_actions = show_actions | default(true) %}
+{% set redirect_url = redirect_url | default('') %}
+
+{% set app_grants = grant_rows | selectattr('resource_type', 'equalto', 'application') | list %}
+{% set file_grants = grant_rows | selectattr('resource_type', 'equalto', 'file') | list %}
+{% set folder_grants = grant_rows | selectattr('resource_type', 'equalto', 'folder') | list %}
+{% set files_grants = file_grants + folder_grants %}
+{% set role_grants = grant_rows | rejectattr('resource_type', 'in', ['application', 'file', 'folder']) | list %}
+{% set col_span = 2 + (1 if show_granted_by else 0) + (1 if show_source else 0) + (1 if show_actions else 0) %}
+
+{% if not grant_rows %}
+<div class="table-wrap" style="border:none;border-radius:0;">
+  <table class="data-table">
+    <tbody>
+      <tr>
+        <td colspan="{{ col_span }}">
+          <div class="empty-desc" style="padding:var(--sp-4);">{{ empty_message | default('Aucun droit.') }}</div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+{% else %}
+
+{% if app_grants %}
+<div class="grant-section" style="padding:var(--sp-3) var(--sp-4) 0;">
+  <div class="form-section-title" style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2);">
+    Applications
+    <span class="badge badge-muted">{{ app_grants | length }}</span>
+  </div>
+</div>
+<div class="table-wrap" style="border:none;border-radius:0;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Ressource</th>
+        <th>Niveau</th>
+        {% if show_granted_by %}<th>Accordé par</th>{% endif %}
+        {% if show_source %}<th>Provenance</th>{% endif %}
+        {% if show_actions %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in app_grants %}
+      <tr>
+        <td>
+          {% if g.application_id %}
+            <a href="/admin/rbac/applications/{{ g.application_id }}">{{ g.application_label or g.application_id }}</a>
+          {% else %}
+            {{ g.application_label or 'Application' }}
+          {% endif %}
+        </td>
+        <td><span class="badge badge-info">{{ g.access_level }}</span></td>
+        {% if show_granted_by %}<td class="mono">{{ g.granted_by }}</td>{% endif %}
+        {% if show_source %}<td>{{ g.source }}</td>{% endif %}
+        {% if show_actions %}
+        <td>
+          <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
+            <input type="hidden" name="redirect_url" value="{{ redirect_url }}">
+            <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if files_grants %}
+<div class="grant-section" style="padding:var(--sp-3) var(--sp-4) 0;{% if app_grants %}border-top:1px solid var(--border);{% endif %}">
+  <div class="form-section-title" style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2);">
+    Fichiers &amp; Dossiers
+    <span class="badge badge-muted">{{ files_grants | length }}</span>
+  </div>
+</div>
+<div class="table-wrap" style="border:none;border-radius:0;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Ressource</th>
+        <th>Niveau</th>
+        {% if show_granted_by %}<th>Accordé par</th>{% endif %}
+        {% if show_source %}<th>Provenance</th>{% endif %}
+        {% if show_actions %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in files_grants %}
+      <tr>
+        <td>
+          {% if g.resource_type == 'folder' %}
+            <span aria-hidden="true">📁</span>
+            {{ g.folder_name or g.folder_id }}
+          {% else %}
+            <span aria-hidden="true">📄</span>
+            {% if g.file_id %}
+              <a href="/admin/files/{{ g.file_id }}">{{ g.file_label or g.file_id }}</a>
+            {% else %}
+              {{ g.file_label or 'Fichier' }}
+            {% endif %}
+          {% endif %}
+        </td>
+        <td><span class="badge badge-info">{{ g.access_level }}</span></td>
+        {% if show_granted_by %}<td class="mono">{{ g.granted_by }}</td>{% endif %}
+        {% if show_source %}<td>{{ g.source }}</td>{% endif %}
+        {% if show_actions %}
+        <td>
+          <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
+            <input type="hidden" name="redirect_url" value="{{ redirect_url }}">
+            <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if role_grants %}
+<div class="grant-section" style="padding:var(--sp-3) var(--sp-4) 0;{% if app_grants or files_grants %}border-top:1px solid var(--border);{% endif %}">
+  <div class="form-section-title" style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2);">
+    Rôles système
+    <span class="badge badge-muted">{{ role_grants | length }}</span>
+  </div>
+</div>
+<div class="table-wrap" style="border:none;border-radius:0;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Ressource</th>
+        <th>Niveau</th>
+        {% if show_granted_by %}<th>Accordé par</th>{% endif %}
+        {% if show_source %}<th>Provenance</th>{% endif %}
+        {% if show_actions %}<th></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in role_grants %}
+      <tr>
+        <td>
+          {% if g.resource_type == 'rbac_role' %}
+            {{ g.rbac_role_name or g.rbac_role_id }}
+          {% else %}
+            {{ g.system_role_label or g.system_role }}
+          {% endif %}
+        </td>
+        <td><span class="badge badge-info">{{ g.access_level }}</span></td>
+        {% if show_granted_by %}<td class="mono">{{ g.granted_by }}</td>{% endif %}
+        {% if show_source %}<td>{{ g.source }}</td>{% endif %}
+        {% if show_actions %}
+        <td>
+          <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
+            <input type="hidden" name="redirect_url" value="{{ redirect_url }}">
+            <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+          </form>
+        </td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endif %}
