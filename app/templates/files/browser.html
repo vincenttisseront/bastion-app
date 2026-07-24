@@ -1,0 +1,410 @@
+{% extends "base.html" %}
+{% block title %}Fichiers{% endblock %}
+{% block body_class %}page-portal{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-files-browser">
+<style>
+.fb-shell{max-width:1100px;margin:0 auto;padding:var(--sp-4) var(--sp-4) var(--sp-8);}
+.fb-toolbar{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3);}
+.fb-crumb{display:flex;flex-wrap:wrap;gap:var(--sp-1);align-items:center;font-size:var(--fs-sm);margin-bottom:var(--sp-3);}
+.fb-crumb a{color:var(--text-2);text-decoration:none;}
+.fb-crumb a:hover{color:var(--accent);}
+.fb-crumb .sep{color:var(--text-3);margin:0 var(--sp-1);}
+.fb-drop{border:1px dashed var(--border);border-radius:var(--r-lg);background:var(--bg-tertiary);min-height:360px;position:relative;transition:border-color var(--t-fast),background var(--t-fast);}
+.fb-drop.is-drag{border-color:var(--accent);background:var(--accent-muted);}
+.fb-table{width:100%;border-collapse:collapse;}
+.fb-table th,.fb-table td{padding:var(--sp-2) var(--sp-3);text-align:left;border-bottom:1px solid var(--border-muted);font-size:var(--fs-sm);}
+.fb-table th{color:var(--text-3);font-weight:600;}
+.fb-row{cursor:pointer;}
+.fb-row:hover{background:var(--bg-card);}
+.fb-name{display:flex;align-items:center;gap:var(--sp-2);}
+.fb-progress{display:none;height:3px;background:var(--border-muted);margin:var(--sp-2) 0 0;}
+.fb-progress > span{display:block;height:100%;width:0;background:var(--accent);transition:width .15s linear;}
+.fb-hint{text-align:center;color:var(--text-3);padding:var(--sp-6);font-size:var(--fs-sm);}
+.fb-drawer{position:fixed;top:0;right:0;width:min(420px,100%);height:100%;background:var(--bg-card);border-left:1px solid var(--border);box-shadow:var(--shadow-lg,0 8px 24px rgba(0,0,0,.18));transform:translateX(100%);transition:transform .2s ease;z-index:40;display:flex;flex-direction:column;}
+.fb-drawer.is-open{transform:translateX(0);}
+.fb-drawer-head{display:flex;justify-content:space-between;align-items:center;padding:var(--sp-4);border-bottom:1px solid var(--border-muted);}
+.fb-drawer-body{padding:var(--sp-4);overflow:auto;flex:1;}
+.fb-menu{position:absolute;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md,0 4px 16px rgba(0,0,0,.12));z-index:30;min-width:180px;}
+.fb-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:var(--sp-2) var(--sp-3);cursor:pointer;color:inherit;font:inherit;}
+.fb-menu button:hover{background:var(--accent-muted);}
+.fb-search{margin-left:auto;min-width:180px;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="portal-shell">
+{% include "portal/_topbar.html" %}
+
+{% if messages %}
+<div class="flash-container portal-flash">{% include 'partials/_flash.html' %}</div>
+{% endif %}
+
+<main class="fb-shell" id="fb-root"
+  data-folder-id="{{ folder_id if folder_id is not none else '' }}"
+  data-can-manage="{{ '1' if listing.can_manage else '0' }}">
+
+  <div class="fb-crumb" id="fb-crumb">
+    <a href="/files" data-folder="">Accueil</a>
+    {% for seg in listing.breadcrumb %}
+      <span class="sep">/</span>
+      <a href="/files?folder_id={{ seg.id }}" data-folder="{{ seg.id }}">{{ seg.name }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="fb-toolbar">
+    {% if listing.can_manage %}
+    <button type="button" class="btn btn-secondary btn-sm" id="fb-new-folder">+ Dossier</button>
+    <label class="btn btn-primary btn-sm" for="fb-file-input">⬆ Uploader</label>
+    <input type="file" id="fb-file-input" hidden multiple>
+    {% endif %}
+    <button type="button" class="btn btn-ghost btn-sm" id="fb-download" disabled>⬇ Télécharger</button>
+    {% if listing.can_manage %}
+    <a class="btn btn-ghost btn-sm" id="fb-rights" href="/admin/rbac" hidden>🔒 Droits</a>
+    {% endif %}
+    <input type="search" class="form-input fb-search" id="fb-search" placeholder="Rechercher…">
+  </div>
+
+  <div class="fb-progress" id="fb-progress"><span></span></div>
+
+  <div class="fb-drop" id="fb-drop">
+    <table class="fb-table">
+      <thead>
+        <tr>
+          <th style="width:2rem;"></th>
+          <th>Nom</th>
+          <th>Taille</th>
+          <th>Modifié</th>
+          <th>Canal</th>
+          <th style="width:2.5rem;"></th>
+        </tr>
+      </thead>
+      <tbody id="fb-body">
+        {% for d in listing.folders %}
+        <tr class="fb-row" data-kind="folder" data-id="{{ d.id }}">
+          <td><input type="checkbox" class="fb-check" data-kind="folder" data-id="{{ d.id }}"></td>
+          <td><div class="fb-name">📁 {{ d.name }}</div></td>
+          <td>—</td>
+          <td>—</td>
+          <td>—</td>
+          <td></td>
+        </tr>
+        {% endfor %}
+        {% for f in listing.files %}
+        <tr class="fb-row" data-kind="file" data-id="{{ f.id }}" data-version-id="{{ f.version_id or '' }}" data-can-download="{{ '1' if f.can_download else '0' }}">
+          <td><input type="checkbox" class="fb-check" data-kind="file" data-id="{{ f.id }}" data-version-id="{{ f.version_id or '' }}"></td>
+          <td><div class="fb-name">📄 {{ f.label }}</div></td>
+          <td class="mono">{% if f.size_bytes %}{{ (f.size_bytes / 1048576) | round(1) }} MB{% else %}—{% endif %}</td>
+          <td>{{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '—' }}</td>
+          <td>{% if f.channel == 'beta' %}<span class="badge badge-warn">Bêta</span>{% else %}<span class="badge badge-ok">Stable</span>{% endif %}</td>
+          <td><button type="button" class="btn btn-ghost btn-sm fb-more" data-id="{{ f.id }}" aria-label="Actions">⋯</button></td>
+        </tr>
+        {% endfor %}
+        {% if not listing.folders and not listing.files %}
+        <tr><td colspan="6"><div class="fb-hint">{% if listing.can_manage %}Glisser-déposer un fichier ici pour l'ajouter{% else %}Aucun fichier accessible{% endif %}</div></td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="fb-drawer" id="fb-drawer" aria-hidden="true">
+  <div class="fb-drawer-head">
+    <strong id="fb-drawer-title">Versions</strong>
+    <button type="button" class="btn btn-ghost btn-sm" id="fb-drawer-close">Fermer</button>
+  </div>
+  <div class="fb-drawer-body" id="fb-drawer-body"></div>
+</div>
+
+<div id="fb-menu" class="fb-menu" hidden></div>
+
+<script>
+(function () {
+  var root = document.getElementById('fb-root');
+  var drop = document.getElementById('fb-drop');
+  var body = document.getElementById('fb-body');
+  var canManage = root.getAttribute('data-can-manage') === '1';
+  var folderId = root.getAttribute('data-folder-id') || '';
+  var progress = document.getElementById('fb-progress');
+  var bar = progress.querySelector('span');
+  var menu = document.getElementById('fb-menu');
+  var drawer = document.getElementById('fb-drawer');
+
+  function currentFolderParam() {
+    return folderId === '' ? null : Number(folderId);
+  }
+
+  function formatSize(n) {
+    if (n == null) return '—';
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+
+  function renderListing(listing) {
+    folderId = listing.folder_id == null ? '' : String(listing.folder_id);
+    root.setAttribute('data-folder-id', folderId);
+    root.setAttribute('data-can-manage', listing.can_manage ? '1' : '0');
+    canManage = !!listing.can_manage;
+
+    var crumb = document.getElementById('fb-crumb');
+    var html = '<a href="/files" data-folder="">Accueil</a>';
+    (listing.breadcrumb || []).forEach(function (seg) {
+      html += '<span class="sep">/</span><a href="/files?folder_id=' + seg.id + '" data-folder="' + seg.id + '">' + escapeHtml(seg.name) + '</a>';
+    });
+    crumb.innerHTML = html;
+
+    var rows = '';
+    (listing.folders || []).forEach(function (d) {
+      rows += '<tr class="fb-row" data-kind="folder" data-id="' + d.id + '">' +
+        '<td><input type="checkbox" class="fb-check" data-kind="folder" data-id="' + d.id + '"></td>' +
+        '<td><div class="fb-name">📁 ' + escapeHtml(d.name) + '</div></td>' +
+        '<td>—</td><td>—</td><td>—</td><td></td></tr>';
+    });
+    (listing.files || []).forEach(function (f) {
+      rows += '<tr class="fb-row" data-kind="file" data-id="' + f.id + '" data-version-id="' + (f.version_id || '') + '" data-can-download="' + (f.can_download ? '1' : '0') + '">' +
+        '<td><input type="checkbox" class="fb-check" data-kind="file" data-id="' + f.id + '" data-version-id="' + (f.version_id || '') + '"></td>' +
+        '<td><div class="fb-name">📄 ' + escapeHtml(f.label) + '</div></td>' +
+        '<td class="mono">' + formatSize(f.size_bytes) + '</td>' +
+        '<td>' + (f.uploaded_at ? f.uploaded_at.slice(0, 16).replace('T', ' ') : '—') + '</td>' +
+        '<td>' + (f.channel === 'beta' ? '<span class="badge badge-warn">Bêta</span>' : '<span class="badge badge-ok">Stable</span>') + '</td>' +
+        '<td><button type="button" class="btn btn-ghost btn-sm fb-more" data-id="' + f.id + '" aria-label="Actions">⋯</button></td></tr>';
+    });
+    if (!rows) {
+      rows = '<tr><td colspan="6"><div class="fb-hint">' +
+        (listing.can_manage ? "Glisser-déposer un fichier ici pour l'ajouter" : 'Aucun fichier accessible') +
+        '</div></td></tr>';
+    }
+    body.innerHTML = rows;
+    history.replaceState(null, '', folderId ? ('/files?folder_id=' + folderId) : '/files');
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function refresh(q) {
+    var url = '/files/list?';
+    if (folderId) url += 'folder_id=' + encodeURIComponent(folderId) + '&';
+    if (q) url += 'q=' + encodeURIComponent(q);
+    return fetch(url, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.ok) renderListing(data);
+      });
+  }
+
+  function uploadFiles(fileList) {
+    if (!canManage || !fileList || !fileList.length) return;
+    var files = Array.prototype.slice.call(fileList);
+    var i = 0;
+    progress.style.display = 'block';
+    function next() {
+      if (i >= files.length) {
+        progress.style.display = 'none';
+        bar.style.width = '0%';
+        refresh();
+        return;
+      }
+      var fd = new FormData();
+      fd.append('upload', files[i], files[i].name);
+      if (folderId) fd.append('folder_id', folderId);
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/files/upload');
+      xhr.upload.onprogress = function (e) {
+        if (!e.lengthComputable) return;
+        var pct = ((i + e.loaded / e.total) / files.length) * 100;
+        bar.style.width = pct.toFixed(1) + '%';
+      };
+      xhr.onload = function () {
+        i += 1;
+        bar.style.width = ((i / files.length) * 100).toFixed(1) + '%';
+        next();
+      };
+      xhr.onerror = function () { i += 1; next(); };
+      xhr.send(fd);
+    }
+    next();
+  }
+
+  drop.addEventListener('dragover', function (e) {
+    if (!canManage) return;
+    e.preventDefault();
+    drop.classList.add('is-drag');
+  });
+  drop.addEventListener('dragleave', function () { drop.classList.remove('is-drag'); });
+  drop.addEventListener('drop', function (e) {
+    e.preventDefault();
+    drop.classList.remove('is-drag');
+    if (e.dataTransfer && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
+  });
+
+  var fileInput = document.getElementById('fb-file-input');
+  if (fileInput) fileInput.addEventListener('change', function () {
+    uploadFiles(fileInput.files);
+    fileInput.value = '';
+  });
+
+  var newFolderBtn = document.getElementById('fb-new-folder');
+  if (newFolderBtn) newFolderBtn.addEventListener('click', function () {
+    var name = window.prompt('Nom du dossier');
+    if (!name) return;
+    var fd = new FormData();
+    fd.append('name', name);
+    if (folderId) fd.append('parent_folder_id', folderId);
+    fetch('/files/folders', { method: 'POST', body: fd, headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) { alert(data.detail || 'Erreur'); return; }
+        refresh();
+      });
+  });
+
+  body.addEventListener('click', function (e) {
+    var more = e.target.closest('.fb-more');
+    if (more) {
+      e.stopPropagation();
+      openMenu(more, Number(more.getAttribute('data-id')));
+      return;
+    }
+    if (e.target.closest('.fb-check')) return;
+    var row = e.target.closest('.fb-row');
+    if (!row) return;
+    if (row.getAttribute('data-kind') === 'folder') {
+      folderId = row.getAttribute('data-id');
+      refresh();
+    }
+  });
+
+  document.getElementById('fb-crumb').addEventListener('click', function (e) {
+    var a = e.target.closest('a[data-folder]');
+    if (!a) return;
+    e.preventDefault();
+    folderId = a.getAttribute('data-folder') || '';
+    refresh();
+  });
+
+  document.getElementById('fb-search').addEventListener('input', function () {
+    refresh(this.value.trim());
+  });
+
+  function openMenu(btn, fileId) {
+    menu.hidden = false;
+    menu.innerHTML =
+      '<button type="button" data-act="download" data-id="' + fileId + '">Télécharger</button>' +
+      '<button type="button" data-act="history" data-id="' + fileId + '">Historique des versions</button>' +
+      (canManage ? '<button type="button" data-act="rename" data-id="' + fileId + '">Renommer</button>' : '') +
+      (canManage ? '<button type="button" data-act="archive" data-id="' + fileId + '">Supprimer</button>' : '') +
+      (canManage ? '<button type="button" data-act="rights" data-id="' + fileId + '">Droits</button>' : '');
+    var rect = btn.getBoundingClientRect();
+    menu.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+    menu.style.top = (rect.bottom + 4) + 'px';
+  }
+
+  document.addEventListener('click', function () { menu.hidden = true; });
+  menu.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    var act = btn.getAttribute('data-act');
+    var id = Number(btn.getAttribute('data-id'));
+    menu.hidden = true;
+    if (act === 'history') openHistory(id);
+    if (act === 'rename') {
+      var label = window.prompt('Nouveau nom');
+      if (!label) return;
+      var fd = new FormData();
+      fd.append('label', label);
+      fetch('/files/' + id + '/rename', { method: 'PATCH', body: fd, headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.json(); })
+        .then(function () { refresh(); });
+    }
+    if (act === 'archive') {
+      if (!window.confirm('Archiver ce fichier ?')) return;
+      fetch('/files/' + id, { method: 'DELETE', headers: { Accept: 'application/json' } })
+        .then(function () { refresh(); });
+    }
+    if (act === 'download') {
+      var row = body.querySelector('.fb-row[data-kind="file"][data-id="' + id + '"]');
+      var vid = row && row.getAttribute('data-version-id');
+      if (vid) window.location.href = '/files/download/' + vid;
+    }
+    if (act === 'rights') {
+      window.location.href = '/admin/files/' + id;
+    }
+  });
+
+  function openHistory(fileId) {
+    fetch('/files/versions/' + fileId, { headers: { Accept: 'application/json' } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) return;
+        document.getElementById('fb-drawer-title').textContent = data.file.label;
+        var html = '';
+        (data.versions || []).forEach(function (v) {
+          html += '<div style="padding:var(--sp-2) 0;border-bottom:1px solid var(--border-muted);">' +
+            '<div><strong>v' + escapeHtml(v.version_label) + '</strong> · ' +
+            (v.channel === 'beta' ? 'Bêta' : 'Stable') +
+            (v.status === 'archived' ? ' · archivée' : '') + '</div>' +
+            '<div class="text-2 mono" style="font-size:var(--fs-xs);">' + formatSize(v.size_bytes) +
+            (v.uploaded_at ? ' · ' + v.uploaded_at.slice(0, 16).replace('T', ' ') : '') + '</div>' +
+            '<div style="margin-top:var(--sp-2);display:flex;gap:var(--sp-2);flex-wrap:wrap;">' +
+            '<a class="btn btn-ghost btn-sm" href="/files/download/' + v.id + '">Télécharger</a>';
+          if (data.can_manage && v.status === 'active') {
+            var next = v.channel === 'beta' ? 'stable' : 'beta';
+            html += '<button type="button" class="btn btn-secondary btn-sm fb-channel" data-id="' + v.id + '" data-channel="' + next + '">' +
+              (v.channel === 'beta' ? '→ Stable' : '→ Bêta') + '</button>';
+            html += '<button type="button" class="btn btn-ghost btn-sm fb-archive-v" data-id="' + v.id + '">Archiver</button>';
+          }
+          html += '</div></div>';
+        });
+        document.getElementById('fb-drawer-body').innerHTML = html || '<p class="text-2">Aucune version</p>';
+        drawer.classList.add('is-open');
+        drawer.setAttribute('aria-hidden', 'false');
+      });
+  }
+
+  document.getElementById('fb-drawer-close').addEventListener('click', function () {
+    drawer.classList.remove('is-open');
+    drawer.setAttribute('aria-hidden', 'true');
+  });
+
+  document.getElementById('fb-drawer-body').addEventListener('click', function (e) {
+    var ch = e.target.closest('.fb-channel');
+    if (ch) {
+      var fd = new FormData();
+      fd.append('channel', ch.getAttribute('data-channel'));
+      fetch('/files/versions/' + ch.getAttribute('data-id') + '/channel', {
+        method: 'PATCH', body: fd, headers: { Accept: 'application/json' }
+      }).then(function () {
+        openHistory(Number(document.querySelector('.fb-more') && 0));
+        /* reopen current from title context — refresh listing instead */
+        refresh();
+        drawer.classList.remove('is-open');
+      });
+    }
+    var ar = e.target.closest('.fb-archive-v');
+    if (ar) {
+      var fd2 = new FormData();
+      fd2.append('status', 'archived');
+      fetch('/files/versions/' + ar.getAttribute('data-id'), {
+        method: 'PATCH', body: fd2, headers: { Accept: 'application/json' }
+      }).then(function () { refresh(); drawer.classList.remove('is-open'); });
+    }
+  });
+
+  document.getElementById('fb-download').addEventListener('click', function () {
+    var checked = body.querySelector('.fb-check[data-kind="file"]:checked');
+    if (!checked) return;
+    var vid = checked.getAttribute('data-version-id');
+    if (vid) window.location.href = '/files/download/' + vid;
+  });
+
+  body.addEventListener('change', function () {
+    var checked = body.querySelector('.fb-check[data-kind="file"]:checked');
+    document.getElementById('fb-download').disabled = !checked;
+  });
+})();
+</script>
+{% endblock %}

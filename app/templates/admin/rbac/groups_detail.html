@@ -68,6 +68,8 @@
                 {% else %}
                   Fichier · {{ g.file_label or g.file_id }}
                 {% endif %}
+              {% elif g.resource_type == 'folder' %}
+                Dossier · {{ g.folder_name or g.folder_id }}
               {% elif g.resource_type == 'rbac_role' %}
                 Rôle RBAC · {{ g.rbac_role_name or g.rbac_role_id }}
               {% else %}
@@ -100,6 +102,7 @@
           <select id="resource_type" name="resource_type" class="form-select" data-grant-resource-type>
             <option value="application">Application</option>
             <option value="file">Fichier</option>
+            <option value="folder">Dossier</option>
             <option value="system_role">Rôle système</option>
           </select>
         </div>
@@ -116,6 +119,14 @@
           <select id="file_id" name="file_id" class="form-select" disabled>
             {% for f in files or [] %}
             <option value="{{ f.id }}">{{ f.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" data-grant-folder hidden>
+          <label class="form-label" for="folder_id">Dossier</label>
+          <select id="folder_id" name="folder_id" class="form-select" disabled>
+            {% for f in folders or [] %}
+            <option value="{{ f.id }}">{{ f.name }}</option>
             {% endfor %}
           </select>
         </div>
@@ -149,9 +160,11 @@
   if (!typeSelect) return;
   var appBlock = document.querySelector('[data-grant-app]');
   var fileBlock = document.querySelector('[data-grant-file]');
+  var folderBlock = document.querySelector('[data-grant-folder]');
   var roleBlock = document.querySelector('[data-grant-role]');
   var appSelect = document.getElementById('application_id');
   var fileSelect = document.getElementById('file_id');
+  var folderSelect = document.getElementById('folder_id');
   var roleSelect = document.getElementById('system_role');
   function setEnabled(el, enabled, name) {
     if (!el) return;
@@ -163,12 +176,15 @@
     var type = typeSelect.value;
     var isApp = type === 'application';
     var isFile = type === 'file';
+    var isFolder = type === 'folder';
     var isRole = type === 'system_role';
     if (appBlock) appBlock.hidden = !isApp;
     if (fileBlock) fileBlock.hidden = !isFile;
+    if (folderBlock) folderBlock.hidden = !isFolder;
     if (roleBlock) roleBlock.hidden = !isRole;
     setEnabled(appSelect, isApp, 'application_id');
     setEnabled(fileSelect, isFile, 'file_id');
+    setEnabled(folderSelect, isFolder, 'folder_id');
     setEnabled(roleSelect, isRole, 'system_role');
   }
   typeSelect.addEventListener('change', sync);

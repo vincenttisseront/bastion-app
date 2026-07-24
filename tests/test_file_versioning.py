@@ -170,7 +170,7 @@ def test_file_channel_assignment_check_rejects_stable(db_session: Session):
     db_session.rollback()
 
 
-def test_file_effective_version_semver(db_session: Session, monkeypatch, tmp_path):
+def test_file_effective_version_numeric(db_session: Session, monkeypatch, tmp_path):
     monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
     get_settings.cache_clear()
     settings = get_settings()
@@ -180,7 +180,7 @@ def test_file_effective_version_semver(db_session: Session, monkeypatch, tmp_pat
         db_session,
         file=fr,
         channel="stable",
-        version_label="1.0.0",
+        version_label="1",
         filename="a.bin",
         content_type=None,
         data=b"v100",
@@ -191,7 +191,7 @@ def test_file_effective_version_semver(db_session: Session, monkeypatch, tmp_pat
         db_session,
         file=fr,
         channel="beta",
-        version_label="1.1.0-rc1",
+        version_label="3",
         filename="b.bin",
         content_type=None,
         data=b"v110rc",
@@ -202,7 +202,7 @@ def test_file_effective_version_semver(db_session: Session, monkeypatch, tmp_pat
         db_session,
         file=fr,
         channel="stable",
-        version_label="1.0.1",
+        version_label="2",
         filename="c.bin",
         content_type=None,
         data=b"v101",
@@ -214,20 +214,20 @@ def test_file_effective_version_semver(db_session: Session, monkeypatch, tmp_pat
     # SemVer: 1.0.1 > 1.0.0 for stable channel (ignore newer beta pre-release)
     eff = get_effective_file_version(db_session, fr, "stable")
     assert eff is not None
-    assert eff.version_label == "1.0.1"
+    assert eff.version_label == "2"
     assert eff.channel == "stable"
 
     # Beta channel: 1.1.0-rc1 < 1.0.1? No — packaging: 1.1.0rc1 > 1.0.1
     eff_beta = get_effective_file_version(db_session, fr, "beta")
     assert eff_beta is not None
-    assert eff_beta.version_label == "1.1.0-rc1"
+    assert eff_beta.version_label == "3"
 
     # Stable never sees beta even if beta is higher
     store_file_version(
         db_session,
         file=fr,
         channel="beta",
-        version_label="2.0.0-rc1",
+        version_label="4",
         filename="d.bin",
         content_type=None,
         data=b"v200rc",
@@ -235,11 +235,12 @@ def test_file_effective_version_semver(db_session: Session, monkeypatch, tmp_pat
         settings=settings,
     )
     db_session.commit()
-    assert get_effective_file_version(db_session, fr, "stable").version_label == "1.0.1"
-    assert get_effective_file_version(db_session, fr, "beta").version_label == "2.0.0-rc1"
+    assert get_effective_file_version(db_session, fr, "stable").version_label == "2"
+    assert get_effective_file_version(db_session, fr, "beta").version_label == "4"
 
+    assert validate_version_label("2.4.0-rc1") == "2.4.0-rc1"
     with pytest.raises(ValueError):
-        validate_version_label("not-a-version")
+        validate_version_label("  ")
 
 
 def test_file_version_promotion(db_session: Session, monkeypatch, tmp_path):
@@ -252,7 +253,7 @@ def test_file_version_promotion(db_session: Session, monkeypatch, tmp_path):
         db_session,
         file=fr,
         channel="stable",
-        version_label="1.0.0",
+        version_label="1",
         filename="s.bin",
         content_type=None,
         data=b"stable",
@@ -263,7 +264,7 @@ def test_file_version_promotion(db_session: Session, monkeypatch, tmp_path):
         db_session,
         file=fr,
         channel="beta",
-        version_label="2.0.0-rc1",
+        version_label="4",
         filename="b.bin",
         content_type=None,
         data=b"beta",
@@ -280,7 +281,7 @@ def test_file_version_promotion(db_session: Session, monkeypatch, tmp_path):
     assert beta.status == "active"
     # Previous stable stays active until explicitly archived (spec §1.2)
     assert stable.status == "active"
-    assert get_effective_file_version(db_session, fr, "stable").version_label == "2.0.0-rc1"
+    assert get_effective_file_version(db_session, fr, "stable").version_label == "4"
 
     archive_file_version(db_session, stable)
     db_session.commit()
@@ -298,7 +299,7 @@ def test_file_blob_encryption_roundtrip(db_session: Session, monkeypatch, tmp_pa
         db_session,
         file=fr,
         channel="stable",
-        version_label="1.0.0",
+        version_label="1",
         filename="secret.bin",
         content_type=None,
         data=payload,
@@ -313,27 +314,27 @@ def test_file_blob_encryption_roundtrip(db_session: Session, monkeypatch, tmp_pa
     assert b"".join(iter_version_plaintext(version, settings)) == payload
 
 
-def test_file_effective_version_semver_beats_upload_date(
+def test_file_effective_version_numeric_beats_upload_date(
     db_session: Session, monkeypatch, tmp_path
 ):
-    """Higher SemVer wins even if uploaded earlier than a lower number."""
+    """Higher numeric version wins even if uploaded earlier."""
     monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
     get_settings.cache_clear()
     settings = get_settings()
 
-    fr = _file(db_session, slug="semver-order")
+    fr = _file(db_session, slug="numeric-order")
     older_higher = store_file_version(
         db_session,
         file=fr,
         channel="stable",
-        version_label="2.0.0",
+        version_label="2",
         filename="a.bin",
         content_type=None,
         data=b"v2",
         uploaded_by="admin",
         settings=settings,
     )
-    # Force older upload timestamp on the higher SemVer
+    # Force older upload timestamp on the higher version
     older_higher.uploaded_at = datetime.now(timezone.utc) - timedelta(days=30)
     db_session.flush()
 
@@ -341,7 +342,7 @@ def test_file_effective_version_semver_beats_upload_date(
         db_session,
         file=fr,
         channel="stable",
-        version_label="1.9.9",
+        version_label="1",
         filename="b.bin",
         content_type=None,
         data=b"v199",
@@ -353,7 +354,7 @@ def test_file_effective_version_semver_beats_upload_date(
 
     eff = get_effective_file_version(db_session, fr, "stable")
     assert eff is not None
-    assert eff.version_label == "2.0.0"
+    assert eff.version_label == "2"
     assert eff.id == older_higher.id
 
 
@@ -369,7 +370,7 @@ def test_file_blob_reencrypt_script_idempotent(
         db_session,
         file=fr,
         channel="stable",
-        version_label="1.0.0",
+        version_label="1",
         filename="p.bin",
         content_type=None,
         data=b"plain-payload",
@@ -411,7 +412,7 @@ def test_file_blob_streaming_decrypt_no_full_buffer(
         db_session,
         file=fr,
         channel="stable",
-        version_label="1.0.0",
+        version_label="1",
         filename="big.bin",
         content_type=None,
         data=payload,
@@ -438,7 +439,7 @@ def test_file_download_audit(client, db_session: Session, monkeypatch, tmp_path)
         db_session,
         file=fr,
         channel="stable",
-        version_label="3.2.1",
+        version_label="1",
         filename="vpn-setup.exe",
         content_type="application/octet-stream",
         data=b"payload-bytes",
@@ -477,7 +478,7 @@ def test_file_download_audit(client, db_session: Session, monkeypatch, tmp_path)
     assert len(entries) >= 1
     details = entries[-1].details or {}
     assert details.get("version_id") == version.id
-    assert details.get("version_label") == "3.2.1"
+    assert details.get("version_label") == "1"
     assert details.get("keycloak_user_id") == "kc-user-dl"
 
 
@@ -491,7 +492,7 @@ def test_file_download_requires_launch(client, db_session: Session, monkeypatch,
         db_session,
         file=fr,
         channel="stable",
-        version_label="1.0.0",
+        version_label="1",
         filename="doc.pdf",
         content_type="application/pdf",
         data=b"%PDF",
@@ -530,158 +531,153 @@ ADMIN_HEADERS = {
 }
 
 
-def test_files_deposit_new(client, db_session: Session, monkeypatch, tmp_path):
+def test_files_deposit_new_folder_scoped(client, db_session: Session, monkeypatch, tmp_path):
     monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
     get_settings.cache_clear()
 
-    resp = client.post(
-        "/admin/files/deposit",
-        headers={**ADMIN_HEADERS, "Accept": "application/json"},
-        data={
-            "mode": "new",
-            "label": "Client Installer",
-            "slug": "client-installer",
-            "description": "Installateur",
-            "version_label": "2.4.0",
-            "channel": "stable",
-            "changelog": "first",
-        },
-        files={"upload": ("client-installer-2.4.0.zip", b"zip-bytes", "application/zip")},
-    )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["ok"] is True
-    assert body["file"]["slug"] == "client-installer"
-    assert body["version"]["version_label"] == "2.4.0"
+    from app.files.service import create_folder
+    from app.models import FileResource
+
+    a = create_folder(db_session, name="A", parent_folder_id=None, created_by="admin")
+    b = create_folder(db_session, name="B", parent_folder_id=None, created_by="admin")
+    db_session.commit()
+
+    for folder in (a, b):
+        resp = client.post(
+            "/files/upload",
+            headers={**ADMIN_HEADERS, "Accept": "application/json"},
+            data={"folder_id": str(folder.id)},
+            files={"upload": ("same-name.zip", b"payload", "application/zip")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["ok"] is True
+
+    db_session.expire_all()
+    rows = db_session.query(FileResource).filter_by(label="same-name.zip").all()
+    assert len(rows) == 2
+    assert {r.folder_id for r in rows} == {a.id, b.id}
+
+
+def test_files_deposit_auto_version(client, db_session: Session, monkeypatch, tmp_path):
+    monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
+    get_settings.cache_clear()
 
     from app.models import FileResource, FileVersion
 
-    fr = db_session.query(FileResource).filter_by(slug="client-installer").one()
-    versions = db_session.query(FileVersion).filter_by(file_id=fr.id).all()
-    assert len(versions) == 1
-    assert versions[0].version_label == "2.4.0"
-    assert versions[0].channel == "stable"
+    resp1 = client.post(
+        "/files/upload",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={},
+        files={"upload": ("client.zip", b"v1", "application/zip")},
+    )
+    assert resp1.status_code == 200, resp1.text
+    body1 = resp1.json()
+    assert body1["version"]["version_label"] == "1"
+    assert body1["version"]["channel"] == "stable"
+    assert body1["created_new_file"] is True
+
+    resp2 = client.post(
+        "/files/upload",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={},
+        files={"upload": ("client.zip", b"v2", "application/zip")},
+    )
+    assert resp2.status_code == 200, resp2.text
+    body2 = resp2.json()
+    assert body2["version"]["version_label"] == "2"
+    assert body2["version"]["channel"] == "stable"
+    assert body2["created_new_file"] is False
+
+    db_session.expire_all()
+    fr = db_session.query(FileResource).filter_by(label="client.zip").one()
+    labels = {
+        v.version_label
+        for v in db_session.query(FileVersion).filter_by(file_id=fr.id).all()
+    }
+    assert labels == {"1", "2"}
 
 
-def test_files_deposit_existing(client, db_session: Session, monkeypatch, tmp_path):
+def test_files_rights_inherited_from_folder(db_session: Session, monkeypatch, tmp_path):
     monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
     get_settings.cache_clear()
     settings = get_settings()
 
-    fr = _file(db_session, slug="vpn-client", label="VPN Client")
-    store_file_version(
+    from app.files.service import create_folder, deposit_file, get_effective_access_on_file
+
+    root = create_folder(db_session, name="Root", parent_folder_id=None, created_by="admin")
+    child = create_folder(
+        db_session, name="Nested", parent_folder_id=root.id, created_by="admin"
+    )
+    fr, _version, _ = deposit_file(
+        db_session,
+        folder_id=child.id,
+        filename="deep.bin",
+        content_type=None,
+        data=b"x",
+        uploaded_by="admin",
+        is_portal_admin=True,
+        settings=settings,
+    )
+    group = _group(db_session, name="folder-managers")
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="folder",
+            folder_id=root.id,
+            access_level="manage",
+        ),
+        "admin@test",
+    )
+    db_session.commit()
+
+    access = get_effective_access_on_file(
         db_session,
         file=fr,
-        channel="stable",
-        version_label="1.0.0",
-        filename="vpn-1.0.0.exe",
-        content_type="application/octet-stream",
-        data=b"v1",
-        uploaded_by="admin@test",
+        group_names=["folder-managers"],
+    )
+    assert access.can_manage
+    assert any("via dossier" in s for s in access.sources)
+
+
+def test_files_rights_no_access_hidden(db_session: Session, monkeypatch, tmp_path):
+    monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
+    get_settings.cache_clear()
+    settings = get_settings()
+
+    from app.files.service import create_folder, deposit_file, list_folder_contents
+
+    folder = create_folder(
+        db_session, name="Secret", parent_folder_id=None, created_by="admin"
+    )
+    deposit_file(
+        db_session,
+        folder_id=folder.id,
+        filename="hidden.bin",
+        content_type=None,
+        data=b"secret",
+        uploaded_by="admin",
+        is_portal_admin=True,
         settings=settings,
     )
     db_session.commit()
-    file_id = fr.id
 
-    from app.models import FileResource, FileVersion
-
-    before = db_session.query(FileResource).count()
-
-    resp = client.post(
-        "/admin/files/deposit",
-        headers={**ADMIN_HEADERS, "Accept": "application/json"},
-        data={
-            "mode": "existing",
-            "file_id": str(file_id),
-            "version_label": "1.1.0",
-            "channel": "beta",
-            "changelog": "bump",
-        },
-        files={"upload": ("vpn-1.1.0.exe", b"v2-bytes", "application/octet-stream")},
+    listing = list_folder_contents(
+        db_session,
+        folder_id=None,
+        keycloak_user_id="kc-nobody",
+        group_names=[],
+        is_portal_admin=False,
     )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["ok"] is True
-    assert body["file"]["id"] == file_id
-    assert body["version"]["version_label"] == "1.1.0"
-    assert body["version"]["channel"] == "beta"
+    assert listing["folders"] == []
+    assert listing["files"] == []
 
-    db_session.expire_all()
-    assert db_session.query(FileResource).count() == before
-    labels = {
-        v.version_label
-        for v in db_session.query(FileVersion).filter_by(file_id=file_id).all()
-    }
-    assert labels == {"1.0.0", "1.1.0"}
-
-
-def test_files_deposit_rollback(client, db_session: Session, monkeypatch, tmp_path):
-    """mode=new must not leave an orphan FileResource if version creation fails."""
-    monkeypatch.setenv("FILES_STORAGE_DIR", str(tmp_path / "files"))
-    get_settings.cache_clear()
-
-    from app.models import FileResource, FileVersion
-
-    before_files = db_session.query(FileResource).count()
-    before_versions = db_session.query(FileVersion).count()
-
-    # Invalid SemVer → store_file_version fails after FileResource flush.
-    resp = client.post(
-        "/admin/files/deposit",
-        headers={**ADMIN_HEADERS, "Accept": "application/json"},
-        data={
-            "mode": "new",
-            "label": "Orphan Candidate",
-            "slug": "orphan-candidate",
-            "version_label": "not-a-semver",
-            "channel": "stable",
-        },
-        files={"upload": ("orphan.bin", b"data", "application/octet-stream")},
+    nested = list_folder_contents(
+        db_session,
+        folder_id=folder.id,
+        keycloak_user_id="kc-nobody",
+        group_names=[],
+        is_portal_admin=False,
     )
-    assert resp.status_code == 400, resp.text
-    assert resp.json()["ok"] is False
-
-    db_session.expire_all()
-    assert db_session.query(FileResource).filter_by(slug="orphan-candidate").first() is None
-    assert db_session.query(FileResource).count() == before_files
-    assert db_session.query(FileVersion).count() == before_versions
-
-    # Same orchestration path when version_label is already used (simulated).
-    def _boom(*_a, **_k):
-        raise ValueError("La version « 9.9.9 » existe déjà pour ce fichier")
-
-    monkeypatch.setattr("app.admin.files.store_file_version", _boom)
-    resp2 = client.post(
-        "/admin/files/deposit",
-        headers={**ADMIN_HEADERS, "Accept": "application/json"},
-        data={
-            "mode": "new",
-            "label": "Boom File",
-            "slug": "boom-file",
-            "version_label": "9.9.9",
-            "channel": "stable",
-        },
-        files={"upload": ("boom.bin", b"boom", "application/octet-stream")},
-    )
-    assert resp2.status_code == 400, resp2.text
-    db_session.expire_all()
-    assert db_session.query(FileResource).filter_by(slug="boom-file").first() is None
-    assert db_session.query(FileResource).count() == before_files
-
-
-def test_files_resolve_name(client, db_session: Session):
-    _file(db_session, slug="client-installer", label="Client Installer")
-    _file(db_session, slug="other-tool", label="Other Tool")
-    db_session.commit()
-
-    resp = client.get(
-        "/admin/files/resolve-name",
-        params={"q": "client-installer"},
-        headers={**ADMIN_HEADERS, "Accept": "application/json"},
-    )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["ok"] is True
-    assert body["best"] is not None
-    assert body["best"]["slug"] == "client-installer"
-    assert any(r["slug"] == "client-installer" for r in body["results"])
+    assert nested["files"] == []

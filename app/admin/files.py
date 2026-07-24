@@ -109,14 +109,11 @@ def _version_or_404(db: Session, file_id: int, version_id: int) -> FileVersion:
 @router.get("/admin/files")
 def admin_files_list(
     request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
+    folder_id: int | None = None,
 ):
-    return render(
-        "admin/files/list.html",
-        **_ctx(request, settings, files=_file_catalogue_rows(db)),
-    )
+    """CrushFTP browser lives at /files — keep admin URL as redirect."""
+    qs = f"?folder_id={folder_id}" if folder_id is not None else ""
+    return RedirectResponse(url=f"/files{qs}", status_code=302)
 
 
 @router.get("/admin/files/resolve-name")
@@ -125,7 +122,7 @@ def admin_files_resolve_name(
     db: Session = Depends(get_db),
     _user=Depends(require_admin),
 ):
-    """Fuzzy autocomplete on FileResource label + slug."""
+    """Deprecated — kept for compatibility; prefer folder browser deposit."""
     query = (q or "").strip()
     if not query:
         return JSONResponse({"ok": True, "results": [], "best": None})
@@ -169,7 +166,7 @@ async def admin_files_deposit(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    """Single-shot deposit: optional FileResource create + FileVersion upload."""
+    """Legacy composite deposit — prefer POST /files/upload."""
     mode_norm = (mode or "").strip().lower()
     if mode_norm not in ("new", "existing"):
         detail = 'mode must be "new" or "existing"'
@@ -187,7 +184,7 @@ async def admin_files_deposit(
         if mode_norm == "new":
             fr = create_file_resource(
                 db,
-                slug=slug,
+                slug=slug or None,
                 label=label,
                 description=description or None,
                 created_by=user.email,
@@ -220,7 +217,7 @@ async def admin_files_deposit(
         _unlink_blob(written_path, settings)
         if _wants_json(request):
             return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
-        response = RedirectResponse(url="/admin/files", status_code=302)
+        response = RedirectResponse(url="/files", status_code=302)
         flash_redirect(
             response, str(exc), "error", settings.vault_portal_internal_token or "dev"
         )
@@ -269,7 +266,7 @@ async def admin_files_deposit(
             "version_label": version.version_label,
             "channel": version.channel,
         },
-        "message": f"Version {version.version_label} publiée sur {fr.slug}",
+        "message": f"Version {version.version_label} publiée sur {fr.label}",
         "files": _file_catalogue_rows(db),
     }
     if _wants_json(request):

@@ -15,6 +15,7 @@ from app.admin.rbac_access import router as admin_rbac_access_router
 from app.admin.rbac_governance import router as admin_rbac_governance_router
 from app.admin.rbac_groups import router as admin_rbac_groups_router
 from app.admin.files import router as admin_files_router
+from app.files.routes import router as files_browser_router
 from app.admin.user_sessions import router as admin_user_sessions_router
 from app.breakglass import admin_router as breakglass_admin_router
 from app.breakglass import router as breakglass_router
@@ -159,6 +160,7 @@ app.include_router(pages_router)
 app.include_router(pages_user_router)
 app.include_router(pages_admin_router)
 app.include_router(portal_router)
+app.include_router(files_browser_router)
 app.include_router(global_search_router)
 app.include_router(health_router)
 app.include_router(admin_realms_router)

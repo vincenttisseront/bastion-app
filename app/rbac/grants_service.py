@@ -13,7 +13,7 @@ from app.models import AccessGrant, App, FileResource, RBACGroup, RealmConfig
 from app.rbac.keycloak_admin import fetch_group_members, fetch_user_groups
 
 SUBJECT_TYPES = frozenset({"group", "user"})
-RESOURCE_TYPES = frozenset({"application", "system_role", "rbac_role", "file"})
+RESOURCE_TYPES = frozenset({"application", "system_role", "rbac_role", "file", "folder"})
 ACCESS_LEVELS = frozenset({"view", "launch", "manage"})
 
 SYSTEM_ROLES: dict[str, str] = {
@@ -32,6 +32,7 @@ class AccessGrantCreate(BaseModel):
     system_role: str | None = None
     rbac_role_id: int | None = None
     file_id: int | None = None
+    folder_id: int | None = None
     access_level: str = "view"
 
     @field_validator("subject_type")
@@ -46,7 +47,7 @@ class AccessGrantCreate(BaseModel):
     def validate_resource_type(cls, value: str) -> str:
         if value not in RESOURCE_TYPES:
             raise ValueError(
-                "resource_type must be application, system_role, rbac_role, or file"
+                "resource_type must be application, system_role, rbac_role, file, or folder"
             )
         return value
 
@@ -78,6 +79,7 @@ class AccessGrantCreate(BaseModel):
                 or self.system_role
                 or self.rbac_role_id
                 or self.file_id
+                or self.folder_id
             ):
                 raise ValueError("application grants require application_id only")
         elif self.resource_type == "system_role":
@@ -86,6 +88,7 @@ class AccessGrantCreate(BaseModel):
                 or self.application_id
                 or self.rbac_role_id
                 or self.file_id
+                or self.folder_id
             ):
                 raise ValueError("system_role grants require system_role only")
         elif self.resource_type == "rbac_role":
@@ -94,16 +97,27 @@ class AccessGrantCreate(BaseModel):
                 or self.application_id
                 or self.system_role
                 or self.file_id
+                or self.folder_id
             ):
                 raise ValueError("rbac_role grants require rbac_role_id only")
-        else:
+        elif self.resource_type == "file":
             if (
                 not self.file_id
                 or self.application_id
                 or self.system_role
                 or self.rbac_role_id
+                or self.folder_id
             ):
                 raise ValueError("file grants require file_id only")
+        else:
+            if (
+                not self.folder_id
+                or self.application_id
+                or self.system_role
+                or self.rbac_role_id
+                or self.file_id
+            ):
+                raise ValueError("folder grants require folder_id only")
         return self
 
 
@@ -132,6 +146,12 @@ def serialize_grant(grant: AccessGrant, db: Session) -> dict[str, Any]:
         if fr:
             file_label = fr.label
             file_slug = fr.slug
+    folder_name = None
+    if getattr(grant, "folder_id", None):
+        from app.models import FileFolder
+
+        folder = db.query(FileFolder).filter_by(id=grant.folder_id).first()
+        folder_name = folder.name if folder else None
     return {
         "id": grant.id,
         "subject_type": grant.subject_type,
@@ -150,6 +170,8 @@ def serialize_grant(grant: AccessGrant, db: Session) -> dict[str, Any]:
         "file_id": getattr(grant, "file_id", None),
         "file_label": file_label,
         "file_slug": file_slug,
+        "folder_id": getattr(grant, "folder_id", None),
+        "folder_name": folder_name,
         "access_level": grant.access_level,
         "granted_at": grant.granted_at.isoformat() if grant.granted_at else None,
         "granted_by": grant.granted_by,
@@ -163,6 +185,7 @@ def list_grants(
     keycloak_user_id: str | None = None,
     application_id: int | None = None,
     file_id: int | None = None,
+    folder_id: int | None = None,
 ) -> list[AccessGrant]:
     query = db.query(AccessGrant).order_by(AccessGrant.granted_at.desc())
     if rbac_group_id is not None:
@@ -184,6 +207,11 @@ def list_grants(
         query = query.filter(
             AccessGrant.resource_type == "file",
             AccessGrant.file_id == file_id,
+        )
+    if folder_id is not None:
+        query = query.filter(
+            AccessGrant.resource_type == "folder",
+            AccessGrant.folder_id == folder_id,
         )
     return query.all()
 
@@ -412,6 +440,7 @@ def create_grant(db: Session, data: AccessGrantCreate, granted_by: str) -> Acces
         system_role=data.system_role,
         rbac_role_id=data.rbac_role_id,
         file_id=data.file_id,
+        folder_id=data.folder_id,
         access_level=data.access_level,
         granted_by=granted_by,
     )

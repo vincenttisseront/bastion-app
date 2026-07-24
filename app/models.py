@@ -164,7 +164,7 @@ class RolePermission(Base):
 
 
 class AccessGrant(Base):
-    """RBAC grant — group or user subject → application, system_role, rbac_role, or file."""
+    """RBAC grant — group or user subject → application, system_role, rbac_role, file, or folder."""
 
     __tablename__ = "access_grants"
 
@@ -174,11 +174,12 @@ class AccessGrant(Base):
     keycloak_user_id = Column(String, nullable=True)
     user_display_cache = Column(String, nullable=True)
 
-    resource_type = Column(String, nullable=False)  # application | system_role | rbac_role | file
+    resource_type = Column(String, nullable=False)  # application | system_role | rbac_role | file | folder
     application_id = Column(Integer, ForeignKey("apps.id"), nullable=True)
     system_role = Column(String, nullable=True)
     rbac_role_id = Column(Integer, ForeignKey("rbac_roles.id"), nullable=True)
     file_id = Column(Integer, ForeignKey("file_resources.id"), nullable=True)
+    folder_id = Column(Integer, ForeignKey("file_folders.id"), nullable=True)
 
     access_level = Column(String, default="view", nullable=False)
     granted_at = Column(DateTime(timezone=True), default=utcnow)
@@ -192,6 +193,7 @@ class AccessGrant(Base):
     application = relationship("App", foreign_keys=[application_id])
     rbac_role = relationship("RbacRole", foreign_keys=[rbac_role_id])
     file_resource = relationship("FileResource", foreign_keys=[file_id])
+    folder = relationship("FileFolder", foreign_keys=[folder_id])
 
     __table_args__ = (
         CheckConstraint(
@@ -201,24 +203,49 @@ class AccessGrant(Base):
         ),
         CheckConstraint(
             "(resource_type = 'application' AND application_id IS NOT NULL "
-            "AND system_role IS NULL AND rbac_role_id IS NULL AND file_id IS NULL) OR "
+            "AND system_role IS NULL AND rbac_role_id IS NULL AND file_id IS NULL AND folder_id IS NULL) OR "
             "(resource_type = 'system_role' AND system_role IS NOT NULL "
-            "AND application_id IS NULL AND rbac_role_id IS NULL AND file_id IS NULL) OR "
+            "AND application_id IS NULL AND rbac_role_id IS NULL AND file_id IS NULL AND folder_id IS NULL) OR "
             "(resource_type = 'rbac_role' AND rbac_role_id IS NOT NULL "
-            "AND application_id IS NULL AND system_role IS NULL AND file_id IS NULL) OR "
+            "AND application_id IS NULL AND system_role IS NULL AND file_id IS NULL AND folder_id IS NULL) OR "
             "(resource_type = 'file' AND file_id IS NOT NULL "
-            "AND application_id IS NULL AND system_role IS NULL AND rbac_role_id IS NULL)",
+            "AND application_id IS NULL AND system_role IS NULL AND rbac_role_id IS NULL AND folder_id IS NULL) OR "
+            "(resource_type = 'folder' AND folder_id IS NOT NULL "
+            "AND application_id IS NULL AND system_role IS NULL AND rbac_role_id IS NULL AND file_id IS NULL)",
             name="ck_access_grant_resource_exclusive",
         ),
     )
 
 
+class FileFolder(Base):
+    """Folder node in the CrushFTP-style file browser tree."""
+
+    __tablename__ = "file_folders"
+
+    id = Column(Integer, primary_key=True)
+    parent_folder_id = Column(
+        Integer, ForeignKey("file_folders.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    created_by = Column(String, nullable=False)
+
+    parent = relationship("FileFolder", remote_side=[id], backref="children")
+
+    __table_args__ = (
+        UniqueConstraint("parent_folder_id", "name", name="uq_folder_name_per_parent"),
+    )
+
+
 class FileResource(Base):
-    """Catalogue file resource — access controlled via AccessGrant(resource_type=file)."""
+    """File identity within a folder — access via AccessGrant(file|folder) with inheritance."""
 
     __tablename__ = "file_resources"
 
     id = Column(Integer, primary_key=True)
+    folder_id = Column(
+        Integer, ForeignKey("file_folders.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     slug = Column(String, unique=True, nullable=False, index=True)
     label = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -228,6 +255,7 @@ class FileResource(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     created_by = Column(String, nullable=False)
 
+    folder = relationship("FileFolder", foreign_keys=[folder_id])
     versions = relationship(
         "FileVersion",
         back_populates="file_resource",
@@ -239,6 +267,10 @@ class FileResource(Base):
         back_populates="file_resource",
         cascade="all, delete-orphan",
         foreign_keys="FileChannelAssignment.file_id",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("folder_id", "label", name="uq_file_label_per_folder"),
     )
 
 
@@ -283,7 +315,7 @@ class FileVersion(Base):
 
 
 class FileChannelAssignment(Base):
-    """Per-file beta channel opt-in. Absence of a row for that file means stable."""
+    """Beta channel opt-in on a file or folder (inheritance up the tree). Absence → stable."""
 
     __tablename__ = "file_channel_assignments"
 
@@ -291,7 +323,13 @@ class FileChannelAssignment(Base):
     file_id = Column(
         Integer,
         ForeignKey("file_resources.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
+        index=True,
+    )
+    folder_id = Column(
+        Integer,
+        ForeignKey("file_folders.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     subject_type = Column(String, nullable=False)  # group | user
@@ -309,15 +347,14 @@ class FileChannelAssignment(Base):
         back_populates="channel_assignments",
         foreign_keys=[file_id],
     )
+    folder = relationship("FileFolder", foreign_keys=[folder_id])
     rbac_group = relationship("RBACGroup", foreign_keys=[rbac_group_id])
 
     __table_args__ = (
-        UniqueConstraint(
-            "file_id",
-            "subject_type",
-            "rbac_group_id",
-            "keycloak_user_id",
-            name="uq_file_channel_subject",
+        CheckConstraint(
+            "(file_id IS NOT NULL AND folder_id IS NULL) OR "
+            "(file_id IS NULL AND folder_id IS NOT NULL)",
+            name="ck_file_channel_target_exclusive",
         ),
         CheckConstraint(
             "channel = 'beta'",

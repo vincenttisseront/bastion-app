@@ -181,6 +181,9 @@ async def admin_rbac_group_detail(
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     files = db.query(FileResource).filter_by(is_active=True).order_by(FileResource.label).all()
+    from app.models import FileFolder
+
+    folders = db.query(FileFolder).order_by(FileFolder.name).all()
     return render(
         "admin/rbac/groups_detail.html",
         **_ctx(
@@ -194,6 +197,7 @@ async def admin_rbac_group_detail(
             grant_rows=[serialize_grant(g, db) for g in grants],
             apps=apps,
             files=files,
+            folders=folders,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
         ),

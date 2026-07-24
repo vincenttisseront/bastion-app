@@ -1,4 +1,4 @@
-"""Versioned file catalogue — storage, channel resolution, effective access."""
+"""Folder-scoped file browser — deposit, inherited access, channels, versions."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Sequence
 
-from packaging.version import InvalidVersion, Version
 from sqlalchemy.orm import Session
 
 from app.files.blob_crypto import (
@@ -20,6 +19,7 @@ from app.files.blob_crypto import (
 from app.models import (
     AccessGrant,
     FileChannelAssignment,
+    FileFolder,
     FileResource,
     FileVersion,
     RBACGroup,
@@ -30,12 +30,33 @@ from app.sso_settings import Settings, get_settings
 
 FILE_STORAGE_SUBDIR = Path("private") / "files"
 _SAFE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-# SemVer core + optional pre-release / build metadata (spec §9.2).
-_SEMVER = re.compile(
-    r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$"
-)
 CHANNELS = frozenset({"beta", "stable"})
 VERSION_STATUSES = frozenset({"active", "archived"})
+
+
+@dataclass
+class EffectiveAccess:
+    """Resolved access level with provenance labels."""
+
+    access_level: str | None
+    sources: list[str] = field(default_factory=list)
+    grant_ids: list[int] = field(default_factory=list)
+
+    @property
+    def rank(self) -> int:
+        return ACCESS_LEVEL_RANK.get(self.access_level or "", 0)
+
+    @property
+    def can_view(self) -> bool:
+        return self.rank >= ACCESS_LEVEL_RANK["view"]
+
+    @property
+    def can_launch(self) -> bool:
+        return self.rank >= ACCESS_LEVEL_RANK["launch"]
+
+    @property
+    def can_manage(self) -> bool:
+        return self.rank >= ACCESS_LEVEL_RANK["manage"]
 
 
 @dataclass
@@ -63,7 +84,6 @@ def _rank(level: str | None) -> int:
 
 
 def get_files_storage_root(settings: Settings | None = None) -> Path:
-    """Root for blob storage — FILES_STORAGE_DIR or PORTAL_DATA_DIR/private/files."""
     settings = settings or get_settings()
     dedicated = (getattr(settings, "files_storage_dir", None) or "").strip()
     if dedicated:
@@ -81,7 +101,6 @@ def resolve_storage_path(
     storage_path: str,
     settings: Settings | None = None,
 ) -> Path:
-    """Absolute path for a stored blob. ``storage_path`` is relative under the files root."""
     rel = (storage_path or "").strip().replace("\\", "/")
     if not rel or rel.startswith("/") or ".." in rel.split("/"):
         raise ValueError("Invalid storage_path")
@@ -105,27 +124,259 @@ def validate_slug(slug: str) -> str:
     return value
 
 
-def validate_version_label(label: str) -> str:
-    value = (label or "").strip()
-    if not _SEMVER.match(value):
-        raise ValueError(
-            "version_label must be SemVer (ex: 1.2.3, 1.2.3-rc1, 1.2.3+build)"
+def slugify_label(label: str) -> str:
+    value = (label or "").strip().lower()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    value = re.sub(r"-{2,}", "-", value).strip("-")
+    return value or "file"
+
+
+def generate_unique_slug(db: Session, folder_id: int | None, label: str) -> str:
+    base = slugify_label(label)
+    prefix = f"f{folder_id}-" if folder_id is not None else "root-"
+    candidate = validate_slug(f"{prefix}{base}"[:180])
+    if not db.query(FileResource).filter_by(slug=candidate).first():
+        return candidate
+    n = 2
+    while True:
+        candidate = validate_slug(f"{prefix}{base}-{n}"[:180])
+        if not db.query(FileResource).filter_by(slug=candidate).first():
+            return candidate
+        n += 1
+
+
+def parse_numeric_version(label: str | None) -> int | None:
+    try:
+        return int(str(label or "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def max_numeric_version_label(db: Session, file_id: int) -> int | None:
+    best: int | None = None
+    for (lab,) in db.query(FileVersion.version_label).filter_by(file_id=file_id).all():
+        n = parse_numeric_version(lab)
+        if n is None:
+            continue
+        if best is None or n > best:
+            best = n
+    return best
+
+
+def _version_sort_key(version: FileVersion) -> tuple:
+    n = parse_numeric_version(version.version_label)
+    return (n if n is not None else -1, version.uploaded_at or utcnow())
+
+
+def folder_ancestor_ids(db: Session, folder_id: int | None) -> list[int]:
+    """Return [folder_id, parent, ..., root] for a folder (empty if folder_id is None)."""
+    if folder_id is None:
+        return []
+    out: list[int] = []
+    seen: set[int] = set()
+    current = folder_id
+    while current is not None:
+        if current in seen:
+            break
+        seen.add(current)
+        out.append(current)
+        row = db.query(FileFolder).filter_by(id=current).first()
+        if not row:
+            break
+        current = row.parent_folder_id
+    return out
+
+
+def folder_path_segments(db: Session, folder_id: int | None) -> list[dict]:
+    """Breadcrumb segments from root to folder (excluding virtual Accueil)."""
+    ids = list(reversed(folder_ancestor_ids(db, folder_id)))
+    segments: list[dict] = []
+    for fid in ids:
+        row = db.query(FileFolder).filter_by(id=fid).first()
+        if row:
+            segments.append({"id": row.id, "name": row.name})
+    return segments
+
+
+def folder_path_label(db: Session, folder_id: int | None) -> str:
+    segs = folder_path_segments(db, folder_id)
+    if not segs:
+        return "Accueil"
+    return " / ".join(s["name"] for s in segs)
+
+
+def _subject_grant_filters(
+    *,
+    keycloak_user_id: str | None,
+    group_ids: list[int],
+):
+    clauses = []
+    if keycloak_user_id:
+        clauses.append(
+            (
+                AccessGrant.subject_type == "user",
+                AccessGrant.keycloak_user_id == keycloak_user_id,
+            )
         )
-    try:
-        Version(value)
-    except InvalidVersion as exc:
-        raise ValueError(
-            "version_label must be SemVer (ex: 1.2.3, 1.2.3-rc1, 1.2.3+build)"
-        ) from exc
-    return value
+    if group_ids:
+        clauses.append(
+            (
+                AccessGrant.subject_type == "group",
+                AccessGrant.rbac_group_id.in_(group_ids),
+            )
+        )
+    return clauses
 
 
-def _semver_key(label: str) -> Version:
-    try:
-        return Version(label)
-    except InvalidVersion:
-        # Legacy free-form labels from §7bis — sort below any valid SemVer.
-        return Version("0.0.0")
+def _collect_grants_for_targets(
+    db: Session,
+    *,
+    keycloak_user_id: str | None,
+    group_names: Sequence[str] | None,
+    file_id: int | None = None,
+    folder_ids: Sequence[int] | None = None,
+) -> list[tuple[AccessGrant, str]]:
+    """Return (grant, provenance_label) pairs applicable to file and/or folders."""
+    names = [n for n in (group_names or []) if n]
+    groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all() if names else []
+    group_ids = [g.id for g in groups]
+    group_by_id = {g.id: g for g in groups}
+    results: list[tuple[AccessGrant, str]] = []
+
+    def _add(grant: AccessGrant, source: str) -> None:
+        results.append((grant, source))
+
+    if keycloak_user_id:
+        if file_id is not None:
+            for g in (
+                db.query(AccessGrant)
+                .filter(
+                    AccessGrant.subject_type == "user",
+                    AccessGrant.keycloak_user_id == keycloak_user_id,
+                    AccessGrant.resource_type == "file",
+                    AccessGrant.file_id == file_id,
+                )
+                .all()
+            ):
+                _add(g, "direct sur le fichier")
+        if folder_ids:
+            for g in (
+                db.query(AccessGrant)
+                .filter(
+                    AccessGrant.subject_type == "user",
+                    AccessGrant.keycloak_user_id == keycloak_user_id,
+                    AccessGrant.resource_type == "folder",
+                    AccessGrant.folder_id.in_(list(folder_ids)),
+                )
+                .all()
+            ):
+                path = folder_path_label(db, g.folder_id)
+                _add(g, f"via dossier {path}")
+
+    if group_ids:
+        if file_id is not None:
+            for g in (
+                db.query(AccessGrant)
+                .filter(
+                    AccessGrant.subject_type == "group",
+                    AccessGrant.rbac_group_id.in_(group_ids),
+                    AccessGrant.resource_type == "file",
+                    AccessGrant.file_id == file_id,
+                )
+                .all()
+            ):
+                group = group_by_id.get(g.rbac_group_id) if g.rbac_group_id else None
+                src = f"direct sur le fichier (via groupe {group.name})" if group else "direct sur le fichier"
+                _add(g, src)
+        if folder_ids:
+            for g in (
+                db.query(AccessGrant)
+                .filter(
+                    AccessGrant.subject_type == "group",
+                    AccessGrant.rbac_group_id.in_(group_ids),
+                    AccessGrant.resource_type == "folder",
+                    AccessGrant.folder_id.in_(list(folder_ids)),
+                )
+                .all()
+            ):
+                path = folder_path_label(db, g.folder_id)
+                group = group_by_id.get(g.rbac_group_id) if g.rbac_group_id else None
+                src = (
+                    f"via dossier {path} (groupe {group.name})"
+                    if group
+                    else f"via dossier {path}"
+                )
+                _add(g, src)
+
+    return results
+
+
+def get_effective_access_on_folder(
+    db: Session,
+    *,
+    folder_id: int | None,
+    keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
+    is_portal_admin: bool = False,
+) -> EffectiveAccess:
+    if is_portal_admin:
+        return EffectiveAccess(access_level="manage", sources=["portal_admin"])
+    ancestor_ids = folder_ancestor_ids(db, folder_id)
+    # Root (None): only grants on nothing apply unless we treat "manage everywhere"
+    # via portal_admin. Root listing uses grants on any root-child visibility separately.
+    pairs = _collect_grants_for_targets(
+        db,
+        keycloak_user_id=keycloak_user_id,
+        group_names=group_names,
+        folder_ids=ancestor_ids,
+    )
+    best: str | None = None
+    sources: list[str] = []
+    grant_ids: list[int] = []
+    for grant, source in pairs:
+        level = grant.access_level or "view"
+        if _rank(level) > _rank(best):
+            best = level
+        if source not in sources:
+            sources.append(source)
+        if grant.id not in grant_ids:
+            grant_ids.append(grant.id)
+    return EffectiveAccess(access_level=best, sources=sources, grant_ids=grant_ids)
+
+
+def get_effective_access_on_file(
+    db: Session,
+    *,
+    file: FileResource | int,
+    keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
+    is_portal_admin: bool = False,
+) -> EffectiveAccess:
+    if is_portal_admin:
+        return EffectiveAccess(access_level="manage", sources=["portal_admin"])
+    fr = file if isinstance(file, FileResource) else db.query(FileResource).filter_by(id=file).first()
+    if not fr:
+        return EffectiveAccess(access_level=None)
+    ancestor_ids = folder_ancestor_ids(db, fr.folder_id)
+    pairs = _collect_grants_for_targets(
+        db,
+        keycloak_user_id=keycloak_user_id,
+        group_names=group_names,
+        file_id=fr.id,
+        folder_ids=ancestor_ids,
+    )
+    best: str | None = None
+    sources: list[str] = []
+    grant_ids: list[int] = []
+    for grant, source in pairs:
+        level = grant.access_level or "view"
+        if _rank(level) > _rank(best):
+            best = level
+        if source not in sources:
+            sources.append(source)
+        if grant.id not in grant_ids:
+            grant_ids.append(grant.id)
+    return EffectiveAccess(access_level=best, sources=sources, grant_ids=grant_ids)
 
 
 def get_effective_file_channel(
@@ -135,48 +386,58 @@ def get_effective_file_channel(
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
 ) -> tuple[str, list[str]]:
-    """Resolve beta|stable for a subject **on one file**.
+    """Resolve beta|stable: union of assignments on the file + ancestor folders."""
+    fr = db.query(FileResource).filter_by(id=file_id).first()
+    if not fr:
+        return "stable", ["default"]
 
-    Union of direct user assignment + assignments of all matching Keycloak groups
-    for this file_id. Beta wins if present.
-    """
     sources: list[str] = []
     names = [n for n in (group_names or []) if n]
+    groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all() if names else []
+    group_ids = [g.id for g in groups]
+    group_by_id = {g.id: g for g in groups}
+    folder_ids = folder_ancestor_ids(db, fr.folder_id)
+
+    target_filters = [FileChannelAssignment.file_id == file_id]
+    if folder_ids:
+        target_filters.append(FileChannelAssignment.folder_id.in_(folder_ids))
+
+    from sqlalchemy import or_
+
+    base = db.query(FileChannelAssignment).filter(
+        FileChannelAssignment.channel == "beta",
+        or_(*target_filters),
+    )
 
     if keycloak_user_id:
-        direct = (
-            db.query(FileChannelAssignment)
-            .filter(
-                FileChannelAssignment.file_id == file_id,
-                FileChannelAssignment.subject_type == "user",
-                FileChannelAssignment.keycloak_user_id == keycloak_user_id,
-                FileChannelAssignment.channel == "beta",
-            )
-            .first()
-        )
-        if direct:
-            sources.append("direct")
+        for row in base.filter(
+            FileChannelAssignment.subject_type == "user",
+            FileChannelAssignment.keycloak_user_id == keycloak_user_id,
+        ).all():
+            if row.file_id:
+                src = "direct"
+            else:
+                src = f"via dossier {folder_path_label(db, row.folder_id)}"
+            if src not in sources:
+                sources.append(src)
 
-    if names:
-        groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all()
-        group_ids = [g.id for g in groups]
-        group_by_id = {g.id: g for g in groups}
-        if group_ids:
-            group_rows = (
-                db.query(FileChannelAssignment)
-                .filter(
-                    FileChannelAssignment.file_id == file_id,
-                    FileChannelAssignment.subject_type == "group",
-                    FileChannelAssignment.rbac_group_id.in_(group_ids),
-                    FileChannelAssignment.channel == "beta",
+    if group_ids:
+        for row in base.filter(
+            FileChannelAssignment.subject_type == "group",
+            FileChannelAssignment.rbac_group_id.in_(group_ids),
+        ).all():
+            group = group_by_id.get(row.rbac_group_id) if row.rbac_group_id else None
+            if row.file_id:
+                src = f"via groupe {group.name}" if group else "via groupe"
+            else:
+                path = folder_path_label(db, row.folder_id)
+                src = (
+                    f"via dossier {path} (groupe {group.name})"
+                    if group
+                    else f"via dossier {path}"
                 )
-                .all()
-            )
-            for row in group_rows:
-                group = group_by_id.get(row.rbac_group_id) if row.rbac_group_id else None
-                source = f"via groupe {group.name}" if group else "via groupe"
-                if source not in sources:
-                    sources.append(source)
+            if src not in sources:
+                sources.append(src)
 
     if sources:
         return "beta", sources
@@ -188,11 +449,7 @@ def get_effective_file_version(
     file: FileResource | int,
     channel: str,
 ) -> FileVersion | None:
-    """Pick the highest SemVer among active candidates for the user's channel.
-
-    stable → candidates {stable}
-    beta   → candidates {beta, stable}
-    """
+    """Highest numeric version among active candidates for the user's channel."""
     file_id = file.id if isinstance(file, FileResource) else int(file)
     channel = (channel or "stable").strip().lower()
     if channel not in CHANNELS:
@@ -210,36 +467,7 @@ def get_effective_file_version(
     )
     if not rows:
         return None
-    return max(rows, key=lambda v: (_semver_key(v.version_label), v.uploaded_at or utcnow()))
-
-
-def _merge_file_candidate(
-    by_file: dict[int, EffectiveFileAccess],
-    *,
-    file: FileResource,
-    access_level: str,
-    channel: str,
-    effective_version: FileVersion | None,
-    source: str,
-    grant_id: int,
-) -> None:
-    existing = by_file.get(file.id)
-    if existing is None:
-        by_file[file.id] = EffectiveFileAccess(
-            file=file,
-            access_level=access_level,
-            channel=channel,
-            effective_version=effective_version,
-            sources=[source],
-            grant_ids=[grant_id],
-        )
-        return
-    if _rank(access_level) > _rank(existing.access_level):
-        existing.access_level = access_level
-    if source not in existing.sources:
-        existing.sources.append(source)
-    if grant_id not in existing.grant_ids:
-        existing.grant_ids.append(grant_id)
+    return max(rows, key=_version_sort_key)
 
 
 def get_effective_files_for_user(
@@ -247,88 +475,38 @@ def get_effective_files_for_user(
     *,
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
+    is_portal_admin: bool = False,
 ) -> list[EffectiveFileAccess]:
-    """Return active files the user can access, with per-file channel + version."""
-    by_file: dict[int, EffectiveFileAccess] = {}
-    names = [n for n in (group_names or []) if n]
-
-    if keycloak_user_id:
-        direct = (
-            db.query(AccessGrant)
-            .filter(
-                AccessGrant.subject_type == "user",
-                AccessGrant.keycloak_user_id == keycloak_user_id,
-                AccessGrant.resource_type == "file",
-                AccessGrant.file_id.is_not(None),
-            )
-            .all()
+    """All active files the user can at least view (direct or via folder inheritance)."""
+    files = db.query(FileResource).filter_by(is_active=True).all()
+    out: list[EffectiveFileAccess] = []
+    for fr in files:
+        access = get_effective_access_on_file(
+            db,
+            file=fr,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
         )
-        for grant in direct:
-            fr = (
-                db.query(FileResource)
-                .filter_by(id=grant.file_id, is_active=True)
-                .first()
-            )
-            if not fr:
-                continue
-            channel, _ = get_effective_file_channel(
-                db,
-                file_id=fr.id,
-                keycloak_user_id=keycloak_user_id,
-                group_names=group_names,
-            )
-            _merge_file_candidate(
-                by_file,
+        if not access.can_view:
+            continue
+        channel, _ = get_effective_file_channel(
+            db,
+            file_id=fr.id,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+        )
+        out.append(
+            EffectiveFileAccess(
                 file=fr,
-                access_level=grant.access_level or "view",
+                access_level=access.access_level or "view",
                 channel=channel,
                 effective_version=get_effective_file_version(db, fr, channel),
-                source="direct",
-                grant_id=grant.id,
+                sources=list(access.sources),
+                grant_ids=list(access.grant_ids),
             )
-
-    if names:
-        groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all()
-        group_ids = [g.id for g in groups]
-        group_by_id = {g.id: g for g in groups}
-        if group_ids:
-            group_grants = (
-                db.query(AccessGrant)
-                .filter(
-                    AccessGrant.subject_type == "group",
-                    AccessGrant.rbac_group_id.in_(group_ids),
-                    AccessGrant.resource_type == "file",
-                    AccessGrant.file_id.is_not(None),
-                )
-                .all()
-            )
-            for grant in group_grants:
-                fr = (
-                    db.query(FileResource)
-                    .filter_by(id=grant.file_id, is_active=True)
-                    .first()
-                )
-                if not fr:
-                    continue
-                channel, _ = get_effective_file_channel(
-                    db,
-                    file_id=fr.id,
-                    keycloak_user_id=keycloak_user_id,
-                    group_names=group_names,
-                )
-                group = group_by_id.get(grant.rbac_group_id) if grant.rbac_group_id else None
-                source = f"via groupe {group.name}" if group else "via groupe"
-                _merge_file_candidate(
-                    by_file,
-                    file=fr,
-                    access_level=grant.access_level or "view",
-                    channel=channel,
-                    effective_version=get_effective_file_version(db, fr, channel),
-                    source=source,
-                    grant_id=grant.id,
-                )
-
-    return sorted(by_file.values(), key=lambda e: (e.file.label or "").lower())
+        )
+    return sorted(out, key=lambda e: (e.file.label or "").lower())
 
 
 def user_can_download_file(
@@ -337,35 +515,244 @@ def user_can_download_file(
     file_id: int,
     keycloak_user_id: str | None = None,
     group_names: Sequence[str] | None = None,
+    is_portal_admin: bool = False,
 ) -> bool:
-    """True if effective AccessGrant grants at least ``launch`` on this file."""
-    for entry in get_effective_files_for_user(
+    access = get_effective_access_on_file(
         db,
+        file=file_id,
         keycloak_user_id=keycloak_user_id,
         group_names=group_names,
-    ):
-        if entry.file_id == file_id and entry.can_launch:
+        is_portal_admin=is_portal_admin,
+    )
+    return access.can_launch
+
+
+def _folder_has_visible_descendant(
+    db: Session,
+    folder_id: int,
+    *,
+    keycloak_user_id: str | None,
+    group_names: Sequence[str] | None,
+    is_portal_admin: bool,
+    cache: dict[int, bool],
+) -> bool:
+    if folder_id in cache:
+        return cache[folder_id]
+    for child in db.query(FileFolder).filter_by(parent_folder_id=folder_id).all():
+        child_access = get_effective_access_on_folder(
+            db,
+            folder_id=child.id,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
+        )
+        if child_access.can_view:
+            cache[folder_id] = True
             return True
+        if _folder_has_visible_descendant(
+            db,
+            child.id,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
+            cache=cache,
+        ):
+            cache[folder_id] = True
+            return True
+    for fr in db.query(FileResource).filter_by(folder_id=folder_id, is_active=True).all():
+        access = get_effective_access_on_file(
+            db,
+            file=fr,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
+        )
+        if access.can_view:
+            cache[folder_id] = True
+            return True
+    cache[folder_id] = False
     return False
+
+
+def list_folder_contents(
+    db: Session,
+    *,
+    folder_id: int | None,
+    keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
+    is_portal_admin: bool = False,
+    q: str | None = None,
+) -> dict:
+    """Folders + files visible in one directory for the caller."""
+    query = (q or "").strip().casefold()
+    descendant_cache: dict[int, bool] = {}
+
+    folders_out: list[dict] = []
+    for folder in (
+        db.query(FileFolder)
+        .filter(FileFolder.parent_folder_id == folder_id)
+        .order_by(FileFolder.name)
+        .all()
+    ):
+        access = get_effective_access_on_folder(
+            db,
+            folder_id=folder.id,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
+        )
+        visible = access.can_view or _folder_has_visible_descendant(
+            db,
+            folder.id,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
+            cache=descendant_cache,
+        )
+        if not visible:
+            continue
+        if query and query not in (folder.name or "").casefold():
+            continue
+        folders_out.append(
+            {
+                "id": folder.id,
+                "name": folder.name,
+                "kind": "folder",
+                "access_level": access.access_level,
+                "can_manage": access.can_manage,
+                "sources": access.sources,
+            }
+        )
+
+    files_out: list[dict] = []
+    for fr in (
+        db.query(FileResource)
+        .filter(FileResource.folder_id == folder_id, FileResource.is_active.is_(True))
+        .order_by(FileResource.label)
+        .all()
+    ):
+        access = get_effective_access_on_file(
+            db,
+            file=fr,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
+        )
+        if not access.can_view:
+            continue
+        if query and query not in (fr.label or "").casefold():
+            continue
+        channel, _ = get_effective_file_channel(
+            db,
+            file_id=fr.id,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+        )
+        version = get_effective_file_version(db, fr, channel)
+        files_out.append(
+            {
+                "id": fr.id,
+                "label": fr.label,
+                "slug": fr.slug,
+                "kind": "file",
+                "access_level": access.access_level,
+                "can_manage": access.can_manage,
+                "can_download": access.can_launch and version is not None,
+                "channel": channel,
+                "version_label": version.version_label if version else None,
+                "version_id": version.id if version else None,
+                "size_bytes": version.size_bytes if version else None,
+                "uploaded_at": version.uploaded_at.isoformat() if version and version.uploaded_at else None,
+                "sources": access.sources,
+            }
+        )
+
+    parent_access = get_effective_access_on_folder(
+        db,
+        folder_id=folder_id,
+        keycloak_user_id=keycloak_user_id,
+        group_names=group_names,
+        is_portal_admin=is_portal_admin,
+    )
+    # Root: allow manage for portal_admin; for others, manage if they have manage
+    # on any grant that would let them create at root — treated as portal_admin only
+    # unless they have a folder grant (root has no folder_id). Creating at root
+    # requires portal_admin OR we introduce virtual root grants later.
+    can_manage_here = parent_access.can_manage or (
+        folder_id is None and is_portal_admin
+    )
+
+    return {
+        "folder_id": folder_id,
+        "breadcrumb": folder_path_segments(db, folder_id),
+        "can_manage": can_manage_here,
+        "folders": folders_out,
+        "files": files_out,
+    }
+
+
+def create_folder(
+    db: Session,
+    *,
+    name: str,
+    parent_folder_id: int | None,
+    created_by: str,
+) -> FileFolder:
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Le nom du dossier est obligatoire")
+    if parent_folder_id is not None:
+        parent = db.query(FileFolder).filter_by(id=parent_folder_id).first()
+        if not parent:
+            raise ValueError("Dossier parent introuvable")
+    existing = (
+        db.query(FileFolder)
+        .filter_by(parent_folder_id=parent_folder_id, name=name)
+        .first()
+    )
+    if existing:
+        raise ValueError(f"Un dossier « {name} » existe déjà ici")
+    folder = FileFolder(
+        parent_folder_id=parent_folder_id,
+        name=name,
+        created_by=created_by,
+    )
+    db.add(folder)
+    db.flush()
+    return folder
 
 
 def create_file_resource(
     db: Session,
     *,
-    slug: str,
+    slug: str | None = None,
     label: str,
     description: str | None = None,
     category: str | None = None,
     is_active: bool = True,
     created_by: str,
+    folder_id: int | None = None,
 ) -> FileResource:
-    slug = validate_slug(slug)
-    existing = db.query(FileResource).filter_by(slug=slug).first()
+    label = (label or "").strip()
+    if not label:
+        raise ValueError("Le nom du fichier est obligatoire")
+    existing = (
+        db.query(FileResource)
+        .filter_by(folder_id=folder_id, label=label)
+        .first()
+    )
     if existing:
-        raise ValueError(f"Un fichier avec le slug « {slug} » existe déjà")
+        raise ValueError(f"Un fichier « {label} » existe déjà dans ce dossier")
+    if slug:
+        slug = validate_slug(slug)
+        if db.query(FileResource).filter_by(slug=slug).first():
+            raise ValueError(f"Un fichier avec le slug « {slug} » existe déjà")
+    else:
+        slug = generate_unique_slug(db, folder_id, label)
     fr = FileResource(
+        folder_id=folder_id,
         slug=slug,
-        label=(label or "").strip() or slug,
+        label=label,
         description=(description or "").strip() or None,
         category=(category or "").strip() or None,
         is_active=bool(is_active),
@@ -394,7 +781,9 @@ def store_file_version(
     channel = (channel or "").strip().lower()
     if channel not in CHANNELS:
         raise ValueError("channel must be beta or stable")
-    label = validate_version_label(version_label)
+    label = (version_label or "").strip()
+    if not label:
+        raise ValueError("version_label is required")
     if not data:
         raise ValueError("empty upload")
 
@@ -409,7 +798,6 @@ def store_file_version(
     checksum = compute_sha256(data)
     ensure_files_storage_dir(settings)
 
-    # Placeholder path until we have version.id (spec: {file_id}/{version_id}_{sha12}).
     version = FileVersion(
         file_id=file.id,
         channel=channel,
@@ -439,15 +827,144 @@ def store_file_version(
     return version
 
 
-def promote_file_version(db: Session, version: FileVersion) -> FileVersion:
-    """Promote beta → stable. Does not archive previous stables (explicit archive)."""
-    if version.channel != "beta":
-        raise ValueError("Seule une version beta peut être promue")
+def deposit_file(
+    db: Session,
+    *,
+    folder_id: int | None,
+    filename: str,
+    content_type: str | None,
+    data: bytes,
+    uploaded_by: str,
+    keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
+    is_portal_admin: bool = False,
+    settings: Settings | None = None,
+) -> tuple[FileResource, FileVersion, bool]:
+    """Zero-form deposit: same (folder_id, label) → auto-increment version.
+
+    Returns (file_resource, version, created_new_file).
+    """
+    label = (filename or "").strip() or "upload.bin"
+    if folder_id is not None:
+        folder = db.query(FileFolder).filter_by(id=folder_id).first()
+        if not folder:
+            raise ValueError("Dossier introuvable")
+
+    existing = (
+        db.query(FileResource)
+        .filter_by(folder_id=folder_id, label=label, is_active=True)
+        .first()
+    )
+
+    if existing is None:
+        folder_access = get_effective_access_on_folder(
+            db,
+            folder_id=folder_id,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
+        )
+        if not folder_access.can_manage and not (
+            folder_id is None and is_portal_admin
+        ):
+            raise PermissionError("Droit manage requis pour créer un fichier ici")
+        fr = create_file_resource(
+            db,
+            label=label,
+            folder_id=folder_id,
+            created_by=uploaded_by,
+        )
+        created_new = True
+        next_version = 1
+    else:
+        file_access = get_effective_access_on_file(
+            db,
+            file=existing,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+            is_portal_admin=is_portal_admin,
+        )
+        if not file_access.can_manage:
+            raise PermissionError("Droit manage requis pour publier une version")
+        fr = existing
+        created_new = False
+        next_version = (max_numeric_version_label(db, fr.id) or 0) + 1
+
+    version = store_file_version(
+        db,
+        file=fr,
+        channel="stable",
+        version_label=str(next_version),
+        filename=label,
+        content_type=content_type,
+        data=data,
+        uploaded_by=uploaded_by,
+        settings=settings,
+        encrypt=True,
+    )
+    return fr, version, created_new
+
+
+def set_version_channel(db: Session, version: FileVersion, channel: str) -> FileVersion:
+    channel = (channel or "").strip().lower()
+    if channel not in CHANNELS:
+        raise ValueError("channel must be beta or stable")
     if version.status != "active":
-        raise ValueError("Seule une version active peut être promue")
-    version.channel = "stable"
+        raise ValueError("Seule une version active peut changer de canal")
+    version.channel = channel
     db.flush()
     return version
+
+
+def rename_version_label(db: Session, version: FileVersion, new_label: str) -> FileVersion:
+    label = (new_label or "").strip()
+    if not label:
+        raise ValueError("Libellé de version obligatoire")
+    dup = (
+        db.query(FileVersion)
+        .filter(
+            FileVersion.file_id == version.file_id,
+            FileVersion.version_label == label,
+            FileVersion.id != version.id,
+        )
+        .first()
+    )
+    if dup:
+        raise ValueError(f"La version « {label} » existe déjà pour ce fichier")
+    version.version_label = label
+    db.flush()
+    return version
+
+
+def rename_file_resource(db: Session, file: FileResource, new_label: str) -> FileResource:
+    label = (new_label or "").strip()
+    if not label:
+        raise ValueError("Nom de fichier obligatoire")
+    dup = (
+        db.query(FileResource)
+        .filter(
+            FileResource.folder_id == file.folder_id,
+            FileResource.label == label,
+            FileResource.id != file.id,
+        )
+        .first()
+    )
+    if dup:
+        raise ValueError(f"Un fichier « {label} » existe déjà dans ce dossier")
+    file.label = label
+    db.flush()
+    return file
+
+
+def archive_file_resource(db: Session, file: FileResource) -> FileResource:
+    file.is_active = False
+    db.flush()
+    return file
+
+
+def promote_file_version(db: Session, version: FileVersion) -> FileVersion:
+    """Legacy promote beta → stable (also used by toggle toward stable)."""
+    return set_version_channel(db, version, "stable")
 
 
 def archive_file_version(db: Session, version: FileVersion) -> FileVersion:
@@ -459,45 +976,45 @@ def archive_file_version(db: Session, version: FileVersion) -> FileVersion:
 def assign_beta_channel(
     db: Session,
     *,
-    file_id: int,
+    file_id: int | None = None,
+    folder_id: int | None = None,
     subject_type: str,
     rbac_group_id: int | None = None,
     keycloak_user_id: str | None = None,
     user_display_cache: str | None = None,
     assigned_by: str,
 ) -> FileChannelAssignment:
+    if (file_id is None) == (folder_id is None):
+        raise ValueError("Provide exactly one of file_id or folder_id")
     if subject_type == "group":
         if not rbac_group_id or keycloak_user_id:
             raise ValueError("group assignments require rbac_group_id only")
-        existing = (
-            db.query(FileChannelAssignment)
-            .filter(
-                FileChannelAssignment.file_id == file_id,
-                FileChannelAssignment.subject_type == "group",
-                FileChannelAssignment.rbac_group_id == rbac_group_id,
-            )
-            .first()
+        q = db.query(FileChannelAssignment).filter(
+            FileChannelAssignment.subject_type == "group",
+            FileChannelAssignment.rbac_group_id == rbac_group_id,
         )
     elif subject_type == "user":
         if not keycloak_user_id or rbac_group_id:
             raise ValueError("user assignments require keycloak_user_id only")
-        existing = (
-            db.query(FileChannelAssignment)
-            .filter(
-                FileChannelAssignment.file_id == file_id,
-                FileChannelAssignment.subject_type == "user",
-                FileChannelAssignment.keycloak_user_id == keycloak_user_id,
-            )
-            .first()
+        q = db.query(FileChannelAssignment).filter(
+            FileChannelAssignment.subject_type == "user",
+            FileChannelAssignment.keycloak_user_id == keycloak_user_id,
         )
     else:
         raise ValueError("subject_type must be group or user")
 
+    if file_id is not None:
+        q = q.filter(FileChannelAssignment.file_id == file_id)
+    else:
+        q = q.filter(FileChannelAssignment.folder_id == folder_id)
+
+    existing = q.first()
     if existing:
         return existing
 
     row = FileChannelAssignment(
         file_id=file_id,
+        folder_id=folder_id,
         subject_type=subject_type,
         rbac_group_id=rbac_group_id,
         keycloak_user_id=keycloak_user_id,
@@ -520,6 +1037,15 @@ def delete_channel_assignment(
     return row
 
 
+def list_file_versions(db: Session, file_id: int) -> list[FileVersion]:
+    return (
+        db.query(FileVersion)
+        .filter_by(file_id=file_id)
+        .order_by(FileVersion.uploaded_at.desc())
+        .all()
+    )
+
+
 def iter_version_plaintext(
     version: FileVersion,
     settings: Settings | None = None,
@@ -531,10 +1057,17 @@ def iter_version_plaintext(
     if version.encrypted:
         yield from iter_decrypted_chunks(path, settings=settings)
     else:
-        # Legacy plaintext (§7bis) — stream in chunks without loading whole file.
         with path.open("rb") as fh:
             while True:
                 block = fh.read(DEFAULT_CHUNK_SIZE)
                 if not block:
                     break
                 yield block
+
+
+def validate_version_label(label: str) -> str:
+    """Free-form version label (auto-numeric at deposit; rename may set any text)."""
+    value = (label or "").strip()
+    if not value:
+        raise ValueError("version_label is required")
+    return value
