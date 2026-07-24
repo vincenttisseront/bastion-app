@@ -4,7 +4,18 @@
     <img src="/static/img/bastion-icon.svg" alt="" width="28" height="28">
     <span class="portal-brand-name">Bastion Pro</span>
   </a>
+  <nav class="portal-nav" aria-label="Navigation portail">
+    <a href="/apps" class="portal-nav-link{% if request.url.path.startswith('/apps') %} is-active{% endif %}">Mes applications</a>
+    <a href="/profile" class="portal-nav-link{% if request.url.path.startswith('/profile') %} is-active{% endif %}">Mon profil</a>
+  </nav>
   <div class="portal-topbar-actions">
+    <button type="button" class="icon-btn" id="theme-toggle" aria-label="Basculer le thème" title="Thème">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+      </svg>
+    </button>
     {% if portal_user %}
     {% with menu_user=portal_user %}
     {% include 'partials/_user_menu.html' %}

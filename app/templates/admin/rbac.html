@@ -144,14 +144,32 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  function syncActionChecks(modeValue) {
+    var total = modeValue === 'total';
+    var map = {
+      'grp-act-logs': true,
+      'grp-act-terminal': total,
+      'grp-act-secrets': true,
+      'grp-act-delete': total,
+    };
+    Object.keys(map).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.checked = map[id];
+      var row = el.closest('.action-check');
+      if (row) row.classList.toggle('is-on', map[id]);
+    });
+  }
+
   document.querySelectorAll('[data-group-config]').forEach(function (btn) {
-    btn.addEventListener('click', async function () {
+    btn.addEventListener('click', function () {
       var groupId = btn.getAttribute('data-group-id');
       var name = btn.getAttribute('data-group-name') || '';
       var tag = btn.getAttribute('data-group-tag') || '';
       var desc = btn.getAttribute('data-group-description') || '';
       var mode = btn.getAttribute('data-mode') || 'limited';
       var root = document.getElementById('bastion-modal');
+      var dialog = root && root.querySelector('.bastion-modal-dialog');
       var extra = document.getElementById('bastion-modal-extra');
       var titleEl = document.getElementById('bastion-modal-title');
       var messageEl = document.getElementById('bastion-modal-message');
@@ -159,39 +177,70 @@ document.addEventListener('DOMContentLoaded', function () {
       var cancelBtn = document.getElementById('bastion-modal-cancel');
       if (!root || !extra || !titleEl || !confirmBtn) return;
 
+      if (dialog) dialog.classList.add('bastion-modal-dialog--form');
+      document.body.classList.add('bastion-modal-open');
       titleEl.textContent = 'Configuration : ' + name;
       messageEl.textContent = 'Périmètre RBAC et métadonnées du groupe.';
       extra.hidden = false;
       extra.innerHTML =
-        '<div class="form-section" style="text-align:left; display:grid; gap:var(--sp-3);">' +
-        '<div class="form-group"><label class="form-label" for="grp-tag">Tag</label>' +
-        '<input class="form-input" id="grp-tag" value="' + escapeHtml(tag) + '"></div>' +
-        '<div class="form-group"><label class="form-label" for="grp-desc">Description</label>' +
-        '<textarea class="form-input" id="grp-desc" rows="2">' + escapeHtml(desc) + '</textarea></div>' +
-        '<div class="form-group"><label class="form-label" for="grp-mode">Périmètre</label>' +
-        '<select class="form-select" id="grp-mode">' +
-        '<option value="total"' + (mode === 'total' ? ' selected' : '') + '>Accès Total</option>' +
-        '<option value="limited"' + (mode !== 'total' ? ' selected' : '') + '>Limité</option>' +
-        '</select></div>' +
-        '<fieldset style="border:none; padding:0; margin:0;">' +
-        '<legend class="form-label">Actions Autorisées (indicatif)</legend>' +
-        '<label class="form-hint"><input type="checkbox" disabled checked> Lecture Logs</label><br>' +
-        '<label class="form-hint"><input type="checkbox" disabled> Accès Terminal</label><br>' +
-        '<label class="form-hint"><input type="checkbox" disabled checked> Secrets</label><br>' +
-        '<label class="form-hint"><input type="checkbox" disabled> Suppression</label>' +
-        '</fieldset></div>';
+        '<div class="group-config-form">' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="grp-tag">Tag</label>' +
+            '<input class="form-input" id="grp-tag" placeholder="ex. Critical Access, Audit-Only" value="' + escapeHtml(tag) + '">' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="grp-desc">Description</label>' +
+            '<textarea class="form-textarea" id="grp-desc" rows="3" placeholder="Rôle de ce groupe dans Bastion…">' + escapeHtml(desc) + '</textarea>' +
+          '</div>' +
+          '<div class="form-group">' +
+            '<label class="form-label" for="grp-mode">Périmètre</label>' +
+            '<select class="form-select" id="grp-mode">' +
+              '<option value="total"' + (mode === 'total' ? ' selected' : '') + '>Accès Total</option>' +
+              '<option value="limited"' + (mode !== 'total' ? ' selected' : '') + '>Limité</option>' +
+            '</select>' +
+            '<p class="group-config-hint">Accès Total assigne le rôle Administrateur Sécurité · Limité retire le grant rôle.</p>' +
+          '</div>' +
+          '<div class="action-check-block">' +
+            '<span class="form-label">Actions autorisées</span>' +
+            '<p class="group-config-hint">Aperçu indicatif selon le périmètre (édition fine dans Gouvernance).</p>' +
+            '<div class="action-check-grid">' +
+              '<label class="action-check"><input type="checkbox" id="grp-act-logs" disabled> Lecture Logs</label>' +
+              '<label class="action-check"><input type="checkbox" id="grp-act-terminal" disabled> Accès Terminal</label>' +
+              '<label class="action-check"><input type="checkbox" id="grp-act-secrets" disabled> Secrets</label>' +
+              '<label class="action-check"><input type="checkbox" id="grp-act-delete" disabled> Suppression</label>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      syncActionChecks(mode);
+      var modeSelect = document.getElementById('grp-mode');
+      if (modeSelect) {
+        modeSelect.addEventListener('change', function () {
+          syncActionChecks(modeSelect.value);
+        });
+      }
+
       confirmBtn.textContent = 'Sauvegarder les modifications';
+      confirmBtn.classList.remove('btn-secondary');
+      confirmBtn.classList.add('btn-primary');
       if (cancelBtn) cancelBtn.hidden = false;
       root.hidden = false;
       root.setAttribute('aria-hidden', 'false');
+      var tagInput = document.getElementById('grp-tag');
+      if (tagInput) tagInput.focus();
 
       function closeModal() {
         root.hidden = true;
         root.setAttribute('aria-hidden', 'true');
         extra.innerHTML = '';
         extra.hidden = true;
+        if (dialog) dialog.classList.remove('bastion-modal-dialog--form');
+        document.body.classList.remove('bastion-modal-open');
+        confirmBtn.classList.remove('btn-primary');
+        confirmBtn.classList.add('btn-secondary');
+        confirmBtn.textContent = 'Confirmer';
         confirmBtn.removeEventListener('click', onConfirm, true);
         document.removeEventListener('click', onDismiss, true);
+        document.removeEventListener('keydown', onKey, true);
       }
       function onConfirm(e) {
         if (!e.target.closest || !e.target.closest('#bastion-modal-confirm')) return;
@@ -212,8 +261,15 @@ document.addEventListener('DOMContentLoaded', function () {
           closeModal();
         }
       }
+      function onKey(e) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeModal();
+        }
+      }
       confirmBtn.addEventListener('click', onConfirm, true);
       document.addEventListener('click', onDismiss, true);
+      document.addEventListener('keydown', onKey, true);
     });
   });
 });

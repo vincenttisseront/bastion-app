@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-portal-v2">
 {% endblock %}
 
 {% block content %}
@@ -16,17 +16,16 @@
 {% endif %}
 
 <main class="portal-main portal-main--profile">
-  <div class="portal-header">
-    <h1 class="page-title">Mon profil</h1>
-    <p class="page-sub">Vos informations et accès sur Bastion Pro</p>
-  </div>
+  <section class="portal-hero portal-hero--compact">
+    <div class="portal-hero-copy">
+      <p class="portal-eyebrow">Compte</p>
+      <h1 class="page-title">Mon profil</h1>
+      <p class="page-sub">Identité, applications et sécurité sur Bastion Pro</p>
+    </div>
+  </section>
 
   <div class="portal-profile-stack">
-    {# —— Identité —— #}
-    <section class="card portal-profile-card">
-      <div class="card-header">
-        <h2 class="card-title">Identité</h2>
-      </div>
+    <section class="card portal-profile-card portal-identity-card">
       <div class="card-body portal-identity">
         <span class="portal-avatar portal-avatar--xl" aria-hidden="true">{{ portal_user.initials }}</span>
         <div class="portal-identity-copy">
@@ -37,7 +36,6 @@
       </div>
     </section>
 
-    {# —— Mes applications —— #}
     <section class="card portal-profile-card">
       <div class="card-header">
         <h2 class="card-title">Mes applications</h2>
@@ -50,10 +48,11 @@
         </p>
         <div class="portal-apps-preview" aria-label="Aperçu des applications">
           {% for app in apps_preview %}
-          <div class="portal-apps-preview-item" title="{{ app.description or app.label }}">
+          <a class="portal-apps-preview-item" href="/apps" title="{{ app.description or app.label }}">
             <span class="portal-apps-preview-tile">{{ app_preview_icon(app) }}</span>
             <span class="portal-apps-preview-label truncate">{{ app.label }}</span>
-          </div>
+            <span class="portal-apps-preview-chevron" aria-hidden="true">→</span>
+          </a>
           {% endfor %}
         </div>
         {% else %}
@@ -62,7 +61,6 @@
       </div>
     </section>
 
-    {# —— Sécurité —— #}
     <section class="card portal-profile-card">
       <div class="card-header">
         <h2 class="card-title">Sécurité du compte</h2>

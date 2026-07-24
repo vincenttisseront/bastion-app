@@ -86,7 +86,7 @@
 
 .audit-stream{display:flex;flex-direction:column}
 .audit-entry{display:grid;grid-template-columns:6px 1fr auto auto;align-items:center;gap:var(--sp-4);padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border-muted);font-size:var(--fs-sm);transition:background var(--t-fast)}
-.audit-entry:hover{background:rgba(255,255,255,.02)}
+.audit-entry:hover{background:var(--row-hover)}
 .audit-entry:last-child{border-bottom:none}
 .audit-dot,.audit-severity{width:6px;height:6px;border-radius:var(--r-full);flex-shrink:0}
 .audit-dot.info,.audit-severity.info{background:var(--info)}

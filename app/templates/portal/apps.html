@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260722-app-hash">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-portal-v2">
 {% endblock %}
 
 {% block content %}
@@ -16,28 +16,42 @@
 {% endif %}
 
 <main class="portal-main">
-  <div class="portal-header">
-    <div class="portal-header-row" style="display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:flex-end;justify-content:space-between;">
-      <div>
-        <h1 class="page-title">Bonjour {{ greeting_name }}</h1>
-        <p class="page-sub">
-          {% if apps %}
-            {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
-          {% else %}
-            Aucune application disponible
-          {% endif %}
-        </p>
-      </div>
-      {% if apps %}
-      <label class="topbar-search" style="max-width:260px;flex:1;" for="app-search">
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="search" id="app-search" placeholder="Rechercher…" autocomplete="off" aria-label="Recherche applications">
-      </label>
-      {% endif %}
+  <section class="portal-hero">
+    <div class="portal-hero-copy">
+      <p class="portal-eyebrow">Espace utilisateur</p>
+      <h1 class="page-title">Bonjour {{ greeting_name }}</h1>
+      <p class="page-sub">
+        {% if apps %}
+          {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }} via Bastion Pro
+        {% else %}
+          Aucune application disponible pour le moment
+        {% endif %}
+      </p>
+    </div>
+    {% if apps %}
+    <label class="topbar-search portal-hero-search" for="app-search">
+      <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="search" id="app-search" placeholder="Rechercher une application…" autocomplete="off" aria-label="Recherche applications">
+    </label>
+    {% endif %}
+  </section>
+
+  {% if apps %}
+  <div class="portal-stats" aria-label="Résumé">
+    <div class="portal-stat">
+      <span class="portal-stat-value">{{ apps | length }}</span>
+      <span class="portal-stat-label">Applications</span>
+    </div>
+    <div class="portal-stat">
+      <span class="portal-stat-value">{{ apps | selectattr('can_launch') | list | length }}</span>
+      <span class="portal-stat-label">Ouvrables</span>
+    </div>
+    <div class="portal-stat">
+      <span class="portal-stat-value">{{ apps | selectattr('access_level', 'equalto', 'manage') | list | length }}</span>
+      <span class="portal-stat-label">Étendus</span>
     </div>
   </div>
 
-  {% if apps %}
   <div class="admin-grid portal-app-grid{% if apps | length <= 3 %} portal-app-grid--compact{% endif %}">
     {% for app in apps %}
       {% if app.needs_credential_setup %}
@@ -62,7 +76,6 @@
         <span class="admin-arrow app-tile-locked">Contactez un administrateur</span>
       </div>
       {% elif app.can_launch and app.credential_mode == 'identite_utilisateur' %}
-      {# No impersonate href — middle-click / Enter must not bypass the password modal. #}
       <button
         type="button"
         id="app-{{ app.slug }}"
@@ -172,11 +185,6 @@
     } catch (_) { /* fire-and-forget */ }
   }
 
-  /**
-   * Real top-level form POST — not fetch/XHR.
-   * Browsers ignore Set-Cookie Domain=parent on fetch responses from the portal
-   * host; a document navigation honors Domain=ar-systems.fr so webmail gets the session.
-   */
   function submitOpenWithIdentityForm(endpoint, password) {
     var form = document.createElement('form');
     form.method = 'POST';

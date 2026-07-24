@@ -20,10 +20,10 @@
   background:linear-gradient(135deg,var(--accent),var(--accent-h));
   box-shadow:var(--accent-glow);text-decoration:none;color:#fff;transform:translateY(-1px);
 }
-.btn-secondary{background:rgba(255,255,255,.04);color:var(--text);border-color:var(--border)}
-.btn-secondary:hover{background:rgba(255,255,255,.08);border-color:var(--border-bright);text-decoration:none}
+.btn-secondary{background:var(--hover-bg);color:var(--text);border-color:var(--border)}
+.btn-secondary:hover{background:var(--hover-bg-strong);border-color:var(--border-bright);text-decoration:none}
 .btn-ghost{background:transparent;color:var(--text-2);border-color:transparent}
-.btn-ghost:hover{background:rgba(255,255,255,.05);color:var(--text);text-decoration:none}
+.btn-ghost:hover{background:var(--hover-bg);color:var(--text);text-decoration:none}
 .btn-danger{background:var(--err-bg);color:var(--err);border-color:rgba(239,68,68,.3)}
 .btn-danger:hover{background:rgba(239,68,68,.2);box-shadow:0 0 12px rgba(239,68,68,.2);text-decoration:none}
 .btn-sm{padding:4px 12px;font-size:var(--fs-xs)}
@@ -131,7 +131,7 @@
 .data-table th{padding:var(--sp-3) var(--sp-4);text-align:left;font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.1em;white-space:nowrap}
 .data-table tbody tr{border-bottom:1px solid var(--border-muted);transition:background var(--t-fast)}
 .data-table tbody tr:last-child{border-bottom:none}
-.data-table tbody tr:hover{background:rgba(255,255,255,.025)}
+.data-table tbody tr:hover{background:var(--row-hover)}
 .data-table td{padding:var(--sp-3) var(--sp-4);color:var(--text);vertical-align:middle}
 .data-table td.mono,.mono{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-2)}
 
@@ -139,7 +139,7 @@
   display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
   border-radius:var(--r-lg);font-size:var(--fs-sm);border:1px solid;
 }
-/* Author display:flex beats the UA [hidden] rule — keep alerts dismissible via hidden. */
+/* Author display:flex beats the UA [hidden] rule ? keep alerts dismissible via hidden. */
 .alert[hidden]{display:none!important}
 .alert-body{flex:1;min-width:0}
 .alert-ok,.alert-success{background:var(--ok-bg);border-color:rgba(16,185,129,.25);color:var(--ok)}
@@ -149,7 +149,7 @@
 .alert-close{margin-left:auto;background:none;border:none;cursor:pointer;color:currentColor;opacity:.5;padding:0;line-height:1}
 .alert-close:hover{opacity:1}
 
-/* —— Bastion modal (confirm / alert) —— */
+/* ?? Bastion modal (confirm / alert) ?? */
 body.bastion-modal-open{overflow:hidden}
 .bastion-modal{
   position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;
@@ -157,7 +157,7 @@ body.bastion-modal-open{overflow:hidden}
 }
 .bastion-modal[hidden]{display:none!important}
 .bastion-modal-backdrop{
-  position:absolute;inset:0;background:rgba(2,13,24,.72);backdrop-filter:blur(4px);
+  position:absolute;inset:0;background:var(--overlay-scrim);backdrop-filter:blur(4px);
 }
 .bastion-modal-dialog{
   position:relative;z-index:1;width:100%;max-width:440px;max-height:min(85vh,640px);
@@ -191,7 +191,7 @@ body.bastion-modal-open{overflow:hidden}
   padding:var(--sp-3) var(--sp-5) var(--sp-4);border-top:1px solid var(--border-muted);
 }
 
-/* —— Global search modal —— */
+/* ?? Global search modal ?? */
 .global-search-dialog{
   max-width:560px;max-height:min(80vh,640px);
   display:flex;flex-direction:column;overflow:hidden;
@@ -223,7 +223,7 @@ body.bastion-modal-open{overflow:hidden}
   min-height:160px;max-height:min(60vh,480px);overflow-y:auto;
 }
 
-/* Idle / empty / loading / error — author display:flex must not beat [hidden] */
+/* Idle / empty / loading / error ? author display:flex must not beat [hidden] */
 [data-global-search-state][hidden]{display:none!important}
 .global-search-state{
   display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -364,7 +364,7 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .integrity-score{font-family:var(--mono);font-weight:800;font-size:var(--fs-xl);color:var(--ok)}
 .integrity-hash{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-3);margin-left:auto}
 
-/* �� RBAC UI v2 (Stitch alignment) �� */
+/* ?? RBAC UI v2 (Stitch alignment) ?? */
 .avatar-initials{width:36px;height:36px;border-radius:var(--r-full);display:flex;align-items:center;justify-content:center;font-size:var(--fs-xs);font-weight:700;color:#fff;flex-shrink:0}
 .avatar-stack{display:flex;align-items:center}
 .avatar-stack .avatar-initials{margin-left:-8px;border:2px solid var(--bg-card)}
@@ -388,6 +388,31 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 
 .donut{width:120px;height:120px;border-radius:var(--r-full);position:relative;flex-shrink:0}
 .donut::after{content:"";position:absolute;inset:18px;border-radius:var(--r-full);background:var(--bg-card)}
+
+/* Group config modal ? flat form inside bastion-modal (no nested card) */
+.bastion-modal-dialog--form{max-width:520px;max-height:min(90vh,720px)}
+.bastion-modal-dialog--form .bastion-modal-footer{justify-content:space-between}
+.group-config-form{display:flex;flex-direction:column;gap:var(--sp-4);text-align:left;margin:0;padding:0;border:none;background:transparent;box-shadow:none}
+.group-config-form .form-group{gap:var(--sp-2)}
+.group-config-form .form-input,
+.group-config-form .form-select,
+.group-config-form textarea.form-input,
+.group-config-form .form-textarea{width:100%;min-height:38px;box-sizing:border-box;padding:var(--sp-2) var(--sp-3)}
+.group-config-form textarea.form-input,
+.group-config-form .form-textarea{min-height:72px;resize:vertical;line-height:1.45}
+.group-config-hint{font-size:var(--fs-xs);color:var(--text-3);margin:0;line-height:1.45}
+.action-check-block{display:flex;flex-direction:column;gap:var(--sp-2)}
+.action-check-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2)}
+@media (max-width:480px){.action-check-grid{grid-template-columns:1fr}}
+.action-check{
+  display:flex;align-items:center;gap:var(--sp-2);
+  padding:var(--sp-2) var(--sp-3);margin:0;
+  background:var(--bg-secondary);border:1px solid var(--border-muted);
+  border-radius:var(--r-md);font-size:var(--fs-sm);color:var(--text-2);
+  cursor:default;user-select:none;
+}
+.action-check input{width:16px;height:16px;margin:0;flex-shrink:0;accent-color:var(--accent)}
+.action-check.is-on{border-color:var(--accent-border);background:var(--accent-muted);color:var(--text)}
 
 .rbac-side-panels{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4)}
 @media (max-width:900px){.rbac-side-panels{grid-template-columns:1fr}}
