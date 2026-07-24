@@ -278,24 +278,14 @@
     <div class="card" style="padding:0;">
       <div class="card-header" style="padding:var(--sp-4);">
         <span class="card-title">Droits individuels</span>
-        <span class="badge badge-muted">{{ direct_grants | length }}</span>
+        <div style="display:flex;align-items:center;gap:var(--sp-3);">
+          <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>+ Ajouter un droit</button>
+          <span class="badge badge-muted">{{ direct_grants | length }}</span>
+        </div>
       </div>
       {% with grant_rows=direct_grants, redirect_url='/admin/rbac/users?realm_id=' ~ selected_realm.id ~ '&keycloak_user_id=' ~ keycloak_user_id, show_granted_by=false, show_actions=true, empty_message='Aucun droit direct.' %}
       {% include "admin/rbac/_grants_by_category.html" %}
       {% endwith %}
-      <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
-        <form method="post" action="/admin/rbac/grants" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
-          <input type="hidden" name="subject_type" value="user">
-          <input type="hidden" name="keycloak_user_id" value="{{ keycloak_user_id }}">
-          <input type="hidden" name="user_display_cache" value="{{ kc_user.username or kc_user.email }}">
-          <input type="hidden" name="realm_id" value="{{ selected_realm.id }}">
-          <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&keycloak_user_id={{ keycloak_user_id }}">
-          {% with id_prefix='user-' %}
-          {% include "admin/rbac/_grant_resource_fields.html" %}
-          {% endwith %}
-          <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
-        </form>
-      </div>
     </div>
 
     <div class="card" style="padding:0;">
@@ -388,12 +378,15 @@
     </div>
   </div>
   {% endif %}
+  {% with subject_type='user', keycloak_user_id=keycloak_user_id, user_display_cache=(kc_user.username or kc_user.email), realm_id=selected_realm.id, redirect_url='/admin/rbac/users?realm_id=' ~ selected_realm.id ~ '&keycloak_user_id=' ~ keycloak_user_id, id_prefix='grant-', modal_title='Ajouter un droit' %}
+  {% include "admin/rbac/_grant_add_modal.html" %}
+  {% endwith %}
   {% endif %}
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/bastion-grant-form.js?v=20260724-grant-ctx"></script>
+<script src="/static/js/bastion-grant-form.js?v=20260724-grant-modal"></script>
 <script>
 (function () {
   var searchInput = document.querySelector('[data-user-search]');

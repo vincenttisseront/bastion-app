@@ -421,15 +421,19 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .donut{width:120px;height:120px;border-radius:var(--r-full);position:relative;flex-shrink:0}
 .donut::after{content:"";position:absolute;inset:18px;border-radius:var(--r-full);background:var(--bg-card)}
 
-/* Group config modal ? flat form inside bastion-modal (no nested card) */
+/* Group / grant form modal ? flat form inside bastion-modal (no nested card) */
 .bastion-modal-dialog--form{max-width:520px;max-height:min(90vh,720px)}
 .bastion-modal-dialog--form .bastion-modal-footer{justify-content:space-between}
-.group-config-form{display:flex;flex-direction:column;gap:var(--sp-4);text-align:left;margin:0;padding:0;border:none;background:transparent;box-shadow:none}
-.group-config-form .form-group{gap:var(--sp-2)}
+.group-config-form,
+.grant-add-form{display:flex;flex-direction:column;gap:var(--sp-4);text-align:left;margin:0;padding:0;border:none;background:transparent;box-shadow:none}
+.group-config-form .form-group,
+.grant-add-form .form-group{gap:var(--sp-2)}
 .group-config-form .form-input,
 .group-config-form .form-select,
 .group-config-form textarea.form-input,
-.group-config-form .form-textarea{width:100%;min-height:38px;box-sizing:border-box;padding:var(--sp-2) var(--sp-3)}
+.group-config-form .form-textarea,
+.grant-add-form .form-input,
+.grant-add-form .form-select{width:100%;min-height:38px;box-sizing:border-box;padding:var(--sp-2) var(--sp-3)}
 .group-config-form textarea.form-input,
 .group-config-form .form-textarea{min-height:72px;resize:vertical;line-height:1.45}
 .group-config-hint{font-size:var(--fs-xs);color:var(--text-3);margin:0;line-height:1.45}

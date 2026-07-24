@@ -47,25 +47,22 @@
   <div class="card" style="padding:0;">
     <div class="card-header" style="padding:var(--sp-4);">
       <span class="card-title">Droits accordés au groupe</span>
-      <span class="badge badge-muted">{{ grant_rows | length }}</span>
+      <div style="display:flex;align-items:center;gap:var(--sp-3);">
+        <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>+ Ajouter un droit</button>
+        <span class="badge badge-muted">{{ grant_rows | length }}</span>
+      </div>
     </div>
     {% with grant_rows=grant_rows, redirect_url='/admin/rbac/groups/' ~ group.id, show_granted_by=true, empty_message='Aucun droit accordé à ce groupe.' %}
     {% include "admin/rbac/_grants_by_category.html" %}
     {% endwith %}
-    <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
-      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter un droit</div>
-      <form method="post" action="/admin/rbac/grants" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
-        <input type="hidden" name="subject_type" value="group">
-        <input type="hidden" name="rbac_group_id" value="{{ group.id }}">
-        <input type="hidden" name="redirect_url" value="/admin/rbac/groups/{{ group.id }}">
-        {% include "admin/rbac/_grant_resource_fields.html" %}
-        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
-      </form>
-    </div>
   </div>
 </div>
+
+{% with subject_type='group', rbac_group_id=group.id, redirect_url='/admin/rbac/groups/' ~ group.id, id_prefix='grant-', modal_title='Ajouter un droit' %}
+{% include "admin/rbac/_grant_add_modal.html" %}
+{% endwith %}
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/bastion-grant-form.js?v=20260724-grant-ctx"></script>
+<script src="/static/js/bastion-grant-form.js?v=20260724-grant-modal"></script>
 {% endblock %}

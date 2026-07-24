@@ -1,0 +1,40 @@
+{# Modal « Ajouter un droit ». Expects same context as _grant_resource_fields + subject hiddens. #}
+{# Optional: id_prefix, modal_title, subject_type, rbac_group_id, keycloak_user_id, user_display_cache, realm_id, redirect_url #}
+{% set id_prefix = id_prefix | default('grant-') %}
+{% set modal_title = modal_title | default('Ajouter un droit') %}
+<div id="grant-add-modal" class="bastion-modal" hidden aria-hidden="true">
+  <div class="bastion-modal-backdrop" data-grant-modal-dismiss></div>
+  <div
+    class="bastion-modal-dialog bastion-modal-dialog--form"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="grant-add-modal-title"
+    tabindex="-1"
+  >
+    <div class="bastion-modal-header">
+      <h2 id="grant-add-modal-title" class="bastion-modal-title">{{ modal_title }}</h2>
+    </div>
+    <div class="bastion-modal-body">
+      <p class="bastion-modal-message" style="margin-bottom:var(--sp-3);">
+        Choisissez le type de ressource, puis le niveau d’accès.
+      </p>
+      <div id="grant-add-error" class="form-error" hidden style="margin-bottom:var(--sp-3);"></div>
+      <form id="grant-add-form" method="post" action="/admin/rbac/grants" class="grant-add-form">
+        <input type="hidden" name="subject_type" value="{{ subject_type }}">
+        {% if subject_type == 'group' %}
+        <input type="hidden" name="rbac_group_id" value="{{ rbac_group_id }}">
+        {% elif subject_type == 'user' %}
+        <input type="hidden" name="keycloak_user_id" value="{{ keycloak_user_id }}">
+        <input type="hidden" name="user_display_cache" value="{{ user_display_cache }}">
+        <input type="hidden" name="realm_id" value="{{ realm_id }}">
+        {% endif %}
+        <input type="hidden" name="redirect_url" value="{{ redirect_url }}">
+        {% include "admin/rbac/_grant_resource_fields.html" %}
+      </form>
+    </div>
+    <div class="bastion-modal-footer">
+      <button type="button" class="btn btn-ghost" data-grant-modal-dismiss>Annuler</button>
+      <button type="submit" form="grant-add-form" class="btn btn-primary" id="grant-add-submit">Ajouter</button>
+    </div>
+  </div>
+</div>
