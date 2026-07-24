@@ -953,11 +953,27 @@ def admin_user_app_credential_delete(
     keycloak_user_id: str,
     request: Request,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    from app.rbac.governance_service import user_can_module_action
+    from app.web.user_context import is_portal_admin
+
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
         raise HTTPException(status_code=404)
+    if not user_can_module_action(
+        db,
+        keycloak_user_id=user.keycloak_user_id,
+        group_names=user.groups,
+        module_key="secret_vault",
+        action="can_delete",
+        is_portal_admin=is_portal_admin(user, db, settings),
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Permission gouvernance secret_vault.can_delete refusée",
+        )
     deleted = delete_user_credential(
         db,
         slug,
@@ -1049,15 +1065,102 @@ def admin_app_logo_delete(
 
 
 @admin_router.get("/admin/rbac")
-def admin_rbac(
+async def admin_rbac(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    from app.rbac.governance_service import (
+        excess_permission_alerts,
+        role_distribution_summary,
+    )
+    from app.rbac.permission_seed import seed_governance_rbac
+    from app.rbac.users_stats_service import avatar_color_for, avatar_initials
+    from app.rbac.keycloak_admin import fetch_group_members
+    from app.models import AccessGrant
+
+    seed_governance_rbac(db)
+    db.commit()
+
     realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
     groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
     apps = db.query(App).order_by(App.label).all()
     realms_by_id = {r.id: r for r in realms}
+
+    role_grants = {
+        g.rbac_group_id: g
+        for g in db.query(AccessGrant)
+        .filter_by(subject_type="group", resource_type="rbac_role")
+        .all()
+        if g.rbac_group_id
+    }
+
+    group_cards: list[dict] = []
+    for g in groups:
+        realm = realms_by_id.get(g.realm_id) if g.realm_id else None
+        previews: list[dict] = []
+        more = 0
+        if realm and g.keycloak_group_id:
+            try:
+                members = await fetch_group_members(realm, g.keycloak_group_id, settings)
+            except Exception:
+                members = []
+            for m in members[:3]:
+                display = (
+                    m.get("email")
+                    or m.get("username")
+                    or " ".join(
+                        p
+                        for p in (m.get("firstName") or "", m.get("lastName") or "")
+                        if p
+                    )
+                    or "?"
+                )
+                previews.append(
+                    {
+                        "display": display,
+                        "initials": avatar_initials(display),
+                        "avatar_color": avatar_color_for(display),
+                    }
+                )
+            more = max(0, len(members) - len(previews))
+        elif g.member_count and g.member_count > 0:
+            # Fallback visual when Keycloak members unavailable
+            label = g.name or "?"
+            previews.append(
+                {
+                    "display": label,
+                    "initials": avatar_initials(label),
+                    "avatar_color": avatar_color_for(label),
+                }
+            )
+            more = max(0, int(g.member_count) - 1)
+
+        grant = role_grants.get(g.id)
+        mode = "limited"
+        role_id = None
+        if grant and grant.access_level == "manage":
+            mode = "total"
+            role_id = grant.rbac_role_id
+        elif grant:
+            role_id = grant.rbac_role_id
+
+        group_cards.append(
+            {
+                "id": g.id,
+                "name": g.name,
+                "path": g.path,
+                "realm_slug": (realm.slug if realm else g.realm_slug),
+                "group_tag": g.group_tag,
+                "description": g.description,
+                "member_count": int(g.member_count or len(previews) + more),
+                "member_previews": previews,
+                "member_more": more,
+                "role_mode": mode,
+                "rbac_role_id": role_id,
+            }
+        )
+
     return render(
         "admin/rbac.html",
         **_ctx(
@@ -1067,6 +1170,9 @@ def admin_rbac(
             realms_by_id=realms_by_id,
             groups=groups,
             apps=apps,
+            group_cards=group_cards,
+            role_distribution=role_distribution_summary(db),
+            excess_alerts=excess_permission_alerts(db),
             active_tab="groups",
         ),
     )

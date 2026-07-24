@@ -116,6 +116,33 @@ async def fetch_group_members(
     return data if isinstance(data, list) else []
 
 
+async def count_keycloak_users(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    enabled: bool | None = None,
+) -> int:
+    """
+    Count users via Keycloak Admin ``GET /users/count``.
+
+    ``enabled=True/False`` filters active/disabled; ``None`` = all.
+    """
+    path = "/users/count"
+    if enabled is True:
+        path += "?enabled=true"
+    elif enabled is False:
+        path += "?enabled=false"
+    resp = await _admin_get(realm, settings, path)
+    if resp.status_code == 403:
+        raise ValueError(_view_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec comptage utilisateurs (HTTP {resp.status_code})")
+    try:
+        return int(resp.json())
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Réponse Keycloak /users/count invalide") from exc
+
+
 async def search_keycloak_users(
     realm: RealmConfig, query: str, settings: Settings, *, max_results: int = 20
 ) -> list[dict]:

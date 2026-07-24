@@ -84,6 +84,9 @@ class RBACGroup(Base):
     path = Column(String, nullable=True)
     member_count = Column(Integer, nullable=True)
     synced_at = Column(DateTime(timezone=True), nullable=True)
+    # Optional UI metadata (RBAC UI v2 — Stitch alignment).
+    group_tag = Column(String, nullable=True)  # e.g. Critical Access, Audit-Only
+    description = Column(String, nullable=True)
 
     __table_args__ = (
         UniqueConstraint(
@@ -100,8 +103,68 @@ class RBACGroup(Base):
     )
 
 
+class PermissionModule(Base):
+    """Internal Bastion Pro module for governance RBAC (not catalogue apps)."""
+
+    __tablename__ = "permission_modules"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String, unique=True, nullable=False, index=True)
+    label = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    icon = Column(String, nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+
+
+class RbacRole(Base):
+    """Named role governing internal Bastion Pro module permissions."""
+
+    __tablename__ = "rbac_roles"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+    inherits_from_id = Column(Integer, ForeignKey("rbac_roles.id"), nullable=True)
+    is_critical = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    inherits_from = relationship("RbacRole", remote_side=[id], uselist=False)
+    permissions = relationship(
+        "RolePermission",
+        back_populates="role",
+        cascade="all, delete-orphan",
+        foreign_keys="RolePermission.role_id",
+    )
+
+
+class RolePermission(Base):
+    """Per-module CRUD/execute flags for an RbacRole."""
+
+    __tablename__ = "role_permissions"
+
+    id = Column(Integer, primary_key=True)
+    role_id = Column(Integer, ForeignKey("rbac_roles.id"), nullable=False, index=True)
+    module_id = Column(
+        Integer, ForeignKey("permission_modules.id"), nullable=False, index=True
+    )
+    can_read = Column(Boolean, default=False, nullable=False)
+    can_write = Column(Boolean, default=False, nullable=False)
+    can_delete = Column(Boolean, default=False, nullable=False)
+    can_execute = Column(Boolean, default=False, nullable=False)
+    locked = Column(Boolean, default=False, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    updated_by = Column(String, nullable=True)
+
+    role = relationship("RbacRole", back_populates="permissions", foreign_keys=[role_id])
+    module = relationship("PermissionModule", foreign_keys=[module_id])
+
+    __table_args__ = (
+        UniqueConstraint("role_id", "module_id", name="uq_role_module"),
+    )
+
+
 class AccessGrant(Base):
-    """RBAC grant — group or user subject, application or system role resource."""
+    """RBAC grant — group or user subject → application, system_role, or rbac_role."""
 
     __tablename__ = "access_grants"
 
@@ -111,9 +174,10 @@ class AccessGrant(Base):
     keycloak_user_id = Column(String, nullable=True)
     user_display_cache = Column(String, nullable=True)
 
-    resource_type = Column(String, nullable=False)  # application | system_role
+    resource_type = Column(String, nullable=False)  # application | system_role | rbac_role
     application_id = Column(Integer, ForeignKey("apps.id"), nullable=True)
     system_role = Column(String, nullable=True)
+    rbac_role_id = Column(Integer, ForeignKey("rbac_roles.id"), nullable=True)
 
     access_level = Column(String, default="view", nullable=False)
     granted_at = Column(DateTime(timezone=True), default=utcnow)
@@ -125,6 +189,7 @@ class AccessGrant(Base):
         foreign_keys=[rbac_group_id],
     )
     application = relationship("App", foreign_keys=[application_id])
+    rbac_role = relationship("RbacRole", foreign_keys=[rbac_role_id])
 
     __table_args__ = (
         CheckConstraint(
@@ -133,8 +198,12 @@ class AccessGrant(Base):
             name="ck_access_grant_subject_exclusive",
         ),
         CheckConstraint(
-            "(resource_type = 'application' AND application_id IS NOT NULL AND system_role IS NULL) OR "
-            "(resource_type = 'system_role' AND system_role IS NOT NULL AND application_id IS NULL)",
+            "(resource_type = 'application' AND application_id IS NOT NULL "
+            "AND system_role IS NULL AND rbac_role_id IS NULL) OR "
+            "(resource_type = 'system_role' AND system_role IS NOT NULL "
+            "AND application_id IS NULL AND rbac_role_id IS NULL) OR "
+            "(resource_type = 'rbac_role' AND rbac_role_id IS NOT NULL "
+            "AND application_id IS NULL AND system_role IS NULL)",
             name="ck_access_grant_resource_exclusive",
         ),
     )

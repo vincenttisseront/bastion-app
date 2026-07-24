@@ -249,10 +249,19 @@ async def admin_rbac_users_page(
     request: Request,
     realm_id: int | None = None,
     keycloak_user_id: str | None = None,
+    group: str | None = None,
+    status: str | None = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    from app.rbac.users_stats_service import (
+        connection_anomalies,
+        enrich_granted_users,
+        fetch_user_directory_stats,
+        group_distribution,
+    )
+
     realms = (
         db.query(RealmConfig)
         .filter_by(groups_sync_enabled=True)
@@ -295,6 +304,9 @@ async def admin_rbac_users_page(
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     granted_users = list_users_with_direct_grants(db)
+    enriched_users = enrich_granted_users(
+        db, granted_users, group_filter=group, status_filter=status
+    )
 
     vault_apps: list[dict] = []
     if keycloak_user_id and (direct_grants or effective_grants):
@@ -325,6 +337,11 @@ async def admin_rbac_users_page(
                 }
             )
 
+    user_stats = await fetch_user_directory_stats(db, selected_realm, settings)
+    anomalies = connection_anomalies(db)
+    distribution = group_distribution(db)
+    all_groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
+
     return render(
         "admin/rbac/users.html",
         **_ctx(
@@ -341,10 +358,16 @@ async def admin_rbac_users_page(
             user_error=user_error,
             apps=apps,
             vault_apps=vault_apps,
-            granted_users=granted_users,
+            granted_users=enriched_users,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
             active_tab="users",
+            user_stats=user_stats.as_dict(),
+            anomalies=anomalies,
+            group_distribution=distribution,
+            filter_groups=all_groups,
+            filter_group=group or "",
+            filter_status=status or "tous",
         ),
     )
 

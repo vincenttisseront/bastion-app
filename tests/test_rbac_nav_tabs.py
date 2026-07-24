@@ -1,4 +1,4 @@
-"""Navigation RBAC : une entrée sidebar + onglets Groupes / Utilisateurs / Matrice."""
+"""Navigation RBAC : une entrée sidebar + onglets Groupes / Utilisateurs / Matrice / Gouvernance."""
 
 ADMIN_HEADERS = {
     "X-Email": "admin@example.com",
@@ -12,6 +12,7 @@ def _assert_single_rbac_nav(html: str) -> None:
     assert html.count('href="/admin/rbac" class="nav-item') == 1
     assert 'href="/admin/rbac/users" class="nav-item' not in html
     assert 'href="/admin/rbac/matrix" class="nav-item' not in html
+    assert 'href="/admin/rbac/governance" class="nav-item' not in html
 
 
 def test_rbac_groups_page_has_tabs_and_single_sidebar_entry(client):
@@ -22,7 +23,8 @@ def test_rbac_groups_page_has_tabs_and_single_sidebar_entry(client):
     assert 'href="/admin/rbac" class="tab active"' in html
     assert 'href="/admin/rbac/users" class="tab"' in html
     assert 'href="/admin/rbac/matrix" class="tab"' in html
-    assert "Gestion RBAC" in html
+    assert 'href="/admin/rbac/governance" class="tab"' in html
+    assert "Gestion" in html
 
 
 def test_rbac_users_page_has_tabs_and_single_sidebar_entry(client):
@@ -33,7 +35,8 @@ def test_rbac_users_page_has_tabs_and_single_sidebar_entry(client):
     assert 'href="/admin/rbac" class="tab"' in html
     assert 'href="/admin/rbac/users" class="tab active"' in html
     assert 'href="/admin/rbac/matrix" class="tab"' in html
-    assert "Droits par utilisateur" in html
+    assert 'href="/admin/rbac/governance" class="tab"' in html
+    assert "Gestion des Utilisateurs" in html
 
 
 def test_rbac_matrix_page_has_tabs_and_single_sidebar_entry(client):
@@ -44,4 +47,14 @@ def test_rbac_matrix_page_has_tabs_and_single_sidebar_entry(client):
     assert 'href="/admin/rbac" class="tab"' in html
     assert 'href="/admin/rbac/users" class="tab"' in html
     assert 'href="/admin/rbac/matrix" class="tab active"' in html
+    assert 'href="/admin/rbac/governance" class="tab"' in html
     assert "Matrice Applications" in html
+
+
+def test_rbac_governance_page_has_tabs_and_single_sidebar_entry(client):
+    resp = client.get("/admin/rbac/governance", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    html = resp.text
+    _assert_single_rbac_nav(html)
+    assert 'href="/admin/rbac/governance" class="tab active"' in html
+    assert "Matrice de Permissions" in html

@@ -13,7 +13,7 @@ from app.models import AccessGrant, App, RBACGroup, RealmConfig
 from app.rbac.keycloak_admin import fetch_group_members, fetch_user_groups
 
 SUBJECT_TYPES = frozenset({"group", "user"})
-RESOURCE_TYPES = frozenset({"application", "system_role"})
+RESOURCE_TYPES = frozenset({"application", "system_role", "rbac_role"})
 ACCESS_LEVELS = frozenset({"view", "launch", "manage"})
 
 SYSTEM_ROLES: dict[str, str] = {
@@ -30,6 +30,7 @@ class AccessGrantCreate(BaseModel):
     resource_type: str
     application_id: int | None = None
     system_role: str | None = None
+    rbac_role_id: int | None = None
     access_level: str = "view"
 
     @field_validator("subject_type")
@@ -43,7 +44,9 @@ class AccessGrantCreate(BaseModel):
     @classmethod
     def validate_resource_type(cls, value: str) -> str:
         if value not in RESOURCE_TYPES:
-            raise ValueError("resource_type must be application or system_role")
+            raise ValueError(
+                "resource_type must be application, system_role, or rbac_role"
+            )
         return value
 
     @field_validator("access_level")
@@ -69,11 +72,14 @@ class AccessGrantCreate(BaseModel):
             if not self.keycloak_user_id or self.rbac_group_id:
                 raise ValueError("user grants require keycloak_user_id only")
         if self.resource_type == "application":
-            if not self.application_id or self.system_role:
+            if not self.application_id or self.system_role or self.rbac_role_id:
                 raise ValueError("application grants require application_id only")
-        else:
-            if not self.system_role or self.application_id:
+        elif self.resource_type == "system_role":
+            if not self.system_role or self.application_id or self.rbac_role_id:
                 raise ValueError("system_role grants require system_role only")
+        else:
+            if not self.rbac_role_id or self.application_id or self.system_role:
+                raise ValueError("rbac_role grants require rbac_role_id only")
         return self
 
 
@@ -89,6 +95,12 @@ def serialize_grant(grant: AccessGrant, db: Session) -> dict[str, Any]:
     if grant.rbac_group_id:
         group = db.query(RBACGroup).filter_by(id=grant.rbac_group_id).first()
         group_name = group.name if group else None
+    rbac_role_name = None
+    if getattr(grant, "rbac_role_id", None):
+        from app.models import RbacRole
+
+        role = db.query(RbacRole).filter_by(id=grant.rbac_role_id).first()
+        rbac_role_name = role.name if role else None
     return {
         "id": grant.id,
         "subject_type": grant.subject_type,
@@ -102,6 +114,8 @@ def serialize_grant(grant: AccessGrant, db: Session) -> dict[str, Any]:
         "application_slug": app_slug,
         "system_role": grant.system_role,
         "system_role_label": SYSTEM_ROLES.get(grant.system_role or "", grant.system_role),
+        "rbac_role_id": getattr(grant, "rbac_role_id", None),
+        "rbac_role_name": rbac_role_name,
         "access_level": grant.access_level,
         "granted_at": grant.granted_at.isoformat() if grant.granted_at else None,
         "granted_by": grant.granted_by,
@@ -305,6 +319,7 @@ def create_grant(db: Session, data: AccessGrantCreate, granted_by: str) -> Acces
         resource_type=data.resource_type,
         application_id=data.application_id,
         system_role=data.system_role,
+        rbac_role_id=data.rbac_role_id,
         access_level=data.access_level,
         granted_by=granted_by,
     )

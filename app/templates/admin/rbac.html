@@ -6,20 +6,16 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Gestion RBAC</h1>
-      <p class="page-sub">Groupes Keycloak, droits par groupe ou par utilisateur</p>
+      <h1 class="page-title">Gestion des Groupes</h1>
+      <p class="page-sub">Groupes Keycloak synchronisés, configuration de gouvernance</p>
     </div>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
 
-  <div class="dash-grid" style="grid-template-columns:1fr 1fr;">
-    <div class="card" style="padding:0;">
-      <div class="card-header" style="padding:var(--sp-4);">
-        <span class="card-title">Groupes RBAC</span>
-        <span class="badge badge-muted">{{ groups | length }}</span>
-      </div>
-      <div style="padding:var(--sp-4); border-top:1px solid var(--border); display:flex; gap:var(--sp-2); flex-wrap:wrap;">
+  <div class="dash-grid" style="grid-template-columns:minmax(0,1fr) 280px; gap:var(--sp-4); align-items:start;">
+    <div>
+      <div style="display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-bottom:var(--sp-4);">
         {% for realm in realms %}
           {% if realm.groups_sync_enabled %}
             <form method="post" action="/admin/rbac/groups/sync/{{ realm.id }}">
@@ -32,67 +28,82 @@
           <span class="badge badge-muted">Aucun realm configuré</span>
         {% endfor %}
       </div>
-      <div style="padding:0 var(--sp-4) var(--sp-3);">
-        <label class="topbar-search" style="max-width:100%;" for="rbac-groups-search">
-          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="search" id="rbac-groups-search" placeholder="Rechercher un groupe…" autocomplete="off" aria-label="Recherche groupes RBAC">
-        </label>
-      </div>
-      <div class="table-wrap" style="border:none;border-radius:0;">
-        <table class="data-table" id="rbac-groups-table">
-          <thead><tr><th>Nom</th><th>Chemin</th><th>Realm</th><th>Dernière sync</th><th>Statut</th></tr></thead>
-          <tbody>
-            {% for g in groups %}
-            <tr data-searchable data-fuzzy-key="{{ g.name }} {{ g.path or '' }} {{ g.realm_slug or '' }}{% if g.realm_id and realms_by_id.get(g.realm_id) %} {{ realms_by_id.get(g.realm_id).slug }}{% endif %}">
-              <td class="mono">
-                <a href="/admin/rbac/groups/{{ g.id }}">{{ g.name }}</a>
-              </td>
-              <td class="mono">{{ g.path or '—' }}</td>
-              <td>
-                {% if g.realm_id and realms_by_id.get(g.realm_id) %}
-                  {{ realms_by_id.get(g.realm_id).slug }}
-                {% else %}
-                  {{ g.realm_slug or '—' }}
-                {% endif %}
-              </td>
-              <td class="mono">{% if g.synced_at %}{{ g.synced_at }}{% else %}—{% endif %}</td>
-              <td>
-                {% set r = realms_by_id.get(g.realm_id) if g.realm_id else None %}
-                {% if r and r.last_groups_sync_at and g.synced_at and g.synced_at < r.last_groups_sync_at %}
-                  <span class="badge badge-muted">Non retrouvé au dernier sync</span>
-                {% else %}
-                  <span class="badge badge-ok">OK</span>
-                {% endif %}
-              </td>
-            </tr>
-            {% else %}
-            <tr>
-              <td colspan="5">
-                <div class="empty-state" style="padding:var(--sp-6);">
-                  <div class="empty-icon">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
-                  </div>
-                  <div class="empty-title">Aucun groupe</div>
-                  <div class="empty-desc">Les groupes Keycloak synchronisés apparaîtront ici.</div>
-                  {% if realms and (realms | selectattr("groups_sync_enabled") | list | length) > 0 %}
-                    <div style="margin-top:var(--sp-3); display:flex; gap:var(--sp-2); flex-wrap:wrap; justify-content:center;">
-                      {% for realm in realms %}
-                        {% if realm.groups_sync_enabled %}
-                          <form method="post" action="/admin/rbac/groups/sync/{{ realm.id }}">
-                            <button class="btn btn-primary btn-sm">Synchroniser maintenant ({{ realm.slug }})</button>
-                          </form>
-                        {% endif %}
-                      {% endfor %}
-                    </div>
-                  {% endif %}
-                </div>
-              </td>
-            </tr>
+
+      <label class="topbar-search" style="max-width:100%; margin-bottom:var(--sp-4);" for="rbac-groups-search">
+        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="search" id="rbac-groups-search" placeholder="Rechercher un groupe…" autocomplete="off" aria-label="Recherche groupes RBAC">
+      </label>
+
+      <div class="group-cards-grid" id="rbac-groups-grid">
+        {% for card in group_cards %}
+        <article class="group-card" data-searchable data-fuzzy-key="{{ card.name }} {{ card.path or '' }} {{ card.realm_slug or '' }} {{ card.group_tag or '' }}">
+          {% if card.group_tag %}
+          <span class="badge badge-warn group-card-tag">{{ card.group_tag }}</span>
+          {% else %}
+          <span class="badge badge-ok group-card-tag">Actif</span>
+          {% endif %}
+          <div class="group-card-title">
+            <a href="/admin/rbac/groups/{{ card.id }}">{{ card.name }}</a>
+          </div>
+          <p class="group-card-desc">{{ card.description or 'Aucune description' }}</p>
+          <div class="avatar-stack" aria-label="Membres">
+            {% for m in card.member_previews %}
+            <div class="avatar-initials" style="background:{{ m.avatar_color }};" title="{{ m.display }}">{{ m.initials }}</div>
             {% endfor %}
-          </tbody>
-        </table>
+            {% if card.member_more %}
+            <div class="avatar-more">+{{ card.member_more }}</div>
+            {% endif %}
+          </div>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:var(--sp-2); margin-top:auto;">
+            <span class="badge badge-muted">{{ card.member_count }} membre{% if card.member_count != 1 %}s{% endif %}</span>
+            <button type="button" class="btn btn-primary btn-sm"
+                    data-group-config
+                    data-group-id="{{ card.id }}"
+                    data-group-name="{{ card.name }}"
+                    data-group-tag="{{ card.group_tag or '' }}"
+                    data-group-description="{{ card.description or '' }}"
+                    data-mode="{{ card.role_mode or 'limited' }}">
+              Permissions
+            </button>
+          </div>
+        </article>
+        {% else %}
+        <div class="empty-state" style="padding:var(--sp-6); grid-column:1 / -1;">
+          <div class="empty-title">Aucun groupe</div>
+          <div class="empty-desc">Les groupes Keycloak synchronisés apparaîtront ici.</div>
+        </div>
+        {% endfor %}
       </div>
     </div>
+
+    <aside style="display:flex; flex-direction:column; gap:var(--sp-4);">
+      <div class="card" style="padding:var(--sp-4);">
+        <div class="card-title" style="margin-bottom:var(--sp-3);">Distribution des Rôles</div>
+        {% if role_distribution.total %}
+        <div style="display:flex; justify-content:center; margin-bottom:var(--sp-3);">
+          <div class="donut" style="background:conic-gradient(var(--ok) 0% {{ role_distribution.p1 }}%, var(--info) {{ role_distribution.p1 }}% {{ role_distribution.p2 }}%, var(--purple) {{ role_distribution.p2 }}% 100%);"></div>
+        </div>
+        <ul style="list-style:none; margin:0; padding:0; font-size:var(--fs-sm); display:grid; gap:var(--sp-2);">
+          <li><span class="badge badge-ok">Lecture</span> {{ role_distribution.read_only }}</li>
+          <li><span class="badge badge-info">Opérations</span> {{ role_distribution.ops }}</li>
+          <li><span class="badge badge-muted">Étendus</span> {{ role_distribution.elevated }}</li>
+        </ul>
+        {% else %}
+        <p class="empty-desc">Aucun rôle de gouvernance</p>
+        {% endif %}
+      </div>
+      <div class="card" style="padding:var(--sp-4);">
+        <div class="card-title" style="margin-bottom:var(--sp-3);">Alertes d'Excès</div>
+        <p class="form-hint" style="margin:0 0 var(--sp-3);">Heuristique V1 : permissions write/delete non mises à jour depuis 90 jours.</p>
+        <ul style="list-style:none; margin:0; padding:0; display:grid; gap:var(--sp-2);">
+          {% for alert in excess_alerts %}
+          <li class="form-hint">{{ alert }}</li>
+          {% else %}
+          <li class="empty-desc">Aucune alerte</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </aside>
   </div>
 </div>
 {% endblock %}
@@ -100,11 +111,110 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  if (!window.BastionFuzzy) return;
-  window.BastionFuzzy.init({
-    inputId: 'rbac-groups-search',
-    itemSelector: '#rbac-groups-table tbody tr[data-searchable]',
-    getKey: function (el) { return el.dataset.fuzzyKey || ''; },
+  if (window.BastionFuzzy) {
+    window.BastionFuzzy.init({
+      inputId: 'rbac-groups-search',
+      itemSelector: '#rbac-groups-grid [data-searchable]',
+      getKey: function (el) { return el.dataset.fuzzyKey || ''; },
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  async function saveGroupConfig(groupId, payload) {
+    var resp = await fetch('/admin/rbac/groups/' + groupId + '/role-config', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      var data = await resp.json().catch(function () { return {}; });
+      if (window.bastionAlert) {
+        await window.bastionAlert({ title: 'Erreur', message: data.detail || 'Échec de sauvegarde' });
+      }
+      throw new Error('save failed');
+    }
+  }
+
+  document.querySelectorAll('[data-group-config]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var groupId = btn.getAttribute('data-group-id');
+      var name = btn.getAttribute('data-group-name') || '';
+      var tag = btn.getAttribute('data-group-tag') || '';
+      var desc = btn.getAttribute('data-group-description') || '';
+      var mode = btn.getAttribute('data-mode') || 'limited';
+      var root = document.getElementById('bastion-modal');
+      var extra = document.getElementById('bastion-modal-extra');
+      var titleEl = document.getElementById('bastion-modal-title');
+      var messageEl = document.getElementById('bastion-modal-message');
+      var confirmBtn = document.getElementById('bastion-modal-confirm');
+      var cancelBtn = document.getElementById('bastion-modal-cancel');
+      if (!root || !extra || !titleEl || !confirmBtn) return;
+
+      titleEl.textContent = 'Configuration : ' + name;
+      messageEl.textContent = 'Périmètre RBAC et métadonnées du groupe.';
+      extra.hidden = false;
+      extra.innerHTML =
+        '<div class="form-section" style="text-align:left; display:grid; gap:var(--sp-3);">' +
+        '<div class="form-group"><label class="form-label" for="grp-tag">Tag</label>' +
+        '<input class="form-input" id="grp-tag" value="' + escapeHtml(tag) + '"></div>' +
+        '<div class="form-group"><label class="form-label" for="grp-desc">Description</label>' +
+        '<textarea class="form-input" id="grp-desc" rows="2">' + escapeHtml(desc) + '</textarea></div>' +
+        '<div class="form-group"><label class="form-label" for="grp-mode">Périmètre</label>' +
+        '<select class="form-select" id="grp-mode">' +
+        '<option value="total"' + (mode === 'total' ? ' selected' : '') + '>Accès Total</option>' +
+        '<option value="limited"' + (mode !== 'total' ? ' selected' : '') + '>Limité</option>' +
+        '</select></div>' +
+        '<fieldset style="border:none; padding:0; margin:0;">' +
+        '<legend class="form-label">Actions Autorisées (indicatif)</legend>' +
+        '<label class="form-hint"><input type="checkbox" disabled checked> Lecture Logs</label><br>' +
+        '<label class="form-hint"><input type="checkbox" disabled> Accès Terminal</label><br>' +
+        '<label class="form-hint"><input type="checkbox" disabled checked> Secrets</label><br>' +
+        '<label class="form-hint"><input type="checkbox" disabled> Suppression</label>' +
+        '</fieldset></div>';
+      confirmBtn.textContent = 'Sauvegarder les modifications';
+      if (cancelBtn) cancelBtn.hidden = false;
+      root.hidden = false;
+      root.setAttribute('aria-hidden', 'false');
+
+      function closeModal() {
+        root.hidden = true;
+        root.setAttribute('aria-hidden', 'true');
+        extra.innerHTML = '';
+        extra.hidden = true;
+        confirmBtn.removeEventListener('click', onConfirm, true);
+        document.removeEventListener('click', onDismiss, true);
+      }
+      function onConfirm(e) {
+        if (!e.target.closest || !e.target.closest('#bastion-modal-confirm')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var payload = {
+          mode: (document.getElementById('grp-mode') || {}).value || 'limited',
+          group_tag: (document.getElementById('grp-tag') || {}).value || '',
+          description: (document.getElementById('grp-desc') || {}).value || '',
+        };
+        closeModal();
+        saveGroupConfig(groupId, payload).then(function () { location.reload(); });
+      }
+      function onDismiss(e) {
+        if (!e.target.closest) return;
+        if (e.target.closest('[data-bastion-modal-dismiss]')) {
+          e.preventDefault();
+          closeModal();
+        }
+      }
+      confirmBtn.addEventListener('click', onConfirm, true);
+      document.addEventListener('click', onDismiss, true);
+    });
   });
 });
 </script>

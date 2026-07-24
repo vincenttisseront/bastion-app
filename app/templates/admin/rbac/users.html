@@ -6,72 +6,212 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Droits par utilisateur</h1>
-      <p class="page-sub">Recherche Keycloak à la volée — pas d'annuaire dupliqué en base</p>
+      <h1 class="page-title">Gestion des Utilisateurs</h1>
+      <p class="page-sub">Droits Bastion, stats Keycloak live — pas d'annuaire dupliqué en base</p>
     </div>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
 
-  {% if granted_users %}
-  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
-    <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Utilisateurs avec droits individuels</span>
-      <span class="badge badge-muted">{{ granted_users | length }}</span>
-    </div>
-    <div class="table-wrap" style="border:none;border-radius:0;">
-      <table class="data-table">
-        <thead><tr><th>Utilisateur</th><th>Droits</th><th>Admin</th><th></th></tr></thead>
-        <tbody>
-          {% for u in granted_users %}
-          <tr>
-            <td>
-              <div>{{ u.display }}</div>
-              <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
-            </td>
-            <td><span class="badge badge-muted">{{ u.grant_count }}</span></td>
-            <td>
-              {% if u.has_portal_admin %}
-                <span class="badge badge-ok">portal_admin</span>
-              {% else %}
-                <span class="badge badge-muted">—</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if selected_realm %}
-              <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Ouvrir</a>
-              {% else %}
-              <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?keycloak_user_id={{ u.keycloak_user_id }}">Ouvrir</a>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+  {% if user_stats and user_stats.error %}
+  <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">Stats Keycloak : {{ user_stats.error }}</div>
   {% endif %}
 
-  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <form method="get" action="/admin/rbac/users" id="user-search-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
-      <div class="form-group">
-        <label class="form-label" for="realm_id">Realm</label>
-        <select id="realm_id" name="realm_id" class="form-select">
-          {% for realm in realms %}
-          <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
+  <div class="metrics-grid" style="margin-bottom:var(--sp-4);">
+    <div class="metric-card blue">
+      <div class="metric-head">
+        <div class="metric-icon">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </div>
+      </div>
+      <div class="metric-value">{% if user_stats.total is not none %}{{ user_stats.total }}{% else %}—{% endif %}</div>
+      <div class="metric-label">Total Utilisateurs</div>
+    </div>
+    <div class="metric-card green">
+      <div class="metric-head">
+        <div class="metric-icon">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <span class="metric-trend flat">Stable</span>
+      </div>
+      <div class="metric-value">{% if user_stats.active is not none %}{{ user_stats.active }}{% else %}—{% endif %}</div>
+      <div class="metric-label">Actifs</div>
+    </div>
+    <div class="metric-card yellow">
+      <div class="metric-head">
+        <div class="metric-icon">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        {% if user_stats.privileged_new_7d %}
+        <span class="metric-trend up">{{ user_stats.privileged_new_7d }} Nouveaux</span>
+        {% endif %}
+      </div>
+      <div class="metric-value">{% if user_stats.privileged is not none %}{{ user_stats.privileged }}{% else %}—{% endif %}</div>
+      <div class="metric-label">Privilégiés</div>
+    </div>
+    <div class="metric-card red">
+      <div class="metric-head">
+        <div class="metric-icon">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        {% if user_stats.suspended %}
+        <span class="metric-trend down">Action Requise</span>
+        {% else %}
+        <span class="metric-trend flat">OK</span>
+        {% endif %}
+      </div>
+      <div class="metric-value">{% if user_stats.suspended is not none %}{{ user_stats.suspended }}{% else %}—{% endif %}</div>
+      <div class="metric-label">Suspendus</div>
+    </div>
+  </div>
+
+  <div class="dash-grid" style="grid-template-columns:minmax(0,1fr) 280px; gap:var(--sp-4); margin-bottom:var(--sp-4); align-items:start;">
+    <div>
+      <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+        <form method="get" action="/admin/rbac/users" id="user-filters-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+          {% if selected_realm %}
+          <input type="hidden" name="realm_id" value="{{ selected_realm.id }}">
+          {% endif %}
+          <div class="form-group">
+            <label class="form-label" for="filter_group">Groupe</label>
+            <select id="filter_group" name="group" class="form-select">
+              <option value="">Tous</option>
+              {% for g in filter_groups %}
+              <option value="{{ g.name }}"{% if filter_group == g.name %} selected{% endif %}>{{ g.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="filter_status">Statut</label>
+            <select id="filter_status" name="status" class="form-select">
+              <option value="tous"{% if filter_status == 'tous' %} selected{% endif %}>Tous</option>
+              <option value="actifs"{% if filter_status == 'actifs' %} selected{% endif %}>Actif</option>
+              <option value="privilegies"{% if filter_status == 'privilegies' %} selected{% endif %}>Privilégié</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-ghost btn-sm">Filtrer</button>
+        </form>
+      </div>
+
+      {% if granted_users %}
+      <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+        <div class="card-header" style="padding:var(--sp-4);">
+          <span class="card-title">Utilisateurs avec signal Bastion</span>
+          <span class="badge badge-muted">{{ granted_users | length }}</span>
+        </div>
+        <div class="table-wrap" style="border:none;border-radius:0;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Utilisateur</th>
+                <th>Droits</th>
+                <th>Statut</th>
+                <th>Dernière connexion</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in granted_users %}
+              <tr>
+                <td>
+                  <div class="avatar-initials" style="background:{{ u.avatar_color }};">{{ u.initials }}</div>
+                </td>
+                <td>
+                  <div>{{ u.display }}</div>
+                  <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
+                </td>
+                <td><span class="badge badge-muted">{{ u.grant_count }}</span></td>
+                <td>
+                  {% if u.has_portal_admin %}
+                    <span class="badge badge-ok">Privilégié</span>
+                  {% else %}
+                    <span class="badge badge-ok">Actif</span>
+                  {% endif %}
+                </td>
+                <td class="mono form-hint">
+                  {% if u.last_seen_at %}
+                    {{ u.last_seen_at }}{% if u.last_ip %} · {{ u.last_ip }}{% endif %}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>
+                  {% if selected_realm %}
+                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Éditer</a>
+                  {% else %}
+                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?keycloak_user_id={{ u.keycloak_user_id }}">Éditer</a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+        <form method="get" action="/admin/rbac/users" id="user-search-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+          <div class="form-group">
+            <label class="form-label" for="realm_id">Realm</label>
+            <select id="realm_id" name="realm_id" class="form-select">
+              {% for realm in realms %}
+              <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
+              {% else %}
+              <option value="">Aucun realm avec sync activée</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group" style="flex:1; min-width:240px;">
+            <label class="form-label" for="user-query">Rechercher un utilisateur</label>
+            <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" data-user-search>
+            <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="{{ keycloak_user_id or '' }}">
+            <div id="user-suggestions" class="form-hint" style="margin-top:var(--sp-2);"></div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Afficher</button>
+        </form>
+      </div>
+    </div>
+
+    <aside style="display:flex; flex-direction:column; gap:var(--sp-4);">
+      <div class="card" style="padding:var(--sp-4);">
+        <div class="card-title" style="margin-bottom:var(--sp-3);">Anomalies de Connexion</div>
+        <p class="form-hint" style="margin:0 0 var(--sp-3);">Sources audit existantes (hijack / break-glass) — pas de nouveau moteur.</p>
+        <ul style="list-style:none; margin:0; padding:0; display:grid; gap:var(--sp-3);">
+          {% for a in anomalies %}
+          <li style="border-bottom:1px solid var(--border); padding-bottom:var(--sp-2);">
+            {% if a.severity == 'CRITIQUE' %}
+              <span class="badge badge-err">CRITIQUE</span>
+            {% else %}
+              <span class="badge badge-warn">ALERTE</span>
+            {% endif %}
+            <div class="mono form-hint" style="margin-top:var(--sp-1);">{{ a.action }}</div>
+            <div class="form-hint">{{ a.actor or '—' }}{% if a.ip %} · {{ a.ip }}{% endif %}</div>
+          </li>
           {% else %}
-          <option value="">Aucun realm avec sync activée</option>
+          <li class="empty-desc">Aucune anomalie récente</li>
           {% endfor %}
-        </select>
+        </ul>
       </div>
-      <div class="form-group" style="flex:1; min-width:240px;">
-        <label class="form-label" for="user-query">Rechercher un utilisateur</label>
-        <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" data-user-search>
-        <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="{{ keycloak_user_id or '' }}">
-        <div id="user-suggestions" class="form-hint" style="margin-top:var(--sp-2);"></div>
+      <div class="card" style="padding:var(--sp-4);">
+        <div class="card-title" style="margin-bottom:var(--sp-3);">Répartition des Groupes</div>
+        {% for g in group_distribution %}
+        <div style="margin-bottom:var(--sp-3);">
+          <div style="display:flex; justify-content:space-between; gap:var(--sp-2); font-size:var(--fs-sm);">
+            <span>{{ g.name }}</span>
+            <span class="mono">{{ g.percent }}%</span>
+          </div>
+          <div style="height:6px; background:var(--bg-tertiary); border-radius:var(--r-full); margin-top:var(--sp-1); overflow:hidden;">
+            <div style="height:100%; width:{{ g.percent }}%; background:var(--accent); border-radius:var(--r-full);"></div>
+          </div>
+        </div>
+        {% else %}
+        <p class="empty-desc">Aucun groupe synchronisé</p>
+        {% endfor %}
+        <a href="/admin/rbac" class="btn btn-ghost btn-sm" style="margin-top:var(--sp-2);">Gérer les groupes</a>
       </div>
-      <button type="submit" class="btn btn-primary btn-sm">Afficher</button>
-    </form>
+    </aside>
   </div>
 
   {% if user_error %}
