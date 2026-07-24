@@ -58,13 +58,6 @@ DEFAULT_MODULES: list[dict] = [
         "sort_order": 70,
     },
     {
-        "key": "resources",
-        "label": "Ressources",
-        "description": "Ressources administrateur",
-        "icon": "inventory_2",
-        "sort_order": 80,
-    },
-    {
         "key": "security",
         "label": "Sécurité",
         "description": "Paramètres de sécurité portail",

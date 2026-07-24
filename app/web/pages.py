@@ -1178,14 +1178,6 @@ async def admin_rbac(
     )
 
 
-@admin_router.get("/admin/resources")
-def admin_resources(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-):
-    return render("admin/resources.html", **_ctx(request, settings, resources=[]))
-
-
 @admin_router.get("/admin/security")
 def admin_security(
     request: Request,
