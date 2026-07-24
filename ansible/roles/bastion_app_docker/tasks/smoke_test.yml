@@ -528,6 +528,7 @@
     chdir: "{{ bastion_app_docker_compose_dir }}"
   environment:
     SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+    SSO_PORTAL_FILES_DATA_DIR: "{{ bastion_app_docker_files_data_dir }}"
 
 - name: "SMOKE : wait health after restart"
   when: sso_portal_verify_fernet_key_migration | default(true) | bool
@@ -555,3 +556,58 @@
       (before={{ _key_ver_before.content | b64decode | trim }}
       after={{ _key_ver_after.content | b64decode | trim }}).
       Check persistent volume {{ sso_portal_keys_dir }}.
+
+- name: "SMOKE : write probe into FILES_STORAGE_DIR (files volume)"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker compose exec -T bastion-app python - <<'PY'
+    from app.files.service import ensure_files_storage_dir
+    root = ensure_files_storage_dir()
+    probe = root / ".volume_smoke_probe"
+    probe.write_text("persist-ok", encoding="utf-8")
+    print(probe)
+    PY
+  args:
+    executable: /bin/bash
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+    SSO_PORTAL_FILES_DATA_DIR: "{{ bastion_app_docker_files_data_dir }}"
+
+- name: "SMOKE : compose stop/start bastion-app (files volume persistence)"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker compose stop bastion-app
+    docker compose start bastion-app
+  args:
+    executable: /bin/bash
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+    SSO_PORTAL_FILES_DATA_DIR: "{{ bastion_app_docker_files_data_dir }}"
+
+- name: "SMOKE : wait health after files volume restart"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8000/api/health"
+    status_code: 200
+  register: _health_after_files
+  retries: 20
+  delay: 2
+  until: _health_after_files.status | default(0) == 200
+
+- name: "SMOKE : assert files volume probe survived restart"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker compose exec -T bastion-app python - <<'PY'
+    from app.files.service import get_files_storage_root
+    probe = get_files_storage_root() / ".volume_smoke_probe"
+    assert probe.is_file(), f"missing {probe}"
+    assert probe.read_text(encoding="utf-8") == "persist-ok"
+    print("ok", probe)
+    PY
+  args:
+    executable: /bin/bash
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+    SSO_PORTAL_FILES_DATA_DIR: "{{ bastion_app_docker_files_data_dir }}"

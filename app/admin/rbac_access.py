@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.bastion.bastion_fields import vault_enabled_for_app
 from app.database import get_db
-from app.models import AccessGrant, App, RBACGroup, RealmConfig
+from app.models import AccessGrant, App, FileResource, RBACGroup, RealmConfig
 from app.rbac.grants_service import (
     ACCESS_LEVELS,
     SYSTEM_ROLES,
@@ -71,6 +71,7 @@ def _log_grant_mutation(
         "resource_type": grant.resource_type,
         "application_id": grant.application_id,
         "system_role": grant.system_role,
+        "file_id": getattr(grant, "file_id", None),
     }
     if created:
         details["access_level"] = grant.access_level
@@ -179,6 +180,7 @@ async def admin_rbac_group_detail(
         )
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    files = db.query(FileResource).filter_by(is_active=True).order_by(FileResource.label).all()
     return render(
         "admin/rbac/groups_detail.html",
         **_ctx(
@@ -191,6 +193,7 @@ async def admin_rbac_group_detail(
             grants=grants,
             grant_rows=[serialize_grant(g, db) for g in grants],
             apps=apps,
+            files=files,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
         ),
@@ -539,6 +542,8 @@ async def admin_rbac_grants_create(
         redirect_url = f"/admin/rbac/users{q}"
     elif data.resource_type == "application" and data.application_id:
         redirect_url = f"/admin/rbac/applications/{data.application_id}"
+    elif data.resource_type == "file" and data.file_id:
+        redirect_url = f"/admin/files/{data.file_id}"
 
     grant = create_grant(db, data, user.email)
     db.commit()
@@ -609,6 +614,8 @@ def admin_rbac_grants_delete(
             and grant.application_id
         ):
             redirect_url = f"/admin/rbac/applications/{grant.application_id}"
+        elif grant.resource_type == "file" and grant.file_id:
+            redirect_url = f"/admin/files/{grant.file_id}"
         elif grant.subject_type == "group" and grant.rbac_group_id:
             redirect_url = f"/admin/rbac/groups/{grant.rbac_group_id}"
         elif grant.subject_type == "user" and grant.keycloak_user_id:

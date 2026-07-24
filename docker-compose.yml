@@ -23,22 +23,24 @@ services:
       - -c
       - |
         set -eu
-        mkdir -p /var/lib/sso-portal/exports /var/lib/sso-portal/uploads/app-logos /var/lib/sso-portal/keys
+        mkdir -p /var/lib/sso-portal/exports /var/lib/sso-portal/uploads/app-logos /var/lib/sso-portal/keys /var/lib/sso-portal-files/private/files
         # Encrypt plaintext portal.db before Alembic/app expect SQLCipher (idempotent).
         python /app/scripts/encrypt_portal_db.py
         alembic upgrade head
-        chown -R 1000:1000 /var/lib/sso-portal
+        chown -R 1000:1000 /var/lib/sso-portal /var/lib/sso-portal-files
     env_file:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/sso-portal/portal.db}
       EXPORTS_DIR: /var/lib/sso-portal/exports
       PORTAL_DATA_DIR: /var/lib/sso-portal
+      FILES_STORAGE_DIR: /var/lib/sso-portal-files/private/files
       VAULT_KEYS_DIR: /var/lib/sso-portal/keys
       OAUTH2_PROXY_NETWORK_MODE: docker
       OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
+      - ${SSO_PORTAL_FILES_DATA_DIR:-./data/sso-portal-files}:/var/lib/sso-portal-files
     networks:
       vpcbr:
         aliases:
@@ -54,11 +56,13 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/sso-portal/portal.db}
       EXPORTS_DIR: /var/lib/sso-portal/exports
       PORTAL_DATA_DIR: /var/lib/sso-portal
+      FILES_STORAGE_DIR: /var/lib/sso-portal-files/private/files
       VAULT_KEYS_DIR: /var/lib/sso-portal/keys
       OAUTH2_PROXY_NETWORK_MODE: docker
       OAUTH2_PROXY_DEFAULT_URL: http://oauth2-proxy-core:4180
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
+      - ${SSO_PORTAL_FILES_DATA_DIR:-./data/sso-portal-files}:/var/lib/sso-portal-files
     networks:
       vpcbr:
         aliases:
@@ -134,3 +138,12 @@ networks:
   vpcbr:
     external: true
     name: vpcbr
+
+# Volumes nommés (alias documentaire §9.3). En pratique les services montent des binds
+# via SSO_PORTAL_DATA_DIR / SSO_PORTAL_FILES_DATA_DIR pour permettre backup hôte Ansible.
+volumes:
+  sso_portal_files_data:
+    name: sso_portal_files_data
+    # Utilisation optionnelle : remplacer le bind files par
+    #   - sso_portal_files_data:/var/lib/sso-portal-files
+    # si un volume Docker nommé est préféré au bind hôte.

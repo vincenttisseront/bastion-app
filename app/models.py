@@ -164,7 +164,7 @@ class RolePermission(Base):
 
 
 class AccessGrant(Base):
-    """RBAC grant — group or user subject → application, system_role, or rbac_role."""
+    """RBAC grant — group or user subject → application, system_role, rbac_role, or file."""
 
     __tablename__ = "access_grants"
 
@@ -174,10 +174,11 @@ class AccessGrant(Base):
     keycloak_user_id = Column(String, nullable=True)
     user_display_cache = Column(String, nullable=True)
 
-    resource_type = Column(String, nullable=False)  # application | system_role | rbac_role
+    resource_type = Column(String, nullable=False)  # application | system_role | rbac_role | file
     application_id = Column(Integer, ForeignKey("apps.id"), nullable=True)
     system_role = Column(String, nullable=True)
     rbac_role_id = Column(Integer, ForeignKey("rbac_roles.id"), nullable=True)
+    file_id = Column(Integer, ForeignKey("file_resources.id"), nullable=True)
 
     access_level = Column(String, default="view", nullable=False)
     granted_at = Column(DateTime(timezone=True), default=utcnow)
@@ -190,6 +191,7 @@ class AccessGrant(Base):
     )
     application = relationship("App", foreign_keys=[application_id])
     rbac_role = relationship("RbacRole", foreign_keys=[rbac_role_id])
+    file_resource = relationship("FileResource", foreign_keys=[file_id])
 
     __table_args__ = (
         CheckConstraint(
@@ -199,12 +201,132 @@ class AccessGrant(Base):
         ),
         CheckConstraint(
             "(resource_type = 'application' AND application_id IS NOT NULL "
-            "AND system_role IS NULL AND rbac_role_id IS NULL) OR "
+            "AND system_role IS NULL AND rbac_role_id IS NULL AND file_id IS NULL) OR "
             "(resource_type = 'system_role' AND system_role IS NOT NULL "
-            "AND application_id IS NULL AND rbac_role_id IS NULL) OR "
+            "AND application_id IS NULL AND rbac_role_id IS NULL AND file_id IS NULL) OR "
             "(resource_type = 'rbac_role' AND rbac_role_id IS NOT NULL "
-            "AND application_id IS NULL AND system_role IS NULL)",
+            "AND application_id IS NULL AND system_role IS NULL AND file_id IS NULL) OR "
+            "(resource_type = 'file' AND file_id IS NOT NULL "
+            "AND application_id IS NULL AND system_role IS NULL AND rbac_role_id IS NULL)",
             name="ck_access_grant_resource_exclusive",
+        ),
+    )
+
+
+class FileResource(Base):
+    """Catalogue file resource — access controlled via AccessGrant(resource_type=file)."""
+
+    __tablename__ = "file_resources"
+
+    id = Column(Integer, primary_key=True)
+    slug = Column(String, unique=True, nullable=False, index=True)
+    label = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_by = Column(String, nullable=False)
+
+    versions = relationship(
+        "FileVersion",
+        back_populates="file_resource",
+        cascade="all, delete-orphan",
+        foreign_keys="FileVersion.file_id",
+    )
+    channel_assignments = relationship(
+        "FileChannelAssignment",
+        back_populates="file_resource",
+        cascade="all, delete-orphan",
+        foreign_keys="FileChannelAssignment.file_id",
+    )
+
+
+class FileVersion(Base):
+    """One uploaded binary for a FileResource, tagged beta or stable."""
+
+    __tablename__ = "file_versions"
+
+    id = Column(Integer, primary_key=True)
+    file_id = Column(
+        Integer,
+        ForeignKey("file_resources.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    channel = Column(String, nullable=False)  # beta | stable
+    version_label = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="active")  # active | archived
+    original_filename = Column(String, nullable=False)
+    content_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=False, default=0)
+    checksum_sha256 = Column(String, nullable=False)
+    storage_path = Column(String, nullable=False, unique=True)
+    encrypted = Column(Boolean, nullable=False, default=True)
+    uploaded_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    uploaded_by = Column(String, nullable=False)
+    changelog = Column(Text, nullable=True)
+
+    file_resource = relationship(
+        "FileResource",
+        back_populates="versions",
+        foreign_keys=[file_id],
+    )
+
+    __table_args__ = (
+        UniqueConstraint("file_id", "version_label", name="uq_file_version_label"),
+        CheckConstraint(
+            "channel IN ('beta', 'stable')",
+            name="ck_file_version_channel",
+        ),
+    )
+
+
+class FileChannelAssignment(Base):
+    """Per-file beta channel opt-in. Absence of a row for that file means stable."""
+
+    __tablename__ = "file_channel_assignments"
+
+    id = Column(Integer, primary_key=True)
+    file_id = Column(
+        Integer,
+        ForeignKey("file_resources.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    subject_type = Column(String, nullable=False)  # group | user
+    rbac_group_id = Column(
+        Integer, ForeignKey("rbac_groups.id", ondelete="CASCADE"), nullable=True
+    )
+    keycloak_user_id = Column(String, nullable=True, index=True)
+    user_display_cache = Column(String, nullable=True)
+    channel = Column(String, nullable=False, default="beta")
+    assigned_at = Column(DateTime(timezone=True), default=utcnow)
+    assigned_by = Column(String, nullable=False)
+
+    file_resource = relationship(
+        "FileResource",
+        back_populates="channel_assignments",
+        foreign_keys=[file_id],
+    )
+    rbac_group = relationship("RBACGroup", foreign_keys=[rbac_group_id])
+
+    __table_args__ = (
+        UniqueConstraint(
+            "file_id",
+            "subject_type",
+            "rbac_group_id",
+            "keycloak_user_id",
+            name="uq_file_channel_subject",
+        ),
+        CheckConstraint(
+            "channel = 'beta'",
+            name="ck_file_channel_assignment_beta_only",
+        ),
+        CheckConstraint(
+            "(subject_type = 'group' AND rbac_group_id IS NOT NULL AND keycloak_user_id IS NULL) OR "
+            "(subject_type = 'user' AND keycloak_user_id IS NOT NULL AND rbac_group_id IS NULL)",
+            name="ck_file_channel_assignment_subject_exclusive",
         ),
     )
 

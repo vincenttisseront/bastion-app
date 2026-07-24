@@ -237,6 +237,26 @@ def _backup_portal_db(settings: Settings) -> Path | None:
     return dest
 
 
+def _backup_files_storage(settings: Settings) -> Path | None:
+    """Tar FILES_STORAGE_DIR beside portal.db backups (avoid orphan storage_path)."""
+    from app.files.service import get_files_storage_root
+
+    root = get_files_storage_root(settings)
+    if not root.is_dir():
+        return None
+    stamp = utcnow().strftime("%Y%m%dT%H%M%SZ")
+    dest = root.parent / f"files.bak-pre-rotation-{stamp}.tgz"
+    import tarfile
+
+    with tarfile.open(dest, "w:gz") as tar:
+        tar.add(root, arcname=root.name)
+    try:
+        os.chmod(dest, 0o640)
+    except OSError:
+        pass
+    return dest
+
+
 def rotate_application_key(
     db: Session,
     settings: Settings,
@@ -267,6 +287,7 @@ def rotate_application_key(
         raise KeyRotationError("no active key version")
 
     _backup_portal_db(settings)
+    _backup_files_storage(settings)
     backup_active_key_file(settings)
 
     new_version = next_key_version(db, settings)

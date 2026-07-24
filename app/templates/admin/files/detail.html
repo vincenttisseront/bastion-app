@@ -1,0 +1,381 @@
+{% extends "base.html" %}
+{% block title %}Fichier — {{ file.label }}{% endblock %}
+{% block breadcrumb %}Admin / Fichiers / {{ file.label }}{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ file.label }}</h1>
+      <p class="page-sub mono">{{ file.slug }} · {{ grant_count }} droit(s) · {{ unique_people_count }} personne(s)</p>
+    </div>
+    <a href="/admin/files" class="btn btn-ghost btn-sm">← Retour</a>
+  </div>
+
+  {% if messages %}{% include 'partials/_flash.html' %}{% endif %}
+
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+    <div class="form-section-title" style="margin-bottom:var(--sp-3);">Métadonnées</div>
+    <form method="post" action="/admin/files/{{ file.id }}/edit" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+      <div class="form-group">
+        <label class="form-label" for="label">Libellé</label>
+        <input id="label" name="label" class="form-input" required value="{{ file.label }}">
+      </div>
+      <div class="form-group" style="flex:1; min-width:220px;">
+        <label class="form-label" for="description">Description</label>
+        <input id="description" name="description" class="form-input" value="{{ file.description or '' }}">
+      </div>
+      <label class="form-check" style="margin-bottom:var(--sp-2);">
+        <input type="checkbox" name="is_active" value="1"{% if file.is_active %} checked{% endif %}>
+        Actif
+      </label>
+      <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
+    </form>
+  </div>
+
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Versions</span>
+      <span class="badge badge-muted">{{ versions | length }}</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Version</th>
+            <th>Canal</th>
+            <th>Statut</th>
+            <th>Fichier</th>
+            <th>SHA-256</th>
+            <th>Upload</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in versions %}
+          <tr>
+            <td class="mono">{{ v.version_label }}</td>
+            <td><span class="badge badge-{{ 'warn' if v.channel == 'beta' else 'ok' }}">{{ v.channel }}</span></td>
+            <td><span class="badge badge-{{ 'ok' if v.status == 'active' else 'muted' }}">{{ v.status }}</span></td>
+            <td class="mono">{{ v.original_filename }} ({{ v.size_bytes }} o)</td>
+            <td class="mono" title="{{ v.checksum_sha256 }}">{{ v.checksum_sha256[:12] }}…</td>
+            <td class="mono">{{ v.uploaded_at }} · {{ v.uploaded_by }}</td>
+            <td style="display:flex; gap:var(--sp-1);">
+              {% if v.channel == 'beta' and v.status == 'active' %}
+              <form method="post" action="/admin/files/{{ file.id }}/versions/{{ v.id }}/promote">
+                <button type="submit" class="btn btn-primary btn-sm">Promouvoir</button>
+              </form>
+              {% endif %}
+              {% if v.status == 'active' %}
+              <form method="post" action="/admin/files/{{ file.id }}/versions/{{ v.id }}/archive">
+                <button type="submit" class="btn btn-ghost btn-sm">Archiver</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7"><div class="empty-desc" style="padding:var(--sp-4);">Aucune version.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Publier une version</div>
+      <form method="post" action="/admin/files/{{ file.id }}/versions" enctype="multipart/form-data" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+        <div class="form-group">
+          <label class="form-label" for="channel">Canal</label>
+          <select id="channel" name="channel" class="form-select">
+            <option value="beta">beta</option>
+            <option value="stable">stable</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="version_label">Label version</label>
+          <input id="version_label" name="version_label" class="form-input" required placeholder="1.4.0">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="upload">Fichier</label>
+          <input id="upload" name="upload" type="file" class="form-input" required>
+        </div>
+        <div class="form-group" style="flex:1; min-width:160px;">
+          <label class="form-label" for="changelog">Changelog</label>
+          <input id="changelog" name="changelog" class="form-input" placeholder="Optionnel">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Uploader</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Droits d'accès (AccessGrant)</span>
+      <span class="badge badge-muted">{{ grant_count }}</span>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Sujet</th>
+            <th>Type</th>
+            <th>Niveau</th>
+            <th>Accordé par</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in grant_rows %}
+          <tr>
+            <td>
+              {% if g.subject_href %}
+                <a href="{{ g.subject_href }}" class="mono">{{ g.subject_label }}</a>
+              {% else %}
+                <span class="mono">{{ g.subject_label }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if g.subject_type == 'group' %}
+                <span class="badge badge-info">Groupe</span>
+              {% else %}
+                <span class="badge badge-ok">Utilisateur</span>
+              {% endif %}
+            </td>
+            <td><span class="badge badge-info">{{ g.access_level }}</span></td>
+            <td class="mono">{{ g.granted_by }}</td>
+            <td>
+              <form method="post" action="/admin/rbac/grants/{{ g.id }}/delete">
+                <input type="hidden" name="redirect_url" value="/admin/files/{{ file.id }}">
+                <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5"><div class="empty-desc" style="padding:var(--sp-4);">Aucun AccessGrant pour ce fichier.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter un droit</div>
+      <form method="post" action="/admin/rbac/grants" id="file-grant-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+        <input type="hidden" name="resource_type" value="file">
+        <input type="hidden" name="file_id" value="{{ file.id }}">
+        <input type="hidden" name="redirect_url" value="/admin/files/{{ file.id }}">
+        <div class="form-group">
+          <label class="form-label" for="subject_type">Sujet</label>
+          <select id="subject_type" name="subject_type" class="form-select" data-grant-subject-type>
+            <option value="group">Groupe</option>
+            <option value="user">Utilisateur</option>
+          </select>
+        </div>
+        <div class="form-group" data-subject-group>
+          <label class="form-label" for="rbac_group_id">Groupe</label>
+          <select id="rbac_group_id" name="rbac_group_id" class="form-select">
+            {% for group in groups %}
+            <option value="{{ group.id }}">{{ group.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" data-subject-user hidden>
+          <label class="form-label" for="realm_id">Realm</label>
+          <select id="realm_id" name="realm_id" class="form-select" disabled>
+            {% for realm in realms %}
+            <option value="{{ realm.id }}">{{ realm.slug }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" data-subject-user hidden style="flex:1; min-width:220px;">
+          <label class="form-label" for="user-query">Utilisateur</label>
+          <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" disabled>
+          <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" disabled>
+          <input type="hidden" name="user_display_cache" id="user_display_cache" disabled>
+          <div id="user-suggestions" class="form-hint" style="margin-top:var(--sp-2);"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="access_level">Niveau</label>
+          <select id="access_level" name="access_level" class="form-select">
+            {% for level in access_levels %}
+            <option value="{{ level }}"{% if level == 'launch' %} selected{% endif %}>{{ level }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Bêta-testeurs (canal)</span>
+      <span class="badge badge-warn">{{ beta_testers | length }}</span>
+    </div>
+    <p class="form-hint" style="padding:0 var(--sp-4) var(--sp-2);">
+      Le canal est indépendant des AccessGrant : retirer un bêta-testeur bascule sur stable sans toucher aux droits.
+    </p>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead><tr><th>Sujet</th><th>Type</th><th>Par</th><th></th></tr></thead>
+        <tbody>
+          {% for b in beta_testers %}
+          <tr>
+            <td class="mono">
+              {% if b.subject_type == 'group' %}{{ b.group_name or b.rbac_group_id }}
+              {% else %}{{ b.user_display_cache or b.keycloak_user_id }}{% endif %}
+            </td>
+            <td>
+              {% if b.subject_type == 'group' %}
+              <span class="badge badge-info">Groupe</span>
+              {% else %}
+              <span class="badge badge-ok">Utilisateur</span>
+              {% endif %}
+            </td>
+            <td class="mono">{{ b.assigned_by }}</td>
+            <td>
+              <form method="post" action="/admin/files/{{ file.id }}/channel-assignments/{{ b.id }}/delete">
+                <button type="submit" class="btn btn-ghost btn-sm">Retirer du canal bêta</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4"><div class="empty-desc" style="padding:var(--sp-4);">Personne en canal bêta (tous en stable).</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter au canal bêta</div>
+      <form method="post" action="/admin/files/{{ file.id }}/channel-assignments" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;" data-beta-form>
+        <div class="form-group">
+          <label class="form-label" for="beta_subject_type">Sujet</label>
+          <select id="beta_subject_type" name="subject_type" class="form-select" data-beta-subject-type>
+            <option value="group">Groupe</option>
+            <option value="user">Utilisateur</option>
+          </select>
+        </div>
+        <div class="form-group" data-beta-group>
+          <label class="form-label" for="beta_rbac_group_id">Groupe</label>
+          <select id="beta_rbac_group_id" name="rbac_group_id" class="form-select">
+            {% for group in groups %}
+            <option value="{{ group.id }}">{{ group.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" data-beta-user hidden style="flex:1; min-width:220px;">
+          <label class="form-label" for="beta_user_id">Keycloak user id</label>
+          <input id="beta_user_id" name="keycloak_user_id" class="form-input" placeholder="UUID Keycloak" disabled>
+          <input type="hidden" name="user_display_cache" id="beta_user_display" disabled>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+      </form>
+    </div>
+  </div>
+
+  <form method="post" action="/admin/files/{{ file.id }}/delete" onsubmit="return confirm('Supprimer ce fichier et toutes ses versions ?');">
+    <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--danger);">Supprimer le fichier</button>
+  </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var typeSelect = document.querySelector('[data-grant-subject-type]');
+  if (typeSelect) {
+    var groupBlock = document.querySelector('[data-subject-group]');
+    var userBlocks = document.querySelectorAll('[data-subject-user]');
+    var groupSelect = document.getElementById('rbac_group_id');
+    var userId = document.getElementById('keycloak_user_id');
+    var userDisplay = document.getElementById('user_display_cache');
+    var userQuery = document.getElementById('user-query');
+    var realmSelect = document.getElementById('realm_id');
+    function syncGrant() {
+      var isGroup = typeSelect.value === 'group';
+      if (groupBlock) groupBlock.hidden = !isGroup;
+      userBlocks.forEach(function (el) { el.hidden = isGroup; });
+      if (groupSelect) {
+        groupSelect.disabled = !isGroup;
+        if (isGroup) groupSelect.setAttribute('name', 'rbac_group_id');
+        else groupSelect.removeAttribute('name');
+      }
+      [userId, userDisplay, userQuery, realmSelect].forEach(function (el) {
+        if (!el) return;
+        el.disabled = isGroup;
+      });
+      if (userId) {
+        if (isGroup) userId.removeAttribute('name');
+        else userId.setAttribute('name', 'keycloak_user_id');
+      }
+      if (userDisplay) {
+        if (isGroup) userDisplay.removeAttribute('name');
+        else userDisplay.setAttribute('name', 'user_display_cache');
+      }
+    }
+    typeSelect.addEventListener('change', syncGrant);
+    syncGrant();
+
+    if (userQuery && realmSelect) {
+      var timer = null;
+      var box = document.getElementById('user-suggestions');
+      userQuery.addEventListener('input', function () {
+        clearTimeout(timer);
+        var q = userQuery.value.trim();
+        if (q.length < 2) { if (box) box.textContent = ''; return; }
+        timer = setTimeout(async function () {
+          var realmId = realmSelect.value;
+          var resp = await fetch('/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmId) + '&q=' + encodeURIComponent(q), {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (!resp.ok || !box) return;
+          var data = await resp.json();
+          box.innerHTML = '';
+          (data.users || []).slice(0, 8).forEach(function (u) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-ghost btn-sm';
+            btn.style.marginRight = '4px';
+            btn.textContent = u.display || u.username || u.email || u.id;
+            btn.addEventListener('click', function () {
+              userId.value = u.id;
+              userDisplay.value = u.display || u.username || u.email || u.id;
+              userQuery.value = userDisplay.value;
+              box.textContent = 'Sélectionné : ' + userDisplay.value;
+            });
+            box.appendChild(btn);
+          });
+        }, 250);
+      });
+    }
+  }
+
+  var betaType = document.querySelector('[data-beta-subject-type]');
+  if (betaType) {
+    var betaGroup = document.querySelector('[data-beta-group]');
+    var betaUser = document.querySelector('[data-beta-user]');
+    var betaGroupSelect = document.getElementById('beta_rbac_group_id');
+    var betaUserId = document.getElementById('beta_user_id');
+    var betaDisplay = document.getElementById('beta_user_display');
+    function syncBeta() {
+      var isGroup = betaType.value === 'group';
+      if (betaGroup) betaGroup.hidden = !isGroup;
+      if (betaUser) betaUser.hidden = isGroup;
+      if (betaGroupSelect) {
+        betaGroupSelect.disabled = !isGroup;
+        if (isGroup) betaGroupSelect.setAttribute('name', 'rbac_group_id');
+        else betaGroupSelect.removeAttribute('name');
+      }
+      if (betaUserId) {
+        betaUserId.disabled = isGroup;
+        if (isGroup) betaUserId.removeAttribute('name');
+        else betaUserId.setAttribute('name', 'keycloak_user_id');
+      }
+      if (betaDisplay) {
+        betaDisplay.disabled = isGroup;
+        if (isGroup) betaDisplay.removeAttribute('name');
+        else betaDisplay.setAttribute('name', 'user_display_cache');
+      }
+    }
+    betaType.addEventListener('change', syncBeta);
+    syncBeta();
+  }
+})();
+</script>
+{% endblock %}

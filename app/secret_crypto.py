@@ -72,6 +72,11 @@ def _fernet(settings: Settings) -> Fernet:
     return fernet_from_key_material(_encryption_key_material(settings))
 
 
+def get_fernet(settings: Settings) -> Fernet:
+    """Public Fernet instance for the active vault key (blobs, secrets)."""
+    return _fernet(settings)
+
+
 def encrypt_secret(plaintext: str, settings: Settings) -> str:
     return _fernet(settings).encrypt(plaintext.encode("utf-8")).decode("ascii")
 

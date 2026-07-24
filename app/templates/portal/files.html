@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Mes fichiers{% endblock %}
+{% block body_class %}page-portal{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-stitch-apps">
+{% endblock %}
+
+{% block content %}
+<div class="portal-shell">
+{% include "portal/_topbar.html" %}
+
+{% if messages %}
+<div class="flash-container portal-flash">{% include 'partials/_flash.html' %}</div>
+{% endif %}
+
+<main class="portal-main portal-main--apps">
+  <section class="portal-hero">
+    <div class="portal-hero-copy">
+      <p class="portal-eyebrow">Espace utilisateur</p>
+      <h1 class="page-title">Mes fichiers</h1>
+      <p class="page-sub">
+        {% if files %}
+          {{ files | length }} fichier{{ 's' if files | length != 1 else '' }} accessible{{ 's' if files | length != 1 else '' }}
+          · canal résolu par fichier
+        {% else %}
+          Aucun fichier disponible pour le moment
+        {% endif %}
+      </p>
+    </div>
+  </section>
+
+  {% if files %}
+  <div class="admin-grid portal-app-grid{% if files | length <= 3 %} portal-app-grid--compact{% endif %}">
+    {% for f in files %}
+    <div class="admin-card app-tile" data-searchable data-fuzzy-key="{{ f.label }} {{ f.description }} {{ f.slug }}">
+      <div class="app-tile-head">
+        <div class="app-tile-icon" aria-hidden="true">
+          <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        </div>
+        <div class="app-tile-badges">
+          {% if f.channel == 'beta' %}
+          <span class="badge badge-warn">Bêta</span>
+          {% endif %}
+          {% if f.version_label %}
+          <span class="badge badge-muted">v{{ f.version_label }}</span>
+          {% else %}
+          <span class="badge badge-muted">Aucune version disponible pour votre profil</span>
+          {% endif %}
+        </div>
+      </div>
+      <h2 class="app-tile-title">{{ f.label }}</h2>
+      {% if f.description %}
+      <p class="app-tile-desc">{{ f.description }}</p>
+      {% endif %}
+      <div class="app-tile-meta">
+        <span class="badge badge-muted">{{ f.access_status }}</span>
+        {% if f.size_bytes %}
+        <span class="mono text-2">{{ (f.size_bytes / 1024) | round(1) }} Ko</span>
+        {% endif %}
+      </div>
+      <div class="app-tile-actions">
+        {% if f.can_download %}
+        <a class="btn btn-primary btn-sm" href="{{ f.download_url }}">Télécharger</a>
+        {% else %}
+        <button type="button" class="btn btn-ghost btn-sm" disabled title="Aucune version ou droit insuffisant">Indisponible</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state" style="margin-top:var(--sp-6);">
+    <div class="empty-title">Aucun fichier</div>
+    <div class="empty-desc">Les fichiers auxquels vous avez accès apparaîtront ici.</div>
+  </div>
+  {% endif %}
+</main>
+</div>
+{% endblock %}

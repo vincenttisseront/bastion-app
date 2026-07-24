@@ -119,6 +119,21 @@ class Settings(BaseSettings):
             "portal_data_dir",
         ),
     )
+    # Dedicated blob root for catalogue files (empty → {portal_data_dir}/private/files).
+    files_storage_dir: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "FILES_STORAGE_DIR",
+            "files_storage_dir",
+        ),
+    )
+    file_encryption_chunk_size: int = Field(
+        default=1_048_576,
+        validation_alias=AliasChoices(
+            "FILE_ENCRYPTION_CHUNK_SIZE",
+            "file_encryption_chunk_size",
+        ),
+    )
     # Application-managed Fernet key directory (Phase B — not AWX-delivered).
     # Empty → {portal_data_dir}/keys
     vault_keys_dir: str = Field(

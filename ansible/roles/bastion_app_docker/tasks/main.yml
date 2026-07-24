@@ -11,6 +11,8 @@
   loop:
     - "{{ bastion_app_docker_compose_dir }}"
     - "{{ bastion_app_docker_data_dir }}"
+    - "{{ bastion_app_docker_files_data_dir }}"
+    - "{{ sso_portal_files_storage_dir }}"
     - "{{ sso_portal_exports_dir }}"
     - "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
 
@@ -313,6 +315,7 @@
     chdir: "{{ bastion_app_docker_compose_dir }}"
   environment:
     SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+    SSO_PORTAL_FILES_DATA_DIR: "{{ bastion_app_docker_files_data_dir }}"
     OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
     PORTAL_DOMAIN: "{{ portal_domain }}"
   register: _compose_up

@@ -87,6 +87,21 @@
     mode: "0640"
   when: _db_stat.stat.exists | default(false)
 
+- name: "PREFLIGHT : stat files data dir"
+  ansible.builtin.stat:
+    path: "{{ sso_portal_files_data_dir | default(sso_portal_data_dir ~ '-files') }}"
+  register: _files_stat
+
+- name: "PREFLIGHT : backup files data dir (tar) si présent"
+  ansible.builtin.archive:
+    path: "{{ sso_portal_files_data_dir | default(sso_portal_data_dir ~ '-files') }}"
+    dest: >-
+      {{ sso_portal_files_data_dir | default(sso_portal_data_dir ~ '-files')
+      }}.bak-{{ ansible_date_time.iso8601_basic_short | default(ansible_date_time.epoch) }}.tgz
+    format: gz
+    mode: "0600"
+  when: _files_stat.stat.exists | default(false)
+
 - name: "PREFLIGHT : stat keys dir"
   ansible.builtin.stat:
     path: "{{ sso_portal_keys_dir }}"

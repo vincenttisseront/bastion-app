@@ -8,6 +8,8 @@ bastion_app_docker_enabled: true
 bastion_app_docker_compose_dir: /tools/portal
 # Données persistantes hôte (monté → /var/lib/sso-portal dans les conteneurs)
 bastion_app_docker_data_dir: /tools/portal/data
+# Blobs fichiers versionnés (monté → /var/lib/sso-portal-files) — cycle de vie / backup séparés
+bastion_app_docker_files_data_dir: "{{ bastion_app_docker_data_dir }}-files"
 
 # Host Docker (inventaire AWX : vmdmz-docker01 = 172.24.0.110, derrière Traefik)
 bastion_docker_host: vmdmz-docker01
@@ -50,6 +52,8 @@ sso_portal_app_version: "0.5.0"
 sso_portal_db_path: "{{ bastion_app_docker_data_dir }}/portal.db"
 sso_portal_keys_dir: "{{ bastion_app_docker_data_dir }}/keys"
 sso_portal_exports_dir: "{{ bastion_app_docker_data_dir }}/exports"
+sso_portal_files_data_dir: "{{ bastion_app_docker_files_data_dir }}"
+sso_portal_files_storage_dir: "{{ bastion_app_docker_files_data_dir }}/private/files"
 sso_portal_env_path: "{{ bastion_app_docker_compose_dir }}/.env"
 sso_portal_min_free_disk_mb: 512
 sso_portal_backup_retention_days: 14

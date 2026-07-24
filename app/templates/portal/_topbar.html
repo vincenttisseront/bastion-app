@@ -6,6 +6,7 @@
   </a>
   <nav class="portal-nav" aria-label="Navigation portail">
     <a href="/apps" class="portal-nav-link{% if request.url.path.startswith('/apps') %} is-active{% endif %}">Mes applications</a>
+    <a href="/files" class="portal-nav-link{% if request.url.path.startswith('/files') %} is-active{% endif %}">Mes fichiers</a>
     <a href="/profile" class="portal-nav-link{% if request.url.path.startswith('/profile') %} is-active{% endif %}">Mon profil</a>
   </nav>
   <div class="portal-topbar-actions">

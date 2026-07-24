@@ -9,11 +9,11 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import AccessGrant, App, RBACGroup, RealmConfig
+from app.models import AccessGrant, App, FileResource, RBACGroup, RealmConfig
 from app.rbac.keycloak_admin import fetch_group_members, fetch_user_groups
 
 SUBJECT_TYPES = frozenset({"group", "user"})
-RESOURCE_TYPES = frozenset({"application", "system_role", "rbac_role"})
+RESOURCE_TYPES = frozenset({"application", "system_role", "rbac_role", "file"})
 ACCESS_LEVELS = frozenset({"view", "launch", "manage"})
 
 SYSTEM_ROLES: dict[str, str] = {
@@ -31,6 +31,7 @@ class AccessGrantCreate(BaseModel):
     application_id: int | None = None
     system_role: str | None = None
     rbac_role_id: int | None = None
+    file_id: int | None = None
     access_level: str = "view"
 
     @field_validator("subject_type")
@@ -45,7 +46,7 @@ class AccessGrantCreate(BaseModel):
     def validate_resource_type(cls, value: str) -> str:
         if value not in RESOURCE_TYPES:
             raise ValueError(
-                "resource_type must be application, system_role, or rbac_role"
+                "resource_type must be application, system_role, rbac_role, or file"
             )
         return value
 
@@ -72,14 +73,37 @@ class AccessGrantCreate(BaseModel):
             if not self.keycloak_user_id or self.rbac_group_id:
                 raise ValueError("user grants require keycloak_user_id only")
         if self.resource_type == "application":
-            if not self.application_id or self.system_role or self.rbac_role_id:
+            if (
+                not self.application_id
+                or self.system_role
+                or self.rbac_role_id
+                or self.file_id
+            ):
                 raise ValueError("application grants require application_id only")
         elif self.resource_type == "system_role":
-            if not self.system_role or self.application_id or self.rbac_role_id:
+            if (
+                not self.system_role
+                or self.application_id
+                or self.rbac_role_id
+                or self.file_id
+            ):
                 raise ValueError("system_role grants require system_role only")
-        else:
-            if not self.rbac_role_id or self.application_id or self.system_role:
+        elif self.resource_type == "rbac_role":
+            if (
+                not self.rbac_role_id
+                or self.application_id
+                or self.system_role
+                or self.file_id
+            ):
                 raise ValueError("rbac_role grants require rbac_role_id only")
+        else:
+            if (
+                not self.file_id
+                or self.application_id
+                or self.system_role
+                or self.rbac_role_id
+            ):
+                raise ValueError("file grants require file_id only")
         return self
 
 
@@ -101,6 +125,13 @@ def serialize_grant(grant: AccessGrant, db: Session) -> dict[str, Any]:
 
         role = db.query(RbacRole).filter_by(id=grant.rbac_role_id).first()
         rbac_role_name = role.name if role else None
+    file_label = None
+    file_slug = None
+    if getattr(grant, "file_id", None):
+        fr = db.query(FileResource).filter_by(id=grant.file_id).first()
+        if fr:
+            file_label = fr.label
+            file_slug = fr.slug
     return {
         "id": grant.id,
         "subject_type": grant.subject_type,
@@ -116,6 +147,9 @@ def serialize_grant(grant: AccessGrant, db: Session) -> dict[str, Any]:
         "system_role_label": SYSTEM_ROLES.get(grant.system_role or "", grant.system_role),
         "rbac_role_id": getattr(grant, "rbac_role_id", None),
         "rbac_role_name": rbac_role_name,
+        "file_id": getattr(grant, "file_id", None),
+        "file_label": file_label,
+        "file_slug": file_slug,
         "access_level": grant.access_level,
         "granted_at": grant.granted_at.isoformat() if grant.granted_at else None,
         "granted_by": grant.granted_by,
@@ -128,6 +162,7 @@ def list_grants(
     rbac_group_id: int | None = None,
     keycloak_user_id: str | None = None,
     application_id: int | None = None,
+    file_id: int | None = None,
 ) -> list[AccessGrant]:
     query = db.query(AccessGrant).order_by(AccessGrant.granted_at.desc())
     if rbac_group_id is not None:
@@ -144,6 +179,11 @@ def list_grants(
         query = query.filter(
             AccessGrant.resource_type == "application",
             AccessGrant.application_id == application_id,
+        )
+    if file_id is not None:
+        query = query.filter(
+            AccessGrant.resource_type == "file",
+            AccessGrant.file_id == file_id,
         )
     return query.all()
 
@@ -281,6 +321,57 @@ async def build_application_access_view(
     }
 
 
+async def build_file_access_view(
+    db: Session,
+    file_id: int,
+    settings,
+) -> dict[str, Any]:
+    """Grants for one file resource — same shape as application access view."""
+    grants = list_grants(db, file_id=file_id)
+    rows: list[dict[str, Any]] = []
+    unique_people: set[str] = set()
+    people_sources: dict[str, list[str]] = defaultdict(list)
+
+    for grant in grants:
+        member_count: int | None = None
+        if grant.subject_type == "user" and grant.keycloak_user_id:
+            uid = str(grant.keycloak_user_id)
+            unique_people.add(uid)
+            people_sources[uid].append("direct")
+        elif grant.subject_type == "group" and grant.rbac_group_id:
+            group = db.query(RBACGroup).filter_by(id=grant.rbac_group_id).first()
+            if group and group.keycloak_group_id and group.realm_id:
+                realm = db.query(RealmConfig).filter_by(id=group.realm_id).first()
+                if realm and realm.groups_sync_enabled:
+                    try:
+                        members = await fetch_group_members(
+                            realm, group.keycloak_group_id, settings
+                        )
+                        member_count = len(members)
+                        group.member_count = member_count
+                        for member in members:
+                            mid = str(member.get("id") or "").strip()
+                            if mid:
+                                unique_people.add(mid)
+                                people_sources[mid].append(f"via groupe {group.name}")
+                    except Exception:
+                        member_count = group.member_count
+                else:
+                    member_count = group.member_count if group else None
+            else:
+                member_count = group.member_count if group else None
+        rows.append(serialize_application_grant_row(grant, db, member_count=member_count))
+
+    return {
+        "grants": rows,
+        "grant_count": len(rows),
+        "unique_people_count": len(unique_people),
+        "people_sources": {
+            uid: sorted(set(sources)) for uid, sources in people_sources.items()
+        },
+    }
+
+
 def build_grants_matrix(db: Session) -> dict[str, Any]:
     """Applications × Groups matrix (group grants only, read-only)."""
     apps = db.query(App).order_by(App.label).all()
@@ -320,6 +411,7 @@ def create_grant(db: Session, data: AccessGrantCreate, granted_by: str) -> Acces
         application_id=data.application_id,
         system_role=data.system_role,
         rbac_role_id=data.rbac_role_id,
+        file_id=data.file_id,
         access_level=data.access_level,
         granted_by=granted_by,
     )

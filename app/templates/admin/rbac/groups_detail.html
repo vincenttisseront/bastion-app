@@ -62,6 +62,14 @@
                 {% else %}
                   Application · {{ g.application_label or g.application_id }}
                 {% endif %}
+              {% elif g.resource_type == 'file' %}
+                {% if g.file_id %}
+                  <a href="/admin/files/{{ g.file_id }}">Fichier · {{ g.file_label or g.file_id }}</a>
+                {% else %}
+                  Fichier · {{ g.file_label or g.file_id }}
+                {% endif %}
+              {% elif g.resource_type == 'rbac_role' %}
+                Rôle RBAC · {{ g.rbac_role_name or g.rbac_role_id }}
               {% else %}
                 Rôle · {{ g.system_role_label or g.system_role }}
               {% endif %}
@@ -91,6 +99,7 @@
           <label class="form-label" for="resource_type">Type</label>
           <select id="resource_type" name="resource_type" class="form-select" data-grant-resource-type>
             <option value="application">Application</option>
+            <option value="file">Fichier</option>
             <option value="system_role">Rôle système</option>
           </select>
         </div>
@@ -99,6 +108,14 @@
           <select id="application_id" name="application_id" class="form-select">
             {% for app in apps %}
             <option value="{{ app.id }}">{{ app.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" data-grant-file hidden>
+          <label class="form-label" for="file_id">Fichier</label>
+          <select id="file_id" name="file_id" class="form-select" disabled>
+            {% for f in files or [] %}
+            <option value="{{ f.id }}">{{ f.label }}</option>
             {% endfor %}
           </select>
         </div>
@@ -131,19 +148,28 @@
   var typeSelect = document.querySelector('[data-grant-resource-type]');
   if (!typeSelect) return;
   var appBlock = document.querySelector('[data-grant-app]');
+  var fileBlock = document.querySelector('[data-grant-file]');
   var roleBlock = document.querySelector('[data-grant-role]');
   var appSelect = document.getElementById('application_id');
+  var fileSelect = document.getElementById('file_id');
   var roleSelect = document.getElementById('system_role');
+  function setEnabled(el, enabled, name) {
+    if (!el) return;
+    el.disabled = !enabled;
+    if (enabled) el.setAttribute('name', name);
+    else el.removeAttribute('name');
+  }
   function sync() {
-    var isApp = typeSelect.value === 'application';
-    appBlock.hidden = !isApp;
-    roleBlock.hidden = isApp;
-    appSelect.disabled = !isApp;
-    roleSelect.disabled = isApp;
-    if (!isApp) appSelect.removeAttribute('name');
-    else appSelect.setAttribute('name', 'application_id');
-    if (isApp) roleSelect.removeAttribute('name');
-    else roleSelect.setAttribute('name', 'system_role');
+    var type = typeSelect.value;
+    var isApp = type === 'application';
+    var isFile = type === 'file';
+    var isRole = type === 'system_role';
+    if (appBlock) appBlock.hidden = !isApp;
+    if (fileBlock) fileBlock.hidden = !isFile;
+    if (roleBlock) roleBlock.hidden = !isRole;
+    setEnabled(appSelect, isApp, 'application_id');
+    setEnabled(fileSelect, isFile, 'file_id');
+    setEnabled(roleSelect, isRole, 'system_role');
   }
   typeSelect.addEventListener('change', sync);
   sync();

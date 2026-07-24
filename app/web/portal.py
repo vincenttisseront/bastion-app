@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.access_modes import app_launch_url
 from app.audit import log_action
 from app.database import get_db
-from app.models import RealmConfig
+from app.files.service import (
+    get_effective_file_channel,
+    get_effective_file_version,
+    get_effective_files_for_user,
+    iter_version_plaintext,
+    user_can_download_file,
+)
+from app.models import FileResource, RealmConfig
 from app.rbac.effective_access_service import get_effective_apps_for_user
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
@@ -224,3 +231,132 @@ async def app_launch_ping(
     )
     touch_app_session(db, user, match.app, _client_ip(request), request=request)
     return {"ok": True}
+
+
+def _effective_file_tiles(db: Session, user: UserContext) -> list[dict]:
+    entries = get_effective_files_for_user(
+        db,
+        keycloak_user_id=user.keycloak_user_id,
+        group_names=user.groups,
+    )
+    tiles: list[dict] = []
+    for entry in entries:
+        version = entry.effective_version
+        tiles.append(
+            {
+                "id": entry.file.id,
+                "slug": entry.file.slug,
+                "label": entry.file.label,
+                "description": entry.file.description or "",
+                "access_level": entry.access_level,
+                "access_status": _ACCESS_STATUS.get(entry.access_level, "Accès"),
+                "can_download": entry.can_launch and version is not None,
+                "channel": entry.channel,
+                "version_label": version.version_label if version else None,
+                "version_id": version.id if version else None,
+                "checksum_sha256": version.checksum_sha256 if version else None,
+                "size_bytes": version.size_bytes if version else None,
+                "download_url": f"/files/{entry.file.slug}/download",
+            }
+        )
+    return tiles
+
+
+@router.get("/files")
+async def files_portal(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    """User home for catalogue files the caller may access."""
+    if user.is_breakglass:
+        return RedirectResponse(url="/dashboard", status_code=302)
+
+    touch_portal_session(db, user, _client_ip(request), request=request)
+    portal_admin = _resolve_portal_admin(user, db, settings)
+    tiles = _effective_file_tiles(db, user)
+    return render(
+        "portal/files.html",
+        **_portal_page_ctx(
+            request,
+            settings,
+            user=user,
+            portal_admin=portal_admin,
+            files=tiles,
+            greeting_name=user.first_name,
+        ),
+    )
+
+
+@router.get("/files/{slug}/download")
+async def files_download(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    """Stream the effective version for the caller's channel (launch+ required)."""
+    fr = db.query(FileResource).filter_by(slug=slug, is_active=True).first()
+    if not fr:
+        return JSONResponse({"ok": False, "detail": "Fichier introuvable"}, status_code=404)
+
+    if not user_can_download_file(
+        db,
+        file_id=fr.id,
+        keycloak_user_id=user.keycloak_user_id,
+        group_names=user.groups,
+    ):
+        return JSONResponse(
+            {"ok": False, "detail": "Téléchargement non autorisé"},
+            status_code=403,
+        )
+
+    channel, _ = get_effective_file_channel(
+        db,
+        file_id=fr.id,
+        keycloak_user_id=user.keycloak_user_id,
+        group_names=user.groups,
+    )
+    version = get_effective_file_version(db, fr, channel)
+    if version is None:
+        return JSONResponse(
+            {"ok": False, "detail": "Aucune version disponible"},
+            status_code=404,
+        )
+
+    try:
+        stream = iter_version_plaintext(version, settings)
+    except FileNotFoundError:
+        return JSONResponse(
+            {"ok": False, "detail": "Contenu indisponible"},
+            status_code=404,
+        )
+
+    log_action(
+        db,
+        actor=user.email or user.username,
+        action="file.downloaded",
+        target=f"file:{fr.id}:version:{version.id}",
+        details={
+            "file_id": fr.id,
+            "file_slug": fr.slug,
+            "version_id": version.id,
+            "version_label": version.version_label,
+            "channel_served": version.channel,
+            "user_channel": channel,
+            "checksum_sha256": version.checksum_sha256,
+            "original_filename": version.original_filename,
+            "size_bytes": version.size_bytes,
+            "keycloak_user_id": user.keycloak_user_id,
+        },
+        ip_address=_client_ip(request),
+    )
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{version.original_filename}"',
+        "X-Content-SHA256": version.checksum_sha256,
+    }
+    media = version.content_type or "application/octet-stream"
+    return StreamingResponse(stream, media_type=media, headers=headers)
