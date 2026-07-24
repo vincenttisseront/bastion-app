@@ -695,3 +695,7 @@ def test_files_browser_reachable_for_breakglass(client):
         resp = client.get(path, headers=headers, follow_redirects=False)
         assert resp.status_code == 200, f"{path} -> {resp.status_code}"
         assert "/dashboard" not in (resp.headers.get("location") or "")
+        assert 'id="fb-root"' in resp.text
+    admin = client.get("/admin/files", headers=headers)
+    assert 'class="app-layout"' in admin.text or "class='app-layout'" in admin.text or 'app-layout' in admin.text
+    assert "page-title" in admin.text

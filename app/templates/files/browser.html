@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Fichiers{% endblock %}
-{% block body_class %}{% if not admin_chrome %}page-portal{% endif %}{% endblock %}
+{% block body_class %}{% if admin_chrome %}app-layout{% else %}page-portal{% endif %}{% endblock %}
 {% block breadcrumb %}{% if admin_chrome %}Admin / Fichiers{% endif %}{% endblock %}
 
 {% block head_extra %}
