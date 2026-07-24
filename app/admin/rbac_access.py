@@ -180,10 +180,10 @@ async def admin_rbac_group_detail(
         )
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
-    files = db.query(FileResource).filter_by(is_active=True).order_by(FileResource.label).all()
-    from app.models import FileFolder
+    from app.files.service import file_grant_select_options, folder_grant_select_options
 
-    folders = db.query(FileFolder).order_by(FileFolder.name).all()
+    file_options = file_grant_select_options(db)
+    folder_options = folder_grant_select_options(db)
     return render(
         "admin/rbac/groups_detail.html",
         **_ctx(
@@ -196,8 +196,8 @@ async def admin_rbac_group_detail(
             grants=grants,
             grant_rows=[serialize_grant(g, db) for g in grants],
             apps=apps,
-            files=files,
-            folders=folders,
+            file_options=file_options,
+            folder_options=folder_options,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
         ),
@@ -349,6 +349,11 @@ async def admin_rbac_users_page(
     distribution = group_distribution(db)
     all_groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
 
+    from app.files.service import file_grant_select_options, folder_grant_select_options
+
+    file_options = file_grant_select_options(db)
+    folder_options = folder_grant_select_options(db)
+
     return render(
         "admin/rbac/users.html",
         **_ctx(
@@ -364,6 +369,8 @@ async def admin_rbac_users_page(
             effective_grants=effective_grants,
             user_error=user_error,
             apps=apps,
+            file_options=file_options,
+            folder_options=folder_options,
             vault_apps=vault_apps,
             granted_users=enriched_users,
             system_roles=SYSTEM_ROLES,

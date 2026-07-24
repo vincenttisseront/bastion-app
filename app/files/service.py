@@ -205,6 +205,34 @@ def folder_path_label(db: Session, folder_id: int | None) -> str:
     return " / ".join(s["name"] for s in segs)
 
 
+def file_grant_select_options(db: Session) -> list[dict]:
+    """Options for RBAC grant forms: label with parent folder path for disambiguation."""
+    rows = (
+        db.query(FileResource)
+        .filter_by(is_active=True)
+        .order_by(FileResource.label)
+        .all()
+    )
+    out: list[dict] = []
+    for fr in rows:
+        path = folder_path_label(db, fr.folder_id)
+        label = f"{fr.label} ({path})" if fr.folder_id is not None else fr.label
+        out.append({"id": fr.id, "label": label})
+    return out
+
+
+def folder_grant_select_options(db: Session) -> list[dict]:
+    """Folder options with full breadcrumb path, sorted for tree-like scanning."""
+    folders = db.query(FileFolder).all()
+    out: list[dict] = []
+    for folder in folders:
+        path = folder_path_label(db, folder.id)
+        depth = max(0, path.count(" / "))
+        out.append({"id": folder.id, "label": path, "depth": depth})
+    out.sort(key=lambda item: (item["label"] or "").casefold())
+    return out
+
+
 def _subject_grant_filters(
     *,
     keycloak_user_id: str | None,

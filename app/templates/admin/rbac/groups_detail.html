@@ -97,55 +97,7 @@
         <input type="hidden" name="subject_type" value="group">
         <input type="hidden" name="rbac_group_id" value="{{ group.id }}">
         <input type="hidden" name="redirect_url" value="/admin/rbac/groups/{{ group.id }}">
-        <div class="form-group">
-          <label class="form-label" for="resource_type">Type</label>
-          <select id="resource_type" name="resource_type" class="form-select" data-grant-resource-type>
-            <option value="application">Application</option>
-            <option value="file">Fichier</option>
-            <option value="folder">Dossier</option>
-            <option value="system_role">Rôle système</option>
-          </select>
-        </div>
-        <div class="form-group" data-grant-app>
-          <label class="form-label" for="application_id">Application</label>
-          <select id="application_id" name="application_id" class="form-select">
-            {% for app in apps %}
-            <option value="{{ app.id }}">{{ app.label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group" data-grant-file hidden>
-          <label class="form-label" for="file_id">Fichier</label>
-          <select id="file_id" name="file_id" class="form-select" disabled>
-            {% for f in files or [] %}
-            <option value="{{ f.id }}">{{ f.label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group" data-grant-folder hidden>
-          <label class="form-label" for="folder_id">Dossier</label>
-          <select id="folder_id" name="folder_id" class="form-select" disabled>
-            {% for f in folders or [] %}
-            <option value="{{ f.id }}">{{ f.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group" data-grant-role hidden>
-          <label class="form-label" for="system_role">Rôle système</label>
-          <select id="system_role" name="system_role" class="form-select" disabled>
-            {% for role, label in system_roles.items() %}
-            <option value="{{ role }}">{{ label }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="access_level">Niveau</label>
-          <select id="access_level" name="access_level" class="form-select">
-            {% for level in access_levels %}
-            <option value="{{ level }}">{{ level }}</option>
-            {% endfor %}
-          </select>
-        </div>
+        {% include "admin/rbac/_grant_resource_fields.html" %}
         <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
       </form>
     </div>
@@ -154,41 +106,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-(function () {
-  var typeSelect = document.querySelector('[data-grant-resource-type]');
-  if (!typeSelect) return;
-  var appBlock = document.querySelector('[data-grant-app]');
-  var fileBlock = document.querySelector('[data-grant-file]');
-  var folderBlock = document.querySelector('[data-grant-folder]');
-  var roleBlock = document.querySelector('[data-grant-role]');
-  var appSelect = document.getElementById('application_id');
-  var fileSelect = document.getElementById('file_id');
-  var folderSelect = document.getElementById('folder_id');
-  var roleSelect = document.getElementById('system_role');
-  function setEnabled(el, enabled, name) {
-    if (!el) return;
-    el.disabled = !enabled;
-    if (enabled) el.setAttribute('name', name);
-    else el.removeAttribute('name');
-  }
-  function sync() {
-    var type = typeSelect.value;
-    var isApp = type === 'application';
-    var isFile = type === 'file';
-    var isFolder = type === 'folder';
-    var isRole = type === 'system_role';
-    if (appBlock) appBlock.hidden = !isApp;
-    if (fileBlock) fileBlock.hidden = !isFile;
-    if (folderBlock) folderBlock.hidden = !isFolder;
-    if (roleBlock) roleBlock.hidden = !isRole;
-    setEnabled(appSelect, isApp, 'application_id');
-    setEnabled(fileSelect, isFile, 'file_id');
-    setEnabled(folderSelect, isFolder, 'folder_id');
-    setEnabled(roleSelect, isRole, 'system_role');
-  }
-  typeSelect.addEventListener('change', sync);
-  sync();
-})();
-</script>
+<script src="/static/js/bastion-grant-form.js?v=20260724-grant-ctx"></script>
 {% endblock %}

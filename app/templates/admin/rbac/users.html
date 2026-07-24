@@ -315,31 +315,9 @@
           <input type="hidden" name="user_display_cache" value="{{ kc_user.username or kc_user.email }}">
           <input type="hidden" name="realm_id" value="{{ selected_realm.id }}">
           <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&keycloak_user_id={{ keycloak_user_id }}">
-          <div class="form-group">
-            <label class="form-label">Type</label>
-            <select name="resource_type" class="form-select" data-grant-resource-type>
-              <option value="application">Application</option>
-              <option value="system_role">Rôle système</option>
-            </select>
-          </div>
-          <div class="form-group" data-grant-app>
-            <label class="form-label">Application</label>
-            <select name="application_id" class="form-select">
-              {% for app in apps %}<option value="{{ app.id }}">{{ app.label }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="form-group" data-grant-role hidden>
-            <label class="form-label">Rôle système</label>
-            <select class="form-select" disabled>
-              {% for role, label in system_roles.items() %}<option value="{{ role }}">{{ label }}</option>{% endfor %}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Niveau</label>
-            <select name="access_level" class="form-select">
-              {% for level in access_levels %}<option value="{{ level }}">{{ level }}</option>{% endfor %}
-            </select>
-          </div>
+          {% with id_prefix='user-' %}
+          {% include "admin/rbac/_grant_resource_fields.html" %}
+          {% endwith %}
           <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
         </form>
       </div>
@@ -461,26 +439,9 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/bastion-grant-form.js?v=20260724-grant-ctx"></script>
 <script>
 (function () {
-  document.querySelectorAll('[data-grant-resource-type]').forEach(function (typeSelect) {
-    var form = typeSelect.closest('form');
-    if (!form) return;
-    var appBlock = form.querySelector('[data-grant-app]');
-    var roleBlock = form.querySelector('[data-grant-role]');
-    var appSelect = appBlock && appBlock.querySelector('select');
-    var roleSelect = roleBlock && roleBlock.querySelector('select');
-    function sync() {
-      var isApp = typeSelect.value === 'application';
-      if (appBlock) appBlock.hidden = !isApp;
-      if (roleBlock) roleBlock.hidden = isApp;
-      if (appSelect) { appSelect.disabled = !isApp; appSelect.name = isApp ? 'application_id' : ''; }
-      if (roleSelect) { roleSelect.disabled = isApp; roleSelect.name = isApp ? '' : 'system_role'; }
-    }
-    typeSelect.addEventListener('change', sync);
-    sync();
-  });
-
   var searchInput = document.querySelector('[data-user-search]');
   var hiddenId = document.getElementById('keycloak_user_id');
   var realmSelect = document.getElementById('realm_id');

@@ -1,0 +1,56 @@
+{# Shared grant resource fields. Expects: apps, file_options, folder_options, system_roles, access_levels #}
+{# Optional id_prefix to avoid duplicate ids when multiple forms exist on one page. #}
+{% set id_prefix = id_prefix | default('') %}
+<div class="form-group">
+  <label class="form-label" for="{{ id_prefix }}resource_type">Type</label>
+  <select id="{{ id_prefix }}resource_type" name="resource_type" class="form-select" data-grant-resource-type>
+    <option value="application">Application</option>
+    <option value="file">Fichier</option>
+    <option value="folder">Dossier</option>
+    <option value="system_role">Rôle système</option>
+  </select>
+</div>
+<div class="form-group" data-grant-app>
+  <label class="form-label" for="{{ id_prefix }}application_id">Application</label>
+  <select id="{{ id_prefix }}application_id" name="application_id" class="form-select" data-grant-field="application_id">
+    <option value="">— Choisir —</option>
+    {% for app in apps %}
+    <option value="{{ app.id }}">{{ app.label }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="form-group" data-grant-file hidden>
+  <label class="form-label" for="{{ id_prefix }}file_id">Fichier</label>
+  <select id="{{ id_prefix }}file_id" class="form-select" data-grant-field="file_id" disabled>
+    <option value="">— Choisir —</option>
+    {% for f in file_options or [] %}
+    <option value="{{ f.id }}">{{ f.label }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="form-group" data-grant-folder hidden>
+  <label class="form-label" for="{{ id_prefix }}folder_id">Dossier</label>
+  <select id="{{ id_prefix }}folder_id" class="form-select" data-grant-field="folder_id" disabled>
+    <option value="">— Choisir —</option>
+    {% for f in folder_options or [] %}
+    <option value="{{ f.id }}">{% for _ in range(f.depth or 0) %}&nbsp;&nbsp;{% endfor %}{{ f.label }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="form-group" data-grant-role hidden>
+  <label class="form-label" for="{{ id_prefix }}system_role">Rôle système</label>
+  <select id="{{ id_prefix }}system_role" class="form-select" data-grant-field="system_role" disabled>
+    <option value="">— Choisir —</option>
+    {% for role, label in system_roles.items() %}
+    <option value="{{ role }}">{{ label }}</option>
+    {% endfor %}
+  </select>
+</div>
+<div class="form-group">
+  <label class="form-label" for="{{ id_prefix }}access_level">Niveau</label>
+  <select id="{{ id_prefix }}access_level" name="access_level" class="form-select">
+    {% for level in access_levels %}
+    <option value="{{ level }}">{{ level }}</option>
+    {% endfor %}
+  </select>
+</div>
