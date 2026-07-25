@@ -17,7 +17,7 @@ from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
 
-SigningSource = Literal["env", "ui", "legacy", "ephemeral"]
+SigningSource = Literal["env", "ui", "legacy", "ephemeral", "missing"]
 
 AUDIT_GENERATED = "breakglass_secret_generated_from_ui"
 AUDIT_ROTATED = "breakglass_secret_rotated_from_ui"

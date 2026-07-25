@@ -22,18 +22,29 @@ logger = logging.getLogger(__name__)
 
 AUDIT_ENSURED = "portal_runtime_secrets_ensured"
 
-# Process cache after ensure/resolve (avoids DB hit on every hop seal).
+# Process cache after ensure/resolve (avoids DB hit on every hop seal / request without db).
 _CACHED_HOP_SECRET: str | None = None
+_CACHED_BREAKGLASS_SECRET: str | None = None
 
 
 def reset_runtime_secrets_cache_for_tests() -> None:
-    global _CACHED_HOP_SECRET
+    global _CACHED_HOP_SECRET, _CACHED_BREAKGLASS_SECRET
     _CACHED_HOP_SECRET = None
+    _CACHED_BREAKGLASS_SECRET = None
 
 
 def cache_session_hop_secret(plain: str) -> None:
     global _CACHED_HOP_SECRET
     _CACHED_HOP_SECRET = (plain or "").strip() or None
+
+
+def cache_breakglass_secret(plain: str) -> None:
+    global _CACHED_BREAKGLASS_SECRET
+    _CACHED_BREAKGLASS_SECRET = (plain or "").strip() or None
+
+
+def get_cached_breakglass_secret() -> str | None:
+    return _CACHED_BREAKGLASS_SECRET
 
 
 def get_db_session_hop_secret(db: Session | None, settings: Settings) -> str | None:
@@ -115,9 +126,15 @@ def ensure_portal_runtime_secrets(
         plain = generate_cookie_secret()
         row.breakglass_jwt_secret_encrypted = encrypt_secret(plain, settings)
         created.append("breakglass_jwt")
+        cache_breakglass_secret(plain)
     elif bg_env and not bg_ui:
         row.breakglass_jwt_secret_encrypted = encrypt_secret(bg_env, settings)
         migrated_from_env.append("breakglass_jwt")
+        cache_breakglass_secret(bg_env)
+    elif bg_env:
+        cache_breakglass_secret(bg_env)
+    elif bg_ui:
+        cache_breakglass_secret(bg_ui)
 
     if created or migrated_from_env:
         row.updated_at = utcnow()
@@ -140,6 +157,11 @@ def ensure_portal_runtime_secrets(
             created,
             migrated_from_env,
         )
+        # Re-read after commit so cache matches DB (created path already cached).
+        if "breakglass_jwt" in created or "breakglass_jwt" in migrated_from_env:
+            refreshed = get_ui_breakglass_secret(db, settings)
+            if refreshed:
+                cache_breakglass_secret(refreshed)
     else:
         db.commit()
 
@@ -148,7 +170,7 @@ def ensure_portal_runtime_secrets(
         "migrated_from_env": migrated_from_env,
         "session_hop_present": True,
         "breakglass_present": bool(
-            bg_env or get_ui_breakglass_secret(db, settings)
+            bg_env or get_ui_breakglass_secret(db, settings) or get_cached_breakglass_secret()
         ),
     }
 

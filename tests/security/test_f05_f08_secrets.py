@@ -48,6 +48,7 @@ def test_production_uses_db_breakglass_not_vault_token(db_session):
 
 
 def test_production_fails_without_db_breakglass(db_session):
+    reset_runtime_secrets_cache_for_tests()
     settings = Settings(
         environment="production",
         breakglass_jwt_secret="",
@@ -57,6 +58,41 @@ def test_production_fails_without_db_breakglass(db_session):
     )
     with pytest.raises(RuntimeError, match="portal_settings"):
         resolve_breakglass_signing_secret_with_source(settings, db=db_session)
+
+
+def test_validation_without_db_does_not_raise_in_production():
+    """Cookie validation must not 500 when db is absent (login / error pages)."""
+    reset_runtime_secrets_cache_for_tests()
+    from app.breakglass import _validation_secrets, validate_breakglass_cookie
+
+    settings = Settings(
+        environment="production",
+        breakglass_jwt_secret="",
+        vault_portal_internal_token="vault-token-only",
+        portal_secret_encryption_key=Fernet.generate_key().decode(),
+        database_url="sqlite://",
+    )
+    assert _validation_secrets(settings, db=None) == []
+    assert validate_breakglass_cookie("not.a.jwt", db=None, settings=settings) is False
+
+
+def test_boot_cache_allows_validation_without_db(db_session):
+    reset_runtime_secrets_cache_for_tests()
+    key = Fernet.generate_key().decode()
+    settings = Settings(
+        environment="production",
+        breakglass_jwt_secret="",
+        session_hop_secret="",
+        vault_portal_internal_token="vault-token-only",
+        portal_secret_encryption_key=key,
+        database_url="sqlite://",
+    )
+    ensure_portal_runtime_secrets(db_session, settings, actor="test")
+    secret, source = resolve_breakglass_signing_secret_with_source(
+        settings, db=None, strict=False
+    )
+    assert source == "ui"
+    assert secret
 
 
 def test_development_allows_missing_breakglass_with_warning_path():

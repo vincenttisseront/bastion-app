@@ -90,6 +90,8 @@ def _legacy_breakglass_hmac_secret(settings: Settings) -> str:
 def resolve_breakglass_signing_secret_with_source(
     settings: Settings,
     db: Session | None = None,
+    *,
+    strict: bool = True,
 ) -> tuple[str, "SigningSource"]:
     """
     Secret used to *sign* new ``bg_session`` JWTs (single active source).
@@ -97,22 +99,36 @@ def resolve_breakglass_signing_secret_with_source(
     Priority:
     1. ``BREAKGLASS_JWT_SECRET`` (env / emergency override)
     2. DB secret in ``portal_settings`` (Ansible / Admin UI — preferred)
-    3. Legacy ``VAULT_PORTAL_INTERNAL_TOKEN`` (non-production only)
-    4. Process-lifetime ephemeral (dev / last resort)
+    3. Process cache filled at boot ensure (request paths without ``db``)
+    4. Legacy ``VAULT_PORTAL_INTERNAL_TOKEN`` (non-production only)
+    5. Process-lifetime ephemeral (dev / last resort)
 
-    Returns ``(secret, source)`` where source is env|ui|legacy|ephemeral.
+    When ``strict=False`` (cookie validation), missing secret returns ``("", "missing")``
+    instead of raising — avoids 500 loops on login / error pages.
     """
     from app.breakglass_secret_service import SigningSource, get_ui_breakglass_secret
+    from app.runtime_secrets_service import (
+        cache_breakglass_secret,
+        get_cached_breakglass_secret,
+    )
 
     dedicated = (settings.breakglass_jwt_secret or "").strip()
     if dedicated:
+        cache_breakglass_secret(dedicated)
         return dedicated, "env"
 
     ui = get_ui_breakglass_secret(db, settings)
     if ui:
+        cache_breakglass_secret(ui)
         return ui, "ui"
 
+    cached = get_cached_breakglass_secret()
+    if cached:
+        return cached, "ui"
+
     if settings.is_production:
+        if not strict:
+            return "", "missing"
         raise RuntimeError(
             "break-glass JWT secret missing in portal_settings "
             "(run: python -m app.runtime_secrets_service ; no VAULT_PORTAL_INTERNAL_TOKEN fallback)"
@@ -153,14 +169,14 @@ def _validation_secrets(
     """
     Ordered unique secrets accepted during transition.
 
-    Signing uses a single source; validation may accept env, UI current/previous,
-    and legacy vault token when fallback is enabled.
+    Never raises: missing production secret → empty list → cookie treated invalid.
     """
     from app.breakglass_secret_service import (
         get_ui_breakglass_previous_secret,
         get_ui_breakglass_secret,
         secrets_equal,
     )
+    from app.runtime_secrets_service import get_cached_breakglass_secret
 
     out: list[tuple[str, str]] = []
 
@@ -171,15 +187,17 @@ def _validation_secrets(
             return
         out.append((secret, label))
 
-    primary, source = resolve_breakglass_signing_secret_with_source(settings, db=db)
-    add(primary, source)
+    primary, source = resolve_breakglass_signing_secret_with_source(
+        settings, db=db, strict=False
+    )
+    if primary:
+        add(primary, source)
+    add((settings.breakglass_jwt_secret or "").strip(), "env")
     add(get_ui_breakglass_secret(db, settings), "ui")
+    add(get_cached_breakglass_secret(), "ui")
     add(get_ui_breakglass_previous_secret(db, settings), "ui_previous")
     if settings.breakglass_jwt_secret_fallback_enabled:
         add(_legacy_breakglass_hmac_secret(settings), "legacy")
-    elif settings.is_production:
-        # Production always refuses vault-token legacy (validator also forces flag off).
-        pass
     return out
 
 
