@@ -179,12 +179,14 @@ def test_session_stores_x_real_ip_not_tcp_peer(client: TestClient, db_session: S
 
 
 def test_infra_ip_hidden_in_api_display(client: TestClient, db_session: Session):
+    """Reverse01 alone must not be stored as the end-user client IP."""
     client.get("/apps", headers={**USER_HEADERS, "X-Real-IP": "172.24.0.108"})
     api = client.get("/api/sessions", headers=USER_HEADERS).json()
     portal = next(s for s in api["sessions"] if s["kind"] == "user")
-    assert portal["client_ip"] == "indisponible (IP proxy)"
+    assert portal["client_ip"] == "—"
     assert portal["client_ip_is_infra"] is True
-    assert portal["client_ip_raw"] == "172.24.0.108"
+    assert portal["client_ip_raw"] in (None, "")
+    assert portal["client_ip_raw"] != "172.24.0.108"
 
 
 def test_admin_sessions_include_ip_probe(client: TestClient, db_session: Session):

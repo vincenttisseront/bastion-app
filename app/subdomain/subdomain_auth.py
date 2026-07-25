@@ -6,7 +6,6 @@ cuts direct URL access immediately — without waiting for cookie expiry.
 
 from __future__ import annotations
 
-import ipaddress
 from typing import Mapping, Optional
 
 import httpx
@@ -15,7 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.auth import get_realm_proxy_url
+from app.auth import get_realm_proxy_url, is_rfc1918
 from app.breakglass import (
     COOKIE_NAME,
     process_breakglass_auth_request,
@@ -23,19 +22,12 @@ from app.breakglass import (
 from app.database import get_db
 from app.models import App
 from app.rbac.effective_access_service import user_can_launch_application
+from app.request_client_ip import client_ip_from_request
 from app.security.session_binding_service import evaluate_sso_binding
 from app.sso_settings import Settings, get_settings
 from app.web.user_context import parse_groups_header
 
 router = APIRouter(tags=["subdomain-auth"])
-
-
-def _is_rfc1918(ip: str, cidrs: list[str]) -> bool:
-    try:
-        addr = ipaddress.ip_address(ip)
-        return any(addr in ipaddress.ip_network(cidr) for cidr in cidrs)
-    except ValueError:
-        return False
 
 
 def _resolve_app_by_host(db: Session, host: str) -> Optional[App]:
@@ -116,7 +108,10 @@ async def subdomain_auth(
         Cookie            — client cookies (oauth2-proxy / break-glass session)
 
     Decision flow:
-        1. RFC1918 bypass       -> 200 (LAN, no identity — no AccessGrant check)
+        1. RFC1918 bypass (if RFC1918_BYPASS_ENABLED) -> 200 (LAN, no identity —
+           no AccessGrant check). Default OFF (F-04 2026-07-25): align with portal
+           until the client-IP chain is proven; re-enable only for confirmed LAN
+           need. IP via client_ip_from_request (trusted proxy only).
         2. App resolution       -> 401 if no app for this Host
         3. Session              -> OIDC (oauth2-proxy) or break-glass cookie
         4. Authorization        -> AccessGrant launch+ via get_effective_apps_for_user
@@ -124,11 +119,15 @@ async def subdomain_auth(
         5. Deny                 -> 403 (authenticated but not authorized)
     """
     original_host = request.headers.get("X-Original-Host", "")
-    client_ip = request.headers.get("X-Real-IP", "")
+    client_ip = client_ip_from_request(request)
     cookie_header = request.headers.get("Cookie", "")
 
-    # 1. RFC1918 bypass — no identity available; grant check not applicable.
-    if settings.rfc1918_bypass_enabled and _is_rfc1918(client_ip, settings.rfc1918_cidrs):
+    # 1. RFC1918 bypass — gated by RFC1918_BYPASS_ENABLED (default false, F-04).
+    # Portal /internal/oauth2-auth never applies this path. Subdomain kept the
+    # same flag; disabled until reverse01 → nginx-bastion → app IP resolution is
+    # validated end-to-end. client_ip_from_request ignores spoofed headers unless
+    # the TCP peer is in TRUSTED_PROXY_CIDRS.
+    if settings.rfc1918_bypass_enabled and is_rfc1918(client_ip, settings.rfc1918_cidrs):
         return Response(
             status_code=200,
             headers={"X-Auth-Source": "rfc1918-bypass"},

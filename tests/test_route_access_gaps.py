@@ -38,21 +38,29 @@ def _seed_app(db: Session) -> App:
 
 
 def test_api_apps_list_requires_auth(client: TestClient, db_session: Session):
-    _seed_app(db_session)
+    app = _seed_app(db_session)
     anon = client.get("/api/apps")
     assert anon.status_code in (401, 403)
+    # End user without AccessGrant must not see the seeded app (F-03).
     ok = client.get("/api/apps", headers=USER_HEADERS)
     assert ok.status_code == 200
-    assert any(a["slug"] == "coverage-app" for a in ok.json())
+    assert ok.json() == []
+    # Portal admin still sees the full enabled catalogue.
+    admin = client.get("/api/apps", headers=ADMIN_HEADERS)
+    assert admin.status_code == 200
+    assert any(a["slug"] == app.slug for a in admin.json())
 
 
 def test_api_apps_get_requires_auth(client: TestClient, db_session: Session):
-    _seed_app(db_session)
+    app = _seed_app(db_session)
     anon = client.get("/api/apps/coverage-app")
     assert anon.status_code in (401, 403)
-    ok = client.get("/api/apps/coverage-app", headers=USER_HEADERS)
+    # No grant → hide existence (404), same as list filter.
+    denied = client.get("/api/apps/coverage-app", headers=USER_HEADERS)
+    assert denied.status_code == 404
+    ok = client.get("/api/apps/coverage-app", headers=ADMIN_HEADERS)
     assert ok.status_code == 200
-    assert ok.json()["slug"] == "coverage-app"
+    assert ok.json()["slug"] == app.slug
 
 
 def test_audit_requires_admin(client: TestClient):

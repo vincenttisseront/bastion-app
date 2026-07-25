@@ -186,6 +186,7 @@ def test_api_revoke_then_oauth2_auth_401(client, db_session: Session):
     login = client.post(
         "/api/admin/breakglass/login",
         json={"username": "bg-admin", "password": "CorrectHorseBattery1"},
+        headers={"X-Real-IP": "10.0.0.20"},
     )
     assert login.status_code == 200
     token = login.cookies.get(COOKIE_NAME)
@@ -194,7 +195,11 @@ def test_api_revoke_then_oauth2_auth_401(client, db_session: Session):
     jti = payload["jti"]
 
     respx.get("http://127.0.0.1:4180/oauth2/auth").mock(return_value=Response(401))
-    ok = client.get("/internal/oauth2-auth", cookies={COOKIE_NAME: token})
+    ok = client.get(
+        "/internal/oauth2-auth",
+        cookies={COOKIE_NAME: token},
+        headers={"X-Real-IP": "10.0.0.20"},
+    )
     assert ok.status_code == 200
 
     rev = client.post(
@@ -204,7 +209,11 @@ def test_api_revoke_then_oauth2_auth_401(client, db_session: Session):
     )
     assert rev.status_code == 200
 
-    denied = client.get("/internal/oauth2-auth", cookies={COOKIE_NAME: token})
+    denied = client.get(
+        "/internal/oauth2-auth",
+        cookies={COOKIE_NAME: token},
+        headers={"X-Real-IP": "10.0.0.20"},
+    )
     assert denied.status_code == 401
 
     entry = (

@@ -169,6 +169,35 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
+    # F-06: API recovery — hors auth_request SSO, même allowlist LAN que /breakglass.
+    # location = exacte prime sur ^~ /api/admin (auth_request).
+    location = /api/admin/breakglass/login {
+        auth_request off;
+        allow 127.0.0.0/8;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+        limit_req zone=portal_login burst=5 nodelay;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+    location = /api/admin/breakglass/logout {
+        auth_request off;
+        allow 127.0.0.0/8;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+        limit_req zone=portal_login burst=5 nodelay;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
     # Entrée SSO publique (sans auth_request) — construit /oauth2/{realm}/start?rd=…
     location ^~ /auth/ {
         auth_request off;

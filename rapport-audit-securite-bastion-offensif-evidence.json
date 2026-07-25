@@ -1,0 +1,604 @@
+{
+  "started_at": "2026-07-25T19:04:41.358775+00:00",
+  "base": "https://portal.ar-systems.fr",
+  "resolved_ip": "172.24.0.108",
+  "expected_staging_ip": "172.24.0.108",
+  "authorized_by": "Vincent chat: demarre la partie offensif (2026-07-25)",
+  "network_path_note": "Client (auditor workstation) → DNS → TLS to https://portal.ar-systems.fr (172.24.0.108=vmdmz-reverse01 nginx DMZ) → proxy to nginx-bastion/portal Docker (172.24.0.110). Not a local header-only simulation for live probes.",
+  "points": {
+    "1_breakglass_external": {
+      "html_no_spoof": {
+        "status": 200,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<!DOCTYPE html> <html lang=\"fr\" data-theme=\"dark\"> <head>   <meta charset=\"UTF-8\">   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">   <meta name=\"csrf-token\" content=\"de4df2aedf4a36b4e472fb6bfb9ae037\">   <title>Conne",
+        "content_type": "text/html; charset=utf-8"
+      },
+      "api_no_spoof": {
+        "status": 302,
+        "location": "/auth/login?rd=/apps",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "html_spoof_rfc1918": {
+        "status": 200,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<!DOCTYPE html> <html lang=\"fr\" data-theme=\"dark\"> <head>   <meta charset=\"UTF-8\">   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">   <meta name=\"csrf-token\" content=\"de4df2aedf4a36b4e472fb6bfb9ae037\">   <title>Conne",
+        "content_type": "text/html; charset=utf-8"
+      },
+      "api_spoof_rfc1918": {
+        "status": 302,
+        "location": "/auth/login?rd=/apps",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      }
+    },
+    "2_header_spoof_matrix": [
+      {
+        "headers": {
+          "X-Forwarded-For": "10.0.0.1"
+        },
+        "/api/apps": {
+          "status": 301,
+          "location": "/api/apps/",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>301 Moved Permanently</title></head>\r <body>\r <center><h1>301 Moved Permanently</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/admin": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/dashboard": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/api/admin/breakglass/sessions": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        }
+      },
+      {
+        "headers": {
+          "X-Real-IP": "10.0.0.1"
+        },
+        "/api/apps": {
+          "status": 301,
+          "location": "/api/apps/",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>301 Moved Permanently</title></head>\r <body>\r <center><h1>301 Moved Permanently</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/admin": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/dashboard": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/api/admin/breakglass/sessions": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        }
+      },
+      {
+        "headers": {
+          "CF-Connecting-IP": "10.0.0.1"
+        },
+        "/api/apps": {
+          "status": 301,
+          "location": "/api/apps/",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>301 Moved Permanently</title></head>\r <body>\r <center><h1>301 Moved Permanently</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/admin": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/dashboard": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/api/admin/breakglass/sessions": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        }
+      },
+      {
+        "headers": {
+          "True-Client-IP": "10.0.0.1"
+        },
+        "/api/apps": {
+          "status": 301,
+          "location": "/api/apps/",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>301 Moved Permanently</title></head>\r <body>\r <center><h1>301 Moved Permanently</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/admin": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/dashboard": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/api/admin/breakglass/sessions": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        }
+      },
+      {
+        "headers": {
+          "X-Client-IP": "10.0.0.1"
+        },
+        "/api/apps": {
+          "status": 301,
+          "location": "/api/apps/",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>301 Moved Permanently</title></head>\r <body>\r <center><h1>301 Moved Permanently</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/admin": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/dashboard": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/api/admin/breakglass/sessions": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        }
+      },
+      {
+        "headers": {
+          "X-Forwarded-For": "203.0.113.9, 10.0.0.1",
+          "X-Real-IP": "10.0.0.1",
+          "CF-Connecting-IP": "192.168.99.1"
+        },
+        "/api/apps": {
+          "status": 301,
+          "location": "/api/apps/",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>301 Moved Permanently</title></head>\r <body>\r <center><h1>301 Moved Permanently</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/admin": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/dashboard": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/api/admin/breakglass/sessions": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        }
+      },
+      {
+        "headers": {
+          "X-Forwarded-For": "10.0.0.1, 203.0.113.9",
+          "X-Real-IP": "203.0.113.9",
+          "True-Client-IP": "10.1.1.1",
+          "X-Client-IP": "172.16.0.9"
+        },
+        "/api/apps": {
+          "status": 301,
+          "location": "/api/apps/",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>301 Moved Permanently</title></head>\r <body>\r <center><h1>301 Moved Permanently</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/admin": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/dashboard": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "/api/admin/breakglass/sessions": {
+          "status": 302,
+          "location": "/auth/login?rd=/apps",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        }
+      }
+    ],
+    "3_ssrf_analyzer": {
+      "note": "No disposable admin session — unauthenticated only",
+      "probes": {
+        "http://127.0.0.1:8000/health": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin/apps/analyze-login-form",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "http://169.254.169.254/latest/meta-data/": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin/apps/analyze-login-form",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "http://10.5.0.1/": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin/apps/analyze-login-form",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        },
+        "http://172.24.0.110/health": {
+          "status": 302,
+          "location": "/auth/login?rd=/admin/apps/analyze-login-form",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+          "content_type": "text/html"
+        }
+      }
+    },
+    "4_jwt_forgery": {
+      "empty_secret_encode": {
+        "pyjwt_rejects_empty_key_on_encode": true,
+        "note": "PyJWT InvalidKeyError: HMAC key must not be empty"
+      },
+      "staging_cookie_alg_none": {
+        "status": 404,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>404 Not Found</title></head>\r <body>\r <center><h1>404 Not Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "local_decode_alg_none": {
+        "accepted": false,
+        "error": "InvalidAlgorithmError: The specified alg value is not allowed"
+      },
+      "staging_cookie_empty_secret_crafted": {
+        "status": 404,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>404 Not Found</title></head>\r <body>\r <center><h1>404 Not Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "local_decode_empty_secret_crafted": {
+        "accepted": false,
+        "error": "InvalidSignatureError: Signature verification failed"
+      },
+      "staging_cookie_weak_dev_secret": {
+        "status": 404,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>404 Not Found</title></head>\r <body>\r <center><h1>404 Not Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "local_decode_weak_dev_secret": {
+        "accepted": true,
+        "error": null
+      },
+      "staging_cookie_expired_dev": {
+        "status": 404,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>404 Not Found</title></head>\r <body>\r <center><h1>404 Not Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "local_decode_expired_dev": {
+        "accepted": false,
+        "error": "ExpiredSignatureError: Signature has expired"
+      }
+    },
+    "5_host_header": {
+      "x_original_host_portal.ar-systems.fr": {
+        "status": 404,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>404 Not Found</title></head>\r <body>\r <center><h1>404 Not Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "x_original_host_transfer.ar-systems.fr": {
+        "status": 404,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>404 Not Found</title></head>\r <body>\r <center><h1>404 Not Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "x_original_host_evil.example": {
+        "status": 404,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>404 Not Found</title></head>\r <body>\r <center><h1>404 Not Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "x_original_host_transfer.ar-systems.fr.evil.example": {
+        "status": 404,
+        "location": "",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>404 Not Found</title></head>\r <body>\r <center><h1>404 Not Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "direct_transfer.ar-systems.fr_normal": {
+        "status": 302,
+        "location": "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx</center>\r </body>\r </html>\r ",
+        "content_type": "text/html",
+        "resolved_ip": "172.24.0.108"
+      },
+      "direct_wiki.ar-systems.fr": {
+        "error": "[Errno 11001] getaddrinfo failed"
+      }
+    },
+    "6_idor_catalogue": {
+      "unauth_list": {
+        "status": 301,
+        "location": "/api/apps/",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>301 Moved Permanently</title></head>\r <body>\r <center><h1>301 Moved Permanently</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "unauth_get_transfer": {
+        "status": 302,
+        "location": "/auth/login?rd=/apps",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "unauth_get_wiki": {
+        "status": 302,
+        "location": "/auth/login?rd=/apps",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "unauth_get_grafana": {
+        "status": 302,
+        "location": "/auth/login?rd=/apps",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "unauth_get_nonexistent-audit-slug": {
+        "status": 302,
+        "location": "/auth/login?rd=/apps",
+        "set_cookie_has_bg": false,
+        "x_auth_source": null,
+        "retry_after": null,
+        "body_head": "<html>\r <head><title>302 Found</title></head>\r <body>\r <center><h1>302 Found</h1></center>\r <hr><center>nginx/1.27.5</center>\r </body>\r </html>\r ",
+        "content_type": "text/html"
+      },
+      "note": "No restricted disposable user — authenticated IDOR not live-tested; unit coverage tests/security/test_f03_api_apps_rbac.py"
+    },
+    "7_bruteforce_lockout": {
+      "attempts": [
+        {
+          "status": 200,
+          "location": "",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<!DOCTYPE html> <html lang=\"fr\" data-theme=\"dark\"> <head>   <meta charset=\"UTF-8\">   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">   <meta name=\"csrf-token\" content=\"de4df2aedf4a36b4e472fb6bfb9ae037\">   <title>Conne",
+          "content_type": "text/html; charset=utf-8",
+          "elapsed_s": 0.023,
+          "n": 1
+        },
+        {
+          "status": 200,
+          "location": "",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<!DOCTYPE html> <html lang=\"fr\" data-theme=\"dark\"> <head>   <meta charset=\"UTF-8\">   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">   <meta name=\"csrf-token\" content=\"de4df2aedf4a36b4e472fb6bfb9ae037\">   <title>Conne",
+          "content_type": "text/html; charset=utf-8",
+          "elapsed_s": 0.038,
+          "n": 2
+        },
+        {
+          "status": 200,
+          "location": "",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<!DOCTYPE html> <html lang=\"fr\" data-theme=\"dark\"> <head>   <meta charset=\"UTF-8\">   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">   <meta name=\"csrf-token\" content=\"de4df2aedf4a36b4e472fb6bfb9ae037\">   <title>Conne",
+          "content_type": "text/html; charset=utf-8",
+          "elapsed_s": 0.03,
+          "n": 3
+        },
+        {
+          "status": 200,
+          "location": "",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<!DOCTYPE html> <html lang=\"fr\" data-theme=\"dark\"> <head>   <meta charset=\"UTF-8\">   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">   <meta name=\"csrf-token\" content=\"de4df2aedf4a36b4e472fb6bfb9ae037\">   <title>Conne",
+          "content_type": "text/html; charset=utf-8",
+          "elapsed_s": 0.03,
+          "n": 4
+        },
+        {
+          "status": 200,
+          "location": "",
+          "set_cookie_has_bg": false,
+          "x_auth_source": null,
+          "retry_after": null,
+          "body_head": "<!DOCTYPE html> <html lang=\"fr\" data-theme=\"dark\"> <head>   <meta charset=\"UTF-8\">   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">   <meta name=\"csrf-token\" content=\"de4df2aedf4a36b4e472fb6bfb9ae037\">   <title>Conne",
+          "content_type": "text/html; charset=utf-8",
+          "elapsed_s": 0.027,
+          "n": 5
+        }
+      ],
+      "saw_429": false,
+      "saw_retry_after": false,
+      "conclusion": "no_app_level_lockout_observed_in_5_attempts"
+    }
+  },
+  "errors": [],
+  "finished_at": "2026-07-25T19:04:44.549639+00:00"
+}

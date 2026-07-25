@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.database import get_db
 from app.models import App
+from app.rbac.effective_access_service import get_effective_apps_for_user
 from app.security import require_internal_token
-from app.web.user_context import require_user_enriched
+from app.sso_settings import Settings, get_settings
+from app.web.user_context import UserContext, is_portal_admin, require_user_enriched
 
 # Authenticated catalogue reads (portal alignment). Mutations use ``router`` below.
 authenticated_router = APIRouter(
@@ -117,15 +119,51 @@ def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
 
 
+def _apps_visible_to_user(
+    db: Session,
+    user: UserContext,
+    settings: Settings,
+) -> list[App]:
+    """
+    Catalogue API visibility (F-03).
+
+    Portal admins / break-glass (via is_portal_admin) see all enabled apps —
+    same rule as ``catalogue_page``. End users see AccessGrant-effective apps only.
+    Full admin CRUD remains on ``/admin/apps`` (HTML) and token-mutated ``router``.
+    """
+    if is_portal_admin(user, db, settings):
+        return db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    entries = get_effective_apps_for_user(
+        db,
+        keycloak_user_id=user.keycloak_user_id,
+        group_names=user.groups,
+    )
+    return [e.app for e in entries]
+
+
 @authenticated_router.get("", response_model=list[AppOut])
-def list_apps(db: Session = Depends(get_db)):
-    apps = db.query(App).filter_by(enabled=True).all()
-    return [_app_to_out(app) for app in apps]
+def list_apps(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    return [_app_to_out(app) for app in _apps_visible_to_user(db, user, settings)]
 
 
 @authenticated_router.get("/{slug}", response_model=AppOut)
-def get_app(slug: str, db: Session = Depends(get_db)):
-    return _app_to_out(_get_app_or_404(db, slug))
+def get_app(
+    slug: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    app = _get_app_or_404(db, slug)
+    if not app.enabled:
+        raise HTTPException(status_code=404, detail=f"App '{slug}' not found")
+    visible = {a.slug for a in _apps_visible_to_user(db, user, settings)}
+    if app.slug not in visible:
+        raise HTTPException(status_code=404, detail=f"App '{slug}' not found")
+    return _app_to_out(app)
 
 
 @router.post("", response_model=AppOut, status_code=201)

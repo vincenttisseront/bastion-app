@@ -65,8 +65,7 @@ class Settings(BaseSettings):
             "vault_portal_internal_token",
         ),
     )
-    # HMAC key for bg_session JWT — optional env override (pytest / emergency).
-    # Source of truth: portal_settings.breakglass_jwt_secret_encrypted.
+    # HMAC key for bg_session JWT — must NOT be the Bearer internal token.
     breakglass_jwt_secret: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -83,8 +82,7 @@ class Settings(BaseSettings):
             "breakglass_jwt_secret_fallback_enabled",
         ),
     )
-    # HMAC for robotic session-cookie hop — optional env override (pytest / emergency).
-    # Source of truth: portal_settings.session_hop_secret_encrypted.
+    # HMAC for robotic session-cookie hop — distinct from VAULT_PORTAL_INTERNAL_TOKEN.
     session_hop_secret: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -299,14 +297,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":
-        """Fail-closed in production: no vault-token JWT fallback via env flag.
-
-        HMAC secrets (breakglass JWT, session hop) live in ``portal_settings``
-        and are ensured at boot / by ``python -m app.runtime_secrets_service``.
-        Env overrides remain optional (pytest / emergency).
-        """
+        """Fail-closed in production: dedicated secrets, no vault-token JWT fallback."""
         if self.environment != "production":
             return self
+        missing: list[str] = []
+        if not (self.breakglass_jwt_secret or "").strip():
+            missing.append("BREAKGLASS_JWT_SECRET")
+        if not (self.session_hop_secret or "").strip():
+            missing.append("SESSION_HOP_SECRET")
+        if missing:
+            raise ValueError(
+                "Production requires dedicated secrets (no silent fallback): "
+                + ", ".join(missing)
+            )
         object.__setattr__(self, "breakglass_jwt_secret_fallback_enabled", False)
         return self
 

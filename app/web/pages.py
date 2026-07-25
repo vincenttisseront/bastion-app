@@ -323,7 +323,7 @@ def login_page(
     settings: Settings = Depends(get_settings),
 ):
     rd = resolve_rd(request)
-    if get_user_context(request, settings, db=db):
+    if get_user_context(request, settings):
         return RedirectResponse(url=rd, status_code=302)
 
     realm = get_default_idp_realm(db)

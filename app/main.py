@@ -61,12 +61,23 @@ async def lifespan(app: FastAPI):
     configure_logging(settings)
     logger = logging.getLogger("app.main")
 
+    # F-05: fail-closed outside automated tests — no "dev" hop HMAC fallback.
+    if not settings.is_test and not (settings.session_hop_secret or "").strip():
+        raise RuntimeError(
+            "SESSION_HOP_SECRET is required (set PORTAL_ENVIRONMENT=test only for pytest)"
+        )
+    if (
+        not settings.is_production
+        and not settings.is_test
+        and not (settings.breakglass_jwt_secret or "").strip()
+    ):
+        logger.warning(
+            "BREAKGLASS_JWT_SECRET unset — legacy VAULT_PORTAL_INTERNAL_TOKEN fallback "
+            "may be used; set a dedicated secret before production"
+        )
+
     Base.metadata.create_all(bind=engine)
     from app.database import SessionLocal
-    from app.runtime_secrets_service import (
-        ensure_portal_runtime_secrets,
-        resolve_session_hop_secret,
-    )
     from app.vault.encryption_key_store import (
         EncryptionKeyStoreError,
         ensure_encryption_key,
@@ -77,29 +88,6 @@ async def lifespan(app: FastAPI):
     try:
         version = ensure_encryption_key(db, settings)
         logger.info("vault encryption key ready version=%s", version)
-
-        # F-05: HMAC secrets in portal_settings (not .env). Idempotent ensure.
-        if not settings.is_test:
-            ensure_portal_runtime_secrets(db, settings, actor="boot")
-            hop = resolve_session_hop_secret(settings, db=db)
-            if not hop:
-                raise RuntimeError(
-                    "session hop secret missing in portal_settings "
-                    "(run: python -m app.runtime_secrets_service)"
-                )
-            if settings.is_production:
-                from app.breakglass import resolve_breakglass_signing_secret
-
-                resolve_breakglass_signing_secret(settings, db=db)
-        if (
-            not settings.is_production
-            and not settings.is_test
-            and not (settings.breakglass_jwt_secret or "").strip()
-        ):
-            logger.warning(
-                "break-glass JWT prefers portal_settings (Ansible ensure) "
-                "over legacy VAULT_PORTAL_INTERNAL_TOKEN fallback"
-            )
     except EncryptionKeyStoreError:
         logger.exception("vault encryption key store failed — refusing to start")
         raise

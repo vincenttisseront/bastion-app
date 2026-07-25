@@ -35,10 +35,14 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
             "PORTAL_SECRET_ENCRYPTION_KEY", "test-encryption-key-for-pytest-only"
         )
     get_settings.cache_clear()
+    from app.request_client_ip import clear_trusted_proxy_cache
+
+    clear_trusted_proxy_cache()
     yield
     reset_active_cache_for_tests()
     reset_breakglass_ephemeral_secret_for_tests()
     get_settings.cache_clear()
+    clear_trusted_proxy_cache()
 
 
 @pytest.fixture()

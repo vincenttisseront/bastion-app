@@ -121,6 +121,6 @@ sso_portal_service_name: sso-portal
 sso_portal_verify_fernet_key_migration: true
 
 portal_admin_groups: "portal-admins,bastion-admins,admins"
-sso_portal_rfc1918_bypass_auth: true
+sso_portal_rfc1918_bypass_auth: false
 oauth2_proxy_request_logging: false
 oauth2_core_static_enabled_env: "{{ oauth2_core_static_enabled | lower }}"

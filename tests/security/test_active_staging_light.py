@@ -237,8 +237,12 @@ def test_breakglass_html_login_rejects_bad_password_no_cookie(staging_base_url: 
         client.close()
 
 
-def test_breakglass_api_login_behind_nginx_sso(staging_base_url: str):
-    """Documented behaviour: /api/admin/breakglass/login is under auth_request."""
+def test_breakglass_api_login_lan_path_not_sso_gated(staging_base_url: str):
+    """F-06 after nginx apply: login is LAN-allowlisted, not auth_request → SSO.
+
+    Without deploy, may still 302 to /auth/login. Never issue bg_session here
+    (wrong password / no credentials in active probe).
+    """
     client = httpx.Client(
         base_url=staging_base_url,
         timeout=15.0,
@@ -255,8 +259,7 @@ def test_breakglass_api_login_behind_nginx_sso(staging_base_url: str):
             headers={"Accept": "application/json"},
         )
         print("bg_api_login", resp.status_code, resp.headers.get("location"))
-        # Public FastAPI allowlist is overridden by nginx ^~ /api/admin auth_request.
-        assert resp.status_code in (301, 302, 303, 307, 401, 403)
+        assert resp.status_code in (301, 302, 303, 307, 401, 403, 404)
         assert "bg_session=" not in (resp.headers.get("set-cookie") or "")
     finally:
         client.close()
