@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import httpx
 import pytest
 import respx
@@ -32,6 +34,18 @@ USER_HEADERS = {
 }
 
 PAGE_URL = "https://app.example/login"
+
+_PUBLIC_IP = ["8.8.8.8"]
+
+
+@pytest.fixture(autouse=True)
+def _allow_example_hosts_dns():
+    """Analyzer resolves hosts before fetch — keep example.test hosts on a public IP."""
+    with patch(
+        "app.bastion.login_form_analyzer.resolve_hostname_ips",
+        return_value=_PUBLIC_IP,
+    ):
+        yield
 
 
 def test_analyze_login_form_single():

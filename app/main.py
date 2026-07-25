@@ -60,6 +60,22 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings)
     logger = logging.getLogger("app.main")
+
+    # F-05: fail-closed outside automated tests — no "dev" hop HMAC fallback.
+    if not settings.is_test and not (settings.session_hop_secret or "").strip():
+        raise RuntimeError(
+            "SESSION_HOP_SECRET is required (set PORTAL_ENVIRONMENT=test only for pytest)"
+        )
+    if (
+        not settings.is_production
+        and not settings.is_test
+        and not (settings.breakglass_jwt_secret or "").strip()
+    ):
+        logger.warning(
+            "BREAKGLASS_JWT_SECRET unset — legacy VAULT_PORTAL_INTERNAL_TOKEN fallback "
+            "may be used; set a dedicated secret before production"
+        )
+
     Base.metadata.create_all(bind=engine)
     from app.database import SessionLocal
     from app.vault.encryption_key_store import (

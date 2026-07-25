@@ -66,6 +66,7 @@ def test_unknown_username_fails_without_500(client, db_session: Session):
     response = client.post(
         "/auth/login",
         data={"username": "vincent", "password": "any-password"},
+        headers={"X-Real-IP": "10.0.0.8"},
     )
 
     assert response.status_code == 200

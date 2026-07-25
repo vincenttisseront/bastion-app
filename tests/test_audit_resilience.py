@@ -46,6 +46,7 @@ def test_login_failed_with_legacy_audit_schema(client: TestClient, db_session: S
     response = client.post(
         "/auth/login",
         data={"username": "admin", "password": "wrong-password"},
+        headers={"X-Real-IP": "10.0.0.8"},
     )
 
     assert response.status_code == 200
@@ -60,6 +61,7 @@ def test_login_success_with_valid_breakglass(client: TestClient, db_session: Ses
     response = client.post(
         "/auth/login",
         data={"username": "admin", "password": password, "rd": "/dashboard"},
+        headers={"X-Real-IP": "10.0.0.8"},
         follow_redirects=False,
     )
 

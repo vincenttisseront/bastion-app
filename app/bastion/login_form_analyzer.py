@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
+import socket
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -19,6 +21,12 @@ MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MiB
 
 _USERNAME_TOKENS = ("user", "login", "email", "identifiant")
 _USERNAME_TOKEN_RE = re.compile("|".join(_USERNAME_TOKENS), re.IGNORECASE)
+
+# Explicit cloud metadata / link-local ranges beyond ipaddress.is_* helpers.
+_BLOCKED_NETWORKS = (
+    ipaddress.ip_network("169.254.0.0/16"),  # IPv4 link-local / cloud metadata
+    ipaddress.ip_network("fe80::/10"),  # IPv6 link-local
+)
 
 
 class AnalyzeLoginFormError(Exception):
@@ -170,6 +178,86 @@ def analyze_html(html: str, page_url: str) -> list[dict[str, Any]]:
     return forms
 
 
+def is_blocked_ip(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """True for private, loopback, link-local, multicast, reserved, or metadata ranges."""
+    if (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_reserved
+        or addr.is_unspecified
+    ):
+        return True
+    return any(addr in net for net in _BLOCKED_NETWORKS)
+
+
+def resolve_hostname_ips(hostname: str) -> list[str]:
+    """Resolve hostname to IP strings. Raises AnalyzeLoginFormError on failure."""
+    host = (hostname or "").strip().strip("[]")
+    if not host:
+        raise AnalyzeLoginFormError(
+            "invalid_url",
+            "URL invalide — hôte manquant.",
+            status_code=400,
+        )
+    try:
+        # Literal IP — no DNS needed.
+        addr = ipaddress.ip_address(host)
+        return [str(addr)]
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise AnalyzeLoginFormError(
+            "dns_failed",
+            f"Impossible de résoudre l'hôte « {host} ».",
+            status_code=400,
+        ) from exc
+    ips: list[str] = []
+    seen: set[str] = set()
+    for info in infos:
+        ip = info[4][0]
+        if ip not in seen:
+            seen.add(ip)
+            ips.append(ip)
+    if not ips:
+        raise AnalyzeLoginFormError(
+            "dns_failed",
+            f"Aucune adresse IP pour « {host} ».",
+            status_code=400,
+        )
+    return ips
+
+
+def assert_url_host_allowed(url: str) -> None:
+    """Resolve URL host and reject blocked IP ranges (SSRF guard)."""
+    parsed = urlparse(url)
+    host = parsed.hostname
+    if not host:
+        raise AnalyzeLoginFormError(
+            "invalid_url",
+            "URL invalide — hôte manquant.",
+            status_code=400,
+        )
+    for ip_str in resolve_hostname_ips(host):
+        try:
+            addr = ipaddress.ip_address(ip_str)
+        except ValueError as exc:
+            raise AnalyzeLoginFormError(
+                "invalid_url",
+                f"Adresse IP invalide résolue pour « {host} ».",
+                status_code=400,
+            ) from exc
+        if is_blocked_ip(addr):
+            raise AnalyzeLoginFormError(
+                "url_blocked",
+                "Cette URL pointe vers une adresse non autorisée (réseau interne ou réservé).",
+                status_code=400,
+            )
+
+
 def validate_analyze_url(url: str) -> str:
     cleaned = (url or "").strip()
     if not cleaned:
@@ -191,46 +279,80 @@ def validate_analyze_url(url: str) -> str:
             "URL invalide — hôte manquant.",
             status_code=400,
         )
+    assert_url_host_allowed(cleaned)
     return cleaned
 
 
+async def _read_body_limited(response: httpx.Response) -> str:
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes():
+        total += len(chunk)
+        if total > MAX_BODY_BYTES:
+            raise AnalyzeLoginFormError(
+                "response_too_large",
+                "La page dépasse la taille maximale autorisée (2 Mo).",
+                status_code=502,
+            )
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    charset = response.charset_encoding or "utf-8"
+    try:
+        return raw.decode(charset, errors="replace")
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
+
+
 async def fetch_login_page(url: str) -> tuple[str, str]:
-    """GET the page; return (final_url, html_text). Raises AnalyzeLoginFormError."""
-    validate_analyze_url(url)
+    """GET the page with manual redirects + per-hop SSRF checks."""
+    current = validate_analyze_url(url)
     headers = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml,*/*"}
     try:
         async with httpx.AsyncClient(
             timeout=TIMEOUT_SECONDS,
-            follow_redirects=True,
-            max_redirects=MAX_REDIRECTS,
+            follow_redirects=False,
             headers=headers,
         ) as client:
-            async with client.stream("GET", url) as response:
-                if response.status_code >= 400:
-                    raise AnalyzeLoginFormError(
-                        "fetch_failed",
-                        f"La page a répondu HTTP {response.status_code}.",
-                        status_code=502,
-                    )
-                chunks: list[bytes] = []
-                total = 0
-                async for chunk in response.aiter_bytes():
-                    total += len(chunk)
-                    if total > MAX_BODY_BYTES:
+            for _ in range(MAX_REDIRECTS + 1):
+                assert_url_host_allowed(current)
+                async with client.stream("GET", current) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if not location:
+                            raise AnalyzeLoginFormError(
+                                "fetch_failed",
+                                "Redirection sans en-tête Location.",
+                                status_code=502,
+                            )
+                        next_url = urljoin(str(response.url), location)
+                        # Drain / close before next hop.
+                        await response.aread()
+                        current = next_url
+                        # Re-validate scheme + host before following (DNS rebinding).
+                        if urlparse(current).scheme not in ("http", "https"):
+                            raise AnalyzeLoginFormError(
+                                "url_blocked",
+                                "Redirection vers un schéma non autorisé.",
+                                status_code=400,
+                            )
+                        assert_url_host_allowed(current)
+                        continue
+
+                    if response.status_code >= 400:
                         raise AnalyzeLoginFormError(
-                            "response_too_large",
-                            "La page dépasse la taille maximale autorisée (2 Mo).",
+                            "fetch_failed",
+                            f"La page a répondu HTTP {response.status_code}.",
                             status_code=502,
                         )
-                    chunks.append(chunk)
-                raw = b"".join(chunks)
-                charset = response.charset_encoding or "utf-8"
-                try:
-                    text = raw.decode(charset, errors="replace")
-                except LookupError:
-                    text = raw.decode("utf-8", errors="replace")
-                final_url = str(response.url)
-                return final_url, text
+                    text = await _read_body_limited(response)
+                    final_url = str(response.url)
+                    return final_url, text
+
+            raise AnalyzeLoginFormError(
+                "fetch_failed",
+                "Trop de redirections (maximum 5).",
+                status_code=502,
+            )
     except AnalyzeLoginFormError:
         raise
     except httpx.TimeoutException as exc:
@@ -238,12 +360,6 @@ async def fetch_login_page(url: str) -> tuple[str, str]:
             "timeout",
             "Délai dépassé en récupérant la page (10 s).",
             status_code=504,
-        ) from exc
-    except httpx.TooManyRedirects as exc:
-        raise AnalyzeLoginFormError(
-            "fetch_failed",
-            "Trop de redirections (maximum 5).",
-            status_code=502,
         ) from exc
     except httpx.HTTPError as exc:
         raise AnalyzeLoginFormError(

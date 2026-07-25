@@ -23,9 +23,9 @@ server {
     client_header_timeout 30s;
     keepalive_timeout 65s;
 
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    # Security headers (HSTS/CSP/…) are set once on the edge reverse proxy
+    # (reverse01). Do not re-add them here — duplicates appear as comma-joined
+    # values on /health (audit F-09). Keep only cache/rate headers in locations.
 
     include /etc/nginx/snippets/error_pages.conf;
     error_page 404 = /__portal_err/404;
@@ -156,6 +156,17 @@ server {
     }
 
     # Always delegate to FastAPI (SSO preferred over bg_session — see /internal/oauth2-auth).
+    # auth_request uses /portal_auth_check (internal) → proxy_pass FastAPI path.
+    # Public GETs to /internal/* must 404 like subdomain-auth (not fall through to / → 302 login).
+    location = /internal/oauth2-auth {
+        internal;
+        return 404;
+    }
+    location = /internal/portal-rfc1918-bypass-auth {
+        internal;
+        return 404;
+    }
+
     location = /portal_auth_check {
         internal;
         auth_request off;

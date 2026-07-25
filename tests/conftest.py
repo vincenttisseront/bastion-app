@@ -27,6 +27,8 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
     keys.mkdir()
     monkeypatch.setenv("VAULT_KEYS_DIR", str(keys))
     monkeypatch.setenv("PORTAL_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("PORTAL_ENVIRONMENT", "test")
+    monkeypatch.setenv("SESSION_HOP_SECRET", "test-session-hop-secret-for-pytest")
     # Prefer a known test key so lifespan migrate path is deterministic when client starts.
     if not os.environ.get("PORTAL_SECRET_ENCRYPTION_KEY"):
         monkeypatch.setenv(
@@ -82,9 +84,11 @@ def client(db_engine, monkeypatch):
 
     def override_get_settings():
         return Settings(
+            environment="test",
             vault_portal_internal_token="test-secret",
             breakglass_jwt_secret="test-bg-jwt-secret",
             breakglass_jwt_secret_fallback_enabled=True,
+            session_hop_secret="test-session-hop-secret-for-pytest",
             portal_secret_encryption_key="test-encryption-key-for-pytest-only",
             database_url="sqlite://",
         )

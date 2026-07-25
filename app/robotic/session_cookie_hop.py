@@ -46,7 +46,12 @@ DEFAULT_NEXT = "/"
 
 
 def _hop_secret(settings: Settings) -> bytes:
-    raw = (settings.vault_portal_internal_token or "").strip() or "dev"
+    raw = (settings.session_hop_secret or "").strip()
+    if not raw:
+        # Never fall back to a literal like "dev" or the vault internal token.
+        raise RuntimeError(
+            "SESSION_HOP_SECRET is required to seal session-cookie hop payloads"
+        )
     return hashlib.sha256(f"session-cookie-hop:{raw}".encode()).digest()
 
 

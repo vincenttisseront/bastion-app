@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode, validate_app_access_fields
+from app.auth import is_rfc1918
 from app.bastion.bastion_fields import (
     normalize_auth_mode,
     normalize_credential_mode,
@@ -353,12 +354,35 @@ async def login_post(
     if not has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Initial setup required")
 
+    # Defense in depth: Nginx LAN-restricts /breakglass, but this POST lives under
+    # public /auth/ — never verify the break-glass password from a non-LAN IP.
+    client_ip = _client_ip(request)
+    if not is_rfc1918(client_ip, settings.rfc1918_cidrs):
+        log_action(
+            db,
+            actor=username,
+            action="breakglass.login_denied_non_lan",
+            details={"reason": "client_ip_not_rfc1918"},
+            ip_address=client_ip or None,
+        )
+        realm = get_default_idp_realm(db)
+        oauth2_url = oauth2_start_url(realm.slug, safe_rd) if realm else None
+        ctx = _ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            login_error="Identifiants invalides.",
+            rd=safe_rd,
+            oauth2_url=oauth2_url,
+        )
+        return render("auth/login.html", **ctx)
+
     if not verify_breakglass_password(db, username, password):
         log_action(
             db,
             actor=username,
             action="breakglass.login_failed",
-            ip_address=_client_ip(request),
+            ip_address=client_ip or None,
         )
         realm = get_default_idp_realm(db)
         oauth2_url = oauth2_start_url(realm.slug, safe_rd) if realm else None

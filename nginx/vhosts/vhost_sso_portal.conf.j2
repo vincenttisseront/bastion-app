@@ -181,6 +181,16 @@ server {
 
     # auth_request central : toujours FastAPI (/internal/oauth2-auth).
     # SSO session preferred over bg_session when both present (avoids /apps → /dashboard steal).
+    # Public /internal/* must 404 (same as subdomain-auth), not fall through to / → 302 login.
+    location = /internal/oauth2-auth {
+        internal;
+        return 404;
+    }
+    location = /internal/portal-rfc1918-bypass-auth {
+        internal;
+        return 404;
+    }
+
     location = /portal_auth_check {
         internal;
         auth_request off;   # CRITIQUE : évite la récursion auth_request (fe15325)

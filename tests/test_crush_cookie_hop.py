@@ -17,7 +17,9 @@ from app.sso_settings import Settings
 
 def _settings() -> Settings:
     return Settings(
+        environment="test",
         vault_portal_internal_token="hop-test-secret",
+        session_hop_secret="hop-hmac-secret-for-pytest",
         portal_domain="portal.ar-systems.fr",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
@@ -89,7 +91,9 @@ def test_apply_host_only_no_domain_on_session_cookies():
 
 def test_session_cookie_hop_endpoint_sets_host_only(client):
     live = Settings(
+        environment="test",
         vault_portal_internal_token="test-secret",
+        session_hop_secret="test-session-hop-secret-for-pytest",
         portal_domain="portal.ar-systems.fr",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
@@ -116,7 +120,9 @@ def test_session_cookie_hop_endpoint_sets_host_only(client):
 
 def test_legacy_crush_hop_alias_still_works(client):
     live = Settings(
+        environment="test",
         vault_portal_internal_token="test-secret",
+        session_hop_secret="test-session-hop-secret-for-pytest",
         portal_domain="portal.ar-systems.fr",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",

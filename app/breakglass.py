@@ -108,12 +108,22 @@ def resolve_breakglass_signing_secret_with_source(
     if dedicated:
         return dedicated, "env"
 
+    if settings.is_production:
+        raise RuntimeError(
+            "BREAKGLASS_JWT_SECRET is required in production "
+            "(no VAULT_PORTAL_INTERNAL_TOKEN fallback)"
+        )
+
     ui = get_ui_breakglass_secret(db, settings)
     if ui:
         return ui, "ui"
 
     legacy = _legacy_breakglass_hmac_secret(settings)
     if legacy:
+        logger.warning(
+            "BREAKGLASS_JWT_SECRET unset — signing with legacy VAULT_PORTAL_INTERNAL_TOKEN "
+            "(disabled in production)"
+        )
         return legacy, "legacy"
 
     global _EPHEMERAL_JWT_SECRET
@@ -167,6 +177,9 @@ def _validation_secrets(
     add(get_ui_breakglass_previous_secret(db, settings), "ui_previous")
     if settings.breakglass_jwt_secret_fallback_enabled:
         add(_legacy_breakglass_hmac_secret(settings), "legacy")
+    elif settings.is_production:
+        # Production always refuses vault-token legacy (validator also forces flag off).
+        pass
     return out
 
 

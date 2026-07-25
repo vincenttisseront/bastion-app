@@ -56,3 +56,6 @@ line-length = 100
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "security_active: light non-destructive probes against staging (needs confirmed IP)",
+]

@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Annotated, Any
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -31,6 +31,17 @@ class Settings(BaseSettings):
         env_file=".env",
         extra="ignore",
         populate_by_name=True,
+    )
+
+    # development | test | production — used for fail-closed secret checks.
+    # No prior env detector existed in this repo; PORTAL_ENVIRONMENT is the canonical name.
+    environment: str = Field(
+        default="development",
+        validation_alias=AliasChoices(
+            "PORTAL_ENVIRONMENT",
+            "ENVIRONMENT",
+            "environment",
+        ),
     )
 
     portal_domain: str = Field(
@@ -63,11 +74,20 @@ class Settings(BaseSettings):
         ),
     )
     # Temporary: accept cookies signed with VAULT_PORTAL_INTERNAL_TOKEN during migration.
+    # Forced off when environment=production (see model_validator).
     breakglass_jwt_secret_fallback_enabled: bool = Field(
         default=True,
         validation_alias=AliasChoices(
             "BREAKGLASS_JWT_SECRET_FALLBACK_ENABLED",
             "breakglass_jwt_secret_fallback_enabled",
+        ),
+    )
+    # HMAC for robotic session-cookie hop — distinct from VAULT_PORTAL_INTERNAL_TOKEN.
+    session_hop_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "SESSION_HOP_SECRET",
+            "session_hop_secret",
         ),
     )
     vault_sso_portal_oidc_client_secret: str = Field(
@@ -241,6 +261,44 @@ class Settings(BaseSettings):
             value,
             default=["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1/32"],
         )
+
+    @field_validator("environment", mode="before")
+    @classmethod
+    def normalize_environment(cls, value: Any) -> str:
+        raw = str(value or "development").strip().lower()
+        if raw in ("prod", "production"):
+            return "production"
+        if raw in ("test", "testing", "pytest"):
+            return "test"
+        if raw in ("dev", "development", "local"):
+            return "development"
+        return raw or "development"
+
+    @model_validator(mode="after")
+    def enforce_production_secrets(self) -> "Settings":
+        """Fail-closed in production: dedicated secrets, no vault-token JWT fallback."""
+        if self.environment != "production":
+            return self
+        missing: list[str] = []
+        if not (self.breakglass_jwt_secret or "").strip():
+            missing.append("BREAKGLASS_JWT_SECRET")
+        if not (self.session_hop_secret or "").strip():
+            missing.append("SESSION_HOP_SECRET")
+        if missing:
+            raise ValueError(
+                "Production requires dedicated secrets (no silent fallback): "
+                + ", ".join(missing)
+            )
+        object.__setattr__(self, "breakglass_jwt_secret_fallback_enabled", False)
+        return self
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
+
+    @property
+    def is_test(self) -> bool:
+        return self.environment == "test"
 
 
 @lru_cache
