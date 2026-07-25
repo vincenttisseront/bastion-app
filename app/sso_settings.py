@@ -297,19 +297,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":
-        """Fail-closed in production: dedicated secrets, no vault-token JWT fallback."""
+        """Production: never fall back to VAULT_PORTAL_INTERNAL_TOKEN for JWT.
+
+        HMAC values may live in SQLite (``ensure_portal_runtime_secrets``) rather
+        than ``.env`` — lifespan fails closed if hop secret is still missing after
+        ensure. Env SESSION_HOP_SECRET / BREAKGLASS_JWT_SECRET remain optional
+        overrides (pytest / emergency / AWX).
+        """
         if self.environment != "production":
             return self
-        missing: list[str] = []
-        if not (self.breakglass_jwt_secret or "").strip():
-            missing.append("BREAKGLASS_JWT_SECRET")
-        if not (self.session_hop_secret or "").strip():
-            missing.append("SESSION_HOP_SECRET")
-        if missing:
-            raise ValueError(
-                "Production requires dedicated secrets (no silent fallback): "
-                + ", ".join(missing)
-            )
         object.__setattr__(self, "breakglass_jwt_secret_fallback_enabled", False)
         return self
 

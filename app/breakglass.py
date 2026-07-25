@@ -108,15 +108,23 @@ def resolve_breakglass_signing_secret_with_source(
     if dedicated:
         return dedicated, "env"
 
-    if settings.is_production:
-        raise RuntimeError(
-            "BREAKGLASS_JWT_SECRET is required in production "
-            "(no VAULT_PORTAL_INTERNAL_TOKEN fallback)"
-        )
-
     ui = get_ui_breakglass_secret(db, settings)
     if ui:
         return ui, "ui"
+
+    # Also accept process cache populated by ensure_portal_runtime_secrets.
+    from app.runtime_secrets_service import get_cached_breakglass_secret
+
+    cached = get_cached_breakglass_secret()
+    if cached:
+        return cached, "ui"
+
+    if settings.is_production:
+        raise RuntimeError(
+            "BREAKGLASS_JWT_SECRET is required in production "
+            "(set env or seed portal_settings via migrate — "
+            "no VAULT_PORTAL_INTERNAL_TOKEN fallback)"
+        )
 
     legacy = _legacy_breakglass_hmac_secret(settings)
     if legacy:

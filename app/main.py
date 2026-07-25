@@ -61,23 +61,12 @@ async def lifespan(app: FastAPI):
     configure_logging(settings)
     logger = logging.getLogger("app.main")
 
-    # F-05: fail-closed outside automated tests — no "dev" hop HMAC fallback.
-    if not settings.is_test and not (settings.session_hop_secret or "").strip():
-        raise RuntimeError(
-            "SESSION_HOP_SECRET is required (set PORTAL_ENVIRONMENT=test only for pytest)"
-        )
-    if (
-        not settings.is_production
-        and not settings.is_test
-        and not (settings.breakglass_jwt_secret or "").strip()
-    ):
-        logger.warning(
-            "BREAKGLASS_JWT_SECRET unset — legacy VAULT_PORTAL_INTERNAL_TOKEN fallback "
-            "may be used; set a dedicated secret before production"
-        )
-
     Base.metadata.create_all(bind=engine)
     from app.database import SessionLocal
+    from app.runtime_secrets_service import (
+        ensure_portal_runtime_secrets,
+        resolve_session_hop_secret,
+    )
     from app.vault.encryption_key_store import (
         EncryptionKeyStoreError,
         ensure_encryption_key,
@@ -88,6 +77,27 @@ async def lifespan(app: FastAPI):
     try:
         version = ensure_encryption_key(db, settings)
         logger.info("vault encryption key ready version=%s", version)
+        # HMAC hop / break-glass: SQLite is source of truth (migrate seeds them).
+        # Env SESSION_HOP_SECRET / BREAKGLASS_JWT_SECRET remain optional overrides.
+        # Skip ensure under pytest (PORTAL_ENVIRONMENT=test) — TestClient uses a
+        # separate DB engine than SessionLocal; hop secret comes from conftest env.
+        if not settings.is_test:
+            ensure_portal_runtime_secrets(db, settings, actor="lifespan")
+            hop = resolve_session_hop_secret(settings, db=db)
+            if not hop:
+                raise RuntimeError(
+                    "SESSION_HOP_SECRET missing after ensure "
+                    "(set env override or check portal_settings / migrate)"
+                )
+        if (
+            not settings.is_production
+            and not settings.is_test
+            and not (settings.breakglass_jwt_secret or "").strip()
+        ):
+            logger.warning(
+                "BREAKGLASS_JWT_SECRET unset — using SQLite/UI secret or legacy "
+                "VAULT_PORTAL_INTERNAL_TOKEN fallback; prefer a dedicated secret"
+            )
     except EncryptionKeyStoreError:
         logger.exception("vault encryption key store failed — refusing to start")
         raise
