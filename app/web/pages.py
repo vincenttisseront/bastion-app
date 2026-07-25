@@ -24,6 +24,7 @@ from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, s
 from app.breakglass import (
     COOKIE_NAME,
     issue_breakglass_token,
+    process_breakglass_auth_request,
     resolve_breakglass_signing_secret,
     set_breakglass_cookie,
 )
@@ -323,7 +324,38 @@ def login_page(
     settings: Settings = Depends(get_settings),
 ):
     rd = resolve_rd(request)
-    if get_user_context(request, settings):
+    user = get_user_context(request, settings, db=db)
+    if user and user.is_breakglass:
+        # Must match /internal/oauth2-auth (binding / jti). Soft cookie checks alone
+        # caused login→/apps→401→login loops after IP-chain or revoke changes.
+        bg = request.cookies.get(COOKIE_NAME)
+        if not bg:
+            user = None
+        else:
+            result = process_breakglass_auth_request(
+                db, request, bg, settings, rotate=False
+            )
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+            if not result.ok:
+                realm = get_default_idp_realm(db)
+                oauth2_url = oauth2_start_url(realm.slug, rd) if realm else None
+                response = render(
+                    "auth/login.html",
+                    **_ctx(
+                        request,
+                        settings,
+                        hide_chrome=True,
+                        rd=rd,
+                        oauth2_url=oauth2_url,
+                        login_error="Session break-glass expirée ou invalide — reconnectez-vous.",
+                    ),
+                )
+                response.delete_cookie(COOKIE_NAME, path="/")
+                return response
+    if user:
         return RedirectResponse(url=rd, status_code=302)
 
     realm = get_default_idp_realm(db)
