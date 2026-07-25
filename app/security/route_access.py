@@ -54,6 +54,18 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/internal/portal-rfc1918-bypass-auth": (
         "LAN recovery auth_request helper; validates client IP itself"
     ),
+    "/.bastion/session-cookies": (
+        "Target session cookie hop — HMAC cookie self-authenticates; host-only on app FQDN"
+    ),
+    "/api/internal/session-cookie-hop": (
+        "alias of /.bastion/session-cookies for direct bastion calls / tests"
+    ),
+    "/.bastion/crush-session": (
+        "legacy alias of session-cookies hop (CrushFTP-era path)"
+    ),
+    "/api/internal/crush-cookie-hop": (
+        "legacy alias of session-cookie-hop"
+    ),
     "/media/app-logos/{filename}": (
         "app tile logos — non-sensitive; path traversal already blocked"
     ),

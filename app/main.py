@@ -27,6 +27,7 @@ from app.logging_middleware import RequestIdMiddleware
 from app.models import Base
 from app.realm_service import router as realm_router
 from app.robotic.client_open_action import router as robotic_router
+from app.robotic.session_cookie_hop import router as session_cookie_hop_router
 from app.services import authenticated_router as apps_read_router
 from app.services import router as apps_router
 from app.subdomain.subdomain_auth import router as subdomain_router
@@ -129,9 +130,14 @@ async def health() -> dict[str, str]:
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     if request.url.path.startswith("/api/"):
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    wants_json = "application/json" in (request.headers.get("accept") or "").lower()
     if exc.status_code == 401:
+        if wants_json:
+            return JSONResponse({"detail": exc.detail}, status_code=401)
         return RedirectResponse(url="/auth/login", status_code=302)
     if exc.status_code == 403:
+        if wants_json:
+            return JSONResponse({"detail": exc.detail}, status_code=403)
         # Authenticated end-users hitting /dashboard or /admin → home launcher
         from app.web.user_context import get_user_context
 
@@ -187,3 +193,4 @@ app.include_router(realm_router)
 app.include_router(subdomain_router)
 app.include_router(vault_router)
 app.include_router(robotic_router)
+app.include_router(session_cookie_hop_router)

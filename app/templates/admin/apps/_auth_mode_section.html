@@ -34,8 +34,14 @@
     <div id="generic-form-fields" hidden>
       <div class="form-group">
         <label class="form-label" for="login_form_url">URL du formulaire de login <span class="req">*</span></label>
-        <input type="url" id="login_form_url" name="login_form_url" class="form-input{% if errors.login_form_url %} is-invalid{% endif %}"
-          value="{{ form_values.login_form_url | default(app.login_form_url if app is defined else '') }}">
+        <div class="login-form-url-row">
+          <input type="url" id="login_form_url" name="login_form_url" class="form-input{% if errors.login_form_url %} is-invalid{% endif %}"
+            value="{{ form_values.login_form_url | default(app.login_form_url if app is defined else '') }}"
+            data-login-form-url>
+          <button type="button" id="btn-analyze-login-form" class="btn btn-secondary btn-sm" disabled title="Analyser le HTML de la page pour pré-remplir les champs">
+            🔍 Analyser
+          </button>
+        </div>
         <p class="form-help">
           Endpoint qui accepte un POST form-urlencoded. Pour grommunio-web :
           <span class="mono">https://webmail…/web/?logon</span>
@@ -47,6 +53,7 @@
           (champs <span class="mono">user</span> / <span class="mono">pass</span>).
         </p>
         {% if errors.login_form_url %}<div class="form-error">{{ errors.login_form_url }}</div>{% endif %}
+        <div id="login-form-analyze-panel" class="login-form-analyze-panel" hidden></div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -69,6 +76,7 @@
           <option value="GET"{% if (form_values.login_http_method | default(app.login_http_method if app is defined else 'POST')) == 'GET' %} selected{% endif %}>GET</option>
         </select>
         {% if errors.login_http_method %}<div class="form-error">{{ errors.login_http_method }}</div>{% endif %}
+        <p id="login-http-method-hint" class="form-help" hidden></p>
       </div>
       <div class="form-group">
         <label class="form-label" for="login_extra_fields">Champs supplémentaires (JSON)</label>

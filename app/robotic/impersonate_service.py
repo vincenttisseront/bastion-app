@@ -22,6 +22,7 @@ from app.bastion.drivers.generic import (
     generic_wsse_header,
 )
 from app.models import App
+from app.robotic.robotic_session_cookies import normalize_injected_cookie_scope
 from app.sso_settings import Settings
 from app.vault.app_credential_service import (
     CredentialDecryptError,
@@ -35,6 +36,10 @@ from app.vault.user_app_credential_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _injected_cookie_scope(app: App) -> str:
+    return normalize_injected_cookie_scope(getattr(app, "injected_cookie_scope", None))
 
 
 class ImpersonationError(Exception):
@@ -90,6 +95,7 @@ class RoboticSessionResult:
     credential_source: CredentialSource = "shared"
     use_crushftp_cookies: bool = False
     login_base_url: str | None = None
+    injected_cookie_scope: str = "host_only"
 
 
 @dataclass(frozen=True)
@@ -395,6 +401,7 @@ async def _impersonate_crushftp(
         credential_source=resolved.source,
         use_crushftp_cookies=True,
         login_base_url=login_base,
+        injected_cookie_scope=_injected_cookie_scope(app),
     )
 
 
@@ -485,6 +492,7 @@ async def _impersonate_generic_form(
         login_base_url=(app.upstream_url or app.login_form_url or "").rstrip("/") + "/"
         if (app.upstream_url or app.login_form_url)
         else None,
+        injected_cookie_scope=_injected_cookie_scope(app),
     )
 
 

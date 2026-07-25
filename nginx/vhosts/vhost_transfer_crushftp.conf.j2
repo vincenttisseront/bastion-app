@@ -61,6 +61,61 @@ server {
         return 302 /WebInterface/new-ui/index.html;
     }
 
+    # Cookie hop: portal seals target session cookies into bastion_session_hop
+    # (Domain=parent), then lands here so Set-Cookie without Domain is host-only.
+    # Upstream Host=portal for Traefik; browser still sees transfer.* → host-only cookies.
+    location = /.bastion/session-cookies {
+        proxy_pass {{ bastion_app_proxy_pass | default('https://172.24.0.110') }}/api/internal/session-cookie-hop;
+        proxy_ssl_verify off;
+        proxy_http_version 1.1;
+        proxy_set_header Host {{ portal_domain | default('portal.ar-systems.fr') }};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Cookie $http_cookie;
+        proxy_pass_request_body off;
+    }
+    # Legacy CrushFTP-era path
+    location = /.bastion/crush-session {
+        proxy_pass {{ bastion_app_proxy_pass | default('https://172.24.0.110') }}/api/internal/session-cookie-hop;
+        proxy_ssl_verify off;
+        proxy_http_version 1.1;
+        proxy_set_header Host {{ portal_domain | default('portal.ar-systems.fr') }};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Cookie $http_cookie;
+        proxy_pass_request_body off;
+    }
+
+    # Bastion SSO sets CrushAuth with Domain=<parent>; CrushFTP clears host-only →
+    # login.html 302 loop. Also expire parent-domain copies on this path.
+    # (add_header in location replaces server-level add_header — repeat security headers.)
+    location = /WebInterface/login.html {
+        proxy_pass {{ transfer_backend }};
+        proxy_http_version 1.1;
+        proxy_ssl_verify off;
+        proxy_ssl_session_reuse off;
+        proxy_ssl_protocols TLSv1.2;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_set_header Cookie $http_cookie;
+        proxy_set_header X-Real-IP $server_addr;
+        proxy_set_header X-Forwarded-For $server_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options SAMEORIGIN always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+        add_header Set-Cookie "CrushAuth=; Path=/; Domain={{ crushftp_cookie_parent_domain | default('ar-systems.fr') }}; Max-Age=0; Secure; HttpOnly" always;
+        add_header Set-Cookie "currentAuth=; Path=/; Domain={{ crushftp_cookie_parent_domain | default('ar-systems.fr') }}; Max-Age=0; Secure" always;
+    }
+
     # WebSocket new-ui / webfs
     location /webfs/ {
         proxy_pass {{ transfer_backend }};

@@ -459,3 +459,26 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .pending-banner{display:none;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--warn-bg);border:1px solid rgba(245,158,11,.3);border-radius:var(--r-lg);margin-bottom:var(--sp-4);font-size:var(--fs-sm)}
 .pending-banner.is-visible{display:flex}
 .perm-lock-icon{opacity:.5;font-size:var(--fs-sm)}
+
+/* Login form analyzer (vault generic_form) */
+.login-form-url-row{display:flex;gap:var(--sp-2);align-items:stretch}
+.login-form-url-row .form-input{flex:1;min-width:0}
+.login-form-url-row .btn{flex-shrink:0;align-self:stretch}
+.form-input.is-autodetected,.form-select.is-autodetected{
+  background:var(--ok-bg);border-color:rgba(16,185,129,.45);
+}
+.login-form-analyze-panel{
+  margin-top:var(--sp-3);padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--border);border-radius:var(--r-lg);
+  background:var(--bg-card);font-size:var(--fs-sm);
+}
+.login-form-analyze-panel .analyze-status{margin:0 0 var(--sp-2)}
+.login-form-analyze-panel .analyze-hidden-list{list-style:none;margin:var(--sp-2) 0 0;padding:0}
+.login-form-analyze-panel .analyze-hidden-list li{
+  display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);
+  padding:var(--sp-2) 0;border-top:1px solid var(--border-muted);
+}
+.login-form-analyze-panel .analyze-hidden-list li:first-child{border-top:none}
+.login-form-analyze-panel .analyze-form-choice{
+  display:block;width:100%;text-align:left;margin:var(--sp-2) 0 0;
+}

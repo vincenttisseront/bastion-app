@@ -16,6 +16,10 @@ from app.bastion.bastion_fields import (
     IDENTITY_FORMAT_LABELS,
     IDENTITY_FORMATS,
 )
+from app.robotic.robotic_session_cookies import (
+    INJECTED_COOKIE_SCOPE_LABELS,
+    INJECTED_COOKIE_SCOPES,
+)
 
 FLASH_COOKIE = "portal_flash"
 FLASH_MAX_AGE = 30
@@ -118,6 +122,8 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "credential_mode_labels": CREDENTIAL_MODE_LABELS,
         "identity_formats": IDENTITY_FORMATS,
         "identity_format_labels": IDENTITY_FORMAT_LABELS,
+        "injected_cookie_scopes": INJECTED_COOKIE_SCOPES,
+        "injected_cookie_scope_labels": INJECTED_COOKIE_SCOPE_LABELS,
         "portal_domain": getattr(settings, "portal_domain", "") or "",
         **extra,
     }

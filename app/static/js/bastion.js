@@ -103,6 +103,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   initSlugFromLabel();
   initAccessModeForm();
+  initLoginFormAnalyzer();
 });
 
 function slugify(str) {
@@ -274,4 +275,254 @@ function initAccessModeForm() {
     authSelect.addEventListener('change', applyAuthMode);
     applyAuthMode();
   }
+}
+
+function initLoginFormAnalyzer() {
+  var urlInput = document.getElementById('login_form_url');
+  var analyzeBtn = document.getElementById('btn-analyze-login-form');
+  var panel = document.getElementById('login-form-analyze-panel');
+  if (!urlInput || !analyzeBtn || !panel) return;
+
+  var userInput = document.getElementById('login_username_field');
+  var passInput = document.getElementById('login_password_field');
+  var methodSelect = document.getElementById('login_http_method');
+  var methodHint = document.getElementById('login-http-method-hint');
+  var extraInput = document.getElementById('login_extra_fields');
+  var lastResult = null;
+
+  function isValidHttpUrl(value) {
+    try {
+      var u = new URL((value || '').trim());
+      return u.protocol === 'http:' || u.protocol === 'https:';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function syncAnalyzeButton() {
+    analyzeBtn.disabled = !isValidHttpUrl(urlInput.value);
+  }
+
+  function markAutodetected(el, on) {
+    if (!el) return;
+    el.classList.toggle('is-autodetected', !!on);
+  }
+
+  function clearAutodetected() {
+    markAutodetected(userInput, false);
+    markAutodetected(passInput, false);
+    markAutodetected(methodSelect, false);
+    markAutodetected(extraInput, false);
+    if (methodHint) {
+      methodHint.hidden = true;
+      methodHint.textContent = '';
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function parseExtraJson() {
+    var raw = (extraInput && extraInput.value || '').trim();
+    if (!raw) return {};
+    try {
+      var obj = JSON.parse(raw);
+      return obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function writeExtraJson(obj) {
+    if (!extraInput) return;
+    var keys = Object.keys(obj);
+    extraInput.value = keys.length ? JSON.stringify(obj, null, 2) : '';
+    markAutodetected(extraInput, keys.length > 0);
+  }
+
+  function syncHiddenExtrasFromChecks() {
+    if (!lastResult || !lastResult._appliedForm) return;
+    var form = lastResult._appliedForm;
+    var extras = parseExtraJson();
+    (form.hidden_fields || []).forEach(function (hf) {
+      var cb = panel.querySelector('[data-hidden-extra="' + CSS.escape(hf.name) + '"]');
+      if (!cb) return;
+      if (cb.checked) extras[hf.name] = hf.value;
+      else delete extras[hf.name];
+    });
+    writeExtraJson(extras);
+  }
+
+  function applyForm(form, enteredUrl) {
+    lastResult = lastResult || {};
+    lastResult._appliedForm = form;
+    clearAutodetected();
+
+    if (form.username_field && form.username_field.name && userInput) {
+      userInput.value = form.username_field.name;
+      markAutodetected(userInput, true);
+    }
+    if (form.password_field && form.password_field.name && passInput) {
+      passInput.value = form.password_field.name;
+      markAutodetected(passInput, true);
+    }
+    if (methodSelect) {
+      var method = (form.method || 'POST').toUpperCase();
+      if (method === 'GET' || method === 'POST') {
+        methodSelect.value = method;
+        markAutodetected(methodSelect, true);
+      }
+      if (methodHint) {
+        if (!form.method_explicit) {
+          methodHint.hidden = false;
+          methodHint.textContent =
+            'Méthode non explicite dans le HTML — POST supposé par convention (défaut vault). Vérifiez avant d\'enregistrer.';
+        } else {
+          methodHint.hidden = true;
+          methodHint.textContent = '';
+        }
+      }
+    }
+
+    var html = '';
+    html += '<p class="analyze-status alert alert-ok" style="margin:0 0 var(--sp-2)">';
+    html += 'Auto-détecté — vérifiez avant d\'enregistrer.';
+    html += '</p>';
+
+    if (form.username_field == null) {
+      html += '<p class="form-help" style="color:var(--warn)">Champ utilisateur non détecté — renseignez-le manuellement.</p>';
+    }
+
+    var action = form.action || '';
+    var entered = (enteredUrl || urlInput.value || '').trim();
+    if (action && entered && action !== entered) {
+      html += '<p class="form-help">Action détectée : <span class="mono">' + escapeHtml(action) + '</span></p>';
+      html += '<button type="button" class="btn btn-secondary btn-sm" data-use-detected-action="' +
+        escapeHtml(action) + '">Utiliser l\'URL détectée à la place</button>';
+    }
+
+    var hidden = form.hidden_fields || [];
+    if (hidden.length) {
+      html += '<p class="form-help" style="margin-top:var(--sp-3)">Champs cachés détectés. ';
+      html += 'Un token CSRF dynamique ne doit <strong>pas</strong> être ajouté ici — ';
+      html += 'le driver le récupère déjà automatiquement à chaque tentative via un GET préalable. ';
+      html += 'N\'ajoutez ici que des champs à valeur fixe (ex. <span class="mono">remember=1</span>).</p>';
+      html += '<ul class="analyze-hidden-list">';
+      hidden.forEach(function (hf) {
+        var checked = hf.likely_dynamic ? '' : ' checked';
+        html += '<li>';
+        html += '<label class="form-check" style="margin:0">';
+        html += '<input type="checkbox" data-hidden-extra="' + escapeHtml(hf.name) + '"' + checked + '> ';
+        html += 'Ajouter aux champs supplémentaires';
+        html += '</label>';
+        html += ' <span class="mono">' + escapeHtml(hf.name) + '</span>=';
+        html += '<span class="mono">' + escapeHtml(hf.value) + '</span>';
+        if (hf.likely_dynamic) {
+          html += ' <span class="badge badge-warn">probablement dynamique</span>';
+        }
+        html += '</li>';
+      });
+      html += '</ul>';
+    }
+
+    panel.innerHTML = html;
+    panel.hidden = false;
+
+    // Apply default checkbox state to extra fields
+    var extras = parseExtraJson();
+    hidden.forEach(function (hf) {
+      if (!hf.likely_dynamic) extras[hf.name] = hf.value;
+      else delete extras[hf.name];
+    });
+    writeExtraJson(extras);
+
+    panel.querySelectorAll('[data-hidden-extra]').forEach(function (cb) {
+      cb.addEventListener('change', syncHiddenExtrasFromChecks);
+    });
+    var useBtn = panel.querySelector('[data-use-detected-action]');
+    if (useBtn) {
+      useBtn.addEventListener('click', function () {
+        urlInput.value = useBtn.getAttribute('data-use-detected-action') || '';
+        syncAnalyzeButton();
+        useBtn.remove();
+      });
+    }
+  }
+
+  function showFormPicker(forms, enteredUrl) {
+    var html = '<p class="analyze-status">Plusieurs formulaires avec mot de passe détectés — choisissez lequel appliquer :</p>';
+    forms.forEach(function (form, idx) {
+      var label =
+        '#' + (idx + 1) + ' — ' + (form.field_count || '?') + ' champs, action ' +
+        (form.action || '(page)');
+      html +=
+        '<button type="button" class="btn btn-secondary btn-sm analyze-form-choice" data-form-idx="' +
+        idx +
+        '">' +
+        escapeHtml(label) +
+        '</button>';
+    });
+    panel.innerHTML = html;
+    panel.hidden = false;
+    panel.querySelectorAll('[data-form-idx]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var idx = parseInt(btn.getAttribute('data-form-idx'), 10);
+        applyForm(forms[idx], enteredUrl);
+      });
+    });
+  }
+
+  analyzeBtn.addEventListener('click', async function () {
+    var url = (urlInput.value || '').trim();
+    if (!isValidHttpUrl(url)) return;
+    clearAutodetected();
+    analyzeBtn.disabled = true;
+    panel.hidden = false;
+    panel.innerHTML = '<p class="analyze-status form-help">Analyse en cours…</p>';
+    try {
+      var resp = await fetch('/admin/apps/analyze-login-form', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '',
+        },
+        body: JSON.stringify({ url: url }),
+      });
+      var data = await resp.json().catch(function () {
+        return {};
+      });
+      if (!resp.ok) {
+        panel.innerHTML =
+          '<div class="alert alert-warn"><div class="alert-body">' +
+          escapeHtml(data.message || data.detail || 'Analyse impossible.') +
+          '</div></div>';
+        return;
+      }
+      lastResult = data;
+      var forms = data.forms || [];
+      if (forms.length === 1) {
+        applyForm(forms[0], url);
+      } else if (forms.length > 1) {
+        showFormPicker(forms, url);
+      } else {
+        panel.innerHTML =
+          '<div class="alert alert-warn"><div class="alert-body">Aucun formulaire détecté.</div></div>';
+      }
+    } catch (e) {
+      panel.innerHTML =
+        '<div class="alert alert-err"><div class="alert-body">Erreur réseau pendant l\'analyse.</div></div>';
+    } finally {
+      syncAnalyzeButton();
+    }
+  });
+
+  urlInput.addEventListener('input', syncAnalyzeButton);
+  urlInput.addEventListener('change', syncAnalyzeButton);
+  syncAnalyzeButton();
 }

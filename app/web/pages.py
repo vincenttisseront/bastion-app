@@ -15,6 +15,7 @@ from app.bastion.bastion_fields import (
     validate_generic_form_fields,
     vault_enabled_for_app,
 )
+from app.robotic.robotic_session_cookies import normalize_injected_cookie_scope
 from app.admin.export import export_app_catalogue_files
 from app.audit import list_audit_entries, log_action
 from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
@@ -148,6 +149,7 @@ def _apply_auth_config(
     login_extra_fields: str,
     credential_mode: str = "shared",
     identity_format: str = "email",
+    injected_cookie_scope: str = "host_only",
 ) -> None:
     mode = normalize_auth_mode(auth_mode)
     app.auth_mode = mode
@@ -159,6 +161,7 @@ def _apply_auth_config(
     app.login_extra_fields = (login_extra_fields or "").strip() or None
     app.credential_mode = normalize_credential_mode(credential_mode)
     app.identity_format = normalize_identity_format(identity_format)
+    app.injected_cookie_scope = normalize_injected_cookie_scope(injected_cookie_scope)
 
 
 def _validate_auth_fields(
@@ -696,6 +699,7 @@ def admin_apps_edit_post(
     login_extra_fields: str = Form(""),
     credential_mode: str = Form("shared"),
     identity_format: str = Form("email"),
+    injected_cookie_scope: str = Form("host_only"),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -736,6 +740,7 @@ def admin_apps_edit_post(
             login_extra_fields=login_extra_fields,
             credential_mode=credential_mode,
             identity_format=identity_format,
+            injected_cookie_scope=injected_cookie_scope,
         )
         return render(
             "admin/apps/edit.html",
@@ -764,6 +769,7 @@ def admin_apps_edit_post(
         login_extra_fields=login_extra_fields,
         credential_mode=credential_mode,
         identity_format=identity_format,
+        injected_cookie_scope=injected_cookie_scope,
     )
     db.commit()
     _warn_if_fqdn_cookie_domain_incompatible(
@@ -782,6 +788,53 @@ def admin_apps_edit_post(
 class _VaultCredentialBody(BaseModel):
     robotic_username: str = Field(min_length=1)
     password: str = Field(min_length=1)
+
+
+class _AnalyzeLoginFormBody(BaseModel):
+    url: str = Field(min_length=1)
+
+
+@admin_router.post("/admin/apps/analyze-login-form")
+async def admin_analyze_login_form(
+    body: _AnalyzeLoginFormBody,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_admin),
+):
+    """Fetch a remote login page and detect form field names (no credentials sent)."""
+    from app.bastion.login_form_analyzer import (
+        AnalyzeLoginFormError,
+        analyze_login_form_url,
+    )
+
+    try:
+        result = await analyze_login_form_url(body.url.strip())
+    except AnalyzeLoginFormError as exc:
+        log_action(
+            db,
+            actor=user.email,
+            action="app.login_form.analyzed",
+            target=(body.url or "").strip()[:500],
+            details={"error": exc.error, "forms_found": 0},
+            ip_address=_client_ip(request),
+        )
+        return JSONResponse(
+            {"error": exc.error, "message": exc.message},
+            status_code=exc.status_code,
+        )
+    log_action(
+        db,
+        actor=user.email,
+        action="app.login_form.analyzed",
+        target=(body.url or "").strip()[:500],
+        details={
+            "forms_found": result["forms_found"],
+            "fetched_url": result.get("fetched_url"),
+            "actions": [f.get("action") for f in result.get("forms", [])],
+        },
+        ip_address=_client_ip(request),
+    )
+    return result
 
 
 @admin_router.get("/admin/apps/{slug}/credential")

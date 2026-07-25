@@ -45,6 +45,8 @@ class App(Base):
     credential_mode = Column(String, default="shared", nullable=False)
     # identite_utilisateur: "email" (UPN) or "username" (short preferred_username)
     identity_format = Column(String, default="email", nullable=False)
+    # Target session cookies: host_only (default) or wide_domain (opt-in parent Domain)
+    injected_cookie_scope = Column(String, default="host_only", nullable=False)
     healthcheck_url = Column(String, nullable=True)
     enabled = Column(Boolean, default=True)
     tile_icon = Column(String, nullable=True)

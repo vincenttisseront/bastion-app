@@ -1,13 +1,17 @@
-"""Robotic session cookie Path/Domain helpers."""
+"""Target session cookie Path/Domain — host_only default, wide_domain opt-in."""
 
 from __future__ import annotations
 
 from fastapi.responses import Response
 
 from app.robotic.robotic_session_cookies import (
+    COOKIE_SCOPE_HOST_ONLY,
+    COOKIE_SCOPE_WIDE_DOMAIN,
     build_crushftp_response_cookies,
     build_response_cookies,
     cookie_path_and_domain,
+    inject_target_session_cookies,
+    needs_session_cookie_hop,
     normalize_hostname,
     shared_parent_domain,
 )
@@ -58,37 +62,27 @@ def test_normalize_hostname():
     assert normalize_hostname("  PORTAL.AR-SYSTEMS.FR. ") == "portal.ar-systems.fr"
 
 
-def test_cookie_path_and_domain_subdomain_shared_parent():
+def test_cookie_path_host_only_subdomain_default_no_domain():
     path, domain = cookie_path_and_domain(
         "subdomain",
-        "transfer",
-        "transfer.ar-systems.fr",
-        portal_domain="portal.ar-systems.fr",
-    )
-    assert path == "/"
-    assert domain == "ar-systems.fr"
-
-
-def test_cookie_path_and_domain_webmail_shared_parent():
-    path, domain = cookie_path_and_domain(
-        "subdomain",
-        "grommunio",
-        "webmail.ar-systems.fr",
-        portal_domain="portal.ar-systems.fr",
-    )
-    assert path == "/"
-    assert domain == "ar-systems.fr"
-
-
-def test_cookie_path_and_domain_subdomain_no_shared_parent():
-    path, domain = cookie_path_and_domain(
-        "subdomain",
-        "ext",
-        "app.exemple-externe.com",
+        "myapp",
+        "app.ar-systems.fr",
         portal_domain="portal.ar-systems.fr",
     )
     assert path == "/"
     assert domain is None
+
+
+def test_cookie_path_wide_domain_subdomain_uses_shared_parent():
+    path, domain = cookie_path_and_domain(
+        "subdomain",
+        "myapp",
+        "app.ar-systems.fr",
+        portal_domain="portal.ar-systems.fr",
+        scope=COOKIE_SCOPE_WIDE_DOMAIN,
+    )
+    assert path == "/"
+    assert domain == "ar-systems.fr"
 
 
 def test_cookie_path_and_domain_legacy_unchanged():
@@ -97,12 +91,67 @@ def test_cookie_path_and_domain_legacy_unchanged():
         "transfer",
         "transfer.ar-systems.fr",
         portal_domain="portal.ar-systems.fr",
+        scope=COOKIE_SCOPE_WIDE_DOMAIN,
     )
     assert path == "/proxy/transfer/"
     assert domain is None
 
 
-def test_build_crushftp_sets_shared_domain(caplog):
+def test_needs_session_cookie_hop_host_only_subdomain():
+    assert needs_session_cookie_hop(
+        "subdomain", "app.ar-systems.fr", scope=COOKIE_SCOPE_HOST_ONLY
+    )
+    assert not needs_session_cookie_hop(
+        "subdomain", "app.ar-systems.fr", scope=COOKIE_SCOPE_WIDE_DOMAIN
+    )
+    assert not needs_session_cookie_hop("legacy", None, scope=COOKIE_SCOPE_HOST_ONLY)
+
+
+def test_inject_target_session_cookies_default_has_no_domain():
+    """Generic mock app — Set-Cookie must never include Domain by default."""
+    response = Response()
+    inject_target_session_cookies(
+        response,
+        {"sessionid": "abc123xyz", "csrftoken": "tok"},
+        mode="subdomain",
+        slug="demo-app",
+        fqdn="demo.ar-systems.fr",
+        portal_domain="portal.ar-systems.fr",
+    )
+    headers = response.headers.getlist("set-cookie")
+    assert any("sessionid=abc123xyz" in h for h in headers)
+    assert not any("Domain=" in h or "domain=" in h for h in headers)
+
+
+def test_inject_opt_in_wide_domain():
+    response = Response()
+    inject_target_session_cookies(
+        response,
+        {"sessionid": "wide-sess"},
+        mode="subdomain",
+        slug="demo-app",
+        fqdn="demo.ar-systems.fr",
+        portal_domain="portal.ar-systems.fr",
+        scope=COOKIE_SCOPE_WIDE_DOMAIN,
+    )
+    headers = response.headers.getlist("set-cookie")
+    cookie = next(h for h in headers if h.startswith("sessionid="))
+    assert "Domain=ar-systems.fr" in cookie or "domain=ar-systems.fr" in cookie
+
+
+def test_portal_sso_shared_parent_helper_unchanged():
+    """Portal SSO Domain=<parent> helper must keep working (non-regression)."""
+    assert (
+        shared_parent_domain("portal.ar-systems.fr", "transfer.ar-systems.fr")
+        == "ar-systems.fr"
+    )
+    assert (
+        shared_parent_domain("webmail.ar-systems.fr", "portal.ar-systems.fr")
+        == "ar-systems.fr"
+    )
+
+
+def test_build_crushftp_host_only_by_default():
     response = Response()
     build_crushftp_response_cookies(
         response,
@@ -112,18 +161,16 @@ def test_build_crushftp_sets_shared_domain(caplog):
         fqdn="transfer.ar-systems.fr",
         portal_domain="portal.ar-systems.fr",
     )
-    # Starlette stores cookies; inspect raw Set-Cookie headers
     headers = response.headers.getlist("set-cookie")
     assert any("CrushAuth=" in h for h in headers)
-    assert any("Domain=ar-systems.fr" in h or "domain=ar-systems.fr" in h for h in headers)
-    assert not any("Domain=transfer.ar-systems.fr" in h for h in headers)
+    assert not any("Domain=" in h or "domain=" in h for h in headers)
     crush = next(h for h in headers if h.startswith("CrushAuth="))
     current = next(h for h in headers if h.startswith("currentAuth="))
     assert "HttpOnly" in crush or "httponly" in crush.lower()
     assert "HttpOnly" not in current and "httponly" not in current.lower()
 
 
-def test_build_grommunio_cookies_use_shared_parent_domain():
+def test_build_grommunio_cookies_host_only_by_default():
     response = Response()
     build_response_cookies(
         response,
@@ -142,9 +189,7 @@ def test_build_grommunio_cookies_use_shared_parent_domain():
     assert any("__Secure-GROMMUNIO_WEB=" in h for h in headers)
     for name in ("__Secure-GROMMUNIO_WEB", "domainname", "webapp_title", "grommunioAuthJwt"):
         cookie = next(h for h in headers if h.startswith(f"{name}="))
-        assert "Domain=ar-systems.fr" in cookie or "domain=ar-systems.fr" in cookie
-        assert "Domain=webmail.ar-systems.fr" not in cookie
-        assert "Domain=portal.ar-systems.fr" not in cookie
+        assert "Domain=" not in cookie and "domain=" not in cookie
 
 
 def test_build_response_cookies_legacy_no_domain():

@@ -33,6 +33,11 @@ from app.robotic.impersonate_service import (
 from app.robotic.robotic_session_cookies import (
     build_crushftp_response_cookies,
     build_response_cookies,
+    needs_session_cookie_hop,
+)
+from app.robotic.session_cookie_hop import (
+    attach_session_hop_portal_cookies,
+    session_hop_url,
 )
 from app.sso_settings import Settings, get_settings
 from app.subdomain.subdomain_service import get_app_by_slug
@@ -243,6 +248,7 @@ def _touch_open_session(
 
 
 def _attach_robotic_cookies(response: Response, result, *, settings: Settings) -> None:
+    scope = getattr(result, "injected_cookie_scope", None)
     if result.use_crushftp_cookies:
         build_crushftp_response_cookies(
             response,
@@ -251,6 +257,7 @@ def _attach_robotic_cookies(response: Response, result, *, settings: Settings) -
             slug=result.slug,
             fqdn=result.fqdn,
             portal_domain=settings.portal_domain,
+            scope=scope,
         )
     else:
         build_response_cookies(
@@ -260,7 +267,27 @@ def _attach_robotic_cookies(response: Response, result, *, settings: Settings) -
             slug=result.slug,
             fqdn=result.fqdn,
             portal_domain=settings.portal_domain,
+            scope=scope,
         )
+
+
+def _hop_cookies_for_result(result) -> dict[str, str]:
+    if result.use_crushftp_cookies:
+        return {
+            k: result.cookies[k]
+            for k in ("CrushAuth", "currentAuth")
+            if result.cookies.get(k)
+        }
+    return dict(result.cookies)
+
+
+def _uses_session_cookie_hop(result) -> bool:
+    """Subdomain + host_only -> hop onto the app FQDN (any driver)."""
+    return needs_session_cookie_hop(
+        result.mode,
+        result.fqdn,
+        scope=getattr(result, "injected_cookie_scope", None),
+    )
 
 
 def _cookie_redirect(
@@ -276,6 +303,20 @@ def _cookie_redirect(
     _touch_open_session(
         result, settings=settings, db=db, user=user, request=request, slug=slug
     )
+    if _uses_session_cookie_hop(result):
+        response = RedirectResponse(
+            url=session_hop_url(result.fqdn),
+            status_code=status_code,
+        )
+        attach_session_hop_portal_cookies(
+            response,
+            cookies=_hop_cookies_for_result(result),
+            target_url=result.target_url,
+            slug=result.slug,
+            fqdn=result.fqdn,
+            settings=settings,
+        )
+        return response
     response = RedirectResponse(url=result.target_url, status_code=status_code)
     _attach_robotic_cookies(response, result, settings=settings)
     return response
@@ -294,6 +335,23 @@ def _cookie_json_open(
     _touch_open_session(
         result, settings=settings, db=db, user=user, request=request, slug=slug
     )
+    if _uses_session_cookie_hop(result):
+        response = JSONResponse(
+            {
+                "ok": True,
+                "target_url": session_hop_url(result.fqdn),
+                "slug": result.slug,
+            }
+        )
+        attach_session_hop_portal_cookies(
+            response,
+            cookies=_hop_cookies_for_result(result),
+            target_url=result.target_url,
+            slug=result.slug,
+            fqdn=result.fqdn,
+            settings=settings,
+        )
+        return response
     response = JSONResponse(
         {
             "ok": True,
