@@ -390,11 +390,20 @@ async def login_post(
     # public /auth/ — never verify the break-glass password from a non-LAN IP.
     client_ip = _client_ip(request)
     if not is_rfc1918(client_ip, settings.rfc1918_cidrs):
+        from app.request_client_ip import client_ip_probe
+
+        probe = client_ip_probe(request)
         log_action(
             db,
             actor=username,
             action="breakglass.login_denied_non_lan",
-            details={"reason": "client_ip_not_rfc1918"},
+            details={
+                "reason": "client_ip_not_rfc1918",
+                "resolved": client_ip or None,
+                "x_real_ip": probe.get("x_real_ip"),
+                "x_forwarded_for": probe.get("x_forwarded_for"),
+                "peer": probe.get("request_client_host"),
+            },
             ip_address=client_ip or None,
         )
         realm = get_default_idp_realm(db)

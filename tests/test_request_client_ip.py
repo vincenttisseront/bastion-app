@@ -135,10 +135,21 @@ def test_ignores_cdn_spoof_headers_even_from_trusted_peer():
     assert ip == "203.0.113.40"
 
 
+def test_corp_lan_172_24_workstation_is_not_infra():
+    """Workstations on 172.24.0.0/16 (same LAN as reverse01) must count as clients."""
+    assert not is_infra_hop("172.24.0.50")
+    assert is_infra_hop("172.24.0.108")
+    ip = client_ip_from_request(
+        _req(headers={"X-Real-IP": "172.24.0.50"}, host="10.5.0.2")
+    )
+    assert ip == "172.24.0.50"
+
+
 def test_prefer_client_ip_upgrades_infra():
     assert prefer_client_ip("172.24.0.108", "192.168.2.10") == "192.168.2.10"
     assert prefer_client_ip("192.168.2.10", "172.24.0.108") == "192.168.2.10"
     assert is_infra_hop("172.24.0.108")
     assert not is_infra_hop("192.168.2.10")
+    assert not is_infra_hop("172.24.0.42")
     assert is_trusted_proxy_peer("10.5.0.1")
     assert not is_trusted_proxy_peer("203.0.113.1")

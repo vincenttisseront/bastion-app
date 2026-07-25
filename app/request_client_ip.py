@@ -21,11 +21,12 @@ from fastapi import Request
 
 logger = logging.getLogger(__name__)
 
-# Intermediate hops on the bastion path (reverse01 → Traefik → nginx → app).
-# These must never be treated as the end-user client for LAN / break-glass checks.
+# Intermediate hops that are never the end-user client.
+# Do NOT mark the whole 172.24.0.0/16 as infra: that is the corp/DMZ LAN where
+# workstations live (same range as reverse01). Only the reverse host itself.
 _INFRA_NETWORKS = (
-    ipaddress.ip_network("10.5.0.0/16"),  # docker vpcbr
-    ipaddress.ip_network("172.24.0.0/16"),  # reverse01 / Traefik host LAN
+    ipaddress.ip_network("10.5.0.0/16"),  # docker vpcbr (Traefik ↔ nginx ↔ app)
+    ipaddress.ip_network("172.24.0.108/32"),  # vmdmz-reverse01 (nginx DMZ)
     ipaddress.ip_network("172.17.0.0/16"),  # default docker bridge
     ipaddress.ip_network("127.0.0.0/8"),
 )
