@@ -1,96 +1,20 @@
 ---
-# Déploiement Docker bastion (Phase 7) — AWX + local.
+# DEPRECATED — ne pas utiliser comme Job Template AWX.
 #
-# AWX :
-#   Project  = awx-playbook (doit contenir ce playbook + roles/bastion_app_docker*
-#              synchronisés depuis bastion-app/ansible/)
-#   Playbook = linux_sso_portal_docker.yml
-#   Inventaire = sso_portal_docker / vmdmz-docker01
+# Entry point UNIQUE : awx-playbook / linux_sso_portal_docker.yml
+# (Project AWX = awx-playbook ; ce fichier n'est PAS visible depuis AWX).
 #
-# Flux :
-#   1) clone Git bastion-app @ bastion_app_git_ref (controller)
-#   2) tar → /tools/portal + docker compose build/up
-#   3) VERIFY image SSO (RFC1918=false, rd=/apps) sinon fail
-#   4) vpcbr aliases + smoke
-#   5) VALIDATE_PURGE canary (purge-units.list → apply-infra-docker) + REPORT
-#
-# Tags AWX : preflight | deploy | smoke | validate_purge
-#   --tags validate_purge  → canary seul (sans redeploy), coller le REPORT dans Cursor
-#
-# Extra-vars AWX (override) :
-#   bastion_app_git_ref: master
-#   vault_portal_internal_token / vault_sso_portal_oidc_client_secret / …
+# Le rôle ansible/roles/bastion_app_docker est consommé via symlink
+# bastion_app_docker_phase7 depuis le playbook awx-playbook après clone
+# de ce dépôt @ bastion_app_git_version.
 
-- name: "PRE-FLIGHT : validation Docker avant mutation"
-  hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"
-  become: true
-  gather_facts: true
-  tags:
-    - preflight
-  vars:
-    bastion_app_docker_enabled: true
-    # AWX wrapper clone déjà ; true seulement hors AWX sans checkout
-    bastion_app_docker_fetch_git: false
-    bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
-    bastion_app_git_ref: master
-    bastion_app_docker_role_name: bastion_app_docker_phase7
-  tasks:
-    - name: Run Docker bastion preflight
-      ansible.builtin.include_role:
-        name: "{{ bastion_app_docker_role_name }}"
-        tasks_from: preflight.yml
-      when: bastion_app_docker_enabled | bool
-
-- name: "DEPLOY : stack Docker bastion"
-  hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"
-  become: true
-  gather_facts: true
-  tags:
-    - deploy
-  vars:
-    bastion_app_docker_enabled: true
-    bastion_app_docker_fetch_git: false
-    bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
-    bastion_app_git_ref: master
-    bastion_app_docker_role_name: bastion_app_docker_phase7
-  tasks:
-    - name: Deploy bastion Docker compose stack
-      ansible.builtin.include_role:
-        name: "{{ bastion_app_docker_role_name }}"
-        tasks_from: main.yml
-      when: bastion_app_docker_enabled | bool
-
-- name: "SMOKE : validation post-déploiement Docker"
-  hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"
-  become: true
+- name: "Refuse local/obsolete entry point"
+  hosts: localhost
   gather_facts: false
-  tags:
-    - smoke
-  vars:
-    bastion_app_docker_enabled: true
-    bastion_app_docker_role_name: bastion_app_docker_phase7
   tasks:
-    - name: Run Docker bastion smoke tests
-      ansible.builtin.include_role:
-        name: "{{ bastion_app_docker_role_name }}"
-        tasks_from: smoke_test.yml
-      when: bastion_app_docker_enabled | bool
-
-# Canary purge-units.list — inclus au deploy (tag smoke) ou seul (--tags validate_purge).
-# Coller le debug « AWX VALIDATE_PURGE REPORT » dans Cursor pour validation.
-- name: "VALIDATE_PURGE : consommation exports/systemd/purge-units.list"
-  hosts: "{{ sso_portal_docker_hosts | default('sso_portal_docker:vmdmz-docker01') }}"
-  become: true
-  gather_facts: false
-  tags:
-    - smoke
-    - validate_purge
-  vars:
-    bastion_app_docker_enabled: true
-    bastion_app_docker_role_name: bastion_app_docker_phase7
-  tasks:
-    - name: Validate purge-units.list consumption via apply-infra-docker
-      ansible.builtin.include_role:
-        name: "{{ bastion_app_docker_role_name }}"
-        tasks_from: validate_purge_units.yml
-      when: bastion_app_docker_enabled | bool
+    - name: Fail — use awx-playbook linux_sso_portal_docker.yml
+      ansible.builtin.fail:
+        msg: >-
+          Déploiement Docker bastion : utiliser uniquement le playbook
+          awx-playbook/linux_sso_portal_docker.yml (Job Template AWX).
+          Ne pas lancer ansible/linux_sso_portal_docker.yml depuis bastion-app.

@@ -323,17 +323,40 @@
 
 - name: "Dump migrate logs on compose failure"
   ansible.builtin.command:
-    cmd: docker compose logs --no-color bastion-app-migrate
+    cmd: docker compose logs --no-color --tail=80 bastion-app-migrate
     chdir: "{{ bastion_app_docker_compose_dir }}"
   register: _migrate_logs
   changed_when: false
   failed_when: false
   when: _compose_up.rc | default(0) != 0
 
-- name: "Fail with migrate diagnostics"
+- name: "Dump bastion-app logs on compose failure"
+  ansible.builtin.command:
+    cmd: docker compose logs --no-color --tail=120 bastion-app
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _app_logs
+  changed_when: false
+  failed_when: false
+  when: _compose_up.rc | default(0) != 0
+
+- name: "Dump bastion-app health status on compose failure"
+  ansible.builtin.command:
+    cmd: docker compose ps bastion-app
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _app_ps
+  changed_when: false
+  failed_when: false
+  when: _compose_up.rc | default(0) != 0
+
+- name: "Fail with compose diagnostics"
   ansible.builtin.fail:
     msg: >-
       docker compose up failed (rc={{ _compose_up.rc }}).
+      bastion-app ps:
+      {{ _app_ps.stdout | default('') }}
+      bastion-app logs:
+      {{ _app_logs.stdout | default('') }}
+      {{ _app_logs.stderr | default('') }}
       migrate logs:
       {{ _migrate_logs.stdout | default('') }}
       {{ _migrate_logs.stderr | default('') }}

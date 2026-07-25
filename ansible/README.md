@@ -23,32 +23,22 @@ clients → vmdmz-reverse01:443 (nginx edge)
   (`vhost_portal_bastion.conf.j2`, `portal_bastion_edge_enabled: true` dans `linux_nginx_dmz.yml`)
 
 ```bash
-# AWX (prod) — Project awx-playbook
-#   Playbook = linux_sso_portal_docker.yml
+# AWX (prod) — SEUL entry point
+#   Project    = awx-playbook
+#   Playbook   = linux_sso_portal_docker.yml   # dans awx-playbook, PAS ici
 #   Inventaire = groupe sso_portal_docker (vmdmz-docker01)
-#   Rôle      = bastion_app_docker_phase7 (alias → bastion_app_docker)
-#   Extra-vars (optionnel) :
-#     bastion_app_git_ref: master   # défaut du playbook
+#   Rôle       = bastion_app_docker_phase7
+#                (symlink → checkout bastion-app/ansible/roles/bastion_app_docker)
+#   Extra-vars :
+#     bastion_app_git_version: master
+#     vault_bastion_app_github_token / vault_portal_* (bootstrap crypto + Bearer)
+#   HMAC (hop / breakglass JWT) : seedés en SQLite par migrate — pas Extra Vars.
 #
-# Tags utiles :
-#   --tags smoke            # smoke + VALIDATE_PURGE (canary purge-units.list)
-#   --tags validate_purge   # uniquement la conso purge-units.list (rapport collable)
+# Ne PAS lancer ansible/linux_sso_portal*.yml depuis bastion-app.
 #
-# IMPORTANT : synchroniser depuis bastion-app/ansible/ vers awx-playbook :
-#   - linux_sso_portal_docker.yml
-#   - roles/bastion_app_docker/
-#   - roles/bastion_app_docker_phase7/
-#
-# Le rôle clone https://github.com/vincenttisseront/bastion-app.git @ bastion_app_git_ref
-# sur le controller AWX, puis tar → /tools/portal + docker compose build.
-# VERIFY post-up échoue si RFC1918≠false ou nginx sans rd=/apps.
-# VALIDATE_PURGE seed un canary dans exports/systemd/purge-units.list, lance
-# apply-infra-docker.sh, assert liste vidée, et affiche « AWX VALIDATE_PURGE REPORT ».
-
-# Local / hors AWX
-ansible-playbook ansible/linux_sso_portal_docker.yml \
-  -i ansible/inventory/inventory_sso_portal.ini.example --syntax-check \
-  -e bastion_app_docker_role_name=bastion_app_docker
+# Tags utiles (Job AWX) :
+#   --tags smoke            # smoke + VALIDATE_PURGE
+#   --tags validate_purge   # canary purge-units.list seul
 
 bash scripts/smoke-docker-local.sh
 ```
@@ -92,16 +82,19 @@ ansible-playbook ansible/linux_sso_portal.yml \
 ```
 
 Secrets AWX (jamais en logs grâce à `no_log` sur le rendu `.env`) :
-- `vault_portal_internal_token`
-- `breakglass_jwt_secret` (HMAC `bg_session` — distinct du token Bearer)
-- `breakglass_jwt_secret_fallback_enabled` (transition ; désactiver après renouvellement)
-- `vault_sso_portal_oidc_client_secret`
+- `vault_portal_internal_token` (Bearer nginx / APIs internes — bootstrap `.env`)
+- `vault_sso_portal_oidc_client_secret` (legacy bootstrap ; source de vérité OIDC = `RealmConfig`)
 - `vault_portal_vault_fernet_key` — **temporaire Phase B** : conservé pour migration
   auto vers fichiers locaux (`VAULT_KEYS_DIR`). Ne pas retirer avant smoke
   `verify_fernet_key_migration.yml` vert sur tous les environnements.
 - `vault_portal_db_encryption_key` — SQLCipher (chiffrement fichier `portal.db`),
   **64 caractères hex** (`openssl rand -hex 32`). Persisté sous
   `{VAULT_KEYS_DIR}/db_encryption.key` au premier boot. Distinct de la clé Fernet.
+
+HMAC runtime (**pas** dans `.env`) — seedés en base `portal_settings` par le job
+migrate (`python -m app.runtime_secrets_service`) :
+- session-cookie hop (`session_hop_secret_encrypted`)
+- break-glass JWT (`breakglass_jwt_secret_encrypted`) — aussi générable Admin → Sécurité
 
 Clé Fernet métier (Phase B) : gérée par l’app sous `sso_portal_keys_dir`
 (`/var/lib/sso-portal/keys`). Rotation via Admin → Sécurité (in-process), pas via AWX.

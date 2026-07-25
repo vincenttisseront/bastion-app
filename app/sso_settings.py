@@ -65,7 +65,8 @@ class Settings(BaseSettings):
             "vault_portal_internal_token",
         ),
     )
-    # HMAC key for bg_session JWT — must NOT be the Bearer internal token.
+    # HMAC key for bg_session JWT — optional env override (pytest / emergency).
+    # Source of truth: portal_settings.breakglass_jwt_secret_encrypted.
     breakglass_jwt_secret: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -82,7 +83,8 @@ class Settings(BaseSettings):
             "breakglass_jwt_secret_fallback_enabled",
         ),
     )
-    # HMAC for robotic session-cookie hop — distinct from VAULT_PORTAL_INTERNAL_TOKEN.
+    # HMAC for robotic session-cookie hop — optional env override (pytest / emergency).
+    # Source of truth: portal_settings.session_hop_secret_encrypted.
     session_hop_secret: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -206,8 +208,11 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Shared flag for optional LAN auth shortcuts. Default false (F-04 2026-07-25):
+    # disable until the reverse01 → nginx-bastion → app client-IP chain is proven.
+    # Portal /internal/oauth2-auth never applies this bypass; subdomain did when true.
     rfc1918_bypass_enabled: bool = Field(
-        default=True,
+        default=False,
         validation_alias=AliasChoices(
             "RFC1918_BYPASS_ENABLED",
             "PORTAL_RFC1918_BYPASS_AUTH",
@@ -216,6 +221,16 @@ class Settings(BaseSettings):
     )
     rfc1918_cidrs: Annotated[list[str], NoDecode] = Field(
         default=["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1/32"]
+    )
+    # TCP peers allowed to set X-Real-IP / X-Forwarded-For (nginx-bastion → FastAPI).
+    # Do NOT include the public Internet or the DMZ reverse alone — only the hop
+    # that terminates TLS toward the app (docker vpcbr / loopback).
+    trusted_proxy_cidrs: Annotated[list[str], NoDecode] = Field(
+        default=["10.5.0.0/16", "172.17.0.0/16", "127.0.0.0/8"],
+        validation_alias=AliasChoices(
+            "TRUSTED_PROXY_CIDRS",
+            "trusted_proxy_cidrs",
+        ),
     )
 
     portal_admin_groups: Annotated[list[str], NoDecode] = Field(
@@ -262,6 +277,14 @@ class Settings(BaseSettings):
             default=["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1/32"],
         )
 
+    @field_validator("trusted_proxy_cidrs", mode="before")
+    @classmethod
+    def parse_trusted_proxy_cidrs(cls, value: Any) -> list[str]:
+        return _parse_csv_or_json_list(
+            value,
+            default=["10.5.0.0/16", "172.17.0.0/16", "127.0.0.0/8"],
+        )
+
     @field_validator("environment", mode="before")
     @classmethod
     def normalize_environment(cls, value: Any) -> str:
@@ -276,19 +299,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":
-        """Fail-closed in production: dedicated secrets, no vault-token JWT fallback."""
+        """Fail-closed in production: no vault-token JWT fallback via env flag.
+
+        HMAC secrets (breakglass JWT, session hop) live in ``portal_settings``
+        and are ensured at boot / by ``python -m app.runtime_secrets_service``.
+        Env overrides remain optional (pytest / emergency).
+        """
         if self.environment != "production":
             return self
-        missing: list[str] = []
-        if not (self.breakglass_jwt_secret or "").strip():
-            missing.append("BREAKGLASS_JWT_SECRET")
-        if not (self.session_hop_secret or "").strip():
-            missing.append("SESSION_HOP_SECRET")
-        if missing:
-            raise ValueError(
-                "Production requires dedicated secrets (no silent fallback): "
-                + ", ".join(missing)
-            )
         object.__setattr__(self, "breakglass_jwt_secret_fallback_enabled", False)
         return self
 

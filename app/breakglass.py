@@ -95,9 +95,9 @@ def resolve_breakglass_signing_secret_with_source(
     Secret used to *sign* new ``bg_session`` JWTs (single active source).
 
     Priority:
-    1. ``BREAKGLASS_JWT_SECRET`` (env / AWX)
-    2. UI-generated secret in ``portal_settings`` (if env absent)
-    3. Legacy ``VAULT_PORTAL_INTERNAL_TOKEN``
+    1. ``BREAKGLASS_JWT_SECRET`` (env / emergency override)
+    2. DB secret in ``portal_settings`` (Ansible / Admin UI — preferred)
+    3. Legacy ``VAULT_PORTAL_INTERNAL_TOKEN`` (non-production only)
     4. Process-lifetime ephemeral (dev / last resort)
 
     Returns ``(secret, source)`` where source is env|ui|legacy|ephemeral.
@@ -108,15 +108,15 @@ def resolve_breakglass_signing_secret_with_source(
     if dedicated:
         return dedicated, "env"
 
-    if settings.is_production:
-        raise RuntimeError(
-            "BREAKGLASS_JWT_SECRET is required in production "
-            "(no VAULT_PORTAL_INTERNAL_TOKEN fallback)"
-        )
-
     ui = get_ui_breakglass_secret(db, settings)
     if ui:
         return ui, "ui"
+
+    if settings.is_production:
+        raise RuntimeError(
+            "break-glass JWT secret missing in portal_settings "
+            "(run: python -m app.runtime_secrets_service ; no VAULT_PORTAL_INTERNAL_TOKEN fallback)"
+        )
 
     legacy = _legacy_breakglass_hmac_secret(settings)
     if legacy:
@@ -130,8 +130,8 @@ def resolve_breakglass_signing_secret_with_source(
     if _EPHEMERAL_JWT_SECRET is None:
         _EPHEMERAL_JWT_SECRET = secrets.token_urlsafe(32)
         logger.warning(
-            "BREAKGLASS_JWT_SECRET unset and no UI secret — using ephemeral process "
-            "secret; set BREAKGLASS_JWT_SECRET via AWX or generate from Admin → Sécurité"
+            "break-glass JWT secret unset — using ephemeral process secret; "
+            "seed via python -m app.runtime_secrets_service or Admin → Sécurité"
         )
     source: SigningSource = "ephemeral"
     return _EPHEMERAL_JWT_SECRET, source
@@ -891,12 +891,26 @@ async def breakglass_login(
             detail="Break-glass JWT secret not configured (BREAKGLASS_JWT_SECRET)",
         )
 
+    # Defense in depth (F-01/F-06): same LAN gate as Nginx allowlist / HTML /auth/login.
+    from app.auth import is_rfc1918
+
+    client_ip = _client_ip(request)
+    if not is_rfc1918(client_ip, settings.rfc1918_cidrs):
+        log_action(
+            db,
+            actor=body.username,
+            action="breakglass.login_denied_non_lan",
+            details={"reason": "client_ip_not_rfc1918", "via": "api"},
+            ip_address=client_ip or None,
+        )
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     if not verify_breakglass_password(db, body.username, body.password):
         log_action(
             db,
             actor=body.username,
             action="breakglass.login_failed",
-            ip_address=_client_ip(request),
+            ip_address=client_ip or None,
         )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 

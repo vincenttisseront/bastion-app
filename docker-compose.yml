@@ -27,6 +27,8 @@ services:
         # Encrypt plaintext portal.db before Alembic/app expect SQLCipher (idempotent).
         python /app/scripts/encrypt_portal_db.py
         alembic upgrade head
+        # HMAC secrets in portal_settings (not .env) — idempotent.
+        python -m app.runtime_secrets_service
         chown -R 1000:1000 /var/lib/sso-portal /var/lib/sso-portal-files
     env_file:
       - .env

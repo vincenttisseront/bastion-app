@@ -570,10 +570,12 @@ class PortalSettings(Base):
     subdomain_sso_enabled = Column(Boolean, nullable=False, default=False)
     # Recommended Fernet key rotation cadence (days). Admin-editable; never auto-rotates.
     vault_key_rotation_days = Column(Integer, nullable=False, default=180)
-    # Optional UI-generated break-glass JWT HMAC (Fernet) when BREAKGLASS_JWT_SECRET env is unset.
+    # Optional UI/Ansible-generated break-glass JWT HMAC (Fernet) when env unset.
     breakglass_jwt_secret_encrypted = Column(Text, nullable=True)
     # Previous UI secret kept for validation during rotation (never logged in clear).
     breakglass_jwt_secret_previous_encrypted = Column(Text, nullable=True)
+    # Session-cookie hop HMAC (Fernet) — DB source of truth; env only for pytest override.
+    session_hop_secret_encrypted = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 

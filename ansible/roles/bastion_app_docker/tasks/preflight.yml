@@ -39,6 +39,8 @@
       Secrets manquants : vault_portal_internal_token,
       portal_secret_encryption_key / vault_portal_vault_fernet_key, et
       vault_portal_db_encryption_key (64 hex chars, openssl rand -hex 32) requis.
+      Les HMAC (session hop, breakglass JWT) sont initialisés en base
+      (portal_settings) par le job migrate — pas via .env.
 
 - name: "PREFLIGHT : stat portal.db"
   ansible.builtin.stat:

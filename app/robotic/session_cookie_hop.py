@@ -45,12 +45,15 @@ HOP_TTL_SECONDS = 60
 DEFAULT_NEXT = "/"
 
 
-def _hop_secret(settings: Settings) -> bytes:
-    raw = (settings.session_hop_secret or "").strip()
+def _hop_secret(settings: Settings, db=None) -> bytes:
+    from app.runtime_secrets_service import resolve_session_hop_secret
+
+    raw = resolve_session_hop_secret(settings, db=db)
     if not raw:
         # Never fall back to a literal like "dev" or the vault internal token.
         raise RuntimeError(
-            "SESSION_HOP_SECRET is required to seal session-cookie hop payloads"
+            "session hop secret missing in portal_settings "
+            "(run: python -m app.runtime_secrets_service)"
         )
     return hashlib.sha256(f"session-cookie-hop:{raw}".encode()).digest()
 
