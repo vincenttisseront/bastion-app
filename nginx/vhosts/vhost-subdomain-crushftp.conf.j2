@@ -38,6 +38,9 @@ server {
     }
 
     # ─── Cookie hop (host-only target session cookies on this FQDN) ───────────
+    # CRITICAL: do NOT add `internal;` — browser navigates here via a real 302
+    # after portal seals bastion_session_hop. Security is the signed hop token
+    # validated by FastAPI, not Nginx internal;.
     location = /.bastion/session-cookies {
         auth_request off;
         proxy_pass {{ bastion_app_proxy_pass | default('https://172.24.0.110') }}/api/internal/session-cookie-hop;

@@ -73,6 +73,14 @@ nginx_subdomain_sso_vhosts:
     upstream_url: "https://172.24.0.106:8080"
     upstream_host: 172.24.0.106
     realm_slug: ar-systems
+  # Grommunio webmail — same generic subdomain template (includes session-cookies hop).
+  # Dedicated transfer CrushFTP vhost remains separate (linux_nginx_dmz); this entry is
+  # used when sso_portal_subdomain_sso_enabled is true for webmail.
+  - slug: grommunio
+    fqdn: webmail.ar-systems.fr
+    upstream_url: "https://vmapps-mail01.ar-systems.fr:8443/"
+    upstream_host: vmapps-mail01.ar-systems.fr
+    realm_slug: ar-systems
 
 nginx_legacy_proxy_catch_all: true
 nginx_legacy_proxy_redirect_enabled: true

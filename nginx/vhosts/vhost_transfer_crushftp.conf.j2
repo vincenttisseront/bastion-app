@@ -64,7 +64,11 @@ server {
     # Cookie hop: portal seals target session cookies into bastion_session_hop
     # (Domain=parent), then lands here so Set-Cookie without Domain is host-only.
     # Upstream Host=portal for Traefik; browser still sees transfer.* → host-only cookies.
+    #
+    # CRITICAL: do NOT add `internal;` here — the browser navigates via a real 302.
+    # Exact `=` must also beat `location ~ /\. { deny all; }` further below (403 otherwise).
     location = /.bastion/session-cookies {
+        auth_request off;
         proxy_pass {{ bastion_app_proxy_pass | default('https://172.24.0.110') }}/api/internal/session-cookie-hop;
         proxy_ssl_verify off;
         proxy_http_version 1.1;
@@ -78,6 +82,7 @@ server {
     }
     # Legacy CrushFTP-era path
     location = /.bastion/crush-session {
+        auth_request off;
         proxy_pass {{ bastion_app_proxy_pass | default('https://172.24.0.110') }}/api/internal/session-cookie-hop;
         proxy_ssl_verify off;
         proxy_http_version 1.1;
