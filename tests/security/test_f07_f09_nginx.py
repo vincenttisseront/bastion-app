@@ -70,15 +70,48 @@ def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
 
     nginx_conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "set_real_ip_from 172.24.0.108" in nginx_conf
+    assert "set_real_ip_from 10.5.0.0/16" in nginx_conf
     assert "real_ip_header X-Forwarded-For" in nginx_conf
+    assert "real_ip_recursive on" in nginx_conf
     assert "forwardedHeaders.trustedIPs" in nginx_conf
-
+    # Must not trust the whole Internet or whole corp LAN as real_ip sources.
+    real_ip_from_lines = [
+        ln.strip()
+        for ln in nginx_conf.splitlines()
+        if ln.strip().startswith("set_real_ip_from")
+    ]
+    assert real_ip_from_lines
+    joined = "\n".join(real_ip_from_lines)
+    assert "0.0.0.0/0" not in joined
+    assert "172.24.0.0/16" not in joined
+    assert "172.24.0.108" in joined
+    assert "10.5.0.0/16" in joined
     forwarded = (ROOT / "docker/nginx/snippets/proxy_portal_forwarded.conf").read_text(
         encoding="utf-8"
     )
     assert "X-Real-IP $portal_client_real_ip" in forwarded
-    # Do not append client-controlled XFF; pass the resolved remote_addr only.
-    assert "X-Forwarded-For $remote_addr" in forwarded
+    # Both headers carry the resolved client (keeps app X-Real / XFF in sync).
+    assert "X-Forwarded-For $portal_client_real_ip" in forwarded
+    proxy_lines = [
+        ln.strip()
+        for ln in forwarded.splitlines()
+        if ln.strip().startswith("proxy_set_header")
+    ]
+    proxy_blob = "\n".join(proxy_lines)
+    assert "$http_x_real_ip" not in proxy_blob
+    assert "$proxy_add_x_forwarded_for" not in proxy_blob
+
+
+def test_docker_nginx_real_ip_contract_documented():
+    """Ops doc + nginx comments must state both edge and Traefik are required."""
+    doc = (ROOT / "docs/ops-client-ip-chain.md").read_text(encoding="utf-8")
+    assert "Traefik" in doc
+    assert "172.24.0.108" in doc
+    assert "resolved" in doc
+    assert "awx-playbook" in doc
+    nginx_conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
+    assert "Traefik" in nginx_conf
+    assert "Neither alone" in nginx_conf or "neither alone" in nginx_conf.lower() or "Both hops" in nginx_conf
 
 
 def test_breakglass_api_locations_lan_only_before_api_admin():

@@ -178,3 +178,34 @@ def test_prefer_client_ip_upgrades_infra():
     assert not is_infra_hop("172.24.0.42")
     assert is_trusted_proxy_peer("10.5.0.1")
     assert not is_trusted_proxy_peer("203.0.113.1")
+
+
+def test_app_trusts_only_docker_peer_not_reverse01_as_proxy():
+    """FastAPI must not treat reverse01 as a TCP trusted proxy (only nginx-bastion)."""
+    assert is_trusted_proxy_peer("10.5.0.8")
+    assert not is_trusted_proxy_peer("172.24.0.108")
+    # Spoofed public client via headers from an untrusted peer is ignored.
+    ip = client_ip_from_request(
+        _req(
+            headers={
+                "X-Real-IP": "203.0.113.77",
+                "X-Forwarded-For": "203.0.113.77",
+            },
+            host="172.24.0.108",
+        )
+    )
+    assert ip == "172.24.0.108"
+
+
+def test_trusted_nginx_bastion_with_public_xff_resolves_client():
+    """Simulates nginx-bastion after real_ip: peer docker, X-Real-IP = public client."""
+    ip = client_ip_from_request(
+        _req(
+            headers={
+                "X-Real-IP": "203.0.113.50",
+                "X-Forwarded-For": "203.0.113.50",
+            },
+            host="10.5.0.8",
+        )
+    )
+    assert ip == "203.0.113.50"
