@@ -131,3 +131,12 @@ Sans déploiement de la chaîne IP, **ne pas déclarer F-01/F-04 « fiables en p
 3. Re-probe offensif n°1 avec un **mot de passe break-glass de test jetable** depuis une IP clairement non-LAN.  
 4. Correctif F-10 lockout break-glass.  
 5. Si besoin : compte admin + user restreint jetables pour SSRF auth (n°3) et IDOR auth (n°6).
+
+---
+
+## Addendum 2026-07-26 (périmètre A — attaquant sans compte)
+
+Voir [`rapport-audit-securite-bastion-offensif-addendum-2026-07-26.md`](rapport-audit-securite-bastion-offensif-addendum-2026-07-26.md).
+
+Retest chemin externe + mauvais MDP + spoof `X-Portal-Client-IP` : **pas de `bg_session`**.  
+**F-01 « bon MDP + IP non-LAN » reste non prouvé** (périmètre A volontaire).
