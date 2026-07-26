@@ -1339,6 +1339,7 @@ def admin_security(
         list_ban_rules,
     )
     from app.vault.encryption_key_store import get_vault_key_status
+    from app.web.container_logs_settings import ensure_container_logs_settings
 
     subdomain_apps = (
         db.query(App)
@@ -1359,6 +1360,7 @@ def admin_security(
     )
     policy = get_or_create_policy(db)
     rules = {r.rule_type: r for r in list_ban_rules(db)}
+    container_logs = ensure_container_logs_settings(db)
     return render(
         "admin/security.html",
         **_ctx(
@@ -1373,8 +1375,95 @@ def admin_security(
             security_ban_rules=rules,
             security_bans=list_active_bans(db),
             security_allowlist=list_allowlist(db),
+            container_logs_settings=container_logs,
         ),
     )
+
+
+@admin_router.post("/admin/security/container-logs")
+def admin_security_container_logs(
+    request: Request,
+    enabled: str | None = Form(None),
+    proxy_url: str = Form(""),
+    tail_lines: int = Form(200),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.web.container_logs_settings import update_container_logs_settings
+
+    update_container_logs_settings(
+        db,
+        enabled=enabled == "on",
+        proxy_url=proxy_url,
+        tail_lines=tail_lines,
+        actor=user.email or user.username or "admin",
+        ip_address=_client_ip(request),
+    )
+    response = RedirectResponse(url="/admin/security#container-logs", status_code=302)
+    flash_redirect(
+        response,
+        "Paramètres logs containers enregistrés.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.post("/admin/security/container-logs/containers/add")
+def admin_security_container_logs_add(
+    request: Request,
+    name: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.web.container_logs_settings import add_allowed_container
+
+    try:
+        add_allowed_container(
+            db,
+            name,
+            actor=user.email or user.username or "admin",
+            ip_address=_client_ip(request),
+        )
+        msg, kind = "Container ajouté à la liste blanche.", "success"
+    except ValueError:
+        msg, kind = "Nom de container invalide.", "error"
+    response = RedirectResponse(url="/admin/security#container-logs", status_code=302)
+    flash_redirect(
+        response,
+        msg,
+        kind,
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.post("/admin/security/container-logs/containers/remove")
+def admin_security_container_logs_remove(
+    request: Request,
+    name: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.web.container_logs_settings import remove_allowed_container
+
+    remove_allowed_container(
+        db,
+        name,
+        actor=user.email or user.username or "admin",
+        ip_address=_client_ip(request),
+    )
+    response = RedirectResponse(url="/admin/security#container-logs", status_code=302)
+    flash_redirect(
+        response,
+        "Container retiré de la liste blanche.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
 
 
 @admin_router.post("/admin/security/misc")

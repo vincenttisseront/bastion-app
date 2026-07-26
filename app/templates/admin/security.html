@@ -12,7 +12,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Sécurité</h1>
-      <p class="page-sub">Clés API, TLS, SSO sous-domaine, break-glass, coffre, chiffrement DB, anti-abus</p>
+      <p class="page-sub">Clés API, TLS, SSO sous-domaine, break-glass, coffre, chiffrement DB, anti-abus, logs containers</p>
     </div>
   </div>
 
@@ -44,6 +44,7 @@
     </a>
     <a href="#misc" class="tab" role="tab" data-tab="misc" id="tab-misc">Misc</a>
     <a href="#banning" class="tab" role="tab" data-tab="banning" id="tab-banning">Banning</a>
+    <a href="#container-logs" class="tab" role="tab" data-tab="container-logs" id="tab-container-logs">Logs containers</a>
   </div>
 
   <div class="form-section security-panel" id="api" role="tabpanel" aria-labelledby="tab-api">
@@ -703,13 +704,94 @@
       </div>
     </div>
   </div>
+
+  <div class="form-section security-panel" id="container-logs" role="tabpanel" aria-labelledby="tab-container-logs" hidden>
+    {% set cls = container_logs_settings | default(none) %}
+    <div class="form-section-header">
+      <div class="form-section-title">Logs containers (Docker)</div>
+      <div class="form-section-sub">
+        Onglet Containers de <a href="/admin/logs#containers">/admin/logs</a> —
+        proxy socket en lecture seule uniquement (jamais <span class="mono">/var/run/docker.sock</span> dans bastion-app).
+      </div>
+    </div>
+    <div class="form-body">
+      <form method="post" action="/admin/security/container-logs" class="stack" style="gap:var(--sp-4);max-width:36rem;">
+        <label class="checkbox-row" style="display:flex;align-items:center;gap:0.5rem;">
+          <input type="checkbox" name="enabled" value="on"{% if cls and cls.enabled %} checked{% endif %}>
+          <span>Activer les logs containers</span>
+        </label>
+        <div>
+          <label class="field-label" for="cls_proxy_url">URL du proxy Docker (lecture seule)</label>
+          <input class="input" id="cls_proxy_url" name="proxy_url" style="width:100%;"
+                 value="{{ cls.proxy_url if cls else '' }}"
+                 placeholder="http://docker-socket-proxy:2375"
+                 autocomplete="off">
+          <p class="form-help" style="margin-top:0.35rem;">
+            Service type <span class="mono">docker-socket-proxy</span> avec
+            <span class="mono">CONTAINERS=1</span> et <span class="mono">POST=0</span>
+            (overlay <span class="mono">docker-compose.docker-logs.yml</span>).
+          </p>
+        </div>
+        <div>
+          <label class="field-label" for="cls_tail_lines">Lignes (tail)</label>
+          <input class="input" id="cls_tail_lines" name="tail_lines" type="number" min="1" max="5000"
+                 value="{{ cls.tail_lines if cls else 200 }}" style="width:8rem;">
+        </div>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </form>
+
+      <div style="margin-top:var(--sp-6);">
+        <h3 style="margin:0 0 var(--sp-3);font-size:var(--fs-md);">Containers autorisés</h3>
+        <p style="color:var(--text-2);font-size:var(--fs-sm);margin:0 0 var(--sp-3);">
+          Liste blanche uniquement — aucun inventaire automatique de l'hôte.
+        </p>
+        <table class="data-table" style="width:100%;max-width:36rem;border-collapse:collapse;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:0.5rem;">Nom</th>
+              <th style="text-align:right;padding:0.5rem;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set allowed = (cls.allowed_containers if cls else []) or [] %}
+            {% for name in allowed %}
+            <tr>
+              <td class="mono" style="padding:0.5rem;">{{ name }}</td>
+              <td style="padding:0.5rem;text-align:right;">
+                <form method="post" action="/admin/security/container-logs/containers/remove" style="display:inline;">
+                  <input type="hidden" name="name" value="{{ name }}">
+                  <button type="submit" class="btn btn-secondary btn-sm">Retirer</button>
+                </form>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="2" style="padding:1rem;color:var(--muted);">Aucun container autorisé</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <form method="post" action="/admin/security/container-logs/containers/add" class="stack"
+              style="gap:var(--sp-3);margin-top:var(--sp-4);max-width:36rem;">
+          <h4 style="margin:0;font-size:var(--fs-sm);">Ajouter</h4>
+          <div>
+            <label class="field-label" for="cls_add_name">Nom du service Compose</label>
+            <input class="input" id="cls_add_name" name="name" required
+                   pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]*"
+                   placeholder="bastion-app" style="width:100%;" autocomplete="off">
+          </div>
+          <button type="submit" class="btn btn-primary">Ajouter</button>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
-  var VALID = ['api', 'tls', 'subdomain-sso', 'breakglass-jwt', 'vault', 'db-encryption', 'misc', 'banning'];
+  var VALID = ['api', 'tls', 'subdomain-sso', 'breakglass-jwt', 'vault', 'db-encryption', 'misc', 'banning', 'container-logs'];
   var DEFAULT = 'api';
 
   function currentTab() {

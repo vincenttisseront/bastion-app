@@ -4,6 +4,10 @@
 #
 # The raw socket is mounted ONLY into docker-socket-proxy (POST disabled).
 # bastion-app must NEVER mount /var/run/docker.sock.
+#
+# App config (enabled, proxy URL, whitelist) lives in SQLite via
+# Admin → Sécurité → Logs containers. Typical proxy URL after this overlay:
+#   http://docker-socket-proxy:2375
 
 services:
   docker-socket-proxy:
@@ -36,10 +40,5 @@ services:
     restart: unless-stopped
 
   bastion-app:
-    environment:
-      DOCKER_LOGS_PROXY_URL: ${DOCKER_LOGS_PROXY_URL:-http://docker-socket-proxy:2375}
-      DOCKER_LOGS_WHITELIST: ${DOCKER_LOGS_WHITELIST:-bastion-app,bastion-nginx,nginx}
-      DOCKER_LOGS_TAIL_LINES: ${DOCKER_LOGS_TAIL_LINES:-200}
-      ADMIN_LOGS_SSE_TIMEOUT_SECONDS: ${ADMIN_LOGS_SSE_TIMEOUT_SECONDS:-1800}
     depends_on:
       - docker-socket-proxy

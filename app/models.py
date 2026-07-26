@@ -653,6 +653,22 @@ class SecurityAllowlistEntry(Base):
     created_by = Column(String, nullable=True)
 
 
+class ContainerLogsSettings(Base):
+    """Singleton config for /admin/logs Containers tab (id=1). Never mounts docker.sock."""
+
+    __tablename__ = "container_logs_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    enabled = Column(Boolean, nullable=False, default=False)
+    # HTTP base URL of the read-only docker-socket-proxy (e.g. http://docker-socket-proxy:2375).
+    proxy_url = Column(String, nullable=False, default="")
+    # JSON list of Compose service / container names allowed in the UI.
+    allowed_containers = Column(JSON, nullable=False, default=list)
+    tail_lines = Column(Integer, nullable=False, default=200)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_by = Column(String, nullable=True)
+
+
 class EncryptionKeyVersion(Base):
     """Metadata for application-vault Fernet key versions (never stores key material)."""
 

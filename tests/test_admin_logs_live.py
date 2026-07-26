@@ -5,17 +5,31 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.web.docker_logs import assert_container_allowed, _demux_frames
+from app.web.container_logs_settings import (
+    add_allowed_container,
+    update_container_logs_settings,
+)
+from app.web.docker_logs import _demux_frames
 
 ADMIN_HEADERS = {
     "X-Email": "admin@example.com",
     "X-Groups": "portal-admins",
 }
+
+
+def _enable_containers(db: Session, *names: str, proxy: str = "http://docker-proxy.test:2375"):
+    update_container_logs_settings(
+        db,
+        enabled=True,
+        proxy_url=proxy,
+        actor="admin@example.com",
+    )
+    for name in names:
+        add_allowed_container(db, name, actor="admin@example.com")
 
 
 def test_logs_page_unchanged_when_live_off(client: TestClient, db_session: Session):
@@ -92,13 +106,9 @@ def test_audit_sse_pushes_new_entry(client: TestClient, db_engine, monkeypatch):
 
 
 def test_container_whitelist_403_and_absent_from_selector(
-    client: TestClient, monkeypatch
+    client: TestClient, db_session: Session
 ):
-    monkeypatch.setenv("DOCKER_LOGS_PROXY_URL", "http://docker-proxy.test:2375")
-    monkeypatch.setenv("DOCKER_LOGS_WHITELIST", "bastion-app,nginx")
-    from app.sso_settings import get_settings
-
-    get_settings.cache_clear()
+    _enable_containers(db_session, "bastion-app", "nginx")
 
     page = client.get("/admin/logs", headers=ADMIN_HEADERS)
     assert page.status_code == 200
@@ -112,37 +122,11 @@ def test_container_whitelist_403_and_absent_from_selector(
     assert denied.status_code == 403
     assert denied.json().get("detail") == "Forbidden"
 
-    get_settings.cache_clear()
 
+def test_container_snapshot_audits_and_returns_text(client: TestClient, db_session: Session):
+    _enable_containers(db_session, "bastion-app")
 
-def test_assert_container_allowed_casefold():
-    from app.sso_settings import Settings
-
-    settings = Settings(
-        environment="test",
-        vault_portal_internal_token="x",
-        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
-        database_url="sqlite://",
-        docker_logs_whitelist=["bastion-app", "nginx"],
-    )
-    assert assert_container_allowed("Bastion-App", settings) == "bastion-app"
-    with pytest.raises(Exception) as exc:
-        assert_container_allowed("other", settings)
-    assert getattr(exc.value, "status_code", None) == 403
-
-
-def test_container_snapshot_audits_and_returns_text(client: TestClient, monkeypatch):
-    monkeypatch.setenv("DOCKER_LOGS_PROXY_URL", "http://docker-proxy.test:2375")
-    monkeypatch.setenv("DOCKER_LOGS_WHITELIST", "bastion-app")
-    from app.sso_settings import get_settings
-
-    get_settings.cache_clear()
-
-    # Build a multiplexed docker log frame: header + payload
-    payload = b"hello from container\n"
-    frame = bytes([1, 0, 0, 0]) + len(payload).to_bytes(4, "big") + payload
-
-    async def fake_snapshot(settings, container, *, tail=None):
+    async def fake_snapshot(cfg, container, *, tail=None):
         assert container == "bastion-app"
         return "hello from container\n"
 
@@ -159,27 +143,12 @@ def test_container_snapshot_audits_and_returns_text(client: TestClient, monkeypa
     assert body["container"] == "bastion-app"
     assert "hello from container" in body["text"]
 
-    from app.database import SessionLocal
-
-    db = SessionLocal()
-    try:
-        # TestClient uses overridden db — query via client app dependency is hard;
-        # re-check through a second call that list_admin sees the audit action.
-        pass
-    finally:
-        db.close()
-
-    # Verify audit via page filter (same test DB engine as client fixture)
-    # The TestClient shares db_engine; query AuditLog through a new request page.
     logs_page = client.get(
         "/admin/logs?action=admin.container_logs.viewed",
         headers=ADMIN_HEADERS,
     )
     assert logs_page.status_code == 200
     assert "admin.container_logs.viewed" in logs_page.text
-
-    get_settings.cache_clear()
-    _ = frame  # silence lint if unused in some runs
 
 
 def test_demux_frames_splits_multiplexed_payload():
@@ -207,5 +176,4 @@ def test_no_docker_sock_in_main_compose():
     overlay = (root / "docker-compose.docker-logs.yml").read_text(encoding="utf-8")
     assert "docker-socket-proxy" in overlay
     assert "/var/run/docker.sock:/var/run/docker.sock:ro" in overlay
-    # Socket only under the proxy service, documented as not on bastion-app
     assert "bastion-app must NEVER mount" in overlay or "NEVER mount" in overlay

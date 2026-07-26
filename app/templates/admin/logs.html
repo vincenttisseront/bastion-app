@@ -110,11 +110,10 @@
     {% if not docker_logs_enabled %}
     <div class="card" style="padding:var(--sp-5);">
       <p style="margin:0;color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;">
-        Logs containers désactivés : configurez
-        <code class="mono">DOCKER_LOGS_PROXY_URL</code>
-        (proxy socket Docker en lecture seule — voir
-        <span class="mono">docs/admin-logs-live-and-containers.md</span>).
-        Le socket <span class="mono">/var/run/docker.sock</span> n'est jamais monté dans bastion-app.
+        Logs containers désactivés. Activez et configurez le proxy en lecture seule dans
+        <a href="/admin/security#container-logs">Admin → Sécurité → Logs containers</a>
+        (liste blanche + URL du proxy). Le socket
+        <span class="mono">/var/run/docker.sock</span> n'est jamais monté dans bastion-app.
       </p>
     </div>
     {% else %}

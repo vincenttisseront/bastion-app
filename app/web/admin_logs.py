@@ -19,6 +19,7 @@ from app.database import SessionLocal, get_db
 from app.models import AuditLog
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
+from app.web.container_logs_settings import get_container_logs_config
 from app.web.docker_logs import (
     assert_container_allowed,
     docker_logs_enabled,
@@ -157,6 +158,7 @@ def admin_logs_page(
         offset=offset,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    docker_cfg = get_container_logs_config(db)
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/logs.html",
@@ -172,9 +174,9 @@ def admin_logs_page(
             "date_from": date_from or "",
             "date_to": date_to or "",
         },
-        docker_logs_enabled=docker_logs_enabled(settings),
-        docker_containers=docker_logs_whitelist(settings),
-        docker_logs_tail_lines=settings.docker_logs_tail_lines,
+        docker_logs_enabled=docker_logs_enabled(docker_cfg),
+        docker_containers=docker_logs_whitelist(docker_cfg),
+        docker_logs_tail_lines=docker_cfg.tail_lines,
         admin_logs_sse_timeout_seconds=settings.admin_logs_sse_timeout_seconds,
     )
 
@@ -253,16 +255,17 @@ async def admin_container_logs_snapshot(
     user=Depends(require_admin),
 ):
     """Snapshot of last N log lines for a whitelisted container."""
-    if not docker_logs_enabled(settings):
+    docker_cfg = get_container_logs_config(db)
+    if not docker_logs_enabled(docker_cfg):
         raise HTTPException(status_code=503, detail="Docker logs proxy not configured")
-    container = assert_container_allowed(name, settings)
-    text = await fetch_container_log_snapshot(settings, container)
+    container = assert_container_allowed(name, docker_cfg)
+    text = await fetch_container_log_snapshot(docker_cfg, container)
     log_action(
         db,
         actor=user.email or user.username or "admin",
         action="admin.container_logs.viewed",
         target=container,
-        details={"mode": "snapshot", "tail": settings.docker_logs_tail_lines},
+        details={"mode": "snapshot", "tail": docker_cfg.tail_lines},
         ip_address=_client_ip(request),
     )
     return {"container": container, "text": text}
@@ -277,15 +280,16 @@ async def admin_container_logs_stream(
     user=Depends(require_admin),
 ):
     """SSE tail of a whitelisted container via the read-only Docker proxy."""
-    if not docker_logs_enabled(settings):
+    docker_cfg = get_container_logs_config(db)
+    if not docker_logs_enabled(docker_cfg):
         raise HTTPException(status_code=503, detail="Docker logs proxy not configured")
-    container = assert_container_allowed(name, settings)
+    container = assert_container_allowed(name, docker_cfg)
     log_action(
         db,
         actor=user.email or user.username or "admin",
         action="admin.container_logs.viewed",
         target=container,
-        details={"mode": "live", "tail": settings.docker_logs_tail_lines},
+        details={"mode": "live", "tail": docker_cfg.tail_lines},
         ip_address=_client_ip(request),
     )
     timeout = int(settings.admin_logs_sse_timeout_seconds or 1800)
@@ -294,7 +298,7 @@ async def admin_container_logs_stream(
     async def event_gen():
         started = time.monotonic()
         try:
-            async for chunk in iter_container_log_follow(settings, container):
+            async for chunk in iter_container_log_follow(docker_cfg, container):
                 if await request.is_disconnected():
                     break
                 if time.monotonic() - started >= timeout:
