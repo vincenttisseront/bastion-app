@@ -17,6 +17,20 @@
 Le peer TCP **de nginx-bastion** (vers l’amont) est Traefik sur `10.5.0.0/16` — une autre IP
 docker que `10.5.0.8`. Ne pas confondre les deux hops.
 
+## Diagnostic confirmé (cause directe)
+
+nginx-bastion a un **fallback** : si `real_ip` / XFF ne sort que des hops infra
+(reverse01 / docker), il retombe sur `X-Portal-Client-IP`.
+
+| Couche | État |
+|--------|------|
+| Template AWX `vhost_portal_bastion.conf.j2` | **OK** depuis **awx-playbook** `26dcbbc` (`proxy_set_header X-Portal-Client-IP $remote_addr` sur `/api/health` et `/`) |
+| Fichier **live** sur `vmdmz-reverse01` | **Manquant** — grep de la config déployée : aucune occurrence de `X-Portal-Client-IP` |
+| Traefik `forwardedHeaders.trustedIPs` | Ajouté dans le compose AWX, mais le conteneur peut tourner depuis longtemps **sans recreate** → flags non pris en compte |
+
+**Cause unique du `resolved: null` persistant :** reverse01 ne pose pas `X-Portal-Client-IP`
+(template non appliqué). Le fallback nginx-bastion n’a donc rien à lire.
+
 ## Topologie réelle confirmée (Phase 7)
 
 ```
@@ -26,32 +40,63 @@ client → reverse01:443 (172.24.0.108, DMZ)
       → bastion-app          ← client_ip_from_request (trusted peer = docker only)
 ```
 
-## Diagnostic (confirmé)
+## Correctif prioritaire — reverse01 (immédiat, faible risque)
 
-nginx-bastion avait déjà `real_ip` correctement configuré. Le symptôme montre que **la vraie IP
-client n’arrive pas** jusqu’à nginx-bastion tant que Traefik / reverse01 ne sont pas redéployés
-avec les bons réglages. L’app fait son travail (fail-closed).
+Sur `vmdmz-reverse01`, dans `/etc/nginx/conf.d/vhost_portal_bastion.conf`, **les deux** blocs
+`location = /api/health` et `location /` doivent contenir :
 
-## Les trois couches sont obligatoires
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Portal-Client-IP $remote_addr;   # ← souvent absente en live
+```
+
+Puis :
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**Préférer** redéployer le rôle via AWX (`linux_nginx_dmz.yml` / inventaire DMZ) pour
+réaligner le live sur le template `26dcbbc`, plutôt qu’un `sed` durable.
+
+Vérification post-reload :
+
+```bash
+sudo grep -n X-Portal-Client-IP /etc/nginx/conf.d/vhost_portal_bastion.conf
+# Attendu : au moins 2 lignes (health + /)
+```
+
+Ce seul header suffit à débloquer le break-glass LAN **même si Traefik n’est pas encore corrigé**.
+
+## Défense en profondeur — Traefik (ensuite)
+
+```bash
+docker inspect traefik --format '{{json .Config.Cmd}}' | tr ',' '\n' | grep -i trustedip
+# Attendu : --entrypoints.websecure.forwardedHeaders.trustedIPs=172.24.0.108/32
+```
+
+Si absent, ou si le conteneur n’a **pas** été **recréé** après l’ajout du flag (un
+`restart` ne recharge pas la `Cmd`) :
+
+```bash
+# Sur docker01, via le compose AWX Keycloak / Traefik — recreate, pas restart seul
+docker compose up -d traefik   # ou équivalent playbook
+```
+
+## Les trois couches (après deploy)
 
 | Couche | Repo / commit | Rôle |
 |--------|---------------|------|
-| Edge + Traefik | **awx-playbook** `26dcbbc` | XFF + `X-Portal-Client-IP` depuis reverse01 ; Traefik `trustedIPs` |
-| nginx-bastion | **bastion-app** `22b7774` (+ antérieurs) | `real_ip` ; `X-Real-IP`/`XFF` = `$portal_client_real_ip` |
+| Edge + Traefik | **awx-playbook** `26dcbbc` | XFF + `X-Portal-Client-IP` ; Traefik `trustedIPs` |
+| nginx-bastion | **bastion-app** | `real_ip` ; sync `X-Real-IP`/`XFF` = `$portal_client_real_ip` ; fallback portal header |
 | App | **bastion-app** | Confiance TCP **uniquement** peer docker ; `172.24.0.108` = infra (jamais client) |
-
-Aucun sous-ensemble ne suffit.
 
 ## Checklist déploiement (ordre)
 
-1. **Traefik (docker01)** — compose Keycloak / awx-playbook :
-   - `--entrypoints.websecure.forwardedHeaders.trustedIPs=172.24.0.108/32`
-   - idem `web` si utilisé
-2. **reverse01 (DMZ)** — `vhost_portal_bastion.conf.j2` / `linux_nginx_dmz` :
-   - `proxy_set_header X-Real-IP $remote_addr;`
-   - `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`
-   - `proxy_set_header X-Portal-Client-IP $remote_addr;` (overwrite, jamais pass-through)
-3. **Stack portal** — redeploy nginx-bastion + app (bastion-app déjà sur `master`)
+1. **reverse01** — appliquer / recharger `X-Portal-Client-IP` (**priorité #1**)
+2. **Traefik (docker01)** — vérifier `trustedIPs` + **recreate** si besoin
+3. **Stack portal** — déjà OK côté bastion-app / nginx-bastion si à jour sur `master`
 4. **Retest** break-glass depuis une IP LAN légitime (`172.24.x` workstation ≠ `.108`) :
    - Admin → Logs → `breakglass.login*`
    - Attendu : `resolved` = IP du poste (ni `null`, ni seulement `172.24.0.108`)
@@ -61,10 +106,10 @@ Aucun sous-ensemble ne suffit.
 | Point | État |
 |-------|------|
 | `set_real_ip_from` + `real_ip_header XFF` + `recursive on` | OK |
-| Confiance limitée (`172.24.0.108/32`, `10.5/16`, bridges) — pas `0.0.0.0/0` ni `172.24.0.0/16` | OK — `10.5/16` requis car peer amont = Traefik |
+| Confiance limitée (`172.24.0.108/32`, `10.5/16`, bridges) — pas `0.0.0.0/0` ni `172.24.0.0/16` | OK |
 | App : pas de confiance TCP reverse01 | OK |
-| `X-Real-IP` et `X-Forwarded-For` synchronisés sur `$portal_client_real_ip` | OK (`22b7774`) |
-| Fallback `X-Portal-Client-IP` si real_ip ne sort que des hops infra | OK |
+| `X-Real-IP` et `X-Forwarded-For` synchronisés sur `$portal_client_real_ip` | OK |
+| Fallback `X-Portal-Client-IP` si real_ip ne sort que des hops infra | OK (côté code) — **exige le header depuis reverse01** |
 
 ## Validation rapide après deploy
 
