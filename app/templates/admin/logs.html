@@ -127,7 +127,10 @@
               {% elif c == 'result' %}
                 <span class="badge badge-{{ 'ok' if e.result == 'success' else ('err' if e.result == 'error' else 'info') }}">{{ e.result }}</span>
               {% elif c == 'detail' %}
-                <span class="font-mono audit-detail-preview">{{ e.detail_short or "—" }}</span>
+                <button type="button" class="btn btn-ghost btn-sm audit-detail-open" title="Voir le détail JSON">
+                  <span class="audit-detail-summary">{{ e.detail_short or "—" }}</span>
+                  <span class="audit-detail-hint" aria-hidden="true">↗</span>
+                </button>
               {% elif c == 'target' %}{{ e.target or "—" }}
               {% else %}{{ e.extras.get(c, "—") if e.extras else "—" }}
               {% endif %}
@@ -429,7 +432,12 @@
     if (c === 'action') return '<code>' + esc(e.action) + '</code>';
     if (c === 'ip') return esc(e.ip_address || '—');
     if (c === 'result') return statusHtml(e);
-    if (c === 'detail') return '<span class="font-mono audit-detail-preview">' + esc(e.detail_short || '—') + '</span>';
+    if (c === 'detail') {
+      var label = e.detail_short || '—';
+      return '<button type="button" class="btn btn-ghost btn-sm audit-detail-open" title="Voir le détail JSON">' +
+        '<span class="audit-detail-summary">' + esc(label) + '</span>' +
+        '<span class="audit-detail-hint" aria-hidden="true">↗</span></button>';
+    }
     if (c === 'target') return esc(e.target || '—');
     var extras = e.extras || {};
     return esc(extras[c] != null ? extras[c] : '—');

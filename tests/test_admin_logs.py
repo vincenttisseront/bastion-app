@@ -292,7 +292,9 @@ def test_format_details_expand_shows_more_than_preview():
         "extra": "padding-" + ("x" * 80),
     }
     short, full = format_details_for_display(details, max_len=80)
-    assert short.endswith("…")
+    assert "{" not in short  # compact label, not raw JSON dump
+    assert "breakglass_ip_not_allowed" in short
+    assert "champs" in short
     assert short != full
     assert "x_forwarded_for" in full
     assert "10.5.0.12" in full
@@ -303,8 +305,68 @@ def test_format_details_short_has_no_expand_pair():
     from app.web.log_masking import format_details_for_display
 
     short, full = format_details_for_display({"error": "url_blocked", "forms_found": 0})
-    assert short == full
-    assert not short.endswith("…")
+    assert "url_blocked" in short
+    assert "{" not in short
+    assert "url_blocked" in full
+    assert "\n" in full
+
+
+def test_summarize_session_hijack_detail():
+    from app.web.log_masking import format_details_for_display, summarize_details_for_table
+
+    details = {
+        "family": "sso",
+        "cookie_hash_prefix": "75bdc892e5335867",
+        "username": "e189ed16-79f0-4fa1-85ee-1bb7ff28052c",
+        "expected_subnet": "192.168.2.0/24",
+        "observed_subnet": "10.0.0.0/8",
+        "policy": "stepup_401",
+    }
+    label = summarize_details_for_table(details)
+    assert "sso" in label
+    assert "75bdc892e5335867" not in label  # hash not dumped in table
+    assert "{" not in label
+    short, full = format_details_for_display(details)
+    assert short == label
+    assert "75bdc892e5335867" in full
+    assert '"family": "sso"' in full
+
+
+def test_logs_detail_column_is_compact_not_json_dump(client: TestClient, db_session: Session):
+    import re
+
+    log_action(
+        db_session,
+        actor="admin@example.com",
+        action="session_hijack_suspected",
+        details={
+            "family": "sso",
+            "cookie_hash_prefix": "75bdc892e5335867",
+            "username": "e189ed16-79f0-4fa1-85ee-1bb7ff28052c",
+            "expected_subnet": "192.168.2.0/24",
+            "observed_subnet": "10.0.0.0/8",
+            "policy": "stepup_401",
+        },
+    )
+    resp = client.get(
+        "/admin/logs?action=session_hijack_suspected",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+    tbody_start = resp.text.index('id="audit-tbody"')
+    tbody_end = resp.text.index("</tbody>", tbody_start)
+    tbody = resp.text[tbody_start:tbody_end]
+    assert "audit-detail-summary" in tbody
+    assert "audit-detail-open" in tbody
+    m = re.search(r'class="audit-detail-summary">([^<]*)', tbody)
+    assert m, "missing compact detail summary"
+    summary = m.group(1)
+    assert "{" not in summary
+    assert "sso" in summary
+    assert "75bdc892e5335867" not in summary
+    # Full JSON still available for drawer via data-entry
+    assert "75bdc892e5335867" in tbody
+    assert 'id="audit-drawer"' in resp.text
 
 
 def test_request_id_header_present_and_unique(client: TestClient):

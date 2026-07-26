@@ -508,5 +508,9 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .logs-drawer-meta dt{color:var(--text-3);font-weight:700}
 .logs-drawer-json{margin:0;padding:var(--sp-3);background:var(--bg-tertiary);border:1px solid var(--border-muted);border-radius:var(--r-md);white-space:pre-wrap;word-break:break-word;font-size:0.8em;max-height:50vh;overflow:auto}
 .logs-drawer-actions{display:flex;gap:var(--sp-2);margin-top:var(--sp-3)}
+.audit-detail-open{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 8px;font-weight:600;white-space:nowrap}
+.audit-detail-summary{overflow:hidden;text-overflow:ellipsis;max-width:14rem;color:var(--text-2)}
+.audit-detail-hint{color:var(--text-3);font-size:var(--fs-xs)}
+.audit-detail-open:hover .audit-detail-summary{color:var(--accent)}
 .live-btn[aria-pressed="true"]{border-color:var(--err);color:var(--err)}
 .live-status{font-size:var(--fs-xs);font-weight:700;color:var(--err)}
