@@ -53,13 +53,17 @@
             <span class="badge badge-info">{{ e.severity }}</span>
             {% endif %}
           </td>
-          <td style="padding:0.75rem;max-width:28rem;">
-            <span class="font-mono" style="font-size:0.85em;">{{ e.detail_short or "—" }}</span>
+          <td class="audit-detail-cell" style="padding:0.75rem;max-width:32rem;vertical-align:top;">
             {% if e.detail_full and e.detail_full != e.detail_short %}
-            <details style="margin-top:0.25rem;">
-              <summary style="cursor:pointer;color:var(--accent);font-size:0.85em;">voir plus</summary>
-              <pre style="white-space:pre-wrap;font-size:0.8em;margin:0.5rem 0 0;">{{ e.detail_full }}</pre>
+            <details class="audit-detail">
+              <summary class="audit-detail-summary">
+                <span class="audit-detail-preview font-mono">{{ e.detail_short }}</span>
+                <span class="audit-detail-toggle" aria-hidden="true"></span>
+              </summary>
+              <pre class="audit-detail-full font-mono">{{ e.detail_full }}</pre>
             </details>
+            {% else %}
+            <span class="font-mono" style="font-size:0.85em;word-break:break-word;">{{ e.detail_short or "—" }}</span>
             {% endif %}
           </td>
         </tr>
@@ -84,4 +88,46 @@
   </div>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+  .audit-detail-cell { overflow: visible; }
+  .audit-detail > .audit-detail-summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+  .audit-detail > .audit-detail-summary::-webkit-details-marker { display: none; }
+  .audit-detail-preview {
+    font-size: 0.85em;
+    word-break: break-word;
+    white-space: normal;
+  }
+  .audit-detail-toggle {
+    color: var(--accent);
+    font-size: 0.85em;
+    user-select: none;
+  }
+  .audit-detail-toggle::after { content: "voir plus"; }
+  .audit-detail[open] > .audit-detail-summary .audit-detail-preview { display: none; }
+  .audit-detail[open] > .audit-detail-summary .audit-detail-toggle::after { content: "voir moins"; }
+  .audit-detail-full {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    font-size: 0.8em;
+    margin: 0.35rem 0 0;
+    max-width: 100%;
+    max-height: 24rem;
+    overflow: auto;
+    padding: 0.5rem 0.65rem;
+    background: var(--bg-tertiary, rgba(0,0,0,.04));
+    border-radius: 6px;
+    border: 1px solid var(--border-muted, var(--border));
+  }
+</style>
 {% endblock %}

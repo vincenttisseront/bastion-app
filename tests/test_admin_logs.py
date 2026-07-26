@@ -97,6 +97,71 @@ def test_mask_secrets_helpers():
     assert "secret=***" in mask_secrets_text("client_secret=abc123 rest")
 
 
+def test_format_details_expand_shows_more_than_preview():
+    from app.web.log_masking import format_details_for_display
+
+    details = {
+        "reason": "breakglass_ip_not_allowed",
+        "resolved": None,
+        "x_real_ip": "172.24.0.108",
+        "x_forwarded_for": "172.24.0.108, 10.5.0.12",
+        "peer": "10.5.0.2",
+        "extra": "padding-" + ("x" * 80),
+    }
+    short, full = format_details_for_display(details, max_len=80)
+    assert short.endswith("…")
+    assert short != full
+    assert "x_forwarded_for" in full
+    assert "10.5.0.12" in full
+    assert "\n" in full  # pretty-printed
+
+
+def test_format_details_short_has_no_expand_pair():
+    from app.web.log_masking import format_details_for_display
+
+    short, full = format_details_for_display({"error": "url_blocked", "forms_found": 0})
+    assert short == full
+    assert not short.endswith("…")
+
+
+def test_logs_voir_plus_embeds_full_json(client: TestClient, db_session: Session):
+    log_action(
+        db_session,
+        actor="admin@example.com",
+        action="breakglass.login_denied_non_lan",
+        details={
+            "reason": "breakglass_ip_not_allowed",
+            "resolved": None,
+            "x_real_ip": "172.24.0.108",
+            "x_forwarded_for": "172.24.0.108, 192.168.2.50",
+            "peer": "10.5.0.2",
+            "note": "long-" + ("n" * 100),
+        },
+    )
+    resp = client.get(
+        "/admin/logs?action=breakglass.login_denied_non_lan",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert 'class="audit-detail-full' in resp.text
+    assert "192.168.2.50" in resp.text
+    assert "audit-detail-toggle" in resp.text
+    assert "audit-detail-preview" in resp.text
+    # Short entries must not get an expand control
+    log_action(
+        db_session,
+        actor="admin@example.com",
+        action="health.probe",
+        details={"error": "url_blocked", "forms_found": 0},
+    )
+    short_resp = client.get("/admin/logs?action=health.probe", headers=ADMIN_HEADERS)
+    assert short_resp.status_code == 200
+    assert "url_blocked" in short_resp.text
+    assert 'class="audit-detail-full' not in short_resp.text
+    assert 'class="audit-detail-preview' not in short_resp.text
+    assert 'class="audit-detail"' not in short_resp.text
+
+
 def test_request_id_header_present_and_unique(client: TestClient):
     r1 = client.get("/api/health")
     r2 = client.get("/api/health")

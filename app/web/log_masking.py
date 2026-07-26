@@ -41,14 +41,20 @@ def mask_secrets_text(text: str | None) -> str:
 
 
 def format_details_for_display(details: Any, *, max_len: int = 120) -> tuple[str, str]:
-    """Return (truncated, full_masked) strings for UI."""
+    """Return (truncated_preview, full_for_expand) strings for UI.
+
+    Truncation is display-only: ``full_for_expand`` is always the complete
+    masked payload (pretty-printed JSON when the source is a dict/list).
+    """
     if details is None:
         return "", ""
     if isinstance(details, (dict, list)):
         masked = mask_secrets(details)
-        full = json.dumps(masked, ensure_ascii=False)
+        compact = json.dumps(masked, ensure_ascii=False)
+        pretty = json.dumps(masked, ensure_ascii=False, indent=2)
     else:
-        full = mask_secrets_text(str(details))
-    if len(full) <= max_len:
-        return full, full
-    return full[: max_len - 1] + "…", full
+        compact = mask_secrets_text(str(details))
+        pretty = compact
+    if len(compact) <= max_len:
+        return compact, compact
+    return compact[: max_len - 1] + "…", pretty
