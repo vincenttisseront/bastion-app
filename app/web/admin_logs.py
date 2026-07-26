@@ -1,4 +1,4 @@
-"""Admin logs viewer — audit table, SSE live stream, Docker container logs tab."""
+"""Admin logs viewer — Event Viewer-style audit UX + Docker containers tab."""
 
 from __future__ import annotations
 
@@ -9,15 +9,23 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
-from sqlalchemy import distinct, func
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse, StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.audit import derive_severity, log_action
+from app.audit import log_action
 from app.database import SessionLocal, get_db
-from app.models import AuditLog
+from app.models import AdminLogsUserPrefs, AuditLog, SavedLogView, utcnow
 from app.sso_settings import Settings, get_settings
+from app.web.admin_logs_query import (
+    DEFAULT_COLUMNS,
+    apply_audit_filters,
+    list_admin_log_entries,
+    normalize_columns,
+    parse_status_list,
+    serialize_audit_row,
+)
 from app.web.constants import APP_VERSION
 from app.web.container_logs_settings import get_container_logs_config
 from app.web.docker_logs import (
@@ -27,8 +35,7 @@ from app.web.docker_logs import (
     fetch_container_log_snapshot,
     iter_container_log_follow,
 )
-from app.web.flash import base_template_context
-from app.web.log_masking import format_details_for_display
+from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
 
@@ -61,76 +68,71 @@ def _client_ip(request: Request) -> str | None:
     return client_ip_from_request(request) or None
 
 
-def _serialize_audit_row(row: AuditLog) -> dict[str, Any]:
-    detail_short, detail_full = format_details_for_display(row.details)
-    status = None
-    if isinstance(row.details, dict) and "status" in row.details:
-        status = str(row.details.get("status"))
-    elif isinstance(row.details, dict) and "success" in row.details:
-        status = "ok" if row.details.get("success") else "error"
-    return {
-        "id": row.id,
-        "action": row.action,
-        "actor": row.actor,
-        "target": row.target or "",
-        "ip_address": row.ip_address or "",
-        "severity": derive_severity(row.action),
-        "status": status,
-        "detail_short": detail_short,
-        "detail_full": detail_full,
-        "timestamp": row.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-        if row.created_at
-        else "",
-    }
+def _user_key(user) -> str:
+    return (user.email or user.username or "admin").strip().lower()
 
 
-def _apply_audit_filters(
-    query,
+def _get_columns(db: Session, user_key: str) -> list[str]:
+    row = db.query(AdminLogsUserPrefs).filter_by(user_email=user_key).first()
+    if row and isinstance(row.columns_json, list):
+        return normalize_columns(row.columns_json)
+    return list(DEFAULT_COLUMNS)
+
+
+def _list_views(db: Session, user_key: str) -> list[SavedLogView]:
+    return (
+        db.query(SavedLogView)
+        .filter_by(user_email=user_key)
+        .order_by(SavedLogView.name.asc())
+        .all()
+    )
+
+
+def _filter_dict(
     *,
     action: str | None,
     actor: str | None,
-    date_from: datetime | None,
-    date_to: datetime | None,
-):
-    if action:
-        query = query.filter(AuditLog.action == action)
-    if actor:
-        query = query.filter(AuditLog.actor.ilike(f"%{actor.strip()}%"))
-    if date_from:
-        query = query.filter(AuditLog.created_at >= date_from)
-    if date_to:
-        query = query.filter(AuditLog.created_at <= date_to)
-    return query
+    date_from: str | None,
+    date_to: str | None,
+    ip: str | None,
+    q: str | None,
+    detail: str | None,
+    status: list[str],
+) -> dict[str, Any]:
+    return {
+        "action": action or "",
+        "actor": actor or "",
+        "date_from": date_from or "",
+        "date_to": date_to or "",
+        "ip": ip or "",
+        "q": q or "",
+        "detail": detail or "",
+        "status": status,
+    }
 
 
-def list_admin_log_entries(
-    db: Session,
-    *,
-    action: str | None = None,
-    actor: str | None = None,
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
-    limit: int = _PAGE_SIZE,
-    offset: int = 0,
-) -> tuple[list[dict], int, list[str]]:
-    query = _apply_audit_filters(
-        db.query(AuditLog).order_by(AuditLog.created_at.desc()),
-        action=action,
-        actor=actor,
-        date_from=date_from,
-        date_to=date_to,
-    )
-    total = query.count()
-    rows = query.offset(offset).limit(limit).all()
-
-    action_choices = [
-        row[0]
-        for row in db.query(distinct(AuditLog.action)).order_by(AuditLog.action).all()
-        if row[0]
-    ]
-
-    entries = [_serialize_audit_row(row) for row in rows]
-    return entries, total, action_choices
+def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:
+    chips: list[dict[str, str]] = []
+    if filters.get("action"):
+        chips.append({"key": "action", "label": f"Action: {filters['action']}"})
+    if filters.get("actor"):
+        chips.append({"key": "actor", "label": f"Acteur: {filters['actor']}"})
+    if filters.get("date_from") or filters.get("date_to"):
+        chips.append(
+            {
+                "key": "dates",
+                "label": f"Dates: {filters.get('date_from') or '…'} → {filters.get('date_to') or '…'}",
+            }
+        )
+    if filters.get("ip"):
+        chips.append({"key": "ip", "label": f"IP: {filters['ip']}"})
+    if filters.get("detail"):
+        chips.append({"key": "detail", "label": f"Détail: {filters['detail']}"})
+    if filters.get("q"):
+        chips.append({"key": "q", "label": f"Recherche: {filters['q']}"})
+    for st in filters.get("status") or []:
+        chips.append({"key": f"status:{st}", "label": f"Résultat: {st}"})
+    return chips
 
 
 @router.get("/admin/logs")
@@ -140,11 +142,39 @@ def admin_logs_page(
     actor: str | None = None,
     date_from: str | None = Query(None, alias="date_from"),
     date_to: str | None = Query(None, alias="date_to"),
+    ip: str | None = None,
+    q: str | None = None,
+    detail: str | None = None,
+    status: list[str] | None = Query(None),
+    columns: str | None = None,
+    view: int | None = None,
     page: int = Query(1, ge=1),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
+    user=Depends(require_admin),
 ):
+    user_key = _user_key(user)
+    if view:
+        saved = (
+            db.query(SavedLogView)
+            .filter_by(id=view, user_email=user_key)
+            .first()
+        )
+        if saved and isinstance(saved.filters_json, dict):
+            f = saved.filters_json
+            action = action or f.get("action") or None
+            actor = actor or f.get("actor") or None
+            date_from = date_from or f.get("date_from") or None
+            date_to = date_to or f.get("date_to") or None
+            ip = ip or f.get("ip") or None
+            q = q or f.get("q") or None
+            detail = detail or f.get("detail") or None
+            if not status and isinstance(f.get("status"), list):
+                status = f.get("status")
+            if not columns and isinstance(saved.columns_json, list):
+                columns = ",".join(str(c) for c in saved.columns_json)
+
+    statuses = parse_status_list(status)
     df = _parse_date(date_from)
     dt = _parse_date_end(date_to)
     offset = (page - 1) * _PAGE_SIZE
@@ -154,10 +184,28 @@ def admin_logs_page(
         actor=actor or None,
         date_from=df,
         date_to=dt,
+        ip=ip or None,
+        q=q or None,
+        detail_kw=detail or None,
+        status=statuses,
         limit=_PAGE_SIZE,
         offset=offset,
     )
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
+    if columns:
+        col_list = normalize_columns([c.strip() for c in columns.split(",") if c.strip()])
+    else:
+        col_list = _get_columns(db, user_key)
+    filters = _filter_dict(
+        action=action,
+        actor=actor,
+        date_from=date_from,
+        date_to=date_to,
+        ip=ip,
+        q=q,
+        detail=detail,
+        status=statuses,
+    )
     docker_cfg = get_container_logs_config(db)
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
@@ -168,12 +216,12 @@ def admin_logs_page(
         page=page,
         total_pages=total_pages,
         action_choices=action_choices,
-        filters={
-            "action": action or "",
-            "actor": actor or "",
-            "date_from": date_from or "",
-            "date_to": date_to or "",
-        },
+        filters=filters,
+        active_chips=_active_chips(filters),
+        visible_columns=col_list,
+        all_columns=DEFAULT_COLUMNS
+        + ["reason", "x_real_ip", "x_forwarded_for", "peer", "resolved", "target"],
+        saved_views=_list_views(db, user_key),
         docker_logs_enabled=docker_logs_enabled(docker_cfg),
         docker_containers=docker_logs_whitelist(docker_cfg),
         docker_logs_tail_lines=docker_cfg.tail_lines,
@@ -188,10 +236,15 @@ async def admin_logs_stream(
     actor: str | None = None,
     date_from: str | None = Query(None, alias="date_from"),
     date_to: str | None = Query(None, alias="date_to"),
+    ip: str | None = None,
+    q: str | None = None,
+    detail: str | None = None,
+    status: list[str] | None = Query(None),
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
-    """SSE: push new audit rows matching filters (poll DB). Max duration from settings."""
+    """SSE: push new audit rows matching filters (poll DB)."""
+    statuses = parse_status_list(status)
     df = _parse_date(date_from)
     dt = _parse_date_end(date_to)
     timeout = int(settings.admin_logs_sse_timeout_seconds or 1800)
@@ -213,15 +266,27 @@ async def admin_logs_stream(
 
                 db = SessionLocal()
                 try:
-                    q = _apply_audit_filters(
+                    qset = apply_audit_filters(
                         db.query(AuditLog).filter(AuditLog.id > last_id),
                         action=action or None,
                         actor=actor or None,
                         date_from=df,
                         date_to=dt,
+                        ip=ip or None,
+                        q=q or None,
+                        detail_kw=detail or None,
                     )
-                    rows = q.order_by(AuditLog.id.asc()).limit(50).all()
-                    entries = [_serialize_audit_row(r) for r in rows]
+                    rows = qset.order_by(AuditLog.id.asc()).limit(50).all()
+                    entries = [serialize_audit_row(r) for r in rows]
+                    if statuses:
+                        wanted = set(statuses)
+                        entries = [e for e in entries if e.get("result") in wanted]
+                    if ip and "/" in ip:
+                        from app.web.admin_logs_query import _ip_matches
+
+                        entries = [
+                            e for e in entries if _ip_matches(e.get("ip_address"), ip)
+                        ]
                 finally:
                     db.close()
 
@@ -246,6 +311,110 @@ async def admin_logs_stream(
     )
 
 
+@router.post("/admin/logs/prefs/columns")
+def admin_logs_save_columns(
+    request: Request,
+    columns: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    user_key = _user_key(user)
+    col_list = normalize_columns([c.strip() for c in columns.split(",") if c.strip()])
+    row = db.query(AdminLogsUserPrefs).filter_by(user_email=user_key).first()
+    if row is None:
+        row = AdminLogsUserPrefs(user_email=user_key, columns_json=col_list)
+        db.add(row)
+    else:
+        row.columns_json = col_list
+        row.updated_at = utcnow()
+    db.commit()
+    response = RedirectResponse(url="/admin/logs#audit", status_code=302)
+    flash_redirect(
+        response,
+        "Colonnes enregistrées.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@router.post("/admin/logs/views")
+def admin_logs_save_view(
+    request: Request,
+    name: str = Form(...),
+    filters_json: str = Form("{}"),
+    columns: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    user_key = _user_key(user)
+    view_name = (name or "").strip()
+    if not view_name or view_name.casefold() == "tout":
+        raise HTTPException(status_code=400, detail="Nom de vue invalide")
+    try:
+        filters = json.loads(filters_json or "{}")
+        if not isinstance(filters, dict):
+            filters = {}
+    except json.JSONDecodeError:
+        filters = {}
+    col_list = normalize_columns([c.strip() for c in columns.split(",") if c.strip()])
+    existing = (
+        db.query(SavedLogView)
+        .filter_by(user_email=user_key, name=view_name)
+        .first()
+    )
+    if existing:
+        existing.filters_json = filters
+        existing.columns_json = col_list
+    else:
+        db.add(
+            SavedLogView(
+                user_email=user_key,
+                name=view_name,
+                filters_json=filters,
+                columns_json=col_list,
+            )
+        )
+    db.commit()
+    response = RedirectResponse(url="/admin/logs#audit", status_code=302)
+    flash_redirect(
+        response,
+        f"Vue « {view_name} » enregistrée.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@router.post("/admin/logs/views/{view_id}/delete")
+def admin_logs_delete_view(
+    view_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    user_key = _user_key(user)
+    row = (
+        db.query(SavedLogView)
+        .filter_by(id=view_id, user_email=user_key)
+        .first()
+    )
+    if row:
+        db.delete(row)
+        db.commit()
+    response = RedirectResponse(url="/admin/logs#audit", status_code=302)
+    flash_redirect(
+        response,
+        "Vue supprimée.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
 @router.get("/admin/logs/containers/{name}/logs")
 async def admin_container_logs_snapshot(
     name: str,
@@ -254,7 +423,6 @@ async def admin_container_logs_snapshot(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    """Snapshot of last N log lines for a whitelisted container."""
     docker_cfg = get_container_logs_config(db)
     if not docker_logs_enabled(docker_cfg):
         raise HTTPException(status_code=503, detail="Docker logs proxy not configured")
@@ -279,7 +447,6 @@ async def admin_container_logs_stream(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    """SSE tail of a whitelisted container via the read-only Docker proxy."""
     docker_cfg = get_container_logs_config(db)
     if not docker_logs_enabled(docker_cfg):
         raise HTTPException(status_code=503, detail="Docker logs proxy not configured")

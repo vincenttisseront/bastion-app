@@ -540,6 +540,32 @@ class AuditLog(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow)
 
 
+class SavedLogView(Base):
+    """Per-user saved filter/column combination for /admin/logs Audit tab."""
+
+    __tablename__ = "saved_log_views"
+    __table_args__ = (
+        UniqueConstraint("user_email", "name", name="uq_saved_log_view_user_name"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    filters_json = Column(JSON, nullable=False, default=dict)
+    columns_json = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
+class AdminLogsUserPrefs(Base):
+    """Per-user column preferences for /admin/logs (not a named view)."""
+
+    __tablename__ = "admin_logs_user_prefs"
+
+    user_email = Column(String, primary_key=True)
+    columns_json = Column(JSON, nullable=False, default=list)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class ActiveSession(Base):
     """Live portal / application session registry for the Sessions UI."""
 

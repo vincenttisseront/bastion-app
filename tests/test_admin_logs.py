@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.models import AuditLog
+from app.models import AuditLog, SavedLogView
 from app.web.log_masking import mask_secrets, mask_secrets_text
 
 ADMIN_HEADERS = {
@@ -92,6 +94,187 @@ def test_logs_filter_by_date(client: TestClient, db_session: Session):
     assert "<code>app.create</code>" not in empty.text
 
 
+def test_logs_combined_filters_status_ip_dates(client: TestClient, db_session: Session):
+    match = AuditLog(
+        actor="admin@example.com",
+        action="breakglass.login_denied_non_lan",
+        details={"status": "error", "reason": "breakglass_ip_not_allowed"},
+        ip_address="172.24.0.108",
+        created_at=datetime(2026, 3, 10, 12, 0, tzinfo=timezone.utc),
+    )
+    other_ip = AuditLog(
+        actor="admin@example.com",
+        action="breakglass.login_denied_non_lan",
+        details={"status": "error", "reason": "breakglass_ip_not_allowed"},
+        ip_address="10.0.0.1",
+        created_at=datetime(2026, 3, 10, 12, 5, tzinfo=timezone.utc),
+    )
+    other_status = AuditLog(
+        actor="admin@example.com",
+        action="realm.test",
+        details={"status": "ok"},
+        ip_address="172.24.0.108",
+        created_at=datetime(2026, 3, 10, 12, 10, tzinfo=timezone.utc),
+    )
+    other_date = AuditLog(
+        actor="admin@example.com",
+        action="breakglass.login_denied_non_lan",
+        details={"status": "error"},
+        ip_address="172.24.0.108",
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    db_session.add_all([match, other_ip, other_status, other_date])
+    db_session.commit()
+
+    qs = urlencode(
+        [
+            ("status", "error"),
+            ("ip", "172.24.0.108"),
+            ("date_from", "2026-03-01"),
+            ("date_to", "2026-03-31"),
+        ]
+    )
+    resp = client.get(f"/admin/logs?{qs}", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert resp.text.count("data-audit-id=") == 1
+    assert f'data-audit-id="{match.id}"' in resp.text
+    assert "logs-chip" in resp.text
+    assert "Résultat: error" in resp.text
+    assert "IP: 172.24.0.108" in resp.text
+
+
+def test_logs_fulltext_search_in_detail_json(client: TestClient, db_session: Session):
+    token = "unique_detail_token_xyz789"
+    log_action(
+        db_session,
+        actor="alice@ex.com",
+        action="health.probe",
+        details={"nested": {"marker": token}, "status": "ok"},
+    )
+    log_action(
+        db_session,
+        actor="bob@ex.com",
+        action="realm.test",
+        details={"status": "ok", "note": "unrelated"},
+    )
+
+    resp = client.get(f"/admin/logs?q={token}", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert resp.text.count("data-audit-id=") == 1
+    assert "alice@ex.com" in resp.text
+    assert "bob@ex.com" not in resp.text
+    # Token lives only in JSON detail, not as action/actor labels
+    assert token in resp.text
+
+
+def test_logs_detail_drawer_replaces_voir_plus(client: TestClient, db_session: Session):
+    log_action(
+        db_session,
+        actor="admin@example.com",
+        action="breakglass.login_denied_non_lan",
+        details={
+            "reason": "breakglass_ip_not_allowed",
+            "resolved": None,
+            "x_real_ip": "172.24.0.108",
+            "x_forwarded_for": "172.24.0.108, 192.168.2.50",
+            "peer": "10.5.0.2",
+            "note": "long-" + ("n" * 100),
+        },
+    )
+    resp = client.get(
+        "/admin/logs?action=breakglass.login_denied_non_lan",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert 'id="audit-drawer"' in resp.text
+    assert "data-entry=" in resp.text
+    assert "192.168.2.50" in resp.text
+    assert "openDrawer" in resp.text or "audit-drawer" in resp.text
+    # Legacy expand UI removed
+    assert "audit-detail-toggle" not in resp.text
+    assert "audit-detail-full" not in resp.text
+    tbody_start = resp.text.index('id="audit-tbody"')
+    tbody_end = resp.text.index("</tbody>", tbody_start)
+    tbody = resp.text[tbody_start:tbody_end]
+    assert "<details" not in tbody
+    assert "voir plus" not in tbody.lower()
+    assert "voir moins" not in tbody.lower()
+
+
+def test_logs_saved_view_roundtrip(client: TestClient, db_session: Session):
+    log_action(
+        db_session,
+        actor="alice@ex.com",
+        action="realm.test",
+        details={"status": "error", "reason": "boom"},
+        ip_address="172.24.0.50",
+    )
+    log_action(
+        db_session,
+        actor="bob@ex.com",
+        action="health.probe",
+        details={"status": "ok"},
+        ip_address="10.0.0.1",
+    )
+
+    filters = {
+        "action": "realm.test",
+        "actor": "alice",
+        "date_from": "",
+        "date_to": "",
+        "ip": "172.24.0.50",
+        "q": "",
+        "detail": "boom",
+        "status": ["error"],
+    }
+    columns = "timestamp,actor,action,ip,result,detail,reason"
+    save = client.post(
+        "/admin/logs/views",
+        headers=ADMIN_HEADERS,
+        data={
+            "name": "Erreurs Alice",
+            "filters_json": json.dumps(filters),
+            "columns": columns,
+        },
+        follow_redirects=False,
+    )
+    assert save.status_code == 302
+
+    view = (
+        db_session.query(SavedLogView)
+        .filter_by(user_email="admin@example.com", name="Erreurs Alice")
+        .one()
+    )
+    assert view.filters_json["ip"] == "172.24.0.50"
+    assert view.filters_json["status"] == ["error"]
+    assert "reason" in view.columns_json
+
+    applied = client.get(f"/admin/logs?view={view.id}", headers=ADMIN_HEADERS)
+    assert applied.status_code == 200
+    assert applied.text.count("data-audit-id=") == 1
+    assert "alice@ex.com" in applied.text
+    assert "bob@ex.com" not in applied.text
+    assert 'name="detail"' in applied.text and 'value="boom"' in applied.text
+    assert "Erreurs Alice" in applied.text
+    assert ">reason<" in applied.text or "reason" in applied.text
+
+
+def test_logs_columns_prefs_persist(client: TestClient, db_session: Session):
+    save = client.post(
+        "/admin/logs/prefs/columns",
+        headers=ADMIN_HEADERS,
+        data={"columns": "timestamp,action,reason,peer"},
+        follow_redirects=False,
+    )
+    assert save.status_code == 302
+
+    page = client.get("/admin/logs", headers=ADMIN_HEADERS)
+    assert page.status_code == 200
+    assert 'data-columns="timestamp,action,reason,peer"' in page.text
+    assert "<th>reason</th>" in page.text
+    assert "<th>peer</th>" in page.text
+
+
 def test_mask_secrets_helpers():
     assert mask_secrets({"password": "x", "ok": True}) == {"password": "***", "ok": True}
     assert "secret=***" in mask_secrets_text("client_secret=abc123 rest")
@@ -122,49 +305,6 @@ def test_format_details_short_has_no_expand_pair():
     short, full = format_details_for_display({"error": "url_blocked", "forms_found": 0})
     assert short == full
     assert not short.endswith("…")
-
-
-def test_logs_voir_plus_embeds_full_json(client: TestClient, db_session: Session):
-    log_action(
-        db_session,
-        actor="admin@example.com",
-        action="breakglass.login_denied_non_lan",
-        details={
-            "reason": "breakglass_ip_not_allowed",
-            "resolved": None,
-            "x_real_ip": "172.24.0.108",
-            "x_forwarded_for": "172.24.0.108, 192.168.2.50",
-            "peer": "10.5.0.2",
-            "note": "long-" + ("n" * 100),
-        },
-    )
-    resp = client.get(
-        "/admin/logs?action=breakglass.login_denied_non_lan",
-        headers=ADMIN_HEADERS,
-    )
-    assert resp.status_code == 200
-    assert 'class="audit-detail-full' in resp.text
-    assert "192.168.2.50" in resp.text
-    assert "audit-detail-toggle" in resp.text
-    assert "audit-detail-preview" in resp.text
-    # Short entries must not get an expand control
-    log_action(
-        db_session,
-        actor="admin@example.com",
-        action="health.probe",
-        details={"error": "url_blocked", "forms_found": 0},
-    )
-    short_resp = client.get("/admin/logs?action=health.probe", headers=ADMIN_HEADERS)
-    assert short_resp.status_code == 200
-    assert "url_blocked" in short_resp.text
-    # Isolate server-rendered tbody (page JS also mentions these class names).
-    tbody_start = short_resp.text.index('id="audit-tbody"')
-    tbody_end = short_resp.text.index("</tbody>", tbody_start)
-    tbody = short_resp.text[tbody_start:tbody_end]
-    assert "data-audit-id=" in tbody
-    assert "<details" not in tbody
-    assert "audit-detail-preview" not in tbody
-    assert "audit-detail-full" not in tbody
 
 
 def test_request_id_header_present_and_unique(client: TestClient):

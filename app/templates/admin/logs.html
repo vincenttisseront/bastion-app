@@ -7,11 +7,31 @@
 {% set docker_containers = docker_containers | default([]) %}
 {% set docker_logs_tail_lines = docker_logs_tail_lines | default(200) %}
 {% set admin_logs_sse_timeout_seconds = admin_logs_sse_timeout_seconds | default(1800) %}
+{% set visible_columns = visible_columns | default(['timestamp','actor','action','ip','result','detail']) %}
+{% set all_columns = all_columns | default(visible_columns) %}
+{% set saved_views = saved_views | default([]) %}
+{% set active_chips = active_chips | default([]) %}
+{% set filters = filters | default({}) %}
+{% set col_labels = {
+  'timestamp': 'Horodatage',
+  'actor': 'Acteur',
+  'action': 'Action',
+  'ip': 'IP',
+  'result': 'Résultat',
+  'detail': 'Détail',
+  'reason': 'reason',
+  'x_real_ip': 'x_real_ip',
+  'x_forwarded_for': 'x_forwarded_for',
+  'peer': 'peer',
+  'resolved': 'resolved',
+  'target': 'Cible'
+} %}
 <div class="page" id="admin-logs-page"
      data-sse-timeout="{{ admin_logs_sse_timeout_seconds }}"
      data-docker-enabled="{{ '1' if docker_logs_enabled else '0' }}"
-     data-tail-lines="{{ docker_logs_tail_lines }}">
-  <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-4);flex-wrap:wrap;">
+     data-tail-lines="{{ docker_logs_tail_lines }}"
+     data-columns="{{ visible_columns | join(',') }}">
+  <div class="page-header">
     <div>
       <h1 class="page-title">Journaux d'administration</h1>
       <p class="page-sub" id="audit-sub">{{ total }} entrée(s) — audit métier (log_action)</p>
@@ -24,69 +44,99 @@
   </div>
 
   <div class="logs-panel" id="audit" role="tabpanel" aria-labelledby="tab-audit">
-    <form class="audit-toolbar" method="get" action="/admin/logs" id="audit-filters"
-          style="flex-wrap:wrap;gap:var(--sp-2);align-items:center;">
-      <select class="form-input" name="action" id="filter-action" aria-label="Filtrer par action" style="width:auto;min-width:12rem;">
+    <div class="logs-views">
+      <a class="btn btn-secondary btn-sm" href="/admin/logs#audit">Tout</a>
+      {% for v in saved_views %}
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?view={{ v.id }}#audit">{{ v.name }}</a>
+      <form method="post" action="/admin/logs/views/{{ v.id }}/delete" class="inline-form">
+        <button type="submit" class="btn btn-ghost btn-sm" title="Supprimer la vue">×</button>
+      </form>
+      {% endfor %}
+    </div>
+
+    <form class="logs-toolbar audit-toolbar" method="get" action="/admin/logs" id="audit-filters">
+      <input type="hidden" name="columns" id="filter-columns" value="{{ visible_columns | join(',') }}">
+      <input type="search" class="form-input logs-search" name="q" id="filter-q" value="{{ filters.q or '' }}"
+             placeholder="Recherche plein texte…" aria-label="Recherche plein texte">
+      <select class="form-input" name="action" id="filter-action" aria-label="Filtrer par action">
         <option value="">Toutes les actions</option>
         {% for a in action_choices %}
         <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
         {% endfor %}
       </select>
-      <input type="text" class="form-input" name="actor" id="filter-actor" value="{{ filters.actor }}"
-             placeholder="Acteur" aria-label="Filtrer par acteur" style="width:10rem;">
-      <input type="date" class="form-input" name="date_from" id="filter-date-from" value="{{ filters.date_from }}"
-             aria-label="Date début" style="width:auto;">
-      <input type="date" class="form-input" name="date_to" id="filter-date-to" value="{{ filters.date_to }}"
-             aria-label="Date fin" style="width:auto;">
+      <input type="text" class="form-input" name="actor" id="filter-actor" value="{{ filters.actor or '' }}"
+             placeholder="Acteur" aria-label="Filtrer par acteur">
+      <input type="text" class="form-input" name="ip" id="filter-ip" value="{{ filters.ip or '' }}"
+             placeholder="IP ou CIDR" aria-label="Filtrer par IP">
+      <input type="text" class="form-input" name="detail" id="filter-detail" value="{{ filters.detail or '' }}"
+             placeholder="Mot-clé détail" aria-label="Mot-clé dans le détail">
+      <input type="date" class="form-input" name="date_from" id="filter-date-from" value="{{ filters.date_from or '' }}"
+             aria-label="Date début">
+      <input type="date" class="form-input" name="date_to" id="filter-date-to" value="{{ filters.date_to or '' }}"
+             aria-label="Date fin">
+      <div class="logs-result-checks" role="group" aria-label="Résultat">
+        {% for st in ['success', 'error', 'info'] %}
+        <label><input type="checkbox" name="status" value="{{ st }}"{% if st in (filters.status or []) %} checked{% endif %}> {{ st }}</label>
+        {% endfor %}
+      </div>
       <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
       <button type="button" class="btn btn-secondary btn-sm live-btn" id="audit-live-btn"
-              aria-pressed="false" title="Flux temps réel des nouvelles entrées">● Live</button>
+              aria-pressed="false" title="Flux temps réel">● Live</button>
       <span class="live-status" id="audit-live-status" hidden>Live</span>
+      <div class="logs-col-menu">
+        <button type="button" class="btn btn-secondary btn-sm" id="cols-btn" aria-expanded="false">Colonnes</button>
+        <div class="logs-col-panel" id="cols-panel" hidden>
+          {% for c in all_columns %}
+          <label><input type="checkbox" class="col-toggle" value="{{ c }}"{% if c in visible_columns %} checked{% endif %}> {{ col_labels.get(c, c) }}</label>
+          {% endfor %}
+          <button type="button" class="btn btn-primary btn-sm" id="cols-save">Enregistrer colonnes</button>
+        </div>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" id="save-view-btn">Enregistrer la vue</button>
     </form>
 
-    <div class="card" style="padding:0;overflow-x:auto;">
-      <table class="data-table" style="width:100%;border-collapse:collapse;" id="audit-table">
+    {% if active_chips %}
+    <div class="logs-chip-row" id="audit-chips">
+      {% for chip in active_chips %}
+      <span class="logs-chip" data-chip-key="{{ chip.key }}">{{ chip.label }}
+        <button type="button" class="chip-remove" aria-label="Retirer">×</button>
+      </span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="card logs-table-wrap">
+      <table class="data-table" id="audit-table">
         <thead>
           <tr>
-            <th style="text-align:left;padding:0.75rem;">Horodatage</th>
-            <th style="text-align:left;padding:0.75rem;">Acteur</th>
-            <th style="text-align:left;padding:0.75rem;">Action</th>
-            <th style="text-align:left;padding:0.75rem;">IP</th>
-            <th style="text-align:left;padding:0.75rem;">Résultat</th>
-            <th style="text-align:left;padding:0.75rem;">Détail</th>
+            {% for c in visible_columns %}
+            <th>{{ col_labels.get(c, c) }}</th>
+            {% endfor %}
           </tr>
         </thead>
         <tbody id="audit-tbody">
           {% for e in entries %}
-          <tr data-audit-id="{{ e.id }}">
-            <td class="font-mono" style="padding:0.75rem;white-space:nowrap;">{{ e.timestamp }}</td>
-            <td style="padding:0.75rem;">{{ e.actor }}</td>
-            <td style="padding:0.75rem;"><code>{{ e.action }}</code></td>
-            <td class="font-mono" style="padding:0.75rem;">{{ e.ip_address or "—" }}</td>
-            <td style="padding:0.75rem;">
-              {% if e.status %}
-              <span class="badge badge-{{ 'ok' if e.status == 'ok' else ('warn' if e.status == 'warn' else 'err') }}">{{ e.status }}</span>
-              {% else %}
-              <span class="badge badge-info">{{ e.severity }}</span>
+          <tr data-audit-id="{{ e.id }}" tabindex="0"
+              data-entry='{{ e | tojson }}'>
+            {% for c in visible_columns %}
+            <td class="{% if c in ['timestamp','ip'] %}font-mono{% endif %}">
+              {% if c == 'timestamp' %}{{ e.timestamp }}
+              {% elif c == 'actor' %}{{ e.actor }}
+              {% elif c == 'action' %}<code>{{ e.action }}</code>
+              {% elif c == 'ip' %}{{ e.ip_address or "—" }}
+              {% elif c == 'result' %}
+                <span class="badge badge-{{ 'ok' if e.result == 'success' else ('err' if e.result == 'error' else 'info') }}">{{ e.result }}</span>
+              {% elif c == 'detail' %}
+                <span class="font-mono audit-detail-preview">{{ e.detail_short or "—" }}</span>
+              {% elif c == 'target' %}{{ e.target or "—" }}
+              {% else %}{{ e.extras.get(c, "—") if e.extras else "—" }}
               {% endif %}
             </td>
-            <td class="audit-detail-cell" style="padding:0.75rem;max-width:32rem;vertical-align:top;">
-              {% if e.detail_full and e.detail_full != e.detail_short %}
-              <details class="audit-detail">
-                <summary class="audit-detail-summary">
-                  <span class="audit-detail-preview font-mono">{{ e.detail_short }}</span>
-                  <span class="audit-detail-toggle" aria-hidden="true"></span>
-                </summary>
-                <pre class="audit-detail-full font-mono">{{ e.detail_full }}</pre>
-              </details>
-              {% else %}
-              <span class="font-mono" style="font-size:0.85em;word-break:break-word;">{{ e.detail_short or "—" }}</span>
-              {% endif %}
-            </td>
+            {% endfor %}
           </tr>
           {% else %}
           <tr id="audit-empty-row">
-            <td colspan="6" style="padding:2rem;text-align:center;color:var(--muted);">Aucune entrée</td>
+            <td colspan="{{ visible_columns | length }}">Aucune entrée</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -94,13 +144,13 @@
     </div>
 
     {% if total_pages > 1 %}
-    <div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4);align-items:center;" id="audit-pagination">
+    <div class="logs-toolbar" id="audit-pagination">
       {% if page > 1 %}
-      <a class="btn btn-secondary btn-sm" href="?page={{ page - 1 }}&action={{ filters.action }}&actor={{ filters.actor }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}#audit">← Précédent</a>
+      <a class="btn btn-secondary btn-sm" id="page-prev" href="#">← Précédent</a>
       {% endif %}
       <span>Page {{ page }} / {{ total_pages }}</span>
       {% if page < total_pages %}
-      <a class="btn btn-secondary btn-sm" href="?page={{ page + 1 }}&action={{ filters.action }}&actor={{ filters.actor }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}#audit">Suivant →</a>
+      <a class="btn btn-secondary btn-sm" id="page-next" href="#">Suivant →</a>
       {% endif %}
     </div>
     {% endif %}
@@ -108,18 +158,16 @@
 
   <div class="logs-panel" id="containers" role="tabpanel" aria-labelledby="tab-containers" hidden>
     {% if not docker_logs_enabled %}
-    <div class="card" style="padding:var(--sp-5);">
-      <p style="margin:0;color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;">
+    <div class="card card-body">
+      <p class="page-sub">
         Logs containers désactivés. Activez et configurez le proxy en lecture seule dans
-        <a href="/admin/security#container-logs">Admin → Sécurité → Logs containers</a>
-        (liste blanche + URL du proxy). Le socket
-        <span class="mono">/var/run/docker.sock</span> n'est jamais monté dans bastion-app.
+        <a href="/admin/security#container-logs">Admin → Sécurité → Logs containers</a>.
       </p>
     </div>
     {% else %}
-    <div class="audit-toolbar" style="flex-wrap:wrap;gap:var(--sp-2);align-items:center;">
-      <label class="field-label" for="container-select" style="margin:0;">Container</label>
-      <select class="form-input" id="container-select" aria-label="Container" style="width:auto;min-width:14rem;">
+    <div class="logs-toolbar audit-toolbar">
+      <label class="field-label" for="container-select">Container</label>
+      <select class="form-input" id="container-select" aria-label="Container">
         <option value="">— Choisir —</option>
         {% for c in docker_containers %}
         <option value="{{ c }}">{{ c }}</option>
@@ -131,86 +179,46 @@
       <button type="button" class="btn btn-secondary btn-sm" id="container-copy-btn" disabled>Copier</button>
       <span class="live-status" id="container-live-status" hidden>Live</span>
     </div>
-    <div class="card" style="padding:0;">
+    <div class="card">
       <pre class="container-logs-pre font-mono" id="container-logs-pre" aria-live="polite">Sélectionnez un container de la liste blanche.</pre>
     </div>
     {% endif %}
   </div>
 </div>
+
+<div class="logs-drawer" id="audit-drawer" aria-hidden="true">
+  <div class="logs-drawer-head">
+    <strong id="audit-drawer-title">Détail</strong>
+    <button type="button" class="btn btn-ghost btn-sm" id="audit-drawer-close">Fermer</button>
+  </div>
+  <div class="logs-drawer-body" id="audit-drawer-body"></div>
+</div>
+
+<form method="post" action="/admin/logs/prefs/columns" id="cols-form" hidden>
+  <input type="hidden" name="columns" id="cols-form-value">
+</form>
+<form method="post" action="/admin/logs/views" id="view-form" hidden>
+  <input type="hidden" name="name" id="view-form-name">
+  <input type="hidden" name="filters_json" id="view-form-filters">
+  <input type="hidden" name="columns" id="view-form-columns">
+</form>
 {% endblock %}
 
 {% block head_extra %}
 <style>
-  .audit-detail-cell { overflow: visible; }
-  .audit-detail > .audit-detail-summary {
-    cursor: pointer;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.25rem;
-  }
-  .audit-detail > .audit-detail-summary::-webkit-details-marker { display: none; }
-  .audit-detail-preview {
-    font-size: 0.85em;
-    word-break: break-word;
-    white-space: normal;
-  }
-  .audit-detail-toggle {
-    color: var(--accent);
-    font-size: 0.85em;
-    user-select: none;
-  }
-  .audit-detail-toggle::after { content: "voir plus"; }
-  .audit-detail[open] > .audit-detail-summary .audit-detail-preview { display: none; }
-  .audit-detail[open] > .audit-detail-summary .audit-detail-toggle::after { content: "voir moins"; }
-  .audit-detail-full {
-    white-space: pre-wrap;
-    word-break: break-word;
-    overflow-wrap: anywhere;
-    font-size: 0.8em;
-    margin: 0.35rem 0 0;
-    max-width: 100%;
-    max-height: 24rem;
-    overflow: auto;
-    padding: 0.5rem 0.65rem;
-    background: var(--bg-tertiary, rgba(0,0,0,.04));
-    border-radius: 6px;
-    border: 1px solid var(--border-muted, var(--border));
-  }
-  .live-btn[aria-pressed="true"] {
-    border-color: var(--err, #dc2626);
-    color: var(--err, #dc2626);
-  }
-  .live-status {
-    font-size: var(--fs-xs);
-    font-weight: 700;
-    color: var(--err, #dc2626);
-    animation: admin-live-pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes admin-live-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.45; }
-  }
-  #audit-tbody tr.audit-row-live {
-    animation: admin-audit-row-flash 2s ease-out;
-    background: var(--row-hover, rgba(16,185,129,.08));
-  }
+  .live-status { animation: admin-live-pulse 1.6s ease-in-out infinite; }
+  @keyframes admin-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  #audit-tbody tr.audit-row-live { animation: admin-audit-row-flash 2s ease-out; }
   @keyframes admin-audit-row-flash {
     0% { background: rgba(16, 185, 129, 0.28); }
     100% { background: transparent; }
   }
   .container-logs-pre {
-    margin: 0;
-    padding: var(--sp-4);
-    max-height: 28rem;
-    overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: 0.8em;
-    line-height: 1.45;
-    background: var(--bg-tertiary, rgba(0,0,0,.03));
+    margin: 0; padding: var(--sp-4); max-height: 28rem; overflow: auto;
+    white-space: pre-wrap; word-break: break-word; font-size: 0.8em; line-height: 1.45;
+    background: var(--bg-tertiary);
   }
+  .inline-form { display: inline; }
 </style>
 {% endblock %}
 
@@ -219,17 +227,16 @@
 (function () {
   var page = document.getElementById('admin-logs-page');
   if (!page) return;
+  var COLS = (page.getAttribute('data-columns') || 'timestamp,actor,action,ip,result,detail').split(',');
   var VALID = ['audit', 'containers'];
-  var DEFAULT = 'audit';
 
   function currentTab() {
     var h = (location.hash || '').replace(/^#/, '');
-    return VALID.indexOf(h) >= 0 ? h : DEFAULT;
+    return VALID.indexOf(h) >= 0 ? h : 'audit';
   }
   function activate(id) {
     document.querySelectorAll('.logs-panel').forEach(function (panel) {
-      var on = panel.id === id;
-      panel.hidden = !on;
+      panel.hidden = panel.id !== id;
     });
     document.querySelectorAll('#logs-tabs .tab').forEach(function (tab) {
       var on = tab.getAttribute('data-tab') === id;
@@ -242,95 +249,224 @@
 
   function esc(s) {
     return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  function detailCellHtml(e) {
-    var short = e.detail_short || '—';
-    var full = e.detail_full || '';
-    if (full && full !== short) {
-      return '<details class="audit-detail">' +
-        '<summary class="audit-detail-summary">' +
-        '<span class="audit-detail-preview font-mono">' + esc(short) + '</span>' +
-        '<span class="audit-detail-toggle" aria-hidden="true"></span>' +
-        '</summary>' +
-        '<pre class="audit-detail-full font-mono">' + esc(full) + '</pre>' +
-        '</details>';
-    }
-    return '<span class="font-mono" style="font-size:0.85em;word-break:break-word;">' + esc(short) + '</span>';
+  function currentFilters() {
+    var p = new URLSearchParams(window.location.search);
+    var status = p.getAll('status');
+    return {
+      action: (document.getElementById('filter-action') || {}).value || '',
+      actor: (document.getElementById('filter-actor') || {}).value || '',
+      date_from: (document.getElementById('filter-date-from') || {}).value || '',
+      date_to: (document.getElementById('filter-date-to') || {}).value || '',
+      ip: (document.getElementById('filter-ip') || {}).value || '',
+      q: (document.getElementById('filter-q') || {}).value || '',
+      detail: (document.getElementById('filter-detail') || {}).value || '',
+      status: status.length ? status : Array.prototype.map.call(
+        document.querySelectorAll('#audit-filters input[name="status"]:checked'),
+        function (el) { return el.value; }
+      ),
+    };
   }
+
+  function auditFilterQuery() {
+    var f = currentFilters();
+    var p = new URLSearchParams();
+    Object.keys(f).forEach(function (k) {
+      if (k === 'status') {
+        (f.status || []).forEach(function (s) { p.append('status', s); });
+      } else if (f[k]) {
+        p.set(k, f[k]);
+      }
+    });
+    return p.toString();
+  }
+
+  function buildPageHref(pageNum) {
+    var p = new URLSearchParams(auditFilterQuery());
+    p.set('page', String(pageNum));
+    p.set('columns', COLS.join(','));
+    return '/admin/logs?' + p.toString() + '#audit';
+  }
+  var prev = document.getElementById('page-prev');
+  var next = document.getElementById('page-next');
+  if (prev) {
+    var cur = parseInt(new URLSearchParams(location.search).get('page') || '1', 10);
+    prev.href = buildPageHref(Math.max(1, cur - 1));
+  }
+  if (next) {
+    var cur2 = parseInt(new URLSearchParams(location.search).get('page') || '1', 10);
+    next.href = buildPageHref(cur2 + 1);
+  }
+
+  /* chips */
+  document.querySelectorAll('.chip-remove').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var chip = btn.closest('.logs-chip');
+      var key = chip && chip.getAttribute('data-chip-key');
+      var p = new URLSearchParams(location.search);
+      if (key === 'dates') { p.delete('date_from'); p.delete('date_to'); }
+      else if (key && key.indexOf('status:') === 0) {
+        var st = key.slice(7);
+        var keep = p.getAll('status').filter(function (x) { return x !== st; });
+        p.delete('status');
+        keep.forEach(function (x) { p.append('status', x); });
+      } else if (key) {
+        p.delete(key);
+      }
+      p.delete('page');
+      location.href = '/admin/logs?' + p.toString() + '#audit';
+    });
+  });
+
+  /* columns */
+  var colsBtn = document.getElementById('cols-btn');
+  var colsPanel = document.getElementById('cols-panel');
+  if (colsBtn && colsPanel) {
+    colsBtn.addEventListener('click', function () {
+      var open = colsPanel.hidden;
+      colsPanel.hidden = !open;
+      colsBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
+  var colsSave = document.getElementById('cols-save');
+  if (colsSave) {
+    colsSave.addEventListener('click', function () {
+      var selected = Array.prototype.map.call(
+        document.querySelectorAll('.col-toggle:checked'),
+        function (el) { return el.value; }
+      );
+      document.getElementById('cols-form-value').value = selected.join(',');
+      document.getElementById('cols-form').submit();
+    });
+  }
+
+  /* save view */
+  var saveViewBtn = document.getElementById('save-view-btn');
+  if (saveViewBtn) {
+    saveViewBtn.addEventListener('click', function () {
+      var name = window.prompt('Nom de la vue');
+      if (!name) return;
+      document.getElementById('view-form-name').value = name;
+      document.getElementById('view-form-filters').value = JSON.stringify(currentFilters());
+      document.getElementById('view-form-columns').value = COLS.join(',');
+      document.getElementById('view-form').submit();
+    });
+  }
+
+  /* drawer */
+  var drawer = document.getElementById('audit-drawer');
+  var drawerBody = document.getElementById('audit-drawer-body');
+  var drawerTitle = document.getElementById('audit-drawer-title');
+  var selectedId = null;
+
+  function openDrawer(entry) {
+    if (!drawer || !drawerBody || !entry) return;
+    selectedId = String(entry.id);
+    document.querySelectorAll('#audit-tbody tr[data-audit-id]').forEach(function (tr) {
+      tr.classList.toggle('is-selected', tr.getAttribute('data-audit-id') === selectedId);
+    });
+    drawerTitle.textContent = entry.action || 'Détail';
+    var meta =
+      '<dl class="logs-drawer-meta">' +
+      '<dt>Horodatage</dt><dd class="font-mono">' + esc(entry.timestamp) + '</dd>' +
+      '<dt>Acteur</dt><dd>' + esc(entry.actor) + '</dd>' +
+      '<dt>Action</dt><dd><code>' + esc(entry.action) + '</code></dd>' +
+      '<dt>IP</dt><dd class="font-mono">' + esc(entry.ip_address || '—') + '</dd>' +
+      '<dt>Résultat</dt><dd>' + esc(entry.result || entry.status || entry.severity || '—') + '</dd>' +
+      '<dt>Cible</dt><dd>' + esc(entry.target || '—') + '</dd>' +
+      '</dl>';
+    var json = entry.detail_full || '—';
+    drawerBody.innerHTML = meta +
+      '<pre class="logs-drawer-json font-mono" id="audit-drawer-json">' + esc(json) + '</pre>' +
+      '<div class="logs-drawer-actions"><button type="button" class="btn btn-secondary btn-sm" id="audit-drawer-copy">Copier</button></div>';
+    drawer.classList.add('is-open');
+    drawer.setAttribute('aria-hidden', 'false');
+    var copy = document.getElementById('audit-drawer-copy');
+    if (copy) {
+      copy.addEventListener('click', function () {
+        if (navigator.clipboard) navigator.clipboard.writeText(json);
+      });
+    }
+  }
+
+  function parseRowEntry(tr) {
+    var raw = tr.getAttribute('data-entry');
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (e) { return null; }
+  }
+
+  var auditTbody = document.getElementById('audit-tbody');
+  if (auditTbody) {
+    auditTbody.addEventListener('click', function (ev) {
+      var tr = ev.target.closest('tr[data-audit-id]');
+      if (!tr) return;
+      openDrawer(parseRowEntry(tr));
+    });
+    auditTbody.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      var tr = ev.target.closest('tr[data-audit-id]');
+      if (!tr) return;
+      ev.preventDefault();
+      openDrawer(parseRowEntry(tr));
+    });
+  }
+  document.getElementById('audit-drawer-close').addEventListener('click', function () {
+    drawer.classList.remove('is-open');
+    drawer.setAttribute('aria-hidden', 'true');
+  });
 
   function statusHtml(e) {
-    if (e.status) {
-      var cls = e.status === 'ok' ? 'ok' : (e.status === 'warn' ? 'warn' : 'err');
-      return '<span class="badge badge-' + cls + '">' + esc(e.status) + '</span>';
-    }
-    return '<span class="badge badge-info">' + esc(e.severity || '') + '</span>';
+    var r = e.result || e.status || e.severity || '';
+    var cls = r === 'success' || r === 'ok' ? 'ok' : (r === 'error' || r === 'err' || r === 'warn' ? 'err' : 'info');
+    return '<span class="badge badge-' + cls + '">' + esc(r) + '</span>';
+  }
+
+  function cellHtml(c, e) {
+    if (c === 'timestamp') return esc(e.timestamp);
+    if (c === 'actor') return esc(e.actor);
+    if (c === 'action') return '<code>' + esc(e.action) + '</code>';
+    if (c === 'ip') return esc(e.ip_address || '—');
+    if (c === 'result') return statusHtml(e);
+    if (c === 'detail') return '<span class="font-mono audit-detail-preview">' + esc(e.detail_short || '—') + '</span>';
+    if (c === 'target') return esc(e.target || '—');
+    var extras = e.extras || {};
+    return esc(extras[c] != null ? extras[c] : '—');
   }
 
   function buildAuditRow(e) {
     var tr = document.createElement('tr');
     tr.setAttribute('data-audit-id', String(e.id));
+    tr.setAttribute('data-entry', JSON.stringify(e));
+    tr.tabIndex = 0;
     tr.className = 'audit-row-live';
-    tr.innerHTML =
-      '<td class="font-mono" style="padding:0.75rem;white-space:nowrap;">' + esc(e.timestamp) + '</td>' +
-      '<td style="padding:0.75rem;">' + esc(e.actor) + '</td>' +
-      '<td style="padding:0.75rem;"><code>' + esc(e.action) + '</code></td>' +
-      '<td class="font-mono" style="padding:0.75rem;">' + esc(e.ip_address || '—') + '</td>' +
-      '<td style="padding:0.75rem;">' + statusHtml(e) + '</td>' +
-      '<td class="audit-detail-cell" style="padding:0.75rem;max-width:32rem;vertical-align:top;">' +
-      detailCellHtml(e) + '</td>';
+    tr.innerHTML = COLS.map(function (c) {
+      var cls = (c === 'timestamp' || c === 'ip') ? ' class="font-mono"' : '';
+      return '<td' + cls + '>' + cellHtml(c, e) + '</td>';
+    }).join('');
     return tr;
   }
 
-  /* --- Audit Live --- */
+  /* Audit Live */
   var auditBtn = document.getElementById('audit-live-btn');
   var auditStatus = document.getElementById('audit-live-status');
-  var auditTbody = document.getElementById('audit-tbody');
   var auditEs = null;
   var seenIds = {};
-
   document.querySelectorAll('#audit-tbody tr[data-audit-id]').forEach(function (tr) {
     seenIds[tr.getAttribute('data-audit-id')] = true;
   });
 
-  function auditFilterQuery() {
-    var p = new URLSearchParams();
-    var a = document.getElementById('filter-action');
-    var u = document.getElementById('filter-actor');
-    var f = document.getElementById('filter-date-from');
-    var t = document.getElementById('filter-date-to');
-    if (a && a.value) p.set('action', a.value);
-    if (u && u.value) p.set('actor', u.value);
-    if (f && f.value) p.set('date_from', f.value);
-    if (t && t.value) p.set('date_to', t.value);
-    return p.toString();
-  }
-
   function stopAuditLive() {
-    if (auditEs) {
-      auditEs.close();
-      auditEs = null;
-    }
-    if (auditBtn) {
-      auditBtn.setAttribute('aria-pressed', 'false');
-      auditBtn.textContent = '● Live';
-    }
+    if (auditEs) { auditEs.close(); auditEs = null; }
+    if (auditBtn) { auditBtn.setAttribute('aria-pressed', 'false'); auditBtn.textContent = '● Live'; }
     if (auditStatus) auditStatus.hidden = true;
   }
-
   function startAuditLive() {
     stopAuditLive();
     var q = auditFilterQuery();
-    var url = '/admin/logs/stream' + (q ? ('?' + q) : '');
-    auditEs = new EventSource(url);
-    if (auditBtn) {
-      auditBtn.setAttribute('aria-pressed', 'true');
-      auditBtn.textContent = '● Live ON';
-    }
+    auditEs = new EventSource('/admin/logs/stream' + (q ? ('?' + q) : ''));
+    if (auditBtn) { auditBtn.setAttribute('aria-pressed', 'true'); auditBtn.textContent = '● Live ON'; }
     if (auditStatus) auditStatus.hidden = false;
     auditEs.onmessage = function (ev) {
       if (!ev.data) return;
@@ -343,9 +479,7 @@
       if (auditTbody) auditTbody.insertBefore(buildAuditRow(e), auditTbody.firstChild);
     };
     auditEs.addEventListener('timeout', function () { stopAuditLive(); });
-    auditEs.onerror = function () { /* browser may reconnect; leave button state */ };
   }
-
   if (auditBtn) {
     auditBtn.addEventListener('click', function () {
       if (auditBtn.getAttribute('aria-pressed') === 'true') stopAuditLive();
@@ -354,7 +488,7 @@
   }
   window.addEventListener('beforeunload', stopAuditLive);
 
-  /* --- Containers --- */
+  /* Containers — unchanged behavior */
   var sel = document.getElementById('container-select');
   var loadBtn = document.getElementById('container-load-btn');
   var liveBtn = document.getElementById('container-live-btn');
@@ -362,91 +496,55 @@
   var pre = document.getElementById('container-logs-pre');
   var liveStatus = document.getElementById('container-live-status');
   var containerEs = null;
-
   function stopContainerLive() {
-    if (containerEs) {
-      containerEs.close();
-      containerEs = null;
-    }
-    if (liveBtn) {
-      liveBtn.setAttribute('aria-pressed', 'false');
-      liveBtn.textContent = '● Live';
-    }
+    if (containerEs) { containerEs.close(); containerEs = null; }
+    if (liveBtn) { liveBtn.setAttribute('aria-pressed', 'false'); liveBtn.textContent = '● Live'; }
     if (liveStatus) liveStatus.hidden = true;
   }
-
   function setContainerButtons(enabled) {
     if (liveBtn) liveBtn.disabled = !enabled;
     if (copyBtn) copyBtn.disabled = !enabled;
   }
-
   async function loadContainerSnapshot() {
     if (!sel || !sel.value || !pre) return;
     stopContainerLive();
     pre.textContent = 'Chargement…';
     try {
       var resp = await fetch('/admin/logs/containers/' + encodeURIComponent(sel.value) + '/logs', {
-        headers: { 'Accept': 'application/json' },
-        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
       });
-      if (!resp.ok) {
-        pre.textContent = 'Erreur ' + resp.status + ' (accès refusé ou proxy indisponible).';
-        setContainerButtons(false);
-        return;
-      }
+      if (!resp.ok) { pre.textContent = 'Erreur ' + resp.status; setContainerButtons(false); return; }
       var data = await resp.json();
       pre.textContent = data.text || '(vide)';
       setContainerButtons(true);
-    } catch (err) {
-      pre.textContent = 'Erreur réseau.';
-      setContainerButtons(false);
-    }
+    } catch (err) { pre.textContent = 'Erreur réseau.'; setContainerButtons(false); }
   }
-
   function startContainerLive() {
     if (!sel || !sel.value || !pre) return;
     stopContainerLive();
-    var url = '/admin/logs/containers/' + encodeURIComponent(sel.value) + '/stream';
-    containerEs = new EventSource(url);
-    if (liveBtn) {
-      liveBtn.setAttribute('aria-pressed', 'true');
-      liveBtn.textContent = '● Live ON';
-    }
+    containerEs = new EventSource('/admin/logs/containers/' + encodeURIComponent(sel.value) + '/stream');
+    if (liveBtn) { liveBtn.setAttribute('aria-pressed', 'true'); liveBtn.textContent = '● Live ON'; }
     if (liveStatus) liveStatus.hidden = false;
     containerEs.onmessage = function (ev) {
       if (!ev.data) return;
       var payload;
       try { payload = JSON.parse(ev.data); } catch (err) { return; }
-      if (payload && payload.text) {
-        pre.textContent += payload.text;
-        pre.scrollTop = pre.scrollHeight;
-      }
+      if (payload && payload.text) { pre.textContent += payload.text; pre.scrollTop = pre.scrollHeight; }
     };
     containerEs.addEventListener('timeout', function () { stopContainerLive(); });
-    containerEs.addEventListener('error', function () { stopContainerLive(); });
   }
-
   if (loadBtn) loadBtn.addEventListener('click', loadContainerSnapshot);
-  if (liveBtn) {
-    liveBtn.addEventListener('click', function () {
-      if (liveBtn.getAttribute('aria-pressed') === 'true') stopContainerLive();
-      else startContainerLive();
-    });
-  }
-  if (copyBtn && pre) {
-    copyBtn.addEventListener('click', function () {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(pre.textContent || '');
-      }
-    });
-  }
-  if (sel) {
-    sel.addEventListener('change', function () {
-      stopContainerLive();
-      setContainerButtons(false);
-      if (pre) pre.textContent = 'Cliquez sur Charger pour afficher les logs.';
-    });
-  }
+  if (liveBtn) liveBtn.addEventListener('click', function () {
+    if (liveBtn.getAttribute('aria-pressed') === 'true') stopContainerLive();
+    else startContainerLive();
+  });
+  if (copyBtn && pre) copyBtn.addEventListener('click', function () {
+    if (navigator.clipboard) navigator.clipboard.writeText(pre.textContent || '');
+  });
+  if (sel) sel.addEventListener('change', function () {
+    stopContainerLive(); setContainerButtons(false);
+    if (pre) pre.textContent = 'Cliquez sur Charger pour afficher les logs.';
+  });
   window.addEventListener('beforeunload', stopContainerLive);
 })();
 </script>

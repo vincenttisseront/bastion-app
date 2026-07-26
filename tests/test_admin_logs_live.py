@@ -105,6 +105,80 @@ def test_audit_sse_pushes_new_entry(client: TestClient, db_engine, monkeypatch):
     get_settings.cache_clear()
 
 
+def test_audit_sse_respects_advanced_filters(client: TestClient, db_engine, monkeypatch):
+    """Live stream AND-filters status + IP like the Event Viewer toolbar."""
+    import threading
+    import time as time_mod
+    from sqlalchemy.orm import sessionmaker
+    from urllib.parse import urlencode
+
+    monkeypatch.setenv("ADMIN_LOGS_SSE_TIMEOUT_SECONDS", "12")
+    from app.sso_settings import get_settings
+
+    get_settings.cache_clear()
+    session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
+    monkeypatch.setattr("app.web.admin_logs.SessionLocal", session_factory)
+
+    db = session_factory()
+    try:
+        log_action(db, actor="seed@ex.com", action="health.probe", details={})
+    finally:
+        db.close()
+
+    ready = threading.Event()
+
+    def _insert_later():
+        ready.wait(timeout=5)
+        time_mod.sleep(0.3)
+        db2 = session_factory()
+        try:
+            log_action(
+                db2,
+                actor="noise@ex.com",
+                action="realm.test",
+                details={"status": "error", "note": "wrong-ip"},
+                ip_address="10.0.0.9",
+            )
+            log_action(
+                db2,
+                actor="match@ex.com",
+                action="realm.test",
+                details={"status": "error", "note": "live-match"},
+                ip_address="172.24.0.108",
+            )
+        finally:
+            db2.close()
+
+    threading.Thread(target=_insert_later, daemon=True).start()
+
+    qs = urlencode([("status", "error"), ("ip", "172.24.0.108"), ("action", "realm.test")])
+    with client.stream(
+        "GET",
+        f"/admin/logs/stream?{qs}",
+        headers=ADMIN_HEADERS,
+    ) as resp:
+        assert resp.status_code == 200
+        ready.set()
+        found_match = False
+        found_noise = False
+        deadline = time_mod.time() + 10
+        for line in resp.iter_lines():
+            if time_mod.time() > deadline:
+                break
+            if not line.startswith("data: "):
+                continue
+            payload = json.loads(line[6:])
+            if payload.get("actor") == "match@ex.com":
+                found_match = True
+                break
+            if payload.get("actor") == "noise@ex.com":
+                found_noise = True
+        assert found_match
+        assert not found_noise
+
+    get_settings.cache_clear()
+
+
 def test_container_whitelist_403_and_absent_from_selector(
     client: TestClient, db_session: Session
 ):
