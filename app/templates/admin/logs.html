@@ -3,90 +3,140 @@
 {% block breadcrumb %}Admin / Logs{% endblock %}
 
 {% block content %}
-<div class="page">
-  <div class="page-header">
+{% set docker_logs_enabled = docker_logs_enabled | default(false) %}
+{% set docker_containers = docker_containers | default([]) %}
+{% set docker_logs_tail_lines = docker_logs_tail_lines | default(200) %}
+{% set admin_logs_sse_timeout_seconds = admin_logs_sse_timeout_seconds | default(1800) %}
+<div class="page" id="admin-logs-page"
+     data-sse-timeout="{{ admin_logs_sse_timeout_seconds }}"
+     data-docker-enabled="{{ '1' if docker_logs_enabled else '0' }}"
+     data-tail-lines="{{ docker_logs_tail_lines }}">
+  <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-4);flex-wrap:wrap;">
     <div>
       <h1 class="page-title">Journaux d'administration</h1>
-      <p class="page-sub">{{ total }} entrée(s) — audit métier (log_action)</p>
+      <p class="page-sub" id="audit-sub">{{ total }} entrée(s) — audit métier (log_action)</p>
     </div>
   </div>
 
-  <form class="audit-toolbar" method="get" action="/admin/logs" style="flex-wrap:wrap;gap:var(--sp-2);">
-    <select class="form-input" name="action" aria-label="Filtrer par action" style="width:auto;min-width:12rem;">
-      <option value="">Toutes les actions</option>
-      {% for a in action_choices %}
-      <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
-      {% endfor %}
-    </select>
-    <input type="text" class="form-input" name="actor" value="{{ filters.actor }}"
-           placeholder="Acteur" aria-label="Filtrer par acteur" style="width:10rem;">
-    <input type="date" class="form-input" name="date_from" value="{{ filters.date_from }}"
-           aria-label="Date début" style="width:auto;">
-    <input type="date" class="form-input" name="date_to" value="{{ filters.date_to }}"
-           aria-label="Date fin" style="width:auto;">
-    <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
-  </form>
+  <div class="tabs" role="tablist" aria-label="Sections logs" id="logs-tabs">
+    <a href="#audit" class="tab active" role="tab" data-tab="audit" id="tab-audit" aria-selected="true">Audit</a>
+    <a href="#containers" class="tab" role="tab" data-tab="containers" id="tab-containers" aria-selected="false">Containers</a>
+  </div>
 
-  <div class="card" style="padding:0;overflow-x:auto;">
-    <table class="data-table" style="width:100%;border-collapse:collapse;">
-      <thead>
-        <tr>
-          <th style="text-align:left;padding:0.75rem;">Horodatage</th>
-          <th style="text-align:left;padding:0.75rem;">Acteur</th>
-          <th style="text-align:left;padding:0.75rem;">Action</th>
-          <th style="text-align:left;padding:0.75rem;">IP</th>
-          <th style="text-align:left;padding:0.75rem;">Résultat</th>
-          <th style="text-align:left;padding:0.75rem;">Détail</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for e in entries %}
-        <tr>
-          <td class="font-mono" style="padding:0.75rem;white-space:nowrap;">{{ e.timestamp }}</td>
-          <td style="padding:0.75rem;">{{ e.actor }}</td>
-          <td style="padding:0.75rem;"><code>{{ e.action }}</code></td>
-          <td class="font-mono" style="padding:0.75rem;">{{ e.ip_address or "—" }}</td>
-          <td style="padding:0.75rem;">
-            {% if e.status %}
-            <span class="badge badge-{{ 'ok' if e.status == 'ok' else ('warn' if e.status == 'warn' else 'err') }}">{{ e.status }}</span>
-            {% else %}
-            <span class="badge badge-info">{{ e.severity }}</span>
-            {% endif %}
-          </td>
-          <td class="audit-detail-cell" style="padding:0.75rem;max-width:32rem;vertical-align:top;">
-            {% if e.detail_full and e.detail_full != e.detail_short %}
-            <details class="audit-detail">
-              <summary class="audit-detail-summary">
-                <span class="audit-detail-preview font-mono">{{ e.detail_short }}</span>
-                <span class="audit-detail-toggle" aria-hidden="true"></span>
-              </summary>
-              <pre class="audit-detail-full font-mono">{{ e.detail_full }}</pre>
-            </details>
-            {% else %}
-            <span class="font-mono" style="font-size:0.85em;word-break:break-word;">{{ e.detail_short or "—" }}</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="6" style="padding:2rem;text-align:center;color:var(--muted);">Aucune entrée</td>
-        </tr>
+  <div class="logs-panel" id="audit" role="tabpanel" aria-labelledby="tab-audit">
+    <form class="audit-toolbar" method="get" action="/admin/logs" id="audit-filters"
+          style="flex-wrap:wrap;gap:var(--sp-2);align-items:center;">
+      <select class="form-input" name="action" id="filter-action" aria-label="Filtrer par action" style="width:auto;min-width:12rem;">
+        <option value="">Toutes les actions</option>
+        {% for a in action_choices %}
+        <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
         {% endfor %}
-      </tbody>
-    </table>
+      </select>
+      <input type="text" class="form-input" name="actor" id="filter-actor" value="{{ filters.actor }}"
+             placeholder="Acteur" aria-label="Filtrer par acteur" style="width:10rem;">
+      <input type="date" class="form-input" name="date_from" id="filter-date-from" value="{{ filters.date_from }}"
+             aria-label="Date début" style="width:auto;">
+      <input type="date" class="form-input" name="date_to" id="filter-date-to" value="{{ filters.date_to }}"
+             aria-label="Date fin" style="width:auto;">
+      <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+      <button type="button" class="btn btn-secondary btn-sm live-btn" id="audit-live-btn"
+              aria-pressed="false" title="Flux temps réel des nouvelles entrées">● Live</button>
+      <span class="live-status" id="audit-live-status" hidden>Live</span>
+    </form>
+
+    <div class="card" style="padding:0;overflow-x:auto;">
+      <table class="data-table" style="width:100%;border-collapse:collapse;" id="audit-table">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:0.75rem;">Horodatage</th>
+            <th style="text-align:left;padding:0.75rem;">Acteur</th>
+            <th style="text-align:left;padding:0.75rem;">Action</th>
+            <th style="text-align:left;padding:0.75rem;">IP</th>
+            <th style="text-align:left;padding:0.75rem;">Résultat</th>
+            <th style="text-align:left;padding:0.75rem;">Détail</th>
+          </tr>
+        </thead>
+        <tbody id="audit-tbody">
+          {% for e in entries %}
+          <tr data-audit-id="{{ e.id }}">
+            <td class="font-mono" style="padding:0.75rem;white-space:nowrap;">{{ e.timestamp }}</td>
+            <td style="padding:0.75rem;">{{ e.actor }}</td>
+            <td style="padding:0.75rem;"><code>{{ e.action }}</code></td>
+            <td class="font-mono" style="padding:0.75rem;">{{ e.ip_address or "—" }}</td>
+            <td style="padding:0.75rem;">
+              {% if e.status %}
+              <span class="badge badge-{{ 'ok' if e.status == 'ok' else ('warn' if e.status == 'warn' else 'err') }}">{{ e.status }}</span>
+              {% else %}
+              <span class="badge badge-info">{{ e.severity }}</span>
+              {% endif %}
+            </td>
+            <td class="audit-detail-cell" style="padding:0.75rem;max-width:32rem;vertical-align:top;">
+              {% if e.detail_full and e.detail_full != e.detail_short %}
+              <details class="audit-detail">
+                <summary class="audit-detail-summary">
+                  <span class="audit-detail-preview font-mono">{{ e.detail_short }}</span>
+                  <span class="audit-detail-toggle" aria-hidden="true"></span>
+                </summary>
+                <pre class="audit-detail-full font-mono">{{ e.detail_full }}</pre>
+              </details>
+              {% else %}
+              <span class="font-mono" style="font-size:0.85em;word-break:break-word;">{{ e.detail_short or "—" }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr id="audit-empty-row">
+            <td colspan="6" style="padding:2rem;text-align:center;color:var(--muted);">Aucune entrée</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4);align-items:center;" id="audit-pagination">
+      {% if page > 1 %}
+      <a class="btn btn-secondary btn-sm" href="?page={{ page - 1 }}&action={{ filters.action }}&actor={{ filters.actor }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}#audit">← Précédent</a>
+      {% endif %}
+      <span>Page {{ page }} / {{ total_pages }}</span>
+      {% if page < total_pages %}
+      <a class="btn btn-secondary btn-sm" href="?page={{ page + 1 }}&action={{ filters.action }}&actor={{ filters.actor }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}#audit">Suivant →</a>
+      {% endif %}
+    </div>
+    {% endif %}
   </div>
 
-  {% if total_pages > 1 %}
-  <div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4);align-items:center;">
-    {% if page > 1 %}
-    <a class="btn btn-secondary btn-sm" href="?page={{ page - 1 }}&action={{ filters.action }}&actor={{ filters.actor }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}">← Précédent</a>
-    {% endif %}
-    <span>Page {{ page }} / {{ total_pages }}</span>
-    {% if page < total_pages %}
-    <a class="btn btn-secondary btn-sm" href="?page={{ page + 1 }}&action={{ filters.action }}&actor={{ filters.actor }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}">Suivant →</a>
+  <div class="logs-panel" id="containers" role="tabpanel" aria-labelledby="tab-containers" hidden>
+    {% if not docker_logs_enabled %}
+    <div class="card" style="padding:var(--sp-5);">
+      <p style="margin:0;color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;">
+        Logs containers désactivés : configurez
+        <code class="mono">DOCKER_LOGS_PROXY_URL</code>
+        (proxy socket Docker en lecture seule — voir
+        <span class="mono">docs/admin-logs-live-and-containers.md</span>).
+        Le socket <span class="mono">/var/run/docker.sock</span> n'est jamais monté dans bastion-app.
+      </p>
+    </div>
+    {% else %}
+    <div class="audit-toolbar" style="flex-wrap:wrap;gap:var(--sp-2);align-items:center;">
+      <label class="field-label" for="container-select" style="margin:0;">Container</label>
+      <select class="form-input" id="container-select" aria-label="Container" style="width:auto;min-width:14rem;">
+        <option value="">— Choisir —</option>
+        {% for c in docker_containers %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-primary btn-sm" id="container-load-btn">Charger</button>
+      <button type="button" class="btn btn-secondary btn-sm live-btn" id="container-live-btn"
+              aria-pressed="false" disabled>● Live</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="container-copy-btn" disabled>Copier</button>
+      <span class="live-status" id="container-live-status" hidden>Live</span>
+    </div>
+    <div class="card" style="padding:0;">
+      <pre class="container-logs-pre font-mono" id="container-logs-pre" aria-live="polite">Sélectionnez un container de la liste blanche.</pre>
+    </div>
     {% endif %}
   </div>
-  {% endif %}
 </div>
 {% endblock %}
 
@@ -129,5 +179,276 @@
     border-radius: 6px;
     border: 1px solid var(--border-muted, var(--border));
   }
+  .live-btn[aria-pressed="true"] {
+    border-color: var(--err, #dc2626);
+    color: var(--err, #dc2626);
+  }
+  .live-status {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--err, #dc2626);
+    animation: admin-live-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes admin-live-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+  #audit-tbody tr.audit-row-live {
+    animation: admin-audit-row-flash 2s ease-out;
+    background: var(--row-hover, rgba(16,185,129,.08));
+  }
+  @keyframes admin-audit-row-flash {
+    0% { background: rgba(16, 185, 129, 0.28); }
+    100% { background: transparent; }
+  }
+  .container-logs-pre {
+    margin: 0;
+    padding: var(--sp-4);
+    max-height: 28rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.8em;
+    line-height: 1.45;
+    background: var(--bg-tertiary, rgba(0,0,0,.03));
+  }
 </style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var page = document.getElementById('admin-logs-page');
+  if (!page) return;
+  var VALID = ['audit', 'containers'];
+  var DEFAULT = 'audit';
+
+  function currentTab() {
+    var h = (location.hash || '').replace(/^#/, '');
+    return VALID.indexOf(h) >= 0 ? h : DEFAULT;
+  }
+  function activate(id) {
+    document.querySelectorAll('.logs-panel').forEach(function (panel) {
+      var on = panel.id === id;
+      panel.hidden = !on;
+    });
+    document.querySelectorAll('#logs-tabs .tab').forEach(function (tab) {
+      var on = tab.getAttribute('data-tab') === id;
+      tab.classList.toggle('active', on);
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+  activate(currentTab());
+  window.addEventListener('hashchange', function () { activate(currentTab()); });
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function detailCellHtml(e) {
+    var short = e.detail_short || '—';
+    var full = e.detail_full || '';
+    if (full && full !== short) {
+      return '<details class="audit-detail">' +
+        '<summary class="audit-detail-summary">' +
+        '<span class="audit-detail-preview font-mono">' + esc(short) + '</span>' +
+        '<span class="audit-detail-toggle" aria-hidden="true"></span>' +
+        '</summary>' +
+        '<pre class="audit-detail-full font-mono">' + esc(full) + '</pre>' +
+        '</details>';
+    }
+    return '<span class="font-mono" style="font-size:0.85em;word-break:break-word;">' + esc(short) + '</span>';
+  }
+
+  function statusHtml(e) {
+    if (e.status) {
+      var cls = e.status === 'ok' ? 'ok' : (e.status === 'warn' ? 'warn' : 'err');
+      return '<span class="badge badge-' + cls + '">' + esc(e.status) + '</span>';
+    }
+    return '<span class="badge badge-info">' + esc(e.severity || '') + '</span>';
+  }
+
+  function buildAuditRow(e) {
+    var tr = document.createElement('tr');
+    tr.setAttribute('data-audit-id', String(e.id));
+    tr.className = 'audit-row-live';
+    tr.innerHTML =
+      '<td class="font-mono" style="padding:0.75rem;white-space:nowrap;">' + esc(e.timestamp) + '</td>' +
+      '<td style="padding:0.75rem;">' + esc(e.actor) + '</td>' +
+      '<td style="padding:0.75rem;"><code>' + esc(e.action) + '</code></td>' +
+      '<td class="font-mono" style="padding:0.75rem;">' + esc(e.ip_address || '—') + '</td>' +
+      '<td style="padding:0.75rem;">' + statusHtml(e) + '</td>' +
+      '<td class="audit-detail-cell" style="padding:0.75rem;max-width:32rem;vertical-align:top;">' +
+      detailCellHtml(e) + '</td>';
+    return tr;
+  }
+
+  /* --- Audit Live --- */
+  var auditBtn = document.getElementById('audit-live-btn');
+  var auditStatus = document.getElementById('audit-live-status');
+  var auditTbody = document.getElementById('audit-tbody');
+  var auditEs = null;
+  var seenIds = {};
+
+  document.querySelectorAll('#audit-tbody tr[data-audit-id]').forEach(function (tr) {
+    seenIds[tr.getAttribute('data-audit-id')] = true;
+  });
+
+  function auditFilterQuery() {
+    var p = new URLSearchParams();
+    var a = document.getElementById('filter-action');
+    var u = document.getElementById('filter-actor');
+    var f = document.getElementById('filter-date-from');
+    var t = document.getElementById('filter-date-to');
+    if (a && a.value) p.set('action', a.value);
+    if (u && u.value) p.set('actor', u.value);
+    if (f && f.value) p.set('date_from', f.value);
+    if (t && t.value) p.set('date_to', t.value);
+    return p.toString();
+  }
+
+  function stopAuditLive() {
+    if (auditEs) {
+      auditEs.close();
+      auditEs = null;
+    }
+    if (auditBtn) {
+      auditBtn.setAttribute('aria-pressed', 'false');
+      auditBtn.textContent = '● Live';
+    }
+    if (auditStatus) auditStatus.hidden = true;
+  }
+
+  function startAuditLive() {
+    stopAuditLive();
+    var q = auditFilterQuery();
+    var url = '/admin/logs/stream' + (q ? ('?' + q) : '');
+    auditEs = new EventSource(url);
+    if (auditBtn) {
+      auditBtn.setAttribute('aria-pressed', 'true');
+      auditBtn.textContent = '● Live ON';
+    }
+    if (auditStatus) auditStatus.hidden = false;
+    auditEs.onmessage = function (ev) {
+      if (!ev.data) return;
+      var e;
+      try { e = JSON.parse(ev.data); } catch (err) { return; }
+      if (!e || !e.id || seenIds[String(e.id)]) return;
+      seenIds[String(e.id)] = true;
+      var empty = document.getElementById('audit-empty-row');
+      if (empty) empty.remove();
+      if (auditTbody) auditTbody.insertBefore(buildAuditRow(e), auditTbody.firstChild);
+    };
+    auditEs.addEventListener('timeout', function () { stopAuditLive(); });
+    auditEs.onerror = function () { /* browser may reconnect; leave button state */ };
+  }
+
+  if (auditBtn) {
+    auditBtn.addEventListener('click', function () {
+      if (auditBtn.getAttribute('aria-pressed') === 'true') stopAuditLive();
+      else startAuditLive();
+    });
+  }
+  window.addEventListener('beforeunload', stopAuditLive);
+
+  /* --- Containers --- */
+  var sel = document.getElementById('container-select');
+  var loadBtn = document.getElementById('container-load-btn');
+  var liveBtn = document.getElementById('container-live-btn');
+  var copyBtn = document.getElementById('container-copy-btn');
+  var pre = document.getElementById('container-logs-pre');
+  var liveStatus = document.getElementById('container-live-status');
+  var containerEs = null;
+
+  function stopContainerLive() {
+    if (containerEs) {
+      containerEs.close();
+      containerEs = null;
+    }
+    if (liveBtn) {
+      liveBtn.setAttribute('aria-pressed', 'false');
+      liveBtn.textContent = '● Live';
+    }
+    if (liveStatus) liveStatus.hidden = true;
+  }
+
+  function setContainerButtons(enabled) {
+    if (liveBtn) liveBtn.disabled = !enabled;
+    if (copyBtn) copyBtn.disabled = !enabled;
+  }
+
+  async function loadContainerSnapshot() {
+    if (!sel || !sel.value || !pre) return;
+    stopContainerLive();
+    pre.textContent = 'Chargement…';
+    try {
+      var resp = await fetch('/admin/logs/containers/' + encodeURIComponent(sel.value) + '/logs', {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin',
+      });
+      if (!resp.ok) {
+        pre.textContent = 'Erreur ' + resp.status + ' (accès refusé ou proxy indisponible).';
+        setContainerButtons(false);
+        return;
+      }
+      var data = await resp.json();
+      pre.textContent = data.text || '(vide)';
+      setContainerButtons(true);
+    } catch (err) {
+      pre.textContent = 'Erreur réseau.';
+      setContainerButtons(false);
+    }
+  }
+
+  function startContainerLive() {
+    if (!sel || !sel.value || !pre) return;
+    stopContainerLive();
+    var url = '/admin/logs/containers/' + encodeURIComponent(sel.value) + '/stream';
+    containerEs = new EventSource(url);
+    if (liveBtn) {
+      liveBtn.setAttribute('aria-pressed', 'true');
+      liveBtn.textContent = '● Live ON';
+    }
+    if (liveStatus) liveStatus.hidden = false;
+    containerEs.onmessage = function (ev) {
+      if (!ev.data) return;
+      var payload;
+      try { payload = JSON.parse(ev.data); } catch (err) { return; }
+      if (payload && payload.text) {
+        pre.textContent += payload.text;
+        pre.scrollTop = pre.scrollHeight;
+      }
+    };
+    containerEs.addEventListener('timeout', function () { stopContainerLive(); });
+    containerEs.addEventListener('error', function () { stopContainerLive(); });
+  }
+
+  if (loadBtn) loadBtn.addEventListener('click', loadContainerSnapshot);
+  if (liveBtn) {
+    liveBtn.addEventListener('click', function () {
+      if (liveBtn.getAttribute('aria-pressed') === 'true') stopContainerLive();
+      else startContainerLive();
+    });
+  }
+  if (copyBtn && pre) {
+    copyBtn.addEventListener('click', function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(pre.textContent || '');
+      }
+    });
+  }
+  if (sel) {
+    sel.addEventListener('change', function () {
+      stopContainerLive();
+      setContainerButtons(false);
+      if (pre) pre.textContent = 'Cliquez sur Charger pour afficher les logs.';
+    });
+  }
+  window.addEventListener('beforeunload', stopContainerLive);
+})();
+</script>
 {% endblock %}

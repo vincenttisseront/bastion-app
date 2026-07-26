@@ -1,0 +1,139 @@
+"""Read-only Docker container logs via an external socket proxy (never the raw sock)."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import AsyncIterator
+
+import httpx
+from fastapi import HTTPException
+
+from app.sso_settings import Settings
+
+logger = logging.getLogger(__name__)
+
+def docker_logs_whitelist(settings: Settings) -> list[str]:
+    return list(settings.docker_logs_whitelist or [])
+
+
+def docker_logs_enabled(settings: Settings) -> bool:
+    return bool((settings.docker_logs_proxy_url or "").strip())
+
+
+def assert_container_allowed(name: str, settings: Settings) -> str:
+    """Return normalized name or raise 403 (never 404 — no existence leak)."""
+    raw = (name or "").strip()
+    allowed = {n.casefold(): n for n in docker_logs_whitelist(settings)}
+    key = raw.casefold()
+    if not raw or key not in allowed:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return allowed[key]
+
+
+def _proxy_base(settings: Settings) -> str:
+    base = (settings.docker_logs_proxy_url or "").strip().rstrip("/")
+    if not base:
+        raise HTTPException(
+            status_code=503,
+            detail="Docker logs proxy not configured",
+        )
+    return base
+
+
+def _demux_frames(buffer: bytearray) -> tuple[list[str], bytearray]:
+    """Split Docker multiplexed log frames into text lines; return leftover buffer."""
+    out: list[str] = []
+    while len(buffer) >= 8:
+        size = int.from_bytes(buffer[4:8], "big")
+        if len(buffer) < 8 + size:
+            break
+        payload = bytes(buffer[8 : 8 + size])
+        del buffer[: 8 + size]
+        text = payload.decode("utf-8", errors="replace")
+        if text:
+            out.append(text)
+    return out, buffer
+
+
+async def fetch_container_log_snapshot(
+    settings: Settings,
+    container: str,
+    *,
+    tail: int | None = None,
+) -> str:
+    """Fetch last N lines (non-follow) from the read-only Docker API proxy."""
+    name = assert_container_allowed(container, settings)
+    base = _proxy_base(settings)
+    n = tail if tail is not None else int(settings.docker_logs_tail_lines or 200)
+    params = {
+        "stdout": "true",
+        "stderr": "true",
+        "timestamps": "false",
+        "tail": str(max(1, min(n, 5000))),
+        "follow": "false",
+    }
+    url = f"{base}/containers/{name}/logs"
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, params=params)
+    except httpx.HTTPError:
+        logger.exception("docker logs proxy request failed container=%s", name)
+        raise HTTPException(status_code=502, detail="Docker logs proxy unavailable") from None
+
+    if resp.status_code == 404:
+        # Do not reveal whether the name exists on the host.
+        raise _FORBIDDEN
+    if resp.status_code >= 400:
+        logger.warning(
+            "docker logs proxy status=%s container=%s", resp.status_code, name
+        )
+        raise HTTPException(status_code=502, detail="Docker logs proxy error")
+
+    buf = bytearray(resp.content)
+    chunks, leftover = _demux_frames(buf)
+    if leftover and not chunks:
+        # Non-multiplexed (tty) payload
+        return leftover.decode("utf-8", errors="replace")
+    if leftover:
+        chunks.append(leftover.decode("utf-8", errors="replace"))
+    return "".join(chunks)
+
+
+async def iter_container_log_follow(
+    settings: Settings,
+    container: str,
+    *,
+    tail: int | None = None,
+) -> AsyncIterator[str]:
+    """Yield text chunks while following container logs via the proxy."""
+    name = assert_container_allowed(container, settings)
+    base = _proxy_base(settings)
+    n = tail if tail is not None else int(settings.docker_logs_tail_lines or 200)
+    params = {
+        "stdout": "true",
+        "stderr": "true",
+        "timestamps": "false",
+        "tail": str(max(1, min(n, 5000))),
+        "follow": "true",
+    }
+    url = f"{base}/containers/{name}/logs"
+    buf = bytearray()
+    try:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET", url, params=params) as resp:
+                if resp.status_code == 404:
+                    raise _FORBIDDEN
+                if resp.status_code >= 400:
+                    raise HTTPException(
+                        status_code=502, detail="Docker logs proxy error"
+                    )
+                async for raw in resp.aiter_bytes():
+                    buf.extend(raw)
+                    chunks, buf = _demux_frames(buf)
+                    for chunk in chunks:
+                        yield chunk
+    except HTTPException:
+        raise
+    except httpx.HTTPError:
+        logger.exception("docker logs follow failed container=%s", name)
+        raise HTTPException(status_code=502, detail="Docker logs proxy unavailable") from None

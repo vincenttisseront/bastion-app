@@ -1,0 +1,45 @@
+# Optional overlay: read-only Docker logs for /admin/logs Containers tab.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.docker-logs.yml up -d
+#
+# The raw socket is mounted ONLY into docker-socket-proxy (POST disabled).
+# bastion-app must NEVER mount /var/run/docker.sock.
+
+services:
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    environment:
+      CONTAINERS: 1
+      POST: 0
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      EXEC: 0
+      IMAGES: 0
+      INFO: 0
+      NETWORKS: 0
+      NODES: 0
+      PLUGINS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      SYSTEM: 0
+      TASKS: 0
+      VOLUMES: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      vpcbr:
+        aliases:
+          - docker-socket-proxy
+    restart: unless-stopped
+
+  bastion-app:
+    environment:
+      DOCKER_LOGS_PROXY_URL: ${DOCKER_LOGS_PROXY_URL:-http://docker-socket-proxy:2375}
+      DOCKER_LOGS_WHITELIST: ${DOCKER_LOGS_WHITELIST:-bastion-app,bastion-nginx,nginx}
+      DOCKER_LOGS_TAIL_LINES: ${DOCKER_LOGS_TAIL_LINES:-200}
+      ADMIN_LOGS_SSE_TIMEOUT_SECONDS: ${ADMIN_LOGS_SSE_TIMEOUT_SECONDS:-1800}
+    depends_on:
+      - docker-socket-proxy

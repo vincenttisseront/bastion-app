@@ -159,9 +159,15 @@ async def health() -> dict[str, str]:
     return {"status": "ok", "phase": "5"}
 
 
+def _admin_logs_api_path(path: str) -> bool:
+    """JSON/SSE under /admin/logs — never HTML-redirect on 403."""
+    return path == "/admin/logs/stream" or path.startswith("/admin/logs/containers/")
+
+
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    if request.url.path.startswith("/api/"):
+    path = request.url.path
+    if path.startswith("/api/") or _admin_logs_api_path(path):
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
     wants_json = "application/json" in (request.headers.get("accept") or "").lower()
     if exc.status_code == 401:

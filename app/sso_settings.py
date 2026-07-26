@@ -259,6 +259,36 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LOG_FORMAT", "log_format"),
     )
 
+    # Admin /admin/logs — Docker container logs via read-only socket proxy (never the sock).
+    docker_logs_proxy_url: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "DOCKER_LOGS_PROXY_URL",
+            "docker_logs_proxy_url",
+        ),
+    )
+    docker_logs_whitelist: Annotated[list[str], NoDecode] = Field(
+        default=["bastion-app", "bastion-nginx", "nginx"],
+        validation_alias=AliasChoices(
+            "DOCKER_LOGS_WHITELIST",
+            "docker_logs_whitelist",
+        ),
+    )
+    docker_logs_tail_lines: int = Field(
+        default=200,
+        validation_alias=AliasChoices(
+            "DOCKER_LOGS_TAIL_LINES",
+            "docker_logs_tail_lines",
+        ),
+    )
+    admin_logs_sse_timeout_seconds: int = Field(
+        default=1800,
+        validation_alias=AliasChoices(
+            "ADMIN_LOGS_SSE_TIMEOUT_SECONDS",
+            "admin_logs_sse_timeout_seconds",
+        ),
+    )
+
     @field_validator("portal_admin_groups", mode="before")
     @classmethod
     def parse_portal_admin_groups(cls, value: Any) -> list[str]:
@@ -267,6 +297,13 @@ class Settings(BaseSettings):
             default=["portal-admins", "bastion-admins", "admins"],
         )
 
+    @field_validator("docker_logs_whitelist", mode="before")
+    @classmethod
+    def parse_docker_logs_whitelist(cls, value: Any) -> list[str]:
+        return _parse_csv_or_json_list(
+            value,
+            default=["bastion-app", "bastion-nginx", "nginx"],
+        )
     @field_validator("rfc1918_cidrs", mode="before")
     @classmethod
     def parse_rfc1918_cidrs(cls, value: Any) -> list[str]:

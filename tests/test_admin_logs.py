@@ -44,7 +44,7 @@ def test_logs_filter_by_action_and_actor(client: TestClient, db_session: Session
 
     resp = client.get("/admin/logs?action=realm.test", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert resp.text.count("<tr>") >= 2  # header + at least one data row
+    assert resp.text.count("data-audit-id=") >= 1
     assert ">realm.test<" in resp.text or "<code>realm.test</code>" in resp.text
     # Filtered table should not list health.probe as a row action (dropdown may still list it)
     assert "<code>health.probe</code>" not in resp.text
@@ -157,9 +157,14 @@ def test_logs_voir_plus_embeds_full_json(client: TestClient, db_session: Session
     short_resp = client.get("/admin/logs?action=health.probe", headers=ADMIN_HEADERS)
     assert short_resp.status_code == 200
     assert "url_blocked" in short_resp.text
-    assert 'class="audit-detail-full' not in short_resp.text
-    assert 'class="audit-detail-preview' not in short_resp.text
-    assert 'class="audit-detail"' not in short_resp.text
+    # Isolate server-rendered tbody (page JS also mentions these class names).
+    tbody_start = short_resp.text.index('id="audit-tbody"')
+    tbody_end = short_resp.text.index("</tbody>", tbody_start)
+    tbody = short_resp.text[tbody_start:tbody_end]
+    assert "data-audit-id=" in tbody
+    assert "<details" not in tbody
+    assert "audit-detail-preview" not in tbody
+    assert "audit-detail-full" not in tbody
 
 
 def test_request_id_header_present_and_unique(client: TestClient):
