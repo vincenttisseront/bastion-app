@@ -150,6 +150,29 @@
 .input-icon{position:absolute;left:var(--sp-3);top:50%;transform:translateY(-50%);color:var(--text-3);pointer-events:none;width:16px;height:16px}
 .input-wrap .form-input{padding-left:calc(var(--sp-3)*2 + 16px)}
 .form-help,.form-hint{font-size:var(--fs-xs);color:var(--text-2)}
+.stack{display:flex;flex-direction:column;gap:var(--sp-3)}
+.input{width:100%}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--sp-3)}
+.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3)}
+.check-row{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm);cursor:pointer}
+.field-hint{font-size:var(--fs-sm);color:var(--text-2);margin:var(--sp-2) 0 0}
+.banning-stack{display:flex;flex-direction:column;gap:var(--sp-6)}
+.banning-card-actions{display:flex;align-items:center;gap:var(--sp-3)}
+.banning-accordion{display:flex;flex-direction:column;gap:var(--sp-2);margin-bottom:var(--sp-4)}
+.banning-rule{border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-card);overflow:hidden}
+.banning-rule-head{display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);cursor:pointer;user-select:none}
+.banning-rule-head:hover{background:var(--hover-bg)}
+.banning-rule-expand{flex:0 0 auto;width:1.5rem;height:1.5rem;border:0;background:transparent;color:var(--text-3);cursor:pointer;font-size:var(--fs-sm);line-height:1;padding:0}
+.banning-rule.is-open .banning-rule-expand{transform:rotate(90deg)}
+.banning-rule-title{font-weight:700;font-size:var(--fs-sm);color:var(--text);min-width:10rem}
+.banning-rule-enable{margin-left:auto}
+.banning-rule-summary{flex:1 1 100%;font-size:var(--fs-xs);color:var(--text-2);padding-left:1.75rem}
+.banning-rule-summary.is-off{color:var(--text-3)}
+.banning-rule-panel{display:none;padding:0 var(--sp-4) var(--sp-4);border-top:1px solid var(--border-muted)}
+.banning-rule.is-open .banning-rule-panel{display:block;padding-top:var(--sp-3)}
+.banning-rule-panel .stack{gap:var(--sp-3)}
+.banning-empty{color:var(--text-2);font-size:var(--fs-sm);margin:0}
+.inline-form{display:inline}
 .form-input.slug-auto{color:var(--text-2);font-style:italic}
 .form-error{font-size:var(--fs-xs);color:var(--err)}
 .form-footer{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4) var(--sp-6);border-top:1px solid var(--border-muted);background:var(--bg-tertiary);flex-wrap:wrap}

@@ -109,9 +109,13 @@ async def lifespan(app: FastAPI):
 
     ensure_logo_dir(settings)
     start_health_scheduler(settings)
+    from app.siem.worker import start_siem_scheduler, stop_siem_scheduler
+
+    start_siem_scheduler(settings)
     try:
         yield
     finally:
+        stop_siem_scheduler()
         stop_health_scheduler()
 
 

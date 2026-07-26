@@ -695,6 +695,50 @@ class ContainerLogsSettings(Base):
     updated_by = Column(String, nullable=True)
 
 
+class SiemForwardingSettings(Base):
+    """Singleton SIEM forwarder config (id=1). Disabled by default."""
+
+    __tablename__ = "siem_forwarding_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    enabled = Column(Boolean, nullable=False, default=False)
+    # syslog_tls | webhook_https
+    protocol = Column(String, nullable=False, default="webhook_https")
+    syslog_host = Column(String, nullable=False, default="")
+    syslog_port = Column(Integer, nullable=False, default=6514)
+    syslog_tls_verify = Column(Boolean, nullable=False, default=True)
+    webhook_url = Column(String, nullable=False, default="")
+    # none | bearer | basic
+    webhook_auth_type = Column(String, nullable=False, default="none")
+    # Fernet ciphertext — never store plaintext tokens here.
+    webhook_auth_secret_encrypted = Column(Text, nullable=True)
+    # allowlist | denylist
+    filter_mode = Column(String, nullable=False, default="denylist")
+    # JSON list of audit action names
+    filter_actions = Column(JSON, nullable=False, default=list)
+    retry_max_queue_size = Column(Integer, nullable=False, default=5000)
+    retry_max_age_minutes = Column(Integer, nullable=False, default=1440)
+    last_success_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_by = Column(String, nullable=True)
+
+
+class SiemOutboxEntry(Base):
+    """Persistent SIEM delivery queue (survives process restart)."""
+
+    __tablename__ = "siem_outbox"
+
+    id = Column(Integer, primary_key=True)
+    audit_log_id = Column(Integer, nullable=False, index=True)
+    action = Column(String, nullable=False, index=True)
+    # Snapshot of serialize_audit_row at enqueue time (already masked details).
+    payload_json = Column(JSON, nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
+
+
 class EncryptionKeyVersion(Base):
     """Metadata for application-vault Fernet key versions (never stores key material)."""
 

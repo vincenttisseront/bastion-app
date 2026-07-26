@@ -20,8 +20,15 @@ def log_action(
     target: str | None = None,
     details: dict[str, Any] | None = None,
     ip_address: str | None = None,
+    *,
+    forward_to_siem: bool = True,
 ) -> AuditLog | None:
-    """Persist an audit entry. Never raises — failures are logged and swallowed."""
+    """Persist an audit entry. Never raises — failures are logged and swallowed.
+
+    After a successful commit, optionally enqueue for SIEM forwarding (same
+    single write-path accroche used by Live consumers of AuditLog — no
+    duplicated call-site hooks).
+    """
     try:
         entry = AuditLog(
             actor=actor,
@@ -33,7 +40,6 @@ def log_action(
         db.add(entry)
         db.commit()
         db.refresh(entry)
-        return entry
     except SQLAlchemyError:
         logger.exception(
             "audit log write failed (actor=%s action=%s target=%s)",
@@ -46,6 +52,15 @@ def log_action(
         except SQLAlchemyError:
             logger.exception("audit log rollback failed")
         return None
+
+    if forward_to_siem and entry is not None:
+        try:
+            from app.siem.outbox import try_enqueue_audit
+
+            try_enqueue_audit(entry.id, db=db)
+        except Exception:
+            logger.exception("siem enqueue hook failed audit_id=%s", entry.id)
+    return entry
 
 
 def derive_severity(action: str) -> str:

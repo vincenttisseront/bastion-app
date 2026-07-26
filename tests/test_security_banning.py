@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, SecurityBan
@@ -287,3 +288,23 @@ def test_security_failed_login_bans_ip_after_threshold(db_session: Session):
 def test_get_rule_seeded(db_session: Session):
     assert get_rule(db_session, RULE_HAMMERING) is not None
     assert get_rule(db_session, RULE_HACK_USERNAME) is not None
+
+
+def test_security_banning_page_accordion_and_modals(client: TestClient, db_session: Session):
+    resp = client.get(
+        "/admin/security",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert resp.status_code == 200
+    body = resp.text
+    assert 'id="banning"' in body
+    assert "banning-accordion" in body
+    assert "banning-rule-summary" in body
+    assert 'data-banning-modal-open="ban-add-modal"' in body
+    assert 'data-banning-modal-open="allowlist-add-modal"' in body
+    assert 'id="ban-add-modal"' in body
+    assert 'id="allowlist-add-modal"' in body
+    assert "Ajouter un ban manuel" not in body
+    assert "Enregistrer les règles" in body
+    assert body.count('action="/admin/security/banning/add"') == 1
+    assert body.count('action="/admin/security/allowlist/add"') == 1
