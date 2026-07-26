@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import httpx
 import pytest
 import respx
@@ -34,18 +32,6 @@ USER_HEADERS = {
 }
 
 PAGE_URL = "https://app.example/login"
-
-_PUBLIC_IP = ["8.8.8.8"]
-
-
-@pytest.fixture(autouse=True)
-def _allow_example_hosts_dns():
-    """Analyzer resolves hosts before fetch — keep example.test hosts on a public IP."""
-    with patch(
-        "app.bastion.login_form_analyzer.resolve_hostname_ips",
-        return_value=_PUBLIC_IP,
-    ):
-        yield
 
 
 def test_analyze_login_form_single():
@@ -255,3 +241,25 @@ def test_analyze_login_form_endpoint_invalid_url(client):
     )
     assert resp.status_code == 400
     assert resp.json()["error"] == "invalid_url"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_analyze_login_form_allows_private_rfc1918(client):
+    """Internal apps (RFC1918) must not be blocked — primary bastion use case."""
+    url = "https://dolibarr.ar-systems.fr/"
+    html = """
+    <form action="/index.php?mainmenu=home" method="post">
+      <input type="text" name="username">
+      <input type="password" name="password">
+    </form>
+    """
+    respx.get(url).mock(return_value=Response(200, text=html))
+    resp = client.post(
+        "/admin/apps/analyze-login-form",
+        headers=ADMIN_HEADERS,
+        json={"url": url},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["forms_found"] == 1
+    assert "non autorisée" not in (resp.json().get("message") or "")
