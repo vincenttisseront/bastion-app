@@ -580,6 +580,79 @@ class PortalSettings(Base):
     updated_by = Column(String, nullable=True)
 
 
+class SecurityPolicy(Base):
+    """Singleton anti-abuse policy (id=1): enable flag + break-glass IP lists."""
+
+    __tablename__ = "security_policy"
+
+    id = Column(Integer, primary_key=True, default=1)
+    enabled = Column(Boolean, nullable=False, default=True)
+    # Empty allow list = keep default RFC1918 LAN gate. Deny always wins.
+    breakglass_allow_cidrs = Column(Text, nullable=False, default="")
+    breakglass_deny_cidrs = Column(Text, nullable=False, default="")
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_by = Column(String, nullable=True)
+
+
+class SecurityBanRule(Base):
+    """Configurable anti-abuse rule (hammering, failed login, decoy usernames, …)."""
+
+    __tablename__ = "security_ban_rules"
+    __table_args__ = (UniqueConstraint("rule_type", name="uq_security_ban_rule_type"),)
+
+    id = Column(Integer, primary_key=True)
+    # hammering | failed_login | hack_username | concurrent_connections
+    rule_type = Column(String, nullable=False, index=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    threshold = Column(Integer, nullable=False, default=0)
+    window_seconds = Column(Integer, nullable=False, default=0)
+    # Ban duration in minutes when ban_permanent is False. Ignored if permanent.
+    ban_minutes = Column(Integer, nullable=False, default=60)
+    # Explicit permanent ban (never inferred from ban_minutes=0 alone).
+    ban_permanent = Column(Boolean, nullable=False, default=False)
+    # Extra JSON (e.g. {"usernames": ["admin","root"]} for hack_username).
+    config_json = Column(JSON, nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class SecurityBan(Base):
+    """Active or historical ban targeting an IP or username."""
+
+    __tablename__ = "security_bans"
+
+    id = Column(Integer, primary_key=True)
+    # ip | username
+    target_type = Column(String, nullable=False, index=True)
+    target = Column(String, nullable=False, index=True)
+    reason = Column(String, nullable=False, default="")
+    # hammering | failed_login | hack_username | manual | concurrent_connections
+    rule_type = Column(String, nullable=True)
+    banned_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    # null + permanent=True → permanent; null + permanent=False should not occur
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    permanent = Column(Boolean, nullable=False, default=False)
+    lifted_at = Column(DateTime(timezone=True), nullable=True)
+    lifted_by = Column(String, nullable=True)
+    created_by = Column(String, nullable=True)
+
+
+class SecurityAllowlistEntry(Base):
+    """IP or username that must never be banned."""
+
+    __tablename__ = "security_allowlist"
+    __table_args__ = (
+        UniqueConstraint("entry_type", "value", name="uq_security_allowlist_type_value"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    # ip | username
+    entry_type = Column(String, nullable=False, index=True)
+    value = Column(String, nullable=False)
+    comment = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    created_by = Column(String, nullable=True)
+
+
 class EncryptionKeyVersion(Base):
     """Metadata for application-vault Fernet key versions (never stores key material)."""
 

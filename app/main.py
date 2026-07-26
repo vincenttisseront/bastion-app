@@ -89,6 +89,9 @@ async def lifespan(app: FastAPI):
                     "SESSION_HOP_SECRET missing after ensure "
                     "(set env override or check portal_settings / migrate)"
                 )
+            from app.security.banning.engine import ensure_security_defaults
+
+            ensure_security_defaults(db)
         if (
             not settings.is_production
             and not settings.is_test
@@ -120,6 +123,10 @@ app = FastAPI(
 
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(BreakglassCookieRotationMiddleware)
+
+from app.security.banning.middleware import SecurityBanMiddleware  # noqa: E402
+
+app.add_middleware(SecurityBanMiddleware)
 
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

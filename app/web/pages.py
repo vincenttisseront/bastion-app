@@ -7,7 +7,6 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode, validate_app_access_fields
-from app.auth import is_rfc1918
 from app.bastion.bastion_fields import (
     normalize_auth_mode,
     normalize_credential_mode,
@@ -388,8 +387,16 @@ async def login_post(
 
     # Defense in depth: Nginx LAN-restricts /breakglass, but this POST lives under
     # public /auth/ — never verify the break-glass password from a non-LAN IP.
+    # Misc policy: optional allow/deny CIDRs override the default RFC1918 gate.
+    from app.security.banning.engine import (
+        evaluate_login_attempt,
+        is_breakglass_ip_allowed,
+    )
+
     client_ip = _client_ip(request)
-    if not is_rfc1918(client_ip, settings.rfc1918_cidrs):
+    if not is_breakglass_ip_allowed(
+        db, client_ip, rfc1918_cidrs=settings.rfc1918_cidrs
+    ):
         from app.request_client_ip import client_ip_probe
 
         probe = client_ip_probe(request)
@@ -398,7 +405,7 @@ async def login_post(
             actor=username,
             action="breakglass.login_denied_non_lan",
             details={
-                "reason": "client_ip_not_rfc1918",
+                "reason": "breakglass_ip_not_allowed",
                 "resolved": client_ip or None,
                 "x_real_ip": probe.get("x_real_ip"),
                 "x_forwarded_for": probe.get("x_forwarded_for"),
@@ -418,7 +425,26 @@ async def login_post(
         )
         return render("auth/login.html", **ctx)
 
+    pre = evaluate_login_attempt(
+        db, ip=client_ip, username=username, success=True
+    )
+    if not pre.allowed:
+        realm = get_default_idp_realm(db)
+        oauth2_url = oauth2_start_url(realm.slug, safe_rd) if realm else None
+        ctx = _ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            login_error="Identifiants invalides.",
+            rd=safe_rd,
+            oauth2_url=oauth2_url,
+        )
+        return render("auth/login.html", **ctx)
+
     if not verify_breakglass_password(db, username, password):
+        evaluate_login_attempt(
+            db, ip=client_ip, username=username, success=False
+        )
         log_action(
             db,
             actor=username,
@@ -1306,6 +1332,12 @@ def admin_security(
     from app.breakglass_secret_service import build_breakglass_secret_status
     from app.db_cipher import get_db_encryption_status
     from app.portal_settings_service import get_subdomain_sso_enabled
+    from app.security.banning.service import (
+        get_or_create_policy,
+        list_active_bans,
+        list_allowlist,
+        list_ban_rules,
+    )
     from app.vault.encryption_key_store import get_vault_key_status
 
     subdomain_apps = (
@@ -1325,6 +1357,8 @@ def admin_security(
         effective_secret=bg_secret,
         effective_source=bg_source,
     )
+    policy = get_or_create_policy(db)
+    rules = {r.rule_type: r for r in list_ban_rules(db)}
     return render(
         "admin/security.html",
         **_ctx(
@@ -1335,8 +1369,258 @@ def admin_security(
             vault_key=vault_status,
             db_encryption=db_encryption,
             breakglass_secret=breakglass_secret.to_public_dict(),
+            security_policy=policy,
+            security_ban_rules=rules,
+            security_bans=list_active_bans(db),
+            security_allowlist=list_allowlist(db),
         ),
     )
+
+
+@admin_router.post("/admin/security/misc")
+def admin_security_misc(
+    request: Request,
+    enabled: str | None = Form(None),
+    breakglass_allow_cidrs: str = Form(""),
+    breakglass_deny_cidrs: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.security.banning.service import update_policy_misc
+
+    update_policy_misc(
+        db,
+        enabled=enabled == "on",
+        breakglass_allow_cidrs=breakglass_allow_cidrs,
+        breakglass_deny_cidrs=breakglass_deny_cidrs,
+        actor=user.email or user.username or "admin",
+        ip_address=_client_ip(request),
+    )
+    response = RedirectResponse(url="/admin/security#misc", status_code=302)
+    flash_redirect(
+        response,
+        "Paramètres Misc enregistrés.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.post("/admin/security/banning/rules")
+def admin_security_banning_rules(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    # hammering
+    hammering_enabled: str | None = Form(None),
+    hammering_threshold: int = Form(100),
+    hammering_window_seconds: int = Form(100),
+    hammering_ban_minutes: int = Form(60),
+    hammering_ban_permanent: str | None = Form(None),
+    hammering_confirm_permanent: str | None = Form(None),
+    # failed_login
+    failed_login_enabled: str | None = Form(None),
+    failed_login_threshold: int = Form(15),
+    failed_login_window_seconds: int = Form(300),
+    failed_login_ban_minutes: int = Form(30),
+    failed_login_ban_permanent: str | None = Form(None),
+    failed_login_confirm_permanent: str | None = Form(None),
+    failed_login_ban_username: str | None = Form(None),
+    # hack_username
+    hack_username_enabled: str | None = Form(None),
+    hack_usernames: str = Form("administrator,root"),
+    hack_ban_minutes: int = Form(1440),
+    hack_ban_permanent: str | None = Form(None),
+    hack_confirm_permanent: str | None = Form(None),
+    # concurrent
+    concurrent_enabled: str | None = Form(None),
+    concurrent_threshold: int = Form(0),
+):
+    from app.security.banning.service import update_ban_rules
+
+    update_ban_rules(
+        db,
+        rules={
+            "hammering": {
+                "enabled": hammering_enabled == "on",
+                "threshold": hammering_threshold,
+                "window_seconds": hammering_window_seconds,
+                "ban_minutes": hammering_ban_minutes,
+                "ban_permanent": hammering_ban_permanent == "on",
+                "confirm_permanent": hammering_confirm_permanent == "on",
+            },
+            "failed_login": {
+                "enabled": failed_login_enabled == "on",
+                "threshold": failed_login_threshold,
+                "window_seconds": failed_login_window_seconds,
+                "ban_minutes": failed_login_ban_minutes,
+                "ban_permanent": failed_login_ban_permanent == "on",
+                "confirm_permanent": failed_login_confirm_permanent == "on",
+                "ban_username": failed_login_ban_username == "on",
+            },
+            "hack_username": {
+                "enabled": hack_username_enabled == "on",
+                "usernames": hack_usernames,
+                "ban_minutes": hack_ban_minutes,
+                "ban_permanent": hack_ban_permanent == "on",
+                "confirm_permanent": hack_confirm_permanent == "on",
+            },
+            "concurrent_connections": {
+                "enabled": concurrent_enabled == "on",
+                "threshold": concurrent_threshold,
+            },
+        },
+        actor=user.email or user.username or "admin",
+        ip_address=_client_ip(request),
+    )
+    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    flash_redirect(
+        response,
+        "Règles anti-abus enregistrées.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.post("/admin/security/banning/add")
+def admin_security_banning_add(
+    request: Request,
+    target_type: str = Form(...),
+    target: str = Form(...),
+    reason: str = Form(""),
+    ban_mode: str = Form("temporary"),
+    ban_minutes: int = Form(60),
+    confirm_permanent: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.security.banning.service import apply_manual_ban
+
+    permanent = ban_mode == "permanent"
+    ban = apply_manual_ban(
+        db,
+        target_type=target_type,
+        target=target,
+        reason=reason,
+        permanent=permanent,
+        ban_minutes=ban_minutes,
+        confirm_permanent=confirm_permanent == "on",
+        actor=user.email or user.username or "admin",
+        ip_address=_client_ip(request),
+    )
+    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    if ban is None and permanent and confirm_permanent != "on":
+        flash_redirect(
+            response,
+            "Ban permanent refusé : cochez la confirmation explicite.",
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+    elif ban is None:
+        flash_redirect(
+            response,
+            "Ban non appliqué (cible en liste blanche ou déjà bannie).",
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+    else:
+        flash_redirect(
+            response,
+            "Ban ajouté.",
+            "success",
+            settings.vault_portal_internal_token or "dev",
+        )
+    return response
+
+
+@admin_router.post("/admin/security/banning/lift/{ban_id}")
+def admin_security_banning_lift(
+    ban_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.security.banning.service import lift_ban
+
+    lift_ban(
+        db,
+        ban_id,
+        actor=user.email or user.username or "admin",
+        ip_address=_client_ip(request),
+    )
+    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    flash_redirect(
+        response,
+        "Ban levé.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.post("/admin/security/allowlist/add")
+def admin_security_allowlist_add(
+    request: Request,
+    entry_type: str = Form(...),
+    value: str = Form(...),
+    comment: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.security.banning.service import add_allowlist_entry
+
+    try:
+        add_allowlist_entry(
+            db,
+            entry_type=entry_type,
+            value=value,
+            comment=comment,
+            actor=user.email or user.username or "admin",
+            ip_address=_client_ip(request),
+        )
+        msg, level = "Entrée ajoutée à la liste blanche.", "success"
+    except ValueError as exc:
+        msg, level = str(exc), "error"
+    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    flash_redirect(
+        response,
+        msg,
+        level,
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.post("/admin/security/allowlist/remove/{entry_id}")
+def admin_security_allowlist_remove(
+    entry_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.security.banning.service import remove_allowlist_entry
+
+    remove_allowlist_entry(
+        db,
+        entry_id,
+        actor=user.email or user.username or "admin",
+        ip_address=_client_ip(request),
+    )
+    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    flash_redirect(
+        response,
+        "Entrée retirée de la liste blanche.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
 
 
 @admin_router.post("/admin/security/breakglass-jwt-secret/generate")

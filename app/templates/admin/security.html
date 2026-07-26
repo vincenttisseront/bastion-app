@@ -12,7 +12,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Sécurité</h1>
-      <p class="page-sub">Clés API, TLS, SSO sous-domaine, break-glass JWT, coffre Fernet et chiffrement SQLCipher</p>
+      <p class="page-sub">Clés API, TLS, SSO sous-domaine, break-glass, coffre, chiffrement DB, anti-abus</p>
     </div>
   </div>
 
@@ -42,6 +42,8 @@
       <span class="badge badge-ok" style="margin-left:6px;">OK</span>
       {% endif %}
     </a>
+    <a href="#misc" class="tab" role="tab" data-tab="misc" id="tab-misc">Misc</a>
+    <a href="#banning" class="tab" role="tab" data-tab="banning" id="tab-banning">Banning</a>
   </div>
 
   <div class="form-section security-panel" id="api" role="tabpanel" aria-labelledby="tab-api">
@@ -450,13 +452,264 @@
       {% endif %}
     </div>
   </div>
+
+  {% set security_policy = security_policy | default(none) %}
+  {% set security_ban_rules = security_ban_rules | default({}) %}
+  {% set security_bans = security_bans | default([]) %}
+  {% set security_allowlist = security_allowlist | default([]) %}
+  {% set hammer = security_ban_rules.get('hammering') if security_ban_rules else none %}
+  {% set failed = security_ban_rules.get('failed_login') if security_ban_rules else none %}
+  {% set hack = security_ban_rules.get('hack_username') if security_ban_rules else none %}
+  {% set concurrent = security_ban_rules.get('concurrent_connections') if security_ban_rules else none %}
+
+  <div class="form-section security-panel" id="misc" role="tabpanel" aria-labelledby="tab-misc" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">Misc — paramètres anti-abus</div>
+      <div class="form-section-sub">Activation globale et contrôle d'accès IP break-glass</div>
+    </div>
+    <div class="form-body">
+      <form method="post" action="/admin/security/misc" class="stack" style="gap:var(--sp-4);">
+        <label class="check-row">
+          <input type="checkbox" name="enabled" {% if not security_policy or security_policy.enabled %}checked{% endif %}>
+          <span>Activer le moteur anti-abus (hammering, échecs de login, bans)</span>
+        </label>
+        <div>
+          <label class="field-label" for="breakglass_allow_cidrs">IPs / CIDR autorisées break-glass</label>
+          <textarea id="breakglass_allow_cidrs" name="breakglass_allow_cidrs" rows="3" class="input" style="width:100%;font-family:var(--font-mono, monospace);font-size:var(--fs-sm);"
+            placeholder="Vide = réseaux RFC1918 par défaut (ex. 10.0.0.0/8, 172.16.0.0/12)">{{ security_policy.breakglass_allow_cidrs if security_policy else '' }}</textarea>
+          <p class="field-hint" style="color:var(--text-2);font-size:var(--fs-sm);margin:6px 0 0;">
+            Si renseigné, seules ces plages peuvent tenter un login break-glass (au lieu du filtre RFC1918).
+          </p>
+        </div>
+        <div>
+          <label class="field-label" for="breakglass_deny_cidrs">IPs / CIDR bloquées break-glass</label>
+          <textarea id="breakglass_deny_cidrs" name="breakglass_deny_cidrs" rows="3" class="input" style="width:100%;font-family:var(--font-mono, monospace);font-size:var(--fs-sm);"
+            placeholder="Toujours refusées, même si présentes dans la liste d'autorisation">{{ security_policy.breakglass_deny_cidrs if security_policy else '' }}</textarea>
+          <p class="field-hint" style="color:var(--text-2);font-size:var(--fs-sm);margin:6px 0 0;">
+            La liste de refus prime toujours. Séparez les CIDR par virgule ou retour ligne.
+          </p>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="form-section security-panel" id="banning" role="tabpanel" aria-labelledby="tab-banning" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">Banning — règles et bans actifs</div>
+      <div class="form-section-sub">Protection des endpoints bastion (login, /admin/*, /api/admin/*)</div>
+    </div>
+    <div class="form-body" style="display:flex;flex-direction:column;gap:var(--sp-6);">
+
+      <form method="post" action="/admin/security/banning/rules" class="stack" style="gap:var(--sp-4);">
+        <h3 style="margin:0;font-size:var(--fs-md);">Règles</h3>
+
+        <fieldset style="border:1px solid var(--border);border-radius:8px;padding:var(--sp-3);">
+          <legend style="padding:0 6px;">Anti-hammering</legend>
+          <label class="check-row"><input type="checkbox" name="hammering_enabled" {% if not hammer or hammer.enabled %}checked{% endif %}> Activé</label>
+          <div class="form-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--sp-3);margin-top:var(--sp-2);">
+            <div>
+              <label class="field-label" for="hammering_threshold">Seuil (requêtes)</label>
+              <input class="input" type="number" min="1" id="hammering_threshold" name="hammering_threshold" value="{{ hammer.threshold if hammer else 100 }}">
+            </div>
+            <div>
+              <label class="field-label" for="hammering_window_seconds">Fenêtre (s)</label>
+              <input class="input" type="number" min="1" id="hammering_window_seconds" name="hammering_window_seconds" value="{{ hammer.window_seconds if hammer else 100 }}">
+            </div>
+            <div>
+              <label class="field-label" for="hammering_ban_minutes">Durée ban (min)</label>
+              <input class="input" type="number" min="1" id="hammering_ban_minutes" name="hammering_ban_minutes" value="{{ hammer.ban_minutes if hammer else 60 }}">
+            </div>
+          </div>
+          <label class="check-row" style="margin-top:var(--sp-2);"><input type="checkbox" name="hammering_ban_permanent" {% if hammer and hammer.ban_permanent %}checked{% endif %}> Ban permanent</label>
+          <label class="check-row"><input type="checkbox" name="hammering_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+        </fieldset>
+
+        <fieldset style="border:1px solid var(--border);border-radius:8px;padding:var(--sp-3);">
+          <legend style="padding:0 6px;">Échecs de login</legend>
+          <label class="check-row"><input type="checkbox" name="failed_login_enabled" {% if not failed or failed.enabled %}checked{% endif %}> Activé</label>
+          <div class="form-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--sp-3);margin-top:var(--sp-2);">
+            <div>
+              <label class="field-label" for="failed_login_threshold">Seuil</label>
+              <input class="input" type="number" min="1" id="failed_login_threshold" name="failed_login_threshold" value="{{ failed.threshold if failed else 15 }}">
+            </div>
+            <div>
+              <label class="field-label" for="failed_login_window_seconds">Fenêtre (s)</label>
+              <input class="input" type="number" min="1" id="failed_login_window_seconds" name="failed_login_window_seconds" value="{{ failed.window_seconds if failed else 300 }}">
+            </div>
+            <div>
+              <label class="field-label" for="failed_login_ban_minutes">Durée ban (min)</label>
+              <input class="input" type="number" min="1" id="failed_login_ban_minutes" name="failed_login_ban_minutes" value="{{ failed.ban_minutes if failed else 30 }}">
+            </div>
+          </div>
+          <label class="check-row" style="margin-top:var(--sp-2);">
+            <input type="checkbox" name="failed_login_ban_username" {% if not failed or (failed.config_json or {}).get('ban_username', true) %}checked{% endif %}>
+            Bannir aussi le compte (indépendamment de l'IP)
+          </label>
+          <label class="check-row"><input type="checkbox" name="failed_login_ban_permanent" {% if failed and failed.ban_permanent %}checked{% endif %}> Ban permanent</label>
+          <label class="check-row"><input type="checkbox" name="failed_login_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+        </fieldset>
+
+        <fieldset style="border:1px solid var(--border);border-radius:8px;padding:var(--sp-3);">
+          <legend style="padding:0 6px;">Noms d'utilisateur leurres (ban immédiat)</legend>
+          <label class="check-row"><input type="checkbox" name="hack_username_enabled" {% if not hack or hack.enabled %}checked{% endif %}> Activé</label>
+          <div style="margin-top:var(--sp-2);">
+            <label class="field-label" for="hack_usernames">Liste (virgules)</label>
+            <input class="input" type="text" id="hack_usernames" name="hack_usernames" style="width:100%;"
+              value="{% if hack and hack.config_json and hack.config_json.usernames %}{{ hack.config_json.usernames | join(',') }}{% else %}administrator,root{% endif %}">
+          </div>
+          <div style="margin-top:var(--sp-2);max-width:180px;">
+            <label class="field-label" for="hack_ban_minutes">Durée ban IP (min)</label>
+            <input class="input" type="number" min="1" id="hack_ban_minutes" name="hack_ban_minutes" value="{{ hack.ban_minutes if hack else 1440 }}">
+          </div>
+          <label class="check-row" style="margin-top:var(--sp-2);"><input type="checkbox" name="hack_ban_permanent" {% if hack and hack.ban_permanent %}checked{% endif %}> Ban permanent</label>
+          <label class="check-row"><input type="checkbox" name="hack_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+        </fieldset>
+
+        <fieldset style="border:1px solid var(--border);border-radius:8px;padding:var(--sp-3);">
+          <legend style="padding:0 6px;">Connexions simultanées / IP</legend>
+          <label class="check-row"><input type="checkbox" name="concurrent_enabled" {% if concurrent and concurrent.enabled and concurrent.threshold %}checked{% endif %}> Activé</label>
+          <div style="margin-top:var(--sp-2);max-width:180px;">
+            <label class="field-label" for="concurrent_threshold">Maximum (0 = désactivé)</label>
+            <input class="input" type="number" min="0" id="concurrent_threshold" name="concurrent_threshold" value="{{ concurrent.threshold if concurrent else 0 }}">
+          </div>
+          <p class="field-hint" style="color:var(--text-2);font-size:var(--fs-sm);margin:6px 0 0;">Refuse les nouvelles requêtes au-delà du seuil (pas de ban).</p>
+        </fieldset>
+
+        <div>
+          <button type="submit" class="btn btn-primary">Enregistrer les règles</button>
+        </div>
+      </form>
+
+      <div>
+        <h3 style="margin:0 0 var(--sp-3);font-size:var(--fs-md);">Bans actifs</h3>
+        {% if security_bans %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Cible</th><th>Raison</th><th>Expiration</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for ban in security_bans %}
+              <tr>
+                <td><span class="mono">{{ ban.target_type }}:{{ ban.target }}</span></td>
+                <td>{{ ban.reason }}</td>
+                <td>
+                  {% if ban.permanent %}
+                  <span class="badge">Permanent</span>
+                  {% elif ban.expires_at %}
+                  <span class="mono">{{ ban.expires_at }}</span>
+                  {% else %}
+                  —
+                  {% endif %}
+                </td>
+                <td>
+                  <form method="post" action="/admin/security/banning/lift/{{ ban.id }}" style="display:inline;">
+                    <button type="submit" class="btn btn-sm">Lever</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p style="color:var(--text-2);font-size:var(--fs-sm);margin:0;">Aucun ban actif.</p>
+        {% endif %}
+
+        <form method="post" action="/admin/security/banning/add" class="stack" style="gap:var(--sp-3);margin-top:var(--sp-4);max-width:520px;">
+          <h4 style="margin:0;font-size:var(--fs-sm);">Ajouter un ban manuel</h4>
+          <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);">
+            <div>
+              <label class="field-label" for="ban_target_type">Type</label>
+              <select class="input" id="ban_target_type" name="target_type">
+                <option value="ip">IP</option>
+                <option value="username">Compte</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="ban_target">Valeur</label>
+              <input class="input" id="ban_target" name="target" required placeholder="10.0.0.5 ou admin">
+            </div>
+          </div>
+          <div>
+            <label class="field-label" for="ban_reason">Raison</label>
+            <input class="input" id="ban_reason" name="reason" style="width:100%;" placeholder="Manuel">
+          </div>
+          <div>
+            <label class="field-label">Mode</label>
+            <label class="check-row"><input type="radio" name="ban_mode" value="temporary" checked> Temporaire</label>
+            <label class="check-row"><input type="radio" name="ban_mode" value="permanent"> Permanent</label>
+          </div>
+          <div style="max-width:160px;">
+            <label class="field-label" for="ban_minutes">Durée (min) si temporaire</label>
+            <input class="input" type="number" min="1" id="ban_minutes" name="ban_minutes" value="60">
+          </div>
+          <label class="check-row"><input type="checkbox" name="confirm_permanent"> Je confirme le ban permanent</label>
+          <button type="submit" class="btn btn-primary">Ajouter</button>
+        </form>
+      </div>
+
+      <div>
+        <h3 style="margin:0 0 var(--sp-3);font-size:var(--fs-md);">Liste blanche (jamais bannie)</h3>
+        {% if security_allowlist %}
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Entrée</th><th>Commentaire</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for entry in security_allowlist %}
+              <tr>
+                <td><span class="mono">{{ entry.entry_type }}:{{ entry.value }}</span></td>
+                <td>{{ entry.comment or '—' }}</td>
+                <td>
+                  <form method="post" action="/admin/security/allowlist/remove/{{ entry.id }}" style="display:inline;">
+                    <button type="submit" class="btn btn-sm">Retirer</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p style="color:var(--text-2);font-size:var(--fs-sm);margin:0;">Aucune entrée.</p>
+        {% endif %}
+
+        <form method="post" action="/admin/security/allowlist/add" class="stack" style="gap:var(--sp-3);margin-top:var(--sp-4);max-width:520px;">
+          <h4 style="margin:0;font-size:var(--fs-sm);">Ajouter</h4>
+          <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);">
+            <div>
+              <label class="field-label" for="allow_type">Type</label>
+              <select class="input" id="allow_type" name="entry_type">
+                <option value="ip">IP / CIDR</option>
+                <option value="username">Compte</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label" for="allow_value">Valeur</label>
+              <input class="input" id="allow_value" name="value" required>
+            </div>
+          </div>
+          <div>
+            <label class="field-label" for="allow_comment">Commentaire</label>
+            <input class="input" id="allow_comment" name="comment" style="width:100%;" placeholder="Healthcheck / monitoring">
+          </div>
+          <button type="submit" class="btn btn-primary">Ajouter</button>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
-  var VALID = ['api', 'tls', 'subdomain-sso', 'breakglass-jwt', 'vault', 'db-encryption'];
+  var VALID = ['api', 'tls', 'subdomain-sso', 'breakglass-jwt', 'vault', 'db-encryption', 'misc', 'banning'];
   var DEFAULT = 'api';
 
   function currentTab() {

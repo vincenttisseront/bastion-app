@@ -899,21 +899,35 @@ async def breakglass_login(
             detail="Break-glass JWT secret not configured (BREAKGLASS_JWT_SECRET)",
         )
 
-    # Defense in depth (F-01/F-06): same LAN gate as Nginx allowlist / HTML /auth/login.
-    from app.auth import is_rfc1918
+    # Defense in depth (F-01/F-06): same LAN/Misc gate as HTML /auth/login.
+    from app.security.banning.engine import (
+        evaluate_login_attempt,
+        is_breakglass_ip_allowed,
+    )
 
     client_ip = _client_ip(request)
-    if not is_rfc1918(client_ip, settings.rfc1918_cidrs):
+    if not is_breakglass_ip_allowed(
+        db, client_ip, rfc1918_cidrs=settings.rfc1918_cidrs
+    ):
         log_action(
             db,
             actor=body.username,
             action="breakglass.login_denied_non_lan",
-            details={"reason": "client_ip_not_rfc1918", "via": "api"},
+            details={"reason": "breakglass_ip_not_allowed", "via": "api"},
             ip_address=client_ip or None,
         )
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    pre = evaluate_login_attempt(
+        db, ip=client_ip, username=body.username, success=True
+    )
+    if not pre.allowed:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     if not verify_breakglass_password(db, body.username, body.password):
+        evaluate_login_attempt(
+            db, ip=client_ip, username=body.username, success=False
+        )
         log_action(
             db,
             actor=body.username,

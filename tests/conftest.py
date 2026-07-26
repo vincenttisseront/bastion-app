@@ -77,6 +77,10 @@ def client(db_engine, monkeypatch):
         "app.breakglass_cookie_middleware.SessionLocal",
         session_factory,
     )
+    monkeypatch.setattr(
+        "app.security.banning.middleware.SessionLocal",
+        session_factory,
+    )
 
     def override_get_db(request: Request):
         db = session_factory()
