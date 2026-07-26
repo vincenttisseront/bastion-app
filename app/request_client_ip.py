@@ -167,11 +167,13 @@ def client_ip_probe(request: Request) -> dict[str, Any]:
     """
     x_real = (request.headers.get("X-Real-IP") or "").strip() or None
     x_fwd = (request.headers.get("X-Forwarded-For") or "").strip() or None
+    x_portal = (request.headers.get("X-Portal-Client-IP") or "").strip() or None
     peer = request.client.host if request.client else None
     resolved = client_ip_from_request(request)
     return {
         "x_real_ip": x_real,
         "x_forwarded_for": x_fwd,
+        "x_portal_client_ip": x_portal,
         "request_client_host": peer,
         "peer_is_trusted_proxy": is_trusted_proxy_peer(peer),
         "resolved": resolved or None,
@@ -185,8 +187,9 @@ def client_ip_from_request(request: Request) -> str:
 
     - Untrusted TCP peer → socket address only (headers ignored).
     - Trusted proxy → X-Real-IP if it is a non-infra client; else leftmost
-      non-infra hop in X-Forwarded-For; else empty string (fail closed: never
-      treat reverse01 ``172.24.0.108`` / Traefik as the user).
+      non-infra hop in X-Forwarded-For; else X-Portal-Client-IP (edge overwrite
+      that survives Traefik); else empty string (fail closed: never treat
+      reverse01 ``172.24.0.108`` / Traefik as the user).
     - CF-Connecting-IP / True-Client-IP / X-Client-IP are never read.
     """
     peer = (request.client.host if request.client else "") or ""
@@ -207,14 +210,25 @@ def client_ip_from_request(request: Request) -> str:
     else:
         xff = request.headers.get("X-Forwarded-For") or ""
         candidates = _xff_client_candidates(xff)
-        resolved = candidates[0] if candidates else ""
+        if candidates:
+            resolved = candidates[0]
+        else:
+            # Edge-only header (reverse01 overwrite). Never trust from the Internet
+            # directly — only when the TCP peer is already a trusted proxy.
+            portal = (request.headers.get("X-Portal-Client-IP") or "").strip()
+            if portal and _valid_ip(portal) and not is_infra_hop(portal):
+                resolved = portal
+            else:
+                resolved = ""
 
     if _IP_PROBE:
         logger.info(
-            "sessions_ip_probe trusted_peer peer=%s x_real=%s xff=%s resolved=%s",
+            "sessions_ip_probe trusted_peer peer=%s x_real=%s xff=%s "
+            "x_portal=%s resolved=%s",
             peer,
             x_real or None,
             (request.headers.get("X-Forwarded-For") or "").strip() or None,
+            (request.headers.get("X-Portal-Client-IP") or "").strip() or None,
             resolved or None,
         )
 

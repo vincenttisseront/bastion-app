@@ -21,6 +21,10 @@ clients → vmdmz-reverse01:443 (nginx edge)
 - Smoke local sans Traefik : `docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d`
 - Étape awx-playbook : vhost `portal.*` → `https://172.24.0.110` + `Host: portal.ar-systems.fr`
   (`vhost_portal_bastion.conf.j2`, `portal_bastion_edge_enabled: true` dans `linux_nginx_dmz.yml`)
+- **IP client** : Traefik sur docker01 doit avoir
+  `entrypoints.*.forwardedHeaders.trustedIPs=172.24.0.108/32`
+  (sinon XFF = reverse01 seul → break-glass `resolved: null`). Edge pose aussi
+  `X-Portal-Client-IP $remote_addr` en secours.
 
 ```bash
 # AWX (prod) — SEUL entry point

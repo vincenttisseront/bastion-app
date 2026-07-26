@@ -56,20 +56,22 @@ def test_docker_portal_no_duplicate_security_headers_at_server():
 
 
 def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
-    """X-Real-IP to FastAPI must come from $remote_addr after real_ip, not $http_x_real_ip."""
+    """X-Real-IP to FastAPI must come from real_ip / edge portal header, not $http_x_real_ip."""
     map_text = (ROOT / "docker/nginx/includes/nginx-portal-client-ip.map.conf").read_text(
         encoding="utf-8"
     )
-    # Map must not *use* the client header as the value (comments may mention it).
+    # Map must not *use* the client-spoofable X-Real-IP header as the value.
     assert "default $http_x_real_ip" not in map_text
     assert "map $http_x_real_ip" not in map_text
-    assert "map $remote_addr $portal_client_real_ip" in map_text
-    assert "default $remote_addr" in map_text
+    assert "map $remote_addr $portal_remote_is_infra" in map_text
+    assert "$http_x_portal_client_ip" in map_text
+    assert "$portal_client_real_ip" in map_text
+    assert "$remote_addr" in map_text
 
     nginx_conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "set_real_ip_from 172.24.0.108" in nginx_conf
     assert "real_ip_header X-Forwarded-For" in nginx_conf
-    assert "awx-playbook" in nginx_conf or "reverse01" in nginx_conf
+    assert "forwardedHeaders.trustedIPs" in nginx_conf
 
     forwarded = (ROOT / "docker/nginx/snippets/proxy_portal_forwarded.conf").read_text(
         encoding="utf-8"

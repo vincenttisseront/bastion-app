@@ -120,6 +120,31 @@ def test_reverse01_never_used_as_client_ip():
     assert is_infra_hop("172.24.0.108")
 
 
+def test_portal_client_ip_header_survives_traefik_xff_overwrite():
+    """When Traefik replaces XFF with reverse01, edge X-Portal-Client-IP still wins."""
+    ip = client_ip_from_request(
+        _req(
+            headers={
+                "X-Real-IP": "172.24.0.108",
+                "X-Forwarded-For": "172.24.0.108",
+                "X-Portal-Client-IP": "172.24.0.50",
+            },
+            host="10.5.0.2",
+        )
+    )
+    assert ip == "172.24.0.50"
+
+
+def test_portal_client_ip_ignored_from_untrusted_peer():
+    ip = client_ip_from_request(
+        _req(
+            headers={"X-Portal-Client-IP": "10.0.0.50"},
+            host="203.0.113.9",
+        )
+    )
+    assert ip == "203.0.113.9"
+
+
 def test_ignores_cdn_spoof_headers_even_from_trusted_peer():
     ip = client_ip_from_request(
         _req(
