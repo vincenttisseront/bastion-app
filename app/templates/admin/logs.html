@@ -58,7 +58,7 @@
       <input type="hidden" name="columns" id="filter-columns" value="{{ visible_columns | join(',') }}">
       <input type="search" class="form-input logs-search" name="q" id="filter-q" value="{{ filters.q or '' }}"
              placeholder="Recherche plein texte…" aria-label="Recherche plein texte">
-      <select class="form-input" name="action" id="filter-action" aria-label="Filtrer par action">
+      <select class="form-select" name="action" id="filter-action" aria-label="Filtrer par action">
         <option value="">Toutes les actions</option>
         {% for a in action_choices %}
         <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
@@ -139,7 +139,15 @@
           </tr>
           {% else %}
           <tr id="audit-empty-row">
-            <td colspan="{{ visible_columns | length }}">Aucune entrée</td>
+            <td colspan="{{ visible_columns | length }}" class="logs-empty-cell">
+              <div class="empty-state">
+                <div class="empty-icon">
+                  <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div class="empty-title">Aucune entrée</div>
+                <div class="empty-desc">Aucun événement ne correspond aux filtres actuels.</div>
+              </div>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -169,8 +177,8 @@
     </div>
     {% else %}
     <div class="logs-toolbar audit-toolbar">
-      <label class="field-label" for="container-select">Container</label>
-      <select class="form-input" id="container-select" aria-label="Container">
+      <label class="form-label" for="container-select">Container</label>
+      <select class="form-select" id="container-select" aria-label="Container">
         <option value="">— Choisir —</option>
         {% for c in docker_containers %}
         <option value="{{ c }}">{{ c }}</option>

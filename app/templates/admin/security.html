@@ -23,23 +23,23 @@
     <a href="#breakglass-jwt" class="tab" role="tab" data-tab="breakglass-jwt" id="tab-breakglass-jwt">
       Break-glass JWT
       {% if breakglass_secret and not breakglass_secret.conforming %}
-      <span class="badge" style="margin-left:6px;background:var(--danger-bg, #fee2e2);color:var(--danger, #991b1b);">!</span>
+      <span class="badge badge-err tab-badge">!</span>
       {% elif breakglass_secret and breakglass_secret.conforming %}
-      <span class="badge badge-ok" style="margin-left:6px;">OK</span>
+      <span class="badge badge-ok tab-badge">OK</span>
       {% endif %}
     </a>
     <a href="#vault" class="tab" role="tab" data-tab="vault" id="tab-vault">
       Coffre Fernet
       {% if vault_key and vault_key.status_badge == 'recommended' %}
-      <span class="badge" style="margin-left:6px;background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">!</span>
+      <span class="badge badge-warn tab-badge">!</span>
       {% endif %}
     </a>
     <a href="#db-encryption" class="tab" role="tab" data-tab="db-encryption" id="tab-db-encryption">
       Chiffrement DB
       {% if db_encryption and db_encryption.status_badge in ('warn', 'error') %}
-      <span class="badge" style="margin-left:6px;background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">!</span>
+      <span class="badge badge-warn tab-badge">!</span>
       {% elif db_encryption and db_encryption.status_badge == 'ok' %}
-      <span class="badge badge-ok" style="margin-left:6px;">OK</span>
+      <span class="badge badge-ok tab-badge">OK</span>
       {% endif %}
     </a>
     <a href="#misc" class="tab" role="tab" data-tab="misc" id="tab-misc">Misc</a>
@@ -54,7 +54,7 @@
       <div class="form-section-sub">Routes machine-to-machine <span class="mono">/api/admin/*</span></div>
     </div>
     <div class="form-body">
-      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0;">
+      <p class="form-prose">
         Token interne configuré via <code class="mono">vault_portal_internal_token</code>.
         Utilisé pour l'authentification des appels automatisés entre services.
       </p>
@@ -67,7 +67,7 @@
       <div class="form-section-sub">Terminaison Nginx + Let's Encrypt</div>
     </div>
     <div class="form-body">
-      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0;">
+      <p class="form-prose">
         Terminaison TLS gérée par Nginx. Renouvellement automatique via certbot.
         Les certificats sont provisionnés par l'infrastructure AWX/Ansible.
       </p>
@@ -87,13 +87,13 @@
       </div>
     </div>
     <div class="form-body">
-      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0 0 var(--sp-4);">
+      <p class="form-prose form-prose-spaced">
         Quand ce mode est actif, les applications en accès
         <strong>Sous-domaine dédié</strong> sont redirigées vers leur FQDN après
         impersonation. Sinon elles retombent sur <span class="mono">/proxy/{slug}/</span>.
       </p>
 
-      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+      <div class="alert alert-warn mb-4">
         <div class="alert-body">
           N'activez ce mode que si l'infrastructure réseau est prête pour
           <strong>TOUTES</strong> les applications configurées en mode
@@ -105,10 +105,10 @@
       </div>
 
       {% if subdomain_apps %}
-      <p class="form-help" style="margin-bottom:var(--sp-2);">
+      <p class="form-help mb-2">
         Applications actuellement en mode sous-domaine dédié ({{ subdomain_apps | length }}) :
       </p>
-      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+      <div class="table-wrap mb-4">
         <table class="data-table">
           <thead>
             <tr><th>Application</th><th>FQDN public</th></tr>
@@ -124,14 +124,18 @@
         </table>
       </div>
       {% else %}
-      <p class="form-help" style="margin-bottom:var(--sp-4);">
-        Aucune application active en mode « Sous-domaine dédié » pour le moment.
-      </p>
+      <div class="empty-state mb-4">
+        <div class="empty-icon">
+          <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        </div>
+        <div class="empty-title">Aucune application sous-domaine</div>
+        <div class="empty-desc">Aucune application active en mode « Sous-domaine dédié » pour le moment.</div>
+      </div>
       {% endif %}
 
       <form method="post" action="/admin/security/subdomain-sso" id="subdomain-sso-form">
         <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:center;gap:var(--sp-3);cursor:pointer;">
+          <label class="form-label form-check-row">
             <input type="checkbox" name="enabled" id="subdomain_sso_enabled"
                    {% if subdomain_sso_enabled %}checked{% endif %}
                    data-was-enabled="{{ '1' if subdomain_sso_enabled else '0' }}">
@@ -139,15 +143,15 @@
           </label>
         </div>
         <div class="form-group" id="infra-ack-group" {% if subdomain_sso_enabled %}hidden{% endif %}>
-          <label class="form-label" style="display:flex;align-items:flex-start;gap:var(--sp-3);cursor:pointer;">
-            <input type="checkbox" name="infra_ack" id="infra_ack" style="margin-top:3px;">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="infra_ack" id="infra_ack">
             <span>
               J'ai vérifié que l'infrastructure (DNS, TLS, Nginx) est prête pour
               toutes les applications listées ci-dessus.
             </span>
           </label>
         </div>
-        <div class="form-footer" style="padding-left:0;padding-right:0;border:none;">
+        <div class="form-footer form-footer-flush">
           <button type="submit" class="btn btn-secondary btn-sm">Enregistrer</button>
         </div>
       </form>
@@ -162,21 +166,20 @@
         {% if breakglass_secret.conforming %}
         <span class="badge badge-ok">Conforme</span>
         {% else %}
-        <span class="badge" style="background:var(--danger-bg, #fee2e2);color:var(--danger, #991b1b);">
-          Non conforme — signature encore basée sur VAULT_PORTAL_INTERNAL_TOKEN
+        <span class="badge badge-err">Non conforme — signature encore basée sur VAULT_PORTAL_INTERNAL_TOKEN
         </span>
         {% endif %}
       </div>
     </div>
     <div class="form-body">
-      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0 0 var(--sp-4);">
+      <p class="form-prose form-prose-spaced">
         Canal principal : variable d'environnement <code class="mono">BREAKGLASS_JWT_SECRET</code>
         (AWX / Ansible). L'UI ne génère un secret que si cette variable est absente —
         filet de sécurité, sans conflit avec le canal as-code. Aucune valeur n'est
         jamais affichée en clair.
       </p>
 
-      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+      <div class="table-wrap mb-4">
         <table class="data-table">
           <tbody>
             <tr>
@@ -189,7 +192,7 @@
             </tr>
             <tr>
               <th>Secret effectif distinct de <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> ?</th>
-              <td>{% if breakglass_secret.effective_distinct_from_vault_token %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge" style="background:var(--danger-bg, #fee2e2);color:var(--danger, #991b1b);">Non</span>{% endif %}</td>
+              <td>{% if breakglass_secret.effective_distinct_from_vault_token %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-err">Non</span>{% endif %}</td>
             </tr>
             <tr>
               <th>Fallback legacy actif ?</th>
@@ -204,7 +207,7 @@
       </div>
 
       {% if breakglass_secret.env_defined %}
-      <div class="alert" style="margin-bottom:var(--sp-4);background:var(--ok-bg, #ecfdf5);color:var(--ok, #065f46);">
+      <div class="alert alert-ok mb-4">
         <div class="alert-body">
           Le secret est géré par AWX (<code class="mono">BREAKGLASS_JWT_SECRET</code>).
           La génération depuis l'UI est désactivée pour ne pas entrer en conflit avec
@@ -215,7 +218,7 @@
         Générer un secret dédié
       </button>
       {% elif breakglass_secret.can_generate %}
-      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+      <div class="alert alert-warn mb-4">
         <div class="alert-body">
           Aucun secret dédié : les nouvelles signatures utilisent encore
           <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> (ou un secret éphémère).
@@ -225,23 +228,23 @@
       <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
             onsubmit="return confirm('Générer un secret HMAC dédié pour les cookies break-glass ? Les nouvelles signatures utiliseront ce secret immédiatement. Les cookies déjà émis restent valides grâce au fallback de transition.');">
         <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:flex-start;gap:var(--sp-3);cursor:pointer;">
-            <input type="checkbox" name="confirm" value="on" required style="margin-top:3px;">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="confirm" value="on" required>
             <span>Je confirme la génération d'un secret dédié (valeur aléatoire côté serveur, jamais affichée).</span>
           </label>
         </div>
         <button type="submit" class="btn btn-primary btn-sm">Générer un secret dédié</button>
       </form>
       {% elif breakglass_secret.can_rotate %}
-      <p class="form-help" style="margin-bottom:var(--sp-3);">
+      <p class="form-help mb-4">
         Un secret UI est déjà actif. Vous pouvez le régénérer (rotation) : l'ancienne
         valeur reste acceptée en validation pendant la transition.
       </p>
       <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
             onsubmit="return confirm('Régénérer (rotation) le secret break-glass UI ? Les nouvelles signatures utiliseront la nouvelle valeur ; les cookies déjà émis restent valides.');">
         <div class="form-group">
-          <label class="form-label" style="display:flex;align-items:flex-start;gap:var(--sp-3);cursor:pointer;">
-            <input type="checkbox" name="confirm" value="on" required style="margin-top:3px;">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="confirm" value="on" required>
             <span>Je confirme la rotation du secret UI (valeur aléatoire côté serveur).</span>
           </label>
         </div>
@@ -257,7 +260,7 @@
       <div class="form-section-sub">
         Clé gérée par l'application (fichier local) —
         {% if vault_key and vault_key.status_badge == 'recommended' %}
-        <span class="badge" style="background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">Rotation recommandée</span>
+        <span class="badge badge-warn">Rotation recommandée</span>
         {% elif vault_key %}
         <span class="badge badge-ok">OK</span>
         {% else %}
@@ -267,7 +270,7 @@
     </div>
     <div class="form-body">
       {% if vault_key %}
-      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+      <div class="table-wrap mb-4">
         <table class="data-table">
           <tbody>
             <tr><th>Version active</th><td class="mono">v{{ vault_key.version }}</td></tr>
@@ -282,7 +285,7 @@
         </table>
       </div>
       {% if vault_key.rotation_recommended %}
-      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+      <div class="alert alert-warn mb-4">
         <div class="alert-body">
           La clé a dépassé la cadence configurée. Aucune rotation automatique :
           utilisez « Forcer le renouvellement » ci-dessous.
@@ -290,40 +293,80 @@
       </div>
       {% endif %}
       {% else %}
-      <p style="color:var(--text-2);font-size:var(--fs-sm);">Statut de clé indisponible.</p>
+      <p class="form-prose">Statut de clé indisponible.</p>
       {% endif %}
 
-      <form method="post" action="/admin/security/vault-key/cadence" style="margin-bottom:var(--sp-4);">
-        <div class="form-group">
-          <label class="form-label" for="rotation_days">Cadence recommandée (jours)</label>
-          <input class="form-input" type="number" min="1" max="3650" name="rotation_days" id="rotation_days"
-                 value="{{ vault_key.rotation_days if vault_key else 180 }}" style="max-width:8rem;">
-          <p class="form-help">Surveillance quotidienne uniquement — jamais de rotation sans clic admin.</p>
+      {% set rot_days = vault_key.rotation_days if vault_key else 180 %}
+      <div class="ds-accordion" id="vault-accordion">
+        <div class="ds-accordion-item" data-ds-accordion>
+          <div class="ds-accordion-head" data-ds-accordion-toggle>
+            <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="vault-panel-cadence" tabindex="-1">▸</button>
+            <span class="ds-accordion-title">Cadence de rotation</span>
+            <span class="ds-accordion-summary">Rotation automatique · tous les {{ rot_days }} jours</span>
+          </div>
+          <div class="ds-accordion-panel" id="vault-panel-cadence" hidden>
+            <form method="post" action="/admin/security/vault-key/cadence" class="stack">
+              <div class="form-group">
+                <label class="form-label" for="rotation_days">Cadence recommandée (jours)</label>
+                <input class="form-input input-narrow" type="number" min="1" max="3650" name="rotation_days" id="rotation_days"
+                       value="{{ rot_days }}">
+                <p class="form-help">Surveillance quotidienne uniquement — jamais de rotation sans clic admin.</p>
+              </div>
+              <div class="form-footer form-footer-flush">
+                <button type="submit" class="btn btn-secondary btn-sm">Enregistrer la cadence</button>
+              </div>
+            </form>
+          </div>
         </div>
-        <button type="submit" class="btn btn-secondary btn-sm">Enregistrer la cadence</button>
-      </form>
 
-      <form method="post" action="/admin/security/vault-key/export" style="margin-bottom:var(--sp-4);">
-        <div class="form-group">
-          <label class="form-label" for="export_passphrase">Sauvegarde chiffrée de la clé</label>
-          <input class="form-input" type="password" name="passphrase" id="export_passphrase"
-                 placeholder="Passphrase (≥ 12 car.)" autocomplete="new-password" required minlength="12">
+        <div class="ds-accordion-item" data-ds-accordion>
+          <div class="ds-accordion-head" data-ds-accordion-toggle>
+            <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="vault-panel-export" tabindex="-1">▸</button>
+            <span class="ds-accordion-title">Sauvegarde chiffrée</span>
+            <span class="ds-accordion-summary">Export de la clé active (passphrase requise)</span>
+          </div>
+          <div class="ds-accordion-panel" id="vault-panel-export" hidden>
+            <form method="post" action="/admin/security/vault-key/export" class="stack">
+              <div class="form-group">
+                <label class="form-label" for="export_passphrase">Passphrase (≥ 12 car.)</label>
+                <input class="form-input" type="password" name="passphrase" id="export_passphrase"
+                       placeholder="Passphrase (≥ 12 car.)" autocomplete="new-password" required minlength="12">
+              </div>
+              <div class="form-group">
+                <input class="form-input" type="password" name="passphrase_confirm"
+                       placeholder="Confirmer la passphrase" autocomplete="new-password" required minlength="12">
+                <p class="form-help">La passphrase n'est jamais stockée. Conservez le fichier hors du serveur.</p>
+              </div>
+              <div class="form-footer form-footer-flush">
+                <button type="submit" class="btn btn-secondary btn-sm">Télécharger la sauvegarde</button>
+              </div>
+            </form>
+          </div>
         </div>
-        <div class="form-group">
-          <input class="form-input" type="password" name="passphrase_confirm"
-                 placeholder="Confirmer la passphrase" autocomplete="new-password" required minlength="12">
-          <p class="form-help">La passphrase n'est jamais stockée. Conservez le fichier hors du serveur.</p>
+
+        <div class="ds-accordion-item" data-ds-accordion>
+          <div class="ds-accordion-head" data-ds-accordion-toggle>
+            <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="vault-panel-rotate" tabindex="-1">▸</button>
+            <span class="ds-accordion-title">Forcer le renouvellement</span>
+            <span class="ds-accordion-summary{% if not vault_key or not vault_key.rotation_recommended %} is-off{% endif %}">
+              {% if vault_key and vault_key.rotation_recommended %}Rotation recommandée{% else %}Renouvellement manuel{% endif %}
+            </span>
+          </div>
+          <div class="ds-accordion-panel" id="vault-panel-rotate" hidden>
+            <form method="post" action="/admin/security/vault-key/rotate" id="vault-key-rotate-form" class="stack">
+              <input type="hidden" name="confirm" value="on">
+              <p class="form-prose form-prose-spaced">
+                Rechiffre tous les credentials applicatifs. Confirmation explicite requise.
+              </p>
+              <div class="form-footer form-footer-flush">
+                <button type="submit" class="btn btn-secondary btn-sm" id="vault-key-rotate-btn">
+                  Forcer le renouvellement
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-        <button type="submit" class="btn btn-secondary btn-sm">Télécharger la sauvegarde</button>
-      </form>
-    </div>
-    <div class="form-footer">
-      <form method="post" action="/admin/security/vault-key/rotate" id="vault-key-rotate-form">
-        <input type="hidden" name="confirm" value="on">
-        <button type="submit" class="btn btn-secondary btn-sm" id="vault-key-rotate-btn">
-          Forcer le renouvellement
-        </button>
-      </form>
+      </div>
     </div>
   </div>
 
@@ -336,7 +379,7 @@
           {% if db_encryption.status_badge == 'ok' %}
           <span class="badge badge-ok">{{ db_encryption.status_label }}</span>
           {% elif db_encryption.status_badge == 'warn' %}
-          <span class="badge" style="background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">{{ db_encryption.status_label }}</span>
+          <span class="badge badge-warn">{{ db_encryption.status_label }}</span>
           {% elif db_encryption.status_badge == 'error' %}
           <span class="badge badge-err">{{ db_encryption.status_label }}</span>
           {% else %}
@@ -348,14 +391,14 @@
       </div>
     </div>
     <div class="form-body">
-      <p style="color:var(--text-2);font-size:var(--fs-sm);line-height:1.6;margin:0 0 var(--sp-4);">
+      <p class="form-prose form-prose-spaced">
         Couche indépendante du coffre Fernet : AES-256 sur tout le fichier SQLite
         (y compris backups). Les credentials restent aussi protégés par Fernet
         (défense en profondeur).
       </p>
 
       {% if db_encryption %}
-      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+      <div class="table-wrap mb-4">
         <table class="data-table">
           <tbody>
             <tr>
@@ -412,7 +455,7 @@
                 {% elif db_encryption.db_encrypted %}
                 <span class="badge badge-ok">Oui</span>
                 {% else %}
-                <span class="badge" style="background:var(--warn-bg, #fef3c7);color:var(--warn, #92400e);">Non (clair)</span>
+                <span class="badge badge-warn">Non (clair)</span>
                 {% endif %}
               </td>
             </tr>
@@ -425,7 +468,7 @@
       </div>
 
       {% if db_encryption.status_badge == 'warn' %}
-      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+      <div class="alert alert-warn mb-4">
         <div class="alert-body">
           Une clé SQLCipher est configurée mais <span class="mono">portal.db</span> est encore
           en clair. Exécutez <span class="mono">python scripts/encrypt_portal_db.py</span>
@@ -433,7 +476,7 @@
         </div>
       </div>
       {% elif db_encryption.status_badge == 'error' and not db_encryption.enabled %}
-      <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">
+      <div class="alert alert-warn mb-4">
         <div class="alert-body">
           Le fichier semble chiffré mais aucune clé n'est configurée
           (<span class="mono">(VAULT_PORTAL_DB_ENCRYPTION_KEY</span> /
@@ -441,8 +484,8 @@
         </div>
       </div>
       {% elif not db_encryption.enabled %}
-      <div class="alert" style="margin-bottom:var(--sp-4);">
-        <div class="alert-body" style="color:var(--text-2);font-size:var(--fs-sm);">
+      <div class="alert alert-info mb-4">
+        <div class="alert-body form-prose">
           Mode clair (dev / tests). En production, fournir
           <span class="mono">vault_portal_db_encryption_key</span>
           (64 hex — <span class="mono">openssl rand -hex 32</span>) via AWX Vault.
@@ -450,7 +493,7 @@
       </div>
       {% endif %}
       {% else %}
-      <p style="color:var(--text-2);font-size:var(--fs-sm);">Statut de chiffrement indisponible.</p>
+      <p class="form-prose">Statut de chiffrement indisponible.</p>
       {% endif %}
     </div>
   </div>
@@ -465,33 +508,50 @@
   {% set concurrent = security_ban_rules.get('concurrent_connections') if security_ban_rules else none %}
 
   <div class="form-section security-panel" id="misc" role="tabpanel" aria-labelledby="tab-misc" hidden>
+    {% set allow_raw = (security_policy.breakglass_allow_cidrs if security_policy else '') or '' %}
+    {% set deny_raw = (security_policy.breakglass_deny_cidrs if security_policy else '') or '' %}
     <div class="form-section-header">
       <div class="form-section-title">Misc — paramètres anti-abus</div>
       <div class="form-section-sub">Activation globale et contrôle d'accès IP break-glass</div>
     </div>
     <div class="form-body">
-      <form method="post" action="/admin/security/misc" class="stack" style="gap:var(--sp-4);">
+      <form method="post" action="/admin/security/misc" class="stack" id="misc-form">
         <label class="check-row">
           <input type="checkbox" name="enabled" {% if not security_policy or security_policy.enabled %}checked{% endif %}>
           <span>Activer le moteur anti-abus (hammering, échecs de login, bans)</span>
         </label>
-        <div>
-          <label class="field-label" for="breakglass_allow_cidrs">IPs / CIDR autorisées break-glass</label>
-          <textarea id="breakglass_allow_cidrs" name="breakglass_allow_cidrs" rows="3" class="input" style="width:100%;font-family:var(--font-mono, monospace);font-size:var(--fs-sm);"
-            placeholder="Vide = réseaux RFC1918 par défaut (ex. 10.0.0.0/8, 172.16.0.0/12)">{{ security_policy.breakglass_allow_cidrs if security_policy else '' }}</textarea>
-          <p class="field-hint" style="color:var(--text-2);font-size:var(--fs-sm);margin:6px 0 0;">
-            Si renseigné, seules ces plages peuvent tenter un login break-glass (au lieu du filtre RFC1918).
-          </p>
+
+        <div class="ds-accordion">
+          <div class="ds-accordion-item" data-ds-accordion>
+            <div class="ds-accordion-head" data-ds-accordion-toggle>
+              <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="misc-panel-cidr" tabindex="-1">▸</button>
+              <span class="ds-accordion-title">Plages CIDR break-glass</span>
+              <span class="ds-accordion-summary">{% if allow_raw or deny_raw %}Plages personnalisées configurées{% else %}RFC1918 par défaut (aucune plage saisie){% endif %}</span>
+            </div>
+            <div class="ds-accordion-panel" id="misc-panel-cidr" hidden>
+              <div class="stack">
+                <div>
+                  <label class="form-label" for="breakglass_allow_cidrs">IPs / CIDR autorisées break-glass</label>
+                  <textarea id="breakglass_allow_cidrs" name="breakglass_allow_cidrs" rows="3" class="form-input is-mono"
+                    placeholder="Vide = réseaux RFC1918 par défaut (ex. 10.0.0.0/8, 172.16.0.0/12)">{{ allow_raw }}</textarea>
+                  <p class="form-help">
+                    Si renseigné, seules ces plages peuvent tenter un login break-glass (au lieu du filtre RFC1918).
+                  </p>
+                </div>
+                <div>
+                  <label class="form-label" for="breakglass_deny_cidrs">IPs / CIDR bloquées break-glass</label>
+                  <textarea id="breakglass_deny_cidrs" name="breakglass_deny_cidrs" rows="3" class="form-input is-mono"
+                    placeholder="Toujours refusées, même si présentes dans la liste d'autorisation">{{ deny_raw }}</textarea>
+                  <p class="form-help">
+                    La liste de refus prime toujours. Séparez les CIDR par virgule ou retour ligne.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-        <div>
-          <label class="field-label" for="breakglass_deny_cidrs">IPs / CIDR bloquées break-glass</label>
-          <textarea id="breakglass_deny_cidrs" name="breakglass_deny_cidrs" rows="3" class="input" style="width:100%;font-family:var(--font-mono, monospace);font-size:var(--fs-sm);"
-            placeholder="Toujours refusées, même si présentes dans la liste d'autorisation">{{ security_policy.breakglass_deny_cidrs if security_policy else '' }}</textarea>
-          <p class="field-hint" style="color:var(--text-2);font-size:var(--fs-sm);margin:6px 0 0;">
-            La liste de refus prime toujours. Séparez les CIDR par virgule ou retour ligne.
-          </p>
-        </div>
-        <div>
+
+        <div class="form-footer form-footer-flush">
           <button type="submit" class="btn btn-primary">Enregistrer</button>
         </div>
       </form>
@@ -536,16 +596,16 @@
                   <div class="stack">
                     <div class="form-grid">
                       <div>
-                        <label class="field-label" for="hammering_threshold">Seuil (requêtes)</label>
-                        <input class="input" type="number" min="1" id="hammering_threshold" name="hammering_threshold" data-banning-field="threshold" value="{{ hammer.threshold if hammer else 100 }}">
+                        <label class="form-label" for="hammering_threshold">Seuil (requêtes)</label>
+                        <input class="form-input" type="number" min="1" id="hammering_threshold" name="hammering_threshold" data-banning-field="threshold" value="{{ hammer.threshold if hammer else 100 }}">
                       </div>
                       <div>
-                        <label class="field-label" for="hammering_window_seconds">Fenêtre (s)</label>
-                        <input class="input" type="number" min="1" id="hammering_window_seconds" name="hammering_window_seconds" data-banning-field="window" value="{{ hammer.window_seconds if hammer else 100 }}">
+                        <label class="form-label" for="hammering_window_seconds">Fenêtre (s)</label>
+                        <input class="form-input" type="number" min="1" id="hammering_window_seconds" name="hammering_window_seconds" data-banning-field="window" value="{{ hammer.window_seconds if hammer else 100 }}">
                       </div>
                       <div>
-                        <label class="field-label" for="hammering_ban_minutes">Durée ban (min)</label>
-                        <input class="input" type="number" min="1" id="hammering_ban_minutes" name="hammering_ban_minutes" data-banning-field="minutes" value="{{ hammer.ban_minutes if hammer else 60 }}">
+                        <label class="form-label" for="hammering_ban_minutes">Durée ban (min)</label>
+                        <input class="form-input" type="number" min="1" id="hammering_ban_minutes" name="hammering_ban_minutes" data-banning-field="minutes" value="{{ hammer.ban_minutes if hammer else 60 }}">
                       </div>
                     </div>
                     <label class="check-row"><input type="checkbox" name="hammering_ban_permanent" data-banning-field="permanent" {% if hammer and hammer.ban_permanent %}checked{% endif %}> Ban permanent</label>
@@ -571,16 +631,16 @@
                   <div class="stack">
                     <div class="form-grid">
                       <div>
-                        <label class="field-label" for="failed_login_threshold">Seuil</label>
-                        <input class="input" type="number" min="1" id="failed_login_threshold" name="failed_login_threshold" data-banning-field="threshold" value="{{ failed.threshold if failed else 15 }}">
+                        <label class="form-label" for="failed_login_threshold">Seuil</label>
+                        <input class="form-input" type="number" min="1" id="failed_login_threshold" name="failed_login_threshold" data-banning-field="threshold" value="{{ failed.threshold if failed else 15 }}">
                       </div>
                       <div>
-                        <label class="field-label" for="failed_login_window_seconds">Fenêtre (s)</label>
-                        <input class="input" type="number" min="1" id="failed_login_window_seconds" name="failed_login_window_seconds" data-banning-field="window" value="{{ failed.window_seconds if failed else 300 }}">
+                        <label class="form-label" for="failed_login_window_seconds">Fenêtre (s)</label>
+                        <input class="form-input" type="number" min="1" id="failed_login_window_seconds" name="failed_login_window_seconds" data-banning-field="window" value="{{ failed.window_seconds if failed else 300 }}">
                       </div>
                       <div>
-                        <label class="field-label" for="failed_login_ban_minutes">Durée ban (min)</label>
-                        <input class="input" type="number" min="1" id="failed_login_ban_minutes" name="failed_login_ban_minutes" data-banning-field="minutes" value="{{ failed.ban_minutes if failed else 30 }}">
+                        <label class="form-label" for="failed_login_ban_minutes">Durée ban (min)</label>
+                        <input class="form-input" type="number" min="1" id="failed_login_ban_minutes" name="failed_login_ban_minutes" data-banning-field="minutes" value="{{ failed.ban_minutes if failed else 30 }}">
                       </div>
                     </div>
                     <label class="check-row">
@@ -609,13 +669,13 @@
                 <div class="banning-rule-panel" id="banning-panel-hack" hidden>
                   <div class="stack">
                     <div>
-                      <label class="field-label" for="hack_usernames">Liste (virgules)</label>
-                      <input class="input" type="text" id="hack_usernames" name="hack_usernames"
+                      <label class="form-label" for="hack_usernames">Liste (virgules)</label>
+                      <input class="form-input" type="text" id="hack_usernames" name="hack_usernames"
                         value="{% if hack and hack.config_json and hack.config_json.usernames %}{{ hack.config_json.usernames | join(',') }}{% else %}administrator,root{% endif %}">
                     </div>
                     <div>
-                      <label class="field-label" for="hack_ban_minutes">Durée ban IP (min)</label>
-                      <input class="input" type="number" min="1" id="hack_ban_minutes" name="hack_ban_minutes" data-banning-field="minutes" value="{{ hack.ban_minutes if hack else 1440 }}">
+                      <label class="form-label" for="hack_ban_minutes">Durée ban IP (min)</label>
+                      <input class="form-input" type="number" min="1" id="hack_ban_minutes" name="hack_ban_minutes" data-banning-field="minutes" value="{{ hack.ban_minutes if hack else 1440 }}">
                     </div>
                     <label class="check-row"><input type="checkbox" name="hack_ban_permanent" data-banning-field="permanent" {% if hack and hack.ban_permanent %}checked{% endif %}> Ban permanent</label>
                     <label class="check-row"><input type="checkbox" name="hack_confirm_permanent"> Je confirme le ban permanent (requis)</label>
@@ -639,10 +699,10 @@
                 <div class="banning-rule-panel" id="banning-panel-concurrent" hidden>
                   <div class="stack">
                     <div>
-                      <label class="field-label" for="concurrent_threshold">Maximum (0 = désactivé)</label>
-                      <input class="input" type="number" min="0" id="concurrent_threshold" name="concurrent_threshold" data-banning-field="threshold" value="{{ concurrent.threshold if concurrent else 0 }}">
+                      <label class="form-label" for="concurrent_threshold">Maximum (0 = désactivé)</label>
+                      <input class="form-input" type="number" min="0" id="concurrent_threshold" name="concurrent_threshold" data-banning-field="threshold" value="{{ concurrent.threshold if concurrent else 0 }}">
                     </div>
-                    <p class="field-hint">Refuse les nouvelles requêtes au-delà du seuil (pas de ban).</p>
+                    <p class="form-help">Refuse les nouvelles requêtes au-delà du seuil (pas de ban).</p>
                   </div>
                 </div>
               </div>
@@ -694,7 +754,13 @@
             </table>
           </div>
           {% else %}
-          <p class="banning-empty">Aucun ban actif.</p>
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+            </div>
+            <div class="empty-title">Aucun ban actif</div>
+            <div class="empty-desc">Les bans manuels ou automatiques apparaîtront ici.</div>
+          </div>
           {% endif %}
         </div>
       </div>
@@ -729,7 +795,13 @@
             </table>
           </div>
           {% else %}
-          <p class="banning-empty">Aucune entrée.</p>
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </div>
+            <div class="empty-title">Liste blanche vide</div>
+            <div class="empty-desc">Ajoutez une IP ou un compte à exclure des règles de ban.</div>
+          </div>
           {% endif %}
         </div>
       </div>
@@ -746,29 +818,29 @@
           <form id="ban-add-form" method="post" action="/admin/security/banning/add" class="stack">
             <div class="form-grid-2">
               <div>
-                <label class="field-label" for="ban_target_type">Type</label>
-                <select class="input" id="ban_target_type" name="target_type">
+                <label class="form-label" for="ban_target_type">Type</label>
+                <select class="form-select" id="ban_target_type" name="target_type">
                   <option value="ip">IP</option>
                   <option value="username">Compte</option>
                 </select>
               </div>
               <div>
-                <label class="field-label" for="ban_target">Valeur</label>
-                <input class="input" id="ban_target" name="target" required placeholder="10.0.0.5 ou admin">
+                <label class="form-label" for="ban_target">Valeur</label>
+                <input class="form-input" id="ban_target" name="target" required placeholder="10.0.0.5 ou admin">
               </div>
             </div>
             <div>
-              <label class="field-label" for="ban_reason">Raison</label>
-              <input class="input" id="ban_reason" name="reason" placeholder="Manuel">
+              <label class="form-label" for="ban_reason">Raison</label>
+              <input class="form-input" id="ban_reason" name="reason" placeholder="Manuel">
             </div>
             <div>
-              <label class="field-label">Mode</label>
+              <label class="form-label">Mode</label>
               <label class="check-row"><input type="radio" name="ban_mode" value="temporary" checked data-ban-mode> Temporaire</label>
               <label class="check-row"><input type="radio" name="ban_mode" value="permanent" data-ban-mode> Permanent</label>
             </div>
             <div id="ban-minutes-wrap">
-              <label class="field-label" for="ban_minutes">Durée (min) si temporaire</label>
-              <input class="input" type="number" min="1" id="ban_minutes" name="ban_minutes" value="60">
+              <label class="form-label" for="ban_minutes">Durée (min) si temporaire</label>
+              <input class="form-input" type="number" min="1" id="ban_minutes" name="ban_minutes" value="60">
             </div>
             <label class="check-row" id="ban-confirm-wrap" hidden>
               <input type="checkbox" name="confirm_permanent" id="ban_confirm_permanent"> Je confirme le ban permanent
@@ -793,20 +865,20 @@
           <form id="allowlist-add-form" method="post" action="/admin/security/allowlist/add" class="stack">
             <div class="form-grid-2">
               <div>
-                <label class="field-label" for="allow_type">Type</label>
-                <select class="input" id="allow_type" name="entry_type">
+                <label class="form-label" for="allow_type">Type</label>
+                <select class="form-select" id="allow_type" name="entry_type">
                   <option value="ip">IP / CIDR</option>
                   <option value="username">Compte</option>
                 </select>
               </div>
               <div>
-                <label class="field-label" for="allow_value">Valeur</label>
-                <input class="input" id="allow_value" name="value" required>
+                <label class="form-label" for="allow_value">Valeur</label>
+                <input class="form-input" id="allow_value" name="value" required>
               </div>
             </div>
             <div>
-              <label class="field-label" for="allow_comment">Commentaire</label>
-              <input class="input" id="allow_comment" name="comment" placeholder="Healthcheck / monitoring">
+              <label class="form-label" for="allow_comment">Commentaire</label>
+              <input class="form-input" id="allow_comment" name="comment" placeholder="Healthcheck / monitoring">
             </div>
           </form>
         </div>
@@ -820,6 +892,8 @@
 
   <div class="form-section security-panel" id="container-logs" role="tabpanel" aria-labelledby="tab-container-logs" hidden>
     {% set cls = container_logs_settings | default(none) %}
+    {% set allowed = (cls.allowed_containers if cls else []) or [] %}
+    {% set allowed_count = allowed | length %}
     <div class="form-section-header">
       <div class="form-section-title">Logs containers (Docker)</div>
       <div class="form-section-sub">
@@ -828,73 +902,101 @@
       </div>
     </div>
     <div class="form-body">
-      <form method="post" action="/admin/security/container-logs" class="stack" style="gap:var(--sp-4);max-width:36rem;">
-        <label class="checkbox-row" style="display:flex;align-items:center;gap:0.5rem;">
+      <form method="post" action="/admin/security/container-logs" class="stack input-mid mb-4">
+        <label class="form-check-row">
           <input type="checkbox" name="enabled" value="on"{% if cls and cls.enabled %} checked{% endif %}>
           <span>Activer les logs containers</span>
         </label>
         <div>
-          <label class="field-label" for="cls_proxy_url">URL du proxy Docker (lecture seule)</label>
-          <input class="input" id="cls_proxy_url" name="proxy_url" style="width:100%;"
+          <label class="form-label" for="cls_proxy_url">URL du proxy Docker (lecture seule)</label>
+          <input class="form-input" id="cls_proxy_url" name="proxy_url"
                  value="{{ cls.proxy_url if cls else '' }}"
                  placeholder="http://docker-socket-proxy:2375"
                  autocomplete="off">
-          <p class="form-help" style="margin-top:0.35rem;">
+          <p class="form-help mt-2">
             Service type <span class="mono">docker-socket-proxy</span> avec
             <span class="mono">CONTAINERS=1</span> et <span class="mono">POST=0</span>
             (overlay <span class="mono">docker-compose.docker-logs.yml</span>).
           </p>
         </div>
         <div>
-          <label class="field-label" for="cls_tail_lines">Lignes (tail)</label>
-          <input class="input" id="cls_tail_lines" name="tail_lines" type="number" min="1" max="5000"
-                 value="{{ cls.tail_lines if cls else 200 }}" style="width:8rem;">
+          <label class="form-label" for="cls_tail_lines">Lignes (tail)</label>
+          <input class="form-input input-narrow" id="cls_tail_lines" name="tail_lines" type="number" min="1" max="5000"
+                 value="{{ cls.tail_lines if cls else 200 }}">
         </div>
         <button type="submit" class="btn btn-primary">Enregistrer</button>
       </form>
 
-      <div style="margin-top:var(--sp-6);">
-        <h3 style="margin:0 0 var(--sp-3);font-size:var(--fs-md);">Containers autorisés</h3>
-        <p style="color:var(--text-2);font-size:var(--fs-sm);margin:0 0 var(--sp-3);">
-          Liste blanche uniquement — aucun inventaire automatique de l'hôte.
-        </p>
-        <table class="data-table" style="width:100%;max-width:36rem;border-collapse:collapse;">
-          <thead>
-            <tr>
-              <th style="text-align:left;padding:0.5rem;">Nom</th>
-              <th style="text-align:right;padding:0.5rem;"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% set allowed = (cls.allowed_containers if cls else []) or [] %}
-            {% for name in allowed %}
-            <tr>
-              <td class="mono" style="padding:0.5rem;">{{ name }}</td>
-              <td style="padding:0.5rem;text-align:right;">
-                <form method="post" action="/admin/security/container-logs/containers/remove" style="display:inline;">
-                  <input type="hidden" name="name" value="{{ name }}">
-                  <button type="submit" class="btn btn-secondary btn-sm">Retirer</button>
-                </form>
-              </td>
-            </tr>
-            {% else %}
-            <tr>
-              <td colspan="2" style="padding:1rem;color:var(--muted);">Aucun container autorisé</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        <form method="post" action="/admin/security/container-logs/containers/add" class="stack"
-              style="gap:var(--sp-3);margin-top:var(--sp-4);max-width:36rem;">
-          <h4 style="margin:0;font-size:var(--fs-sm);">Ajouter</h4>
-          <div>
-            <label class="field-label" for="cls_add_name">Nom du service Compose</label>
-            <input class="input" id="cls_add_name" name="name" required
-                   pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]*"
-                   placeholder="bastion-app" style="width:100%;" autocomplete="off">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Conteneurs autorisés · {{ allowed_count }}</span>
+          <div class="card-header-actions">
+            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="container-add-modal">+ Ajouter un conteneur</button>
           </div>
-          <button type="submit" class="btn btn-primary">Ajouter</button>
-        </form>
+        </div>
+        <div class="card-body">
+          <p class="form-prose form-prose-spaced">
+            Liste blanche uniquement — aucun inventaire automatique de l'hôte.
+          </p>
+          {% if allowed %}
+          <div class="table-wrap">
+            <table class="data-table data-table-compact">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for name in allowed %}
+                <tr>
+                  <td class="mono">{{ name }}</td>
+                  <td class="table-actions">
+                    <form method="post" action="/admin/security/container-logs/containers/remove" class="inline-form">
+                      <input type="hidden" name="name" value="{{ name }}">
+                      <button type="submit" class="btn btn-secondary btn-sm">Retirer</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <div class="empty-state">
+            <div class="empty-icon">
+              <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+            </div>
+            <div class="empty-title">Aucun conteneur autorisé</div>
+            <div class="empty-desc">Ajoutez un service Compose pour autoriser la lecture de ses logs.</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div id="container-add-modal" class="bastion-modal" hidden aria-hidden="true">
+      <div class="bastion-modal-backdrop" data-banning-modal-dismiss></div>
+      <div class="bastion-modal-dialog bastion-modal-dialog--form" role="dialog" aria-modal="true" aria-labelledby="container-add-modal-title" tabindex="-1">
+        <div class="bastion-modal-header">
+          <h2 id="container-add-modal-title" class="bastion-modal-title">Ajouter un conteneur</h2>
+        </div>
+        <div class="bastion-modal-body">
+          <div id="container-add-error" class="form-error" hidden></div>
+          <form id="container-add-form" method="post" action="/admin/security/container-logs/containers/add" class="stack">
+            <div>
+              <label class="form-label" for="cls_add_name">Nom du service Compose</label>
+              <input class="form-input" id="cls_add_name" name="name" required
+                     pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]*"
+                     placeholder="bastion-app" autocomplete="off">
+              <p class="form-help">Identifiant Compose uniquement (lettres, chiffres, ._-).</p>
+            </div>
+          </form>
+        </div>
+        <div class="bastion-modal-footer">
+          <button type="button" class="btn btn-ghost" data-banning-modal-dismiss>Annuler</button>
+          <button type="submit" form="container-add-form" class="btn btn-primary">Ajouter</button>
+        </div>
       </div>
     </div>
   </div>
@@ -902,6 +1004,8 @@
   <div class="form-section security-panel" id="siem" role="tabpanel" aria-labelledby="tab-siem" hidden>
     {% set siem = siem_settings | default(none) %}
     {% set st = siem_status | default({}) %}
+    {% set siem_on = siem and siem.enabled %}
+    {% set siem_proto = siem.protocol if siem else 'webhook_https' %}
     <div class="form-section-header">
       <div class="form-section-title">Forwarding SIEM</div>
       <div class="form-section-sub">
@@ -910,7 +1014,7 @@
       </div>
     </div>
     <div class="form-body">
-      <p class="form-help">
+      <p class="form-help mb-4">
         Dernier envoi réussi :
         <strong class="mono">{{ st.last_success_at or "—" }}</strong>
         · File d'attente : <strong class="mono">{{ st.queue_size | default(0) }}</strong>
@@ -920,87 +1024,107 @@
         · Secret webhook : <span class="badge badge-muted">absent</span>
         {% endif %}
       </p>
-      <form method="post" action="/admin/security/siem" class="stack" style="gap:var(--sp-4);max-width:40rem;">
-        <label class="checkbox-row" style="display:flex;align-items:center;gap:0.5rem;">
-          <input type="checkbox" name="enabled" value="on"{% if siem and siem.enabled %} checked{% endif %}>
-          <span>Activer le forwarding SIEM</span>
-        </label>
-        <div>
-          <label class="field-label" for="siem_protocol">Protocole</label>
-          <select class="input" id="siem_protocol" name="protocol" style="width:100%;">
-            <option value="webhook_https"{% if not siem or siem.protocol == 'webhook_https' %} selected{% endif %}>Webhook HTTPS (JSON ECS-like)</option>
-            <option value="syslog_tls"{% if siem and siem.protocol == 'syslog_tls' %} selected{% endif %}>Syslog TCP+TLS (CEF)</option>
-          </select>
-        </div>
-        <div>
-          <label class="field-label" for="siem_syslog_host">Syslog host</label>
-          <input class="input" id="siem_syslog_host" name="syslog_host" style="width:100%;"
-                 value="{{ siem.syslog_host if siem else '' }}" placeholder="siem.example.internal" autocomplete="off">
-        </div>
-        <div>
-          <label class="field-label" for="siem_syslog_port">Syslog port</label>
-          <input class="input" id="siem_syslog_port" name="syslog_port" type="number" min="1" max="65535"
-                 value="{{ siem.syslog_port if siem else 6514 }}" style="width:8rem;">
-        </div>
-        <label class="checkbox-row" style="display:flex;align-items:center;gap:0.5rem;">
-          <input type="checkbox" name="syslog_tls_verify" value="on"{% if not siem or siem.syslog_tls_verify %} checked{% endif %}>
-          <span>Vérifier le certificat TLS syslog (recommandé)</span>
-        </label>
-        <div>
-          <label class="field-label" for="siem_webhook_url">Webhook URL (HTTPS uniquement)</label>
-          <input class="input" id="siem_webhook_url" name="webhook_url" style="width:100%;"
-                 value="{{ siem.webhook_url if siem else '' }}" placeholder="https://siem.example/hec" autocomplete="off">
-        </div>
-        <div>
-          <label class="field-label" for="siem_webhook_auth_type">Auth webhook</label>
-          <select class="input" id="siem_webhook_auth_type" name="webhook_auth_type" style="width:100%;">
-            {% set at = siem.webhook_auth_type if siem else 'none' %}
-            <option value="none"{% if at == 'none' %} selected{% endif %}>Aucune</option>
-            <option value="bearer"{% if at == 'bearer' %} selected{% endif %}>Bearer</option>
-            <option value="basic"{% if at == 'basic' %} selected{% endif %}>Basic (user:pass)</option>
-          </select>
-        </div>
-        <div>
-          <label class="field-label" for="siem_webhook_auth_secret">Secret / token (laissez vide pour conserver)</label>
-          <input class="input" id="siem_webhook_auth_secret" name="webhook_auth_secret" type="password"
-                 style="width:100%;" value="" placeholder="••••••••" autocomplete="new-password">
-          <label class="checkbox-row" style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;">
-            <input type="checkbox" name="clear_webhook_secret" value="on">
-            <span>Effacer le secret configuré</span>
-          </label>
-        </div>
-        <div>
-          <label class="field-label" for="siem_filter_mode">Filtre d'actions</label>
-          <select class="input" id="siem_filter_mode" name="filter_mode" style="width:100%;">
-            {% set fm = siem.filter_mode if siem else 'denylist' %}
-            <option value="denylist"{% if fm == 'denylist' %} selected{% endif %}>Denylist (exclure)</option>
-            <option value="allowlist"{% if fm == 'allowlist' %} selected{% endif %}>Allowlist (inclure uniquement)</option>
-          </select>
-        </div>
-        <div>
-          <label class="field-label" for="siem_filter_actions">Actions (séparées par des virgules)</label>
-          <input class="input" id="siem_filter_actions" name="filter_actions" style="width:100%;"
-                 value="{{ (siem.filter_actions or []) | join(', ') if siem else '' }}"
-                 placeholder="health.probe, admin.container_logs.viewed" autocomplete="off">
-        </div>
-        <div>
-          <label class="field-label" for="siem_retry_max_queue_size">Taille max file d'attente</label>
-          <input class="input" id="siem_retry_max_queue_size" name="retry_max_queue_size" type="number"
-                 min="1" max="100000" value="{{ siem.retry_max_queue_size if siem else 5000 }}" style="width:8rem;">
-        </div>
-        <div>
-          <label class="field-label" for="siem_retry_max_age_minutes">Âge max (minutes)</label>
-          <input class="input" id="siem_retry_max_age_minutes" name="retry_max_age_minutes" type="number"
-                 min="1" value="{{ siem.retry_max_age_minutes if siem else 1440 }}" style="width:8rem;">
-        </div>
-        <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;">
-          <button type="submit" class="btn btn-primary">Enregistrer</button>
+
+      <form method="post" action="/admin/security/siem" class="stack" id="siem-form">
+        <div class="ds-accordion">
+          <div class="ds-accordion-item" data-ds-accordion data-siem-accordion>
+            <div class="ds-accordion-head" data-ds-accordion-toggle>
+              <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="siem-panel-config" tabindex="-1">▸</button>
+              <span class="ds-accordion-title">Configuration SIEM</span>
+              <label class="check-row ds-accordion-enable" data-ds-enable-stop>
+                <input type="checkbox" name="enabled" value="on" data-siem-enabled{% if siem_on %} checked{% endif %}> Activé
+              </label>
+              <span class="ds-accordion-summary{% if not siem_on %} is-off{% endif %}" data-siem-summary>
+                {% if siem_on %}
+                  {% if siem_proto == 'syslog_tls' %}
+                  Actif · syslog TLS · {{ siem.syslog_host or '—' }}:{{ siem.syslog_port or 6514 }}
+                  {% else %}
+                  Actif · webhook HTTPS · {{ siem.webhook_url or '—' }}
+                  {% endif %}
+                {% else %}Désactivé{% endif %}
+              </span>
+            </div>
+            <div class="ds-accordion-panel" id="siem-panel-config" hidden>
+              <div class="stack security-stack">
+                <div>
+                  <label class="form-label" for="siem_protocol">Protocole</label>
+                  <select class="form-select" id="siem_protocol" name="protocol" data-siem-field="protocol">
+                    <option value="webhook_https"{% if siem_proto == 'webhook_https' %} selected{% endif %}>Webhook HTTPS (JSON ECS-like)</option>
+                    <option value="syslog_tls"{% if siem_proto == 'syslog_tls' %} selected{% endif %}>Syslog TCP+TLS (CEF)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="siem_syslog_host">Syslog host</label>
+                  <input class="form-input" id="siem_syslog_host" name="syslog_host" data-siem-field="syslog_host"
+                         value="{{ siem.syslog_host if siem else '' }}" placeholder="siem.example.internal" autocomplete="off">
+                </div>
+                <div>
+                  <label class="form-label" for="siem_syslog_port">Syslog port</label>
+                  <input class="form-input input-narrow" id="siem_syslog_port" name="syslog_port" type="number" min="1" max="65535"
+                         data-siem-field="syslog_port" value="{{ siem.syslog_port if siem else 6514 }}">
+                </div>
+                <label class="form-check-row">
+                  <input type="checkbox" name="syslog_tls_verify" value="on"{% if not siem or siem.syslog_tls_verify %} checked{% endif %}>
+                  <span>Vérifier le certificat TLS syslog (recommandé)</span>
+                </label>
+                <div>
+                  <label class="form-label" for="siem_webhook_url">Webhook URL (HTTPS uniquement)</label>
+                  <input class="form-input" id="siem_webhook_url" name="webhook_url" data-siem-field="webhook_url"
+                         value="{{ siem.webhook_url if siem else '' }}" placeholder="https://siem.example/hec" autocomplete="off">
+                </div>
+                <div>
+                  <label class="form-label" for="siem_webhook_auth_type">Auth webhook</label>
+                  <select class="form-select" id="siem_webhook_auth_type" name="webhook_auth_type">
+                    {% set at = siem.webhook_auth_type if siem else 'none' %}
+                    <option value="none"{% if at == 'none' %} selected{% endif %}>Aucune</option>
+                    <option value="bearer"{% if at == 'bearer' %} selected{% endif %}>Bearer</option>
+                    <option value="basic"{% if at == 'basic' %} selected{% endif %}>Basic (user:pass)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="siem_webhook_auth_secret">Secret / token (laissez vide pour conserver)</label>
+                  <input class="form-input" id="siem_webhook_auth_secret" name="webhook_auth_secret" type="password"
+                         value="" placeholder="••••••••" autocomplete="new-password">
+                  <label class="form-check-row mt-2">
+                    <input type="checkbox" name="clear_webhook_secret" value="on">
+                    <span>Effacer le secret configuré</span>
+                  </label>
+                </div>
+                <div>
+                  <label class="form-label" for="siem_filter_mode">Filtre d'actions</label>
+                  <select class="form-select" id="siem_filter_mode" name="filter_mode">
+                    {% set fm = siem.filter_mode if siem else 'denylist' %}
+                    <option value="denylist"{% if fm == 'denylist' %} selected{% endif %}>Denylist (exclure)</option>
+                    <option value="allowlist"{% if fm == 'allowlist' %} selected{% endif %}>Allowlist (inclure uniquement)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="form-label" for="siem_filter_actions">Actions (séparées par des virgules)</label>
+                  <input class="form-input" id="siem_filter_actions" name="filter_actions"
+                         value="{{ (siem.filter_actions or []) | join(', ') if siem else '' }}"
+                         placeholder="health.probe, admin.container_logs.viewed" autocomplete="off">
+                </div>
+                <div>
+                  <label class="form-label" for="siem_retry_max_queue_size">Taille max file d'attente</label>
+                  <input class="form-input input-narrow" id="siem_retry_max_queue_size" name="retry_max_queue_size" type="number"
+                         min="1" max="100000" value="{{ siem.retry_max_queue_size if siem else 5000 }}">
+                </div>
+                <div>
+                  <label class="form-label" for="siem_retry_max_age_minutes">Âge max (minutes)</label>
+                  <input class="form-input input-narrow" id="siem_retry_max_age_minutes" name="retry_max_age_minutes" type="number"
+                         min="1" value="{{ siem.retry_max_age_minutes if siem else 1440 }}">
+                </div>
+                <div class="form-footer form-footer-flush">
+                  <button type="submit" class="btn btn-primary">Enregistrer</button>
+                  <button type="submit" form="siem-test-form" class="btn btn-secondary">Tester la connexion</button>
+                </div>
+                <p class="form-help">Le test envoie un événement <span class="mono">siem.connectivity.test</span> sans attendre un log métier.</p>
+              </div>
+            </div>
+          </div>
         </div>
       </form>
-      <form method="post" action="/admin/security/siem/test" style="margin-top:var(--sp-4);">
-        <button type="submit" class="btn btn-secondary">Tester la connexion</button>
-        <p class="form-help" style="margin-top:0.5rem;">Envoie un événement <span class="mono">siem.connectivity.test</span> sans attendre un log métier.</p>
-      </form>
+      <form method="post" action="/admin/security/siem/test" id="siem-test-form" hidden></form>
     </div>
   </div>
 </div>
@@ -1139,7 +1263,9 @@
     document.addEventListener('keydown', function (ev) {
       if (ev.key !== 'Escape') return;
       document.querySelectorAll('.bastion-modal.is-open').forEach(function (m) {
-        if (m.id === 'ban-add-modal' || m.id === 'allowlist-add-modal') closeModal(m);
+        if (m.id === 'ban-add-modal' || m.id === 'allowlist-add-modal' || m.id === 'container-add-modal') {
+          closeModal(m);
+        }
       });
     });
 
@@ -1169,6 +1295,55 @@
             err.hidden = false;
           }
         }
+      });
+    }
+  })();
+
+  /* Generic accordion (vault / misc / siem) */
+  (function wireDsAccordion() {
+    document.querySelectorAll('[data-ds-accordion]').forEach(function (item) {
+      var head = item.querySelector('[data-ds-accordion-toggle]');
+      var panel = item.querySelector('.ds-accordion-panel');
+      var expandBtn = item.querySelector('.ds-accordion-expand');
+      if (!head || !panel) return;
+      head.addEventListener('click', function (ev) {
+        if (ev.target.closest('[data-ds-enable-stop]')) return;
+        var open = !item.classList.contains('is-open');
+        item.classList.toggle('is-open', open);
+        panel.hidden = !open;
+        if (expandBtn) expandBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    });
+
+    function refreshSiemSummary() {
+      var item = document.querySelector('[data-siem-accordion]');
+      if (!item) return;
+      var enabled = item.querySelector('[data-siem-enabled]');
+      var summary = item.querySelector('[data-siem-summary]');
+      if (!enabled || !summary) return;
+      if (!enabled.checked) {
+        summary.textContent = 'Désactivé';
+        summary.classList.add('is-off');
+        return;
+      }
+      summary.classList.remove('is-off');
+      var proto = item.querySelector('[data-siem-field="protocol"]');
+      var host = item.querySelector('[data-siem-field="syslog_host"]');
+      var port = item.querySelector('[data-siem-field="syslog_port"]');
+      var url = item.querySelector('[data-siem-field="webhook_url"]');
+      if (proto && proto.value === 'syslog_tls') {
+        summary.textContent = 'Actif · syslog TLS · ' + (host && host.value ? host.value : '—') + ':' + (port && port.value ? port.value : '6514');
+      } else {
+        summary.textContent = 'Actif · webhook HTTPS · ' + (url && url.value ? url.value : '—');
+      }
+    }
+    var siemItem = document.querySelector('[data-siem-accordion]');
+    if (siemItem) {
+      var en = siemItem.querySelector('[data-siem-enabled]');
+      if (en) en.addEventListener('change', refreshSiemSummary);
+      siemItem.querySelectorAll('[data-siem-field]').forEach(function (field) {
+        field.addEventListener('change', refreshSiemSummary);
+        field.addEventListener('input', refreshSiemSummary);
       });
     }
   })();

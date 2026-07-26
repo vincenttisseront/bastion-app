@@ -526,3 +526,20 @@ function initLoginFormAnalyzer() {
   urlInput.addEventListener('change', syncAnalyzeButton);
   syncAnalyzeButton();
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('[data-form-accordion]').forEach(function (section) {
+    var head = section.querySelector('[data-form-accordion-toggle]');
+    var expandBtn = section.querySelector('.ds-accordion-expand');
+    if (!head) return;
+    if (section.hasAttribute('data-open-default')) {
+      section.classList.add('is-open');
+      if (expandBtn) expandBtn.setAttribute('aria-expanded', 'true');
+    }
+    head.addEventListener('click', function () {
+      var open = !section.classList.contains('is-open');
+      section.classList.toggle('is-open', open);
+      if (expandBtn) expandBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  });
+});

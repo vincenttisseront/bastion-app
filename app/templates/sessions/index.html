@@ -63,7 +63,13 @@
           <span class="sessions-user-status badge badge-{{ 'ok' if g.status == 'active' else 'warn' }}">{{ g.status | upper }}</span>
         </button>
         {% else %}
-        <div class="sessions-user-empty" id="sessions-user-empty">Aucun utilisateur</div>
+        <div class="sessions-user-empty empty-state" id="sessions-user-empty">
+          <div class="empty-icon">
+            <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div class="empty-title">Aucune session active</div>
+          <div class="empty-desc">Aucun utilisateur connecté pour le filtre actuel.</div>
+        </div>
         {% endfor %}
       </div>
     </aside>
@@ -75,7 +81,7 @@
           <h2 class="sessions-detail-title">{{ first.user }}</h2>
           <p class="sessions-detail-sub mono">{{ first.user_email }} · {{ first.realm }}</p>
         </div>
-        <div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;">
+        <div class="session-actions-group">
           <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} session(s)</span>
           {% if is_admin and first.show_disconnect %}
           <button type="button" class="btn btn-danger btn-sm"
@@ -87,9 +93,9 @@
         </div>
       </div>
       {% if first.sso_logout %}
-      <div class="session-sso-logout-banner" style="margin-bottom:var(--sp-3);" title="{{ first.sso_logout.residual_note or '' }}">{{ first.sso_logout.label }}</div>
+      <div class="session-sso-logout-banner mb-3" title="{{ first.sso_logout.residual_note or '' }}">{{ first.sso_logout.label }}</div>
       {% endif %}
-      <div id="disconnect-user-result" style="margin:0 0 var(--sp-3);"></div>
+      <div id="disconnect-user-result" class="session-detail-spacer"></div>
       <div class="sessions-card-grid" id="sessions-card-grid">
         {% for s in first.sessions %}
         <article class="card session-card session-card-{{ s.auth_family | default('oidc') }}" data-session-id="{{ s.id }}" data-kind="{{ s.kind }}" data-auth-family="{{ s.auth_family | default('') }}">
@@ -100,7 +106,7 @@
             </div>
             <span class="badge badge-{{ 'ok' if s.live_status == 'active' else ('err' if s.live_status == 'invalid' else ('info' if s.live_status == 'declarative' else 'warn')) }}"
                   title="{% if s.verifiable %}Statut vérifié auprès de l’app cible (live){% elif s.freshness %}{{ s.freshness.note }}{% else %}Statut déclaratif côté bastion{% endif %}">
-              {% if s.live_status == 'active' %}<span class="live-dot" style="width:6px;height:6px;"></span>{% endif %}
+              {% if s.live_status == 'active' %}<span class="live-dot live-dot-sm"></span>{% endif %}
               {{ s.live_status_label }}
             </span>
           </header>
@@ -149,14 +155,16 @@
           </div>
           {% if is_admin %}
           <footer class="session-card-footer session-actions">
-            <button type="button" class="btn btn-danger btn-sm btn-revoke"
-                    title="{{ s.action_titles.revoke }}"
-                    onclick="revokeSession('{{ s.id }}')">Révoquer cette session</button>
-            {% if s.can_rotate %}
-            <button type="button" class="btn btn-secondary btn-sm btn-rotate"
-                    title="{{ s.action_titles.rotate }}"
-                    onclick="rotateKeys('{{ s.id }}')">Rotation</button>
-            {% endif %}
+            <div class="session-actions-group">
+              <button type="button" class="btn btn-danger btn-sm btn-revoke"
+                      title="{{ s.action_titles.revoke }}"
+                      onclick="revokeSession('{{ s.id }}')">Révoquer cette session</button>
+              {% if s.can_rotate %}
+              <button type="button" class="btn btn-secondary btn-sm btn-rotate"
+                      title="{{ s.action_titles.rotate }}"
+                      onclick="rotateKeys('{{ s.id }}')">Rotation</button>
+              {% endif %}
+            </div>
           </footer>
           {% endif %}
         </article>
@@ -165,6 +173,9 @@
       {% else %}
       <div class="sessions-detail-empty" id="sessions-detail-empty">
         <div class="empty-state">
+          <div class="empty-icon">
+            <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          </div>
           <div class="empty-title">Sélectionnez un utilisateur</div>
           <div class="empty-desc">Choisissez un utilisateur dans le bandeau pour voir le détail de ses sessions.</div>
         </div>

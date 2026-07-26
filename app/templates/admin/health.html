@@ -9,13 +9,13 @@
       <h1 class="page-title">Diagnostic santé upstream</h1>
       <p class="page-sub">Probes HTTP des applications et services</p>
     </div>
-    <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;">
+    <div class="page-header-actions">
       <button type="button" class="btn btn-primary btn-sm" id="probe-all-btn">Tester toutes les applications</button>
       <div class="live-pill"><span class="live-dot"></span>Live</div>
     </div>
   </div>
 
-  <div class="integrity-bar" style="margin-bottom:var(--sp-4);">
+  <div class="integrity-bar integrity-block">
     <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
     <span class="integrity-score" id="health-score">{{ health_score }}%</span>
     <span class="integrity-label">Sondes opérationnelles</span>
@@ -24,7 +24,7 @@
     </span>
   </div>
 
-  <div class="metrics-grid" style="margin-bottom:var(--sp-5);" id="health-metrics">
+  <div class="metrics-grid metrics-block" id="health-metrics">
     <div class="metric-card green">
       <div class="metric-head">
         <div class="metric-icon">
@@ -63,50 +63,57 @@
     </div>
   </div>
 
-  <div class="table-wrap">
-    <table class="data-table" id="health-table">
-      <thead>
-        <tr><th>App</th><th>Upstream</th><th>Mode</th><th>Statut</th><th>Code HTTP</th><th>Latence</th><th>Action</th></tr>
-      </thead>
-      <tbody>
-        {% for p in probes %}
-        <tr data-app-id="{{ p.app_id }}" data-probe-row>
-          <td>
-            <div style="font-weight:600;">{{ p.label }}</div>
-            <div class="mono" style="color:var(--text-3);font-size:var(--fs-xs);">{{ p.slug }}</div>
-          </td>
-          <td class="mono truncate" style="max-width:200px;">{{ p.upstream_url }}</td>
-          <td><span class="mode-badge {{ p.access_mode }}">{{ access_mode_labels.get(p.access_mode, p.access_mode) }}</span></td>
-          <td>
-            <span class="badge probe-status-badge badge-{{ 'ok' if p.status == 'ok' else ('warn' if p.status == 'warn' else ('err' if p.status == 'error' else 'muted')) }}" data-field="status">
-              {{ p.status | upper }}
-            </span>
-            <div class="form-help probe-aged" data-field="probed_at"{% if not p.probed_at %} hidden{% endif %}>
-              {% if p.probed_at %}<span data-iso="{{ p.probed_at }}"></span>{% endif %}
-            </div>
-            <div class="form-error probe-error" data-field="error"{% if not p.error %} hidden{% endif %}>{{ p.error or '' }}</div>
-          </td>
-          <td class="mono" data-field="http_code">{% if p.http_code %}{{ p.http_code }}{% else %}—{% endif %}</td>
-          <td class="mono" data-field="latency_ms">{% if p.latency_ms is not none %}{{ p.latency_ms }} ms{% else %}—{% endif %}</td>
-          <td>
-            <button type="button" class="btn btn-secondary btn-sm probe-btn" data-app-id="{{ p.app_id }}">Tester</button>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="7">
-            <div class="empty-state">
-              <div class="empty-icon">
-                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/></svg>
-              </div>
-              <div class="empty-title">Aucune application à sonder</div>
-              <div class="empty-desc">Activez des applications pour lancer les probes de santé.</div>
-            </div>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Sondes · {{ probes | length }}</span>
+    </div>
+    <div class="card-body card-flush">
+      <div class="table-wrap">
+        <table class="data-table" id="health-table">
+          <thead>
+            <tr><th>App</th><th>Upstream</th><th>Mode</th><th>Statut</th><th>Code HTTP</th><th>Latence</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            {% for p in probes %}
+            <tr data-app-id="{{ p.app_id }}" data-probe-row>
+              <td>
+                <div class="font-semibold">{{ p.label }}</div>
+                <div class="mono text-xs-muted">{{ p.slug }}</div>
+              </td>
+              <td class="mono truncate truncate-cell">{{ p.upstream_url }}</td>
+              <td><span class="mode-badge {{ p.access_mode }}">{{ access_mode_labels.get(p.access_mode, p.access_mode) }}</span></td>
+              <td>
+                <span class="badge probe-status-badge badge-{{ 'ok' if p.status == 'ok' else ('warn' if p.status == 'warn' else ('err' if p.status == 'error' else 'muted')) }}" data-field="status">
+                  {{ p.status | upper }}
+                </span>
+                <div class="form-help probe-aged" data-field="probed_at"{% if not p.probed_at %} hidden{% endif %}>
+                  {% if p.probed_at %}<span data-iso="{{ p.probed_at }}"></span>{% endif %}
+                </div>
+                <div class="form-error probe-error" data-field="error"{% if not p.error %} hidden{% endif %}>{{ p.error or '' }}</div>
+              </td>
+              <td class="mono" data-field="http_code">{% if p.http_code %}{{ p.http_code }}{% else %}—{% endif %}</td>
+              <td class="mono" data-field="latency_ms">{% if p.latency_ms is not none %}{{ p.latency_ms }} ms{% else %}—{% endif %}</td>
+              <td>
+                <button type="button" class="btn btn-secondary btn-sm probe-btn" data-app-id="{{ p.app_id }}">Tester</button>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="7">
+                <div class="empty-state">
+                  <div class="empty-icon">
+                    <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  </div>
+                  <div class="empty-title">Aucune application à sonder</div>
+                  <div class="empty-desc">Activez des applications pour lancer les probes de santé.</div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

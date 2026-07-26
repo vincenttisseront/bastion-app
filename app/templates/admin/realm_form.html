@@ -3,6 +3,8 @@
 {% block breadcrumb %}Admin / Realms{% endblock %}
 
 {% block content %}
+{% set oidc_ready = form_values.issuer_url and form_values.client_id %}
+{% set sync_ready = form_values.keycloak_admin_client_id or form_values.groups_sync_enabled %}
 <div class="page page-form">
   <div class="page-header">
     <div>
@@ -13,14 +15,18 @@
 
   {% if errors._form %}<div class="alert alert-err">{{ errors._form }}</div>{% endif %}
   {% if encryption_error %}<div class="alert alert-warn">{{ encryption_error }}</div>{% endif %}
-  <div id="test-global-result" class="alert" style="display:none;"></div>
+  <div id="test-global-result" class="alert" hidden></div>
   <div id="test-checks"></div>
 
   <form id="realm-form" method="post" action="{% if realm %}/admin/realms/{{ realm.id }}{% else %}/admin/realms{% endif %}">
-    <div class="form-section">
-      <div class="form-section-header">
-        <div class="form-section-title">Identité du realm</div>
-        <div class="form-section-sub">Slug, nom affiché et paramètres oauth2-proxy</div>
+    <div class="form-section is-accordion is-open" data-form-accordion data-open-default>
+      <div class="form-section-header" data-form-accordion-toggle>
+        <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
+        <div>
+          <div class="form-section-title">Identité du realm</div>
+          <div class="form-section-sub">Slug, nom affiché et paramètres oauth2-proxy</div>
+          <div class="form-section-summary">{% if realm %}{{ realm.slug }} · port {{ form_values.oauth2_proxy_port or 4181 }}{% else %}Nouveau realm{% endif %}</div>
+        </div>
       </div>
       <div class="form-body">
         {% if not realm %}
@@ -49,15 +55,15 @@
           <div class="form-group">
             <label class="form-label" for="oauth2_proxy_port">Port oauth2-proxy <span class="req">*</span></label>
             {% set port_locked = not errors.get('oauth2_proxy_port') %}
-            <div class="input-wrap" style="gap:var(--sp-2); align-items:center;">
+            <div class="input-wrap input-wrap-actions">
               <input type="number" id="oauth2_proxy_port" name="oauth2_proxy_port" class="form-input{% if errors.oauth2_proxy_port %} is-invalid{% endif %}" value="{{ form_values.oauth2_proxy_port or 4181 }}" min="4180" max="4299" required data-original-port="{{ form_values.oauth2_proxy_port or 4181 }}" data-port-context="{{ 'edit' if realm else 'create' }}"{% if port_locked %} readonly{% endif %}>
               <button type="button" id="btn-toggle-port" class="btn btn-ghost btn-sm">{% if port_locked %}Choisir un autre port{% elif realm %}Revenir au port assigné{% else %}Revenir au port proposé{% endif %}</button>
-              <button type="button" id="btn-test-port" class="btn btn-ghost btn-sm"{% if port_locked %} style="display:none;"{% endif %}>Tester ce port</button>
+              <button type="button" id="btn-test-port" class="btn btn-ghost btn-sm{% if port_locked %} is-hidden{% endif %}">Tester ce port</button>
             </div>
             {% if realm and port_locked %}
-            <p class="form-hint" id="port-assigned-hint" style="margin-top:var(--sp-2);">Port assigné à ce realm. Ne le modifiez que si nécessaire (ex: conflit avec un service externe).</p>
+            <p class="form-hint hint-spaced" id="port-assigned-hint">Port assigné à ce realm. Ne le modifiez que si nécessaire (ex: conflit avec un service externe).</p>
             {% endif %}
-            <div id="port-test-result" class="form-hint" style="margin-top:var(--sp-2); display:none;"></div>
+            <div id="port-test-result" class="form-hint hint-spaced is-hidden"></div>
             {% if errors.oauth2_proxy_port %}<p class="form-error">{{ errors.oauth2_proxy_port }}</p>{% endif %}
           </div>
           <div class="form-group">
@@ -75,10 +81,16 @@
       </div>
     </div>
 
-    <div class="form-section">
-      <div class="form-section-header">
-        <div class="form-section-title">Configuration OIDC</div>
-        <div class="form-section-sub">Issuer, client et secret (jamais affiché après enregistrement)</div>
+    <div class="form-section is-accordion form-section-gap" data-form-accordion>
+      <div class="form-section-header" data-form-accordion-toggle>
+        <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
+        <div>
+          <div class="form-section-title">Configuration OIDC</div>
+          <div class="form-section-sub">Issuer, client et secret (jamais affiché après enregistrement)</div>
+          <div class="form-section-summary{% if not oidc_ready %} is-off{% endif %}">
+            {% if oidc_ready %}OIDC configuré · client_id: {{ form_values.client_id }}{% else %}Non configuré{% endif %}
+          </div>
+        </div>
       </div>
       <div class="form-body">
         <div class="form-group">
@@ -109,17 +121,20 @@
         {% endif %}
       </div>
       <div class="form-footer">
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
-        <button type="submit" name="activate" value="on" id="btn-save-activate" class="btn btn-secondary" {% if realm and realm.last_test_status != 'ok' %}disabled{% endif %}>Enregistrer et activer</button>
         <button type="button" id="btn-test-connection" class="btn btn-ghost">Tester la connexion</button>
-        <a href="/admin/realms" class="btn btn-ghost">Annuler</a>
       </div>
     </div>
 
-    <div class="form-section">
-      <div class="form-section-header">
-        <div class="form-section-title">Compte de service (synchronisation des groupes)</div>
-        <div class="form-section-sub">Client confidentiel dédié, rôle minimum : <span class="mono">realm-management:query-groups</span></div>
+    <div class="form-section is-accordion form-section-gap" data-form-accordion>
+      <div class="form-section-header" data-form-accordion-toggle>
+        <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
+        <div>
+          <div class="form-section-title">Compte de service (synchronisation des groupes)</div>
+          <div class="form-section-sub">Client confidentiel dédié, rôle minimum : <span class="mono">realm-management:query-groups</span></div>
+          <div class="form-section-summary{% if not sync_ready %} is-off{% endif %}">
+            {% if form_values.groups_sync_enabled %}Sync groupes activée{% elif form_values.keycloak_admin_client_id %}Client admin : {{ form_values.keycloak_admin_client_id }}{% else %}Non configuré{% endif %}
+          </div>
+        </div>
       </div>
       <div class="form-body">
         <div class="form-group">
@@ -140,6 +155,14 @@
             <span class="badge badge-{{ 'ok' if form_values.groups_sync_enabled else 'muted' }}">{{ 'Activé' if form_values.groups_sync_enabled else 'Non configuré' }}</span>
           </div>
         {% endif %}
+      </div>
+    </div>
+
+    <div class="form-section form-section-gap">
+      <div class="form-footer">
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+        <button type="submit" name="activate" value="on" id="btn-save-activate" class="btn btn-secondary" {% if realm and realm.last_test_status != 'ok' %}disabled{% endif %}>Enregistrer et activer</button>
+        <a href="/admin/realms" class="btn btn-ghost">Annuler</a>
       </div>
     </div>
   </form>
@@ -163,14 +186,20 @@
   const statusIcon = { ok: '✅', warning: '⚠️', error: '❌' };
   const statusClass = { ok: 'alert-ok', warning: 'alert-warn', error: 'alert-err' };
 
+  function showAlert(el) {
+    if (!el) return;
+    el.hidden = false;
+    el.classList.remove('is-hidden');
+  }
+
   function renderChecks(result) {
     lastTestOk = result.status === 'ok';
     if (saveActivateBtn) saveActivateBtn.disabled = !lastTestOk;
-    globalResult.style.display = 'flex';
+    showAlert(globalResult);
     globalResult.className = 'alert ' + (statusClass[result.status] || 'alert-info');
     globalResult.textContent = result.status === 'ok' ? 'Test de connexion réussi' : (result.status === 'error' ? 'Test de connexion échoué' : 'Test terminé avec avertissements');
     checksEl.innerHTML = (result.checks || []).map(function (c) {
-      return '<div class="alert ' + (statusClass[c.status] || '') + '" style="margin-top:var(--sp-2);">' +
+      return '<div class="alert ' + (statusClass[c.status] || '') + ' mt-2">' +
         '<div class="alert-body">' + (statusIcon[c.status] || '•') +
         ' <strong>' + c.name + '</strong> — ' + c.message + '</div></div>';
     }).join('');
@@ -202,14 +231,14 @@
       });
       const data = await resp.json();
       if (!resp.ok && data.errors) {
-        globalResult.style.display = 'flex';
+        showAlert(globalResult);
         globalResult.className = 'alert alert-err';
         globalResult.textContent = data.errors._form || Object.values(data.errors).join(' ');
         return;
       }
       renderChecks(data);
     } catch (err) {
-      globalResult.style.display = 'flex';
+      showAlert(globalResult);
       globalResult.className = 'alert alert-err';
       globalResult.textContent = 'Erreur réseau lors du test.';
     } finally {
@@ -219,9 +248,11 @@
 
   function showPortMsg(ok, msg) {
     if (!portTestResult) return;
-    portTestResult.style.display = 'block';
+    portTestResult.classList.remove('is-hidden');
+    portTestResult.hidden = false;
     portTestResult.textContent = msg;
-    portTestResult.style.color = ok ? 'var(--ok-700, #0f766e)' : 'var(--err-700, #b91c1c)';
+    portTestResult.classList.toggle('form-error', !ok);
+    portTestResult.classList.toggle('form-help', ok);
   }
 
   if (togglePortBtn && portInput) {
@@ -235,16 +266,16 @@
       if (isReadonly) {
         portInput.removeAttribute('readonly');
         togglePortBtn.textContent = revertLabel;
-        if (testPortBtn) testPortBtn.style.display = 'inline-flex';
-        if (assignedHint) assignedHint.style.display = 'none';
+        if (testPortBtn) testPortBtn.classList.remove('is-hidden');
+        if (assignedHint) assignedHint.classList.add('is-hidden');
         showPortMsg(true, 'Saisie manuelle activée. Pensez à tester le port côté OS.');
       } else {
         portInput.value = originalPort;
         portInput.setAttribute('readonly', 'readonly');
         togglePortBtn.textContent = 'Choisir un autre port';
-        if (testPortBtn) testPortBtn.style.display = 'none';
-        if (portTestResult) portTestResult.style.display = 'none';
-        if (assignedHint) assignedHint.style.display = '';
+        if (testPortBtn) testPortBtn.classList.add('is-hidden');
+        if (portTestResult) portTestResult.classList.add('is-hidden');
+        if (assignedHint) assignedHint.classList.remove('is-hidden');
       }
     });
   }

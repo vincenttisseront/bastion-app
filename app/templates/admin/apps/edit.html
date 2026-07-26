@@ -17,10 +17,14 @@
   </div>
 
   <form method="post" action="/admin/apps/{{ app.slug }}/edit" id="app-form">
-    <div class="form-section">
-      <div class="form-section-header">
-        <div class="form-section-title">Informations générales</div>
-        <div class="form-section-sub">Libellé, mode d'accès et URL cible</div>
+    <div class="form-section is-accordion is-open" data-form-accordion data-open-default>
+      <div class="form-section-header" data-form-accordion-toggle>
+        <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
+        <div>
+          <div class="form-section-title">Informations générales</div>
+          <div class="form-section-sub">Libellé, mode d'accès et URL cible</div>
+          <div class="form-section-summary">{{ app.slug }} · {{ access_mode_labels.get(app.access_mode, app.access_mode) }}</div>
+        </div>
       </div>
       <div class="form-body">
         <div class="form-row">
@@ -57,7 +61,7 @@
             <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ app.public_fqdn or '' }}" placeholder="app.example.fr" data-portal-domain="{{ portal_domain }}">
           </div>
           {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
-          <div id="fqdn-cookie-domain-warning" class="alert alert-warn" hidden style="margin-top:var(--sp-3);">
+          <div id="fqdn-cookie-domain-warning" class="alert alert-warn alert-spaced" hidden>
             <div class="alert-body">
               Ce sous-domaine ne partage aucun domaine parent avec le portail
               (<span class="mono" data-portal-domain-label>{{ portal_domain }}</span>) —
@@ -101,7 +105,7 @@
 
     {% include "admin/apps/_vault_credential_section.html" with context %}
 
-    <div class="form-section" style="margin-top: var(--sp-4);">
+    <div class="form-section form-section-gap">
       <div class="form-footer">
         <button type="submit" class="btn btn-primary">Enregistrer</button>
         <a href="/admin/apps" class="btn btn-ghost">Annuler</a>

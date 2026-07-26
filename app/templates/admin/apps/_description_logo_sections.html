@@ -1,11 +1,19 @@
 {# Shared Description + Logo sections. Expects form_values / errors; app + logo_url on edit. #}
 {% set desc_val = form_values.description | default(app.description if app is defined and app else '') | default('') %}
 {% set logo_ready = app is defined and app and app.id %}
+{% set logo_configured = logo_ready and logo_url %}
+{% set desc_configured = (desc_val | trim | length) > 0 %}
 
-<div class="form-section" style="margin-top: var(--sp-4);">
-  <div class="form-section-header">
-    <div class="form-section-title">Description</div>
-    <div class="form-section-sub">Texte court affiché sous le nom sur le portail (max. 140 caractères)</div>
+<div class="form-section is-accordion form-section-gap" data-form-accordion>
+  <div class="form-section-header" data-form-accordion-toggle>
+    <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
+    <div>
+      <div class="form-section-title">Description</div>
+      <div class="form-section-sub">Texte court affiché sous le nom sur le portail (max. 140 caractères)</div>
+      <div class="form-section-summary{% if not desc_configured %} is-off{% endif %}">
+        {% if desc_configured %}Description renseignée{% else %}Non configuré{% endif %}
+      </div>
+    </div>
   </div>
   <div class="form-body">
     <div class="form-group">
@@ -25,10 +33,16 @@
   </div>
 </div>
 
-<div class="form-section" style="margin-top: var(--sp-4);">
-  <div class="form-section-header">
-    <div class="form-section-title">Logo</div>
-    <div class="form-section-sub">PNG, JPG ou WEBP — 512&nbsp;Ko max, redimensionné à 128×128</div>
+<div class="form-section is-accordion form-section-gap" data-form-accordion>
+  <div class="form-section-header" data-form-accordion-toggle>
+    <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
+    <div>
+      <div class="form-section-title">Logo</div>
+      <div class="form-section-sub">PNG, JPG ou WEBP — 512&nbsp;Ko max, redimensionné à 128×128</div>
+      <div class="form-section-summary{% if not logo_configured %} is-off{% endif %}">
+        {% if logo_configured %}Logo configuré{% elif logo_ready %}Non configuré{% else %}Disponible après création{% endif %}
+      </div>
+    </div>
   </div>
   <div class="form-body">
     {% if logo_ready %}
@@ -62,7 +76,7 @@
       <p class="form-help" id="logo-status"></p>
     </div>
     {% else %}
-    <p class="text-2">Enregistrez d'abord l'application pour pouvoir ajouter un logo.</p>
+    <p class="form-prose">Enregistrez d'abord l'application pour pouvoir ajouter un logo.</p>
     {% endif %}
   </div>
 </div>
