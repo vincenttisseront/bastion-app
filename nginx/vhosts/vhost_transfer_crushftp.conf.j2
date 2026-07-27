@@ -1,6 +1,14 @@
 # {{ ansible_managed }}
 # {{ transfer_domain }} — CrushFTP proxy infra (login natif, sans auth_request bastion)
 # Aligné sur l'ancien bloc DMZ embarqué (proxy_cookie_path, pas de WAF sur ce vhost).
+#
+# CONTRACT (validated 2026-07-27 — Transfer robotic auto-login):
+# 1. location = /.bastion/session-cookies (+ crush-session): auth_request off, NOT internal;
+#    Host=portal; X-Real-IP $remote_addr (hop → bastion-app).
+# 2. CrushFTP upstream locations (/, new-ui, webfs, login.html): X-Real-IP/XFF = $server_addr
+#    so robotic SSO (via FQDN) and browser share reverse IP — NEVER $remote_addr here.
+# 3. login.html: expire Domain=parent CrushAuth/currentAuth (host-only clears alone → loop).
+# Deployed by linux_sso_portal_docker.yml → session_cookie_hop_edge.yml (and linux_nginx_dmz).
 
 server {
     listen 80;
@@ -35,12 +43,6 @@ server {
     # doublon "SameSite=None; Secure; secure; SameSite=None" → Firefox rejette les cookies → boucle login.
     # proxy_cookie_path / "/; SameSite=None; Secure";
 
-    # CrushFTP pose souvent Domain=<IP backend> même si Host=$host → boucle FQDN / IP OK.
-    proxy_cookie_domain {{ transfer_backend_ip | default('172.24.0.106') }} {{ transfer_domain }};
-    proxy_cookie_domain www.crushftp.com {{ transfer_domain }};
-    proxy_redirect https://{{ transfer_backend_ip | default('172.24.0.106') }}/ https://{{ transfer_domain }}/;
-    proxy_redirect http://{{ transfer_backend_ip | default('172.24.0.106') }}/ https://{{ transfer_domain }}/;
-
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options SAMEORIGIN always;
     add_header X-XSS-Protection "1; mode=block" always;
@@ -65,8 +67,8 @@ server {
     # (Domain=parent), then lands here so Set-Cookie without Domain is host-only.
     # Upstream Host=portal for Traefik; browser still sees transfer.* → host-only cookies.
     #
-    # CRITICAL: do NOT add `internal;` here — the browser navigates via a real 302.
-    # Exact `=` must also beat `location ~ /\. { deny all; }` further below (403 otherwise).
+    # CRITICAL: do NOT add `internal;` — browser navigates via a real 302.
+    # Exact `=` must beat `location ~ /\. { deny all; }` below (otherwise 403).
     location = /.bastion/session-cookies {
         auth_request off;
         proxy_pass {{ bastion_app_proxy_pass | default('https://172.24.0.110') }}/api/internal/session-cookie-hop;
@@ -80,7 +82,7 @@ server {
         proxy_set_header Cookie $http_cookie;
         proxy_pass_request_body off;
     }
-    # Legacy CrushFTP-era path
+    # Legacy CrushFTP-era path (same handler)
     location = /.bastion/crush-session {
         auth_request off;
         proxy_pass {{ bastion_app_proxy_pass | default('https://172.24.0.110') }}/api/internal/session-cookie-hop;
@@ -95,9 +97,7 @@ server {
         proxy_pass_request_body off;
     }
 
-    # Bastion SSO sets CrushAuth with Domain=<parent>; CrushFTP clears host-only →
-    # login.html 302 loop. Also expire parent-domain copies on this path.
-    # (add_header in location replaces server-level add_header — repeat security headers.)
+    # Expire Domain=parent CrushAuth that CrushFTP clears host-only only (else login.html loop).
     location = /WebInterface/login.html {
         proxy_pass {{ transfer_backend }};
         proxy_http_version 1.1;
@@ -111,14 +111,8 @@ server {
         proxy_set_header X-Forwarded-For $server_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host $host;
-
-        add_header X-Content-Type-Options nosniff always;
-        add_header X-Frame-Options SAMEORIGIN always;
-        add_header X-XSS-Protection "1; mode=block" always;
-        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-        add_header Set-Cookie "CrushAuth=; Path=/; Domain={{ crushftp_cookie_parent_domain | default('ar-systems.fr') }}; Max-Age=0; Secure; HttpOnly" always;
-        add_header Set-Cookie "currentAuth=; Path=/; Domain={{ crushftp_cookie_parent_domain | default('ar-systems.fr') }}; Max-Age=0; Secure" always;
+        add_header Set-Cookie "CrushAuth=; Path=/; Domain={{ transfer_cookie_parent_domain | default('ar-systems.fr') }}; Max-Age=0; Secure; HttpOnly" always;
+        add_header Set-Cookie "currentAuth=; Path=/; Domain={{ transfer_cookie_parent_domain | default('ar-systems.fr') }}; Max-Age=0; Secure" always;
     }
 
     # WebSocket new-ui / webfs
