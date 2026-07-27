@@ -197,6 +197,8 @@
   </div>
 </div>
 
+{# Teleported to document.body in scripts — avoids overflow clipping in .main-content #}
+<div class="logs-drawer-backdrop" id="audit-drawer-backdrop" hidden></div>
 <div class="logs-drawer" id="audit-drawer" aria-hidden="true">
   <div class="logs-drawer-head">
     <strong id="audit-drawer-title">Détail</strong>
@@ -366,11 +368,33 @@
     });
   }
 
-  /* drawer */
+  /* drawer — move to <body> so position:fixed is not clipped by .main-content overflow */
   var drawer = document.getElementById('audit-drawer');
+  var drawerBackdrop = document.getElementById('audit-drawer-backdrop');
   var drawerBody = document.getElementById('audit-drawer-body');
   var drawerTitle = document.getElementById('audit-drawer-title');
   var selectedId = null;
+  if (drawer && drawer.parentElement !== document.body) {
+    document.body.appendChild(drawer);
+  }
+  if (drawerBackdrop && drawerBackdrop.parentElement !== document.body) {
+    document.body.appendChild(drawerBackdrop);
+  }
+
+  function closeDrawer() {
+    if (drawer) {
+      drawer.classList.remove('is-open');
+      drawer.setAttribute('aria-hidden', 'true');
+    }
+    if (drawerBackdrop) {
+      drawerBackdrop.classList.remove('is-open');
+      drawerBackdrop.hidden = true;
+    }
+    document.querySelectorAll('#audit-tbody tr.is-selected').forEach(function (tr) {
+      tr.classList.remove('is-selected');
+    });
+    selectedId = null;
+  }
 
   function openDrawer(entry) {
     if (!drawer || !drawerBody || !entry) return;
@@ -394,6 +418,10 @@
       '<div class="logs-drawer-actions"><button type="button" class="btn btn-secondary btn-sm" id="audit-drawer-copy">Copier</button></div>';
     drawer.classList.add('is-open');
     drawer.setAttribute('aria-hidden', 'false');
+    if (drawerBackdrop) {
+      drawerBackdrop.hidden = false;
+      drawerBackdrop.classList.add('is-open');
+    }
     var copy = document.getElementById('audit-drawer-copy');
     if (copy) {
       copy.addEventListener('click', function () {
@@ -423,9 +451,11 @@
       openDrawer(parseRowEntry(tr));
     });
   }
-  document.getElementById('audit-drawer-close').addEventListener('click', function () {
-    drawer.classList.remove('is-open');
-    drawer.setAttribute('aria-hidden', 'true');
+  var drawerClose = document.getElementById('audit-drawer-close');
+  if (drawerClose) drawerClose.addEventListener('click', closeDrawer);
+  if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && drawer && drawer.classList.contains('is-open')) closeDrawer();
   });
 
   function statusHtml(e) {

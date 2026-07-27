@@ -29,7 +29,11 @@ def _format_datetime(value: datetime | str | None, fmt: str = "%Y-%m-%d %H:%M:%S
 
 
 def _tojson(value: Any) -> Markup:
-    """HTML-safe JSON for data-* attributes (Flask-compatible tojson)."""
+    """HTML-safe JSON for data-* attributes (Flask-compatible tojson).
+
+    Safe in single-quoted attributes and ``<script>`` contexts. Do not wrap in
+    double-quoted HTML attributes — structural ``"`` must remain for JSON.parse.
+    """
     dumped = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     dumped = (
         dumped.replace("<", "\\u003c")
