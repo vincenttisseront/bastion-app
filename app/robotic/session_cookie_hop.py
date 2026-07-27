@@ -88,30 +88,36 @@ def seal_session_hop_payload(
     return f"{payload}.{sig}"
 
 
-def unseal_session_hop_payload(token: str, settings: Settings) -> dict[str, Any] | None:
+def unseal_session_hop_payload(
+    token: str, settings: Settings
+) -> tuple[dict[str, Any] | None, str]:
+    """Return ``(body, reason)`` — reason is empty on success."""
     if not token or "." not in token:
-        return None
+        return None, "missing_hop_cookie"
     payload, _, sig = token.partition(".")
     if not payload or not sig:
-        return None
-    expected = hmac.new(
-        _hop_secret(settings), payload.encode(), hashlib.sha256
-    ).hexdigest()
+        return None, "malformed_token"
+    try:
+        expected = hmac.new(
+            _hop_secret(settings), payload.encode(), hashlib.sha256
+        ).hexdigest()
+    except RuntimeError:
+        return None, "hop_secret_unavailable"
     if not hmac.compare_digest(expected, sig):
-        return None
+        return None, "bad_signature"
     try:
         body = json.loads(_b64url_decode(payload))
     except (ValueError, json.JSONDecodeError):
-        return None
+        return None, "bad_payload"
     if not isinstance(body, dict):
-        return None
+        return None, "bad_payload"
     exp = body.get("e")
     if not isinstance(exp, int) or exp < int(time.time()):
-        return None
+        return None, "expired"
     cookies = body.get("c")
     if not isinstance(cookies, dict) or not cookies:
-        return None
-    return body
+        return None, "empty_cookies"
+    return body, ""
 
 
 def session_hop_url(fqdn: str, *, next_path: str | None = None) -> str:
@@ -248,9 +254,15 @@ def _hop_handler(
     next: str | None,  # noqa: A002
 ):
     token = _read_hop_token(request)
-    body = unseal_session_hop_payload(token, settings)
+    body, reason = unseal_session_hop_payload(token, settings)
     if body is None:
-        logger.warning("session cookie hop rejected (missing/invalid/expired token)")
+        logger.warning(
+            "session cookie hop rejected reason=%s has_cookie=%s host=%s xf_host=%s",
+            reason,
+            bool(token),
+            request.headers.get("host"),
+            request.headers.get("x-forwarded-host"),
+        )
         return RedirectResponse(url=DEFAULT_NEXT, status_code=302)
 
     target = _safe_next(next or body.get("n"), body.get("n") or DEFAULT_NEXT)
@@ -258,6 +270,13 @@ def _hop_handler(
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
     shared = shared_parent_domain(host.split(":")[0], settings.portal_domain or "")
 
+    logger.info(
+        "session cookie hop ok slug=%s cookies=%s target=%s host=%s",
+        body.get("s"),
+        sorted(cookies.keys()),
+        target,
+        host,
+    )
     response = RedirectResponse(url=target, status_code=302)
     apply_host_only_session_cookies(response, cookies, shared_parent=shared)
     return response

@@ -137,3 +137,24 @@ def test_breakglass_api_locations_lan_only_before_api_admin():
         admin_idx = text.index("location ^~ /api/admin")
         assert login_idx < admin_idx, f"{rel}: breakglass login must precede ^~ /api/admin"
 
+
+def test_session_cookie_hop_api_bypasses_portal_auth_request():
+    """Hop is public (HMAC cookie); must not hit @portal_oauth2_signin → /auth/login?rd=/apps."""
+    for rel in (
+        "docker/nginx/templates/vhost_sso_portal.conf.template",
+        "nginx/vhosts/vhost_sso_portal.conf.j2",
+    ):
+        path = ROOT / rel
+        text = path.read_text(encoding="utf-8")
+        for endpoint in (
+            "/api/internal/session-cookie-hop",
+            "/api/internal/crush-cookie-hop",
+        ):
+            assert f"location = {endpoint}" in text, f"{rel} missing {endpoint}"
+            idx = text.index(f"location = {endpoint}")
+            block = text[idx : idx + 400]
+            assert "auth_request off" in block, f"{rel} {endpoint}"
+        hop_idx = text.index("location = /api/internal/session-cookie-hop")
+        internal_idx = text.index("location ^~ /api/internal/")
+        assert hop_idx < internal_idx, f"{rel}: hop must precede ^~ /api/internal/"
+

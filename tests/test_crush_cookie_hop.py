@@ -34,7 +34,8 @@ def test_seal_unseal_roundtrip_any_cookies():
         slug="demo",
         settings=settings,
     )
-    body = unseal_session_hop_payload(token, settings)
+    body, reason = unseal_session_hop_payload(token, settings)
+    assert reason == ""
     assert body is not None
     assert body["c"]["sessionid"] == "abc"
     assert body["c"]["csrftoken"] == "xyz"
@@ -48,7 +49,9 @@ def test_unseal_rejects_tampered_token():
         slug="demo",
         settings=settings,
     )
-    assert unseal_session_hop_payload(token[:-4] + "dead", settings) is None
+    body, reason = unseal_session_hop_payload(token[:-4] + "dead", settings)
+    assert body is None
+    assert reason == "bad_signature"
 
 
 def test_session_hop_url():

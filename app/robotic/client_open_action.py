@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -46,6 +47,8 @@ from app.testing_framework.throttle import throttle_retry_after_key
 from app.web.flash import flash_redirect
 from app.web.sessions_service import app_cookie_diagnostics, touch_app_session
 from app.web.user_context import UserContext, require_user_enriched
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["robotic"], dependencies=[Depends(require_user_enriched)])
 
@@ -304,8 +307,15 @@ def _cookie_redirect(
         result, settings=settings, db=db, user=user, request=request, slug=slug
     )
     if _uses_session_cookie_hop(result):
+        hop = session_hop_url(result.fqdn)
+        logger.info(
+            "robotic open → session cookie hop slug=%s fqdn=%s hop=%s",
+            result.slug,
+            result.fqdn,
+            hop,
+        )
         response = RedirectResponse(
-            url=session_hop_url(result.fqdn),
+            url=hop,
             status_code=status_code,
         )
         attach_session_hop_portal_cookies(
