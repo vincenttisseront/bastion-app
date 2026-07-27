@@ -185,13 +185,16 @@ def test_logs_detail_drawer_replaces_voir_plus(client: TestClient, db_session: S
         "/admin/logs?action=breakglass.login_denied_non_lan",
         headers=ADMIN_HEADERS,
     )
-    assert resp.status_code == 200
+    assert 'id="audit-filters"' in resp.text
+    assert 'class="logs-filters"' in resp.text or "logs-filters" in resp.text
     assert 'id="audit-drawer"' in resp.text
     assert 'id="audit-drawer-backdrop"' in resp.text
     assert "data-entry=" in resp.text
     assert "192.168.2.50" in resp.text
     assert "openDrawer" in resp.text or "audit-drawer" in resp.text
     assert "document.body.appendChild" in resp.text
+    # No Google Fonts (blocked by edge CSP style-src 'self')
+    assert "fonts.googleapis.com" not in resp.text
     # Legacy expand UI removed
     assert "audit-detail-toggle" not in resp.text
     assert "audit-detail-full" not in resp.text

@@ -106,6 +106,10 @@ def test_apply_infrastructure_exports_core_oauth2_cfg_not_nginx(
     assert "/oauth2/clients/" in nginx_conf
     assert "/oauth2/ar-systems/" not in nginx_conf
 
+    assert (tmp_path / "nginx-subdomain-apps.conf").is_file()
+    assert (tmp_path / "subdomain-apps-inventory.json").is_file()
+    assert any(f.get("kind") == "nginx_subdomain_apps_conf" for f in manifest["files"])
+
     saved = json.loads((tmp_path / "infrastructure-manifest.json").read_text(encoding="utf-8"))
     assert saved["realms"] == manifest["realms"]
 

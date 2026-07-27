@@ -16,6 +16,14 @@ if [[ ! -f /var/lib/sso-portal/exports/nginx-portal-realms.conf ]]; then
   echo "# no secondary realms yet" > /var/lib/sso-portal/exports/nginx-portal-realms.conf
 fi
 
+# Subdomain apps (from App DB via infrastructure apply) — product-agnostic hop included
+if [[ -f /var/lib/sso-portal/exports/nginx-subdomain-apps.conf ]]; then
+  cp -a /var/lib/sso-portal/exports/nginx-subdomain-apps.conf \
+    /etc/nginx/conf.d/nginx-subdomain-apps.conf
+else
+  echo "# no subdomain_proxy apps exported yet" > /etc/nginx/conf.d/nginx-subdomain-apps.conf
+fi
+
 envsubst '${PORTAL_INTERNAL_TOKEN}' \
   < /etc/nginx/templates-portal/proxy_portal_trusted_internal.conf.template \
   > /etc/nginx/snippets/proxy_portal_trusted_internal.conf

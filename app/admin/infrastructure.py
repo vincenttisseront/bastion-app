@@ -81,13 +81,20 @@ def _realm_manifest_entry(realm: RealmConfig) -> dict[str, Any]:
 
 
 def _application_manifest_entry(app: App) -> dict[str, Any]:
-    return {
+    from app.access_modes import normalize_access_mode
+
+    mode = normalize_access_mode(app.access_mode)
+    entry: dict[str, Any] = {
         "slug": app.slug,
         "label": app.label,
         "access_mode": app.access_mode,
         "public_fqdn": app.public_fqdn,
         "enabled": app.enabled,
     }
+    if mode == "subdomain_proxy" and (app.public_fqdn or "").strip():
+        entry["session_cookie_hop"] = True
+        entry["hop_path"] = "/.bastion/session-cookies"
+    return entry
 
 
 def _file_manifest_entry(path: Path, *, kind: str, realm_slug: str | None = None) -> dict[str, Any]:
@@ -176,6 +183,20 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
         written_files.append(
             _file_manifest_entry(Path(app_paths["nginx_apps_conf"]), kind="nginx_apps_conf")
         )
+        if app_paths.get("nginx_subdomain_apps_conf"):
+            written_files.append(
+                _file_manifest_entry(
+                    Path(app_paths["nginx_subdomain_apps_conf"]),
+                    kind="nginx_subdomain_apps_conf",
+                )
+            )
+        if app_paths.get("subdomain_apps_inventory"):
+            written_files.append(
+                _file_manifest_entry(
+                    Path(app_paths["subdomain_apps_inventory"]),
+                    kind="subdomain_apps_inventory",
+                )
+            )
 
         prune_deleted_realm_exports(db, settings)
         db.commit()

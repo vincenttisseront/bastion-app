@@ -170,6 +170,45 @@ def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
     return (app.upstream_url or "").rstrip("/") + "/"
 
 
+def _generic_form_login_url(app: App, settings: Settings, db: Session) -> str:
+    """
+    Absolute login URL for generic_form robotic POST.
+
+    Same Host-binding rule as CrushFTP: in subdomain mode, rewrite the
+    configured ``login_form_url`` netloc to ``public_fqdn`` so session cookies
+    (DOLSESSID_*, PHPSESSID, …) are issued for the hostname the browser uses.
+    """
+    from urllib.parse import urlparse, urlunparse
+
+    from app.portal_settings_service import get_subdomain_sso_enabled
+
+    raw = (app.login_form_url or "").strip()
+    if not raw:
+        return raw
+    mode = normalize_access_mode(app.access_mode)
+    fqdn = (app.public_fqdn or "").strip() or None
+    if not (
+        get_subdomain_sso_enabled(db, settings)
+        and mode == "subdomain_proxy"
+        and fqdn
+    ):
+        return raw
+    parsed = urlparse(raw)
+    if not parsed.scheme or not parsed.netloc:
+        return raw
+    host = (parsed.hostname or "").lower()
+    if host == fqdn.lower():
+        return raw
+    rewritten = urlunparse(parsed._replace(scheme="https", netloc=fqdn))
+    logger.info(
+        "generic_form login URL host rewritten for subdomain fqdn=%s from=%s to=%s",
+        fqdn,
+        parsed.netloc,
+        fqdn,
+    )
+    return rewritten
+
+
 def _audit_impersonate(
     db: Session,
     *,
@@ -419,7 +458,11 @@ async def _impersonate_generic_form(
 ) -> RoboticSessionResult:
     try:
         result = await generic_form_login(
-            resolved, app, password, client_headers=client_headers
+            resolved,
+            app,
+            password,
+            client_headers=client_headers,
+            login_url_override=_generic_form_login_url(app, settings, db),
         )
     except DriverAuthRejectedError as exc:
         _audit_impersonate(

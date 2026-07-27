@@ -1,11 +1,13 @@
 # Bastion applicatif — Phase 7
 #
-# Topologie prod (identique Keycloak sur docker01) :
-#   clients → vmdmz-reverse01:443 (nginx edge)
-#     → https://172.24.0.110 (Traefik, Host: portal.ar-systems.fr)
-#       → bastion-nginx:8080 sur réseau Docker vpcbr (10.5.0.0/16)
+# Topologie cible (front only) :
+#   clients → Traefik :443 (TLS) Host=portal|app FQDNs
+#       → bastion-nginx:8080 (vpcbr)
+#           portal → vhost_sso_portal
+#           apps   → exports/nginx-subdomain-apps.conf (App DB + hop)
 #
-# Tous les services bastion sont UNIQUEMENT sur vpcbr (comme keycloak/traefik).
+# Transition : reverse01 peut encore router certains Hosts ; inventaire Ansible
+# nginx_subdomain_sso_vhosts est legacy — préférer l'export DB.
 #
 # Smoke local sans Traefik :
 #   docker network create --subnet=10.5.0.0/16 vpcbr   # si absent

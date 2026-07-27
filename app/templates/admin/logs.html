@@ -54,45 +54,72 @@
       {% endfor %}
     </div>
 
-    <form class="logs-toolbar audit-toolbar" method="get" action="/admin/logs" id="audit-filters">
+    <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters">
       <input type="hidden" name="columns" id="filter-columns" value="{{ visible_columns | join(',') }}">
-      <input type="search" class="form-input logs-search" name="q" id="filter-q" value="{{ filters.q or '' }}"
-             placeholder="Recherche plein texte…" aria-label="Recherche plein texte">
-      <select class="form-select" name="action" id="filter-action" aria-label="Filtrer par action">
-        <option value="">Toutes les actions</option>
-        {% for a in action_choices %}
-        <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
-        {% endfor %}
-      </select>
-      <input type="text" class="form-input" name="actor" id="filter-actor" value="{{ filters.actor or '' }}"
-             placeholder="Acteur" aria-label="Filtrer par acteur">
-      <input type="text" class="form-input" name="ip" id="filter-ip" value="{{ filters.ip or '' }}"
-             placeholder="IP ou CIDR" aria-label="Filtrer par IP">
-      <input type="text" class="form-input" name="detail" id="filter-detail" value="{{ filters.detail or '' }}"
-             placeholder="Mot-clé détail" aria-label="Mot-clé dans le détail">
-      <input type="date" class="form-input" name="date_from" id="filter-date-from" value="{{ filters.date_from or '' }}"
-             aria-label="Date début">
-      <input type="date" class="form-input" name="date_to" id="filter-date-to" value="{{ filters.date_to or '' }}"
-             aria-label="Date fin">
-      <div class="logs-result-checks" role="group" aria-label="Résultat">
-        {% for st in ['success', 'error', 'info'] %}
-        <label><input type="checkbox" name="status" value="{{ st }}"{% if st in (filters.status or []) %} checked{% endif %}> {{ st }}</label>
-        {% endfor %}
+      <div class="logs-filters-grid">
+        <label class="logs-filter-field logs-filter-grow">
+          <span class="form-label">Recherche</span>
+          <input type="search" class="form-input" name="q" id="filter-q" value="{{ filters.q or '' }}"
+                 placeholder="Plein texte…" aria-label="Recherche plein texte">
+        </label>
+        <label class="logs-filter-field">
+          <span class="form-label">Action</span>
+          <select class="form-select" name="action" id="filter-action" aria-label="Filtrer par action">
+            <option value="">Toutes</option>
+            {% for a in action_choices %}
+            <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="logs-filter-field">
+          <span class="form-label">Acteur</span>
+          <input type="text" class="form-input" name="actor" id="filter-actor" value="{{ filters.actor or '' }}"
+                 placeholder="email / user" aria-label="Filtrer par acteur" autocomplete="off">
+        </label>
+        <label class="logs-filter-field">
+          <span class="form-label">IP</span>
+          <input type="text" class="form-input" name="ip" id="filter-ip" value="{{ filters.ip or '' }}"
+                 placeholder="IP ou CIDR" aria-label="Filtrer par IP" autocomplete="off">
+        </label>
+        <label class="logs-filter-field">
+          <span class="form-label">Détail</span>
+          <input type="text" class="form-input" name="detail" id="filter-detail" value="{{ filters.detail or '' }}"
+                 placeholder="Mot-clé" aria-label="Mot-clé dans le détail" autocomplete="off">
+        </label>
+        <label class="logs-filter-field">
+          <span class="form-label">Du</span>
+          <input type="date" class="form-input" name="date_from" id="filter-date-from" value="{{ filters.date_from or '' }}"
+                 aria-label="Date début">
+        </label>
+        <label class="logs-filter-field">
+          <span class="form-label">Au</span>
+          <input type="date" class="form-input" name="date_to" id="filter-date-to" value="{{ filters.date_to or '' }}"
+                 aria-label="Date fin">
+        </label>
       </div>
-      <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
-      <button type="button" class="btn btn-secondary btn-sm live-btn" id="audit-live-btn"
-              aria-pressed="false" title="Flux temps réel">● Live</button>
-      <span class="live-status" id="audit-live-status" hidden>Live</span>
-      <div class="logs-col-menu">
-        <button type="button" class="btn btn-secondary btn-sm" id="cols-btn" aria-expanded="false">Colonnes</button>
-        <div class="logs-col-panel" id="cols-panel" hidden>
-          {% for c in all_columns %}
-          <label><input type="checkbox" class="col-toggle" value="{{ c }}"{% if c in visible_columns %} checked{% endif %}> {{ col_labels.get(c, c) }}</label>
+      <div class="logs-filters-footer">
+        <div class="logs-result-checks" role="group" aria-label="Résultat">
+          {% for st in ['success', 'error', 'info'] %}
+          <label><input type="checkbox" name="status" value="{{ st }}"{% if st in (filters.status or []) %} checked{% endif %}> {{ st }}</label>
           {% endfor %}
-          <button type="button" class="btn btn-primary btn-sm" id="cols-save">Enregistrer colonnes</button>
+        </div>
+        <div class="logs-filters-actions">
+          <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+          <button type="button" class="btn btn-secondary btn-sm live-btn" id="audit-live-btn"
+                  aria-pressed="false" title="Flux temps réel">● Live</button>
+          <span class="live-status" id="audit-live-status" hidden>Live</span>
+          <div class="logs-col-menu">
+            <button type="button" class="btn btn-secondary btn-sm" id="cols-btn" aria-expanded="false">Colonnes</button>
+            <div class="logs-col-panel" id="cols-panel" hidden>
+              {% for c in all_columns %}
+              <label><input type="checkbox" class="col-toggle" value="{{ c }}"{% if c in visible_columns %} checked{% endif %}> {{ col_labels.get(c, c) }}</label>
+              {% endfor %}
+              <button type="button" class="btn btn-primary btn-sm" id="cols-save">Enregistrer colonnes</button>
+            </div>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" id="save-view-btn">Enregistrer la vue</button>
         </div>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" id="save-view-btn">Enregistrer la vue</button>
     </form>
 
     {% if active_chips %}

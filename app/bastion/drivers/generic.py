@@ -189,6 +189,7 @@ async def generic_form_login(
     password: str,
     *,
     client_headers: dict[str, str] | None = None,
+    login_url_override: str | None = None,
 ) -> DriverLoginResult:
     """
     POST/GET login form with vault credentials; return session cookies.
@@ -202,9 +203,12 @@ async def generic_form_login(
          or a redisplayed login form as auth rejection (never treat bare
          Set-Cookie on a failed login page as success).
 
+    ``login_url_override`` forces the absolute login URL (e.g. public FQDN in
+    subdomain mode) without mutating the App row.
+
     Never logs or returns the plaintext password.
     """
-    login_url = (app.login_form_url or "").strip()
+    login_url = (login_url_override or app.login_form_url or "").strip()
     if not login_url:
         raise DriverUpstreamError("Login form URL is not configured")
 

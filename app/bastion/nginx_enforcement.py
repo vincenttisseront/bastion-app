@@ -68,13 +68,13 @@ def proxy_location_lines(app: App) -> list[str]:
     mode = normalize_access_mode(app.access_mode)
     lines: list[str] = []
     if mode == "subdomain_proxy" and app.public_fqdn:
-        lines.append(f"# [{app.slug}] subdomain_proxy — {app.public_fqdn.strip()}")
-        lines.append("server {")
-        lines.append(f"    server_name {app.public_fqdn.strip()};")
-        lines.append(f"    # proxy_pass {app.upstream_url};")
-        lines.extend(robotic_auth_request_lines(app))
-        lines.append("    # include snippets/subdomain_auth_common.conf;")
-        lines.append("}")
+        lines.append(
+            f"# [{app.slug}] subdomain_proxy — {app.public_fqdn.strip()}"
+        )
+        lines.append(
+            "# Full server{} + hop → exports/nginx-subdomain-apps.conf "
+            "(bastion-nginx front; not this legacy snippet file)."
+        )
         lines.append("")
     elif mode == "legacy_path_proxy":
         lines.append(f"# [{app.slug}] legacy_path_proxy")

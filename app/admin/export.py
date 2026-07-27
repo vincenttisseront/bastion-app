@@ -149,10 +149,14 @@ def generate_nginx_apps_conf(db: Session) -> str:
 
 
 def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str]:
+    from app.bastion.nginx_subdomain_export import write_subdomain_apps_exports
+
     exports_path = _exports_path(settings)
     apps_path = exports_path / "nginx-portal-apps.conf"
     apps_path.write_text(generate_nginx_apps_conf(db), encoding="utf-8")
-    return {"nginx_apps_conf": str(apps_path)}
+    paths = {"nginx_apps_conf": str(apps_path)}
+    paths.update(write_subdomain_apps_exports(db, settings))
+    return paths
 
 
 def write_oauth2_proxy_export(realm: RealmConfig, settings: Settings) -> Path:

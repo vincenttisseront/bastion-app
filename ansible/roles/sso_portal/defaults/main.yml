@@ -68,14 +68,15 @@ sso_portal_oauth2_expected_ports:
 # (linux_nginx_dmz). Passer à true UNIQUEMENT à la bascule SSO transfer.
 sso_portal_subdomain_sso_enabled: false
 nginx_subdomain_sso_vhosts:
+  # TRANSITIONAL (DMZ reverse01). Source of truth is App DB → exports/nginx-subdomain-apps.conf
+  # after infrastructure apply. Front path: bastion-nginx loads that export (no product list).
+  # Keep only apps not yet routed to bastion-nginx / Traefik Host → front.
   - slug: transfer
     fqdn: transfer.ar-systems.fr
     upstream_url: "https://172.24.0.106:8080"
     upstream_host: 172.24.0.106
     realm_slug: ar-systems
   # Grommunio webmail — same generic subdomain template (includes session-cookies hop).
-  # Dedicated transfer CrushFTP vhost remains separate (linux_nginx_dmz); this entry is
-  # used when sso_portal_subdomain_sso_enabled is true for webmail.
   - slug: grommunio
     fqdn: webmail.ar-systems.fr
     upstream_url: "https://vmapps-mail01.ar-systems.fr:8443/"

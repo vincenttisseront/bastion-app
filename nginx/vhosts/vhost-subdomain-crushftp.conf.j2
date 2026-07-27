@@ -1,6 +1,7 @@
 # {{ ansible_managed }}
 # Vhost subdomain SSO — {{ vhost.fqdn }}
-# PREREQUIS : transfer_dmz_vhost_enabled: false dans linux_nginx_dmz.yml (609cdfb)
+# TRANSITIONAL DMZ template. Preferred path: App DB → exports/nginx-subdomain-apps.conf
+# loaded by bastion-nginx (front). Same hop contract (/.bastion/session-cookies).
 
 server {
     listen 80;
