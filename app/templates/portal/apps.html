@@ -242,8 +242,8 @@
     var form = document.createElement('form');
     form.method = 'POST';
     form.action = endpoint;
-    // Same-tab navigation keeps the user-gesture chain and lets the hop Set-Cookie
-    // on the app FQDN (target=_blank is often blocked after await / modal close).
+    form.target = '_blank';
+    form.rel = 'noopener noreferrer';
     form.acceptCharset = 'UTF-8';
     form.style.display = 'none';
 
@@ -260,6 +260,7 @@
     form.appendChild(csrf);
 
     document.body.appendChild(form);
+    // Must run inside the confirm click stack (onConfirm) so _blank is not blocked.
     form.submit();
   }
 
