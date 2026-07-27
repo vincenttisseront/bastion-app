@@ -242,8 +242,8 @@
     var form = document.createElement('form');
     form.method = 'POST';
     form.action = endpoint;
-    form.target = '_blank';
-    form.rel = 'noopener noreferrer';
+    // Same-tab navigation keeps the user-gesture chain and lets the hop Set-Cookie
+    // on the app FQDN (target=_blank is often blocked after await / modal close).
     form.acceptCharset = 'UTF-8';
     form.style.display = 'none';
 
@@ -263,7 +263,7 @@
     form.submit();
   }
 
-  async function openWithIdentity(tile) {
+  function openWithIdentity(tile) {
     var slug = tile.getAttribute('data-app-slug');
     var label = tile.getAttribute('data-app-label') || slug;
     var identityUsername = tile.getAttribute('data-identity-username') || '';
@@ -272,27 +272,16 @@
       ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');
     if (!slug || !window.bastionPasswordPrompt) return;
 
-    var prompt = await window.bastionPasswordPrompt({
+    window.bastionPasswordPrompt({
       title: 'Ouvrir ' + label,
       message: 'Saisissez votre mot de passe pour établir la session applicative.',
       username: identityUsername,
       confirmLabel: 'Ouvrir',
+      onConfirm: function (password) {
+        submitOpenWithIdentityForm(endpoint, password);
+        return true;
+      },
     });
-    if (!prompt || !prompt.ok) return;
-
-    var password = prompt.password || '';
-    if (!password) {
-      if (window.bastionAlert) {
-        window.bastionAlert({
-          title: 'Mot de passe requis',
-          message: 'Saisissez votre mot de passe pour ouvrir cette application.',
-        });
-      }
-      return;
-    }
-
-    submitOpenWithIdentityForm(endpoint, password);
-    password = '';
   }
 
   document.addEventListener('click', function (e) {

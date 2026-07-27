@@ -5,8 +5,10 @@
  *   → Promise<boolean>
  * window.bastionAlert({ title, message, confirmLabel })
  *   → Promise<void>
- * window.bastionPasswordPrompt({ title, message, username, confirmLabel, cancelLabel, error })
+ * window.bastionPasswordPrompt({ title, message, username, confirmLabel, cancelLabel, error, onConfirm })
  *   → Promise<{ ok: boolean, password: string|null }>
+ *   Optional onConfirm(password) runs inside the click/Enter gesture before close.
+ *   Return false from onConfirm to keep the modal open.
  *
  * Confirm / dismiss use document-level event delegation so handlers work even if
  * the modal markup is re-rendered or scripts load before the partial is present.
@@ -27,6 +29,7 @@
   var passwordInput = null;
   var passwordErrorEl = null;
   var listenersBound = false;
+  var passwordOnConfirm = null;
 
   function refreshRefs() {
     root = document.getElementById('bastion-modal');
@@ -66,7 +69,7 @@
     if (target.closest('#bastion-modal-confirm')) {
       e.preventDefault();
       e.stopPropagation();
-      close(true);
+      confirmFromUi();
     }
   }
 
@@ -150,10 +153,51 @@
       passwordInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
           e.preventDefault();
-          close(true);
+          confirmFromUi();
         }
       });
     }
+  }
+
+  function showPasswordError(text) {
+    passwordErrorEl = document.getElementById('bastion-modal-password-error') || passwordErrorEl;
+    if (!passwordErrorEl) return;
+    if (text) {
+      passwordErrorEl.textContent = text;
+      passwordErrorEl.hidden = false;
+    } else {
+      passwordErrorEl.textContent = '';
+      passwordErrorEl.hidden = true;
+    }
+  }
+
+  function confirmFromUi() {
+    if (mode === 'password') {
+      passwordInput = document.getElementById('bastion-modal-password') || passwordInput;
+      var passwordValue = passwordInput ? passwordInput.value : '';
+      if (!passwordValue) {
+        showPasswordError('Saisissez votre mot de passe pour ouvrir cette application.');
+        if (passwordInput) passwordInput.focus();
+        return;
+      }
+      showPasswordError('');
+      // Call while still inside the user-gesture stack (before await microtasks).
+      if (typeof passwordOnConfirm === 'function') {
+        try {
+          var cont = passwordOnConfirm(passwordValue);
+          if (cont === false) {
+            showPasswordError('Impossible d\'ouvrir l\'application. Réessayez.');
+            return;
+          }
+        } catch (err) {
+          showPasswordError('Impossible d\'ouvrir l\'application. Réessayez.');
+          return;
+        }
+      }
+      finishClose({ ok: true, password: passwordValue });
+      return;
+    }
+    close(true);
   }
 
   function focusables() {
@@ -199,6 +243,7 @@
     document.body.classList.remove('bastion-modal-open');
     if (passwordInput) passwordInput.value = '';
     clearExtra();
+    passwordOnConfirm = null;
     if (confirmBtn) confirmBtn.disabled = false;
     if (previousFocus && typeof previousFocus.focus === 'function') {
       try {
@@ -285,6 +330,7 @@
     }
     if (pendingResolve) close(false);
     mode = 'password';
+    passwordOnConfirm = typeof options.onConfirm === 'function' ? options.onConfirm : null;
     previousFocus = document.activeElement;
     titleEl.textContent = options.title || 'Mot de passe requis';
     messageEl.innerHTML = formatMessage(
