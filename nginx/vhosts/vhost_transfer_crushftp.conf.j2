@@ -3,9 +3,9 @@
 # Aligné sur l'ancien bloc DMZ embarqué (proxy_cookie_path, pas de WAF sur ce vhost).
 #
 # CONTRACT (validated 2026-07-27 — Transfer robotic auto-login):
-# 1. location = /.bastion/session-cookies (+ crush-session): auth_request off, NOT internal;
-#    Host=portal; X-Real-IP $remote_addr (hop → bastion-app).
-# 2. CrushFTP upstream locations (/, new-ui, webfs, login.html): X-Real-IP/XFF = $server_addr
+# 1. Hop paths under /.bastion/ (session-cookies + crush-session alias):
+#    auth_request off, never "internal"; Host=portal; X-Real-IP $remote_addr.
+# 2. CrushFTP upstream (/, new-ui, webfs, login.html): X-Real-IP/XFF = $server_addr
 #    so robotic SSO (via FQDN) and browser share reverse IP — NEVER $remote_addr here.
 # 3. login.html: expire Domain=parent CrushAuth/currentAuth (host-only clears alone → loop).
 # Deployed by linux_sso_portal_docker.yml → session_cookie_hop_edge.yml (and linux_nginx_dmz).

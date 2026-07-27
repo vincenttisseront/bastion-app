@@ -18,7 +18,7 @@ SNIPPETS = NGINX_ROOT / "snippets"
 
 
 def _location_block(text: str, path: str) -> str:
-    needle = f"location = {path}"
+    needle = f"location = {path} {{"
     idx = text.index(needle)
     depth = 0
     started = False
