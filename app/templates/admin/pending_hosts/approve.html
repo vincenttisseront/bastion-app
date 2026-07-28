@@ -3,52 +3,107 @@
 {% block breadcrumb %}Admin / Domaines découverts / Approuver{% endblock %}
 
 {% block content %}
-<div class="page">
+{% set errors = errors | default({}) %}
+{% set form_values = form_values | default({}) %}
+<div class="page page-form">
   <div class="page-header">
     <div>
       <h1 class="page-title">Approuver le domaine</h1>
       <p class="page-sub">
-        Crée une application <strong>Proxy public (sans auth)</strong> pour
-        <code class="mono">{{ row.hostname }}</code>. Saisir l’URL backend interne (proxy_pass).
+        Crée une app <strong>Proxy public</strong> (sans auth bastion) et enregistre le FQDN découvert.
       </p>
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-body">
-      <form method="post" action="/admin/pending-hosts/{{ row.id }}/approve" class="form-stack">
-        <div class="form-section">
-          <div class="form-section-title">Application</div>
-          <div class="form-row">
-            <label class="form-label" for="slug">Slug</label>
-            <input class="form-input{% if errors.slug %} is-invalid{% endif %}" id="slug" name="slug" value="{{ form_values.slug }}" required>
-            {% if errors.slug %}<p class="form-error">{{ errors.slug }}</p>{% endif %}
-          </div>
-          <div class="form-row">
-            <label class="form-label" for="label">Libellé</label>
-            <input class="form-input{% if errors.label %} is-invalid{% endif %}" id="label" name="label" value="{{ form_values.label }}" required>
-            {% if errors.label %}<p class="form-error">{{ errors.label }}</p>{% endif %}
-          </div>
-          <div class="form-row">
-            <label class="form-label" for="public_fqdn">Domaine public</label>
-            <input class="form-input" id="public_fqdn" value="{{ row.hostname }}" disabled>
-            <p class="form-help">Issu de la découverte — non modifiable.</p>
-          </div>
-          <div class="form-row">
-            <label class="form-label" for="upstream_url">URL backend interne (proxy_pass) <span class="req">*</span></label>
-            <input class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" id="upstream_url" name="upstream_url"
-                   value="{{ form_values.upstream_url }}" placeholder="https://172.24.0.x:443/" required>
-            {% if errors.upstream_url %}<p class="form-error">{{ errors.upstream_url }}</p>{% endif %}
-            <p class="form-help">Cible Docker / IP vpcbr. Aucune auth bastion ne sera appliquée.</p>
-          </div>
-          {% if errors._form %}<p class="form-error">{{ errors._form }}</p>{% endif %}
-        </div>
-        <div class="form-actions">
-          <button type="submit" class="btn btn-primary">Approuver et créer</button>
-          <a href="/admin/pending-hosts" class="btn btn-ghost">Annuler</a>
-        </div>
-      </form>
+  <div class="discovery-summary" aria-label="Hôte découvert">
+    <div class="discovery-summary-main">
+      <span class="discovery-summary-kicker">Host découvert</span>
+      <code class="discovery-summary-host mono">{{ row.hostname }}</code>
     </div>
+    <dl class="discovery-summary-meta">
+      <div>
+        <dt>Hits</dt>
+        <dd>{{ row.hit_count }}</dd>
+      </div>
+      <div>
+        <dt>Dernière IP</dt>
+        <dd class="mono">{{ row.last_client_ip or '—' }}</dd>
+      </div>
+      <div>
+        <dt>Dernière URI</dt>
+        <dd class="mono discovery-summary-uri" title="{{ row.last_uri or '' }}">{{ row.last_uri or '—' }}</dd>
+      </div>
+      <div>
+        <dt>Vu</dt>
+        <dd class="mono">{{ row.last_seen_at or '—' }}</dd>
+      </div>
+    </dl>
   </div>
+
+  <form method="post" action="/admin/pending-hosts/{{ row.id }}/approve" id="approve-host-form">
+    <div class="form-section">
+      <div class="form-section-header">
+        <div>
+          <div class="form-section-title">Application</div>
+          <div class="form-section-sub">Identité catalogue + cible proxy_pass</div>
+        </div>
+      </div>
+      <div class="form-body">
+        <div class="alert alert-warn">
+          <div class="alert-body">
+            Mode <strong>public_proxy</strong> : aucune auth bastion (pas de SSO / RBAC).
+            Le trafic est relayé tel quel vers le backend. À utiliser seulement si l’app
+            gère elle-même l’accès, ou si elle doit être publique.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <span class="form-label">Domaine public</span>
+          <div class="form-readonly mono" aria-readonly="true">{{ row.hostname }}</div>
+          <p class="form-help">Issu de la découverte — non modifiable.</p>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="slug">Slug <span class="req">*</span></label>
+            <input class="form-input{% if errors.slug %} is-invalid{% endif %}"
+                   id="slug" name="slug" value="{{ form_values.slug }}"
+                   required pattern="[a-z0-9-]+" autocomplete="off">
+            {% if errors.slug %}<div class="form-error">{{ errors.slug }}</div>{% endif %}
+            <p class="form-help">Identifiant interne (RBAC, audit).</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="label">Libellé <span class="req">*</span></label>
+            <input class="form-input{% if errors.label %} is-invalid{% endif %}"
+                   id="label" name="label" value="{{ form_values.label }}" required>
+            {% if errors.label %}<div class="form-error">{{ errors.label }}</div>{% endif %}
+            <p class="form-help">Nom affiché dans l’admin.</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="upstream_url">URL backend interne (proxy_pass) <span class="req">*</span></label>
+          <div class="input-wrap">
+            <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+            <input type="url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}"
+                   id="upstream_url" name="upstream_url"
+                   value="{{ form_values.upstream_url }}"
+                   placeholder="https://10.0.31.103:443/" required autofocus
+                   autocomplete="off">
+          </div>
+          {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
+          <p class="form-help">Cible Docker / IP LAN (ex. <span class="mono">https://10.0.31.103</span>). Aucune auth bastion ne sera appliquée.</p>
+        </div>
+
+        {% if errors._form %}<div class="form-error">{{ errors._form }}</div>{% endif %}
+      </div>
+      <div class="form-footer">
+        <button type="submit" class="btn btn-primary">Approuver et créer</button>
+        <a href="/admin/pending-hosts" class="btn btn-ghost">Annuler</a>
+      </div>
+    </div>
+  </form>
 </div>
 {% endblock %}

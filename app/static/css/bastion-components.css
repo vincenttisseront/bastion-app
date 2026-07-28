@@ -231,6 +231,49 @@
 .form-input.slug-auto{color:var(--text-2);font-style:italic}
 .form-error{font-size:var(--fs-xs);color:var(--err)}
 .form-footer{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-4) var(--sp-6);border-top:1px solid var(--border-muted);background:var(--bg-tertiary);flex-wrap:wrap}
+
+/* Domaine découvert — formulaire d'approbation */
+.discovery-summary{
+  display:flex;flex-direction:column;gap:var(--sp-4);
+  padding:var(--sp-5) var(--sp-6);
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-xl);
+  box-shadow:var(--sh-card);margin-bottom:var(--sp-5);
+}
+.discovery-summary-kicker{
+  display:block;font-size:10px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text-3);margin-bottom:6px;
+}
+.discovery-summary-host{
+  display:block;font-size:var(--fs-lg);font-weight:700;color:var(--accent);
+  word-break:break-all;line-height:1.3;
+}
+.discovery-summary-meta{
+  display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-3);
+  margin:0;padding-top:var(--sp-4);border-top:1px solid var(--border-muted);
+}
+.discovery-summary-meta > div{min-width:0}
+.discovery-summary-meta dt{
+  font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);margin:0 0 4px;
+}
+.discovery-summary-meta dd{
+  margin:0;font-size:var(--fs-sm);color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.discovery-summary-uri{max-width:100%}
+.form-readonly{
+  padding:var(--sp-3) var(--sp-4);
+  background:var(--bg-tertiary);border:1px dashed var(--border);border-radius:var(--r-md);
+  color:var(--text-2);font-size:var(--fs-sm);line-height:1.5;
+  word-break:break-all;
+}
+@media (max-width:720px){
+  .discovery-summary-meta{grid-template-columns:1fr 1fr}
+  .page-form .form-row{grid-template-columns:1fr}
+}
+@media (max-width:480px){
+  .discovery-summary-meta{grid-template-columns:1fr}
+}
 .form-check,.form-checkbox{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm);color:var(--text-2);cursor:pointer}
 .form-check input,.form-checkbox input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 

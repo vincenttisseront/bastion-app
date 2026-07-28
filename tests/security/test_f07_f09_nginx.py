@@ -73,6 +73,10 @@ def test_subdomain_and_public_proxy_exports_are_not_default_server():
     assert "default_server" not in pub
     assert "listen 0.0.0.0:8080;" in sub
     assert "listen 0.0.0.0:8080;" in pub
+    assert "access_log /var/log/nginx/apps/doli.access.log app;" in sub
+    assert "error_log  /var/log/nginx/apps/doli.error.log warn;" in sub
+    assert "access_log /var/log/nginx/apps/status.access.log app;" in pub
+    assert "error_log  /var/log/nginx/apps/status.error.log warn;" in pub
 
 
 def test_j2_portal_vhost_internal_handlers():

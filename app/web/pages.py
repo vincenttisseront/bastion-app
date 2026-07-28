@@ -728,7 +728,8 @@ def admin_pending_host_approve_post(
     flash_redirect(
         response,
         f"Domaine « {app.public_fqdn} » approuvé → app {app.slug}. "
-        "Lancer Apply infra pour recharger bastion-nginx.",
+        "bastion-nginx recharge la conf exportée sous quelques secondes "
+        "(sinon Apply infra / redémarrer le conteneur nginx).",
         "success",
         settings.vault_portal_internal_token or "dev",
     )
@@ -1019,7 +1020,14 @@ def admin_apps_edit_post(
     export_app_catalogue_files(db, settings)
     log_action(db, actor=user.email, action="app.updated", target=slug)
     response = RedirectResponse(url="/admin/apps", status_code=302)
-    flash_redirect(response, f"Application '{label}' mise à jour.", "success", settings.vault_portal_internal_token or "dev")
+    flash_redirect(
+        response,
+        f"Application '{label}' mise à jour. "
+        "Si le mode d'accès ou le FQDN a changé, bastion-nginx recharge "
+        "la conf sous quelques secondes.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
     return response
 
 

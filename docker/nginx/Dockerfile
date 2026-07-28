@@ -4,7 +4,7 @@ FROM nginx:1.27-alpine
 RUN apk add --no-cache bash gettext wget \
     && rm -f /etc/nginx/conf.d/default.conf \
     && mkdir -p /etc/nginx/snippets /etc/nginx/includes /var/lib/sso-portal/exports \
-    && mkdir -p /var/www/nginx-errors
+    && mkdir -p /var/www/nginx-errors /var/log/nginx/apps
 
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY conf.d/ /etc/nginx/conf.d/
@@ -12,10 +12,12 @@ COPY snippets/ /etc/nginx/snippets/
 COPY includes/ /etc/nginx/includes/
 COPY templates/ /etc/nginx/templates-portal/
 COPY docker-entrypoint.sh /docker-entrypoint-portal.sh
+COPY sync-exports-to-confd.sh /sync-exports-to-confd.sh
+COPY watch-exports-reload.sh /watch-exports-reload.sh
 COPY errors/ /var/www/nginx-errors/
 
-RUN chmod +x /docker-entrypoint-portal.sh \
-    && sed -i 's/\r$//' /docker-entrypoint-portal.sh \
+RUN chmod +x /docker-entrypoint-portal.sh /sync-exports-to-confd.sh /watch-exports-reload.sh \
+    && sed -i 's/\r$//' /docker-entrypoint-portal.sh /sync-exports-to-confd.sh /watch-exports-reload.sh \
     && find /etc/nginx/templates-portal /etc/nginx/snippets /etc/nginx/includes \
          -type f -exec sed -i 's/\r$//' {} +
 
