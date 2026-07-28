@@ -1,8 +1,8 @@
-# Override local / smoke sans Traefik — publie nginx bastion sur loopback.
+# Override local / smoke — republie nginx HTTP loopback (déjà dans compose principal).
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d
 #
-# Sur vmdmz-docker01 en prod : NE PAS utiliser ce fichier (entrée = Traefik vpcbr).
+# En prod docker01 : compose principal publie déjà 80/443 (edge nginx).
 
 services:
   nginx:

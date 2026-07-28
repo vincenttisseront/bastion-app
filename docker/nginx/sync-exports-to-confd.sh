@@ -47,7 +47,8 @@ MAP_SRC="$EXPORTS/nginx-known-hosts.map"
   echo "}"
 } > /etc/nginx/conf.d/00-known-hosts-map.conf
 
-# TLS :8443 for all ACME domains (portal / subdomain / public_proxy) when certs exist
+# TLS :443 for all ACME domains (portal / subdomain / public_proxy) when certs exist
+# + HTTP :80 → 301 HTTPS
 if [[ -x /sync-acme-tls.sh ]]; then
   /sync-acme-tls.sh || echo "WARN: sync-acme-tls failed" >&2
 elif [[ -x /sync-public-proxy-tls.sh ]]; then

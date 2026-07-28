@@ -11,22 +11,23 @@ bastion_app_docker_data_dir: /tools/portal/data
 # Blobs fichiers versionnés (monté → /var/lib/sso-portal-files) — cycle de vie / backup séparés
 bastion_app_docker_files_data_dir: "{{ bastion_app_docker_data_dir }}-files"
 
-# Host Docker (inventaire AWX : vmdmz-docker01 = 172.24.0.110, derrière Traefik)
+# Host Docker (inventaire AWX : vmdmz-docker01 = 172.24.0.110)
 bastion_docker_host: vmdmz-docker01
 bastion_docker_host_ip: "172.24.0.110"
-# Legacy var — plus de publish host en prod (Traefik). Conservé pour smoke local.
+# Legacy var — smoke local
 bastion_publish_bind: "127.0.0.1"
 
 # Edge nginx (hors scope deploy Docker — doc / smoke distant)
 bastion_edge_host: vmdmz-reverse01
 bastion_edge_host_ip: "172.24.0.108"
-# Même schéma que Keycloak : reverse01 → https://Traefik (Host: portal.*)
+# Upstream public : nginx edge sur docker01 (80/443) — Traefik optionnel / coupé
 bastion_upstream_url: "https://{{ bastion_docker_host_ip }}"
 bastion_traefik_network: vpcbr
 bastion_nginx_listen_port: 8080
-# Traefik file provider (Keycloak stack) — catch-all → bastion-nginx for Host discovery
+# Traefik file provider — désactivé quand nginx publie 80/443 en direct
 bastion_traefik_config_dir: /tools/keycloak/traefik-config
-bastion_traefik_catchall_deploy: true
+bastion_traefik_catchall_deploy: false
+bastion_require_traefik: false
 
 # Binds locaux sur docker01 (smoke on-host / debug)
 bastion_app_docker_bind_app: "127.0.0.1:8000"

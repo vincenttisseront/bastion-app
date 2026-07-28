@@ -5,9 +5,9 @@
 ## Topologie
 
 ```
-Internet → reverse01 (optionnel / transition)
-         → Traefik ou SNI → bastion-nginx:8443 (certs ACME)
-         → :8080 (portal / subdomain SSO / public_proxy)
+Internet → bastion-nginx:80 → 301 HTTPS
+         → bastion-nginx:443 (certs ACME)
+    → :8080 (portal / subdomain SSO / public_proxy)
 acme-companion
   lit exports/acme-domains.json (tous les FQDN bastion)
   écrit data/certs/<fqdn>/{fullchain,privkey}.pem
@@ -22,9 +22,10 @@ Scope ACME : **portail + subdomain_proxy + public_proxy** (tous les flux front b
 | Client | acme.sh sidecar (`neilpang/acme.sh`) |
 | Challenge | DNS-01 (`dns_cf` / Cloudflare) |
 | Périmètre | Tous les FQDN bastion (portal + subdomain + public_proxy) |
-| TLS listen | `0.0.0.0:8443` (conf générée si certs présents) |
+| TLS listen | `0.0.0.0:443` (+ `:80` → 301 HTTPS) |
 | Reload | watcher nginx (mtime exports + pem) — **pas** de docker.sock |
 | Secrets | `.env.acme` (gitignored), modèle `.env.acme.example` |
+| Edge | **nginx Docker** (Traefik coupé) |
 
 ## Fichiers
 
@@ -58,14 +59,10 @@ Les images `neilpang/acme.sh` récentes utilisent **ZeroSSL** par défaut (EAB +
 Le reconcile force `--server letsencrypt` / `letsencrypt_test` et `--set-default-ca`.
 Après mise à jour des scripts : redémarrer `bastion-acme`, puis **Réconcilier**.
 
-## Hors scope (infra sœur)
+## Hors scope / DNS
 
-Pour que le navigateur public voie le cert LE du bastion :
-
-- reverse01 : passthrough **TCP/SNI** vers docker01:8443 pour ces FQDN, **ou**
-- Traefik : routeur TCP TLS passthrough vers `bastion-nginx:8443`
-
-Sans cela, le chemin actuel `reverse01 HTTPS → Traefik (cert défaut catch-all) → :8080` ne présente **pas** les certs ACME Docker. Corriger aussi le DNS (`teleport` → reverse01) si on reste sur le wildcard LE edge.
+Les FQDN publics (A/AAAA/CNAME) doivent pointer vers **docker01** (ou reverse01 en passthrough TCP/SNI vers docker01:443).
+Sans cert ACME prêt, nginx sert un certificat default snakeoil (navigateur « Non sécurisé ») jusqu’à reconcile OK.
 
 ## Correspondance conception → code
 
@@ -74,11 +71,12 @@ Sans cela, le chemin actuel `reverse01 HTTPS → Traefik (cert défaut catch-all
 | Export `acme-domains.json` | OK |
 | Sidecar acme-companion | OK |
 | reconcile + prune | OK |
-| nginx :8443 + volume certs :ro | OK |
+| nginx :443 + volume certs :ro | OK |
+| HTTP :80 → 301 HTTPS | OK |
 | Reload sans docker.sock | OK (watcher) |
 | `.env.acme.example` | OK |
 | Admin → ACME UI | OK (`/admin/acme`, SQLite `acme_settings`) |
 | Live logs + `/api/admin/acme/status` | OK |
 | Runtime env export | OK (`exports/acme-runtime.env`) |
-| reverse01 / Traefik TCP | Hors scope |
+| Traefik labels / catch-all | Retiré (nginx edge) |
 | Migration portal / subdomain | Non (volontaire) |

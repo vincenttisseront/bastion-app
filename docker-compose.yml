@@ -1,16 +1,13 @@
 # Bastion applicatif — Phase 7
 #
-# Topologie cible (front only) :
-#   clients → Traefik :443 (TLS) Host=portal|app FQDNs
-#       → bastion-nginx:8080 (vpcbr)
-#           portal → vhost_sso_portal
-#           apps   → exports/nginx-subdomain-apps.conf (App DB + hop)
+# Topologie (front) — Traefik coupé, nginx edge :
+#   clients → bastion-nginx:80 → 301 HTTPS
+#          → bastion-nginx:443 (certs ACME DNS-01)
+#              → :8080 (portal / subdomain SSO / public_proxy)
 #
-# Transition : reverse01 peut encore router certains Hosts ; inventaire Ansible
-# nginx_subdomain_sso_vhosts est legacy — préférer l'export DB.
+# Réseau vpcbr (10.5.0.0/16) conservé pour bastion-app / oauth2 / Keycloak.
 #
-# Smoke local sans Traefik :
-#   docker network create --subnet=10.5.0.0/16 vpcbr   # si absent
+# Smoke local (loopback HTTP only) :
 #   docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d
 
 name: bastion
@@ -116,26 +113,10 @@ services:
         aliases:
           - bastion-nginx
           - nginx
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=vpcbr"
-      # Portal FQDN (higher priority than catch-all via longer Host rule).
-      - "traefik.http.routers.bastion-portal.rule=Host(`${PORTAL_DOMAIN:-portal.ar-systems.fr}`)"
-      - "traefik.http.routers.bastion-portal.entrypoints=websecure"
-      - "traefik.http.routers.bastion-portal.tls=true"
-      - "traefik.http.routers.bastion-portal.tls.certresolver=cloudflare"
-      - "traefik.http.routers.bastion-portal.middlewares=secure-headers@file"
-      - "traefik.http.services.bastion-portal.loadbalancer.server.port=8080"
-      - "traefik.http.routers.bastion-portal.service=bastion-portal"
-      # Catch-all (priority 1 = lowest): unknown Hosts → bastion-nginx discovery.
-      # Required for Admin → Domaines. No certresolver: reverse01 terminates
-      # public TLS; Traefik↔reverse01 uses the default cert (verify off).
-      - "traefik.http.routers.bastion-catchall.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.bastion-catchall.priority=1"
-      - "traefik.http.routers.bastion-catchall.entrypoints=websecure"
-      - "traefik.http.routers.bastion-catchall.tls=true"
-      - "traefik.http.routers.bastion-catchall.service=bastion-portal"
-      - "traefik.http.routers.bastion-catchall.middlewares=secure-headers@file"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_portal_nginx_ok"]
       interval: 15s
@@ -151,7 +132,7 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # Let's Encrypt DNS-01 (Cloudflare) for public_proxy FQDNs → certs used on nginx :8443
+  # Let's Encrypt DNS-01 (Cloudflare) → certs for nginx :443
   acme-companion:
     image: neilpang/acme.sh:latest
     container_name: bastion-acme
@@ -182,7 +163,7 @@ services:
     restart: unless-stopped
 
 networks:
-  # Réseau Traefik / Keycloak existant (IPAM 10.5.0.0/16 — ne pas recréer)
+  # Réseau partagé (IPAM 10.5.0.0/16 — ne pas recréer ; OK sans Traefik)
   vpcbr:
     external: true
     name: vpcbr

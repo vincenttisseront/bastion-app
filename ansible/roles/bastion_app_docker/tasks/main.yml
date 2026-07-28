@@ -296,12 +296,11 @@
   changed_when: false
   failed_when: false
 
-- name: "Fail if vpcbr missing (must be owned by Keycloak/Traefik stack)"
+- name: "Fail if vpcbr missing (shared Docker network)"
   ansible.builtin.fail:
     msg: >-
       Réseau Docker {{ bastion_traefik_network }} introuvable.
-      Ne pas le créer à la main : il doit déjà exister avec Traefik (stack Keycloak sous /tools/keycloak),
-      IPAM 10.5.0.0/16.
+      Il doit déjà exister (IPAM 10.5.0.0/16), historiquement créé avec la stack Keycloak.
   when: _vpcbr.rc | default(1) != 0
 
 - name: "PREFLIGHT : vpcbr subnet is 10.5.0.0/16"
@@ -326,6 +325,7 @@
   register: _traefik_on_vpcbr
   changed_when: false
   failed_when: _traefik_on_vpcbr.rc != 0
+  when: bastion_require_traefik | default(false) | bool
 
 - name: "Docker compose build"
   ansible.builtin.command:
