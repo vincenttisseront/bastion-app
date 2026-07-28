@@ -35,6 +35,34 @@ server {
     error_page 429 = @portal_rate_limited;
     include /etc/nginx/includes/waf-basic.conf;
 
+    # Unknown Host discovery (bastion-nginx): Hosts not in nginx-known-hosts.map
+    # are rewritten to a stub that records PendingHost + returns 503.
+    # Map $bastion_unknown_host is loaded from conf.d/00-known-hosts-map.conf.
+    # Keep portal as the only default_server — do not add a second one.
+    if ($bastion_unknown_host) {
+        rewrite ^ /__bastion_unknown_host last;
+    }
+
+    location = /__bastion_unknown_host {
+        internal;
+        auth_request off;
+        proxy_intercept_errors off;
+        limit_req zone=portal_api burst=20 nodelay;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_set_header X-Discovered-Host $host;
+        proxy_set_header X-Original-URI $request_uri;
+        proxy_set_header X-Original-Method $request_method;
+        proxy_pass http://$bastion_app_upstream/internal/unknown-host;
+    }
+
+    # Public URL must not reach FastAPI without the internal rewrite + token.
+    location = /internal/unknown-host {
+        internal;
+        return 404;
+    }
+
     location @portal_rate_limited {
         default_type text/html;
         add_header X-Rate-Limited-By "portal-nginx" always;

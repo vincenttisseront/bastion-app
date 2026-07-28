@@ -37,7 +37,12 @@ from app.breakglass_store import (
     verify_breakglass_password,
 )
 from app.database import get_db
-from app.models import AccessGrant, App, RBACGroup, RealmConfig
+from app.models import AccessGrant, App, PendingHost, RBACGroup, RealmConfig
+from app.bastion.pending_host_service import (
+    approve_pending_host,
+    reject_pending_host,
+    suggest_slug,
+)
 from app.rbac.grants_service import count_grants_by_application
 from app.robotic.robotic_session_cookies import shared_parent_domain
 from app.sso_settings import Settings, get_settings
@@ -637,6 +642,118 @@ def admin_apps_list(
 ):
     apps = db.query(App).order_by(App.slug).all()
     return render("admin/apps/list.html", **_ctx(request, settings, apps=apps))
+
+
+@admin_router.get("/admin/pending-hosts")
+def admin_pending_hosts_list(
+    request: Request,
+    status: str = Query("pending"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    status_filter = (status or "pending").strip().lower()
+    query = db.query(PendingHost)
+    if status_filter != "all":
+        query = query.filter_by(status=status_filter)
+    rows = query.order_by(PendingHost.last_seen_at.desc()).limit(500).all()
+    return render(
+        "admin/pending_hosts/list.html",
+        **_ctx(request, settings, rows=rows, status_filter=status_filter),
+    )
+
+
+@admin_router.get("/admin/pending-hosts/{host_id}/approve")
+def admin_pending_host_approve_form(
+    host_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    row = db.query(PendingHost).filter_by(id=host_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Hôte introuvable")
+    return render(
+        "admin/pending_hosts/approve.html",
+        **_ctx(
+            request,
+            settings,
+            row=row,
+            form_values={
+                "slug": suggest_slug(row.hostname),
+                "label": row.hostname,
+                "upstream_url": "",
+            },
+            errors={},
+        ),
+    )
+
+
+@admin_router.post("/admin/pending-hosts/{host_id}/approve")
+def admin_pending_host_approve_post(
+    host_id: int,
+    request: Request,
+    slug: str = Form(...),
+    label: str = Form(...),
+    upstream_url: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    row = db.query(PendingHost).filter_by(id=host_id).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Hôte introuvable")
+    form_values = {"slug": slug, "label": label, "upstream_url": upstream_url}
+    try:
+        _, app = approve_pending_host(
+            db,
+            settings,
+            host_id=host_id,
+            actor=user.email,
+            upstream_url=upstream_url,
+            slug=slug,
+            label=label,
+        )
+    except ValueError as exc:
+        return render(
+            "admin/pending_hosts/approve.html",
+            **_ctx(
+                request,
+                settings,
+                row=row,
+                form_values=form_values,
+                errors={"_form": str(exc)},
+            ),
+        )
+    response = RedirectResponse(url="/admin/pending-hosts?status=approved", status_code=302)
+    flash_redirect(
+        response,
+        f"Domaine « {app.public_fqdn} » approuvé → app {app.slug}. "
+        "Lancer Apply infra pour recharger bastion-nginx.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.post("/admin/pending-hosts/{host_id}/reject")
+def admin_pending_host_reject_post(
+    host_id: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    try:
+        row = reject_pending_host(db, host_id=host_id, actor=user.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    response = RedirectResponse(url="/admin/pending-hosts?status=rejected", status_code=302)
+    flash_redirect(
+        response,
+        f"Domaine « {row.hostname} » rejeté.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
 
 
 @admin_router.get("/admin/apps/create")

@@ -1,8 +1,8 @@
 # Traefik file-provider example — catch-all → bastion-nginx:8080
 #
 # After bastion-nginx owns Host routing (portal + infra proxies + App DB exports),
-# point Traefik at this file (or equivalent) and REMOVE Host-specific routers on
-# Keycloak / Grafana / Wiki containers so they no longer bypass bastion-nginx.
+# point Traefik at this file (or equivalent). reverse01 may stay a TLS passthrough
+# until removed; discovery + approval live on bastion-nginx, not on the edge.
 #
 # Example (docker01 Traefik static config):
 #   providers:
@@ -11,10 +11,10 @@
 #
 # Cutover checklist:
 #   1. Deploy bastion with bastion_infra_proxy_vhosts (Keycloak, …)
-#   2. Enable reverse01 catch-all (bastion_edge_catchall_enabled)
-#   3. Load this dynamic config / recreate Traefik
-#   4. Disable legacy Keycloak Traefik labels (Host rules)
-#   5. Smoke: portal, keycloak, one subdomain_proxy, one public_proxy
+#   2. Load this dynamic config / recreate Traefik (required for unknown Host discovery)
+#   3. Disable legacy Keycloak Traefik labels (Host rules)
+#   4. Smoke: portal, keycloak, one subdomain_proxy, one public_proxy
+#   5. Hit an unknown FQDN → Admin → Domaines découverts → Approuver
 
 http:
   routers:

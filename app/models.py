@@ -753,6 +753,26 @@ class EncryptionKeyVersion(Base):
     source = Column(String, nullable=True)  # generated | migrated_from_env | rotated
 
 
+class PendingHost(Base):
+    """Unknown Host discovered by bastion-nginx (awaiting admin approval)."""
+
+    __tablename__ = "pending_hosts"
+
+    id = Column(Integer, primary_key=True)
+    hostname = Column(String, unique=True, nullable=False, index=True)
+    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    hit_count = Column(Integer, nullable=False, default=1)
+    last_client_ip = Column(String, nullable=True)
+    last_user_agent = Column(String, nullable=True)
+    last_uri = Column(String, nullable=True)
+    # pending | approved | rejected
+    status = Column(String, nullable=False, default="pending", index=True)
+    approved_app_slug = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class DependencySnapshot(Base):
     """Inventory of Python / npm packages with local vs registry versions."""
 

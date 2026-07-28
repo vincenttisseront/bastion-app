@@ -60,8 +60,16 @@ bash scripts/smoke-docker-local.sh
 
 ### Nouvelle app `public_proxy` / `subdomain_proxy`
 
-Admin → Apps + infrastructure apply. DNS A/CNAME → reverse01 suffit : le catch-all
-envoie déjà le Host au bastion. **Plus de ticket DMZ par FQDN.**
+Admin → Apps + infrastructure apply. DNS A/CNAME → reverse01 (passe-plat) suffit si
+Traefik catch-all envoie le Host à bastion-nginx. **Plus de ticket DMZ par FQDN.**
+
+### Domaines découverts (approval)
+
+bastion-nginx enregistre les `Host:` inconnus (hors map connue) →
+**Admin → Domaines**. Approuver = crée une app `public_proxy` (upstream saisi) +
+régénère `nginx-known-hosts.map` / `nginx-public-proxy-apps.conf`. Puis Apply infra.
+Prérequis : Traefik catch-all vers bastion-nginx (`docker/traefik/bastion-catchall.example.yml`).
+reverse01 n’est pas la source de découverte (passe-plat temporaire).
 
 ### Rôles
 

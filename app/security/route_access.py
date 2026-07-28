@@ -22,6 +22,7 @@ SECURITY_DEPENDENCY_NAMES: frozenset[str] = frozenset(
         "require_user",
         "require_user_enriched",
         "require_internal_token",
+        "require_nginx_internal_token",
     }
 )
 

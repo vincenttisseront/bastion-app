@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Domaines découverts{% endblock %}
+{% block breadcrumb %}Admin / Domaines découverts{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Domaines découverts</h1>
+      <p class="page-sub">
+        Hosts inconnus vus par bastion-nginx — approuver en proxy public (sans auth bastion)
+        ou rejeter. Après approbation, lancer Apply infra pour recharger nginx.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">File d’attente · {{ rows | length }}</span>
+      <div class="card-header-actions">
+        <div class="filter-group" role="group" aria-label="Filtrer par statut">
+          <a href="/admin/pending-hosts?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">En attente</a>
+          <a href="/admin/pending-hosts?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">Approuvés</a>
+          <a href="/admin/pending-hosts?status=rejected" class="filter-chip{% if status_filter == 'rejected' %} active{% endif %}">Rejetés</a>
+          <a href="/admin/pending-hosts?status=all" class="filter-chip{% if status_filter == 'all' %} active{% endif %}">Tout</a>
+        </div>
+      </div>
+    </div>
+    <div class="card-body card-flush">
+      <div class="table-wrap">
+        <table class="data-table" id="pending-hosts-table">
+          <thead>
+            <tr>
+              <th>Hostname</th>
+              <th>Hits</th>
+              <th>Dernière vue</th>
+              <th>IP / URI</th>
+              <th>Statut</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td><code class="mono">{{ row.hostname }}</code></td>
+              <td>{{ row.hit_count }}</td>
+              <td class="mono">{{ row.last_seen_at }}</td>
+              <td>
+                <div class="mono">{{ row.last_client_ip or '—' }}</div>
+                <div class="muted" style="font-size:.85em;max-width:18rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ row.last_uri or '' }}</div>
+              </td>
+              <td>
+                {% if row.status == 'pending' %}
+                <span class="badge badge-warn">en attente</span>
+                {% elif row.status == 'approved' %}
+                <span class="badge badge-ok">approuvé{% if row.approved_app_slug %} · {{ row.approved_app_slug }}{% endif %}</span>
+                {% else %}
+                <span class="badge">rejeté</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if row.status == 'pending' %}
+                <a href="/admin/pending-hosts/{{ row.id }}/approve" class="btn btn-primary btn-sm">Approuver</a>
+                <form method="post" action="/admin/pending-hosts/{{ row.id }}/reject" style="display:inline;">
+                  <button type="submit" class="btn btn-ghost btn-sm">Rejeter</button>
+                </form>
+                {% elif row.status == 'approved' and row.approved_app_slug %}
+                <a href="/admin/apps/{{ row.approved_app_slug }}/edit" class="btn btn-ghost btn-sm">Voir l’app</a>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6">
+                <div class="empty-state" style="padding:2rem;">
+                  <div class="empty-title">Aucun domaine {{ status_filter if status_filter != 'all' else '' }}</div>
+                  <div class="empty-desc">
+                    Les Hosts inconnus apparaissent ici dès qu’un client atteint bastion-nginx
+                    (Traefik catch-all requis). reverse01 n’est pas la source de découverte.
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

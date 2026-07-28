@@ -155,6 +155,7 @@ def generate_nginx_apps_conf(db: Session) -> str:
 
 
 def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str]:
+    from app.bastion.nginx_known_hosts_export import write_known_hosts_map
     from app.bastion.nginx_public_proxy_export import write_public_proxy_apps_exports
     from app.bastion.nginx_subdomain_export import write_subdomain_apps_exports
 
@@ -164,6 +165,7 @@ def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str
     paths = {"nginx_apps_conf": str(apps_path)}
     paths.update(write_subdomain_apps_exports(db, settings))
     paths.update(write_public_proxy_apps_exports(db, settings))
+    paths["nginx_known_hosts_map"] = str(write_known_hosts_map(db, settings))
     return paths
 
 

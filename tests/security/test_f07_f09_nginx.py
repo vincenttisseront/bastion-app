@@ -23,6 +23,16 @@ def _assert_internal_locations(text: str, path: str) -> None:
         assert "internal;" in block, f"{path}: {name} must be internal"
 
 
+def test_docker_portal_unknown_host_location_is_internal():
+    path = ROOT / "docker/nginx/templates/vhost_sso_portal.conf.template"
+    text = path.read_text(encoding="utf-8")
+    assert "location = /internal/unknown-host" in text
+    idx = text.index("location = /internal/unknown-host")
+    assert "internal;" in text[idx : idx + 200]
+    assert "location = /__bastion_unknown_host" in text
+    assert "$bastion_unknown_host" in text
+
+
 def test_docker_portal_vhost_is_default_server_on_8080():
     """Portal must own default_server — conf.d is alphabetical (nginx-*.conf first)."""
     path = ROOT / "docker/nginx/templates/vhost_sso_portal.conf.template"

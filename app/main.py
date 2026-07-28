@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.auth import router as auth_router
 from app.admin.infrastructure import router as infrastructure_router
+from app.bastion.unknown_host_routes import router as unknown_host_router
 from app.admin.realms import router as admin_realms_router
 from app.admin.rbac_access import router as admin_rbac_access_router
 from app.admin.rbac_governance import router as admin_rbac_governance_router
@@ -208,6 +209,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
 app.include_router(pages_router)
 app.include_router(pages_user_router)
 app.include_router(pages_admin_router)
+app.include_router(unknown_host_router)
 app.include_router(portal_router)
 app.include_router(files_browser_router)
 app.include_router(global_search_router)

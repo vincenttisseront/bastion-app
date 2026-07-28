@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Approuver {{ row.hostname }}{% endblock %}
+{% block breadcrumb %}Admin / Domaines découverts / Approuver{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Approuver le domaine</h1>
+      <p class="page-sub">
+        Crée une application <strong>Proxy public (sans auth)</strong> pour
+        <code class="mono">{{ row.hostname }}</code>. Saisir l’URL backend interne (proxy_pass).
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <form method="post" action="/admin/pending-hosts/{{ row.id }}/approve" class="form-stack">
+        <div class="form-section">
+          <div class="form-section-title">Application</div>
+          <div class="form-row">
+            <label class="form-label" for="slug">Slug</label>
+            <input class="form-input{% if errors.slug %} is-invalid{% endif %}" id="slug" name="slug" value="{{ form_values.slug }}" required>
+            {% if errors.slug %}<p class="form-error">{{ errors.slug }}</p>{% endif %}
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="label">Libellé</label>
+            <input class="form-input{% if errors.label %} is-invalid{% endif %}" id="label" name="label" value="{{ form_values.label }}" required>
+            {% if errors.label %}<p class="form-error">{{ errors.label }}</p>{% endif %}
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="public_fqdn">Domaine public</label>
+            <input class="form-input" id="public_fqdn" value="{{ row.hostname }}" disabled>
+            <p class="form-help">Issu de la découverte — non modifiable.</p>
+          </div>
+          <div class="form-row">
+            <label class="form-label" for="upstream_url">URL backend interne (proxy_pass) <span class="req">*</span></label>
+            <input class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" id="upstream_url" name="upstream_url"
+                   value="{{ form_values.upstream_url }}" placeholder="https://172.24.0.x:443/" required>
+            {% if errors.upstream_url %}<p class="form-error">{{ errors.upstream_url }}</p>{% endif %}
+            <p class="form-help">Cible Docker / IP vpcbr. Aucune auth bastion ne sera appliquée.</p>
+          </div>
+          {% if errors._form %}<p class="form-error">{{ errors._form }}</p>{% endif %}
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Approuver et créer</button>
+          <a href="/admin/pending-hosts" class="btn btn-ghost">Annuler</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -168,6 +168,17 @@ if command -v docker >/dev/null 2>&1; then
       cp -a /var/lib/sso-portal/exports/nginx-infra-proxy-apps.conf \
         /etc/nginx/conf.d/nginx-infra-proxy-apps.conf
     fi
+    if [ ! -f /var/lib/sso-portal/exports/nginx-known-hosts.map ]; then
+      printf '%s\n' '127.0.0.1 0;' 'localhost 0;' > /var/lib/sso-portal/exports/nginx-known-hosts.map
+    fi
+    if [ ! -f /etc/nginx/conf.d/00-known-hosts-map.conf ]; then
+      cat > /etc/nginx/conf.d/00-known-hosts-map.conf <<EOF
+map \$host \$bastion_unknown_host {
+    default 1;
+    include /var/lib/sso-portal/exports/nginx-known-hosts.map;
+}
+EOF
+    fi
     nginx -t && nginx -s reload
   ' 2>/dev/null || docker compose restart nginx
 else
