@@ -682,6 +682,8 @@
   register: _apply_docker
   failed_when: false
   changed_when: _apply_docker.rc == 0
+  # compose up + nginx reload ; ACME est async (sentinel) — ne doit pas bloquer le job
+  timeout: 180
 
 - name: "Warn if apply-infra-docker failed"
   ansible.builtin.debug:

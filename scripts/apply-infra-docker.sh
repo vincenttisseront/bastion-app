@@ -197,10 +197,14 @@ EOS
     echo "WARN: nginx conf refresh via exec failed — restarting nginx container" >&2
     docker compose restart nginx || true
   fi
-  # Reconcile ACME certs for public_proxy (DNS-01) after exports are fresh
+  # ACME: never run reconcile-certs.sh inline here (DNS-01 × N domaines bloque
+  # Ansible plusieurs minutes). Signal async — le sidecar poll ~5 s.
+  CERTS_HOST="${SSO_PORTAL_DATA_DIR:-${COMPOSE_DIR}/data/sso-portal}/certs"
   if docker compose ps --status running --services 2>/dev/null | grep -qx acme-companion; then
-    docker compose exec -T acme-companion /bin/sh /reconcile-certs.sh \
-      || echo "WARN: acme reconcile failed" >&2
+    mkdir -p "$CERTS_HOST"
+    date -u +%Y-%m-%dT%H:%M:%SZ > "${CERTS_HOST}/.reconcile_request" 2>/dev/null \
+      || echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${CERTS_HOST}/.reconcile_request"
+    echo "ACME: signal .reconcile_request écrit (${CERTS_HOST}) — émission async via sidecar"
   fi
 else
   echo "docker indisponible — override écrit, compose up ignoré" >&2

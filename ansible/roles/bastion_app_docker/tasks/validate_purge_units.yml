@@ -50,6 +50,7 @@
   register: _purge_apply
   changed_when: _purge_apply.rc == 0
   failed_when: false
+  timeout: 180
 
 - name: "VALIDATE_PURGE : contenu liste (après apply)"
   ansible.builtin.slurp:

@@ -55,6 +55,8 @@ def test_apply_infra_docker_script_exists():
     assert "purge-units.list" in body
     assert "oauth2-proxy-portal-" in body
     assert "nginx-infra-proxy-apps.conf" in body
+    assert ".reconcile_request" in body
+    assert "exec -T acme-companion" not in body
 
 
 def test_validate_purge_units_task_present():
