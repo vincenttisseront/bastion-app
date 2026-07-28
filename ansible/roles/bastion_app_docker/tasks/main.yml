@@ -414,13 +414,18 @@
     print("SSO auth + generic vault driver image OK")
     PY
     echo "=== nginx entrypoint (must not write RO exports map) ==="
-    if docker run --rm --entrypoint grep -q bastion-nginx:local \
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
       'exports/ is mounted :ro' /docker-entrypoint-portal.sh; then
       echo "nginx entrypoint has RO-exports fix OK"
     else
       echo "OLD nginx image — entrypoint still pre-fix or AWX project not on master (need >= 16ecd55)."
       echo "---- entrypoint lines 40-65 ----"
       docker run --rm --entrypoint sed bastion-nginx:local -n '40,65p' /docker-entrypoint-portal.sh || true
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'seen[\$1]' /docker-entrypoint-portal.sh; then
+      echo "nginx entrypoint missing map-key dedupe (awk seen[]) — rebuild nginx image"
       exit 1
     fi
     echo "=== nginx status ==="
