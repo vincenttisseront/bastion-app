@@ -48,7 +48,6 @@ retire_legacy_duplicate
   echo "# HTTP → HTTPS (edge nginx, no Traefik)"
   echo "server {"
   echo "    listen 0.0.0.0:80 default_server;"
-  echo "    listen [::]:80 default_server;"
   echo "    server_name _;"
   echo "    return 301 https://\$host\$request_uri;"
   echo "}"
@@ -60,7 +59,6 @@ if [[ -f "$DEFAULT_CERT" && -f "$DEFAULT_KEY" ]]; then
 # Default HTTPS (unknown SNI / bootstrap before ACME)
 server {
     listen 0.0.0.0:443 ssl default_server;
-    listen [::]:443 ssl default_server;
     server_name _;
 
     ssl_certificate     ${DEFAULT_CERT};
@@ -117,7 +115,6 @@ while IFS=$'\t' read -r fqdn slug family; do
 # [${slug}] ${family} TLS terminator — ${fqdn}
 server {
     listen 0.0.0.0:443 ssl;
-    listen [::]:443 ssl;
     server_name ${fqdn_esc};
 
     ssl_certificate     ${cert};
