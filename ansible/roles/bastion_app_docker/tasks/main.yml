@@ -400,12 +400,12 @@
     s = get_settings()
     print("rfc1918_bypass_enabled=", s.rfc1918_bypass_enabled)
     assert s.rfc1918_bypass_enabled is False, "RFC1918_BYPASS_ENABLED must be false behind Traefik"
-    echo "SSO auth + generic vault driver image OK")
+    print("SSO auth + generic vault driver image OK")
     PY
     echo "=== nginx status ==="
-    if ! docker inspect -f '{{.State.Status}}' bastion-nginx 2>/dev/null | grep -qx running; then
+    if ! docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' bastion-nginx 2>/dev/null | grep -qx running; then
       echo "bastion-nginx is not running (often nginx -t fail on known-hosts map)."
-      docker inspect -f 'status={{.State.Status}} exit={{.State.ExitCode}} OOM={{.State.OOMKilled}}' bastion-nginx 2>/dev/null || true
+      docker inspect -f '{% raw %}status={{.State.Status}} exit={{.State.ExitCode}} OOM={{.State.OOMKilled}}{% endraw %}' bastion-nginx 2>/dev/null || true
       echo "---- docker logs bastion-nginx (tail 100) ----"
       docker logs --tail 100 bastion-nginx 2>&1 || true
       exit 1
