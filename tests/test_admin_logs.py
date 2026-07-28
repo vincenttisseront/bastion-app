@@ -187,6 +187,8 @@ def test_logs_detail_drawer_replaces_voir_plus(client: TestClient, db_session: S
     )
     assert 'id="audit-filters"' in resp.text
     assert 'class="logs-filters"' in resp.text or "logs-filters" in resp.text
+    assert "logs-filters-row" in resp.text
+    assert "logs-filters-grid" in resp.text
     assert 'id="audit-drawer"' in resp.text
     assert 'id="audit-drawer-backdrop"' in resp.text
     assert "data-entry=" in resp.text
