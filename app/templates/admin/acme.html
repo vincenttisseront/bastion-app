@@ -3,7 +3,9 @@
 {% block breadcrumb %}Admin / ACME{% endblock %}
 
 {% block content %}
-<div class="page">
+<div class="page" id="acme-page"
+     data-status-url="/api/admin/acme/status"
+     data-initial-status="{{ cfg.last_reconcile_status or '' }}">
   <div class="page-header">
     <div>
       <h1 class="page-title">ACME / Let's Encrypt</h1>
@@ -18,6 +20,15 @@
           Réconcilier maintenant
         </button>
       </form>
+    </div>
+  </div>
+
+  <div class="alert alert-info mb-4">
+    <div class="alert-body">
+      <strong>DNS-01 Cloudflare — pas de record manuel.</strong>
+      acme.sh crée et supprime automatiquement les TXT
+      <span class="mono">_acme-challenge.&lt;fqdn&gt;</span> via l’API (token Zone.DNS Edit).
+      Seuls les enregistrements publics A/AAAA/CNAME vers le bastion restent hors ACME.
     </div>
   </div>
 
@@ -44,16 +55,17 @@
         {% else %}
         <span class="badge badge-err">Sans token CF</span>
         {% endif %}
+        <span class="badge badge-muted" id="acme-live-badge" hidden>Live</span>
       </div>
     </div>
     <div class="card-body">
       <div class="stats-row" style="display:flex;gap:1.5rem;flex-wrap:wrap">
-        <div><div class="form-hint">Domaines</div><div class="mono" style="font-size:1.25rem">{{ counts.total }}</div></div>
-        <div><div class="form-hint">OK</div><div class="mono" style="font-size:1.25rem;color:var(--ok,#3d9)">{{ counts.ok }}</div></div>
-        <div><div class="form-hint">Renew ≤30j</div><div class="mono" style="font-size:1.25rem;color:var(--warn,#c90)">{{ counts.renew_soon }}</div></div>
-        <div><div class="form-hint">Manquants / placeholder</div><div class="mono" style="font-size:1.25rem;color:var(--err,#e55)">{{ counts.missing }}</div></div>
+        <div><div class="form-hint">Domaines</div><div class="mono" style="font-size:1.25rem" id="acme-count-total">{{ counts.total }}</div></div>
+        <div><div class="form-hint">OK</div><div class="mono" style="font-size:1.25rem;color:var(--ok,#3d9)" id="acme-count-ok">{{ counts.ok }}</div></div>
+        <div><div class="form-hint">Renew ≤30j</div><div class="mono" style="font-size:1.25rem;color:var(--warn,#c90)" id="acme-count-renew">{{ counts.renew_soon }}</div></div>
+        <div><div class="form-hint">Manquants / placeholder</div><div class="mono" style="font-size:1.25rem;color:var(--err,#e55)" id="acme-count-missing">{{ counts.missing }}</div></div>
       </div>
-      <p class="form-help mt-3 mb-0">
+      <p class="form-help mt-3 mb-0" id="acme-reconcile-summary">
         Dernière réconciliation :
         {% if cfg.last_reconcile_at %}
           <span class="mono">{{ cfg.last_reconcile_at }}</span>
@@ -75,6 +87,18 @@
     </div>
   </div>
 
+  <div class="card mb-4" id="acme-logs">
+    <div class="card-header">
+      <span class="card-title">Logs Let's Encrypt (live)</span>
+      <div class="card-header-actions">
+        <span class="form-hint mono" id="acme-log-meta">polling…</span>
+      </div>
+    </div>
+    <div class="card-body" style="padding:0">
+      <pre id="acme-log-view" class="mono" style="margin:0;padding:1rem;max-height:22rem;overflow:auto;font-size:0.75rem;line-height:1.45;background:var(--surface-2,rgba(0,0,0,.25));border:0;white-space:pre-wrap;word-break:break-word">Chargement des logs sidecar…</pre>
+    </div>
+  </div>
+
   <div class="card mb-4">
     <div class="card-header">
       <span class="card-title">Domaines couverts (bastion)</span>
@@ -82,7 +106,7 @@
     <div class="card-body card-flush">
       {% if domains %}
       <div class="table-wrap">
-        <table class="data-table">
+        <table class="data-table" id="acme-domains-table">
           <thead>
             <tr>
               <th>FQDN</th>
@@ -94,9 +118,9 @@
               <th>Émetteur</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="acme-domains-tbody">
             {% for d in domains %}
-            <tr>
+            <tr data-fqdn="{{ d.fqdn }}">
               <td class="mono">{{ d.fqdn }}</td>
               <td>
                 {% if d.family == 'portal' %}
@@ -114,7 +138,7 @@
                 <span class="badge badge-muted">Proxy public</span>
                 {% endif %}
               </td>
-              <td>
+              <td class="acme-status-cell">
                 {% if d.status == 'ok' %}
                 <span class="badge badge-ok">OK</span>
                 {% elif d.status == 'renew_soon' %}
@@ -127,9 +151,9 @@
                 <span class="badge badge-err">Absent</span>
                 {% endif %}
               </td>
-              <td class="mono">{{ d.not_after or '—' }}</td>
-              <td class="mono">{{ d.days_left if d.days_left is not none else '—' }}</td>
-              <td class="form-hint" style="max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ d.issuer or '' }}">{{ d.issuer or '—' }}</td>
+              <td class="mono acme-expire-cell">{{ d.not_after or '—' }}</td>
+              <td class="mono acme-days-cell">{{ d.days_left if d.days_left is not none else '—' }}</td>
+              <td class="form-hint acme-issuer-cell" style="max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ d.issuer or '' }}">{{ d.issuer or '—' }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -199,9 +223,10 @@
         </div>
 
           <p class="form-help">
-            « Réconcilier » met à jour les exports et signale le conteneur
-            <span class="mono">acme-companion</span> (pas besoin de Docker dans bastion-app).
-            Vérifiez <span class="mono">docker logs bastion-acme</span> si les certs restent absents.
+            « Réconcilier » met à jour les exports et signale
+            <span class="mono">acme-companion</span>. Les logs d’émission / renew
+            apparaissent en direct ci-dessus (fichier partagé
+            <span class="mono">certs/acme-reconcile.log</span>).
           </p>
         <div class="form-actions" style="margin-top:1.25rem;display:flex;gap:0.75rem">
           <button type="submit" class="btn btn-primary">Enregistrer</button>
@@ -211,4 +236,119 @@
     </div>
   </div>
 </div>
+<script>
+(function () {
+  var root = document.getElementById('acme-page');
+  if (!root) return;
+  var url = root.getAttribute('data-status-url');
+  var logEl = document.getElementById('acme-log-view');
+  var metaEl = document.getElementById('acme-log-meta');
+  var badge = document.getElementById('acme-live-badge');
+  var summary = document.getElementById('acme-reconcile-summary');
+  var timer = null;
+  var lastText = '';
+
+  function statusBadge(st) {
+    if (st === 'ok') return '<span class="badge badge-ok">OK</span>';
+    if (st === 'renew_soon') return '<span class="badge badge-warn">Renew bientôt</span>';
+    if (st === 'placeholder') return '<span class="badge badge-muted">Placeholder</span>';
+    if (st === 'expired') return '<span class="badge badge-err">Expiré</span>';
+    return '<span class="badge badge-err">Absent</span>';
+  }
+
+  function reconcileBadge(st) {
+    if (st === 'ok') return '<span class="badge badge-ok">ok</span>';
+    if (st === 'pending') return '<span class="badge badge-muted">pending</span>';
+    if (st === 'skipped') return '<span class="badge badge-muted">skipped</span>';
+    return '<span class="badge badge-err">' + (st || '—') + '</span>';
+  }
+
+  function applyDomains(domains) {
+    if (!Array.isArray(domains)) return;
+    domains.forEach(function (d) {
+      var row = document.querySelector('#acme-domains-tbody tr[data-fqdn="' + CSS.escape(d.fqdn) + '"]');
+      if (!row) return;
+      var sc = row.querySelector('.acme-status-cell');
+      var ec = row.querySelector('.acme-expire-cell');
+      var dc = row.querySelector('.acme-days-cell');
+      var ic = row.querySelector('.acme-issuer-cell');
+      if (sc) sc.innerHTML = statusBadge(d.status);
+      if (ec) ec.textContent = d.not_after || '—';
+      if (dc) dc.textContent = (d.days_left == null ? '—' : d.days_left);
+      if (ic) {
+        ic.textContent = d.issuer || '—';
+        ic.setAttribute('title', d.issuer || '');
+      }
+    });
+  }
+
+  function apply(data) {
+    if (!data) return;
+    if (badge) {
+      badge.hidden = false;
+      badge.textContent = data.sidecar_running ? 'Sidecar actif' : 'Live';
+      badge.className = 'badge ' + (data.sidecar_running ? 'badge-ok' : 'badge-muted');
+    }
+    var c = data.counts || {};
+    var el;
+    el = document.getElementById('acme-count-total'); if (el) el.textContent = c.total != null ? c.total : '—';
+    el = document.getElementById('acme-count-ok'); if (el) el.textContent = c.ok != null ? c.ok : '—';
+    el = document.getElementById('acme-count-renew'); if (el) el.textContent = c.renew_soon != null ? c.renew_soon : '—';
+    el = document.getElementById('acme-count-missing'); if (el) el.textContent = c.missing != null ? c.missing : '—';
+
+    if (summary) {
+      var msg = (data.last_reconcile_message || '').slice(0, 240);
+      summary.innerHTML =
+        'Dernière réconciliation : ' +
+        (data.last_reconcile_at
+          ? '<span class="mono">' + data.last_reconcile_at + '</span> — ' + reconcileBadge(data.last_reconcile_status) +
+            (msg ? ' <span class="form-hint">' + msg + '</span>' : '')
+          : '<span class="form-hint">jamais</span>');
+    }
+
+    applyDomains(data.domains);
+
+    var log = data.log || {};
+    var text = log.text || '';
+    if (!log.exists) {
+      text = 'Aucun log encore — lancez « Réconcilier » (sidecar acme-companion doit tourner).\n' +
+             'Fichier attendu : ' + (log.path || 'certs/acme-reconcile.log');
+    }
+    if (logEl && text !== lastText) {
+      var nearBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
+      logEl.textContent = (log.truncated ? '… (tronqué)\n' : '') + text;
+      lastText = text;
+      if (nearBottom) logEl.scrollTop = logEl.scrollHeight;
+    }
+    if (metaEl) {
+      var bits = [];
+      if (data.sidecar_running) bits.push('en cours');
+      if (data.reconcile_request_pending) bits.push('signal en attente');
+      if (log.exists) bits.push((log.size || 0) + ' o');
+      bits.push('rafraîchi');
+      metaEl.textContent = bits.join(' · ');
+    }
+    return data.poll_hint_seconds || 5;
+  }
+
+  function tick() {
+    fetch(url, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (data) {
+        var wait = apply(data) * 1000;
+        timer = setTimeout(tick, wait);
+      })
+      .catch(function (err) {
+        if (metaEl) metaEl.textContent = 'erreur poll: ' + err;
+        timer = setTimeout(tick, 8000);
+      });
+  }
+
+  tick();
+  if (location.hash === '#acme-logs') {
+    var box = document.getElementById('acme-logs');
+    if (box) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+})();
+</script>
 {% endblock %}

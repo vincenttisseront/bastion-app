@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,9 @@ ACME_SETTINGS_ID = 1
 DNS_APIS = frozenset({"dns_cf"})
 ACME_CAS = frozenset({"letsencrypt", "letsencrypt_test"})
 RENEW_SOON_DAYS = 30
+RECONCILE_LOG_NAME = "acme-reconcile.log"
+LAST_RUN_JSON_NAME = "acme-last-run.json"
+DEFAULT_LOG_TAIL_BYTES = 48_000
 
 
 @dataclass(frozen=True)
@@ -332,8 +336,160 @@ def trigger_reconcile(db: Session, settings: Settings, *, actor: str) -> tuple[b
     n_domains = len(build_acme_domains_manifest(db, settings).get("domains") or [])
     msg = (
         f"Demande envoyée à acme-companion ({n_domains} domaine(s)). "
-        "Émission DNS-01 sous ~30 s si le sidecar tourne et le token CF est valide. "
-        "Rechargez cette page ensuite."
+        "Émission DNS-01 automatique via API Cloudflare (pas de TXT manuel) — "
+        "suivez les logs en direct sur cette page."
     )
     record_reconcile_result(db, status="pending", message=msg, actor=actor)
     return True, msg
+
+
+def read_acme_reconcile_log(settings: Settings, *, max_bytes: int = DEFAULT_LOG_TAIL_BYTES) -> dict[str, Any]:
+    """Tail of sidecar reconcile log (shared certs volume)."""
+    path = certs_dir(settings) / RECONCILE_LOG_NAME
+    if not path.is_file():
+        return {
+            "path": str(path),
+            "exists": False,
+            "text": "",
+            "size": 0,
+            "truncated": False,
+        }
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as fh:
+            if size > max_bytes:
+                fh.seek(size - max_bytes)
+                raw = fh.read()
+                truncated = True
+            else:
+                raw = fh.read()
+                truncated = False
+        text = raw.decode("utf-8", errors="replace")
+        if truncated:
+            # Drop partial first line
+            nl = text.find("\n")
+            if nl >= 0:
+                text = text[nl + 1 :]
+        return {
+            "path": str(path),
+            "exists": True,
+            "text": text,
+            "size": size,
+            "truncated": truncated,
+        }
+    except OSError as exc:
+        logger.warning("acme: cannot read reconcile log: %s", exc)
+        return {
+            "path": str(path),
+            "exists": True,
+            "text": f"(erreur lecture log: {exc})",
+            "size": 0,
+            "truncated": False,
+        }
+
+
+def read_acme_last_run(settings: Settings) -> dict[str, Any] | None:
+    path = certs_dir(settings) / LAST_RUN_JSON_NAME
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("acme: cannot read last-run json: %s", exc)
+        return None
+
+
+def sidecar_running(settings: Settings) -> bool:
+    return (certs_dir(settings) / ".reconcile_running").is_file()
+
+
+def sync_reconcile_from_sidecar(db: Session, settings: Settings, *, actor: str = "acme-sidecar") -> bool:
+    """If DB says pending and sidecar finished, promote last-run.json into AcmeSettings."""
+    row = ensure_acme_settings(db)
+    last = read_acme_last_run(settings)
+    if not last:
+        return False
+    finished = str(last.get("finished_at") or "").strip()
+    status = str(last.get("status") or "ok").strip() or "ok"
+    message = str(last.get("message") or "").strip()
+    if not finished:
+        return False
+
+    # Only overwrite when pending, or when sidecar finished after our pending stamp.
+    prev_status = (row.last_reconcile_status or "").strip()
+    prev_at = row.last_reconcile_at
+    try:
+        finished_dt = datetime.fromisoformat(finished.replace("Z", "+00:00"))
+    except ValueError:
+        finished_dt = utcnow()
+
+    if prev_status == "pending":
+        should = True
+    elif prev_at is None:
+        should = True
+    else:
+        prev = prev_at if prev_at.tzinfo else prev_at.replace(tzinfo=timezone.utc)
+        should = finished_dt > prev
+
+    if not should:
+        return False
+
+    if sidecar_running(settings) and prev_status == "pending":
+        # Still running — keep pending, but refresh message from partial progress via logs UI
+        return False
+
+    row.last_reconcile_at = finished_dt
+    row.last_reconcile_status = status if status in ("ok", "error", "skipped", "pending") else "ok"
+    row.last_reconcile_message = message[:2000] if message else row.last_reconcile_message
+    row.updated_by = actor
+    db.commit()
+    return True
+
+
+def _domain_to_dict(d: AcmeDomainStatus) -> dict[str, Any]:
+    payload = asdict(d)
+    for key in ("not_before", "not_after"):
+        val = payload.get(key)
+        if isinstance(val, datetime):
+            payload[key] = val.isoformat()
+    return payload
+
+
+def build_acme_live_status(db: Session, settings: Settings) -> dict[str, Any]:
+    """JSON payload for Admin ACME live panel (poll every few seconds)."""
+    sync_reconcile_from_sidecar(db, settings)
+    cfg = get_acme_config(db)
+    domains = list_domain_statuses(db, settings)
+    log_info = read_acme_reconcile_log(settings)
+    last = read_acme_last_run(settings)
+    running = sidecar_running(settings)
+    pending_file = (certs_dir(settings) / ".reconcile_request").is_file()
+    counts = {
+        "total": len(domains),
+        "ok": sum(1 for d in domains if d.status == "ok"),
+        "renew_soon": sum(1 for d in domains if d.status == "renew_soon"),
+        "missing": sum(1 for d in domains if d.status in ("missing", "placeholder", "expired")),
+    }
+    return {
+        "enabled": cfg.enabled,
+        "cf_token_configured": cfg.cf_token_configured,
+        "dns_api": cfg.dns_api,
+        "acme_ca": cfg.acme_ca,
+        "last_reconcile_at": cfg.last_reconcile_at.isoformat() if cfg.last_reconcile_at else None,
+        "last_reconcile_status": cfg.last_reconcile_status,
+        "last_reconcile_message": cfg.last_reconcile_message,
+        "sidecar_running": running,
+        "reconcile_request_pending": pending_file,
+        "poll_hint_seconds": 3 if (running or pending_file or cfg.last_reconcile_status == "pending") else 15,
+        "counts": counts,
+        "domains": [_domain_to_dict(d) for d in domains],
+        "log": log_info,
+        "last_run": last,
+        "dns01_hint": (
+            "DNS-01 Cloudflare : acme.sh crée et supprime automatiquement les TXT "
+            "_acme-challenge.<fqdn> via l'API (token Zone.DNS Edit). "
+            "Aucun record DNS manuel n'est requis — seuls les A/AAAA/CNAME publics "
+            "vers le bastion restent à gérer hors ACME."
+        ),
+    }

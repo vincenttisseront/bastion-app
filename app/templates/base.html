@@ -8,7 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="/static/img/bastion-icon.svg">
   <script src="/static/js/bastion-theme.js?v=20260724-system"></script>
   {# Fonts are local/system only — edge CSP style-src is 'self' (no fonts.googleapis.com). #}
-  <link rel="stylesheet" href="/static/css/bastion.css?v=20260728-notif-dismiss">
+  <link rel="stylesheet" href="/static/css/bastion.css?v=20260728-notif-toggle">
   {% block head_extra %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% if hide_chrome %}page-login{% else %}app-layout{% endif %}{% endblock %}">
@@ -42,7 +42,7 @@
   <script src="/static/js/bastion-fuzzy-search.js?v=20260722-fuzzy"></script>
   <script src="/static/js/bastion-global-search.js?v=20260722-global-status"></script>
   <script src="/static/js/bastion.js?v=20260726-ds-accordion"></script>
-  <script src="/static/js/bastion-notifications.js?v=20260728-notif3"></script>
+  <script src="/static/js/bastion-notifications.js?v=20260728-notif4"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

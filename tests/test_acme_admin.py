@@ -11,9 +11,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 from app.acme.settings_service import (
+    build_acme_live_status,
     ensure_acme_settings,
     get_acme_config,
     list_domain_statuses,
+    read_acme_reconcile_log,
+    sync_reconcile_from_sidecar,
     update_acme_settings,
     write_acme_runtime_env,
 )
@@ -127,6 +130,52 @@ def test_admin_acme_page(client, db_session):
     assert "bastion" in resp.text.lower() or "FQDN" in resp.text
     assert 'action="/admin/acme/settings"' in resp.text
     assert 'action="/admin/acme/reconcile"' in resp.text
+    assert "/api/admin/acme/status" in resp.text
+    assert "pas de record manuel" in resp.text.lower() or "DNS-01" in resp.text
+
+
+def test_acme_live_status_reads_log(db_session, tmp_path):
+    settings = _settings(tmp_path)
+    certs = Path(settings.portal_data_dir) / "certs"
+    certs.mkdir(parents=True)
+    (certs / "acme-reconcile.log").write_text(
+        "[2026-07-28T10:00:00Z] ISSUE portal.example.fr via DNS-01\n",
+        encoding="utf-8",
+    )
+    (certs / "acme-last-run.json").write_text(
+        '{"finished_at":"2026-07-28T10:00:05Z","status":"ok","message":"Reconcile OK","ok":1,"failed":0}',
+        encoding="utf-8",
+    )
+    ensure_acme_settings(db_session)
+    row = ensure_acme_settings(db_session)
+    row.last_reconcile_status = "pending"
+    row.last_reconcile_message = "waiting"
+    db_session.commit()
+
+    log = read_acme_reconcile_log(settings)
+    assert log["exists"] is True
+    assert "ISSUE portal.example.fr" in log["text"]
+
+    assert sync_reconcile_from_sidecar(db_session, settings) is True
+    cfg = get_acme_config(db_session)
+    assert cfg.last_reconcile_status == "ok"
+
+    payload = build_acme_live_status(db_session, settings)
+    assert payload["log"]["exists"] is True
+    assert "DNS-01" in payload["dns01_hint"]
+    assert payload["last_run"]["status"] == "ok"
+
+
+def test_admin_acme_status_api(client, db_session):
+    resp = client.get(
+        "/api/admin/acme/status",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "domains" in data
+    assert "log" in data
+    assert "dns01_hint" in data
 
 
 def test_write_acme_runtime_env_disabled_omits_token(db_session, tmp_path):

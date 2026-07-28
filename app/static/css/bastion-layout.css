@@ -97,12 +97,14 @@ body.app-layout{display:flex;min-height:100vh}
   position:absolute;top:7px;right:7px;width:6px;height:6px;
   background:var(--err);border-radius:var(--r-full);border:1px solid var(--bg-secondary);
 }
+.icon-btn .dot[hidden]{display:none !important}
 .icon-btn .notif-count{
   position:absolute;top:2px;right:2px;min-width:16px;height:16px;padding:0 4px;
   background:var(--err);color:#fff;border-radius:var(--r-full);border:1px solid var(--bg-secondary);
   font-size:10px;font-weight:700;line-height:14px;text-align:center;
   display:inline-flex;align-items:center;justify-content:center;
 }
+.icon-btn .notif-count[hidden]{display:none !important}
 
 /* —— Notification center —— */
 .notif-center{position:relative}
@@ -111,9 +113,14 @@ body.app-layout{display:flex;min-height:100vh}
   width:min(380px, calc(100vw - 24px));
   background:var(--bg-secondary);border:1px solid var(--border);
   border-radius:var(--r-lg);box-shadow:var(--shadow-lg, 0 12px 40px rgba(0,0,0,.35));
-  display:flex;flex-direction:column;max-height:min(70vh, 520px);
+  display:none;flex-direction:column;max-height:min(70vh, 520px);
   outline:none;
 }
+.notif-panel.is-open,
+.notif-center.is-open .notif-panel{
+  display:flex;
+}
+.notif-panel[hidden]{display:none !important}
 .notif-panel-head{
   display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
   padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border-muted);

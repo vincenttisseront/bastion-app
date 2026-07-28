@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.acme.settings_service import (
+    build_acme_live_status,
     get_acme_config,
     list_domain_statuses,
+    sync_reconcile_from_sidecar,
     trigger_reconcile,
     update_acme_settings,
 )
@@ -39,6 +41,7 @@ def admin_acme_page(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    sync_reconcile_from_sidecar(db, settings)
     cfg = get_acme_config(db)
     domains = list_domain_statuses(db, settings)
     counts = {
@@ -58,6 +61,14 @@ def admin_acme_page(
             encryption_ok=encryption_configured(settings),
         ),
     )
+
+
+@router.get("/api/admin/acme/status")
+def admin_acme_status_api(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return JSONResponse(build_acme_live_status(db, settings))
 
 
 @router.post("/admin/acme/settings")
@@ -111,7 +122,7 @@ def admin_acme_reconcile_post(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    response = RedirectResponse(url="/admin/acme", status_code=302)
+    response = RedirectResponse(url="/admin/acme#acme-logs", status_code=302)
     ok, message = trigger_reconcile(db, settings, actor=user.email)
     flash_redirect(
         response,

@@ -9,7 +9,22 @@ POLL="${ACME_SENTINEL_POLL_SECONDS:-5}"
 
 mkdir -p "$CERTS" /acme.sh
 
+load_runtime_env() {
+  if [ -f "${EXPORTS}/acme-runtime.env" ]; then
+    # shellcheck disable=SC1090
+    set -a
+    . "${EXPORTS}/acme-runtime.env"
+    set +a
+  fi
+}
+
+run_reconcile() {
+  load_runtime_env
+  /bin/sh /reconcile-certs.sh || true
+}
+
 echo "acme-companion: initial reconcile"
+load_runtime_env
 /bin/sh /reconcile-certs.sh || echo "acme-companion: WARN initial reconcile failed" >&2
 
 if command -v acme.sh >/dev/null 2>&1; then
@@ -28,13 +43,13 @@ fi
     if [ -f "${CERTS}/.reconcile_request" ]; then
       rm -f "${CERTS}/.reconcile_request" 2>/dev/null || true
       echo "acme-companion: reconcile_request from Admin UI"
-      /bin/sh /reconcile-certs.sh || true
+      run_reconcile
       elapsed=0
       continue
     fi
     if [ "$elapsed" -ge "$INTERVAL" ]; then
       echo "acme-companion: periodic reconcile"
-      /bin/sh /reconcile-certs.sh || true
+      run_reconcile
       elapsed=0
     fi
   done
@@ -51,12 +66,12 @@ while true; do
   elapsed=$((elapsed + POLL))
   if [ -f "${CERTS}/.reconcile_request" ]; then
     rm -f "${CERTS}/.reconcile_request" 2>/dev/null || true
-    /bin/sh /reconcile-certs.sh || true
+    run_reconcile
     elapsed=0
     continue
   fi
   if [ "$elapsed" -ge "$INTERVAL" ]; then
-    /bin/sh /reconcile-certs.sh || true
+    run_reconcile
     elapsed=0
   fi
 done

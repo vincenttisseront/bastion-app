@@ -40,8 +40,15 @@ Scope ACME : **portail + subdomain_proxy + public_proxy** (tous les flux front b
 
 1. Admin → **ACME** : activer, coller `CF_Token`, CA prod ou staging.
 2. **Enregistrer** → écrit `exports/acme-runtime.env` (+ `acme-domains.json`).
-3. **Réconcilier maintenant** → sentinel + best-effort `docker exec bastion-acme`.
-4. Tableau : statut cert (OK / renew ≤30j / placeholder / absent), échéance, émetteur.
+3. **Réconcilier maintenant** → écrit `certs/.reconcile_request` ; le sidecar poll ~5 s.
+4. Panneau **Logs Let's Encrypt (live)** : queue `certs/acme-reconcile.log` + statut via `GET /api/admin/acme/status`.
+5. Tableau domaines : statut cert (OK / renew ≤30j / placeholder / absent), échéance, émetteur.
+
+### DNS — faut-il créer des records ?
+
+**Non pour le challenge.** DNS-01 Cloudflare (`dns_cf`) : acme.sh crée/supprime les TXT `_acme-challenge.<fqdn>` via l’API (token **Zone.DNS Edit**). Aucun TXT manuel.
+
+Toujours nécessaires hors ACME : A/AAAA/CNAME publics qui pointent le trafic HTTPS vers le bastion (reverse01 / Traefik).
 
 Sans token CF : placeholders self-signed (navigateur refuse).
 
@@ -65,6 +72,7 @@ Sans cela, le chemin actuel `reverse01 HTTPS → Traefik (cert défaut catch-all
 | Reload sans docker.sock | OK (watcher) |
 | `.env.acme.example` | OK |
 | Admin → ACME UI | OK (`/admin/acme`, SQLite `acme_settings`) |
+| Live logs + `/api/admin/acme/status` | OK |
 | Runtime env export | OK (`exports/acme-runtime.env`) |
 | reverse01 / Traefik TCP | Hors scope |
 | Migration portal / subdomain | Non (volontaire) |

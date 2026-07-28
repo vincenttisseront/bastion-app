@@ -40,10 +40,23 @@
     function setOpen(next) {
       open = !!next;
       panel.hidden = !open;
+      if (open) {
+        panel.classList.add('is-open');
+        root.classList.add('is-open');
+        panel.removeAttribute('hidden');
+      } else {
+        panel.classList.remove('is-open');
+        root.classList.remove('is-open');
+        panel.setAttribute('hidden', '');
+      }
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (open) {
         ignoreDocClickUntil = Date.now() + 300;
-        panel.focus();
+        try {
+          panel.focus({ preventScroll: true });
+        } catch (e) {
+          panel.focus();
+        }
         loadFeed(false);
       }
     }
