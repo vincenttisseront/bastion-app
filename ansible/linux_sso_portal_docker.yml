@@ -4,21 +4,22 @@
 # Job Template AWX :
 #   Project    = bastion-app
 #   Playbook   = ansible/linux_sso_portal_docker.yml
-#   Inventaire = inventaire AWX (groupes ci-dessous — PAS le .ini.example du repo)
-#   Limit      = hôte(s) choisis dans AWX (ex. vmdmz-docker01 et/ou vmdmz-reverse01)
+#   Inventaire = inventaire AWX (celui que tu utilises déjà)
+#   Limit      = hôte choisi dans AWX (ex. vmdmz-docker01 ou vmdmz-reverse01)
 #
-# Groupes inventaire attendus (noms stables ; les hosts sont dans AWX) :
-#   sso_portal_docker  → stack Compose (docker01)
-#   nginx_dmz | sso_portal_edge → catch-all TLS (reverse01)
+# Par défaut hosts: all — le Limit AWX restreint le play à l'hôte sélectionné.
+# Pas besoin des groupes sso_portal_docker / nginx_dmz (optionnels).
 #
-# Tags : docker | edge | smoke | preflight | validate_purge
+# Tags :
+#   --tags docker | edge | smoke | preflight | validate_purge
 #
-# Extra-vars utiles :
-#   bastion_edge_catchall_enabled: true   # cutover edge
-#   bastion_docker_play_hosts / bastion_edge_play_hosts  # override patterns si besoin
+# Extra-vars :
+#   bastion_edge_catchall_enabled: true   # cutover edge sur reverse01
+#   bastion_docker_play_hosts / bastion_edge_play_hosts  # override si besoin
+#     (défaut: all — laisser AWX Limit faire le filtre)
 
 - name: "PREFLIGHT Docker stack"
-  hosts: "{{ bastion_docker_play_hosts | default('sso_portal_docker') }}"
+  hosts: "{{ bastion_docker_play_hosts | default('all') }}"
   become: true
   gather_facts: true
   tags:
@@ -32,7 +33,7 @@
       when: bastion_app_docker_enabled | default(true) | bool
 
 - name: "Deploy bastion Docker stack"
-  hosts: "{{ bastion_docker_play_hosts | default('sso_portal_docker') }}"
+  hosts: "{{ bastion_docker_play_hosts | default('all') }}"
   become: true
   gather_facts: true
   tags:
@@ -43,7 +44,7 @@
       when: bastion_app_docker_enabled | default(true) | bool
 
 - name: "SMOKE Docker stack"
-  hosts: "{{ bastion_docker_play_hosts | default('sso_portal_docker') }}"
+  hosts: "{{ bastion_docker_play_hosts | default('all') }}"
   become: true
   gather_facts: false
   tags:
@@ -58,7 +59,7 @@
       when: bastion_app_docker_enabled | default(true) | bool
 
 - name: "VALIDATE_PURGE oauth2 units list"
-  hosts: "{{ bastion_docker_play_hosts | default('sso_portal_docker') }}"
+  hosts: "{{ bastion_docker_play_hosts | default('all') }}"
   become: true
   gather_facts: false
   tags:
@@ -72,7 +73,7 @@
       when: bastion_app_docker_enabled | default(true) | bool
 
 - name: "Deploy edge DMZ catch-all"
-  hosts: "{{ bastion_edge_play_hosts | default('nginx_dmz:sso_portal_edge') }}"
+  hosts: "{{ bastion_edge_play_hosts | default('all') }}"
   become: true
   gather_facts: true
   tags:
@@ -83,7 +84,7 @@
       when: bastion_edge_catchall_enabled | default(false) | bool
 
 - name: "SMOKE edge DMZ"
-  hosts: "{{ bastion_edge_play_hosts | default('nginx_dmz:sso_portal_edge') }}"
+  hosts: "{{ bastion_edge_play_hosts | default('all') }}"
   become: true
   gather_facts: false
   tags:

@@ -1,10 +1,6 @@
-# Inventaire d'EXEMPLE local uniquement.
-# En prod : l'inventaire et le Limit (hôte de déploiement) sont choisis dans AWX.
-# Ce fichier n'est PAS branché sur le Job Template.
-#
-# Groupes attendus par le playbook (à reproduire dans l'inventaire AWX) :
-#   [sso_portal_docker]  → hôte(s) stack Compose
-#   [nginx_dmz] ou [sso_portal_edge] → hôte(s) reverse TLS catch-all
+# Inventaire d'EXEMPLE local uniquement (ansible-playbook en CLI).
+# En prod AWX : inventaire + Limit du Job Template — pas ce fichier.
+# Le playbook utilise hosts: all ; le Limit AWX choisit l'hôte.
 
 [sso_portal_docker]
 vmdmz-docker01 ansible_host=172.24.0.110
