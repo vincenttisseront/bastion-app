@@ -260,6 +260,16 @@
     mode: "0644"
     force: false
 
+- name: "Ensure exports stub for nginx known-hosts map"
+  ansible.builtin.copy:
+    content: |
+      # stub — overwritten by export_app_catalogue_files / infrastructure apply
+      127.0.0.1 0;
+      localhost 0;
+    dest: "{{ sso_portal_exports_dir }}/nginx-known-hosts.map"
+    mode: "0644"
+    force: false
+
 - name: "Make apply-infra-docker executable"
   ansible.builtin.file:
     path: "{{ item }}"
