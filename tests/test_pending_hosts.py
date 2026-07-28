@@ -24,6 +24,21 @@ def test_normalize_hostname():
     assert normalize_hostname("Teleport.Example.FR:443") == "teleport.example.fr"
     assert normalize_hostname("  ") is None
     assert normalize_hostname("127.0.0.1") == "127.0.0.1"
+    assert normalize_hostname("::1") is None
+
+
+def test_known_hosts_map_never_emits_ipv6_or_dollar(db_session, tmp_path):
+    settings = Settings(
+        portal_domain="portal.example.fr",
+        sso_portal_default_realm_slug="ar-systems",
+        exports_dir=str(tmp_path / "exports"),
+        vault_portal_internal_token="test-secret",
+    )  # type: ignore[call-arg]
+    text = generate_known_hosts_map(db_session, settings)
+    assert "::" not in text
+    assert "$bastion" not in text
+    assert "127.0.0.1 0;" in text
+    assert "portal.example.fr 0;" in text
 
 
 def test_suggest_slug():
