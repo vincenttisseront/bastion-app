@@ -68,7 +68,7 @@ def test_nginx_docker_uses_service_dns():
         ROOT / "docker" / "nginx" / "templates" / "vhost_sso_portal.conf.template"
     ).read_text(encoding="utf-8")
     assert "bastion-app:8000" in vhost or "$bastion_app_upstream" in vhost
-    assert "listen 8080" in vhost or "listen 0.0.0.0:8080" in vhost
+    assert "listen 0.0.0.0:8080 default_server" in vhost
     assert "absolute_redirect off" in vhost
     assert "port_in_redirect off" in vhost
     assert "letsencrypt" not in vhost

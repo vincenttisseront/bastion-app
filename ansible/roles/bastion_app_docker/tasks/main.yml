@@ -534,9 +534,11 @@
       sleep 2
       docker exec bastion-nginx wget -qO- --timeout=5 http://bastion-app:8000/api/health | grep -q '"status"'
     fi
+    echo "direct app health OK"
 
-    echo "=== /_portal_nginx_ok ==="
-    docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/_portal_nginx_ok
+    echo "=== nginx -t / listeners ==="
+    docker exec bastion-nginx nginx -t
+    docker exec bastion-nginx sh -c 'wget -qO- http://127.0.0.1:8080/_portal_nginx_ok || { echo "FAIL _portal_nginx_ok"; wget -SO- http://127.0.0.1:8080/_portal_nginx_ok; exit 1; }'
     echo
     echo "=== /api/health via nginx proxy ==="
     body="$(docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/api/health)"
@@ -554,8 +556,12 @@
 - name: "Fail with nginx proxy diagnostics"
   ansible.builtin.fail:
     msg: |
-      nginx → bastion-app via vpcbr a échoué après attach.
-      Causes fréquentes: alias DNS bastion-app absent sur {{ bastion_traefik_network }},
+      nginx health/proxy check a échoué après attach vpcbr.
+      Si « direct app health OK » est présent : le DNS vpcbr bastion-app fonctionne —
+      suspecter plutôt le default_server :8080 (vhost portal doit avoir
+      listen … default_server, sinon un server{} subdomain/public_proxy alphabétique
+      vole Host 127.0.0.1 et casse /_portal_nginx_ok).
+      Sinon: alias DNS bastion-app absent sur {{ bastion_traefik_network }},
       ou bastion-app pas en 10.5.0.0/16.
       --- stdout ---
       {{ _nginx_listen_check.stdout | default('') }}

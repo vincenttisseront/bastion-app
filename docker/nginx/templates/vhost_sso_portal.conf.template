@@ -2,7 +2,9 @@
 # Variables envsubst: PORTAL_DOMAIN, SSO_PORTAL_DEFAULT_REALM_SLUG
 
 server {
-    listen 0.0.0.0:8080;
+    # default_server: conf.d/*.conf is alphabetical — subdomain/public_proxy
+    # server{} blocks must NOT steal Host 127.0.0.1 (healthchecks /_portal_nginx_ok).
+    listen 0.0.0.0:8080 default_server;
     server_name ${PORTAL_DOMAIN} _;
 
     # Derrière Traefik/edge :443 — ne pas réécrire Location en :8080 (port listen interne)

@@ -23,13 +23,46 @@ def _assert_internal_locations(text: str, path: str) -> None:
         assert "internal;" in block, f"{path}: {name} must be internal"
 
 
-def test_docker_portal_vhost_internal_handlers():
+def test_docker_portal_vhost_is_default_server_on_8080():
+    """Portal must own default_server — conf.d is alphabetical (nginx-*.conf first)."""
     path = ROOT / "docker/nginx/templates/vhost_sso_portal.conf.template"
     text = path.read_text(encoding="utf-8")
-    _assert_internal_locations(text, str(path))
-    # auth_request still uses dedicated internal check (not broken by return 404 stubs)
-    assert "location = /portal_auth_check" in text
-    assert "proxy_pass http://$bastion_app_upstream/internal/oauth2-auth" in text
+    assert "listen 0.0.0.0:8080 default_server;" in text
+
+
+def test_subdomain_and_public_proxy_exports_are_not_default_server():
+    from app.bastion.nginx_public_proxy_export import generate_public_proxy_server_block
+    from app.bastion.nginx_subdomain_export import generate_subdomain_server_block
+    from app.models import App
+    from app.sso_settings import Settings
+
+    sub = generate_subdomain_server_block(
+        App(
+            slug="doli",
+            label="ERP",
+            upstream_url="https://10.0.0.5/",
+            access_mode="subdomain_proxy",
+            public_fqdn="erp.example.fr",
+        ),
+        Settings(
+            portal_domain="portal.example.fr",
+            sso_portal_default_realm_slug="ar-systems",
+            exports_dir="data/x",
+        ),  # type: ignore[arg-type]
+    )
+    pub = generate_public_proxy_server_block(
+        App(
+            slug="status",
+            label="Status",
+            upstream_url="http://10.0.0.1/",
+            access_mode="public_proxy",
+            public_fqdn="status.example.fr",
+        )
+    )
+    assert "default_server" not in sub
+    assert "default_server" not in pub
+    assert "listen 0.0.0.0:8080;" in sub
+    assert "listen 0.0.0.0:8080;" in pub
 
 
 def test_j2_portal_vhost_internal_handlers():
