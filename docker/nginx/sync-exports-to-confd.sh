@@ -47,9 +47,11 @@ MAP_SRC="$EXPORTS/nginx-known-hosts.map"
   echo "}"
 } > /etc/nginx/conf.d/00-known-hosts-map.conf
 
-# TLS :8443 for public_proxy when LE/placeholder certs exist
-if [[ -x /sync-public-proxy-tls.sh ]]; then
+# TLS :8443 for all ACME domains (portal / subdomain / public_proxy) when certs exist
+if [[ -x /sync-acme-tls.sh ]]; then
+  /sync-acme-tls.sh || echo "WARN: sync-acme-tls failed" >&2
+elif [[ -x /sync-public-proxy-tls.sh ]]; then
   /sync-public-proxy-tls.sh || echo "WARN: sync-public-proxy-tls failed" >&2
 else
-  echo "# no sync-public-proxy-tls.sh" > /etc/nginx/conf.d/nginx-public-proxy-apps-tls.conf
+  echo "# no ACME TLS sync script" > /etc/nginx/conf.d/nginx-acme-tls.conf
 fi

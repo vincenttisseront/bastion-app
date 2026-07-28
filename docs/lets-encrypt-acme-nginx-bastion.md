@@ -5,17 +5,15 @@
 ## Topologie
 
 ```
-Internet → reverse01 (TLS LE historique, hors scope)
-         → Traefik (HTTP :443 → bastion-nginx:8080 pour portal / discovery)
-         → bastion-nginx
-              :8080  HTTP (inchangé — Traefik / reverse01)
-              :8443  TLS public_proxy (certs du volume data/certs)
-acme-companion (neilpang/acme.sh)
-  lit exports/acme-domains.json
+Internet → reverse01 (optionnel / transition)
+         → Traefik ou SNI → bastion-nginx:8443 (certs ACME)
+         → :8080 (portal / subdomain SSO / public_proxy)
+acme-companion
+  lit exports/acme-domains.json (tous les FQDN bastion)
   écrit data/certs/<fqdn>/{fullchain,privkey}.pem
 ```
 
-Portal + `subdomain_proxy` : **pas** migrés — restent sur certbot reverse01 / Traefik CF.
+Scope ACME : **portail + subdomain_proxy + public_proxy** (tous les flux front bastion).
 
 ## Décisions
 
@@ -23,7 +21,7 @@ Portal + `subdomain_proxy` : **pas** migrés — restent sur certbot reverse01 /
 |---|---|
 | Client | acme.sh sidecar (`neilpang/acme.sh`) |
 | Challenge | DNS-01 (`dns_cf` / Cloudflare) |
-| Périmètre v1 | `public_proxy` uniquement |
+| Périmètre | Tous les FQDN bastion (portal + subdomain + public_proxy) |
 | TLS listen | `0.0.0.0:8443` (conf générée si certs présents) |
 | Reload | watcher nginx (mtime exports + pem) — **pas** de docker.sock |
 | Secrets | `.env.acme` (gitignored), modèle `.env.acme.example` |

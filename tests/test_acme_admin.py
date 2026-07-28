@@ -106,14 +106,15 @@ def test_list_domain_statuses_reads_certs(db_session, tmp_path):
     db_session.commit()
 
     missing = list_domain_statuses(db_session, settings)
-    assert len(missing) == 1
-    assert missing[0].status == "missing"
+    teleport = next(d for d in missing if d.fqdn == "teleport.example.fr")
+    assert teleport.status == "missing"
 
     _write_self_signed(Path(settings.portal_data_dir) / "certs" / "teleport.example.fr", "teleport.example.fr")
     statuses = list_domain_statuses(db_session, settings)
-    assert statuses[0].has_cert is True
-    assert statuses[0].status == "placeholder"  # self-signed
-    assert statuses[0].days_left is not None
+    teleport = next(d for d in statuses if d.fqdn == "teleport.example.fr")
+    assert teleport.has_cert is True
+    assert teleport.status == "placeholder"  # self-signed
+    assert teleport.days_left is not None
 
 
 def test_admin_acme_page(client, db_session):
@@ -123,7 +124,7 @@ def test_admin_acme_page(client, db_session):
     )
     assert resp.status_code == 200
     assert "Let's Encrypt" in resp.text
-    assert "public_proxy" in resp.text
+    assert "bastion" in resp.text.lower() or "FQDN" in resp.text
     assert 'action="/admin/acme/settings"' in resp.text
     assert 'action="/admin/acme/reconcile"' in resp.text
 

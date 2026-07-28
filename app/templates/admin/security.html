@@ -68,9 +68,8 @@
     </div>
     <div class="form-body">
       <p class="form-prose">
-        Portal / subdomain_proxy : TLS edge (reverse01 / Traefik).
-        Apps <strong>public_proxy</strong> : certificats ACME DNS-01 gérés dans le bastion
-        (nginx :8443).
+        Apps <strong>et portail</strong> : certificats ACME DNS-01 sur le bastion
+        (nginx :8443 → :8080). Voir la liste complète dans Admin → ACME.
       </p>
       <p class="form-prose form-prose-spaced">
         <a href="/admin/acme" class="btn btn-primary">Ouvrir Admin → ACME</a>

@@ -459,11 +459,12 @@
       echo "nginx entrypoint missing exports watcher — rebuild nginx image (need >= 0d5d74f)"
       exit 1
     fi
-    if ! docker run --rm --entrypoint test bastion-nginx:local -x /sync-public-proxy-tls.sh; then
-      echo "OLD nginx image — missing /sync-public-proxy-tls.sh (ACME TLS sync)"
+    if ! docker run --rm --entrypoint test bastion-nginx:local -x /sync-acme-tls.sh \
+      && ! docker run --rm --entrypoint test bastion-nginx:local -x /sync-public-proxy-tls.sh; then
+      echo "OLD nginx image — missing /sync-acme-tls.sh (ACME TLS sync)"
       exit 1
     fi
-    echo "nginx public_proxy TLS sync OK"
+    echo "nginx ACME TLS sync OK"
     echo "=== nginx status ==="
     if ! docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' bastion-nginx 2>/dev/null | grep -qx running; then
       echo "bastion-nginx is not running (often nginx -t fail on known-hosts map)."

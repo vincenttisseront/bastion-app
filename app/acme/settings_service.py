@@ -354,8 +354,10 @@ def trigger_reconcile(db: Session, settings: Settings, *, actor: str) -> tuple[b
 
     # Sidecar will pick up sentinel / runtime env on next interval
     msg = (
-        "Exports mis à jour ; reconcile docker non disponible depuis bastion-app "
-        f"(le sidecar reprendra sous ~5 min). {err}".strip()
+        "Exports à jour. Le sidecar acme-companion appliquera l’émission "
+        "au prochain cycle (quelques minutes) — bastion-app n’a pas accès à docker."
     )
+    if err and "No such file" not in err and "docker" not in err.lower():
+        msg = f"{msg} ({err[:200]})"
     record_reconcile_result(db, status="pending", message=msg, actor=actor)
     return True, msg
