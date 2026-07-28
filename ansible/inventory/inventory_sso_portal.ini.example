@@ -1,9 +1,10 @@
-# Inventaire Phase 7+ — bastion indépendant (AWX Project = bastion-app)
-# Copier vers inventory_sso_portal.ini et ajuster si besoin.
+# Inventaire d'EXEMPLE local uniquement.
+# En prod : l'inventaire et le Limit (hôte de déploiement) sont choisis dans AWX.
+# Ce fichier n'est PAS branché sur le Job Template.
 #
-# Split :
-#   vmdmz-docker01  = Traefik + conteneurs bastion sous /tools/portal
-#   vmdmz-reverse01 = nginx edge TLS catch-all → https://172.24.0.110
+# Groupes attendus par le playbook (à reproduire dans l'inventaire AWX) :
+#   [sso_portal_docker]  → hôte(s) stack Compose
+#   [nginx_dmz] ou [sso_portal_edge] → hôte(s) reverse TLS catch-all
 
 [sso_portal_docker]
 vmdmz-docker01 ansible_host=172.24.0.110

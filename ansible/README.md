@@ -27,14 +27,18 @@ clients → vmdmz-reverse01:443 (TLS catch-all)
 # AWX (prod) — SEUL entry point
 #   Project    = bastion-app
 #   Playbook   = ansible/linux_sso_portal_docker.yml
-#   Inventaire = sso_portal_docker + nginx_dmz|sso_portal_edge
+#   Inventaire = inventaire AWX (groupes sso_portal_docker + nginx_dmz)
+#   Limit      = hôte choisi dans AWX (ex. vmdmz-docker01, ou reverse01 pour --tags edge)
 #   Extra-vars :
-#     vault_portal_* / vault_bastion_app_github_token (si fetch git)
+#     vault_portal_* / …
 #     bastion_edge_catchall_enabled: true   # cutover edge (défaut false)
 #
+# Le repo ne sélectionne pas l'hôte : c'est le Limit + inventaire AWX.
+# ansible/inventory/*.example = référence locale uniquement.
+#
 # Tags :
-#   --tags docker           # stack only
-#   --tags edge             # reverse01 catch-all only
+#   --tags docker           # stack only (Limit = docker host)
+#   --tags edge             # catch-all only (Limit = reverse01)
 #   --tags smoke
 #   --tags validate_purge
 

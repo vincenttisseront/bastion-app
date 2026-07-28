@@ -4,19 +4,21 @@
 # Job Template AWX :
 #   Project    = bastion-app
 #   Playbook   = ansible/linux_sso_portal_docker.yml
-#   Inventaire = groupes sso_portal_docker + nginx_dmz (ou sso_portal_edge)
+#   Inventaire = inventaire AWX (groupes ci-dessous — PAS le .ini.example du repo)
+#   Limit      = hôte(s) choisis dans AWX (ex. vmdmz-docker01 et/ou vmdmz-reverse01)
 #
-# Tags :
-#   --tags docker          # stack Compose sur docker01 uniquement
-#   --tags edge            # catch-all TLS sur reverse01 uniquement
-#   --tags smoke           # smokes post-deploy
-#   --tags preflight
-#   --tags validate_purge  # canary purge-units.list
+# Groupes inventaire attendus (noms stables ; les hosts sont dans AWX) :
+#   sso_portal_docker  → stack Compose (docker01)
+#   nginx_dmz | sso_portal_edge → catch-all TLS (reverse01)
 #
-# Ne plus utiliser awx-playbook/linux_sso_portal_docker.yml comme wrapper.
+# Tags : docker | edge | smoke | preflight | validate_purge
+#
+# Extra-vars utiles :
+#   bastion_edge_catchall_enabled: true   # cutover edge
+#   bastion_docker_play_hosts / bastion_edge_play_hosts  # override patterns si besoin
 
-- name: "PREFLIGHT Docker stack (vmdmz-docker01)"
-  hosts: sso_portal_docker
+- name: "PREFLIGHT Docker stack"
+  hosts: "{{ bastion_docker_play_hosts | default('sso_portal_docker') }}"
   become: true
   gather_facts: true
   tags:
@@ -29,8 +31,8 @@
         tasks_from: preflight.yml
       when: bastion_app_docker_enabled | default(true) | bool
 
-- name: "Deploy bastion Docker stack (vmdmz-docker01)"
-  hosts: sso_portal_docker
+- name: "Deploy bastion Docker stack"
+  hosts: "{{ bastion_docker_play_hosts | default('sso_portal_docker') }}"
   become: true
   gather_facts: true
   tags:
@@ -41,7 +43,7 @@
       when: bastion_app_docker_enabled | default(true) | bool
 
 - name: "SMOKE Docker stack"
-  hosts: sso_portal_docker
+  hosts: "{{ bastion_docker_play_hosts | default('sso_portal_docker') }}"
   become: true
   gather_facts: false
   tags:
@@ -56,7 +58,7 @@
       when: bastion_app_docker_enabled | default(true) | bool
 
 - name: "VALIDATE_PURGE oauth2 units list"
-  hosts: sso_portal_docker
+  hosts: "{{ bastion_docker_play_hosts | default('sso_portal_docker') }}"
   become: true
   gather_facts: false
   tags:
@@ -69,8 +71,8 @@
         tasks_from: validate_purge_units.yml
       when: bastion_app_docker_enabled | default(true) | bool
 
-- name: "Deploy edge DMZ catch-all (vmdmz-reverse01)"
-  hosts: nginx_dmz:sso_portal_edge
+- name: "Deploy edge DMZ catch-all"
+  hosts: "{{ bastion_edge_play_hosts | default('nginx_dmz:sso_portal_edge') }}"
   become: true
   gather_facts: true
   tags:
@@ -81,7 +83,7 @@
       when: bastion_edge_catchall_enabled | default(false) | bool
 
 - name: "SMOKE edge DMZ"
-  hosts: nginx_dmz:sso_portal_edge
+  hosts: "{{ bastion_edge_play_hosts | default('nginx_dmz:sso_portal_edge') }}"
   become: true
   gather_facts: false
   tags:

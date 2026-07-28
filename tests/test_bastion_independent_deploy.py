@@ -5,15 +5,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_playbook_is_real_entry_not_stub():
+def test_playbook_hosts_are_awx_driven():
     text = (ROOT / "ansible" / "linux_sso_portal_docker.yml").read_text(encoding="utf-8")
     assert "Refuse local/obsolete entry point" not in text
     assert "bastion_app_docker" in text
     assert "bastion_edge_dmz" in text
-    assert "sso_portal_docker" in text
-    assert "nginx_dmz:sso_portal_edge" in text
     assert "validate_purge" in text
-    assert "Project = bastion-app" in text or "projet bastion-app" in text.lower() or "Project    = bastion-app" in text
+    assert "bastion_docker_play_hosts" in text
+    assert "bastion_edge_play_hosts" in text
+    assert "Limit" in text or "inventaire AWX" in text
+    # Must not hardcode a single physical host as play target
+    assert "hosts: vmdmz-docker01" not in text
+    assert "hosts: vmdmz-reverse01" not in text
 
 
 def test_edge_role_catchall_template():
