@@ -1,0 +1,5 @@
+---
+- name: Reload nginx (edge DMZ)
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded

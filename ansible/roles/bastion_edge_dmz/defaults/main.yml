@@ -1,0 +1,39 @@
+---
+# Edge DMZ (reverse01) — TLS terminator catch-all → bastion (docker01 / Traefik)
+#
+# Off by default until cutover validated. Enable with:
+#   bastion_edge_catchall_enabled: true
+
+bastion_edge_catchall_enabled: false
+
+bastion_edge_host: vmdmz-reverse01
+bastion_edge_host_ip: "172.24.0.108"
+bastion_docker_host_ip: "172.24.0.110"
+bastion_upstream_url: "https://{{ bastion_docker_host_ip }}"
+
+base_domain: ar-systems.fr
+portal_domain: portal.ar-systems.fr
+
+# TLS (Let's Encrypt on reverse01 — same paths as historical DMZ vhosts)
+bastion_edge_ssl_certificate: "/etc/letsencrypt/live/{{ base_domain }}/fullchain.pem"
+bastion_edge_ssl_certificate_key: "/etc/letsencrypt/live/{{ base_domain }}/privkey.pem"
+
+bastion_edge_nginx_conf_dir: /etc/nginx/conf.d
+bastion_edge_catchall_conf_name: vhost_bastion_edge_catchall.conf
+
+# When enabling catch-all, disable conflicting app vhosts previously owned by
+# linux_nginx_dmz / nginx_reverse_proxy_dmz (renamed to .disabled).
+bastion_edge_disable_legacy_vhosts: true
+bastion_edge_legacy_vhost_globs:
+  - vhost_portal*.conf
+  - vhost_keycloak*.conf
+  - vhost_wikijs*.conf
+  - vhost_grafana*.conf
+  - vhost_transfer*.conf
+  - vhost_*_bastion*.conf
+
+# server_name for the catch-all (underscore = invalid name used as default)
+bastion_edge_server_names:
+  - _
+  - "{{ base_domain }}"
+  - "*.{{ base_domain }}"

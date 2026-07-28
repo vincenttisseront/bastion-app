@@ -1,20 +1,96 @@
 ---
-# DEPRECATED — ne pas utiliser comme Job Template AWX.
+# Bastion Docker + edge DMZ — entry point AWX Project = bastion-app
 #
-# Entry point UNIQUE : awx-playbook / linux_sso_portal_docker.yml
-# (Project AWX = awx-playbook ; ce fichier n'est PAS visible depuis AWX).
+# Job Template AWX :
+#   Project    = bastion-app
+#   Playbook   = ansible/linux_sso_portal_docker.yml
+#   Inventaire = groupes sso_portal_docker + nginx_dmz (ou sso_portal_edge)
 #
-# Le rôle ansible/roles/bastion_app_docker est consommé via symlink
-# bastion_app_docker_phase7 depuis le playbook awx-playbook après clone
-# de ce dépôt @ bastion_app_git_version.
+# Tags :
+#   --tags docker          # stack Compose sur docker01 uniquement
+#   --tags edge            # catch-all TLS sur reverse01 uniquement
+#   --tags smoke           # smokes post-deploy
+#   --tags preflight
+#   --tags validate_purge  # canary purge-units.list
+#
+# Ne plus utiliser awx-playbook/linux_sso_portal_docker.yml comme wrapper.
 
-- name: "Refuse local/obsolete entry point"
-  hosts: localhost
-  gather_facts: false
+- name: "PREFLIGHT Docker stack (vmdmz-docker01)"
+  hosts: sso_portal_docker
+  become: true
+  gather_facts: true
+  tags:
+    - preflight
+    - docker
   tasks:
-    - name: Fail — use awx-playbook linux_sso_portal_docker.yml
-      ansible.builtin.fail:
-        msg: >-
-          Déploiement Docker bastion : utiliser uniquement le playbook
-          awx-playbook/linux_sso_portal_docker.yml (Job Template AWX).
-          Ne pas lancer ansible/linux_sso_portal_docker.yml depuis bastion-app.
+    - name: Run bastion Docker preflight
+      ansible.builtin.include_role:
+        name: bastion_app_docker
+        tasks_from: preflight.yml
+      when: bastion_app_docker_enabled | default(true) | bool
+
+- name: "Deploy bastion Docker stack (vmdmz-docker01)"
+  hosts: sso_portal_docker
+  become: true
+  gather_facts: true
+  tags:
+    - docker
+    - deploy
+  roles:
+    - role: bastion_app_docker
+      when: bastion_app_docker_enabled | default(true) | bool
+
+- name: "SMOKE Docker stack"
+  hosts: sso_portal_docker
+  become: true
+  gather_facts: false
+  tags:
+    - smoke
+    - smoke_test
+    - docker
+  tasks:
+    - name: Run bastion Docker smoke
+      ansible.builtin.include_role:
+        name: bastion_app_docker
+        tasks_from: smoke_test.yml
+      when: bastion_app_docker_enabled | default(true) | bool
+
+- name: "VALIDATE_PURGE oauth2 units list"
+  hosts: sso_portal_docker
+  become: true
+  gather_facts: false
+  tags:
+    - validate_purge
+    - smoke
+  tasks:
+    - name: Run validate_purge_units
+      ansible.builtin.include_role:
+        name: bastion_app_docker
+        tasks_from: validate_purge_units.yml
+      when: bastion_app_docker_enabled | default(true) | bool
+
+- name: "Deploy edge DMZ catch-all (vmdmz-reverse01)"
+  hosts: nginx_dmz:sso_portal_edge
+  become: true
+  gather_facts: true
+  tags:
+    - edge
+    - deploy
+  roles:
+    - role: bastion_edge_dmz
+      when: bastion_edge_catchall_enabled | default(false) | bool
+
+- name: "SMOKE edge DMZ"
+  hosts: nginx_dmz:sso_portal_edge
+  become: true
+  gather_facts: false
+  tags:
+    - smoke
+    - smoke_test
+    - edge
+  tasks:
+    - name: Run edge catch-all smoke
+      ansible.builtin.include_role:
+        name: bastion_edge_dmz
+        tasks_from: smoke.yml
+      when: bastion_edge_catchall_enabled | default(false) | bool

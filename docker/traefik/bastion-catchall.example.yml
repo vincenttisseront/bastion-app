@@ -1,0 +1,35 @@
+# Traefik file-provider example — catch-all → bastion-nginx:8080
+#
+# After bastion-nginx owns Host routing (portal + infra proxies + App DB exports),
+# point Traefik at this file (or equivalent) and REMOVE Host-specific routers on
+# Keycloak / Grafana / Wiki containers so they no longer bypass bastion-nginx.
+#
+# Example (docker01 Traefik static config):
+#   providers:
+#     file:
+#       filename: /etc/traefik/dynamic/bastion-catchall.yml
+#
+# Cutover checklist:
+#   1. Deploy bastion with bastion_infra_proxy_vhosts (Keycloak, …)
+#   2. Enable reverse01 catch-all (bastion_edge_catchall_enabled)
+#   3. Load this dynamic config / recreate Traefik
+#   4. Disable legacy Keycloak Traefik labels (Host rules)
+#   5. Smoke: portal, keycloak, one subdomain_proxy, one public_proxy
+
+http:
+  routers:
+    bastion-catchall:
+      entryPoints:
+        - websecure
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: bastion-nginx
+      tls: {}
+    # Higher-priority Host routers for non-bastion services can still exist
+    # until migrated; once migrated, delete them so priority 1 catch-all wins.
+
+  services:
+    bastion-nginx:
+      loadBalancer:
+        servers:
+          - url: "http://bastion-nginx:8080"

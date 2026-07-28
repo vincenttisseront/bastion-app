@@ -31,17 +31,32 @@ bastion_app_docker_bind_oauth2_core: "127.0.0.1:4180"
 bastion_app_docker_bind_nginx: "127.0.0.1:{{ bastion_nginx_listen_port }}"
 
 # Source code for build
-# AWX Project = awx-playbook → playbook_dir/.. N'EST PAS bastion-app.
-# Le wrapper AWX clone déjà bastion-app → laisser false (évite double clone / hang PAT).
-# true seulement en local ou si aucun checkout n'est fourni via bastion_app_root.
+# AWX Project = bastion-app → playbook_dir/.. EST le checkout applicatif.
+# bastion_app_docker_fetch_git: true seulement si le JT pointe ailleurs sans sources.
 bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"
 bastion_app_git_ref: "master"
 bastion_app_docker_fetch_git: false
-# Checkout utilisé pour le tar (AWX: .cache/bastion-app ; local: racine repo)
+# Checkout used for the tar (AWX project=bastion-app: playbook_dir/..)
 bastion_app_root: "{{ playbook_dir }}/.."
 bastion_app_docker_image_tag: "bastion-app:{{ bastion_app_git_ref }}"
 bastion_nginx_docker_image_tag: "bastion-nginx:{{ bastion_app_git_ref }}"
 oauth2_proxy_image_tag: "v7.7.1"
+
+# Infra Host proxies on bastion-nginx (edge catch-all → Traefik → nginx).
+# Keycloak must share vpcbr with a DNS alias matching the upstream host.
+bastion_infra_proxy_vhosts:
+  - slug: keycloak
+    fqdn: "keycloak.{{ base_domain | default('ar-systems.fr') }}"
+    upstream_url: "http://keycloak:8080"
+    enabled: true
+  - slug: grafana
+    fqdn: "grafana.{{ base_domain | default('ar-systems.fr') }}"
+    upstream_url: "http://grafana:3000"
+    enabled: false
+  - slug: wikijs
+    fqdn: "wikijs.{{ base_domain | default('ar-systems.fr') }}"
+    upstream_url: "http://wikijs:3000"
+    enabled: false
 
 # Domain / health
 base_domain: ar-systems.fr

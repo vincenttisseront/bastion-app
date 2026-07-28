@@ -1,9 +1,9 @@
-# Inventaire Phase 7 — stack Docker bastion sur vmdmz-docker01 (Traefik)
+# Inventaire Phase 7+ — bastion indépendant (AWX Project = bastion-app)
 # Copier vers inventory_sso_portal.ini et ajuster si besoin.
 #
 # Split :
 #   vmdmz-docker01  = Traefik + conteneurs bastion sous /tools/portal
-#   vmdmz-reverse01 = nginx edge TLS → https://172.24.0.110 (Host portal.*)
+#   vmdmz-reverse01 = nginx edge TLS catch-all → https://172.24.0.110
 
 [sso_portal_docker]
 vmdmz-docker01 ansible_host=172.24.0.110
@@ -18,9 +18,19 @@ bastion_edge_host_ip=172.24.0.108
 bastion_app_docker_compose_dir=/tools/portal
 bastion_app_docker_data_dir=/tools/portal/data
 
+# Alias historique AWX (même hôte que sso_portal_edge)
+[nginx_dmz:children]
+sso_portal_edge
+
 [sso_portal_edge]
 vmdmz-reverse01 ansible_host=172.24.0.108
 
 [sso_portal_edge:vars]
 ansible_connection=ssh
 ansible_python_interpreter=/usr/bin/python3
+bastion_upstream_url=https://172.24.0.110
+bastion_docker_host_ip=172.24.0.110
+portal_domain=portal.ar-systems.fr
+base_domain=ar-systems.fr
+# Cutover: set true when ready to replace per-FQDN DMZ vhosts with catch-all
+bastion_edge_catchall_enabled=false

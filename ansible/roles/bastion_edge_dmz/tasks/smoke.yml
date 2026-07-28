@@ -1,0 +1,42 @@
+---
+# Smoke edge catch-all — reverse01 → bastion
+
+- name: "EDGE SMOKE : catch-all conf present"
+  ansible.builtin.stat:
+    path: "{{ bastion_edge_nginx_conf_dir }}/{{ bastion_edge_catchall_conf_name }}"
+  register: _edge_conf
+
+- name: "EDGE SMOKE : assert conf"
+  ansible.builtin.assert:
+    that:
+      - _edge_conf.stat.exists | default(false)
+    fail_msg: "Catch-all conf missing — run deploy with bastion_edge_catchall_enabled=true"
+
+- name: "EDGE SMOKE : X-Portal-Client-IP in catch-all"
+  ansible.builtin.command: >
+    grep -n X-Portal-Client-IP
+    {{ bastion_edge_nginx_conf_dir }}/{{ bastion_edge_catchall_conf_name }}
+  register: _edge_xff
+  changed_when: false
+  failed_when: _edge_xff.rc != 0
+
+- name: "EDGE SMOKE : portal health via local TLS + Host"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -sk --max-time 15 \
+      --resolve "{{ portal_domain }}:443:127.0.0.1" \
+      "https://{{ portal_domain }}/api/health" \
+      | grep -q '"status"'
+  args:
+    executable: /bin/bash
+  register: _edge_portal_health
+  changed_when: false
+  retries: 10
+  delay: 3
+  until: _edge_portal_health.rc | default(1) == 0
+
+- name: "EDGE SMOKE : OK"
+  ansible.builtin.debug:
+    msg: >-
+      Edge catch-all OK — {{ portal_domain }} /api/health via
+      {{ bastion_upstream_url }} (Host preserved, X-Portal-Client-IP set).

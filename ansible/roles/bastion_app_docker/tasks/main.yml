@@ -195,6 +195,12 @@
     mode: "0600"
   no_log: true
 
+- name: "Render bastion-nginx infra proxy vhosts (Keycloak / Grafana / …)"
+  ansible.builtin.template:
+    src: nginx-infra-proxy-apps.conf.j2
+    dest: "{{ sso_portal_exports_dir }}/nginx-infra-proxy-apps.conf"
+    mode: "0644"
+
 - name: "Ensure oauth2-core cfg from example if missing"
   ansible.builtin.copy:
     src: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg.example"

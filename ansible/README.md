@@ -1,61 +1,85 @@
-## Phase 7 — Docker (`linux_sso_portal_docker.yml`)
+## Phase 7+ — Bastion indépendant (Docker + edge catch-all)
 
-**Topologie split + Traefik (comme Keycloak) :**
+**Entry point AWX unique : projet `bastion-app`** (plus de wrapper `awx-playbook/linux_sso_portal_docker.yml`).
 
 ```
-clients → vmdmz-reverse01:443 (nginx edge)
-            → https://172.24.0.110 (Traefik, Host: portal.ar-systems.fr)
-              → nginx-bastion:8080 (réseau Docker vpcbr)
-                → bastion-app / oauth2-proxy (bastion_net)
+clients → vmdmz-reverse01:443 (TLS catch-all)
+            → https://172.24.0.110 (Traefik)
+              → bastion-nginx:8080  ← reverse Host unique
+                  ├─ portal.* / default_server → bastion-app / oauth2
+                  ├─ App DB subdomain_proxy / public_proxy
+                  └─ infra (Keycloak, …) via exports/nginx-infra-proxy-apps.conf
 ```
 
 | Rôle | Host | IP / chemin |
 |------|------|-------------|
-| Edge TLS | `vmdmz-reverse01` | `172.24.0.108` |
-| Traefik + stack bastion | `vmdmz-docker01` | `172.24.0.110` — config **`/tools/portal`** |
+| Edge TLS catch-all | `vmdmz-reverse01` | `172.24.0.108` — rôle `bastion_edge_dmz` |
+| Traefik + stack bastion | `vmdmz-docker01` | `172.24.0.110` — `/tools/portal` |
 
 - Compose / `.env` / oauth2-core : `/tools/portal`
-- Data (SQLite, exports) : `/tools/portal/data` → monté `/var/lib/sso-portal` dans les conteneurs
-
-- **Pas** de publish host `:8080` en prod — entrée = Traefik (`labels` + réseau `vpcbr`)
+- Data (SQLite, exports) : `/tools/portal/data` → `/var/lib/sso-portal`
+- **Pas** de publish host `:8080` en prod — entrée = Traefik (`labels` + `vpcbr`)
 - Smoke local sans Traefik : `docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d`
-- Étape awx-playbook : vhost `portal.*` → `https://172.24.0.110` + `Host: portal.ar-systems.fr`
-  (`vhost_portal_bastion.conf.j2`, `portal_bastion_edge_enabled: true` dans `linux_nginx_dmz.yml`)
-- **IP client** : Traefik sur docker01 doit avoir
-  `entrypoints.*.forwardedHeaders.trustedIPs=172.24.0.108/32`
-  (sinon XFF = reverse01 seul → break-glass `resolved: null`). Edge pose aussi
-  `X-Portal-Client-IP $remote_addr` en secours.
+- **IP client** : reverse01 pose `X-Portal-Client-IP $remote_addr` ; Traefik
+  `forwardedHeaders.trustedIPs=172.24.0.108/32` (voir `docs/ops-client-ip-chain.md`)
 
 ```bash
 # AWX (prod) — SEUL entry point
-#   Project    = awx-playbook
-#   Playbook   = linux_sso_portal_docker.yml   # dans awx-playbook, PAS ici
-#   Inventaire = groupe sso_portal_docker (vmdmz-docker01)
-#   Rôle       = bastion_app_docker_phase7
-#                (symlink → checkout bastion-app/ansible/roles/bastion_app_docker)
+#   Project    = bastion-app
+#   Playbook   = ansible/linux_sso_portal_docker.yml
+#   Inventaire = sso_portal_docker + nginx_dmz|sso_portal_edge
 #   Extra-vars :
-#     bastion_app_git_version: master
-#     vault_bastion_app_github_token / vault_portal_* (bootstrap crypto + Bearer)
-#   HMAC (hop / breakglass JWT) : seedés en SQLite par migrate — pas Extra Vars.
+#     vault_portal_* / vault_bastion_app_github_token (si fetch git)
+#     bastion_edge_catchall_enabled: true   # cutover edge (défaut false)
 #
-# Ne PAS lancer ansible/linux_sso_portal*.yml depuis bastion-app.
-#
-# Tags utiles (Job AWX) :
-#   --tags smoke            # smoke + VALIDATE_PURGE
-#   --tags validate_purge   # canary purge-units.list seul
+# Tags :
+#   --tags docker           # stack only
+#   --tags edge             # reverse01 catch-all only
+#   --tags smoke
+#   --tags validate_purge
+
+# Local syntax check
+ansible-playbook ansible/linux_sso_portal_docker.yml \
+  -i ansible/inventory/inventory_sso_portal.ini.example --syntax-check
 
 bash scripts/smoke-docker-local.sh
 ```
 
+### Cutover edge (flag)
+
+1. Déployer docker (`--tags docker`) avec rebuild nginx (`default_server` + infra proxies).
+2. Activer Traefik catch-all → bastion-nginx : copier/adapter
+   [`docker/traefik/bastion-catchall.example.yml`](../docker/traefik/bastion-catchall.example.yml)
+   et retirer les routers Host Keycloak/Grafana/Wiki qui bypassent bastion-nginx.
+3. Extra-var `bastion_edge_catchall_enabled: true` puis `--tags edge` :
+   - installe `vhost_bastion_edge_catchall.conf` sur reverse01
+   - désactive les vhosts legacy (`vhost_portal*`, `vhost_keycloak*`, … → `.disabled`)
+4. Smoke portal + Keycloak login.
+5. **awx-playbook** : ne plus redéployer les vhosts applicatifs via `linux_nginx_dmz.yml`
+   (sinon ils écrasent le catch-all). Ticket de coordination côté DMZ.
+
+### Nouvelle app `public_proxy` / `subdomain_proxy`
+
+Admin → Apps + infrastructure apply. DNS A/CNAME → reverse01 suffit : le catch-all
+envoie déjà le Host au bastion. **Plus de ticket DMZ par FQDN.**
+
+### Rôles
+
+| Rôle | Hôte | Rôle |
+|------|------|------|
+| `bastion_app_docker` | docker01 | Compose, migrate, infra proxy exports, apply-infra |
+| `bastion_edge_dmz` | reverse01 | TLS catch-all (opt-in) |
+| `bastion_app_docker_phase7` | — | Alias historique → `bastion_app_docker` |
+
 Le playbook applique notamment :
-- `.env` avec `RFC1918_BYPASS_ENABLED=false` (sinon boucle SSO derrière Traefik)
-- build `nginx` + `bastion-app` depuis le checkout Git (vhost `rd=/apps`, auth SSO-first)
-- `bastion-app-migrate` (Alembic, table `active_sessions`)
-- VERIFY image SSO puis `infrastructure apply` + `apply-infra-docker.sh`
+- `.env` avec `RFC1918_BYPASS_ENABLED=false`
+- build `nginx` + `bastion-app` depuis le checkout Git du projet
+- `exports/nginx-infra-proxy-apps.conf` (Keycloak, …)
+- `bastion-app-migrate` + `infrastructure apply` + `apply-infra-docker.sh`
 
 ---
 
-# Phase 6 — Déploiement Ansible (`linux_sso_portal`)
+# Phase 6 — Déploiement Ansible bare-metal (`linux_sso_portal`) — legacy
 
 ## Décisions actées (2026-07-17)
 
@@ -65,59 +89,19 @@ Le playbook applique notamment :
 | Version smoke | `phase: "5"` / `APP_VERSION 0.5.0` (`sso_portal_expected_health_phase`) |
 | `bastion_app_git_ref` | `v0.6.0` (défaut) |
 | Hôte | `vmdmz-reverse01` — AWX : `[nginx_dmz]` ; local : `[sso_portal]` |
-| JT AWX portail | Projet **awx-playbook** → `linux_sso_portal.yml` (clone bastion-app @ tag) |
-| JT AWX infra DMZ | `linux_nginx_dmz.yml` — **sans** deploy portail (`bastion_app_*_enabled: false`) |
-| Rotation Fernet | Hors scope Phase 6 |
+| JT AWX portail Docker | **bastion-app** → `linux_sso_portal_docker.yml` (ci-dessus) |
+| JT AWX infra DMZ | `linux_nginx_dmz.yml` — **sans** vhosts applicatifs bastion après cutover edge |
 
-## Usage
+## Usage (bare-metal historique)
 
 ```bash
-# Syntaxe
 ansible-playbook ansible/linux_sso_portal.yml \
   -i ansible/inventory/inventory_sso_portal.ini.example --syntax-check
-
-# Dry-run (host réel + Vault)
-ansible-playbook ansible/linux_sso_portal.yml \
-  -i ansible/inventory/inventory_sso_portal.ini --check --diff
-
-# Run réel
-ansible-playbook ansible/linux_sso_portal.yml \
-  -i ansible/inventory/inventory_sso_portal.ini
 ```
 
-Secrets AWX (jamais en logs grâce à `no_log` sur le rendu `.env`) :
-- `vault_portal_internal_token` (Bearer nginx / APIs internes — bootstrap `.env`)
-- `vault_sso_portal_oidc_client_secret` (legacy bootstrap ; source de vérité OIDC = `RealmConfig`)
-- `vault_portal_vault_fernet_key` — **temporaire Phase B** : conservé pour migration
-  auto vers fichiers locaux (`VAULT_KEYS_DIR`). Ne pas retirer avant smoke
-  `verify_fernet_key_migration.yml` vert sur tous les environnements.
-- `vault_portal_db_encryption_key` — SQLCipher (chiffrement fichier `portal.db`),
-  **64 caractères hex** (`openssl rand -hex 32`). Persisté sous
-  `{VAULT_KEYS_DIR}/db_encryption.key` au premier boot. Distinct de la clé Fernet.
+## Rollback edge catch-all
 
-HMAC runtime (**pas** dans `.env`) — seedés en base `portal_settings` par le job
-migrate (`python -m app.runtime_secrets_service`) :
-- session-cookie hop (`session_hop_secret_encrypted`)
-- break-glass JWT (`breakglass_jwt_secret_encrypted`) — aussi générable Admin → Sécurité
-
-Clé Fernet métier (Phase B) : gérée par l’app sous `sso_portal_keys_dir`
-(`/var/lib/sso-portal/keys`). Rotation via Admin → Sécurité (in-process), pas via AWX.
-
-Rotation CLI legacy (Phase A, encore disponible) :
-
-```bash
-OLD_FERNET_KEY='...' NEW_FERNET_KEY='...' python -m scripts.rotate_fernet_key
-```
-
-## Rollback manuel (pas d'auto-rollback smoke)
-
-1. Restaurer `portal.db.bak-*`
-2. Repoint symlink : `ln -sfn /opt/sso-portal-release/<ancienne-ref> /opt/sso-portal`
-3. `systemctl restart sso-portal`
-4. En dernier recours : re-jouer l'ancien chemin `linux_nginx_dmz.yml` (avant étape 6 du plan de bascule)
-
-## Hors repo bastion-app (checklist §5–9)
-
-- Création Job Template AWX `linux_sso_portal`
-- Dry-run / premier run prod
-- Retrait scope applicatif de `awx-playbook/linux_nginx_dmz.yml`
+1. Sur reverse01 : `mv /etc/nginx/conf.d/vhost_*.conf.disabled` → sans `.disabled` (vhosts legacy)
+2. Retirer ou renommer `vhost_bastion_edge_catchall.conf`
+3. `nginx -t && systemctl reload nginx`
+4. Relancer `linux_nginx_dmz.yml` si besoin de réaligner l’infra non-bastion

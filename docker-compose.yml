@@ -118,12 +118,16 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=vpcbr"
+      # Portal Host (priority default). After infra Hosts live on bastion-nginx,
+      # also load docker/traefik/bastion-catchall.example.yml (file provider) so
+      # Keycloak/Grafana/Wiki hit bastion-nginx instead of their own Traefik routers.
       - "traefik.http.routers.bastion-portal.rule=Host(`${PORTAL_DOMAIN:-portal.ar-systems.fr}`)"
       - "traefik.http.routers.bastion-portal.entrypoints=websecure"
       - "traefik.http.routers.bastion-portal.tls=true"
       - "traefik.http.routers.bastion-portal.tls.certresolver=cloudflare"
       - "traefik.http.routers.bastion-portal.middlewares=secure-headers@file"
       - "traefik.http.services.bastion-portal.loadbalancer.server.port=8080"
+      - "traefik.http.routers.bastion-portal.service=bastion-portal"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_portal_nginx_ok"]
       interval: 15s

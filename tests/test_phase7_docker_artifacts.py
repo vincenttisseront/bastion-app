@@ -40,9 +40,10 @@ def test_compose_publish_override_for_local_smoke():
 def test_playbook_targets_docker_host():
     text = (ROOT / "ansible" / "linux_sso_portal_docker.yml").read_text(encoding="utf-8")
     assert "sso_portal_docker" in text
-    assert "vmdmz-docker01" in text
-    # Deploy targets docker host, not the edge reverse proxy
-    assert "default('sso_portal_docker:vmdmz-docker01')" in text
+    assert "bastion_app_docker" in text
+    # Independent entry: docker + edge hosts (not stub fail)
+    assert "bastion_edge_dmz" in text
+    assert "Refuse local/obsolete" not in text
 
 
 def test_apply_infra_docker_script_exists():
@@ -53,6 +54,7 @@ def test_apply_infra_docker_script_exists():
     assert "--remove-orphans" in body
     assert "purge-units.list" in body
     assert "oauth2-proxy-portal-" in body
+    assert "nginx-infra-proxy-apps.conf" in body
 
 
 def test_validate_purge_units_task_present():
@@ -84,3 +86,4 @@ def test_ansible_docker_role_present():
     assert (role / "tasks" / "main.yml").is_file()
     assert (role / "tasks" / "smoke_test.yml").is_file()
     assert (ROOT / "ansible" / "linux_sso_portal_docker.yml").is_file()
+    assert (ROOT / "ansible" / "roles" / "bastion_edge_dmz" / "tasks" / "main.yml").is_file()

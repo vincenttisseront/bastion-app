@@ -4,7 +4,19 @@
 > Toute checklist du type `reverse01 → 127.0.0.1:PORT_NGINX_BASTION` est **obsolète**
 > et ne doit pas être appliquée.
 
-## Symptôme (2026-07-26)
+## Topologie réelle (bastion indépendant)
+
+```
+client → reverse01:443 (172.24.0.108, DMZ) — catch-all TLS (rôle bastion_edge_dmz)
+      → Traefik docker01 (vpcbr 10.5.0.0/16)
+      → bastion-nginx:8080   ← real_ip + map portal_client_real_ip (+ Host routing)
+      → bastion-app / Keycloak / apps
+```
+
+Entry AWX : **projet bastion-app** → `ansible/linux_sso_portal_docker.yml`.
+Catch-all edge : `bastion_edge_catchall_enabled: true` (opt-in). Voir `ansible/README.md`.
+
+## Symptôme historique (2026-07-26)
 
 `breakglass.login_denied_non_lan` avec :
 
@@ -40,9 +52,13 @@ client → reverse01:443 (172.24.0.108, DMZ)
       → bastion-app          ← client_ip_from_request (trusted peer = docker only)
 ```
 
-## Correctif prioritaire — reverse01 (immédiat, faible risque)
+## Correctif prioritaire — reverse01
 
-Sur `vmdmz-reverse01`, dans `/etc/nginx/conf.d/vhost_portal_bastion.conf`, **les deux** blocs
+Préférer le catch-all bastion (`bastion_edge_dmz`, template
+`vhost_bastion_edge_catchall.conf.j2`) qui pose déjà
+`X-Portal-Client-IP $remote_addr` sur tout le trafic.
+
+Sinon, sur un vhost portal legacy encore en place, les blocs
 `location = /api/health` et `location /` doivent contenir :
 
 ```nginx

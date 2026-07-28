@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  role_name: bastion_edge_dmz
+  description: reverse01 TLS catch-all → Traefik/bastion docker01
+  license: proprietary
+  min_ansible_version: "2.14"
+dependencies: []

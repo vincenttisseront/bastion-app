@@ -1,0 +1,61 @@
+---
+# Deploy reverse01 catch-all → Traefik/bastion (docker01)
+
+- name: "EDGE : assert catch-all enabled implies secrets/paths"
+  ansible.builtin.assert:
+    that:
+      - bastion_upstream_url | length > 0
+      - bastion_edge_ssl_certificate | length > 0
+      - bastion_edge_ssl_certificate_key | length > 0
+    fail_msg: "bastion_upstream_url and TLS cert paths are required for edge catch-all"
+
+- name: "EDGE : TLS certificate present"
+  ansible.builtin.stat:
+    path: "{{ bastion_edge_ssl_certificate }}"
+  register: _edge_cert
+
+- name: "EDGE : fail if certificate missing"
+  ansible.builtin.assert:
+    that:
+      - _edge_cert.stat.exists | default(false)
+    fail_msg: >-
+      Certificate {{ bastion_edge_ssl_certificate }} missing on {{ inventory_hostname }}.
+      Issue/renew Let's Encrypt before enabling bastion_edge_catchall_enabled.
+
+- name: "EDGE : find legacy DMZ app vhosts"
+  when: bastion_edge_disable_legacy_vhosts | default(true) | bool
+  ansible.builtin.find:
+    paths: "{{ bastion_edge_nginx_conf_dir }}"
+    patterns: "{{ bastion_edge_legacy_vhost_globs }}"
+    file_type: file
+  register: _edge_legacy_files
+
+- name: "EDGE : disable legacy DMZ app vhosts (avoid server_name conflicts)"
+  when:
+    - bastion_edge_disable_legacy_vhosts | default(true) | bool
+    - (item.path | basename) != bastion_edge_catchall_conf_name
+    - not (item.path | basename).endswith('.disabled')
+  ansible.builtin.command:
+    cmd: "mv -f {{ item.path }} {{ item.path }}.disabled"
+  loop: "{{ _edge_legacy_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | default('') }}"
+  notify: Reload nginx (edge DMZ)
+
+- name: "EDGE : install catch-all vhost"
+  ansible.builtin.template:
+    src: vhost_bastion_edge_catchall.conf.j2
+    dest: "{{ bastion_edge_nginx_conf_dir }}/{{ bastion_edge_catchall_conf_name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx (edge DMZ)
+
+- name: "EDGE : nginx -t"
+  ansible.builtin.command: nginx -t
+  register: _edge_nginx_t
+  changed_when: false
+  failed_when: _edge_nginx_t.rc != 0
+
+- name: "EDGE : ensure nginx reloaded after conf change"
+  ansible.builtin.meta: flush_handlers

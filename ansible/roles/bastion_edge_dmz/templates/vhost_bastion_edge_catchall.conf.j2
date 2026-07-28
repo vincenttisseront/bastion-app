@@ -1,0 +1,48 @@
+{# Bastion edge catch-all — reverse01 TLS → Traefik/bastion on docker01.
+   Source of truth: bastion-app role bastion_edge_dmz (not linux_nginx_dmz).
+   Preserves Host; sets X-Portal-Client-IP for bastion client-ip chain.
+#}
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name {{ bastion_edge_server_names | join(' ') }};
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2 default_server;
+    listen [::]:443 ssl http2 default_server;
+    server_name {{ bastion_edge_server_names | join(' ') }};
+
+    ssl_certificate     {{ bastion_edge_ssl_certificate }};
+    ssl_certificate_key {{ bastion_edge_ssl_certificate_key }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    access_log /var/log/nginx/bastion_edge_catchall.access.log;
+    error_log  /var/log/nginx/bastion_edge_catchall.error.log warn;
+
+    client_max_body_size 64M;
+    large_client_header_buffers 8 32k;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    location / {
+        proxy_pass {{ bastion_upstream_url }};
+        proxy_http_version 1.1;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $host;
+        proxy_ssl_verify off;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host  $host;
+        # Required for bastion break-glass / LAN IP resolution (ops-client-ip-chain.md)
+        proxy_set_header X-Portal-Client-IP $remote_addr;
+
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $http_connection;
+    }
+}

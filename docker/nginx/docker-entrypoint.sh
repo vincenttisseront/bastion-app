@@ -32,6 +32,14 @@ else
   echo "# no public_proxy apps exported yet" > /etc/nginx/conf.d/nginx-public-proxy-apps.conf
 fi
 
+# Infra proxies (Keycloak, Grafana, …) — static list from Ansible exports
+if [[ -f /var/lib/sso-portal/exports/nginx-infra-proxy-apps.conf ]]; then
+  cp -a /var/lib/sso-portal/exports/nginx-infra-proxy-apps.conf \
+    /etc/nginx/conf.d/nginx-infra-proxy-apps.conf
+else
+  echo "# no infra proxy vhosts exported yet" > /etc/nginx/conf.d/nginx-infra-proxy-apps.conf
+fi
+
 envsubst '${PORTAL_INTERNAL_TOKEN}' \
   < /etc/nginx/templates-portal/proxy_portal_trusted_internal.conf.template \
   > /etc/nginx/snippets/proxy_portal_trusted_internal.conf
