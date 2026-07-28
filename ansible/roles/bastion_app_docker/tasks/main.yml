@@ -424,8 +424,9 @@
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
-      'seen[\$1]' /docker-entrypoint-portal.sh; then
-      echo "nginx entrypoint missing map-key dedupe (awk seen[]) — rebuild nginx image"
+      'BASTION_KNOWN_HOSTS_DEDUPE=1' /docker-entrypoint-portal.sh; then
+      echo "nginx entrypoint missing map-key dedupe marker — rebuild nginx image (need >= 38867a1)"
+      docker run --rm --entrypoint sed bastion-nginx:local -n '45,70p' /docker-entrypoint-portal.sh || true
       exit 1
     fi
     echo "=== nginx status ==="
