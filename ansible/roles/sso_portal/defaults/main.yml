@@ -89,6 +89,10 @@ nginx_legacy_proxy_redirects:
   - slug: transfer
     fqdn: transfer.ar-systems.fr
 
+# Public reverse-proxy vhosts (no bastion auth). Preferred path remains App DB →
+# exports/nginx-public-proxy-apps.conf on bastion-nginx. This list is transitional DMZ only.
+nginx_public_proxy_vhosts: []
+
 sso_portal_subdomain_auth_enabled: false
 sso_portal_subdomain_proxy_redirects_enabled: false
 

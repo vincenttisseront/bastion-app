@@ -54,8 +54,28 @@
           </div>
         </div>
 
+        <div id="access-mode-public-warning" class="alert alert-warn" hidden>
+          <div class="alert-body">
+            ⚠️ Ce mode ne vérifie <strong>aucune authentification bastion</strong>
+            (pas de SSO, pas de RBAC, pas d'<span class="mono">auth_request</span>).
+            Le trafic est relayé tel quel vers l'URL backend. N'utilisez ce mode que si
+            l'application gère elle-même son contrôle d'accès, ou si elle est destinée à
+            être publique. Cette application <strong>n'apparaîtra pas</strong> dans le
+            catalogue « Mes applications » des utilisateurs.
+          </div>
+        </div>
+
+        {% if rbac_grant_count | default(0) > 0 %}
+        <div id="access-mode-public-rbac-warning" class="alert alert-warn" hidden>
+          <div class="alert-body">
+            Ce mode ne vérifie aucun droit RBAC bastion — les droits existants
+            ({{ rbac_grant_count }}) sont sans effet.
+          </div>
+        </div>
+        {% endif %}
+
         <div class="form-group" id="public-fqdn-group" hidden>
-          <label class="form-label" for="public_fqdn">Sous-domaine public <span class="req">*</span></label>
+          <label class="form-label" for="public_fqdn" id="public-fqdn-label">Sous-domaine public <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ app.public_fqdn or '' }}" placeholder="app.example.fr" data-portal-domain="{{ portal_domain }}">

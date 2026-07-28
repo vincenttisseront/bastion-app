@@ -1,0 +1,35 @@
+{# {{ ansible_managed }}
+   Vhost reverse proxy simple (hors authentification bastion)
+   TRANSITIONAL DMZ template. Preferred path: App DB → exports/nginx-public-proxy-apps.conf
+   loaded by bastion-nginx (front). NO auth_request / oauth2 / FastAPI /internal/*.
+   TLS terminated upstream (reverse01 / Traefik) — no ssl_* blocks in front export.
+#}
+{% for vhost in nginx_public_proxy_vhosts %}
+server {
+    listen 80;
+    server_name {{ vhost.fqdn }};
+
+    access_log /var/log/nginx/{{ vhost.slug }}_public_access.log;
+    error_log  /var/log/nginx/{{ vhost.slug }}_public_error.log;
+
+    set $app_upstream {{ vhost.upstream_url }};
+
+    # ─── Sonde santé applicative (optionnelle) ────────────────────────────────
+    location = /healthz {
+        proxy_pass $app_upstream/;
+        proxy_redirect off;
+        proxy_set_header Host $host;
+    }
+
+    # ─── Route principale — AUCUNE authentification, proxy transparent ────────
+    location / {
+        proxy_pass $app_upstream;
+        proxy_redirect off;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+    }
+}
+{% endfor %}

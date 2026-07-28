@@ -13,6 +13,7 @@ from typing import Sequence
 
 from sqlalchemy.orm import Session
 
+from app.access_modes import is_user_catalogue_mode
 from app.models import AccessGrant, App, RBACGroup
 
 ACCESS_LEVEL_RANK: dict[str, int] = {"view": 1, "launch": 2, "manage": 3}
@@ -93,7 +94,7 @@ def get_effective_apps_for_user(
         )
         for grant in direct:
             app = db.query(App).filter_by(id=grant.application_id, enabled=True).first()
-            if not app:
+            if not app or not is_user_catalogue_mode(app.access_mode):
                 continue
             _merge_candidate(
                 by_app,
@@ -124,7 +125,7 @@ def get_effective_apps_for_user(
                     .filter_by(id=grant.application_id, enabled=True)
                     .first()
                 )
-                if not app:
+                if not app or not is_user_catalogue_mode(app.access_mode):
                     continue
                 group = group_by_id.get(grant.rbac_group_id) if grant.rbac_group_id else None
                 source = f"via groupe {group.name}" if group else "via groupe"

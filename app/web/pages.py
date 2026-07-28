@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Reques
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.access_modes import normalize_access_mode, validate_app_access_fields
+from app.access_modes import (
+    is_user_catalogue_mode,
+    normalize_access_mode,
+    validate_app_access_fields,
+)
 from app.bastion.bastion_fields import (
     normalize_auth_mode,
     normalize_credential_mode,
@@ -33,7 +37,7 @@ from app.breakglass_store import (
     verify_breakglass_password,
 )
 from app.database import get_db
-from app.models import App, RBACGroup, RealmConfig
+from app.models import AccessGrant, App, RBACGroup, RealmConfig
 from app.rbac.grants_service import count_grants_by_application
 from app.robotic.robotic_session_cookies import shared_parent_domain
 from app.sso_settings import Settings, get_settings
@@ -177,8 +181,10 @@ def _validate_auth_fields(
     errors: dict[str, str] = {}
     mode = normalize_access_mode(access_mode)
     auth = normalize_auth_mode(auth_mode)
-    if mode == "sso_gate" and auth != "sso":
-        errors["auth_mode"] = "Le vault robotic n'est pas disponible en mode SSO Gate."
+    if mode in ("sso_gate", "public_proxy") and auth != "sso":
+        errors["auth_mode"] = (
+            "Le vault robotic n'est pas disponible pour ce mode d'accès."
+        )
     if auth == "generic_form":
         errors.update(
             validate_generic_form_fields(
@@ -262,7 +268,13 @@ def catalogue_page(
 
     if is_portal_admin(user, db, settings):
         user.is_admin = True
-        apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+        apps = (
+            db.query(App)
+            .filter_by(enabled=True)
+            .order_by(App.label)
+            .all()
+        )
+        apps = [a for a in apps if is_user_catalogue_mode(a.access_mode)]
     else:
         # Single source of truth: AccessGrant (legacy group↔app links backfilled as launch).
         entries = get_effective_apps_for_user(
@@ -759,6 +771,14 @@ def admin_apps_edit(
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
         raise HTTPException(status_code=404)
+    rbac_grant_count = (
+        db.query(AccessGrant)
+        .filter(
+            AccessGrant.resource_type == "application",
+            AccessGrant.application_id == app.id,
+        )
+        .count()
+    )
     return render(
         "admin/apps/edit.html",
         **_ctx(
@@ -768,6 +788,7 @@ def admin_apps_edit(
             errors={},
             logo_url=logo_public_url(app),
             vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
+            rbac_grant_count=rbac_grant_count,
         ),
     )
 
@@ -833,6 +854,14 @@ def admin_apps_edit_post(
             identity_format=identity_format,
             injected_cookie_scope=injected_cookie_scope,
         )
+        rbac_grant_count = (
+            db.query(AccessGrant)
+            .filter(
+                AccessGrant.resource_type == "application",
+                AccessGrant.application_id == app.id,
+            )
+            .count()
+        )
         return render(
             "admin/apps/edit.html",
             **_ctx(
@@ -842,6 +871,7 @@ def admin_apps_edit_post(
                 errors=errors,
                 logo_url=logo_public_url(app),
                 vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
+                rbac_grant_count=rbac_grant_count,
             ),
         )
     app.label = label

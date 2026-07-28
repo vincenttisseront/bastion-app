@@ -94,6 +94,9 @@ def _application_manifest_entry(app: App) -> dict[str, Any]:
     if mode == "subdomain_proxy" and (app.public_fqdn or "").strip():
         entry["session_cookie_hop"] = True
         entry["hop_path"] = "/.bastion/session-cookies"
+    if mode == "public_proxy" and (app.public_fqdn or "").strip():
+        entry["bastion_auth"] = False
+        entry["upstream_url"] = app.upstream_url
     return entry
 
 
@@ -195,6 +198,20 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
                 _file_manifest_entry(
                     Path(app_paths["subdomain_apps_inventory"]),
                     kind="subdomain_apps_inventory",
+                )
+            )
+        if app_paths.get("nginx_public_proxy_apps_conf"):
+            written_files.append(
+                _file_manifest_entry(
+                    Path(app_paths["nginx_public_proxy_apps_conf"]),
+                    kind="nginx_public_proxy_apps_conf",
+                )
+            )
+        if app_paths.get("public_proxy_apps_inventory"):
+            written_files.append(
+                _file_manifest_entry(
+                    Path(app_paths["public_proxy_apps_inventory"]),
+                    kind="public_proxy_apps_inventory",
                 )
             )
 

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.access_modes import is_user_catalogue_mode, normalize_access_mode, validate_app_access_fields
 from app.audit import log_action
 from app.database import get_db
 from app.models import App
@@ -34,7 +35,9 @@ class AppCreate(BaseModel):
     label: str
     upstream_url: str
     realm_slug: str | None = None
-    access_mode: Literal["sso_gate", "subdomain_proxy", "legacy_path_proxy"] = "sso_gate"
+    access_mode: Literal[
+        "sso_gate", "subdomain_proxy", "legacy_path_proxy", "public_proxy"
+    ] = "sso_gate"
     public_fqdn: str | None = None
     auth_mode: str = "sso"
     robotic_driver: str | None = None
@@ -56,7 +59,9 @@ class AppUpdate(BaseModel):
     label: str | None = None
     upstream_url: str | None = None
     realm_slug: str | None = None
-    access_mode: Literal["sso_gate", "subdomain_proxy", "legacy_path_proxy"] | None = None
+    access_mode: (
+        Literal["sso_gate", "subdomain_proxy", "legacy_path_proxy", "public_proxy"] | None
+    ) = None
     public_fqdn: str | None = None
     auth_mode: str | None = None
     robotic_driver: str | None = None
@@ -132,7 +137,8 @@ def _apps_visible_to_user(
     Full admin CRUD remains on ``/admin/apps`` (HTML) and token-mutated ``router``.
     """
     if is_portal_admin(user, db, settings):
-        return db.query(App).filter_by(enabled=True).order_by(App.label).all()
+        apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+        return [a for a in apps if is_user_catalogue_mode(a.access_mode)]
     entries = get_effective_apps_for_user(
         db,
         keycloak_user_id=user.keycloak_user_id,
@@ -176,7 +182,14 @@ def create_app(
     if existing:
         raise HTTPException(status_code=409, detail=f"App '{body.slug}' already exists")
 
-    app = App(**body.model_dump())
+    mode = normalize_access_mode(body.access_mode)
+    field_errors = validate_app_access_fields(mode, body.upstream_url, body.public_fqdn)
+    if field_errors:
+        raise HTTPException(status_code=422, detail=field_errors)
+
+    payload = body.model_dump()
+    payload["access_mode"] = mode
+    app = App(**payload)
     db.add(app)
     db.commit()
     db.refresh(app)
@@ -200,6 +213,14 @@ def update_app(
 ):
     app = _get_app_or_404(db, slug)
     updates = body.model_dump(exclude_unset=True)
+    mode = normalize_access_mode(updates.get("access_mode", app.access_mode))
+    upstream = updates.get("upstream_url", app.upstream_url)
+    fqdn = updates.get("public_fqdn", app.public_fqdn)
+    field_errors = validate_app_access_fields(mode, upstream or "", fqdn)
+    if field_errors:
+        raise HTTPException(status_code=422, detail=field_errors)
+    if "access_mode" in updates:
+        updates["access_mode"] = mode
     for key, value in updates.items():
         setattr(app, key, value)
     app.updated_at = datetime.now(timezone.utc)

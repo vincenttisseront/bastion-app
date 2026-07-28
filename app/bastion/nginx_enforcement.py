@@ -76,6 +76,15 @@ def proxy_location_lines(app: App) -> list[str]:
             "(bastion-nginx front; not this legacy snippet file)."
         )
         lines.append("")
+    elif mode == "public_proxy" and app.public_fqdn:
+        lines.append(
+            f"# [{app.slug}] public_proxy — {app.public_fqdn.strip()}"
+        )
+        lines.append(
+            "# Full server{} (no auth) → exports/nginx-public-proxy-apps.conf "
+            "(bastion-nginx front; not this legacy snippet file)."
+        )
+        lines.append("")
     elif mode == "legacy_path_proxy":
         lines.append(f"# [{app.slug}] legacy_path_proxy")
         lines.append(f"location /proxy/{app.slug}/ {{")

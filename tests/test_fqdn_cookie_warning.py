@@ -66,8 +66,9 @@ def test_edit_grommunio_warning_starts_hidden_and_css_respects_hidden(
     assert 'data-portal-domain="portal.ar-systems.fr"' in html
     assert 'id="fqdn-cookie-domain-warning"' in html
     # Markup must keep the warning hidden until JS decides otherwise
-    assert 'id="fqdn-cookie-domain-warning" class="alert alert-warn" hidden' in html
-
+    assert 'id="fqdn-cookie-domain-warning"' in html
+    assert "hidden" in html.split('id="fqdn-cookie-domain-warning"')[1].split(">")[0]
+    assert "alert alert-warn" in html.split('id="fqdn-cookie-domain-warning"')[1].split(">")[0]
     css = client.get("/static/css/bastion-components.css")
     assert css.status_code == 200
     assert ".alert[hidden]{display:none!important}" in css.text.replace(" ", "")

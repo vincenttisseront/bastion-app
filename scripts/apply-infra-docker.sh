@@ -154,9 +154,18 @@ if command -v docker >/dev/null 2>&1; then
   if [[ -f "$CORE_CFG_SRC" ]]; then
     docker compose up -d --force-recreate --no-deps oauth2-proxy-core
   fi
-  # Reload nginx to pick up nginx-portal-realms.conf updates
-  docker compose exec -T nginx nginx -s reload 2>/dev/null \
-    || docker compose restart nginx
+  # Refresh nginx conf.d copies from exports (entrypoint only runs on container start)
+  docker compose exec -T nginx sh -c '
+    if [ -f /var/lib/sso-portal/exports/nginx-subdomain-apps.conf ]; then
+      cp -a /var/lib/sso-portal/exports/nginx-subdomain-apps.conf \
+        /etc/nginx/conf.d/nginx-subdomain-apps.conf
+    fi
+    if [ -f /var/lib/sso-portal/exports/nginx-public-proxy-apps.conf ]; then
+      cp -a /var/lib/sso-portal/exports/nginx-public-proxy-apps.conf \
+        /etc/nginx/conf.d/nginx-public-proxy-apps.conf
+    fi
+    nginx -t && nginx -s reload
+  ' 2>/dev/null || docker compose restart nginx
 else
   echo "docker indisponible — override écrit, compose up ignoré" >&2
 fi

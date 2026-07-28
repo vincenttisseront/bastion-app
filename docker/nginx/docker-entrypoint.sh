@@ -24,6 +24,14 @@ else
   echo "# no subdomain_proxy apps exported yet" > /etc/nginx/conf.d/nginx-subdomain-apps.conf
 fi
 
+# Public proxy apps (no bastion auth) — separate file from subdomain_proxy
+if [[ -f /var/lib/sso-portal/exports/nginx-public-proxy-apps.conf ]]; then
+  cp -a /var/lib/sso-portal/exports/nginx-public-proxy-apps.conf \
+    /etc/nginx/conf.d/nginx-public-proxy-apps.conf
+else
+  echo "# no public_proxy apps exported yet" > /etc/nginx/conf.d/nginx-public-proxy-apps.conf
+fi
+
 envsubst '${PORTAL_INTERNAL_TOKEN}' \
   < /etc/nginx/templates-portal/proxy_portal_trusted_internal.conf.template \
   > /etc/nginx/snippets/proxy_portal_trusted_internal.conf

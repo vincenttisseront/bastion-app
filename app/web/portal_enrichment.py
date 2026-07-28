@@ -52,7 +52,7 @@ def protocol_filter_key(app: App) -> str:
     auth = normalize_auth_mode(getattr(app, "auth_mode", None))
     if vault_enabled_for_app(auth, getattr(app, "robotic_driver", None)):
         return "vault"
-    if mode in ("subdomain_proxy", "legacy_path_proxy"):
+    if mode in ("subdomain_proxy", "legacy_path_proxy", "public_proxy"):
         return "proxy"
     return "web"
 

@@ -146,22 +146,37 @@ var ACCESS_MODE_COPY = {
     upstreamLabel: "URL publique de l'application",
     upstreamHelp: "L'utilisateur sera redirigé ici après validation SSO. Aucun proxy.",
     upstreamPlaceholder: 'https://app.example.fr/',
+    fqdnLabel: 'Sous-domaine public',
     showFqdn: false,
-    showLegacyWarn: false
+    showLegacyWarn: false,
+    showPublicWarn: false
   },
   subdomain_proxy: {
     upstreamLabel: 'URL backend interne (proxy_pass)',
     upstreamHelp: 'Cible du reverse proxy Nginx sur le sous-domaine dédié.',
     upstreamPlaceholder: 'http://127.0.0.1:8080/',
+    fqdnLabel: 'Sous-domaine public',
     showFqdn: true,
-    showLegacyWarn: false
+    showLegacyWarn: false,
+    showPublicWarn: false
   },
   legacy_path_proxy: {
     upstreamLabel: 'URL backend interne (proxy_pass)',
     upstreamHelp: 'Cible proxifiée sous /proxy/{slug}/ — apps compatibles sous-chemin uniquement.',
     upstreamPlaceholder: 'http://127.0.0.1:8080/',
+    fqdnLabel: 'Sous-domaine public',
     showFqdn: false,
-    showLegacyWarn: true
+    showLegacyWarn: true,
+    showPublicWarn: false
+  },
+  public_proxy: {
+    upstreamLabel: 'URL backend interne (proxy_pass)',
+    upstreamHelp: 'Cible du reverse proxy Nginx — aucune authentification bastion.',
+    upstreamPlaceholder: 'http://127.0.0.1:8080/',
+    fqdnLabel: 'Domaine public dédié',
+    showFqdn: true,
+    showLegacyWarn: false,
+    showPublicWarn: true
   }
 };
 
@@ -217,8 +232,11 @@ function initAccessModeForm() {
   var upstreamInput = document.getElementById('upstream_url');
   var fqdnGroup = document.getElementById('public-fqdn-group');
   var fqdnInput = document.getElementById('public_fqdn');
+  var fqdnLabelEl = document.getElementById('public-fqdn-label');
   var fqdnCookieWarn = document.getElementById('fqdn-cookie-domain-warning');
   var legacyWarn = document.getElementById('access-mode-legacy-warning');
+  var publicWarn = document.getElementById('access-mode-public-warning');
+  var rbacWarn = document.getElementById('access-mode-public-rbac-warning');
   var authSection = document.getElementById('auth-mode-section');
   var authSelect = document.querySelector('[data-auth-mode-select]');
   var genericFields = document.getElementById('generic-form-fields');
@@ -246,9 +264,14 @@ function initAccessModeForm() {
       upstreamInput.placeholder = copy.upstreamPlaceholder;
     }
     if (fqdnGroup) fqdnGroup.hidden = !copy.showFqdn;
+    if (fqdnLabelEl) {
+      fqdnLabelEl.innerHTML = copy.fqdnLabel + ' <span class="req">*</span>';
+    }
     if (legacyWarn) legacyWarn.hidden = !copy.showLegacyWarn;
+    if (publicWarn) publicWarn.hidden = !copy.showPublicWarn;
+    if (rbacWarn) rbacWarn.hidden = !copy.showPublicWarn;
     if (authSection) {
-      authSection.hidden = (mode === 'sso_gate');
+      authSection.hidden = (mode === 'sso_gate' || mode === 'public_proxy');
     }
     syncFqdnCookieWarning();
   }

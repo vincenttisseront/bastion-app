@@ -24,6 +24,11 @@ def test_validate_subdomain_requires_fqdn():
     assert "public_fqdn" in errors
 
 
+def test_validate_public_proxy_requires_fqdn():
+    errors = validate_app_access_fields("public_proxy", "http://127.0.0.1:8080", "")
+    assert "public_fqdn" in errors
+
+
 def test_app_launch_url_sso_gate():
     app = SimpleNamespace(
         access_mode="sso_gate",

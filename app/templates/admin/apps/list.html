@@ -22,6 +22,15 @@
         <a href="/admin/apps/create" class="btn btn-primary btn-sm">+ Ajouter</a>
       </div>
     </div>
+    <div class="card-body" style="padding-bottom:0;">
+      <div class="filter-group" role="group" aria-label="Filtrer par mode" id="admin-apps-mode-filter">
+        <button type="button" class="filter-chip active" data-filter="all">Tout</button>
+        <button type="button" class="filter-chip" data-filter="sso_gate">SSO Gate</button>
+        <button type="button" class="filter-chip" data-filter="subdomain_proxy">Sous-domaine</button>
+        <button type="button" class="filter-chip" data-filter="legacy_path_proxy">Legacy</button>
+        <button type="button" class="filter-chip" data-filter="public_proxy">Proxy public</button>
+      </div>
+    </div>
     <div class="card-body card-flush">
       <div class="table-wrap">
         <table class="data-table" id="apps-table">
@@ -30,7 +39,7 @@
           </thead>
           <tbody>
             {% for app in apps %}
-            <tr data-searchable data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }}">
+            <tr data-searchable data-mode="{{ app.access_mode }}" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}">
               <td>{{ app.label }}</td>
               <td class="mono">{{ app.slug }}</td>
               <td class="mono truncate truncate-cell">{{ app.upstream_url }}</td>
@@ -63,12 +72,40 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  var modeFilter = 'all';
+  var chips = document.querySelectorAll('#admin-apps-mode-filter .filter-chip');
+  var rows = document.querySelectorAll('#apps-table tbody tr[data-searchable]');
+
+  function applyFilters() {
+    var q = (document.getElementById('apps-search') || {}).value || '';
+    q = q.trim().toLowerCase();
+    rows.forEach(function (row) {
+      var modeOk = modeFilter === 'all' || row.dataset.mode === modeFilter;
+      var key = (row.dataset.fuzzyKey || '').toLowerCase();
+      var searchOk = !q || key.indexOf(q) !== -1;
+      row.hidden = !(modeOk && searchOk);
+    });
+  }
+
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      chips.forEach(function (c) { c.classList.remove('active'); });
+      chip.classList.add('active');
+      modeFilter = chip.dataset.filter || 'all';
+      applyFilters();
+    });
+  });
+
   if (window.BastionFuzzy) {
     window.BastionFuzzy.init({
       inputId: 'apps-search',
       itemSelector: '#apps-table tbody tr[data-searchable]',
       getKey: function (el) { return el.dataset.fuzzyKey || ''; },
     });
+  }
+  var searchInput = document.getElementById('apps-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', applyFilters);
   }
 });
 </script>
