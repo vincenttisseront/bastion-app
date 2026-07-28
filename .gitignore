@@ -18,6 +18,7 @@ docker-compose.override.yml
 docker/oauth2-core/oauth2-proxy.cfg
 !docker/oauth2-core/oauth2-proxy.cfg.example
 .env.oauth2-core
+.env.acme
 /exports/
 # Uploaded app logos (legacy package path + data volume)
 app/static/uploads/app-logos/*

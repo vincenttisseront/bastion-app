@@ -46,3 +46,10 @@ MAP_SRC="$EXPORTS/nginx-known-hosts.map"
   } | awk 'NF >= 2 && !seen[$1]++ { printf "    %s %s\n", $1, $2 }'
   echo "}"
 } > /etc/nginx/conf.d/00-known-hosts-map.conf
+
+# TLS :8443 for public_proxy when LE/placeholder certs exist
+if [[ -x /sync-public-proxy-tls.sh ]]; then
+  /sync-public-proxy-tls.sh || echo "WARN: sync-public-proxy-tls failed" >&2
+else
+  echo "# no sync-public-proxy-tls.sh" > /etc/nginx/conf.d/nginx-public-proxy-apps-tls.conf
+fi

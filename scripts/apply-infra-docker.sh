@@ -197,6 +197,11 @@ EOS
     echo "WARN: nginx conf refresh via exec failed — restarting nginx container" >&2
     docker compose restart nginx || true
   fi
+  # Reconcile ACME certs for public_proxy (DNS-01) after exports are fresh
+  if docker compose ps --status running --services 2>/dev/null | grep -qx acme-companion; then
+    docker compose exec -T acme-companion /bin/sh /reconcile-certs.sh \
+      || echo "WARN: acme reconcile failed" >&2
+  fi
 else
   echo "docker indisponible — override écrit, compose up ignoré" >&2
 fi

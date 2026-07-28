@@ -110,6 +110,7 @@ services:
       SSO_PORTAL_DEFAULT_REALM_SLUG: ${SSO_PORTAL_DEFAULT_REALM_SLUG:-ar-systems}
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/certs:/etc/nginx/ssl:ro
     networks:
       vpcbr:
         aliases:
@@ -146,6 +147,38 @@ services:
         condition: service_healthy
       oauth2-proxy-core:
         condition: service_started
+      acme-companion:
+        condition: service_started
+    restart: unless-stopped
+
+  # Let's Encrypt DNS-01 (Cloudflare) for public_proxy FQDNs → certs used on nginx :8443
+  acme-companion:
+    image: neilpang/acme.sh:latest
+    container_name: bastion-acme
+    env_file:
+      - path: ${ACME_ENV_FILE:-.env.acme}
+        required: false
+    environment:
+      CERTS_DIR: /certs
+      EXPORTS_DIR: /exports
+      ACME_DNS_API: ${ACME_DNS_API:-dns_cf}
+      ACME_CA: ${ACME_CA:-letsencrypt}
+      ACME_RECONCILE_INTERVAL: ${ACME_RECONCILE_INTERVAL:-300}
+    volumes:
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/acme:/acme.sh
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/certs:/certs
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/exports:ro
+      - ./docker/acme/entrypoint-acme.sh:/entrypoint-acme.sh:ro
+      - ./docker/acme/reconcile-certs.sh:/reconcile-certs.sh:ro
+    entrypoint: ["/bin/sh", "/entrypoint-acme.sh"]
+    networks:
+      vpcbr:
+        aliases:
+          - bastion-acme
+          - acme-companion
+    depends_on:
+      bastion-app:
+        condition: service_healthy
     restart: unless-stopped
 
 networks:

@@ -1,35 +1,36 @@
 #!/usr/bin/env bash
-# Poll bastion-app exports and reload nginx when App catalogue nginx files change.
-# Needed because entrypoint only syncs at container start; approve/edit writes
-# exports/ without docker exec.
+# Poll bastion-app exports + ACME certs; sync conf.d and reload nginx on change.
 set -euo pipefail
 
 EXPORTS="${EXPORTS_DIR:-/var/lib/sso-portal/exports}"
+CERTS="${CERTS_DIR:-/etc/nginx/ssl}"
 INTERVAL="${BASTION_EXPORTS_WATCH_INTERVAL:-2}"
 SYNC="${SYNC_EXPORTS_SCRIPT:-/sync-exports-to-confd.sh}"
 
 fingerprint() {
-  # mtime+size of catalogue files that affect routing / unknown-host map
   {
     for f in \
       nginx-known-hosts.map \
       nginx-public-proxy-apps.conf \
       nginx-subdomain-apps.conf \
-      nginx-infra-proxy-apps.conf
+      nginx-infra-proxy-apps.conf \
+      acme-domains.json
     do
       if [[ -f "$EXPORTS/$f" ]]; then
-        # busybox/alpine: stat -c; fall back to ls
-        stat -c '%Y %s %n' "$EXPORTS/$f" 2>/dev/null \
-          || ls -lL "$EXPORTS/$f"
+        stat -c '%Y %s %n' "$EXPORTS/$f" 2>/dev/null || ls -lL "$EXPORTS/$f"
       else
         echo "missing $f"
       fi
     done
+    if [[ -d "$CERTS" ]]; then
+      find "$CERTS" -type f \( -name 'fullchain.pem' -o -name 'privkey.pem' \) \
+        -exec stat -c '%Y %s %n' {} \; 2>/dev/null | sort || true
+    fi
   } | cksum | awk '{print $1}'
 }
 
 LAST="$(fingerprint || echo none)"
-echo "bastion-nginx: watching $EXPORTS for catalogue changes (every ${INTERVAL}s)"
+echo "bastion-nginx: watching $EXPORTS + $CERTS (every ${INTERVAL}s)"
 
 while true; do
   sleep "$INTERVAL" || true
@@ -37,15 +38,11 @@ while true; do
   if [[ "$CUR" == "$LAST" ]]; then
     continue
   fi
-  echo "bastion-nginx: catalogue exports changed (fp $LAST → $CUR) — sync + reload"
+  echo "bastion-nginx: exports/certs changed (fp $LAST → $CUR) — sync + reload"
   if "$SYNC" && nginx -t && nginx -s reload; then
     LAST="$CUR"
-    # Surface which app conf files are live (helps ops correlate Admin → Apps).
-    echo "bastion-nginx: reload ok — public_proxy servers:"
-    grep -E '^\s*server_name\s+' /etc/nginx/conf.d/nginx-public-proxy-apps.conf 2>/dev/null \
-      | sed 's/^/  /' || echo "  (none)"
-    echo "bastion-nginx: reload ok — subdomain_proxy servers:"
-    grep -E '^\s*server_name\s+' /etc/nginx/conf.d/nginx-subdomain-apps.conf 2>/dev/null \
+    echo "bastion-nginx: reload ok — public_proxy TLS servers:"
+    grep -E '^\s*server_name\s+' /etc/nginx/conf.d/nginx-public-proxy-apps-tls.conf 2>/dev/null \
       | sed 's/^/  /' || echo "  (none)"
   else
     echo "bastion-nginx: WARN sync/reload failed — will retry" >&2
