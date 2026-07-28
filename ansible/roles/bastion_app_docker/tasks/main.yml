@@ -423,12 +423,13 @@
       docker run --rm --entrypoint sed bastion-nginx:local -n '40,65p' /docker-entrypoint-portal.sh || true
       exit 1
     fi
-    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
-      'BASTION_KNOWN_HOSTS_DEDUPE=1' /docker-entrypoint-portal.sh; then
-      echo "nginx entrypoint missing map-key dedupe marker — rebuild nginx image (need >= 38867a1)"
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -qE \
+      'BASTION_KNOWN_HOSTS_DEDUPE=1|awk .NF >= 2' /docker-entrypoint-portal.sh; then
+      echo "nginx entrypoint missing map-key dedupe — rebuild nginx image (need >= 38867a1)"
       docker run --rm --entrypoint sed bastion-nginx:local -n '45,70p' /docker-entrypoint-portal.sh || true
       exit 1
     fi
+    echo "nginx entrypoint has known-hosts dedupe OK"
     echo "=== nginx status ==="
     if ! docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' bastion-nginx 2>/dev/null | grep -qx running; then
       echo "bastion-nginx is not running (often nginx -t fail on known-hosts map)."
