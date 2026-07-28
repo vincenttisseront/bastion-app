@@ -82,9 +82,14 @@ def _oidc_ok(**extra_headers: str) -> Response:
     return Response(202, headers=headers)
 
 
-def _auth_headers(host: str = "transfer.ar-systems.fr") -> dict[str, str]:
+def _auth_headers(
+    host: str = "transfer.ar-systems.fr",
+    *,
+    uri: str = "/web/",
+) -> dict[str, str]:
     return {
         "X-Original-Host": host,
+        "X-Original-URI": uri,
         "X-Real-IP": "8.8.8.8",
         "Cookie": "_oauth2_proxy=valid",
     }
@@ -135,6 +140,37 @@ def test_subdomain_auth_no_grant_returns_403(client, db_session):
     assert entry is not None
     assert entry.target == "transfer"
     assert entry.actor == "alice@example.com"
+    assert (entry.details or {}).get("uri") == "/web/"
+    assert (entry.details or {}).get("host") == "transfer.ar-systems.fr"
+
+
+@respx.mock
+def test_subdomain_auth_no_app_for_host_is_audited(client, db_session):
+    _override_settings(client, _settings())
+    _realm(db_session)
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "ghost.ar-systems.fr",
+            "X-Original-URI": "/secret/",
+            "X-Real-IP": "10.0.0.9",
+            "Cookie": "ignored=1",
+        },
+    )
+    assert resp.status_code == 401
+    assert resp.headers.get("x-auth-error") == "no-app-for-host"
+
+    entry = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "access_denied_no_app")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert entry is not None
+    assert entry.target == "ghost.ar-systems.fr"
+    assert (entry.details or {}).get("uri") == "/secret/"
 
 
 @respx.mock

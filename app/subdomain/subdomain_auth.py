@@ -70,6 +70,8 @@ def _deny_no_grant(
     app: App,
     ip_address: str | None,
     auth_source: str,
+    uri: str | None = None,
+    host: str | None = None,
 ) -> Response:
     log_action(
         db,
@@ -80,6 +82,8 @@ def _deny_no_grant(
             "reason": "access_denied_no_grant",
             "application_id": app.id,
             "auth_source": auth_source,
+            "uri": (uri or "/")[:1024],
+            "host": (host or "")[:255] or None,
         },
         ip_address=ip_address or None,
     )
@@ -89,6 +93,31 @@ def _deny_no_grant(
             "X-Auth-Error": "access_denied_no_grant",
             "X-Auth-App": app.slug,
         },
+    )
+
+
+def _deny_no_app(
+    db: Session,
+    *,
+    host: str,
+    uri: str | None,
+    ip_address: str | None,
+) -> Response:
+    log_action(
+        db,
+        actor="anonymous",
+        action="access_denied_no_app",
+        target=(host or "")[:255] or None,
+        details={
+            "reason": "no_app_for_host",
+            "uri": (uri or "/")[:1024],
+            "host": (host or "")[:255] or None,
+        },
+        ip_address=ip_address or None,
+    )
+    return Response(
+        status_code=401,
+        headers={"X-Auth-Error": "no-app-for-host"},
     )
 
 
@@ -119,6 +148,7 @@ async def subdomain_auth(
         5. Deny                 -> 403 (authenticated but not authorized)
     """
     original_host = request.headers.get("X-Original-Host", "")
+    original_uri = request.headers.get("X-Original-URI", "") or request.url.path
     client_ip = client_ip_from_request(request)
     cookie_header = request.headers.get("Cookie", "")
 
@@ -136,9 +166,11 @@ async def subdomain_auth(
     # 2. App resolution by Host
     app = _resolve_app_by_host(db, original_host)
     if not app:
-        return Response(
-            status_code=401,
-            headers={"X-Auth-Error": "no-app-for-host"},
+        return _deny_no_app(
+            db,
+            host=original_host,
+            uri=original_uri,
+            ip_address=client_ip,
         )
 
     # 3a. Prefer OIDC session (same preference as /internal/oauth2-auth).
@@ -189,6 +221,8 @@ async def subdomain_auth(
                 app=app,
                 ip_address=client_ip,
                 auth_source="oidc",
+                uri=original_uri,
+                host=original_host,
             )
 
         try:

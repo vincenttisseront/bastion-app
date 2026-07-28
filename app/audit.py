@@ -65,7 +65,18 @@ def log_action(
 
 def derive_severity(action: str) -> str:
     action_lower = action.lower()
-    if any(x in action_lower for x in ("error", "failed", "blocked", "denied")):
+    if any(
+        x in action_lower
+        for x in (
+            "error",
+            "failed",
+            "blocked",
+            "denied",
+            "unknown_host",
+            "no_app",
+            "unregistered",
+        )
+    ):
         if "warn" in action_lower:
             return "warn"
         return "error"

@@ -97,6 +97,71 @@ body.app-layout{display:flex;min-height:100vh}
   position:absolute;top:7px;right:7px;width:6px;height:6px;
   background:var(--err);border-radius:var(--r-full);border:1px solid var(--bg-secondary);
 }
+.icon-btn .notif-count{
+  position:absolute;top:2px;right:2px;min-width:16px;height:16px;padding:0 4px;
+  background:var(--err);color:#fff;border-radius:var(--r-full);border:1px solid var(--bg-secondary);
+  font-size:10px;font-weight:700;line-height:14px;text-align:center;
+  display:inline-flex;align-items:center;justify-content:center;
+}
+
+/* —— Notification center —— */
+.notif-center{position:relative}
+.notif-panel{
+  position:absolute;top:calc(100% + 8px);right:0;z-index:60;
+  width:min(380px, calc(100vw - 24px));
+  background:var(--bg-secondary);border:1px solid var(--border);
+  border-radius:var(--r-lg);box-shadow:var(--shadow-lg, 0 12px 40px rgba(0,0,0,.35));
+  display:flex;flex-direction:column;max-height:min(70vh, 520px);
+  outline:none;
+}
+.notif-panel-head{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border-muted);
+}
+.notif-panel-title{font-size:var(--fs-sm);font-weight:700;color:var(--text);margin:0}
+.notif-panel-link{font-size:var(--fs-xs);font-weight:600;color:var(--accent);text-decoration:none}
+.notif-panel-link:hover{text-decoration:underline}
+.notif-feed{overflow-y:auto;flex:1;padding:var(--sp-2)}
+.notif-item{
+  display:flex;gap:var(--sp-3);align-items:flex-start;
+  padding:var(--sp-3);border-radius:var(--r-md);text-decoration:none;color:inherit;
+  transition:background var(--t-fast);
+}
+.notif-item:hover{background:var(--bg-overlay);text-decoration:none}
+.notif-item .dot{margin-top:6px}
+.notif-item-body{display:flex;flex-direction:column;gap:2px;min-width:0}
+.notif-item-title{font-size:var(--fs-sm);font-weight:600;color:var(--text);line-height:1.3}
+.notif-item-text{font-size:var(--fs-xs);color:var(--text-2);line-height:1.4;word-break:break-word}
+.notif-item-time{font-size:10px;color:var(--text-3);margin-top:2px}
+.notif-empty,.notif-loading{
+  padding:var(--sp-5) var(--sp-4);text-align:center;color:var(--text-2);font-size:var(--fs-sm);
+}
+.notif-empty-title{font-weight:600;color:var(--text);margin:0 0 4px}
+.notif-empty-desc{margin:0;font-size:var(--fs-xs);color:var(--text-3);line-height:1.4}
+.notif-spinner{
+  display:inline-block;width:14px;height:14px;border:2px solid var(--border-bright);
+  border-top-color:var(--accent);border-radius:50%;animation:notif-spin .7s linear infinite;
+  vertical-align:-2px;margin-right:6px;
+}
+@keyframes notif-spin{to{transform:rotate(360deg)}}
+.notif-shortcuts-label{
+  padding:var(--sp-2) var(--sp-4) 0;font-size:10px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--text-3);
+}
+.notif-shortcuts{
+  display:grid;grid-template-columns:1fr 1fr;gap:6px;
+  padding:var(--sp-2) var(--sp-3) var(--sp-3);
+  border-top:1px solid var(--border-muted);margin-top:var(--sp-2);
+}
+.notif-shortcut{
+  display:flex;flex-direction:column;gap:2px;padding:var(--sp-2) var(--sp-3);
+  border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-tertiary);
+  text-decoration:none;color:inherit;transition:border-color var(--t-fast), background var(--t-fast);
+}
+.notif-shortcut:hover{border-color:var(--accent);background:var(--bg-overlay);text-decoration:none}
+.notif-shortcut-label{font-size:var(--fs-xs);font-weight:700;color:var(--text)}
+.notif-shortcut-hint{font-size:10px;color:var(--text-3);line-height:1.3}
+
 .topbar-sep{width:1px;height:20px;background:var(--border-muted);flex-shrink:0}
 .logout-btn{
   font-size:var(--fs-xs);font-weight:600;color:var(--text-3);

@@ -101,6 +101,19 @@ def test_record_and_approve_pending_host(db_session, tmp_path):
     assert row is not None
     assert row.status == "pending"
     assert row.hit_count == 1
+    from app.models import AuditLog
+
+    audit = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "access_denied_unknown_host")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.target == "teleport.example.fr"
+    assert audit.ip_address == "10.1.2.3"
+    assert (audit.details or {}).get("uri") == "/web/"
+
     row2 = record_unknown_host(db_session, hostname="Teleport.example.fr", uri="/")
     assert row2.id == row.id
     assert row2.hit_count == 2
@@ -154,6 +167,16 @@ def test_internal_unknown_host_records(client, db_session):
     row = db_session.query(PendingHost).filter_by(hostname="teleport.example.fr").first()
     assert row is not None
     assert row.status == "pending"
+    from app.models import AuditLog
+
+    audit = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "access_denied_unknown_host")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert (audit.details or {}).get("uri") == "/web/"
 
 
 def test_docker_portal_has_unknown_host_rewrite():

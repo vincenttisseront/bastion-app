@@ -33,13 +33,18 @@ def record_unknown_host(
     user_agent: str | None = None,
     uri: str | None = None,
 ) -> PendingHost | None:
-    """Upsert a pending (or update rejected) discovery row. Returns None if host invalid."""
+    """Upsert a pending (or update rejected) discovery row. Returns None if host invalid.
+
+    Also writes an audit_logs entry (Admin → Logs) so unregistered Host+URI are visible
+    alongside access_denied_no_grant. Repeated hits are throttled to avoid flood.
+    """
     host = normalize_hostname(hostname)
     if not host or host in ("127.0.0.1", "localhost", "::1"):
         return None
 
     now = utcnow()
     row = db.query(PendingHost).filter_by(hostname=host).first()
+    is_new = row is None
     if row is None:
         row = PendingHost(
             hostname=host,
@@ -71,6 +76,24 @@ def record_unknown_host(
         row.updated_at = now
     db.commit()
     db.refresh(row)
+
+    # Audit: first 5 hits, then every 10th — enough for live visibility without flood.
+    hit = int(row.hit_count or 0)
+    if is_new or hit <= 5 or hit % 10 == 0:
+        log_action(
+            db,
+            actor="anonymous",
+            action="access_denied_unknown_host",
+            target=host,
+            details={
+                "reason": "unknown_host",
+                "uri": (uri or row.last_uri or "/")[:1024],
+                "hit_count": hit,
+                "pending_status": row.status,
+                "user_agent": (user_agent or row.last_user_agent or "")[:256] or None,
+            },
+            ip_address=client_ip or row.last_client_ip,
+        )
     return row
 
 

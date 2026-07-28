@@ -35,6 +35,7 @@ from app.subdomain.subdomain_auth import router as subdomain_router
 from app.vault.routes import router as vault_router
 from app.web.admin_dependencies import router as admin_dependencies_router
 from app.web.admin_logs import router as admin_logs_router
+from app.web.notifications_routes import router as admin_notifications_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context
@@ -222,6 +223,7 @@ app.include_router(admin_rbac_governance_router)
 app.include_router(admin_files_router)
 app.include_router(admin_user_sessions_router)
 app.include_router(admin_logs_router)
+app.include_router(admin_notifications_router)
 app.include_router(admin_dependencies_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)

@@ -15,12 +15,29 @@
 
   <div class="topbar-spacer"></div>
 
-  <button type="button" class="icon-btn" id="notifications-btn" aria-label="Notifications" title="Notifications">
-    <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-    </svg>
-    <span class="dot" aria-hidden="true"></span>
-  </button>
+  <div class="notif-center" id="notif-center">
+    <button type="button" class="icon-btn" id="notifications-btn"
+            aria-label="Notifications" title="Notifications"
+            aria-haspopup="dialog" aria-expanded="false" aria-controls="notif-panel">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+      </svg>
+      <span class="dot" data-notif-dot hidden aria-hidden="true"></span>
+      <span class="notif-count" data-notif-count hidden aria-hidden="true"></span>
+    </button>
+    <div id="notif-panel" class="notif-panel" role="dialog" aria-label="Centre de notifications"
+         aria-modal="false" hidden tabindex="-1">
+      <div class="notif-panel-head">
+        <h2 class="notif-panel-title">Notifications</h2>
+        <a class="notif-panel-link" href="/admin/logs">Voir les logs</a>
+      </div>
+      <div class="notif-feed" data-notif-feed>
+        <div class="notif-loading"><span class="notif-spinner" aria-hidden="true"></span> Chargement…</div>
+      </div>
+      <div class="notif-shortcuts-label">Accès rapide</div>
+      <div class="notif-shortcuts" data-notif-shortcuts></div>
+    </div>
+  </div>
 
   <button type="button" class="icon-btn" id="theme-toggle" aria-label="Basculer le thème" title="Thème">
     <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
