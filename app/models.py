@@ -762,6 +762,26 @@ class AcmeSettings(Base):
     updated_by = Column(String, nullable=True)
 
 
+class AdminNotificationDismissal(Base):
+    """Per-admin dismissed notification keys (reappear if fingerprint changes)."""
+
+    __tablename__ = "admin_notification_dismissals"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_email",
+            "item_id",
+            name="uq_admin_notif_dismissal_user_item",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    user_email = Column(String, nullable=False, index=True)
+    item_id = Column(String, nullable=False, index=True)
+    # Opaque state at dismiss time — if feed fingerprint differs, show again.
+    fingerprint = Column(String, nullable=False, default="")
+    dismissed_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class EncryptionKeyVersion(Base):
     """Metadata for application-vault Fernet key versions (never stores key material)."""
 

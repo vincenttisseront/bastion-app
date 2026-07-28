@@ -29,6 +29,7 @@
     var feed = qs('[data-notif-feed]', root);
     var countEl = qs('[data-notif-count]', root);
     var dot = qs('[data-notif-dot]', root);
+    var dismissAllBtn = qs('[data-notif-dismiss-all]', root);
     if (!btn || !panel || !feed) return;
 
     var open = false;
@@ -99,18 +100,36 @@
     }
 
     function renderItems(items) {
+      if (dismissAllBtn) {
+        if (items && items.length) {
+          dismissAllBtn.hidden = false;
+          dismissAllBtn.removeAttribute('hidden');
+        } else {
+          dismissAllBtn.hidden = true;
+          dismissAllBtn.setAttribute('hidden', '');
+        }
+      }
       if (!items || !items.length) {
         feed.innerHTML =
           '<div class="notif-empty">' +
           '<p class="notif-empty-title">Rien d’urgent</p>' +
-          '<p class="notif-empty-desc">Pas de domaines en attente ni d’accès refusés récents. Utilisez les raccourcis ci-dessous.</p>' +
+          '<p class="notif-empty-desc">Pas de notification active. Les éléments marqués comme lus réapparaissent si le problème change.</p>' +
           '</div>';
         return;
       }
       feed.innerHTML = items
         .map(function (it) {
           var sev = severityClass(it.severity);
+          var dismiss =
+            it.dismissible === false
+              ? ''
+              : '<button type="button" class="notif-dismiss" data-notif-dismiss="' +
+                esc(it.id) +
+                '" data-notif-fp="' +
+                esc(it.fingerprint || '') +
+                '" title="Marquer comme lu" aria-label="Marquer comme lu">×</button>';
           return (
+            '<div class="notif-item-wrap">' +
             '<a class="notif-item" href="' +
             esc(it.href || '#') +
             '">' +
@@ -128,7 +147,9 @@
               ? '<span class="notif-item-time">' + esc(it.time) + '</span>'
               : '') +
             '</span>' +
-            '</a>'
+            '</a>' +
+            dismiss +
+            '</div>'
           );
         })
         .join('');
@@ -169,9 +190,6 @@
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
-        .then(function (data) {
-          return data;
-        })
         .finally(function () {
           if (timer) clearTimeout(timer);
           inflight = null;
@@ -204,6 +222,55 @@
         });
     }
 
+    function postDismiss(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : '{}',
+      }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      });
+    }
+
+    feed.addEventListener('click', function (e) {
+      var t = e.target;
+      if (!t || !t.getAttribute) return;
+      var id = t.getAttribute('data-notif-dismiss');
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var fp = t.getAttribute('data-notif-fp') || '';
+      postDismiss('/api/admin/notifications/dismiss', {
+        item_id: id,
+        fingerprint: fp,
+      })
+        .then(function (data) {
+          applyData(data);
+        })
+        .catch(function () {
+          showError('Échec du marquage comme lu.');
+        });
+    });
+
+    if (dismissAllBtn) {
+      dismissAllBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        postDismiss('/api/admin/notifications/dismiss-all', null)
+          .then(function (data) {
+            applyData(data);
+          })
+          .catch(function () {
+            showError('Échec du marquage comme lu.');
+          });
+      });
+    }
+
     btn.addEventListener('click', function (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -224,7 +291,6 @@
       }
     });
 
-    // Prefetch badge (shared promise with panel open)
     fetchFeed()
       .then(function (data) {
         cache = data;

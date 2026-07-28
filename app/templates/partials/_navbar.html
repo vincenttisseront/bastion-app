@@ -29,7 +29,12 @@
          aria-modal="false" hidden tabindex="-1">
       <div class="notif-panel-head">
         <h2 class="notif-panel-title">Notifications</h2>
-        <a class="notif-panel-link" href="/admin/logs">Voir les logs</a>
+        <div class="notif-panel-actions">
+          <button type="button" class="notif-panel-link" data-notif-dismiss-all hidden>
+            Tout marquer lu
+          </button>
+          <a class="notif-panel-link" href="/admin/logs">Voir les logs</a>
+        </div>
       </div>
       <div class="notif-feed" data-notif-feed>
         <div class="notif-loading"><span class="notif-spinner" aria-hidden="true"></span> Chargement…</div>
