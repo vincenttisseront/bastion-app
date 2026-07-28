@@ -21,6 +21,13 @@ fi
 (
   while true; do
     sleep "$INTERVAL" || true
+    # Admin UI sentinel → immediate reconcile
+    if [ -f "${CERTS}/.reconcile_request" ]; then
+      rm -f "${CERTS}/.reconcile_request" 2>/dev/null || true
+      echo "acme-companion: reconcile_request received"
+      /bin/sh /reconcile-certs.sh || true
+      continue
+    fi
     /bin/sh /reconcile-certs.sh || true
   done
 ) &

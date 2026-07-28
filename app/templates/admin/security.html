@@ -68,8 +68,12 @@
     </div>
     <div class="form-body">
       <p class="form-prose">
-        Terminaison TLS gérée par Nginx. Renouvellement automatique via certbot.
-        Les certificats sont provisionnés par l'infrastructure AWX/Ansible.
+        Portal / subdomain_proxy : TLS edge (reverse01 / Traefik).
+        Apps <strong>public_proxy</strong> : certificats ACME DNS-01 gérés dans le bastion
+        (nginx :8443).
+      </p>
+      <p class="form-prose form-prose-spaced">
+        <a href="/admin/acme" class="btn btn-primary">Ouvrir Admin → ACME</a>
       </p>
     </div>
   </div>

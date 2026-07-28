@@ -11,6 +11,25 @@ DNS_API="${ACME_DNS_API:-dns_cf}"
 ACME_CA="${ACME_CA:-letsencrypt}"
 ACME_BIN="${ACME_BIN:-}"
 
+# Admin → ACME writes exports/acme-runtime.env (CF_Token, ACME_CA, …)
+RUNTIME_ENV="${EXPORTS}/acme-runtime.env"
+if [ -f "$RUNTIME_ENV" ]; then
+  # shellcheck disable=SC1090
+  set -a
+  # Prefer runtime env from bastion-app over stale process env for CF_* / ACME_*
+  # shellcheck disable=SC1091
+  . "$RUNTIME_ENV"
+  set +a
+fi
+
+DNS_API="${ACME_DNS_API:-$DNS_API}"
+ACME_CA="${ACME_CA:-$ACME_CA}"
+
+if [ "${ACME_ENABLED:-1}" = "0" ]; then
+  echo "reconcile-certs: ACME_ENABLED=0 — skip"
+  exit 0
+fi
+
 if [ -z "$ACME_BIN" ]; then
   if command -v acme.sh >/dev/null 2>&1; then
     ACME_BIN="$(command -v acme.sh)"

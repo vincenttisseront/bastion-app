@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block title %}ACME / TLS{% endblock %}
+{% block breadcrumb %}Admin / ACME{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">ACME / Let's Encrypt</h1>
+      <p class="page-sub">
+        Certificats DNS-01 pour les apps <span class="mono">public_proxy</span>
+        (sidecar acme-companion → nginx :8443).
+      </p>
+    </div>
+    <div class="page-header-actions">
+      <form method="post" action="/admin/acme/reconcile" style="display:inline">
+        <button type="submit" class="btn btn-primary" {% if not cfg.enabled %}disabled title="Activez ACME d'abord"{% endif %}>
+          Réconcilier maintenant
+        </button>
+      </form>
+    </div>
+  </div>
+
+  {% if not encryption_ok %}
+  <div class="alert alert-warn mb-4">
+    <div class="alert-body">
+      Chiffrement Fernet non configuré — le token Cloudflare ne pourra pas être stocké en base.
+      Vérifiez les clés vault / <span class="mono">PORTAL_SECRET_ENCRYPTION_KEY</span>.
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card mb-4">
+    <div class="card-header">
+      <span class="card-title">État</span>
+      <div class="card-header-actions">
+        {% if cfg.enabled %}
+        <span class="badge badge-ok">Activé</span>
+        {% else %}
+        <span class="badge badge-muted">Désactivé</span>
+        {% endif %}
+        {% if cfg.cf_token_configured %}
+        <span class="badge badge-ok">Token CF</span>
+        {% else %}
+        <span class="badge badge-err">Sans token CF</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="stats-row" style="display:flex;gap:1.5rem;flex-wrap:wrap">
+        <div><div class="form-hint">Domaines</div><div class="mono" style="font-size:1.25rem">{{ counts.total }}</div></div>
+        <div><div class="form-hint">OK</div><div class="mono" style="font-size:1.25rem;color:var(--ok,#3d9)">{{ counts.ok }}</div></div>
+        <div><div class="form-hint">Renew ≤30j</div><div class="mono" style="font-size:1.25rem;color:var(--warn,#c90)">{{ counts.renew_soon }}</div></div>
+        <div><div class="form-hint">Manquants / placeholder</div><div class="mono" style="font-size:1.25rem;color:var(--err,#e55)">{{ counts.missing }}</div></div>
+      </div>
+      <p class="form-help mt-3 mb-0">
+        Dernière réconciliation :
+        {% if cfg.last_reconcile_at %}
+          <span class="mono">{{ cfg.last_reconcile_at }}</span>
+          —
+          {% if cfg.last_reconcile_status == 'ok' %}
+          <span class="badge badge-ok">ok</span>
+          {% elif cfg.last_reconcile_status == 'pending' %}
+          <span class="badge badge-muted">pending</span>
+          {% else %}
+          <span class="badge badge-err">{{ cfg.last_reconcile_status or '—' }}</span>
+          {% endif %}
+          {% if cfg.last_reconcile_message %}
+          <span class="form-hint">{{ cfg.last_reconcile_message[:240] }}{% if cfg.last_reconcile_message|length > 240 %}…{% endif %}</span>
+          {% endif %}
+        {% else %}
+          <span class="form-hint">jamais</span>
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header">
+      <span class="card-title">Domaines couverts (public_proxy)</span>
+    </div>
+    <div class="card-body card-flush">
+      {% if domains %}
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>FQDN</th>
+              <th>Slug</th>
+              <th>Statut</th>
+              <th>Expire</th>
+              <th>Jours</th>
+              <th>Émetteur</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in domains %}
+            <tr>
+              <td class="mono">{{ d.fqdn }}</td>
+              <td>
+                <a href="/admin/apps/{{ d.slug }}/edit">{{ d.slug }}</a>
+              </td>
+              <td>
+                {% if d.status == 'ok' %}
+                <span class="badge badge-ok">OK</span>
+                {% elif d.status == 'renew_soon' %}
+                <span class="badge badge-warn">Renew bientôt</span>
+                {% elif d.status == 'placeholder' %}
+                <span class="badge badge-muted">Placeholder</span>
+                {% elif d.status == 'expired' %}
+                <span class="badge badge-err">Expiré</span>
+                {% else %}
+                <span class="badge badge-err">Absent</span>
+                {% endif %}
+              </td>
+              <td class="mono">{{ d.not_after or '—' }}</td>
+              <td class="mono">{{ d.days_left if d.days_left is not none else '—' }}</td>
+              <td class="form-hint" style="max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ d.issuer or '' }}">{{ d.issuer or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-state" style="padding:2rem">
+        <div class="empty-title">Aucun domaine public_proxy</div>
+        <div class="empty-desc">
+          Approuvez un hôte dans <a href="/admin/pending-hosts">Domaines découverts</a>
+          ou créez une app en mode proxy public.
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Configuration</span>
+    </div>
+    <div class="card-body">
+      <form method="post" action="/admin/acme/settings" class="form">
+        <div class="form-row" style="margin-bottom:1rem">
+          <label class="checkbox-label">
+            <input type="checkbox" name="enabled" {% if cfg.enabled %}checked{% endif %}>
+            Activer ACME (émission / renouvellement DNS-01)
+          </label>
+        </div>
+
+        <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+          <div class="form-group">
+            <label class="form-label">Challenge / plugin DNS</label>
+            <select name="dns_api" class="form-control">
+              <option value="dns_cf" {% if cfg.dns_api == 'dns_cf' %}selected{% endif %}>Cloudflare (dns_cf)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Autorité (CA)</label>
+            <select name="acme_ca" class="form-control">
+              <option value="letsencrypt" {% if cfg.acme_ca == 'letsencrypt' %}selected{% endif %}>Let's Encrypt (prod)</option>
+              <option value="letsencrypt_test" {% if cfg.acme_ca == 'letsencrypt_test' %}selected{% endif %}>Let's Encrypt staging</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">CF Account ID (optionnel)</label>
+            <input type="text" name="cf_account_id" class="form-control mono" value="{{ cfg.cf_account_id }}" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label">CF Zone ID (optionnel)</label>
+            <input type="text" name="cf_zone_id" class="form-control mono" value="{{ cfg.cf_zone_id }}" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:1rem">
+          <label class="form-label">
+            Token Cloudflare (Zone.DNS Edit)
+            {% if cfg.cf_token_configured %}<span class="badge badge-ok">configuré</span>{% endif %}
+          </label>
+          <input type="password" name="cf_token" class="form-control mono" value="" placeholder="{% if cfg.cf_token_configured %}Laisser vide pour conserver{% else %}CF_Token…{% endif %}" autocomplete="new-password">
+          <p class="form-help">Stocké chiffré en SQLite (comme les secrets Realms). Exporté vers <span class="mono">exports/acme-runtime.env</span> pour le sidecar.</p>
+          {% if cfg.cf_token_configured %}
+          <label class="checkbox-label" style="margin-top:0.5rem">
+            <input type="checkbox" name="clear_cf_token">
+            Effacer le token enregistré
+          </label>
+          {% endif %}
+        </div>
+
+        <div class="form-actions" style="margin-top:1.25rem;display:flex;gap:0.75rem">
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+          <a href="/admin/security#tls" class="btn btn-ghost">Voir Sécurité → TLS</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

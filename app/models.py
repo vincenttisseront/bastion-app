@@ -739,6 +739,29 @@ class SiemOutboxEntry(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
 
 
+class AcmeSettings(Base):
+    """Singleton ACME / Let's Encrypt config for public_proxy (id=1)."""
+
+    __tablename__ = "acme_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+    enabled = Column(Boolean, nullable=False, default=False)
+    # dns_cf | … (acme.sh DNS API plugin name)
+    dns_api = Column(String, nullable=False, default="dns_cf")
+    # letsencrypt | letsencrypt_test
+    acme_ca = Column(String, nullable=False, default="letsencrypt")
+    # Fernet ciphertext — Cloudflare API token (never plaintext)
+    cf_token_encrypted = Column(Text, nullable=True)
+    cf_account_id = Column(String, nullable=False, default="")
+    cf_zone_id = Column(String, nullable=False, default="")
+    # Last admin-triggered or sidecar-reported reconcile
+    last_reconcile_at = Column(DateTime(timezone=True), nullable=True)
+    last_reconcile_status = Column(String, nullable=True)  # ok | error | pending
+    last_reconcile_message = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_by = Column(String, nullable=True)
+
+
 class EncryptionKeyVersion(Base):
     """Metadata for application-vault Fernet key versions (never stores key material)."""
 

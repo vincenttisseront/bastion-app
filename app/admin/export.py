@@ -155,6 +155,7 @@ def generate_nginx_apps_conf(db: Session) -> str:
 
 
 def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str]:
+    from app.acme.settings_service import write_acme_runtime_env
     from app.bastion.acme_domains_export import write_acme_domains_export
     from app.bastion.nginx_known_hosts_export import write_known_hosts_map
     from app.bastion.nginx_public_proxy_export import write_public_proxy_apps_exports
@@ -168,6 +169,11 @@ def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str
     paths.update(write_public_proxy_apps_exports(db, settings))
     paths["nginx_known_hosts_map"] = str(write_known_hosts_map(db, settings))
     paths["acme_domains_json"] = str(write_acme_domains_export(db, settings))
+    try:
+        paths["acme_runtime_env"] = str(write_acme_runtime_env(db, settings))
+    except Exception:
+        # Table may not exist until alembic 039 — catalogue export must not fail.
+        pass
     return paths
 
 

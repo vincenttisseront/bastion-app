@@ -38,14 +38,14 @@ Portal + `subdomain_proxy` : **pas** migrés — restent sur certbot reverse01 /
 | `docker/nginx/sync-public-proxy-tls.sh` | vhosts `:8443 ssl` |
 | `docker-compose.yml` → `acme-companion` | service |
 
-## Mise en service
+## Mise en service (UI)
 
-1. Copier `.env.acme.example` → `.env.acme`, renseigner `CF_Token` (+ zone/account).
-2. Déployer stack (Ansible ou `docker compose up -d --build`).
-3. Vérifier : `docker logs bastion-acme`, puis `ls data/sso-portal/certs/<fqdn>/`.
-4. Staging : `ACME_CA=letsencrypt_test` dans `.env` / compose.
+1. Admin → **ACME** : activer, coller `CF_Token`, CA prod ou staging.
+2. **Enregistrer** → écrit `exports/acme-runtime.env` (+ `acme-domains.json`).
+3. **Réconcilier maintenant** → sentinel + best-effort `docker exec bastion-acme`.
+4. Tableau : statut cert (OK / renew ≤30j / placeholder / absent), échéance, émetteur.
 
-Sans credentials CF : placeholders **self-signed** (7 j) pour que nginx démarre — pas de confiance navigateur.
+Sans token CF : placeholders self-signed (navigateur refuse).
 
 ## Hors scope (infra sœur)
 
@@ -66,5 +66,7 @@ Sans cela, le chemin actuel `reverse01 HTTPS → Traefik (cert défaut catch-all
 | nginx :8443 + volume certs :ro | OK |
 | Reload sans docker.sock | OK (watcher) |
 | `.env.acme.example` | OK |
+| Admin → ACME UI | OK (`/admin/acme`, SQLite `acme_settings`) |
+| Runtime env export | OK (`exports/acme-runtime.env`) |
 | reverse01 / Traefik TCP | Hors scope |
 | Migration portal / subdomain | Non (volontaire) |
