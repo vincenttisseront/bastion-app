@@ -77,8 +77,12 @@
                 <div class="empty-state" style="padding:2rem;">
                   <div class="empty-title">Aucun domaine {{ status_filter if status_filter != 'all' else '' }}</div>
                   <div class="empty-desc">
-                    Les Hosts inconnus apparaissent ici dès qu’un client atteint bastion-nginx
-                    (Traefik catch-all requis). reverse01 n’est pas la source de découverte.
+                    Les Hosts inconnus apparaissent ici dès qu’un client atteint <strong>bastion-nginx</strong>
+                    via le catch-all Traefik (<code>bastion-catchall</code>).
+                    Un 404 Traefik « page not found » (ex. teleport.*) signifie que le catch-all
+                    n’est pas actif — relancer le JT portal Docker (tags <code>discovery</code> / deploy)
+                    pour écrire <code>/tools/keycloak/traefik-config/bastion-catchall.yml</code>
+                    et recreater <code>bastion-nginx</code>. reverse01 n’est pas la source de découverte.
                   </div>
                 </div>
               </td>

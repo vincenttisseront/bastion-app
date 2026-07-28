@@ -190,3 +190,28 @@ def test_docker_portal_has_unknown_host_rewrite():
     assert "location = /__bastion_unknown_host" in text
     assert "location = /internal/unknown-host" in text
     assert "proxy_intercept_errors off" in text
+
+
+def test_compose_has_traefik_catchall_labels():
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[1] / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "bastion-catchall" in text
+    assert "PathPrefix(`/`)" in text or 'PathPrefix(`/`)' in text
+    assert "priority=1" in text
+
+
+def test_traefik_catchall_file_is_priority_one():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for rel in (
+        "docker/traefik/bastion-catchall.example.yml",
+        "ansible/roles/bastion_app_docker/files/bastion-catchall.yml",
+    ):
+        text = (root / rel).read_text(encoding="utf-8")
+        assert "priority: 1" in text
+        assert "bastion-nginx:8080" in text
+        assert "PathPrefix(`/`)" in text

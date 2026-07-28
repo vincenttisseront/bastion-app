@@ -118,9 +118,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=vpcbr"
-      # Portal Host (priority default). After infra Hosts live on bastion-nginx,
-      # also load docker/traefik/bastion-catchall.example.yml (file provider) so
-      # Keycloak/Grafana/Wiki hit bastion-nginx instead of their own Traefik routers.
+      # Portal FQDN (higher priority than catch-all via longer Host rule).
       - "traefik.http.routers.bastion-portal.rule=Host(`${PORTAL_DOMAIN:-portal.ar-systems.fr}`)"
       - "traefik.http.routers.bastion-portal.entrypoints=websecure"
       - "traefik.http.routers.bastion-portal.tls=true"
@@ -128,6 +126,15 @@ services:
       - "traefik.http.routers.bastion-portal.middlewares=secure-headers@file"
       - "traefik.http.services.bastion-portal.loadbalancer.server.port=8080"
       - "traefik.http.routers.bastion-portal.service=bastion-portal"
+      # Catch-all (priority 1 = lowest): unknown Hosts → bastion-nginx discovery.
+      # Required for Admin → Domaines. No certresolver: reverse01 terminates
+      # public TLS; Traefik↔reverse01 uses the default cert (verify off).
+      - "traefik.http.routers.bastion-catchall.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.bastion-catchall.priority=1"
+      - "traefik.http.routers.bastion-catchall.entrypoints=websecure"
+      - "traefik.http.routers.bastion-catchall.tls=true"
+      - "traefik.http.routers.bastion-catchall.service=bastion-portal"
+      - "traefik.http.routers.bastion-catchall.middlewares=secure-headers@file"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/_portal_nginx_ok"]
       interval: 15s

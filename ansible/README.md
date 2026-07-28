@@ -48,13 +48,14 @@ bash scripts/smoke-docker-local.sh
 ### Cutover edge (flag)
 
 1. Déployer docker (`--tags docker`) avec rebuild nginx (`default_server` + infra proxies).
-2. Activer Traefik catch-all → bastion-nginx : copier/adapter
-   [`docker/traefik/bastion-catchall.example.yml`](../docker/traefik/bastion-catchall.example.yml)
-   et retirer les routers Host Keycloak/Grafana/Wiki qui bypassent bastion-nginx.
+2. Catch-all Traefik → bastion-nginx (découverte Domaines) — **automatique** au deploy :
+   - labels `bastion-catchall` sur `bastion-nginx` (compose)
+   - fichier `/tools/keycloak/traefik-config/bastion-catchall.yml` (rôle, tag `discovery`)
+   - smoke : Host inconnu → HTTP 503 stub (pas 404 Traefik)
 3. Extra-var `bastion_edge_catchall_enabled: true` puis `--tags edge` :
    - installe `vhost_bastion_edge_catchall.conf` sur reverse01
    - désactive les vhosts legacy (`vhost_portal*`, `vhost_keycloak*`, … → `.disabled`)
-4. Smoke portal + Keycloak login.
+4. Smoke portal + Keycloak login + `https://<fqdn-inconnu>/` → Admin → Domaines.
 5. **awx-playbook** : ne plus redéployer les vhosts applicatifs via `linux_nginx_dmz.yml`
    (sinon ils écrasent le catch-all). Ticket de coordination côté DMZ.
 

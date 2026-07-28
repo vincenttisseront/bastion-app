@@ -652,3 +652,10 @@
   ansible.builtin.debug:
     msg: "apply-infra-docker rc={{ _apply_docker.rc }} — {{ _apply_docker.stderr | default(_apply_docker.stdout) }}"
   when: _apply_docker.rc | default(0) != 0
+
+# Traefik catch-all → bastion-nginx (unknown Host → Domaines découverts)
+- name: "Install Traefik catch-all for Host discovery"
+  ansible.builtin.import_tasks: traefik_catchall.yml
+  tags:
+    - traefik
+    - discovery
