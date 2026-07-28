@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+  var FETCH_MS = 8000;
+
   function qs(sel, root) {
     return (root || document).querySelector(sel);
   }
@@ -30,15 +32,18 @@
     if (!btn || !panel || !feed) return;
 
     var open = false;
-    var loaded = false;
+    var cache = null;
+    var inflight = null;
+    var ignoreDocClickUntil = 0;
 
     function setOpen(next) {
       open = !!next;
       panel.hidden = !open;
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (open) {
+        ignoreDocClickUntil = Date.now() + 300;
         panel.focus();
-        loadFeed();
+        loadFeed(false);
       }
     }
 
@@ -47,14 +52,15 @@
       if (countEl) {
         if (n > 0) {
           countEl.hidden = false;
+          countEl.removeAttribute('hidden');
           countEl.textContent = n > 99 ? '99+' : String(n);
         } else {
           countEl.hidden = true;
+          countEl.setAttribute('hidden', '');
           countEl.textContent = '';
         }
       }
       if (dot) {
-        // Numeric badge replaces the plain red dot
         if (n > 0 && countEl && !countEl.hidden) dot.setAttribute('hidden', '');
         else if (n > 0) dot.removeAttribute('hidden');
         else dot.setAttribute('hidden', '');
@@ -128,27 +134,73 @@
         .join('');
     }
 
-    function loadFeed() {
+    function applyData(data) {
+      cache = data;
+      updateBadge(data.count || 0);
+      renderItems(data.items || []);
+      renderShortcuts(data.shortcuts || []);
+    }
+
+    function showError(msg) {
       feed.innerHTML =
-        '<div class="notif-loading"><span class="notif-spinner" aria-hidden="true"></span> Chargement…</div>';
-      fetch('/api/admin/notifications', {
+        '<div class="notif-empty"><p class="notif-empty-title">Impossible de charger</p>' +
+        '<p class="notif-empty-desc">' +
+        esc(msg || 'Réessayez ou ouvrez Logs / Domaines depuis le menu.') +
+        '</p></div>';
+    }
+
+    function fetchFeed() {
+      if (inflight) return inflight;
+      var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      var timer = null;
+      if (ctrl) {
+        timer = setTimeout(function () {
+          try {
+            ctrl.abort();
+          } catch (e) {}
+        }, FETCH_MS);
+      }
+      inflight = fetch('/api/admin/notifications', {
         credentials: 'same-origin',
         headers: { Accept: 'application/json' },
+        signal: ctrl ? ctrl.signal : undefined,
       })
         .then(function (r) {
           if (!r.ok) throw new Error('HTTP ' + r.status);
           return r.json();
         })
         .then(function (data) {
-          loaded = true;
-          updateBadge(data.count || 0);
-          renderItems(data.items || []);
-          renderShortcuts(data.shortcuts || []);
+          return data;
         })
-        .catch(function () {
-          feed.innerHTML =
-            '<div class="notif-empty"><p class="notif-empty-title">Impossible de charger</p>' +
-            '<p class="notif-empty-desc">Réessayez ou ouvrez Logs / Domaines depuis le menu.</p></div>';
+        .finally(function () {
+          if (timer) clearTimeout(timer);
+          inflight = null;
+        });
+      return inflight;
+    }
+
+    function loadFeed(silent) {
+      if (cache && !silent) {
+        applyData(cache);
+      } else if (!silent) {
+        feed.innerHTML =
+          '<div class="notif-loading"><span class="notif-spinner" aria-hidden="true"></span> Chargement…</div>';
+      }
+      fetchFeed()
+        .then(function (data) {
+          applyData(data);
+        })
+        .catch(function (err) {
+          if (cache) {
+            applyData(cache);
+            return;
+          }
+          var aborted = err && err.name === 'AbortError';
+          showError(
+            aborted
+              ? 'Délai dépassé — les journaux sont peut‑être saturés. Ouvrez Logs.'
+              : null
+          );
         });
     }
 
@@ -160,6 +212,7 @@
 
     document.addEventListener('click', function (e) {
       if (!open) return;
+      if (Date.now() < ignoreDocClickUntil) return;
       if (root.contains(e.target)) return;
       setOpen(false);
     });
@@ -171,17 +224,12 @@
       }
     });
 
-    // Prefetch badge count without opening the panel
-    fetch('/api/admin/notifications', {
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-    })
-      .then(function (r) {
-        return r.ok ? r.json() : null;
-      })
+    // Prefetch badge (shared promise with panel open)
+    fetchFeed()
       .then(function (data) {
-        if (data) updateBadge(data.count || 0);
-        else updateBadge(0);
+        cache = data;
+        updateBadge(data.count || 0);
+        renderShortcuts(data.shortcuts || []);
       })
       .catch(function () {
         updateBadge(0);

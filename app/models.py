@@ -533,11 +533,11 @@ class AuditLog(Base):
 
     id = Column(Integer, primary_key=True)
     actor = Column(String, nullable=False)
-    action = Column(String, nullable=False)
+    action = Column(String, nullable=False, index=True)
     target = Column(String, nullable=True)
     details = Column(JSON, nullable=True)
     ip_address = Column(String, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class SavedLogView(Base):

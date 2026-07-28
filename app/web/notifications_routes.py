@@ -17,5 +17,6 @@ router = APIRouter(
 
 
 @router.get("")
+@router.get("/")
 def list_notifications(db: Session = Depends(get_db)) -> dict:
     return build_notification_feed(db)

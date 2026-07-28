@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -307,7 +306,11 @@ def record_reconcile_result(
 
 
 def trigger_reconcile(db: Session, settings: Settings, *, actor: str) -> tuple[bool, str]:
-    """Export domains + runtime env, touch sentinel / optional docker exec."""
+    """Export domains + runtime env and signal acme-companion via certs sentinel.
+
+    bastion-app never talks to the Docker socket (security). The sidecar polls
+    ``certs/.reconcile_request`` every few seconds and runs reconcile-certs.sh.
+    """
     write_acme_domains_export(db, settings)
     write_acme_runtime_env(db, settings)
     cfg = get_acme_config(db)
@@ -317,47 +320,20 @@ def trigger_reconcile(db: Session, settings: Settings, *, actor: str) -> tuple[b
         )
         return False, "ACME est désactivé"
 
-    # Sentinel for acme-companion periodic loop (and ops visibility)
     sentinel = certs_dir(settings) / ".reconcile_request"
     try:
         certs_dir(settings).mkdir(parents=True, exist_ok=True)
         sentinel.write_text(utcnow().isoformat(), encoding="utf-8")
     except OSError as exc:
-        msg = f"Impossible d'écrire le sentinel certs: {exc}"
+        msg = f"Impossible d'écrire le signal pour acme-companion: {exc}"
         record_reconcile_result(db, status="error", message=msg, actor=actor)
         return False, msg
 
-    # Best-effort docker exec when socket/proxy available (Compose on same host)
-    ran = False
-    err = ""
-    for cmd in (
-        ["docker", "exec", "bastion-acme", "/bin/sh", "/reconcile-certs.sh"],
-        ["docker", "compose", "exec", "-T", "acme-companion", "/bin/sh", "/reconcile-certs.sh"],
-    ):
-        try:
-            proc = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=180,
-                check=False,
-            )
-            if proc.returncode == 0:
-                ran = True
-                out = (proc.stdout or "").strip()[-800:] or "reconcile ok"
-                record_reconcile_result(db, status="ok", message=out, actor=actor)
-                return True, out
-            err = (proc.stderr or proc.stdout or f"rc={proc.returncode}")[-800:]
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
-            err = str(exc)
-            continue
-
-    # Sidecar will pick up sentinel / runtime env on next interval
+    n_domains = len(build_acme_domains_manifest(db, settings).get("domains") or [])
     msg = (
-        "Exports à jour. Le sidecar acme-companion appliquera l’émission "
-        "au prochain cycle (quelques minutes) — bastion-app n’a pas accès à docker."
+        f"Demande envoyée à acme-companion ({n_domains} domaine(s)). "
+        "Émission DNS-01 sous ~30 s si le sidecar tourne et le token CF est valide. "
+        "Rechargez cette page ensuite."
     )
-    if err and "No such file" not in err and "docker" not in err.lower():
-        msg = f"{msg} ({err[:200]})"
     record_reconcile_result(db, status="pending", message=msg, actor=actor)
     return True, msg

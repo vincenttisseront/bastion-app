@@ -198,6 +198,11 @@
           {% endif %}
         </div>
 
+          <p class="form-help">
+            « Réconcilier » met à jour les exports et signale le conteneur
+            <span class="mono">acme-companion</span> (pas besoin de Docker dans bastion-app).
+            Vérifiez <span class="mono">docker logs bastion-acme</span> si les certs restent absents.
+          </p>
         <div class="form-actions" style="margin-top:1.25rem;display:flex;gap:0.75rem">
           <button type="submit" class="btn btn-primary">Enregistrer</button>
           <a href="/admin/security#tls" class="btn btn-ghost">Voir Sécurité → TLS</a>

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audit import derive_severity
@@ -17,6 +16,10 @@ _DENIED_ACTIONS = (
     "access_denied_no_grant",
     "breakglass.login_denied_non_lan",
 )
+
+# Cap work: never full-scan audit_logs for a COUNT over 24h (SQLite can hang the UI).
+_DENIED_FETCH_LIMIT = 50
+_DENIED_DISPLAY_LIMIT = 5
 
 SHORTCUTS: list[dict[str, str]] = [
     {
@@ -30,6 +33,12 @@ SHORTCUTS: list[dict[str, str]] = [
         "label": "Domaines",
         "href": "/admin/pending-hosts",
         "hint": "Découverte d'hôtes inconnus",
+    },
+    {
+        "id": "acme",
+        "label": "ACME",
+        "href": "/admin/acme",
+        "hint": "Certificats Let's Encrypt",
     },
     {
         "id": "security",
@@ -99,6 +108,7 @@ def build_notification_feed(db: Session) -> dict[str, Any]:
             }
         )
 
+    # One bounded query — avoid COUNT(*) over the whole 24h window (can lock the UI).
     denied_rows = (
         db.query(AuditLog)
         .filter(
@@ -106,54 +116,46 @@ def build_notification_feed(db: Session) -> dict[str, Any]:
             AuditLog.created_at >= since,
         )
         .order_by(AuditLog.created_at.desc())
-        .limit(8)
+        .limit(_DENIED_FETCH_LIMIT)
         .all()
     )
-    denied_total = (
-        db.query(func.count(AuditLog.id))
-        .filter(
-            AuditLog.action.in_(_DENIED_ACTIONS),
-            AuditLog.created_at >= since,
-        )
-        .scalar()
-        or 0
-    )
+    denied_total = len(denied_rows)
+    denied_capped = denied_total >= _DENIED_FETCH_LIMIT
     if denied_total:
-        last = denied_rows[0] if denied_rows else None
+        last = denied_rows[0]
         last_bits: list[str] = []
-        if last:
-            if last.target:
-                last_bits.append(str(last.target))
-            uri = (last.details or {}).get("uri") if isinstance(last.details, dict) else None
-            if uri:
-                last_bits.append(str(uri))
+        if last.target:
+            last_bits.append(str(last.target))
+        uri = (last.details or {}).get("uri") if isinstance(last.details, dict) else None
+        if uri:
+            last_bits.append(str(uri))
+        title_count = f"{denied_total}{'+' if denied_capped else ''}"
         items.append(
             {
                 "id": "access-denied-summary",
                 "severity": "error",
                 "category": "security",
-                "title": f"{denied_total} accès refusé{'s' if denied_total > 1 else ''} (24 h)",
+                "title": f"{title_count} accès refusés (24 h)",
                 "body": (
                     "Dernier : " + " ".join(last_bits)
                     if last_bits
                     else "Voir les journaux d'accès refusés"
                 ),
                 "href": "/admin/logs?status=error",
-                "time": _fmt_time(last.created_at) if last else None,
-                "count": int(denied_total),
+                "time": _fmt_time(last.created_at),
+                "count": denied_total,
             }
         )
-        for row in denied_rows[:5]:
+        for row in denied_rows[:_DENIED_DISPLAY_LIMIT]:
             details = row.details if isinstance(row.details, dict) else {}
             uri = details.get("uri") or ""
-            title = row.action
             body_parts = [p for p in (row.target, uri) if p]
             items.append(
                 {
                     "id": f"audit-{row.id}",
                     "severity": derive_severity(row.action),
                     "category": "security",
-                    "title": title,
+                    "title": row.action,
                     "body": " · ".join(str(p) for p in body_parts) or (row.actor or ""),
                     "href": f"/admin/logs?q={row.action}&status=error",
                     "time": _fmt_time(row.created_at),
@@ -186,7 +188,6 @@ def build_notification_feed(db: Session) -> dict[str, Any]:
             }
         )
 
-    # Badge = actionable summaries only (not each individual audit row)
     badge = pending_count + (1 if denied_total else 0) + len(bad_realms)
 
     return {
