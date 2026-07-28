@@ -42,7 +42,7 @@ while true; do
   if "$SYNC" && nginx -t && nginx -s reload; then
     LAST="$CUR"
     echo "bastion-nginx: reload ok — public_proxy TLS servers:"
-    grep -E '^\s*server_name\s+' /etc/nginx/conf.d/nginx-public-proxy-apps-tls.conf 2>/dev/null \
+    grep -E '^\s*server_name\s+' /etc/nginx/conf.d/nginx-acme-tls.conf 2>/dev/null \
       | sed 's/^/  /' || echo "  (none)"
   else
     echo "bastion-nginx: WARN sync/reload failed — will retry" >&2

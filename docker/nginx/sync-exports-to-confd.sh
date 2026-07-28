@@ -55,4 +55,5 @@ elif [[ -x /sync-public-proxy-tls.sh ]]; then
   /sync-public-proxy-tls.sh || echo "WARN: sync-public-proxy-tls failed" >&2
 else
   echo "# no ACME TLS sync script" > /etc/nginx/conf.d/nginx-acme-tls.conf
+  echo "# deprecated — see nginx-acme-tls.conf" > /etc/nginx/conf.d/nginx-public-proxy-apps-tls.conf
 fi
