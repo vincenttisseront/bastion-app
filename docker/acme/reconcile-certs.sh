@@ -151,10 +151,13 @@ issue_or_placeholder() {
   fi
 
   log "ISSUE $fqdn via DNS-01 ($DNS_API) CA=$ACME_CA — acme.sh crée/supprime _acme-challenge TXT via API CF (pas de record manuel)"
-  ISSUE_ARGS="--issue --dns $DNS_API -d $fqdn"
+  # acme.sh defaults to ZeroSSL now — always pin --server (LE prod or staging).
   if [ "$ACME_CA" = "letsencrypt_test" ] || [ "$ACME_CA" = "staging" ]; then
-    ISSUE_ARGS="$ISSUE_ARGS --staging"
+    SERVER="letsencrypt_test"
+  else
+    SERVER="letsencrypt"
   fi
+  ISSUE_ARGS="--issue --server $SERVER --dns $DNS_API -d $fqdn"
   out="$(mktemp)"
   # shellcheck disable=SC2086
   set +e
@@ -163,9 +166,16 @@ issue_or_placeholder() {
   set -e
   cat "$out" >>"$LOG"
   cat "$out"
+  # Detect common misconfig for clearer follow-up in our log line
+  hint="vérifier Zone DNS Edit sur CF + domaine dans la zone"
+  if grep -qi 'zerossl' "$out" 2>/dev/null; then
+    hint="acme.sh a pris ZeroSSL (forcer --server letsencrypt) — redéployer le sidecar"
+  elif grep -qi 'register-account\|EAB credentials\|email address' "$out" 2>/dev/null; then
+    hint="compte ACME : définir ACME_ACCOUNT_EMAIL et réconcilier"
+  fi
   rm -f "$out"
   if [ "$rc" -ne 0 ]; then
-    log "ERROR $fqdn — issue failed rc=$rc (vérifier Zone DNS Edit sur CF + domaine dans la zone)"
+    log "ERROR $fqdn — issue failed rc=$rc ($hint)"
     return 1
   fi
   "$ACME_BIN" --install-cert -d "$fqdn" \
@@ -190,6 +200,25 @@ if has_cf_creds; then
   log "Cloudflare credentials: present (DNS-01 automatique — pas de record TXT manuel)"
 else
   log "Cloudflare credentials: ABSENT — placeholders only"
+fi
+
+# Pin CA: recent acme.sh images default to ZeroSSL (needs EAB/email).
+if [ "$ACME_CA" = "letsencrypt_test" ] || [ "$ACME_CA" = "staging" ]; then
+  DEFAULT_SERVER="letsencrypt_test"
+else
+  DEFAULT_SERVER="letsencrypt"
+fi
+if [ -x "$ACME_BIN" ] || command -v "$ACME_BIN" >/dev/null 2>&1; then
+  log "set-default-ca --server $DEFAULT_SERVER"
+  "$ACME_BIN" --set-default-ca --server "$DEFAULT_SERVER" >>"$LOG" 2>&1 || true
+  ACCOUNT_EMAIL="${ACME_ACCOUNT_EMAIL:-}"
+  if [ -z "$ACCOUNT_EMAIL" ] && [ -n "${PORTAL_DOMAIN:-}" ]; then
+    ACCOUNT_EMAIL="acme@${PORTAL_DOMAIN}"
+  fi
+  if [ -n "$ACCOUNT_EMAIL" ]; then
+    log "register-account -m $ACCOUNT_EMAIL --server $DEFAULT_SERVER"
+    "$ACME_BIN" --register-account -m "$ACCOUNT_EMAIL" --server "$DEFAULT_SERVER" >>"$LOG" 2>&1 || true
+  fi
 fi
 
 ok_n=0

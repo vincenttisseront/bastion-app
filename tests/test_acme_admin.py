@@ -92,6 +92,8 @@ def test_ensure_and_update_acme_settings(db_session, tmp_path):
     assert "ACME_ENABLED=1" in text
     assert "CF_Token=" in text
     assert "cf-secret-token" in text
+    assert "ACME_ACCOUNT_EMAIL=acme@portal.example.fr" in text
+    assert "PORTAL_DOMAIN=portal.example.fr" in text
 
 
 def test_list_domain_statuses_reads_certs(db_session, tmp_path):

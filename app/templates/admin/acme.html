@@ -90,8 +90,11 @@
   <div class="card mb-4" id="acme-logs">
     <div class="card-header">
       <span class="card-title">Logs Let's Encrypt (live)</span>
-      <div class="card-header-actions">
+      <div class="card-header-actions" style="display:flex;align-items:center;gap:0.75rem">
         <span class="form-hint mono" id="acme-log-meta">polling…</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="acme-log-copy" title="Copier les logs dans le presse-papiers">
+          Copier
+        </button>
       </div>
     </div>
     <div class="card-body" style="padding:0">
@@ -348,6 +351,35 @@
   if (location.hash === '#acme-logs') {
     var box = document.getElementById('acme-logs');
     if (box) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  var copyBtn = document.getElementById('acme-log-copy');
+  if (copyBtn && logEl) {
+    copyBtn.addEventListener('click', function () {
+      var text = logEl.textContent || '';
+      function done(ok) {
+        var prev = copyBtn.textContent;
+        copyBtn.textContent = ok ? 'Copié' : 'Échec';
+        setTimeout(function () { copyBtn.textContent = prev; }, 1500);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
+        return;
+      }
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        done(document.execCommand('copy'));
+        document.body.removeChild(ta);
+      } catch (e) {
+        done(false);
+      }
+    });
   }
 })();
 </script>

@@ -210,6 +210,10 @@ def write_acme_runtime_env(db: Session, settings: Settings) -> Path:
         f"ACME_CA={cfg.acme_ca}",
         f"ACME_ENABLED={'1' if cfg.enabled else '0'}",
     ]
+    portal = (settings.portal_domain or "").strip().lower()
+    if portal:
+        lines.append(f"PORTAL_DOMAIN={portal}")
+        lines.append(f"ACME_ACCOUNT_EMAIL=acme@{portal}")
     if cfg.cf_account_id:
         lines.append(f"CF_Account_ID={cfg.cf_account_id}")
     if cfg.cf_zone_id:

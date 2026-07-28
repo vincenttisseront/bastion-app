@@ -52,6 +52,12 @@ Toujours nécessaires hors ACME : A/AAAA/CNAME publics qui pointent le trafic HT
 
 Sans token CF : placeholders self-signed (navigateur refuse).
 
+### Cause fréquente : ZeroSSL au lieu de Let's Encrypt
+
+Les images `neilpang/acme.sh` récentes utilisent **ZeroSSL** par défaut (EAB + email).
+Le reconcile force `--server letsencrypt` / `letsencrypt_test` et `--set-default-ca`.
+Après mise à jour des scripts : redémarrer `bastion-acme`, puis **Réconcilier**.
+
 ## Hors scope (infra sœur)
 
 Pour que le navigateur public voie le cert LE du bastion :
