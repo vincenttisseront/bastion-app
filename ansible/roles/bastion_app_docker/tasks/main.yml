@@ -266,9 +266,10 @@
       # stub — overwritten by export_app_catalogue_files / infrastructure apply
       127.0.0.1 0;
       localhost 0;
+      {{ portal_domain }} 0;
     dest: "{{ sso_portal_exports_dir }}/nginx-known-hosts.map"
     mode: "0644"
-    force: false
+    force: true
 
 - name: "Make apply-infra-docker executable"
   ansible.builtin.file:
@@ -412,6 +413,16 @@
     assert s.rfc1918_bypass_enabled is False, "RFC1918_BYPASS_ENABLED must be false behind Traefik"
     print("SSO auth + generic vault driver image OK")
     PY
+    echo "=== nginx entrypoint (must not write RO exports map) ==="
+    if docker run --rm --entrypoint grep -q bastion-nginx:local \
+      'exports/ is mounted :ro' /docker-entrypoint-portal.sh; then
+      echo "nginx entrypoint has RO-exports fix OK"
+    else
+      echo "OLD nginx image — entrypoint still pre-fix or AWX project not on master (need >= 16ecd55)."
+      echo "---- entrypoint lines 40-65 ----"
+      docker run --rm --entrypoint sed bastion-nginx:local -n '40,65p' /docker-entrypoint-portal.sh || true
+      exit 1
+    fi
     echo "=== nginx status ==="
     if ! docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' bastion-nginx 2>/dev/null | grep -qx running; then
       echo "bastion-nginx is not running (often nginx -t fail on known-hosts map)."
