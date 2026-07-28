@@ -413,23 +413,42 @@
     assert s.rfc1918_bypass_enabled is False, "RFC1918_BYPASS_ENABLED must be false behind Traefik"
     print("SSO auth + generic vault driver image OK")
     PY
-    echo "=== nginx entrypoint (must not write RO exports map) ==="
-    if docker run --rm --entrypoint grep bastion-nginx:local -q \
-      'exports/ is mounted :ro' /docker-entrypoint-portal.sh; then
-      echo "nginx entrypoint has RO-exports fix OK"
-    else
-      echo "OLD nginx image — entrypoint still pre-fix or AWX project not on master (need >= 16ecd55)."
-      echo "---- entrypoint lines 40-65 ----"
-      docker run --rm --entrypoint sed bastion-nginx:local -n '40,65p' /docker-entrypoint-portal.sh || true
+    echo "=== nginx sync-exports + entrypoint (RO map + dedupe + watch) ==="
+    # Map sync lives in /sync-exports-to-confd.sh (entrypoint only calls it + watcher).
+    if ! docker run --rm --entrypoint test bastion-nginx:local -x /sync-exports-to-confd.sh; then
+      echo "OLD nginx image — missing /sync-exports-to-confd.sh (need >= 0d5d74f)."
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint test bastion-nginx:local -x /watch-exports-reload.sh; then
+      echo "OLD nginx image — missing /watch-exports-reload.sh (need >= 0d5d74f)."
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      '/sync-exports-to-confd.sh' /docker-entrypoint-portal.sh; then
+      echo "nginx entrypoint does not call sync-exports-to-confd.sh — rebuild nginx image"
+      docker run --rm --entrypoint sed bastion-nginx:local -n '1,55p' /docker-entrypoint-portal.sh || true
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -qE \
-      'BASTION_KNOWN_HOSTS_DEDUPE=1|awk .NF >= 2' /docker-entrypoint-portal.sh; then
-      echo "nginx entrypoint missing map-key dedupe — rebuild nginx image (need >= 38867a1)"
-      docker run --rm --entrypoint sed bastion-nginx:local -n '45,70p' /docker-entrypoint-portal.sh || true
+      'never write MAP_SRC|exports/ is (mounted |often ):ro' /sync-exports-to-confd.sh; then
+      echo "OLD nginx image — sync-exports missing RO-exports guard (need >= 0d5d74f)."
+      docker run --rm --entrypoint sed bastion-nginx:local -n '1,50p' /sync-exports-to-confd.sh || true
       exit 1
     fi
-    echo "nginx entrypoint has known-hosts dedupe OK"
+    echo "nginx RO-exports fix OK"
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -qE \
+      'BASTION_KNOWN_HOSTS_DEDUPE=1|awk .NF >= 2' /sync-exports-to-confd.sh; then
+      echo "nginx sync-exports missing map-key dedupe — rebuild nginx image (need >= 0d5d74f)"
+      docker run --rm --entrypoint sed bastion-nginx:local -n '30,55p' /sync-exports-to-confd.sh || true
+      exit 1
+    fi
+    echo "nginx known-hosts dedupe OK"
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'watch-exports-reload.sh' /docker-entrypoint-portal.sh; then
+      echo "nginx entrypoint missing exports watcher — rebuild nginx image (need >= 0d5d74f)"
+      exit 1
+    fi
+    echo "nginx exports watcher OK"
     echo "=== nginx status ==="
     if ! docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' bastion-nginx 2>/dev/null | grep -qx running; then
       echo "bastion-nginx is not running (often nginx -t fail on known-hosts map)."
