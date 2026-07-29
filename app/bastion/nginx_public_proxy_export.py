@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
+from app.bastion.upstream_proxy import upstream_origin
 from app.bastion.upstream_tls import (
     nginx_proxy_ssl_verify_directive,
     resolve_upstream_tls_verify,
@@ -66,12 +67,13 @@ def generate_public_proxy_server_block(app: App) -> str:
     slug = app.slug
     if not _SAFE_SLUG.match(slug):
         raise ValueError(f"unsafe app slug for nginx: {slug!r}")
-    upstream = (app.upstream_url or "").strip().rstrip("/")
-    if not upstream:
+    raw_upstream = (app.upstream_url or "").strip()
+    if not raw_upstream:
         raise ValueError(f"app {slug}: upstream_url required")
-    upstream_esc = _nginx_escape(upstream)
+    origin = upstream_origin(raw_upstream)
+    origin_esc = _nginx_escape(origin)
     fqdn_esc = _nginx_escape(fqdn)
-    upstream_is_https = upstream.lower().startswith("https://")
+    upstream_is_https = origin.lower().startswith("https://")
     tls_verify = resolve_upstream_tls_verify(app)
 
     ssl_lines: list[str] = []
@@ -114,7 +116,7 @@ def generate_public_proxy_server_block(app: App) -> str:
         f"    access_log /var/log/nginx/apps/{slug}.access.log app;",
         f"    error_log  /var/log/nginx/apps/{slug}.error.log warn;",
         "",
-        f'    set $app_upstream "{upstream_esc}";',
+        f'    set $app_upstream "{origin_esc}";',
         "",
         "    # Optional health probe — no auth",
         "    location = /healthz {",

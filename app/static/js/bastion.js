@@ -153,8 +153,11 @@ var ACCESS_MODE_COPY = {
   },
   subdomain_proxy: {
     upstreamLabel: 'URL backend interne (proxy_pass)',
-    upstreamHelp: 'Cible du reverse proxy Nginx sur le sous-domaine dédié.',
-    upstreamPlaceholder: 'http://127.0.0.1:8080/',
+    upstreamHelp:
+      'Origine du reverse proxy (scheme + host[:port] uniquement). ' +
+      'Ne pas mettre /web ni un chemin d’entrée — le navigateur envoie déjà le chemin ' +
+      '(ex. https://10.x.x.x/ et non https://10.x.x.x/web/).',
+    upstreamPlaceholder: 'https://10.0.0.50/',
     fqdnLabel: 'Sous-domaine public',
     showFqdn: true,
     showLegacyWarn: false,
@@ -171,8 +174,9 @@ var ACCESS_MODE_COPY = {
   },
   public_proxy: {
     upstreamLabel: 'URL backend interne (proxy_pass)',
-    upstreamHelp: 'Cible du reverse proxy Nginx — aucune authentification bastion.',
-    upstreamPlaceholder: 'http://127.0.0.1:8080/',
+    upstreamHelp:
+      'Origine du reverse proxy (scheme + host[:port]). Pas de chemin /web — URI transparente.',
+    upstreamPlaceholder: 'https://10.0.0.50:3080/',
     fqdnLabel: 'Domaine public dédié',
     showFqdn: true,
     showLegacyWarn: false,

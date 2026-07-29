@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
+from app.bastion.upstream_proxy import upstream_origin
 from app.bastion.upstream_tls import (
     nginx_proxy_ssl_verify_directive,
     resolve_upstream_tls_verify,
@@ -161,18 +162,20 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     slug = app.slug
     if not _SAFE_SLUG.match(slug):
         raise ValueError(f"unsafe app slug for nginx: {slug!r}")
-    upstream = (app.upstream_url or "").strip().rstrip("/")
-    if not upstream:
+    raw_upstream = (app.upstream_url or "").strip()
+    if not raw_upstream:
         raise ValueError(f"app {slug}: upstream_url required")
-    upstream_host = _upstream_host(upstream)
+    # Origin only — path in upstream_url is ignored (avoids /web ↔ /web/ 301 loops).
+    origin = upstream_origin(raw_upstream)
+    upstream_host = _upstream_host(raw_upstream)
     portal = (settings.portal_domain or "portal.ar-systems.fr").strip()
     realm = (app.realm_slug or "").strip() or settings.sso_portal_default_realm_slug
-    upstream_esc = _nginx_escape(upstream)
+    origin_esc = _nginx_escape(origin)
     fqdn_esc = _nginx_escape(fqdn)
     portal_esc = _nginx_escape(portal)
     upstream_host_esc = _nginx_escape(upstream_host)
     allow_eas = bool(getattr(app, "allow_activesync", False))
-    upstream_is_https = upstream.lower().startswith("https://")
+    upstream_is_https = origin.lower().startswith("https://")
     tls_verify = resolve_upstream_tls_verify(app)
     ssl_lines: list[str] = []
     if upstream_is_https:
@@ -194,7 +197,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         f"    error_log  /var/log/nginx/apps/{slug}.error.log warn;",
         "",
         "    set $bastion_app_upstream bastion-app:8000;",
-        f'    set $app_upstream "{upstream_esc}";',
+        f'    set $app_upstream "{origin_esc}";',
         "",
         "    include /etc/nginx/snippets/subdomain_auth_common.conf;",
         "",

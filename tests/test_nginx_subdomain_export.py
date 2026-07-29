@@ -77,9 +77,28 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "session-cookie-hop" in block
     assert "proxy_set_header Host portal.ar-systems.fr;" in block
     assert "auth_request /internal/subdomain-auth;" in block
-    assert 'set $app_upstream "https://10.0.0.5/dolibarr";' in block
+    assert 'set $app_upstream "https://10.0.0.5";' in block
+    assert "rewrite ^/(.*)$ /dolibarr/$1 break;" not in block
     assert "rd=https://$host$request_uri" in block
     assert "?rd=$request_uri;" not in block
+
+
+def test_generate_server_block_strips_web_path():
+    """Grommunio/Teleport: /web in upstream_url must not become proxy_pass URI."""
+    app = App(
+        slug="grommunio",
+        label="Mail",
+        upstream_url="https://10.0.0.50/web/",
+        access_mode="subdomain_proxy",
+        public_fqdn="webmail.ar-systems.fr",
+        realm_slug="ar-systems",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert 'set $app_upstream "https://10.0.0.50";' in block
+    assert 'set $app_upstream "https://10.0.0.50/web"' not in block
+    assert "rewrite " not in block
+    assert "rd=https://$host$request_uri" in block
 
 
 def test_generate_conf_and_inventory(db_session, tmp_path):
