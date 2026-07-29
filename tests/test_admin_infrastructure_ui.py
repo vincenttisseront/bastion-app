@@ -1,5 +1,7 @@
 """Admin Infrastructure UI — page and apply button."""
 
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -12,11 +14,15 @@ ISSUER = "https://keycloak.example/realms/test"
 
 
 def _test_settings(tmp_path) -> Settings:
+    data = tmp_path / "data"
+    exports = data / "exports"
+    exports.mkdir(parents=True)
     return Settings(
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
-        exports_dir=str(tmp_path),
+        exports_dir=str(exports),
+        portal_data_dir=str(data),
         portal_domain="portal.example.test",
         sso_portal_default_realm_slug="ar-systems",
         oauth2_core_static_enabled=True,
@@ -65,6 +71,8 @@ def test_infrastructure_page_renders_for_admin(
     assert resp.status_code == 200
     assert "Appliquer l'infrastructure" in resp.text
     assert "portal.example.test" in resp.text
+    assert "Statut d'application" in resp.text
+    assert "oauth2-proxy" in resp.text
 
 
 def test_infrastructure_apply_redirects_with_flash(
@@ -87,7 +95,13 @@ def test_infrastructure_apply_redirects_with_flash(
         "portal_flash" in v for v in resp.headers.get_list("set-cookie")
     )
 
+    exports = Path(settings.exports_dir)
+    data = Path(settings.portal_data_dir)
+    assert (exports / "infrastructure-manifest.json").is_file()
+    assert (data / "apply-infra.request").is_file()
+    assert (data / "apply-infra.status").read_text(encoding="utf-8").startswith("pending")
+
     page = client.get("/admin/infrastructure", headers=ADMIN_HEADERS)
     assert page.status_code == 200
-    assert "Infrastructure exportée" in page.text or "fichier" in page.text.lower()
-    assert (tmp_path / "infrastructure-manifest.json").is_file()
+    assert "Étape 1/2" in page.text or "Export OK" in page.text or "En attente" in page.text
+    assert "signal en attente" in page.text or "pending" in page.text.lower()

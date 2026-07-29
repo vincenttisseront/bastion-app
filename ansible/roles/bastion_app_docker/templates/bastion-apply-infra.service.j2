@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Apply bastion Docker infrastructure (oauth2-proxy + nginx sync)
+After=docker.service network-online.target
+Wants=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=SSO_PORTAL_DATA_DIR={{ bastion_app_docker_data_dir }}
+Environment=BASTION_COMPOSE_DIR={{ bastion_app_docker_compose_dir }}
+Environment=PORTAL_DEFAULT_REALM_SLUG={{ sso_portal_default_realm_slug }}
+Environment=OAUTH2_PROXY_IMAGE_TAG={{ oauth2_proxy_image_tag }}
+ExecStart={{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker-dispatch.sh
+
+[Install]
+WantedBy=multi-user.target

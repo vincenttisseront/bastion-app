@@ -56,6 +56,21 @@ def test_apply_infra_docker_script_exists():
     assert "exec -T acme-companion" not in body
 
 
+def test_apply_infra_docker_dispatch_script_exists():
+    script = ROOT / "scripts" / "apply-infra-docker-dispatch.sh"
+    assert script.is_file()
+    body = script.read_text(encoding="utf-8")
+    assert "apply-infra.request" in body
+    assert "apply-infra.status" in body
+    assert "apply-infra-docker.sh" in body
+    role = ROOT / "ansible" / "roles" / "bastion_app_docker"
+    assert (role / "templates" / "bastion-apply-infra.path.j2").is_file()
+    assert (role / "templates" / "bastion-apply-infra.service.j2").is_file()
+    main = (role / "tasks" / "main.yml").read_text(encoding="utf-8")
+    assert "bastion-apply-infra.path" in main
+    assert "apply-infra-docker-dispatch.sh" in main
+
+
 def test_validate_purge_units_task_present():
     role = ROOT / "ansible" / "roles" / "bastion_app_docker"
     assert (role / "tasks" / "validate_purge_units.yml").is_file()

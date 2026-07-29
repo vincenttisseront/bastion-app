@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Watch apply-infra.request for bastion Docker infrastructure apply
+After=network.target
+
+[Path]
+PathChanged={{ bastion_app_docker_data_dir }}/apply-infra.request
+Unit=bastion-apply-infra.service
+
+[Install]
+WantedBy=multi-user.target

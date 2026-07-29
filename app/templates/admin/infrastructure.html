@@ -21,22 +21,59 @@
   </div>
 
   <div class="card" style="margin-bottom:var(--sp-4);">
+    <div class="card-header">
+      <span class="card-title">Statut d'application</span>
+      <span class="badge badge-{{ host_apply.badge }}">{{ host_apply.status_label }}</span>
+    </div>
     <div class="card-body">
-      <p class="form-help" style="margin:0;">
-        Régénère les exports (oauth2-proxy, nginx, inventaires apps) depuis la base SQLite —
-        source de vérité Admin. Équivalent à
-        <code class="mono">python -m app.admin.infrastructure apply</code>.
-        {% if has_saved_manifest %}
-        Dernier manifeste : <code class="mono">{{ manifest_path }}</code>.
+      <ol class="form-help" style="margin:0;padding-left:1.25rem;line-height:1.6;">
+        <li>
+          <strong>Export (ce bouton)</strong> — écrit les fichiers sous
+          <code class="mono">{{ exports_dir }}</code>
+          depuis la base SQLite (source de vérité Admin).
+          {% if has_saved_manifest %}
+          Manifeste : <code class="mono">{{ manifest_path }}</code>.
+          {% else %}
+          Aucun manifeste encore — cliquez Appliquer pour générer.
+          {% endif %}
+        </li>
+        <li>
+          <strong>nginx</strong> — <code class="mono">bastion-nginx</code> surveille les exports
+          et recharge automatiquement (~2&nbsp;s) les confs subdomain / public_proxy / known-hosts.
+          Pas besoin de script hôte pour cette partie.
+        </li>
+        <li>
+          <strong>oauth2-proxy + compose</strong> — sync du cfg core vers
+          <code class="mono">oauth2-proxy-core</code>, realms secondaires et
+          <code class="mono">docker-compose.override.yml</code> via
+          <code class="mono">scripts/apply-infra-docker.sh</code> sur
+          <code class="mono">vmdmz-docker01</code>.
+          Le bouton écrit <code class="mono">{{ host_apply.request_path }}</code>
+          pour déclencher le watcher systemd ; sinon lancez le script à la main.
+        </li>
+      </ol>
+
+      <div style="margin-top:var(--sp-3);display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;">
+        {% if host_apply.request_exists and host_apply.request_pending %}
+        <span class="badge badge-warn">signal en attente</span>
+        {% elif host_apply.status == 'ok' %}
+        <span class="badge badge-ok">hôte synchronisé</span>
+        {% elif host_apply.status == 'error' %}
+        <span class="badge badge-err">hôte en erreur</span>
         {% else %}
-        Aucun export enregistré pour l'instant — cliquez sur Appliquer pour générer les fichiers.
+        <span class="badge badge-muted">pas de signal récent</span>
         {% endif %}
-      </p>
-      <p class="form-help" style="margin:var(--sp-2) 0 0;">
-        Sur l'hôte Docker (<code class="mono">vmdmz-docker01</code>), lancez ensuite
-        <code class="mono">scripts/apply-infra-docker.sh</code> pour synchroniser vers
-        <code class="mono">oauth2-proxy-core</code> et recharger <code class="mono">bastion-nginx</code>.
-      </p>
+        <span class="form-help" style="margin:0;">
+          Statut : <code class="mono">{{ host_apply.status_path }}</code>
+        </span>
+      </div>
+
+      {% if host_apply.log_text %}
+      <details style="margin-top:var(--sp-3);">
+        <summary class="form-help" style="cursor:pointer;">Journal apply hôte</summary>
+        <pre class="mono" style="margin:var(--sp-2) 0 0;white-space:pre-wrap;max-height:16rem;overflow:auto;padding:var(--sp-3);background:var(--bg-elevated, rgba(0,0,0,.25));border-radius:6px;">{{ host_apply.log_text }}</pre>
+      </details>
+      {% endif %}
     </div>
   </div>
 
@@ -55,7 +92,7 @@
       {% if manifest.partial %}
       <span class="badge badge-err">partiel</span>
       {% elif file_rows %}
-      <span class="badge badge-ok">à jour</span>
+      <span class="badge badge-ok">exportés</span>
       {% endif %}
     </div>
     <div class="card-body card-flush">

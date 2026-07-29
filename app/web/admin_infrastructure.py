@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.admin.infra_host_apply import read_host_apply_status, request_host_apply
 from app.admin.infrastructure import (
     MANIFEST_FILENAME,
     apply_infrastructure,
@@ -69,6 +70,7 @@ def admin_infrastructure_page(
 ):
     saved = _load_saved_manifest(settings)
     preview = saved or build_infrastructure_manifest(db, settings)
+    host = read_host_apply_status(settings)
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/infrastructure.html",
@@ -80,6 +82,7 @@ def admin_infrastructure_page(
         app_count=len(preview.get("applications") or []),
         has_saved_manifest=saved is not None,
         manifest_path=str(Path(settings.exports_dir) / MANIFEST_FILENAME),
+        host_apply=host,
     )
 
 
@@ -103,15 +106,29 @@ def admin_infrastructure_apply(
             "error",
             token,
         )
+        return response
+
+    host = request_host_apply(settings, exported_files=file_count)
+    if host.get("ok"):
+        flash_redirect(
+            response,
+            (
+                f"Étape 1/2 — Export OK ({file_count} fichier(s)). "
+                f"Étape 2/2 — {host['message']} "
+                "Voir le statut détaillé sur cette page."
+            ),
+            "success",
+            token,
+        )
     else:
         flash_redirect(
             response,
             (
-                f"Infrastructure exportée ({file_count} fichier(s)). "
-                "Sur l'hôte Docker, exécutez scripts/apply-infra-docker.sh "
-                "pour recharger nginx et oauth2-proxy."
+                f"Export OK ({file_count} fichier(s)), mais signal hôte en échec : "
+                f"{host.get('message')}. "
+                "Lancez manuellement scripts/apply-infra-docker.sh sur vmdmz-docker01."
             ),
-            "success",
+            "error",
             token,
         )
     return response

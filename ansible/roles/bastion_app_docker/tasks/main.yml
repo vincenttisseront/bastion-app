@@ -302,7 +302,35 @@
     mode: "0755"
   loop:
     - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh"
+    - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker-dispatch.sh"
     - "{{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh"
+
+- name: "Ensure apply-infra request file exists (Admin UI signal)"
+  ansible.builtin.file:
+    path: "{{ bastion_app_docker_data_dir }}/apply-infra.request"
+    state: touch
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+
+- name: "Install bastion apply-infra systemd units"
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - src: bastion-apply-infra.service.j2
+      dest: bastion-apply-infra.service
+    - src: bastion-apply-infra.path.j2
+      dest: bastion-apply-infra.path
+  register: _bastion_apply_infra_units
+
+- name: "Enable bastion apply-infra path watcher"
+  ansible.builtin.systemd:
+    name: bastion-apply-infra.path
+    enabled: true
+    state: started
+    daemon_reload: true
 
 - name: "Inspect Traefik network vpcbr (CLI — no community.docker required)"
   ansible.builtin.command: docker network inspect {{ bastion_traefik_network }}
