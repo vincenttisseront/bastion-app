@@ -115,7 +115,10 @@
         <p class="form-help" id="allow-activesync-help" {% if app.access_mode != 'subdomain_proxy' %}hidden{% endif %}>
           Pour la messagerie (ex. grommunio) : détecte Exchange ActiveSync et Autodiscover,
           exige une authentification Basic (ou session SSO) au lieu d’une redirection login navigateur.
-          Journalisé dans l’audit (<span class="mono">activesync.allowed</span> /
+          Upstream = URL <strong>interne</strong> du serveur mail (IP/hostname LAN), pas
+          <span class="mono">https://webmail.…</span> (boucle). Sur iPhone : compte Exchange +
+          mot de passe messagerie (Basic), pas « Se connecter avec Microsoft ».
+          Journalisé (<span class="mono">activesync.allowed</span> /
           <span class="mono">activesync.denied</span>).
         </p>
       </div>

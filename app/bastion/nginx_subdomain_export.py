@@ -63,26 +63,46 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
     }
 
 
-def _activesync_locations(slug: str, upstream_host_esc: str, fqdn_esc: str) -> list[str]:
-    """Locations that skip browser SSO redirect; require Basic or SSO via activesync-auth."""
+def _activesync_locations(
+    slug: str,
+    upstream_host_esc: str,
+    fqdn_esc: str,
+    *,
+    upstream_is_https: bool = False,
+) -> list[str]:
+    """Locations that skip browser SSO redirect; require Basic or SSO via activesync-auth.
+
+    EAS uses long-lived Ping (often 15–30 min) and large Sync bodies — buffering off,
+    high body limit, and no WebSocket Connection rewrite (would break keep-alive Ping).
+    """
+    ssl_lines: list[str] = []
+    if upstream_is_https:
+        ssl_lines = [
+            "        proxy_ssl_server_name on;",
+            "        proxy_ssl_verify off;",
+        ]
     return [
         "    # Mobile ActiveSync / Autodiscover (allow_activesync=true)",
+        "    # Ping heartbeat needs read timeout >> default 60s (iOS often 900–1800s).",
         "    location ~* ^/Microsoft-Server-ActiveSync {",
         "        auth_request /internal/activesync-auth;",
         f"        error_page 401 = @activesync_unauthorized_{slug};",
         "",
+        "        client_max_body_size 64m;",
         "        proxy_pass $app_upstream;",
         "        proxy_redirect off;",
         "        proxy_http_version 1.1;",
-        "        # WebSocket-friendly reverse proxy (Teleport uses ws/wss endpoints)",
-        "        proxy_set_header Upgrade $http_upgrade;",
-        "        proxy_set_header Connection $http_connection;",
+        "        proxy_buffering off;",
+        "        proxy_request_buffering off;",
         "        proxy_read_timeout 3600s;",
         "        proxy_send_timeout 3600s;",
+        "        proxy_connect_timeout 60s;",
+        *ssl_lines,
         "        proxy_set_header Host $host;",
         "        proxy_set_header X-Real-IP $remote_addr;",
         "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
         "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        "        # Upstream (grommunio) validates Basic; auth_request only gates access.",
         "        proxy_set_header Authorization $http_authorization;",
         "        proxy_pass_request_headers on;",
         "",
@@ -98,14 +118,15 @@ def _activesync_locations(slug: str, upstream_host_esc: str, fqdn_esc: str) -> l
         "        auth_request /internal/activesync-auth;",
         f"        error_page 401 = @activesync_unauthorized_{slug};",
         "",
+        "        client_max_body_size 1m;",
         "        proxy_pass $app_upstream;",
         "        proxy_redirect off;",
         "        proxy_http_version 1.1;",
-        "        # WebSocket-friendly reverse proxy (Teleport uses ws/wss endpoints)",
-        "        proxy_set_header Upgrade $http_upgrade;",
-        "        proxy_set_header Connection $http_connection;",
-        "        proxy_read_timeout 3600s;",
-        "        proxy_send_timeout 3600s;",
+        "        proxy_buffering off;",
+        "        proxy_request_buffering off;",
+        "        proxy_read_timeout 120s;",
+        "        proxy_send_timeout 120s;",
+        *ssl_lines,
         "        proxy_set_header Host $host;",
         "        proxy_set_header X-Real-IP $remote_addr;",
         "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
@@ -180,7 +201,14 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "",
     ]
     if allow_eas:
-        lines.extend(_activesync_locations(slug, upstream_host_esc, fqdn_esc))
+        lines.extend(
+            _activesync_locations(
+                slug,
+                upstream_host_esc,
+                fqdn_esc,
+                upstream_is_https=upstream.lower().startswith("https://"),
+            )
+        )
     lines.extend(
         [
             "    location / {",

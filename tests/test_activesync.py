@@ -63,7 +63,14 @@ def test_nginx_block_with_flag_has_eas_locations():
     assert "Microsoft-Server-ActiveSync" in block
     assert "auth_request /internal/activesync-auth;" in block
     assert "WWW-Authenticate" in block
+    assert "proxy_buffering off;" in block
+    assert "client_max_body_size 64m;" in block
+    assert "proxy_ssl_verify off;" in block
     assert "@portal_redirect_mail" in block  # browser path unchanged
+    # Do not rewrite Connection as for WebSockets — breaks EAS Ping keep-alive
+    eas_section = block.split("Microsoft-Server-ActiveSync", 1)[1].split("location /", 1)[0]
+    assert "proxy_set_header Upgrade" not in eas_section
+    assert "proxy_set_header Connection" not in eas_section
 
 
 def test_activesync_auth_requires_basic_or_sso(client, db_session):
