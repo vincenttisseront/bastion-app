@@ -1,6 +1,7 @@
-# Install Traefik catch-all → bastion-nginx (unknown Host discovery).
-# Without this, unknown FQDNs return Traefik "404 page not found" and never
-# reach bastion-nginx /internal/unknown-host → Domaines stays empty.
+# Host discovery smoke — Traefik catch-all (legacy) OR nginx edge :443/:8080.
+#
+# When bastion_require_traefik / bastion_traefik_catchall_deploy are false
+# (nginx publishes 80/443), skip Traefik probes and validate discovery on nginx.
 
 - name: "Stat Keycloak Traefik config directory"
   ansible.builtin.stat:
@@ -9,7 +10,7 @@
 
 - name: "Deploy Traefik bastion catch-all (file provider)"
   when:
-    - bastion_traefik_catchall_deploy | default(true) | bool
+    - bastion_traefik_catchall_deploy | default(false) | bool
     - _traefik_cfg_dir.stat.exists | default(false)
   ansible.builtin.copy:
     src: bastion-catchall.yml
@@ -19,23 +20,21 @@
 
 - name: "Wait for Traefik file provider to reload catch-all"
   when:
-    - bastion_traefik_catchall_deploy | default(true) | bool
+    - bastion_traefik_catchall_deploy | default(false) | bool
     - _traefik_catchall_file is changed
   ansible.builtin.command: sleep 3
   changed_when: false
 
 - name: "Warn when Traefik config dir missing (catch-all not installed)"
   when:
-    - bastion_traefik_catchall_deploy | default(true) | bool
+    - bastion_traefik_catchall_deploy | default(false) | bool
     - not (_traefik_cfg_dir.stat.exists | default(false))
   ansible.builtin.debug:
     msg: >-
       {{ bastion_traefik_config_dir }} introuvable — catch-all Traefik file non déployé.
-      Les labels docker-compose bastion-catchall@docker peuvent encore suffire après
-      recreate de bastion-nginx. Sinon teleport.* restera en 404 Traefik.
 
 - name: "SMOKE : Traefik catch-all routes unknown Host to bastion-nginx"
-  when: bastion_traefik_catchall_deploy | default(true) | bool
+  when: bastion_traefik_catchall_deploy | default(false) | bool
   ansible.builtin.shell: |
     set -euo pipefail
     epoch=$(date +%s)
@@ -52,9 +51,7 @@
         "$url" || echo "000"
     }
 
-    # 1) Published Traefik :443 on docker01 (same as reverse01 target)
     code=$(probe "https://127.0.0.1/probe-discovery")
-    # 2) Fallback: Traefik container IP on vpcbr
     if [[ "$code" == "000" || "$code" == "404" ]]; then
       tip=$(docker inspect -f '{% raw %}{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}{% endraw %}' traefik 2>/dev/null | awk '{print $1}')
       if [[ -n "${tip:-}" ]]; then
@@ -63,7 +60,6 @@
         code=$code2
       fi
     fi
-    # 3) Direct bastion-nginx (isolates Traefik vs nginx discovery)
     if [[ "$code" != "503" ]]; then
       nip=$(docker inspect -f '{% raw %}{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}{% endraw %}' bastion-nginx 2>/dev/null | awk '{print $1}')
       if [[ -n "${nip:-}" ]]; then
@@ -95,13 +91,6 @@
       exit 0
     fi
     echo "FAIL: expected HTTP 503 from bastion discovery, got ${code}"
-    echo "---- headers ----"
-    head -c 500 "$hdrs" 2>/dev/null || true
-    echo
-    echo "---- body ----"
-    head -c 400 "$body" 2>/dev/null || true
-    echo
-    echo "Traefik 404 = catch-all missing. Deploy {{ bastion_traefik_config_dir }}/bastion-catchall.yml and recreate bastion-nginx (labels)."
     exit 1
   args:
     executable: /bin/bash
@@ -112,19 +101,94 @@
   delay: 3
   until: _discovery_smoke.rc | default(1) == 0
 
+- name: "SMOKE : nginx edge discovery (no Traefik)"
+  when: not (bastion_traefik_catchall_deploy | default(false) | bool)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    epoch=$(date +%s)
+    host="discovery-probe-${epoch}.{{ base_domain | default('ar-systems.fr') }}"
+    body=/tmp/bastion_discovery_body.html
+    hdrs=/tmp/bastion_discovery_hdrs.txt
+    rm -f "$body" "$hdrs"
+
+    # Prefer published HTTPS edge, then loopback :8080, then container IP :8080
+    code=$(curl -sk -D "$hdrs" -o "$body" -w '%{http_code}' \
+      --connect-timeout 5 --max-time 15 \
+      -H "Host: ${host}" \
+      "https://127.0.0.1/probe-discovery" || echo "000")
+    echo "edge_https http=${code}"
+
+    if [[ "$code" != "503" ]]; then
+      code=$(curl -s -D "$hdrs" -o "$body" -w '%{http_code}' \
+        --connect-timeout 5 --max-time 10 \
+        -H "Host: ${host}" \
+        "http://127.0.0.1:8080/probe-discovery" || echo "000")
+      echo "loopback_8080 http=${code}"
+    fi
+
+    if [[ "$code" != "503" ]]; then
+      nip=$(docker inspect -f '{% raw %}{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}{% endraw %}' bastion-nginx 2>/dev/null | awk '{print $1}')
+      if [[ -n "${nip:-}" ]]; then
+        code=$(curl -s -D "$hdrs" -o "$body" -w '%{http_code}' \
+          --connect-timeout 5 --max-time 10 \
+          -H "Host: ${host}" \
+          "http://${nip}:8080/probe-discovery" || echo "000")
+        echo "direct_nginx_ip=${nip} http=${code}"
+      fi
+    fi
+
+    echo "discovery_probe host=${host} http=${code}"
+    if grep -qi 'X-Bastion-Unknown-Host: *1' "$hdrs" 2>/dev/null; then
+      echo "OK: X-Bastion-Unknown-Host present"
+      exit 0
+    fi
+    if [[ "$code" == "503" ]]; then
+      echo "OK: HTTP 503 (discovery stub via nginx edge)"
+      exit 0
+    fi
+    echo "FAIL: expected HTTP 503 from nginx discovery, got ${code}"
+    head -c 400 "$body" 2>/dev/null || true
+    exit 1
+  args:
+    executable: /bin/bash
+  register: _discovery_smoke_nginx
+  changed_when: false
+  failed_when: false
+  retries: 3
+  delay: 3
+  until: _discovery_smoke_nginx.rc | default(1) == 0
+
 - name: "Show discovery smoke result"
-  when: _discovery_smoke is defined
+  when: >
+    (_discovery_smoke is defined and not (_discovery_smoke is skipped))
+    or (_discovery_smoke_nginx is defined and not (_discovery_smoke_nginx is skipped))
   ansible.builtin.debug:
-    msg: "{{ _discovery_smoke.stdout_lines | default([]) }}"
+    msg: >-
+      {{ _discovery_smoke.stdout_lines | default([])
+         if (_discovery_smoke is defined and not (_discovery_smoke is skipped))
+         else (_discovery_smoke_nginx.stdout_lines | default([])) }}
 
 - name: "Fail when Traefik catch-all discovery smoke failed"
   when:
+    - bastion_traefik_catchall_deploy | default(false) | bool
     - _discovery_smoke is defined
+    - not (_discovery_smoke is skipped)
     - _discovery_smoke.rc | default(1) != 0
   ansible.builtin.fail:
     msg: >-
       Découverte Host KO (Traefik ne route pas vers bastion-nginx).
       {{ _discovery_smoke.stdout | default('') }}
-      Correctifs : recreate bastion-nginx (labels catch-all) ;
-      déployer {{ bastion_traefik_config_dir }}/bastion-catchall.yml ;
+      Correctifs : déployer {{ bastion_traefik_config_dir }}/bastion-catchall.yml ;
       vérifier réseau vpcbr (alias bastion-nginx).
+
+- name: "Fail when nginx edge discovery smoke failed"
+  when:
+    - not (bastion_traefik_catchall_deploy | default(false) | bool)
+    - _discovery_smoke_nginx is defined
+    - not (_discovery_smoke_nginx is skipped)
+    - _discovery_smoke_nginx.rc | default(1) != 0
+  ansible.builtin.fail:
+    msg: >-
+      Découverte Host KO (nginx edge 80/443 / :8080).
+      {{ _discovery_smoke_nginx.stdout | default('') }}
+      Vérifier bastion-nginx running, known-hosts map, et publish 80/443.
