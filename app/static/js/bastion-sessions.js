@@ -191,7 +191,7 @@
     if (st === 'active') return 'ok';
     if (st === 'invalid') return 'err';
     if (st === 'isolated') return 'warn';
-    if (st === 'declarative') return 'info';
+    if (st === 'declarative' || st === 'presence') return 'info';
     return 'warn'; // unverified / unknown
   }
 
@@ -202,11 +202,13 @@
       family === 'breakglass' ? 'warn' : family === 'app' ? 'ok' : 'info';
     var cookieClass = s.cookies_ok ? 'ok' : 'warn';
     var liveDot =
-      s.live_status === 'active'
+      s.live_status === 'active' || s.live_status === 'presence'
         ? '<span class="live-dot" style="width:6px;height:6px;"></span> '
         : '';
     var statusTitle = s.verifiable
       ? 'Statut vérifié auprès de l’app cible (live)'
+      : s.presence_only || s.live_status === 'presence'
+        ? 'Présence SSO détectée via accès subdomain (pas une vérif cookies robotic)'
       : s.freshness && s.freshness.note
         ? s.freshness.note
         : 'Statut déclaratif côté bastion';
@@ -241,6 +243,12 @@
         (s.last_verified_ago
           ? 'Vérifié ' + escapeHtml(s.last_verified_ago)
           : 'En attente de vérification live…') +
+        '</div>';
+    } else if (s.presence_only || s.live_status === 'presence') {
+      verifiedMeta =
+        '<div class="session-verified-meta mono" title="Heartbeat subdomain-auth">' +
+        'Vu ' +
+        escapeHtml(s.last_seen_ago || '—') +
         '</div>';
     } else if (s.freshness) {
       verifiedMeta =

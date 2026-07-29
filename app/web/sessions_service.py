@@ -28,6 +28,9 @@ SESSION_ABSOLUTE_TTL = timedelta(hours=12)  # OIDC: hard wall from started_at (�
 BREAKGLASS_IDLE_TTL = timedelta(minutes=30)  # match breakglass IDLE_TIMEOUT_SECONDS
 BREAKGLASS_ABSOLUTE_TTL = timedelta(hours=8)  # match breakglass COOKIE_MAX_AGE
 
+# subdomain-auth heartbeat: skip DB write if last_seen newer than this (asset flood).
+PRESENCE_THROTTLE_SECONDS = 60
+
 KIND_USER = "user"
 KIND_APP = "app"
 
@@ -456,17 +459,28 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
         cookie_title = "Statut cookies inconnu (pas encore de diagnostic)."
     ua_label = details.get("user_agent_label")
     browser_note = details.get("browser_note")
+    presence_only = bool(details.get("presence_only")) and not present
     if not ua_label:
         if details.get("verifiable") or details.get("driver") in ("crushftp", "generic_form"):
             ua_label = "Session serveur (driver)"
             browser_note = browser_note or (
                 "Session créée côté bastion, sans User-Agent navigateur propre."
             )
+        elif presence_only or details.get("source") == "subdomain_auth":
+            ua_label = "Activité SSO (subdomain)"
+            browser_note = browser_note or (
+                "Présence détectée via auth_request — cookies robotic non capturés ici."
+            )
         elif details.get("user_agent"):
             ua_label = summarize_user_agent(details.get("user_agent"))
         else:
             ua_label = "Non capturé"
             browser_note = browser_note or "User-Agent absent sur la requête d’enregistrement."
+    if presence_only and not present:
+        cookie_title = (
+            "Présence SSO sur l’hôte applicatif (pas de cookies robotic dans le registre)."
+        )
+        label = "présence SSO"
     return {
         "cookies_label": label,
         "cookies_ok": bool(ok),
@@ -482,6 +496,7 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
         "app_label": details.get("app_label"),
         "verifiable": bool(details.get("verifiable")),
         "driver": details.get("driver"),
+        "presence_only": presence_only,
     }
 
 
@@ -659,6 +674,121 @@ def touch_app_session(
         return None
 
 
+def touch_app_presence(
+    db: Session,
+    *,
+    email: str,
+    username: str | None,
+    realm: str | None,
+    app: App,
+    source_ip: str | None,
+    auth_source: str,
+    throttle_seconds: int = PRESENCE_THROTTLE_SECONDS,
+) -> ActiveSession | None:
+    """
+    Heartbeat from subdomain-auth after SSO/break-glass grant OK.
+
+    Upserts kind=app so /sessions stays live while the user browses the app.
+    Throttled writes; never invents session_cookies; never raises.
+    """
+    try:
+        return _touch_app_presence(
+            db,
+            email=email,
+            username=username,
+            realm=realm,
+            app=app,
+            source_ip=source_ip,
+            auth_source=auth_source,
+            throttle_seconds=throttle_seconds,
+        )
+    except Exception:
+        logger.exception("touch_app_presence failed — auth_request continues")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
+
+
+def _touch_app_presence(
+    db: Session,
+    *,
+    email: str,
+    username: str | None,
+    realm: str | None,
+    app: App,
+    source_ip: str | None,
+    auth_source: str,
+    throttle_seconds: int,
+) -> ActiveSession | None:
+    email_n = (email or username or "unknown").strip().lower()
+    if not email_n or email_n == "unknown":
+        return None
+    uname = (username or email_n).strip() or email_n
+    realm_n = (realm or app.realm_slug or "ar-systems").strip() or "ar-systems"
+    if _looks_like_email(email_n):
+        _heal_short_session_emails(db, full_email=email_n, username=uname)
+
+    session_id = _app_session_id(email_n, app.slug)
+    now = utcnow()
+    row = db.query(ActiveSession).filter_by(id=session_id).first()
+    if row is not None:
+        last = _aware(row.last_seen_at) or _aware(row.started_at)
+        if (
+            last is not None
+            and throttle_seconds > 0
+            and last >= now - timedelta(seconds=throttle_seconds)
+        ):
+            return row
+
+    existing_details = (
+        dict(row.details) if row is not None and isinstance(row.details, dict) else {}
+    )
+    has_cookies = bool(existing_details.get("session_cookies"))
+    presence_patch: dict[str, Any] = {
+        "source": "subdomain_auth",
+        "auth_source": (auth_source or "oidc").strip() or "oidc",
+        "last_presence_at": now.isoformat(),
+    }
+    if app.label and "app_label" not in existing_details:
+        presence_patch["app_label"] = app.label
+    if has_cookies:
+        presence_patch["presence_only"] = False
+    else:
+        presence_patch["presence_only"] = True
+
+    if row is None:
+        row = ActiveSession(
+            id=session_id,
+            kind=KIND_APP,
+            user_email=email_n,
+            username=uname,
+            realm=realm_n,
+            protocol=_protocol_for_app(app),
+            target=app.slug,
+            source_ip=source_ip,
+            status="active",
+            started_at=now,
+            last_seen_at=now,
+            details=presence_patch,
+        )
+        db.add(row)
+    else:
+        row.user_email = email_n
+        if row.status != "isolated":
+            row.status = "active"
+            row.protocol = _protocol_for_app(app)
+            row.username = uname
+        row.source_ip = prefer_client_ip(row.source_ip, source_ip)
+        row.last_seen_at = now
+        row.details = _merge_details(existing_details or None, presence_patch)
+
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 def _touch_app_session(
     db: Session,
     user: UserContext,
@@ -704,11 +834,11 @@ def _touch_app_session(
             if details.get("session_cookies"):
                 row.last_verified_at = None
                 row.last_verified_status = None
-                merged = row.details if isinstance(row.details, dict) else {}
+                merged = dict(row.details) if isinstance(row.details, dict) else {}
+                merged["presence_only"] = False
                 if "consecutive_invalid_count" in merged:
-                    merged = dict(merged)
                     merged["consecutive_invalid_count"] = 0
-                    row.details = merged
+                row.details = merged
     db.commit()
     db.refresh(row)
     return row
@@ -753,6 +883,11 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
     verifiable = bool(diag.get("verifiable"))
     verified_status = (row.last_verified_status or "").strip().lower() or None
     freshness: dict[str, Any] | None = None
+    presence_only = bool(diag.get("presence_only")) or (
+        row.kind == KIND_APP
+        and bool((details or {}).get("presence_only"))
+        and not verifiable
+    )
     if verifiable:
         # Never show ACTIVE by default for driven sessions — only after live check.
         if verified_status == "active":
@@ -764,6 +899,9 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
         else:
             live_status = "unverified"
             live_status_label = "NON VÉRIFIÉ"
+    elif presence_only:
+        live_status = "presence"
+        live_status_label = "ACTIVITÉ SSO"
     elif row.kind == KIND_USER:
         # Honest declarative badge — not equivalent to app live-verify.
         freshness = _portal_freshness(row, protocol=protocol)
@@ -838,6 +976,7 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
         "live_status": live_status,
         "live_status_label": live_status_label,
         "verifiable": verifiable,
+        "presence_only": presence_only,
         "freshness": freshness,
         "sso_logout": sso_logout,
         "last_verified_at": row.last_verified_at.isoformat() if row.last_verified_at else None,

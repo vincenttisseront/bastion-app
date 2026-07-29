@@ -246,6 +246,20 @@ async def subdomain_auth(
         except Exception:
             db.rollback()
 
+        app_row = db.get(App, app_id)
+        if app_row is not None:
+            from app.web.sessions_service import touch_app_presence
+
+            touch_app_presence(
+                db,
+                email=email or preferred or keycloak_user_id or "",
+                username=preferred or email or None,
+                realm=app_row.realm_slug,
+                app=app_row,
+                source_ip=client_ip,
+                auth_source="oidc",
+            )
+
         return Response(
             status_code=200,
             headers={
@@ -270,6 +284,19 @@ async def subdomain_auth(
             db.rollback()
         if not result.ok:
             return Response(status_code=401)
+        app_row = db.get(App, app_id)
+        if app_row is not None:
+            from app.web.sessions_service import touch_app_presence
+
+            touch_app_presence(
+                db,
+                email=result.username or "breakglass",
+                username=result.username or "breakglass",
+                realm=app_row.realm_slug,
+                app=app_row,
+                source_ip=client_ip,
+                auth_source="breakglass",
+            )
         return Response(
             status_code=200,
             headers={

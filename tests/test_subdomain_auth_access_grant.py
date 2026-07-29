@@ -121,6 +121,40 @@ def test_subdomain_auth_launch_grant_allows(client, db_session):
 
 
 @respx.mock
+def test_subdomain_auth_records_app_presence(client, db_session):
+    from app.models import ActiveSession
+
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
+    assert resp.status_code == 200
+
+    row = (
+        db_session.query(ActiveSession)
+        .filter_by(kind="app", target="transfer", user_email="alice@example.com")
+        .one()
+    )
+    assert (row.details or {}).get("presence_only") is True
+    assert (row.details or {}).get("source") == "subdomain_auth"
+    assert "session_cookies" not in (row.details or {})
+
+
+@respx.mock
 def test_subdomain_auth_no_grant_returns_403(client, db_session):
     _override_settings(client, _settings())
     _realm(db_session)
