@@ -30,9 +30,9 @@ def probe_target_url(app: App) -> str | None:
     """
     URL used for the HTTP probe.
 
-    Prefer an explicit ``healthcheck_url``. Otherwise use the upstream
-    **origin** only (no entry path like ``/web``) so reachability matches how
-    nginx talks to the backend.
+    Prefer an explicit ``healthcheck_url``. Otherwise use ``upstream_url``
+    (origin + optional entry path such as ``/web/``) — the same backend the
+    robotic login and nginx talk to, not the public SSO edge.
     """
     explicit = (getattr(app, "healthcheck_url", None) or "").strip()
     if explicit:
@@ -41,18 +41,24 @@ def probe_target_url(app: App) -> str | None:
     if not raw:
         return None
     try:
-        return upstream_origin(raw).rstrip("/") + "/"
+        origin = upstream_origin(raw)
     except ValueError:
         return raw
+    path = urlparse(raw).path or "/"
+    if path in ("", "/"):
+        return origin.rstrip("/") + "/"
+    if not path.endswith("/"):
+        path = f"{path}/"
+    return f"{origin}{path}"
 
 
 def classify_http_status(status_code: int) -> str:
     """
     Map HTTP codes to probe status.
 
-    401/403 count as ``ok``: the TCP/TLS hop succeeded and the app answered
-    (typical for SSO / Basic / form login). That matches catalogue reality
-    better than marking a live backend « Indisponible ».
+    3xx and 401/403 count as ``ok``: the TCP/TLS hop succeeded and the target
+    answered (SSO redirect at the edge, Basic/form login, etc.). We do **not**
+    follow redirects into the IdP — that would measure Keycloak, not the app.
     """
     if 200 <= status_code < 400:
         return "ok"
@@ -132,9 +138,11 @@ async def probe_application_result(app: App) -> ConnectionTestResult:
     headers = _probe_request_headers(app, url)
     start = time.monotonic()
     try:
+        # Never follow redirects: a 302 to portal/Keycloak means the edge (or
+        # upstream) answered; following would health-check the IdP instead.
         async with httpx.AsyncClient(
             timeout=_PROBE_TIMEOUT_S,
-            follow_redirects=True,
+            follow_redirects=False,
             verify=tls_verify,
         ) as client:
             resp = await client.get(url, headers=headers)
@@ -144,6 +152,10 @@ async def probe_application_result(app: App) -> ConnectionTestResult:
             if resp.status_code in (401, 403):
                 message = (
                     f"Upstream joignable (HTTP {resp.status_code} — auth attendue)"
+                )
+            elif 300 <= resp.status_code < 400:
+                message = (
+                    f"Upstream joignable (HTTP {resp.status_code} — redirect)"
                 )
             else:
                 message = f"Upstream joignable (HTTP {resp.status_code})"
@@ -156,7 +168,11 @@ async def probe_application_result(app: App) -> ConnectionTestResult:
                 name="http_probe",
                 status=status,
                 message=message,
-                detail={"http_code": resp.status_code, "tls_verify": tls_verify},
+                detail={
+                    "http_code": resp.status_code,
+                    "tls_verify": tls_verify,
+                    "url": url,
+                },
             )
         ]
         return ConnectionTestResult(
@@ -171,7 +187,7 @@ async def probe_application_result(app: App) -> ConnectionTestResult:
             CheckStep(
                 name="http_probe",
                 status=CheckStatus.ERROR,
-                message=f"Timeout (> {_PROBE_TIMEOUT_S:g}s)",
+                message=f"Timeout (> {_PROBE_TIMEOUT_S:g}s) sur {url}",
             )
         ]
         return ConnectionTestResult(
@@ -186,7 +202,7 @@ async def probe_application_result(app: App) -> ConnectionTestResult:
             CheckStep(
                 name="http_probe",
                 status=CheckStatus.ERROR,
-                message=f"Injoignable : {exc}",
+                message=f"Injoignable ({url}) : {exc}",
             )
         ]
         return ConnectionTestResult(
@@ -278,15 +294,27 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
     """Probe all enabled apps with probe_enabled=True. Never raises."""
     summary = {"ok": 0, "warn": 0, "error": 0, "unknown": 0, "skipped": 0}
     results: list[dict[str, Any]] = []
+    apps: list[App] = []
 
     try:
-        apps = (
-            db.query(App)
-            .filter_by(probe_enabled=True, enabled=True)
-            .order_by(App.slug)
-            .all()
-        )
-        for app in apps:
+        # Collect IDs first so we can commit between apps and release the pool
+        # connection during HTTP waits (avoids QueuePool exhaustion).
+        app_ids = [
+            row[0]
+            for row in (
+                db.query(App.id)
+                .filter_by(probe_enabled=True, enabled=True)
+                .order_by(App.slug)
+                .all()
+            )
+        ]
+        db.commit()
+
+        for app_id in app_ids:
+            app = db.get(App, app_id)
+            if app is None:
+                continue
+            slug = app.slug
             try:
                 url = probe_target_url(app)
                 if not url:
@@ -297,23 +325,43 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
                         "error": "Aucune URL upstream configurée",
                     }
                     apply_probe_result(app, no_url)
+                    db.commit()
                     summary["error"] += 1
                     results.append(probe_result_payload(app))
+                    apps.append(app)
+                    logger.warning("Health probe %s → error (no url)", slug)
                     continue
 
                 result = await probe_application(app)
+                # Re-bind in case the connection was invalidated during await.
+                app = db.get(App, app_id) or app
                 apply_probe_result(app, result)
+                db.commit()
                 key = result["status"]
                 if key in summary:
                     summary[key] += 1
                 results.append(probe_result_payload(app))
+                apps.append(app)
+                if key == "ok":
+                    logger.info(
+                        "Health probe %s → ok http=%s url=%s",
+                        slug,
+                        result.get("http_code"),
+                        url,
+                    )
+                else:
+                    logger.warning(
+                        "Health probe %s → %s http=%s url=%s error=%s",
+                        slug,
+                        key,
+                        result.get("http_code"),
+                        url,
+                        result.get("error"),
+                    )
             except Exception:
-                logger.exception("Health probe failed for app %s", app.slug)
+                logger.exception("Health probe failed for app %s", slug)
+                db.rollback()
                 summary["error"] += 1
-
-        db.commit()
-        for app in apps:
-            db.refresh(app)
 
         no_url_count = sum(
             1 for app in apps if not probe_target_url(app) and app.last_probe_error
@@ -329,7 +377,7 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
         logger.exception("Health probe cycle failed")
         db.rollback()
 
-    probes = [probe_row_from_app(app) for app in apps] if "apps" in locals() else []
+    probes = [probe_row_from_app(app) for app in apps]
     status_counts = compute_status_counts(probes)
     total = len(probes)
 

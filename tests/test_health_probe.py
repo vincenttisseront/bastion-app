@@ -146,6 +146,7 @@ async def test_probe_uses_app_tls_verify_default_false():
     assert result.overall_status.value == "ok"
     kwargs = client_cls.call_args.kwargs
     assert kwargs["verify"] is False
+    assert kwargs["follow_redirects"] is False
     mock_client.get.assert_awaited_once()
     call_kwargs = mock_client.get.await_args
     assert call_kwargs.args[0] == "https://10.0.0.50/"
@@ -171,6 +172,28 @@ async def test_probe_respects_tls_verify_true():
         await probe_application_result(app)
 
     assert client_cls.call_args.kwargs["verify"] is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_probe_does_not_follow_sso_redirect_chain():
+    """A 302 to the portal/IdP is enough — do not health-check Keycloak."""
+    app = SimpleNamespace(
+        upstream_url="https://dolibarr.example.fr/",
+        healthcheck_url=None,
+        public_fqdn=None,
+        upstream_tls_verify=False,
+    )
+    respx.get("https://dolibarr.example.fr/").mock(
+        return_value=Response(
+            302,
+            headers={"Location": "https://portal.example.fr/oauth2/start?rd=/"},
+        )
+    )
+    respx.get("https://portal.example.fr/oauth2/start").mock(return_value=Response(500))
+    result = await probe_application(app)
+    assert result["status"] == "ok"
+    assert result["http_code"] == 302
 
 
 @pytest.mark.asyncio
@@ -235,9 +258,10 @@ def test_probe_target_url_prefers_healthcheck():
     assert probe_target_url(app) == "https://health/"
 
 
-def test_probe_target_url_strips_entry_path():
+def test_probe_target_url_keeps_entry_path():
+    """Probe the real app entry (e.g. Grommunio /web/), not only the origin."""
     app = SimpleNamespace(
         upstream_url="https://10.0.0.50/web",
         healthcheck_url=None,
     )
-    assert probe_target_url(app) == "https://10.0.0.50/"
+    assert probe_target_url(app) == "https://10.0.0.50/web/"
