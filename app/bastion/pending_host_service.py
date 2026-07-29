@@ -14,6 +14,36 @@ from app.sso_settings import Settings
 
 _SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
 
+# Ansible Traefik/nginx catch-all smoke (traefik_catchall.yml) fabricates
+# Host: discovery-probe-<epoch>.<domain> + URI /probe-discovery — not real apps.
+_INFRA_DISCOVERY_PROBE_HOST = re.compile(
+    r"^discovery-probe-\d+(\.|$)",
+    re.IGNORECASE,
+)
+
+
+def is_infra_discovery_probe(hostname: str | None) -> bool:
+    """True for synthetic Host headers from deploy discovery smokes."""
+    host = normalize_hostname(hostname or "") or ""
+    return bool(_INFRA_DISCOVERY_PROBE_HOST.match(host))
+
+
+def purge_infra_discovery_probes(db: Session) -> int:
+    """Delete Ansible discovery-probe rows already sitting in the queue."""
+    rows = (
+        db.query(PendingHost)
+        .filter(PendingHost.hostname.like("discovery-probe-%"))
+        .all()
+    )
+    deleted = 0
+    for row in rows:
+        if is_infra_discovery_probe(row.hostname):
+            db.delete(row)
+            deleted += 1
+    if deleted:
+        db.commit()
+    return deleted
+
 
 def suggest_slug(hostname: str) -> str:
     label = (hostname or "").split(".")[0].lower()
@@ -40,6 +70,8 @@ def record_unknown_host(
     """
     host = normalize_hostname(hostname)
     if not host or host in ("127.0.0.1", "localhost", "::1"):
+        return None
+    if is_infra_discovery_probe(host):
         return None
 
     now = utcnow()

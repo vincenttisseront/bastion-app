@@ -236,7 +236,12 @@ async def subdomain_auth(
             )
 
         try:
-            evaluate_sso_binding(db, request, username=actor)
+            evaluate_sso_binding(
+                db,
+                request,
+                username=email or preferred or None,
+                keycloak_user_id=keycloak_user_id or None,
+            )
             db.commit()
         except Exception:
             db.rollback()

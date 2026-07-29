@@ -70,13 +70,16 @@ def result_bucket(status: str | None, severity: str | None) -> str:
 
 
 def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
-    detail_short, detail_full = format_details_for_display(row.details)
+    from app.audit import normalize_audit_actor
+
+    raw_details = row.details if isinstance(row.details, dict) else {}
+    display_actor, details = normalize_audit_actor(row.actor, raw_details)
+    detail_short, detail_full = format_details_for_display(details)
     status = None
-    details = row.details if isinstance(row.details, dict) else {}
-    if isinstance(row.details, dict) and "status" in row.details:
-        status = str(row.details.get("status"))
-    elif isinstance(row.details, dict) and "success" in row.details:
-        status = "ok" if row.details.get("success") else "error"
+    if "status" in details:
+        status = str(details.get("status"))
+    elif "success" in details:
+        status = "ok" if details.get("success") else "error"
     severity = derive_severity(row.action)
     extras: dict[str, str] = {}
     for key in OPTIONAL_DETAIL_COLUMNS:
@@ -88,7 +91,7 @@ def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
     return {
         "id": row.id,
         "action": row.action,
-        "actor": row.actor,
+        "actor": display_actor,
         "target": row.target or "",
         "ip_address": row.ip_address or "",
         "severity": severity,

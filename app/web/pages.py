@@ -652,6 +652,9 @@ def admin_pending_hosts_list(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    from app.bastion.pending_host_service import purge_infra_discovery_probes
+
+    purge_infra_discovery_probes(db)
     status_filter = (status or "pending").strip().lower()
     query = db.query(PendingHost)
     if status_filter != "all":

@@ -45,6 +45,48 @@ def test_suggest_slug():
     assert suggest_slug("teleport.ar-systems.fr") == "teleport"
 
 
+def test_infra_discovery_probe_not_recorded(db_session):
+    from app.bastion.pending_host_service import (
+        is_infra_discovery_probe,
+        purge_infra_discovery_probes,
+    )
+
+    assert is_infra_discovery_probe("discovery-probe-1785342810.ar-systems.fr")
+    assert not is_infra_discovery_probe("www.ar-systems.fr")
+    assert (
+        record_unknown_host(
+            db_session,
+            hostname="discovery-probe-1785342810.ar-systems.fr",
+            uri="/probe-discovery",
+        )
+        is None
+    )
+    assert db_session.query(PendingHost).count() == 0
+
+    # Legacy noise already in DB is purged on demand.
+    db_session.add(
+        PendingHost(
+            hostname="discovery-probe-111.ar-systems.fr",
+            status="pending",
+            hit_count=1,
+            last_uri="/probe-discovery",
+        )
+    )
+    db_session.add(
+        PendingHost(
+            hostname="www.ar-systems.fr",
+            status="pending",
+            hit_count=5,
+            last_uri="/",
+        )
+    )
+    db_session.commit()
+    assert purge_infra_discovery_probes(db_session) == 1
+    left = db_session.query(PendingHost).all()
+    assert len(left) == 1
+    assert left[0].hostname == "www.ar-systems.fr"
+
+
 def test_known_hosts_map_includes_portal_and_apps(db_session, tmp_path):
     settings = Settings(
         portal_domain="portal.example.fr",

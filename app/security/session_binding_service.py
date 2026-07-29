@@ -137,27 +137,40 @@ def evaluate_sso_binding(
     request: Request,
     *,
     username: str | None = None,
+    keycloak_user_id: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Upsert SSO cookie anchor and apply WARN-only policy on strong drift.
 
     Always allows the request (V1). Returns a public summary dict or None if
     no oauth2-proxy cookie is present.
+
+    ``username`` should be a human label (email / preferred_username). Pass the
+    Keycloak subject separately as ``keycloak_user_id`` — never as the only
+    display identity for audit rows.
     """
+    from app.web.user_context import _human_label, looks_like_uuid
+
     cookie_hash = oauth2_proxy_cookie_hash(request)
     if not cookie_hash:
         return None
 
     subnet, fp = _signals(request)
     client_ip = client_ip_from_request(request)
-    actor = (username or "unknown").strip() or "unknown"
+    readable = _human_label(username)
+    kc_id = (keycloak_user_id or "").strip() or None
+    if not kc_id and looks_like_uuid(username):
+        kc_id = (username or "").strip()
+        readable = None
+    label_for_anchor = readable or kc_id
+    actor = readable or "unknown"
     now = utcnow()
 
     row = db.query(SsoSessionAnchor).filter_by(cookie_hash=cookie_hash).first()
     if row is None:
         row = SsoSessionAnchor(
             cookie_hash=cookie_hash,
-            username=actor if actor != "unknown" else None,
+            username=label_for_anchor if label_for_anchor else None,
             first_ip_subnet=subnet or None,
             first_fingerprint_hash=fp or None,
             last_ip_subnet=subnet or None,
@@ -178,9 +191,14 @@ def evaluate_sso_binding(
             "last_fingerprint_hash": row.last_fingerprint_hash,
         }
 
-    if username and not row.username:
-        row.username = actor
+    # Upgrade stored label when we learn a human identity (email / preferred).
+    if readable and (not row.username or looks_like_uuid(row.username)):
+        row.username = readable
+    elif label_for_anchor and not row.username:
+        row.username = label_for_anchor
 
+    row_label = _human_label(row.username)
+    audit_actor = readable or row_label or "unknown"
     if not (row.first_ip_subnet or row.first_fingerprint_hash):
         row.first_ip_subnet = subnet or None
         row.first_fingerprint_hash = fp or None
@@ -191,39 +209,50 @@ def evaluate_sso_binding(
             _same(row.first_fingerprint_hash, fp),
         )
 
+    def _drift_details(**extra: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "family": "sso",
+            "cookie_hash_prefix": cookie_hash[:16],
+            **extra,
+        }
+        if row_label:
+            payload["username"] = row_label
+        elif readable:
+            payload["username"] = readable
+        if kc_id:
+            payload["keycloak_user_id"] = kc_id
+        elif looks_like_uuid(row.username):
+            payload["keycloak_user_id"] = row.username
+        return payload
+
     if drift == "strong":
         row.mismatch_count = int(row.mismatch_count or 0) + 1
         log_action(
             db,
-            actor=actor,
+            actor=audit_actor,
             action=ACTION_HIJACK,
             target=cookie_hash[:16],
-            details={
-                "family": "sso",
-                "cookie_hash_prefix": cookie_hash[:16],
-                "username": row.username,
-                "expected_subnet": row.first_ip_subnet,
-                "observed_subnet": subnet or None,
-                "expected_fingerprint": row.first_fingerprint_hash,
-                "observed_fingerprint": fp or None,
-                "mismatch_count": row.mismatch_count,
-                "policy": "warn_only",
-            },
+            details=_drift_details(
+                expected_subnet=row.first_ip_subnet,
+                observed_subnet=subnet or None,
+                expected_fingerprint=row.first_fingerprint_hash,
+                observed_fingerprint=fp or None,
+                mismatch_count=row.mismatch_count,
+                policy="warn_only",
+            ),
             ip_address=client_ip or None,
         )
     elif drift == "weak":
         log_action(
             db,
-            actor=actor,
+            actor=audit_actor,
             action=ACTION_DRIFT,
             target=cookie_hash[:16],
-            details={
-                "family": "sso",
-                "cookie_hash_prefix": cookie_hash[:16],
-                "expected_fingerprint": row.first_fingerprint_hash,
-                "observed_fingerprint": fp or None,
-                "subnet": subnet or None,
-            },
+            details=_drift_details(
+                expected_fingerprint=row.first_fingerprint_hash,
+                observed_fingerprint=fp or None,
+                subnet=subnet or None,
+            ),
             ip_address=client_ip or None,
         )
 

@@ -192,10 +192,16 @@ def build_notification_feed(
     now = utcnow()
     since = now - timedelta(hours=24)
 
+    from app.bastion.pending_host_service import is_infra_discovery_probe
+
     pending_q = db.query(PendingHost).filter(PendingHost.status == "pending")
-    pending_count = pending_q.count()
+    pending_rows = [
+        r for r in pending_q.order_by(PendingHost.last_seen_at.desc()).limit(200).all()
+        if not is_infra_discovery_probe(r.hostname)
+    ]
+    pending_count = len(pending_rows)
     if pending_count:
-        latest = pending_q.order_by(PendingHost.last_seen_at.desc()).first()
+        latest = pending_rows[0]
         sample = ""
         fp_bits = [str(pending_count)]
         if latest:
