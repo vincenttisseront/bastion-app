@@ -53,4 +53,8 @@ templates.env.globals["app_launch_url"] = app_launch_url
 def render(template_name: str, **context: Any):
     request = context.pop("request")
     status_code = context.pop("status_code", 200)
-    return templates.TemplateResponse(request, template_name, context, status_code=status_code)
+    response = templates.TemplateResponse(request, template_name, context, status_code=status_code)
+    from app.web.flash import consume_flash_on_response
+
+    consume_flash_on_response(request, response)
+    return response

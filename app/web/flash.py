@@ -52,6 +52,9 @@ def get_flash_messages(request: Request, secret: str) -> list[dict[str, str]]:
     try:
         data = json.loads(payload)
         if isinstance(data, list):
+            if data:
+                # Consume once: render()/middleware must clear the cookie on the response.
+                request.state.flash_consume = True
             return data
     except json.JSONDecodeError:
         pass
@@ -67,7 +70,19 @@ def set_flash(response: Response, messages: list[dict[str, str]], secret: str) -
         max_age=FLASH_MAX_AGE,
         httponly=True,
         samesite="lax",
+        path="/",
     )
+
+
+def clear_flash(response: Response) -> None:
+    """Delete the flash cookie so the message is not shown on the next page."""
+    response.delete_cookie(key=FLASH_COOKIE, path="/", samesite="lax")
+
+
+def consume_flash_on_response(request: Request, response: Response) -> None:
+    """If flash was read for this request, expire the cookie on the outgoing response."""
+    if getattr(request.state, "flash_consume", False):
+        clear_flash(response)
 
 
 def flash_redirect(response: Response, message: str, category: str, secret: str) -> None:

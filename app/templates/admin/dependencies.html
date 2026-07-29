@@ -27,21 +27,21 @@
     </div>
   </div>
 
-  <div class="form-row" style="gap:var(--sp-3);margin-bottom:var(--sp-4);flex-wrap:wrap;align-items:flex-end;">
-    <div class="form-group" style="margin:0;min-width:200px;flex:1;">
+  <div class="dep-toolbar">
+    <div class="form-group dep-toolbar-search">
       <label class="form-label" for="dep-filter-q">Recherche</label>
       <input type="search" id="dep-filter-q" class="form-input" placeholder="Nom du paquet…" autocomplete="off">
     </div>
-    <div class="form-group" style="margin:0;">
+    <div class="form-group dep-toolbar-filter">
       <label class="form-label">Filtre</label>
-      <div style="display:flex;gap:var(--sp-2);">
+      <div class="dep-toolbar-btns">
         <button type="button" class="btn {% if summary.outdated %}btn-secondary{% else %}btn-ghost{% endif %} btn-sm dep-filter-btn{% if summary.outdated %} active{% endif %}" data-filter="outdated" id="dep-filter-outdated">MAJ disponibles</button>
         <button type="button" class="btn {% if summary.outdated %}btn-ghost{% else %}btn-secondary{% endif %} btn-sm dep-filter-btn{% if not summary.outdated %} active{% endif %}" data-filter="all" id="dep-filter-all">Tous</button>
       </div>
     </div>
-    <div class="form-group" style="margin:0;margin-left:auto;">
+    <div class="form-group dep-toolbar-plan">
       <label class="form-label">Plan de MAJ</label>
-      <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;">
+      <div class="dep-toolbar-btns">
         <button type="button" class="btn btn-ghost btn-sm" id="dep-select-outdated">Tout sélectionner (MAJ)</button>
         <button type="button" class="btn btn-secondary btn-sm" id="dep-export-plan">Exporter le plan (JSON)</button>
       </div>
@@ -59,8 +59,12 @@
     </button>
   </div>
 
+  <p class="form-help dep-filter-empty" id="dep-filter-empty" hidden>
+    Aucun paquet ne correspond à ce filtre dans cet écosystème.
+  </p>
+
   {% macro dep_table(packages, panel_id, tab_id, empty_msg) %}
-  <div class="form-section dep-panel" id="{{ panel_id }}" role="tabpanel" aria-labelledby="{{ tab_id }}"{% if panel_id != 'panel-python' %} hidden{% endif %}>
+  <div class="dep-panel" id="{{ panel_id }}" role="tabpanel" aria-labelledby="{{ tab_id }}"{% if panel_id != 'panel-python' %} hidden{% endif %}>
     <div class="table-wrap">
       <table class="data-table dep-table" data-sortable>
         <thead>
@@ -163,9 +167,21 @@
 </div>
 
 <style>
-  .dep-row-major td { background: color-mix(in srgb, var(--danger, #b91c1c) 6%, transparent); }
-  #dep-tabs .tab { cursor: pointer; border: none; background: transparent; font: inherit; color: inherit; }
-  .dep-filter-btn.active { outline: 2px solid var(--accent, #2563eb); outline-offset: 1px; }
+  .dep-toolbar{
+    display:flex;flex-wrap:wrap;gap:var(--sp-3) var(--sp-4);
+    align-items:flex-end;margin-bottom:var(--sp-4);
+  }
+  .dep-toolbar .form-group{margin:0}
+  .dep-toolbar-search{flex:1 1 14rem;min-width:12rem}
+  .dep-toolbar-filter,.dep-toolbar-plan{flex:0 1 auto}
+  .dep-toolbar-btns{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
+  .dep-panel[hidden]{display:none!important}
+  .dep-row-major td{background:color-mix(in srgb,var(--danger,#b91c1c) 6%,transparent)}
+  #dep-tabs .tab{cursor:pointer;border:none;background:transparent;font:inherit;color:inherit}
+  .dep-filter-btn.active{outline:2px solid var(--accent,#2563eb);outline-offset:1px}
+  .dep-filter-empty{margin:0 0 var(--sp-3)}
+  .dep-filter-empty[hidden]{display:none!important}
+  .dep-table tbody tr[hidden]{display:none!important}
 </style>
 
 <script>
@@ -177,8 +193,16 @@
   };
   var filterMode = {{ ('outdated' if summary.outdated else 'all') | tojson }};
   var qInput = document.getElementById('dep-filter-q');
+  var emptyHint = document.getElementById('dep-filter-empty');
+  var activeTab = 'python';
+
+  function panelVisibleCount(panel) {
+    if (!panel) return 0;
+    return panel.querySelectorAll('tbody tr[data-name]:not([hidden])').length;
+  }
 
   function activate(name) {
+    activeTab = name;
     tabs.forEach(function (t) {
       var on = t.getAttribute('data-tab') === name;
       t.classList.toggle('active', on);
@@ -189,6 +213,27 @@
       if (key === name) panels[key].removeAttribute('hidden');
       else panels[key].setAttribute('hidden', '');
     });
+    syncEmptyHint();
+  }
+
+  function syncEmptyHint() {
+    if (!emptyHint) return;
+    var panel = panels[activeTab];
+    var hasRows = panel && panel.querySelectorAll('tbody tr[data-name]').length > 0;
+    var visible = panelVisibleCount(panel);
+    emptyHint.hidden = !(hasRows && visible === 0);
+  }
+
+  function preferTabWithMatches() {
+    if (panelVisibleCount(panels[activeTab]) > 0) return;
+    var order = activeTab === 'npm' ? ['npm', 'python'] : ['python', 'npm'];
+    for (var i = 0; i < order.length; i++) {
+      var key = order[i];
+      if (panelVisibleCount(panels[key]) > 0) {
+        activate(key);
+        return;
+      }
+    }
   }
 
   tabs.forEach(function (t) {
@@ -204,6 +249,8 @@
       var matchS = filterMode !== 'outdated' || outdated;
       tr.hidden = !(matchQ && matchS);
     });
+    preferTabWithMatches();
+    syncEmptyHint();
   }
 
   document.querySelectorAll('.dep-filter-btn').forEach(function (btn) {
