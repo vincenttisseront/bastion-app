@@ -105,29 +105,31 @@ def list_audit_entries(
     if date_to:
         query = query.filter(AuditLog.created_at <= date_to)
 
-    rows = query.all()
-    entries: list[dict[str, Any]] = []
-    for row in rows:
-        sev = derive_severity(row.action)
-        if severity and sev != severity:
-            continue
-        entries.append(
-            {
-                "id": row.id,
-                "action": row.action,
-                "target": row.target or "",
-                "user": row.actor,
-                "time": row.created_at.strftime("%H:%M:%S") if row.created_at else "",
-                "timestamp": row.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
-                if row.created_at
-                else "",
-                "severity": sev,
-                "ip_address": row.ip_address,
-            }
-        )
+    def _row_to_entry(row: AuditLog) -> dict[str, Any]:
+        return {
+            "id": row.id,
+            "action": row.action,
+            "target": row.target or "",
+            "user": row.actor,
+            "time": row.created_at.strftime("%H:%M:%S") if row.created_at else "",
+            "timestamp": row.created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            if row.created_at
+            else "",
+            "severity": derive_severity(row.action),
+            "ip_address": row.ip_address,
+        }
 
-    total = len(entries)
-    return entries[offset : offset + limit], total
+    # Severity is derived in Python — only scan when filtering by it.
+    # Dashboard / default path must use SQL LIMIT (full table load → OOM/timeout → 500).
+    if severity:
+        rows = query.all()
+        entries = [e for e in (_row_to_entry(r) for r in rows) if e["severity"] == severity]
+        total = len(entries)
+        return entries[offset : offset + limit], total
+
+    total = query.count()
+    rows = query.offset(max(0, offset)).limit(max(1, min(limit, 500))).all()
+    return [_row_to_entry(r) for r in rows], total
 
 
 def compute_integrity(db: Session) -> dict[str, Any]:

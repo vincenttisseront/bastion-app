@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -54,15 +55,13 @@ from app.web.user_context import require_admin
 from app.sso_settings import get_settings
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+logger = logging.getLogger("app.main")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    import logging
-
     settings = get_settings()
     configure_logging(settings)
-    logger = logging.getLogger("app.main")
 
     Base.metadata.create_all(bind=engine)
     from app.database import SessionLocal
@@ -201,6 +200,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
+    logger.exception("unhandled error path=%s", request.url.path)
     if request.url.path.startswith("/api/"):
         raise exc
     settings = get_settings()
