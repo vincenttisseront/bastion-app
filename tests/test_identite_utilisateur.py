@@ -173,6 +173,27 @@ def test_resolve_identity_login_username_prefers_email_by_default():
     )
 
 
+def test_resolve_identity_login_username_rejects_uuid_as_email():
+    # oauth2-proxy may put Keycloak ``sub`` into X-Auth-Request-Email.
+    uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    assert (
+        resolve_identity_login_username(
+            email=uuid,
+            username="vincent.tisseront",
+            identity_format="email",
+        )
+        == "vincent.tisseront"
+    )
+    assert (
+        resolve_identity_login_username(
+            email=uuid,
+            username=uuid,
+            identity_format="email",
+        )
+        == ""
+    )
+
+
 def test_open_with_identity_uses_session_username_not_body(
     client: TestClient, db_session: Session
 ):

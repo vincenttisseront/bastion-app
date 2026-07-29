@@ -170,41 +170,44 @@ def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
     return (app.upstream_url or "").rstrip("/") + "/"
 
 
-def _generic_form_login_url(app: App, settings: Settings, db: Session) -> str:
+def _generic_form_login_url(app: App) -> str:
     """
     Absolute login URL for generic_form robotic POST.
 
-    Same Host-binding rule as CrushFTP: in subdomain mode, rewrite the
-    configured ``login_form_url`` netloc to ``public_fqdn`` so session cookies
-    (DOLSESSID_*, PHPSESSID, …) are issued for the hostname the browser uses.
+    Robotic login runs **server-side** from bastion-app. It cannot pass the
+    browser SSO ``auth_request`` on ``public_fqdn``. Always prefer the upstream /
+    configured internal host; browser cookie Domain is handled by the session
+    cookie hop after a successful login.
     """
     from urllib.parse import urlparse, urlunparse
-
-    from app.portal_settings_service import get_subdomain_sso_enabled
 
     raw = (app.login_form_url or "").strip()
     if not raw:
         return raw
     mode = normalize_access_mode(app.access_mode)
     fqdn = (app.public_fqdn or "").strip() or None
-    if not (
-        get_subdomain_sso_enabled(db, settings)
-        and mode == "subdomain_proxy"
-        and fqdn
-    ):
+    upstream = (app.upstream_url or "").strip()
+    if mode != "subdomain_proxy" or not fqdn or not upstream:
         return raw
+
     parsed = urlparse(raw)
     if not parsed.scheme or not parsed.netloc:
         return raw
     host = (parsed.hostname or "").lower()
-    if host == fqdn.lower():
+    if host != fqdn.lower():
         return raw
-    rewritten = urlunparse(parsed._replace(scheme="https", netloc=fqdn))
+
+    up = urlparse(upstream)
+    if not up.scheme or not up.netloc:
+        return raw
+    # Keep login path/query from login_form_url; swap only the host to upstream.
+    rewritten = urlunparse(parsed._replace(scheme=up.scheme, netloc=up.netloc))
     logger.info(
-        "generic_form login URL host rewritten for subdomain fqdn=%s from=%s to=%s",
+        "generic_form login URL host rewritten to upstream (bypass public SSO) "
+        "fqdn=%s from=%s to=%s",
         fqdn,
         parsed.netloc,
-        fqdn,
+        up.netloc,
     )
     return rewritten
 
@@ -462,7 +465,7 @@ async def _impersonate_generic_form(
             app,
             password,
             client_headers=client_headers,
-            login_url_override=_generic_form_login_url(app, settings, db),
+            login_url_override=_generic_form_login_url(app),
         )
     except DriverAuthRejectedError as exc:
         _audit_impersonate(
@@ -473,6 +476,7 @@ async def _impersonate_generic_form(
             success=False,
             driver="generic_form",
             error="login_failed",
+            robotic_username=resolved.robotic_username,
             credential_source=resolved.source,
             credential_mode=_credential_mode_for_source(resolved.source),
         )
@@ -486,6 +490,7 @@ async def _impersonate_generic_form(
             success=False,
             driver="generic_form",
             error="upstream_technical",
+            robotic_username=resolved.robotic_username,
             credential_source=resolved.source,
             credential_mode=_credential_mode_for_source(resolved.source),
         )
@@ -501,6 +506,7 @@ async def _impersonate_generic_form(
             success=False,
             driver="generic_form",
             error="login_failed",
+            robotic_username=resolved.robotic_username,
             credential_source=resolved.source,
             credential_mode=_credential_mode_for_source(resolved.source),
         )

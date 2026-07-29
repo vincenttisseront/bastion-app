@@ -92,10 +92,19 @@ def resolve_identity_login_username(
 
     Default ``email`` matches sessions/audit (user.email) and LDAPS UPN apps
     such as Grommunio. ``username`` keeps the short preferred_username.
+
+    Never treat a Keycloak subject UUID as an email/UPN (oauth2-proxy can put
+    ``sub`` into X-Auth-Request-Email when the email claim is missing).
     """
+    from app.web.user_context import looks_like_uuid
+
     fmt = normalize_identity_format(identity_format)
     mail = (email or "").strip()
     short = (username or "").strip()
+    if looks_like_uuid(mail):
+        mail = ""
+    if looks_like_uuid(short):
+        short = ""
 
     if fmt == "username":
         if short and "@" not in short:
