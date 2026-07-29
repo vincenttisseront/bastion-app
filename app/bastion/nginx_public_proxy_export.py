@@ -15,6 +15,10 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
+from app.bastion.upstream_tls import (
+    nginx_proxy_ssl_verify_directive,
+    resolve_upstream_tls_verify,
+)
 from app.models import App
 from app.sso_settings import Settings
 
@@ -68,13 +72,13 @@ def generate_public_proxy_server_block(app: App) -> str:
     upstream_esc = _nginx_escape(upstream)
     fqdn_esc = _nginx_escape(fqdn)
     upstream_is_https = upstream.lower().startswith("https://")
+    tls_verify = resolve_upstream_tls_verify(app)
 
-    # HTTPS upstream to an IP often has a name-mismatched cert — verify off.
     ssl_lines: list[str] = []
     if upstream_is_https:
         ssl_lines = [
             "        proxy_ssl_server_name on;",
-            "        proxy_ssl_verify off;",
+            nginx_proxy_ssl_verify_directive(tls_verify),
         ]
 
     def _proxy_common(*, force_upgrade: bool) -> list[str]:

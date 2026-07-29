@@ -217,7 +217,7 @@ async def _read_body_limited(response: httpx.Response) -> str:
         return raw.decode("utf-8", errors="replace")
 
 
-async def fetch_login_page(url: str) -> tuple[str, str]:
+async def fetch_login_page(url: str, *, tls_verify: bool = False) -> tuple[str, str]:
     """GET the page; follow http(s) redirects (max 5). Private/LAN hosts are allowed."""
     current = validate_analyze_url(url)
     headers = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml,*/*"}
@@ -225,6 +225,7 @@ async def fetch_login_page(url: str) -> tuple[str, str]:
         async with httpx.AsyncClient(
             timeout=TIMEOUT_SECONDS,
             follow_redirects=False,
+            verify=tls_verify,
             headers=headers,
         ) as client:
             for _ in range(MAX_REDIRECTS + 1):
@@ -272,16 +273,18 @@ async def fetch_login_page(url: str) -> tuple[str, str]:
             status_code=504,
         ) from exc
     except httpx.HTTPError as exc:
+        detail = str(exc).strip()
+        suffix = f" ({detail})" if detail else ""
         raise AnalyzeLoginFormError(
             "fetch_failed",
-            f"Impossible de récupérer la page : {exc.__class__.__name__}.",
+            f"Impossible de récupérer la page : {exc.__class__.__name__}{suffix}.",
             status_code=502,
         ) from exc
 
 
-async def analyze_login_form_url(url: str) -> dict[str, Any]:
+async def analyze_login_form_url(url: str, *, tls_verify: bool = False) -> dict[str, Any]:
     """Fetch and analyze a login page URL. Returns the §3 JSON payload."""
-    final_url, html = await fetch_login_page(url)
+    final_url, html = await fetch_login_page(url, tls_verify=tls_verify)
     forms = analyze_html(html, final_url)
     if not forms:
         raise AnalyzeLoginFormError(

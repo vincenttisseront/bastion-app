@@ -21,6 +21,7 @@ from app.bastion.drivers.generic import (
     generic_form_login,
     generic_wsse_header,
 )
+from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.models import App
 from app.robotic.robotic_session_cookies import normalize_injected_cookie_scope
 from app.sso_settings import Settings
@@ -364,8 +365,14 @@ async def _impersonate_crushftp(
     driver = CrushFTPDriver()
     session = None
     login_base = _crushftp_login_base_url(app, settings, db)
+    tls_verify = resolve_upstream_tls_verify(app)
     try:
-        session = await driver.login(login_base, resolved.robotic_username, password)
+        session = await driver.login(
+            login_base,
+            resolved.robotic_username,
+            password,
+            tls_verify=tls_verify,
+        )
     except RoboticLoginError as exc:
         _audit_impersonate(
             db,

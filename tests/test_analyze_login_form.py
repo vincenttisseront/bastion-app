@@ -174,6 +174,19 @@ async def test_analyze_login_form_fetch_http_error():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_analyze_login_form_connect_error_includes_detail():
+    respx.get(PAGE_URL).mock(
+        side_effect=httpx.ConnectError("CERTIFICATE_VERIFY_FAILED")
+    )
+    with pytest.raises(AnalyzeLoginFormError) as exc_info:
+        await analyze_login_form_url(PAGE_URL)
+    assert exc_info.value.error == "fetch_failed"
+    assert "ConnectError" in exc_info.value.message
+    assert "CERTIFICATE_VERIFY_FAILED" in exc_info.value.message
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_analyze_login_form_endpoint_ok(client):
     html = """
     <form action="/index.php?dol_login" method="post">

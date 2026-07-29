@@ -14,6 +14,7 @@ import httpx
 
 from app.bastion.bastion_fields import parse_login_extra_fields
 from app.bastion.drivers.base import DriverLoginError, DriverLoginResult
+from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.models import App
 from app.vault.user_app_credential_service import ResolvedCredential
 
@@ -226,6 +227,7 @@ async def generic_form_login(
 
     headers = _browser_headers(client_headers)
     log_url = _safe_url_for_log(login_url)
+    tls_verify = resolve_upstream_tls_verify(app)
 
     def _payload(uf: str, pf: str, hidden: dict[str, str] | None = None) -> dict[str, str]:
         body = dict(extra)
@@ -239,6 +241,7 @@ async def generic_form_login(
         async with httpx.AsyncClient(
             timeout=_TIMEOUT,
             follow_redirects=False,
+            verify=tls_verify,
             headers=headers or None,
         ) as client:
             hidden_fields: dict[str, str] = {}
@@ -328,7 +331,11 @@ async def generic_form_login(
         logger.warning("generic_form login timeout url=%s", log_url)
         raise DriverUpstreamError("Generic form login timed out") from exc
     except httpx.RequestError as exc:
-        logger.warning("generic_form login network error url=%s", log_url)
+        logger.warning(
+            "generic_form login network error url=%s err=%s",
+            log_url,
+            exc,
+        )
         raise DriverUpstreamError("Generic form login network error") from exc
     finally:
         password = ""  # noqa: F841
@@ -387,7 +394,11 @@ async def generic_basic_auth_probe(
         return False
     headers = {"Authorization": auth_header}
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT,
+            follow_redirects=False,
+            verify=resolve_upstream_tls_verify(app),
+        ) as client:
             response = await client.head(url, headers=headers)
             if response.status_code == 405:
                 response = await client.get(url, headers=headers)
@@ -411,7 +422,11 @@ async def generic_wsse_probe(
         "Authorization": 'WSSE profile="UsernameToken"',
     }
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT,
+            follow_redirects=False,
+            verify=resolve_upstream_tls_verify(app),
+        ) as client:
             response = await client.head(url, headers=headers)
             if response.status_code == 405:
                 response = await client.get(url, headers=headers)

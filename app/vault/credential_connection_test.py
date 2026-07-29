@@ -14,6 +14,7 @@ from app.bastion.drivers.generic import (
     generic_form_login,
     generic_wsse_probe,
 )
+from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.models import App
 from app.sso_settings import Settings
 from app.testing_framework.connection_test import (
@@ -191,7 +192,10 @@ async def test_app_credential_connection(
         crush_driver = CrushFTPDriver()
         try:
             session = await crush_driver.login(
-                app.upstream_url, resolved.robotic_username, password
+                app.upstream_url,
+                resolved.robotic_username,
+                password,
+                tls_verify=resolve_upstream_tls_verify(app),
             )
             password = ""
             password_cleared = True

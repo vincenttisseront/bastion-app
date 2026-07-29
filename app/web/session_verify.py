@@ -37,7 +37,12 @@ async def verify_crushftp_session(details: dict[str, Any]) -> VerifyStatus:
     expected = (details.get("robotic_username") or "").strip()
     if not cookies.get("CrushAuth") or not base:
         return "unknown"
-    session = CrushFTPSession(cookies=dict(cookies), base_url=base)
+    tls_verify = bool(details.get("upstream_tls_verify", False))
+    session = CrushFTPSession(
+        cookies=dict(cookies),
+        base_url=base,
+        tls_verify=tls_verify,
+    )
     driver = CrushFTPDriver()
     try:
         identity = await driver.get_username(session)
@@ -62,10 +67,12 @@ async def verify_generic_form_session(details: dict[str, Any]) -> VerifyStatus:
     base = (details.get("verify_base_url") or "").strip()
     if not cookies or not base:
         return "unknown"
+    tls_verify = bool(details.get("upstream_tls_verify", False))
     try:
         async with httpx.AsyncClient(
             timeout=_VERIFY_TIMEOUT,
             follow_redirects=False,
+            verify=tls_verify,
             cookies=cookies,
         ) as client:
             response = await client.get(base)

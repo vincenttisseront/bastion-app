@@ -121,6 +121,17 @@
           Journalisé (<span class="mono">activesync.allowed</span> /
           <span class="mono">activesync.denied</span>).
         </p>
+
+        <label class="form-check" id="upstream-tls-verify-wrap" {% if app.access_mode == 'sso_gate' %}hidden{% endif %}>
+          <input type="checkbox" name="upstream_tls_verify" id="upstream_tls_verify"{% if app.upstream_tls_verify %} checked{% endif %}>
+          Vérifier le certificat TLS de l’upstream (depuis le bastion)
+        </label>
+        <p class="form-help" id="upstream-tls-verify-help" {% if app.access_mode == 'sso_gate' %}hidden{% endif %}>
+          Login robotique, analyse de formulaire et reverse-proxy nginx.
+          Laisser <strong>désactivé</strong> pour une IP LAN ou un certificat auto-signé
+          (ex. <span class="mono">https://172.24.…</span>). Activer uniquement si le certificat
+          est valide pour le hostname de l’upstream.
+        </p>
       </div>
     </div>
 

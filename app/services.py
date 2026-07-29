@@ -51,6 +51,7 @@ class AppCreate(BaseModel):
     healthcheck_url: str | None = None
     enabled: bool = True
     allow_activesync: bool = False
+    upstream_tls_verify: bool = False
     tile_icon: str | None = None
     description: str | None = None
     logo_path: str | None = None
@@ -76,6 +77,7 @@ class AppUpdate(BaseModel):
     healthcheck_url: str | None = None
     enabled: bool | None = None
     allow_activesync: bool | None = None
+    upstream_tls_verify: bool | None = None
     tile_icon: str | None = None
     description: str | None = None
     logo_path: str | None = None
@@ -100,6 +102,7 @@ class AppOut(BaseModel):
     healthcheck_url: str | None
     enabled: bool
     allow_activesync: bool = False
+    upstream_tls_verify: bool = False
     tile_icon: str | None
     description: str | None = None
     logo_path: str | None = None
@@ -194,6 +197,10 @@ def create_app(
     payload["access_mode"] = mode
     if mode != "subdomain_proxy":
         payload["allow_activesync"] = False
+    if mode == "sso_gate":
+        payload["upstream_tls_verify"] = False
+    elif "upstream_tls_verify" in payload:
+        payload["upstream_tls_verify"] = bool(payload["upstream_tls_verify"])
     app = App(**payload)
     db.add(app)
     db.commit()
@@ -230,6 +237,10 @@ def update_app(
         updates["allow_activesync"] = False
     elif "allow_activesync" in updates:
         updates["allow_activesync"] = bool(updates["allow_activesync"])
+    if mode == "sso_gate":
+        updates["upstream_tls_verify"] = False
+    elif "upstream_tls_verify" in updates:
+        updates["upstream_tls_verify"] = bool(updates["upstream_tls_verify"])
     for key, value in updates.items():
         setattr(app, key, value)
     app.updated_at = datetime.now(timezone.utc)

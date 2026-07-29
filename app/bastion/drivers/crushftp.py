@@ -27,6 +27,7 @@ class CrushFTPSession:
 
     cookies: dict[str, str]
     base_url: str
+    tls_verify: bool = False
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -59,7 +60,14 @@ def _c2f(cookies: dict[str, str]) -> str | None:
 class CrushFTPDriver(RoboticDriver):
     """Robotic login against CrushFTP `/WebInterface/function/`."""
 
-    async def login(self, base_url: str, username: str, password: str) -> CrushFTPSession:
+    async def login(
+        self,
+        base_url: str,
+        username: str,
+        password: str,
+        *,
+        tls_verify: bool = False,
+    ) -> CrushFTPSession:
         base = _normalize_base_url(base_url)
         url = urljoin(base, "WebInterface/function/")
         data = {
@@ -70,7 +78,11 @@ class CrushFTPDriver(RoboticDriver):
             "language": "en",
         }
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+            async with httpx.AsyncClient(
+                timeout=_TIMEOUT,
+                follow_redirects=False,
+                verify=tls_verify,
+            ) as client:
                 response = await client.post(url, data=data)
         except httpx.TimeoutException as exc:
             raise RoboticLoginError("CrushFTP login timed out") from exc
@@ -84,7 +96,7 @@ class CrushFTPDriver(RoboticDriver):
         if "CrushAuth" not in cookies:
             raise RoboticLoginError("CrushFTP login missing CrushAuth cookie")
 
-        return CrushFTPSession(cookies=cookies, base_url=base)
+        return CrushFTPSession(cookies=cookies, base_url=base, tls_verify=tls_verify)
 
     async def get_username(self, session: CrushFTPSession) -> str:
         url = urljoin(session.base_url, "WebInterface/function/")
@@ -94,7 +106,11 @@ class CrushFTPDriver(RoboticDriver):
         data = {"command": "getUsername", "c2f": c2f}
         headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())}
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+            async with httpx.AsyncClient(
+                timeout=_TIMEOUT,
+                follow_redirects=False,
+                verify=bool(session.tls_verify),
+            ) as client:
                 response = await client.post(url, data=data, headers=headers)
         except httpx.TimeoutException as exc:
             raise RoboticLoginError("CrushFTP getUsername timed out") from exc
@@ -130,16 +146,24 @@ class CrushFTPDriver(RoboticDriver):
             data["c2f"] = c2f
         headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())}
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=False) as client:
+            async with httpx.AsyncClient(
+                timeout=_TIMEOUT,
+                follow_redirects=False,
+                verify=bool(session.tls_verify),
+            ) as client:
                 await client.post(url, data=data, headers=headers)
         except httpx.RequestError:
             pass
 
-    async def fingerprint(self, base_url: str) -> bool:
+    async def fingerprint(self, base_url: str, *, tls_verify: bool = False) -> bool:
         base = _normalize_base_url(base_url)
         url = urljoin(base, "WebInterface/login.html")
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=_TIMEOUT,
+                follow_redirects=True,
+                verify=tls_verify,
+            ) as client:
                 response = await client.get(url)
         except httpx.RequestError:
             return False

@@ -31,6 +31,7 @@ from app.robotic.impersonate_service import (
     get_wsse_header,
     impersonate,
 )
+from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.robotic.robotic_session_cookies import (
     build_crushftp_response_cookies,
     build_response_cookies,
@@ -246,6 +247,7 @@ def _touch_open_session(
             request=request,
             app_label=app.label,
             verify_base_url=result.login_base_url,
+            upstream_tls_verify=resolve_upstream_tls_verify(app),
         ),
     )
 

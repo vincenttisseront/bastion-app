@@ -776,6 +776,7 @@ def admin_apps_create(
                 "public_fqdn": "",
                 "description": "",
                 "allow_activesync": False,
+                "upstream_tls_verify": False,
                 **_auth_form_values(),
             },
             errors={},
@@ -793,6 +794,7 @@ def admin_apps_create_post(
     public_fqdn: str = Form(""),
     description: str = Form(""),
     allow_activesync: str | None = Form(None),
+    upstream_tls_verify: str | None = Form(None),
     auth_mode: str = Form("sso"),
     login_form_url: str = Form(""),
     login_username_field: str = Form("username"),
@@ -822,6 +824,7 @@ def admin_apps_create_post(
         "public_fqdn": public_fqdn,
         "description": description,
         "allow_activesync": allow_activesync == "on",
+        "upstream_tls_verify": upstream_tls_verify == "on",
         **auth_values,
     }
     errors = validate_app_access_fields(mode, upstream_url, fqdn)
@@ -853,6 +856,7 @@ def admin_apps_create_post(
         public_fqdn=fqdn,
         description=desc,
         allow_activesync=allow_activesync == "on" and mode == "subdomain_proxy",
+        upstream_tls_verify=upstream_tls_verify == "on" and mode != "sso_gate",
     )
     _apply_auth_config(
         app,
@@ -927,6 +931,7 @@ def admin_apps_edit_post(
     description: str = Form(""),
     enabled: str | None = Form(None),
     allow_activesync: str | None = Form(None),
+    upstream_tls_verify: str | None = Form(None),
     auth_mode: str = Form("sso"),
     login_form_url: str = Form(""),
     login_username_field: str = Form("username"),
@@ -966,6 +971,8 @@ def admin_apps_edit_post(
         app.access_mode = mode
         app.public_fqdn = fqdn
         app.description = desc
+        app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
+        app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
         _apply_auth_config(
             app,
             auth_mode=auth_mode,
@@ -1005,6 +1012,7 @@ def admin_apps_edit_post(
     app.description = desc
     app.enabled = enabled == "on"
     app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
+    app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
     _apply_auth_config(
         app,
         auth_mode=auth_mode,
@@ -1085,6 +1093,7 @@ class _VaultCredentialBody(BaseModel):
 
 class _AnalyzeLoginFormBody(BaseModel):
     url: str = Field(min_length=1)
+    tls_verify: bool = False
 
 
 @admin_router.post("/admin/apps/analyze-login-form")
@@ -1101,7 +1110,10 @@ async def admin_analyze_login_form(
     )
 
     try:
-        result = await analyze_login_form_url(body.url.strip())
+        result = await analyze_login_form_url(
+            body.url.strip(),
+            tls_verify=bool(body.tls_verify),
+        )
     except AnalyzeLoginFormError as exc:
         log_action(
             db,

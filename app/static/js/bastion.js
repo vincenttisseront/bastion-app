@@ -272,6 +272,11 @@ function initAccessModeForm() {
     var showEas = mode === 'subdomain_proxy';
     if (easWrap) easWrap.hidden = !showEas;
     if (easHelp) easHelp.hidden = !showEas;
+    var tlsWrap = document.getElementById('upstream-tls-verify-wrap');
+    var tlsHelp = document.getElementById('upstream-tls-verify-help');
+    var showTls = mode !== 'sso_gate';
+    if (tlsWrap) tlsWrap.hidden = !showTls;
+    if (tlsHelp) tlsHelp.hidden = !showTls;
     if (legacyWarn) legacyWarn.hidden = !copy.showLegacyWarn;
     if (publicWarn) publicWarn.hidden = !copy.showPublicWarn;
     if (rbacWarn) rbacWarn.hidden = !copy.showPublicWarn;
@@ -520,7 +525,10 @@ function initLoginFormAnalyzer() {
           Accept: 'application/json',
           'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || '',
         },
-        body: JSON.stringify({ url: url }),
+        body: JSON.stringify({
+          url: url,
+          tls_verify: !!(document.getElementById('upstream_tls_verify') || {}).checked,
+        }),
       });
       var data = await resp.json().catch(function () {
         return {};

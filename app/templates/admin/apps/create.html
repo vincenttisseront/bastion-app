@@ -111,6 +111,16 @@
           avec authentification Basic (ou SSO), sans redirection login navigateur.
           Upstream = URL interne du serveur mail (pas le FQDN public webmail).
         </p>
+
+        <label class="form-check" id="upstream-tls-verify-wrap" hidden>
+          <input type="checkbox" name="upstream_tls_verify" id="upstream_tls_verify"{% if form_values.upstream_tls_verify %} checked{% endif %}>
+          Vérifier le certificat TLS de l’upstream (depuis le bastion)
+        </label>
+        <p class="form-help" id="upstream-tls-verify-help" hidden>
+          Login robotique, analyse de formulaire et reverse-proxy nginx.
+          Laisser désactivé pour IP LAN / certificat auto-signé ; activer seulement
+          si le certificat est valide pour le hostname de l’upstream.
+        </p>
       </div>
     </div>
 

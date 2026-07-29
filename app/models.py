@@ -49,6 +49,8 @@ class App(Base):
     injected_cookie_scope = Column(String, default="host_only", nullable=False)
     # Mobile messaging (EAS): allow ActiveSync/Autodiscover without browser SSO redirect
     allow_activesync = Column(Boolean, default=False, nullable=False)
+    # Verify upstream TLS cert from bastion (robotic httpx + nginx). Off for LAN/self-signed.
+    upstream_tls_verify = Column(Boolean, default=False, nullable=False)
     healthcheck_url = Column(String, nullable=True)
     enabled = Column(Boolean, default=True)
     tile_icon = Column(String, nullable=True)

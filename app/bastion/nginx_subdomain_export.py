@@ -17,6 +17,10 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
+from app.bastion.upstream_tls import (
+    nginx_proxy_ssl_verify_directive,
+    resolve_upstream_tls_verify,
+)
 from app.models import App
 from app.sso_settings import Settings
 
@@ -69,6 +73,7 @@ def _activesync_locations(
     fqdn_esc: str,
     *,
     upstream_is_https: bool = False,
+    upstream_tls_verify: bool = False,
 ) -> list[str]:
     """Locations that skip browser SSO redirect; require Basic or SSO via activesync-auth.
 
@@ -79,7 +84,7 @@ def _activesync_locations(
     if upstream_is_https:
         ssl_lines = [
             "        proxy_ssl_server_name on;",
-            "        proxy_ssl_verify off;",
+            nginx_proxy_ssl_verify_directive(upstream_tls_verify),
         ]
     return [
         "    # Mobile ActiveSync / Autodiscover (allow_activesync=true)",
@@ -167,6 +172,14 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     portal_esc = _nginx_escape(portal)
     upstream_host_esc = _nginx_escape(upstream_host)
     allow_eas = bool(getattr(app, "allow_activesync", False))
+    upstream_is_https = upstream.lower().startswith("https://")
+    tls_verify = resolve_upstream_tls_verify(app)
+    ssl_lines: list[str] = []
+    if upstream_is_https:
+        ssl_lines = [
+            "        proxy_ssl_server_name on;",
+            nginx_proxy_ssl_verify_directive(tls_verify),
+        ]
 
     lines = [
         f"# [{slug}] subdomain_proxy — {fqdn} (generated from App DB)",
@@ -206,7 +219,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
                 slug,
                 upstream_host_esc,
                 fqdn_esc,
-                upstream_is_https=upstream.lower().startswith("https://"),
+                upstream_is_https=upstream_is_https,
+                upstream_tls_verify=tls_verify,
             )
         )
     lines.extend(
@@ -223,6 +237,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "        proxy_set_header Connection $http_connection;",
             "        proxy_read_timeout 3600s;",
             "        proxy_send_timeout 3600s;",
+            *ssl_lines,
             "        proxy_set_header Host $host;",
             "        proxy_set_header X-Real-IP $remote_addr;",
             "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
