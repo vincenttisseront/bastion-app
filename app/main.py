@@ -37,6 +37,7 @@ from app.subdomain.subdomain_auth import router as subdomain_router
 from app.subdomain.activesync_auth import router as activesync_router
 from app.vault.routes import router as vault_router
 from app.web.admin_dependencies import router as admin_dependencies_router
+from app.web.admin_infrastructure import router as admin_infrastructure_router
 from app.web.admin_logs import router as admin_logs_router
 from app.web.notifications_routes import router as admin_notifications_router
 from app.web.audit_service import router as audit_router
@@ -228,6 +229,7 @@ app.include_router(admin_user_sessions_router)
 app.include_router(admin_logs_router)
 app.include_router(admin_notifications_router)
 app.include_router(admin_dependencies_router)
+app.include_router(admin_infrastructure_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)
 app.include_router(sessions_router)

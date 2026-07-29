@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Infrastructure{% endblock %}
+{% block breadcrumb %}Admin / Infrastructure{% endblock %}
+
+{% block content %}
+<div class="page" id="infrastructure-page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Infrastructure</h1>
+      <p class="page-sub">
+        {{ realm_count }} realm{{ 's' if realm_count != 1 else '' }}
+        · {{ app_count }} application{{ 's' if app_count != 1 else '' }}
+        · domaine portail <span class="mono">{{ manifest.portal_domain or '—' }}</span>
+      </p>
+    </div>
+    <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;">
+      <form method="post" action="/admin/infrastructure/apply" style="margin:0;">
+        <button type="submit" class="btn btn-primary btn-sm">Appliquer l'infrastructure</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:var(--sp-4);">
+    <div class="card-body">
+      <p class="form-help" style="margin:0;">
+        Régénère les exports (oauth2-proxy, nginx, inventaires apps) depuis la base SQLite —
+        source de vérité Admin. Équivalent à
+        <code class="mono">python -m app.admin.infrastructure apply</code>.
+        {% if has_saved_manifest %}
+        Dernier manifeste : <code class="mono">{{ manifest_path }}</code>.
+        {% else %}
+        Aucun export enregistré pour l'instant — cliquez sur Appliquer pour générer les fichiers.
+        {% endif %}
+      </p>
+      <p class="form-help" style="margin:var(--sp-2) 0 0;">
+        Sur l'hôte Docker (<code class="mono">vmdmz-docker01</code>), lancez ensuite
+        <code class="mono">scripts/apply-infra-docker.sh</code> pour synchroniser vers
+        <code class="mono">oauth2-proxy-core</code> et recharger <code class="mono">bastion-nginx</code>.
+      </p>
+    </div>
+  </div>
+
+  {% if manifest.error %}
+  <div class="card" style="margin-bottom:var(--sp-4);border-color:var(--danger, #b91c1c);">
+    <div class="card-body">
+      <strong style="color:var(--danger, #b91c1c);">Dernière erreur d'export</strong>
+      <p class="mono" style="margin:var(--sp-2) 0 0;white-space:pre-wrap;">{{ manifest.error }}</p>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Fichiers exportés · {{ file_rows | length }}</span>
+      {% if manifest.partial %}
+      <span class="badge badge-err">partiel</span>
+      {% elif file_rows %}
+      <span class="badge badge-ok">à jour</span>
+      {% endif %}
+    </div>
+    <div class="card-body card-flush">
+      {% if file_rows %}
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Realm</th>
+              <th>Chemin</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for f in file_rows %}
+            <tr>
+              <td><span class="badge badge-muted">{{ f.kind_label }}</span></td>
+              <td class="mono">{% if f.realm_slug %}{{ f.realm_slug }}{% else %}—{% endif %}</td>
+              <td class="mono" style="word-break:break-all;">{{ f.path }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="form-help" style="padding:var(--sp-4);margin:0;">Aucun fichier exporté.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
