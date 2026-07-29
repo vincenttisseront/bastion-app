@@ -56,7 +56,8 @@ retire_legacy_duplicate
 
 if [[ -f "$DEFAULT_CERT" && -f "$DEFAULT_KEY" ]]; then
   cat >> "$OUT" <<EOF
-# Default HTTPS (unknown SNI / bootstrap before ACME)
+# Default HTTPS — unknown/missing SNI (curl -k https://IP, reverse01→IP).
+# Must proxy to :8080 so Host-based vhosts still work (do NOT hard-503 here).
 server {
     listen 0.0.0.0:443 ssl default_server;
     server_name _;
@@ -68,13 +69,15 @@ server {
     absolute_redirect off;
     port_in_redirect off;
 
-    location = /_portal_nginx_ok {
-        proxy_pass http://127.0.0.1:8080/_portal_nginx_ok;
-        proxy_set_header Host \$host;
-    }
-
     location / {
-        return 503;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host \$host;
+        proxy_set_header X-Forwarded-Port 443;
     }
 }
 
