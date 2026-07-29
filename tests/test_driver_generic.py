@@ -19,6 +19,7 @@ from app.bastion.drivers.generic import (
     generic_basic_auth_header,
     generic_form_login,
     generic_wsse_header,
+    public_host_binding_headers,
 )
 from app.models import App, AppCredential
 
@@ -150,6 +151,28 @@ async def test_grommunio_api_401_is_auth_rejected():
     app = _generic_app(login_form_url="https://mail.example:8443/api/v1/login")
     with pytest.raises(DriverAuthRejectedError, match="rejected credentials"):
         await generic_form_login(_credential(), app, SECRET_PASSWORD)
+
+
+def test_public_host_binding_headers_for_upstream_ip():
+    app = _generic_app(
+        access_mode="subdomain_proxy",
+        public_fqdn="grommunio.ar-systems.fr",
+        upstream_url="https://172.24.10.104/",
+        login_form_url="https://grommunio.ar-systems.fr/web/?logon",
+    )
+    headers = public_host_binding_headers(app, "https://172.24.10.104/web/?logon")
+    assert headers["Host"] == "grommunio.ar-systems.fr"
+    assert headers["Origin"] == "https://grommunio.ar-systems.fr"
+    assert headers["Referer"] == "https://grommunio.ar-systems.fr/"
+
+
+def test_public_host_binding_headers_noop_when_already_public():
+    app = _generic_app(
+        access_mode="subdomain_proxy",
+        public_fqdn="grommunio.ar-systems.fr",
+        login_form_url="https://grommunio.ar-systems.fr/web/?logon",
+    )
+    assert public_host_binding_headers(app, "https://grommunio.ar-systems.fr/web/?logon") == {}
 
 
 @respx.mock

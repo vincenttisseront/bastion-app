@@ -114,11 +114,25 @@ def test_session_cookie_hop_endpoint_sets_host_only(client):
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    assert resp.headers["location"] == "/dashboard"
+    assert resp.headers["location"] == "https://app.ar-systems.fr/dashboard"
     set_cookies = resp.headers.get_list("set-cookie")
     host_only = [h for h in set_cookies if "ENDPOINT99" in h]
     assert host_only
     assert not any("Domain=" in h or "domain=" in h for h in host_only)
+
+
+def test_session_cookie_hop_rejected_goes_to_portal_apps(client):
+    resp = client.get(
+        "/api/internal/session-cookie-hop",
+        headers={
+            "Host": "portal.ar-systems.fr",
+            "X-Forwarded-Host": "grommunio.ar-systems.fr",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    loc = resp.headers["location"]
+    assert loc == "/apps" or loc.endswith("/apps")
 
 
 def test_legacy_crush_hop_alias_still_works(client):
@@ -146,4 +160,7 @@ def test_legacy_crush_hop_alias_still_works(client):
         follow_redirects=False,
     )
     assert resp.status_code == 302
+    assert resp.headers["location"] == (
+        "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html"
+    )
     assert any("LEGACYCOOKIE01" in h for h in resp.headers.get_list("set-cookie"))

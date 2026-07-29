@@ -144,6 +144,29 @@ def _safe_next(candidate: str | None, fallback: str) -> str:
     return raw
 
 
+def _absolute_app_url(request: Request, path: str) -> str:
+    """Build https://{app-fqdn}{path} from nginx X-Forwarded-Host (hop proxy)."""
+    host = (
+        (request.headers.get("x-forwarded-host") or request.headers.get("host") or "")
+        .split(",")[0]
+        .strip()
+        .split(":")[0]
+    )
+    if not host:
+        return path
+    path = path if path.startswith("/") else f"/{path}"
+    return f"https://{host}{path}"
+
+
+def _portal_apps_url(settings: Settings) -> str:
+    portal = (settings.portal_domain or "").strip().rstrip("/")
+    if not portal:
+        return "/apps"
+    if portal.startswith("https://") or portal.startswith("http://"):
+        return f"{portal.rstrip('/')}/apps"
+    return f"https://{portal}/apps"
+
+
 def attach_session_hop_portal_cookies(
     response: Response,
     *,
@@ -181,6 +204,9 @@ def attach_session_hop_portal_cookies(
     for key in cookies:
         if not cookies.get(key):
             continue
+        # __Secure-/__Host- cookies must not carry a Domain attribute (browsers reject).
+        if key.startswith("__Secure-") or key.startswith("__Host-"):
+            continue
         clear_kwargs: dict = {
             "key": key,
             "value": "",
@@ -215,6 +241,8 @@ def apply_host_only_session_cookies(
         )
     if shared_parent:
         for key in cookies:
+            if key.startswith("__Secure-") or key.startswith("__Host-"):
+                continue
             response.set_cookie(
                 key=key,
                 value="",
@@ -263,12 +291,19 @@ def _hop_handler(
             request.headers.get("host"),
             request.headers.get("x-forwarded-host"),
         )
-        return RedirectResponse(url=DEFAULT_NEXT, status_code=302)
+        # Never bounce to bare "/" on the portal Host — send the user back to catalogue.
+        return RedirectResponse(url=_portal_apps_url(settings), status_code=302)
 
-    target = _safe_next(next or body.get("n"), body.get("n") or DEFAULT_NEXT)
+    target_path = _safe_next(next or body.get("n"), body.get("n") or DEFAULT_NEXT)
     cookies = {k: str(v) for k, v in (body.get("c") or {}).items() if v}
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
     shared = shared_parent_domain(host.split(":")[0], settings.portal_domain or "")
+    # Prefer absolute URL on the app FQDN (sealed n may be https://fqdn/).
+    sealed_next = (body.get("n") or "").strip()
+    if sealed_next.startswith("https://") or sealed_next.startswith("http://"):
+        target = sealed_next
+    else:
+        target = _absolute_app_url(request, target_path)
 
     logger.info(
         "session cookie hop ok slug=%s cookies=%s target=%s host=%s",

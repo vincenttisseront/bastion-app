@@ -535,6 +535,13 @@ async def _impersonate_generic_form(
         credential_source=resolved.source,
         credential_mode=_credential_mode_for_source(resolved.source),
     )
+    verify_base = target_url
+    if mode == "subdomain" and fqdn:
+        verify_base = f"https://{fqdn}/"
+    elif app.upstream_url or app.login_form_url:
+        verify_base = (app.upstream_url or app.login_form_url or "").rstrip("/") + "/"
+    else:
+        verify_base = None
     return RoboticSessionResult(
         cookies=result.cookies,
         target_url=target_url,
@@ -545,9 +552,7 @@ async def _impersonate_generic_form(
         driver="generic_form",
         credential_source=resolved.source,
         use_crushftp_cookies=False,
-        login_base_url=(app.upstream_url or app.login_form_url or "").rstrip("/") + "/"
-        if (app.upstream_url or app.login_form_url)
-        else None,
+        login_base_url=verify_base,
         injected_cookie_scope=_injected_cookie_scope(app),
     )
 

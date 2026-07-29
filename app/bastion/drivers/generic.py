@@ -15,6 +15,7 @@ import httpx
 from app.bastion.bastion_fields import parse_login_extra_fields
 from app.bastion.drivers.base import DriverLoginError, DriverLoginResult
 from app.bastion.upstream_tls import resolve_upstream_tls_verify
+from app.access_modes import normalize_access_mode
 from app.models import App
 from app.vault.user_app_credential_service import ResolvedCredential
 
@@ -147,6 +148,27 @@ def _browser_headers(client_headers: dict[str, str] | None) -> dict[str, str]:
     return out
 
 
+def public_host_binding_headers(app: App, login_url: str) -> dict[str, str]:
+    """
+    When robotic login hits an internal upstream (IP/LAN) but the browser will
+    use ``public_fqdn``, force Host/Origin/Referer to the public hostname so
+    the upstream session matches the hop-injected cookies (grommunio-web, etc.).
+    """
+    mode = normalize_access_mode(getattr(app, "access_mode", None))
+    fqdn = (getattr(app, "public_fqdn", None) or "").strip()
+    if mode != "subdomain_proxy" or not fqdn:
+        return {}
+    login_host = (urlparse(login_url).hostname or "").lower()
+    if not login_host or login_host == fqdn.lower():
+        return {}
+    public_origin = f"https://{fqdn}"
+    return {
+        "Host": fqdn,
+        "Origin": public_origin,
+        "Referer": f"{public_origin}/",
+    }
+
+
 def _looks_like_login_html(body: str) -> bool:
     sample = body[:12000] if body else ""
     if 'name="password"' not in sample and "name='password'" not in sample:
@@ -204,8 +226,10 @@ async def generic_form_login(
          or a redisplayed login form as auth rejection (never treat bare
          Set-Cookie on a failed login page as success).
 
-    ``login_url_override`` forces the absolute login URL (e.g. public FQDN in
-    subdomain mode) without mutating the App row.
+    ``login_url_override`` forces the absolute login URL (e.g. upstream IP to
+    bypass public SSO) without mutating the App row. When that host differs from
+    ``public_fqdn``, Host/Origin/Referer are rewritten to the public FQDN so the
+    session is valid for the browser after the cookie hop.
 
     Never logs or returns the plaintext password.
     """
@@ -226,6 +250,14 @@ async def generic_form_login(
         raise DriverUpstreamError("Invalid login extra fields JSON") from exc
 
     headers = _browser_headers(client_headers)
+    host_headers = public_host_binding_headers(app, login_url)
+    if host_headers:
+        headers = {**headers, **host_headers}
+        logger.info(
+            "generic_form Host binding for public FQDN host=%s login=%s",
+            host_headers.get("Host"),
+            _safe_url_for_log(login_url),
+        )
     log_url = _safe_url_for_log(login_url)
     tls_verify = resolve_upstream_tls_verify(app)
 
@@ -266,14 +298,16 @@ async def generic_form_login(
                     login_url, params=_payload(username_field, password_field, hidden_fields)
                 )
             else:
+                post_headers = dict(headers)
+                if not host_headers:
+                    post_headers["Referer"] = _login_page_url(login_url)
+                    post_headers["Origin"] = (
+                        f"{urlparse(login_url).scheme}://{urlparse(login_url).netloc}"
+                    )
                 response = await client.post(
                     login_url,
                     data=_payload(username_field, password_field, hidden_fields),
-                    headers={
-                        **headers,
-                        "Referer": _login_page_url(login_url),
-                        "Origin": f"{urlparse(login_url).scheme}://{urlparse(login_url).netloc}",
-                    },
+                    headers=post_headers,
                 )
                 # grommunio-admin SPA: GET /login is HTML, POST → 405; real API is /api/v1/login
                 if response.status_code == 405 and _path_is_spa_login(login_url):
