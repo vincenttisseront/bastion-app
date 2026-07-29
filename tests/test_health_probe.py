@@ -263,5 +263,16 @@ def test_probe_target_url_keeps_entry_path():
     app = SimpleNamespace(
         upstream_url="https://10.0.0.50/web",
         healthcheck_url=None,
+        login_form_url=None,
+    )
+    assert probe_target_url(app) == "https://10.0.0.50/web/"
+
+
+def test_probe_target_url_uses_login_form_path_on_origin_upstream():
+    """After origin-only upstream, entry path comes from login_form_url."""
+    app = SimpleNamespace(
+        upstream_url="https://10.0.0.50/",
+        healthcheck_url=None,
+        login_form_url="https://webmail.example.fr/web/?logon",
     )
     assert probe_target_url(app) == "https://10.0.0.50/web/"

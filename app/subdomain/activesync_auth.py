@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.auth import get_realm_proxy_url
 from app.breakglass import COOKIE_NAME, process_breakglass_auth_request
-from app.database import get_db
+from app.database import get_db, release_db_connection
 from app.models import App
 from app.rbac.effective_access_service import user_can_launch_application
 from app.request_client_ip import client_ip_from_request
@@ -214,7 +214,10 @@ async def activesync_auth(
         )
 
     # SSO cookie path (rare for native mail, but useful for some clients)
+    app_id = app.id
+    app_slug = app.slug
     proxy_url = get_realm_proxy_url(app.realm_slug, settings, db)
+    release_db_connection(db)
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(
@@ -236,9 +239,18 @@ async def activesync_auth(
                 "X-Auth-Preferred-Username",
             )
             actor = email or preferred or keycloak_user_id or "unknown"
+            app = db.get(App, app_id)
+            if app is None:
+                return Response(
+                    status_code=401,
+                    headers={
+                        "X-Auth-Error": "no_app_for_host",
+                        "WWW-Authenticate": 'Basic realm="ActiveSync"',
+                    },
+                )
             if not user_can_launch_application(
                 db,
-                application_id=app.id,
+                application_id=app_id,
                 keycloak_user_id=keycloak_user_id or None,
                 group_names=groups,
             ):
@@ -259,10 +271,10 @@ async def activesync_auth(
                     status_code=403,
                     headers={
                         "X-Auth-Error": "access_denied_no_grant",
-                        "X-Auth-App": app.slug,
+                        "X-Auth-App": app_slug,
                     },
                 )
-            if _should_log_allow(app.slug, client_ip or "", actor):
+            if _should_log_allow(app_slug, client_ip or "", actor):
                 _log_activesync(
                     db,
                     action="activesync.allowed",
@@ -280,7 +292,7 @@ async def activesync_auth(
                 headers={
                     "X-Auth-Source": "oidc",
                     "X-Auth-User": keycloak_user_id or preferred or email or "",
-                    "X-Auth-App": app.slug,
+                    "X-Auth-App": app_slug,
                 },
             )
     except httpx.RequestError:
@@ -297,7 +309,16 @@ async def activesync_auth(
             db.rollback()
         if result.ok:
             actor = result.username or "breakglass"
-            if _should_log_allow(app.slug, client_ip or "", actor):
+            app = db.get(App, app_id)
+            if app is None:
+                return Response(
+                    status_code=401,
+                    headers={
+                        "X-Auth-Error": "no_app_for_host",
+                        "WWW-Authenticate": 'Basic realm="ActiveSync"',
+                    },
+                )
+            if _should_log_allow(app_slug, client_ip or "", actor):
                 _log_activesync(
                     db,
                     action="activesync.allowed",
@@ -315,10 +336,11 @@ async def activesync_auth(
                 headers={
                     "X-Auth-Source": "breakglass",
                     "X-Auth-User": actor,
-                    "X-Auth-App": app.slug,
+                    "X-Auth-App": app_slug,
                 },
             )
 
+    app = db.get(App, app_id) or app
     _log_activesync(
         db,
         action="activesync.denied",
@@ -335,7 +357,7 @@ async def activesync_auth(
         status_code=401,
         headers={
             "X-Auth-Error": "not_authenticated",
-            "X-Auth-App": app.slug,
+            "X-Auth-App": app_slug,
             "WWW-Authenticate": 'Basic realm="ActiveSync"',
         },
     )

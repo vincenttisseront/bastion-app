@@ -24,6 +24,30 @@ def test_validate_subdomain_requires_fqdn():
     assert "public_fqdn" in errors
 
 
+def test_validate_subdomain_rejects_upstream_path():
+    errors = validate_app_access_fields(
+        "subdomain_proxy", "https://10.0.0.50/web/", "webmail.example.fr"
+    )
+    assert "upstream_url" in errors
+    assert "/web" in errors["upstream_url"]
+    ok = validate_app_access_fields(
+        "subdomain_proxy", "https://10.0.0.50/", "webmail.example.fr"
+    )
+    assert ok == {}
+
+
+def test_app_launch_url_subdomain_uses_login_entry_path():
+    app = SimpleNamespace(
+        access_mode="subdomain_proxy",
+        upstream_url="https://10.0.0.50/",
+        public_fqdn="webmail.example.fr",
+        slug="grommunio",
+        robotic_driver=None,
+        login_form_url="https://webmail.example.fr/web/?logon",
+    )
+    assert app_launch_url(app) == "https://webmail.example.fr/web/"
+
+
 def test_validate_public_proxy_requires_fqdn():
     errors = validate_app_access_fields("public_proxy", "http://127.0.0.1:8080", "")
     assert "public_fqdn" in errors

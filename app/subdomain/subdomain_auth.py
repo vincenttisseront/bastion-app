@@ -19,7 +19,7 @@ from app.breakglass import (
     COOKIE_NAME,
     process_breakglass_auth_request,
 )
-from app.database import get_db
+from app.database import get_db, release_db_connection
 from app.models import App
 from app.rbac.effective_access_service import user_can_launch_application
 from app.request_client_ip import client_ip_from_request
@@ -174,7 +174,12 @@ async def subdomain_auth(
         )
 
     # 3a. Prefer OIDC session (same preference as /internal/oauth2-auth).
+    app_id = app.id
+    app_slug = app.slug
     proxy_url = get_realm_proxy_url(app.realm_slug, settings, db)
+    # auth_request is high-concurrency — never hold a pool slot across httpx.
+    release_db_connection(db)
+
     oauth2_ok = False
     oauth2_headers: Mapping[str, str] = {}
     oauth2_unreachable = False
@@ -211,10 +216,15 @@ async def subdomain_auth(
 
         if not user_can_launch_application(
             db,
-            application_id=app.id,
+            application_id=app_id,
             keycloak_user_id=keycloak_user_id or None,
             group_names=groups,
         ):
+            app = db.get(App, app_id)
+            if app is None:
+                return Response(
+                    status_code=401, headers={"X-Auth-Error": "no-app-for-host"}
+                )
             return _deny_no_grant(
                 db,
                 actor=actor,
@@ -236,7 +246,7 @@ async def subdomain_auth(
             headers={
                 "X-Auth-Source": "oidc",
                 "X-Auth-User": keycloak_user_id or preferred or email,
-                "X-Auth-App": app.slug,
+                "X-Auth-App": app_slug,
             },
         )
 
@@ -260,7 +270,7 @@ async def subdomain_auth(
             headers={
                 "X-Auth-Source": "breakglass",
                 "X-Auth-User": result.username or "breakglass",
-                "X-Auth-App": app.slug,
+                "X-Auth-App": app_slug,
             },
         )
 

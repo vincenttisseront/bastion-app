@@ -30,10 +30,13 @@ def probe_target_url(app: App) -> str | None:
     """
     URL used for the HTTP probe.
 
-    Prefer an explicit ``healthcheck_url``. Otherwise use ``upstream_url``
-    (origin + optional entry path such as ``/web/``) — the same backend the
-    robotic login and nginx talk to, not the public SSO edge.
+    Prefer an explicit ``healthcheck_url``. Otherwise hit the upstream origin
+    (same backend nginx uses) plus the app entry path from ``login_form_url``
+    or a legacy path on ``upstream_url`` (e.g. ``/web/`` for grommunio).
+    Never probes the public SSO edge.
     """
+    from app.access_modes import upstream_entry_path
+
     explicit = (getattr(app, "healthcheck_url", None) or "").strip()
     if explicit:
         return explicit
@@ -44,12 +47,8 @@ def probe_target_url(app: App) -> str | None:
         origin = upstream_origin(raw)
     except ValueError:
         return raw
-    path = urlparse(raw).path or "/"
-    if path in ("", "/"):
-        return origin.rstrip("/") + "/"
-    if not path.endswith("/"):
-        path = f"{path}/"
-    return f"{origin}{path}"
+    path = upstream_entry_path(app)
+    return f"{origin.rstrip('/')}{path}"
 
 
 def classify_http_status(status_code: int) -> str:
@@ -283,7 +282,13 @@ def probe_result_payload(app: App) -> dict[str, Any]:
 
 
 async def probe_and_persist_app(db: Session, app: App) -> dict[str, Any]:
+    from app.database import release_db_connection
+
+    app_id = app.id
+    # Probe only needs column values already loaded on ``app``.
+    release_db_connection(db)
     result = await probe_application(app)
+    app = db.get(App, app_id) or app
     apply_probe_result(app, result)
     db.commit()
     db.refresh(app)
@@ -292,13 +297,14 @@ async def probe_and_persist_app(db: Session, app: App) -> dict[str, Any]:
 
 async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
     """Probe all enabled apps with probe_enabled=True. Never raises."""
+    from app.database import release_db_connection
+
     summary = {"ok": 0, "warn": 0, "error": 0, "unknown": 0, "skipped": 0}
     results: list[dict[str, Any]] = []
     apps: list[App] = []
 
     try:
-        # Collect IDs first so we can commit between apps and release the pool
-        # connection during HTTP waits (avoids QueuePool exhaustion).
+        # Collect IDs first so we can release the pool connection during HTTP waits.
         app_ids = [
             row[0]
             for row in (
@@ -308,7 +314,7 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
                 .all()
             )
         ]
-        db.commit()
+        release_db_connection(db)
 
         for app_id in app_ids:
             app = db.get(App, app_id)
@@ -329,12 +335,17 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
                     summary["error"] += 1
                     results.append(probe_result_payload(app))
                     apps.append(app)
+                    release_db_connection(db)
                     logger.warning("Health probe %s → error (no url)", slug)
                     continue
 
+                # Hold no pool connection for the (up to 10s) HTTP probe.
+                release_db_connection(db)
                 result = await probe_application(app)
-                # Re-bind in case the connection was invalidated during await.
-                app = db.get(App, app_id) or app
+                app = db.get(App, app_id)
+                if app is None:
+                    summary["error"] += 1
+                    continue
                 apply_probe_result(app, result)
                 db.commit()
                 key = result["status"]
@@ -342,6 +353,7 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
                     summary[key] += 1
                 results.append(probe_result_payload(app))
                 apps.append(app)
+                release_db_connection(db)
                 if key == "ok":
                     logger.info(
                         "Health probe %s → ok http=%s url=%s",
@@ -360,7 +372,11 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
                     )
             except Exception:
                 logger.exception("Health probe failed for app %s", slug)
-                db.rollback()
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                release_db_connection(db)
                 summary["error"] += 1
 
         no_url_count = sum(
@@ -375,7 +391,10 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
         )
     except Exception:
         logger.exception("Health probe cycle failed")
-        db.rollback()
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
     probes = [probe_row_from_app(app) for app in apps]
     status_counts = compute_status_counts(probes)

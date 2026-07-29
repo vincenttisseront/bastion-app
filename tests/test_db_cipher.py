@@ -101,6 +101,19 @@ def test_assert_encrypted_without_key_raises(tmp_path):
         assert_db_cipher_state(f"sqlite:///{db_path.as_posix()}", None)
 
 
+def test_create_portal_engine_sqlite_uses_null_pool(tmp_path, monkeypatch):
+    """File sqlite must not use QueuePool (auth_request concurrency)."""
+    from sqlalchemy.pool import NullPool
+
+    monkeypatch.setenv("VAULT_KEYS_DIR", str(tmp_path / "keys"))
+    monkeypatch.delenv("VAULT_PORTAL_DB_ENCRYPTION_KEY", raising=False)
+    get_settings.cache_clear()
+    settings = Settings(vault_portal_db_encryption_key="")
+    db_path = tmp_path / "portal.db"
+    engine = create_portal_engine(f"sqlite:///{db_path.as_posix()}", settings)
+    assert isinstance(engine.pool, NullPool)
+
+
 def test_create_portal_engine_plaintext_memory(tmp_path, monkeypatch):
     monkeypatch.setenv("VAULT_KEYS_DIR", str(tmp_path / "keys"))
     monkeypatch.delenv("VAULT_PORTAL_DB_ENCRYPTION_KEY", raising=False)
@@ -115,6 +128,7 @@ def test_create_portal_engine_plaintext_memory(tmp_path, monkeypatch):
         from sqlalchemy import text
 
         assert conn.execute(text("SELECT 1")).scalar() == 1
+        assert isinstance(engine.pool, StaticPool)
 
 
 def test_get_db_encryption_status_disabled(tmp_path, monkeypatch):

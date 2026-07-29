@@ -144,12 +144,17 @@ def _resolve_target(
     db: Session,
 ) -> tuple[Literal["subdomain", "legacy"], str, str | None]:
     """Return (mode, target_url, fqdn)."""
+    from app.access_modes import public_app_entry_url
     from app.portal_settings_service import get_subdomain_sso_enabled
 
     mode = normalize_access_mode(app.access_mode)
     fqdn = (app.public_fqdn or "").strip() or None
     if get_subdomain_sso_enabled(db, settings) and mode == "subdomain_proxy" and fqdn:
-        return "subdomain", f"https://{fqdn}/", fqdn
+        return (
+            "subdomain",
+            public_app_entry_url(app, root_trailing_slash=True) or f"https://{fqdn}/",
+            fqdn,
+        )
     return "legacy", f"/proxy/{app.slug}/", None
 
 

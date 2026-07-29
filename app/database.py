@@ -20,3 +20,15 @@ def get_db(request: Request) -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+def release_db_connection(db: Session) -> None:
+    """
+    Return the checked-out pool connection before a long ``await``.
+
+    FastAPI keeps the request-scoped Session for the whole request; without this,
+    concurrent ``auth_request`` handlers (subdomain-auth → oauth2-proxy) hold all
+    QueuePool slots and starve the rest of the app. After ``close()``, the next
+    ORM use on the same Session checkouts a fresh connection.
+    """
+    db.close()

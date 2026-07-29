@@ -83,6 +83,8 @@ async def _oauth2_proxy_auth_response(
     db: Session,
 ) -> Response | None:
     """Call oauth2-proxy /oauth2/auth. None if no IdP; else proxy status (202/401/503)."""
+    from app.database import release_db_connection
+
     default_realm = get_default_idp_realm(db)
     if not default_realm:
         return None
@@ -90,6 +92,8 @@ async def _oauth2_proxy_auth_response(
     realm_slug = request.headers.get("X-Realm-Slug", default_realm.slug)
     proxy_url = get_realm_proxy_url(realm_slug, settings, db)
     cookie_header = request.headers.get("Cookie", "")
+    # Portal auth_request is hot — release pool slot before outbound HTTP.
+    release_db_connection(db)
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(

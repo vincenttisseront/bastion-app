@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 ACCESS_MODES: tuple[str, ...] = (
     "sso_gate",
     "subdomain_proxy",
@@ -57,6 +59,36 @@ def is_user_catalogue_mode(access_mode: str | None) -> bool:
     return normalize_access_mode(access_mode) not in CATALOGUE_EXCLUDED_ACCESS_MODES
 
 
+def upstream_entry_path(app) -> str:
+    """
+    Browser entry path on the public FQDN (e.g. ``/web/`` for grommunio).
+
+    Prefer ``login_form_url`` path; else a non-root path on ``upstream_url``.
+    Nginx still proxies origin-only — this is only for redirects / probes.
+    """
+    for raw in (
+        (getattr(app, "login_form_url", None) or "").strip(),
+        (getattr(app, "upstream_url", None) or "").strip(),
+    ):
+        if not raw:
+            continue
+        path = urlparse(raw).path or "/"
+        if path not in ("", "/"):
+            return path if path.endswith("/") else f"{path}/"
+    return "/"
+
+
+def public_app_entry_url(app, *, root_trailing_slash: bool = False) -> str | None:
+    """``https://{public_fqdn}`` or ``https://{public_fqdn}/web/`` when an entry path exists."""
+    fqdn = (getattr(app, "public_fqdn", None) or "").strip()
+    if not fqdn:
+        return None
+    path = upstream_entry_path(app)
+    if path == "/":
+        return f"https://{fqdn}/" if root_trailing_slash else f"https://{fqdn}"
+    return f"https://{fqdn}{path}"
+
+
 def validate_app_access_fields(
     access_mode: str,
     upstream_url: str,
@@ -74,6 +106,14 @@ def validate_app_access_fields(
             errors["public_fqdn"] = "Le domaine public dédié est requis pour ce mode."
         elif " " in fqdn or "/" in fqdn:
             errors["public_fqdn"] = "Saisissez un FQDN valide (ex: app.example.fr)."
+        # Path inside upstream_url breaks proxy_pass $var (Grommunio/Teleport 301 loops).
+        path = urlparse(upstream_url.strip()).path or ""
+        if path not in ("", "/"):
+            errors["upstream_url"] = (
+                "Origine uniquement (scheme://host[:port]/ — sans chemin "
+                "(ex. https://10.x.x.x/ et non …/web/). Le chemin d’entrée "
+                "appartient à login_form_url ou à l’URL navigateur."
+            )
     return errors
 
 
@@ -90,7 +130,7 @@ def app_launch_url(app) -> str:
     if mode == "sso_gate":
         return app.upstream_url
     if mode in ("subdomain_proxy", "public_proxy") and app.public_fqdn:
-        return f"https://{app.public_fqdn.strip()}"
+        return public_app_entry_url(app) or f"https://{app.public_fqdn.strip()}"
     if mode == "legacy_path_proxy":
         return f"/proxy/{app.slug}/"
     return app.upstream_url

@@ -166,6 +166,8 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
     Create SQLAlchemy engine; inject SQLCipher key when configured.
     Extra kwargs are forwarded to create_engine (e.g. poolclass for tests).
     """
+    from sqlalchemy.pool import NullPool
+
     from app.sso_settings import get_settings
 
     cfg = settings or get_settings()
@@ -178,6 +180,17 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
         **kwargs,
     }
 
+    # SQLAlchemy 2.0 defaults sqlite to QueuePool(5+10); under concurrent
+    # auth_request that exhausts instantly. File sqlite must use NullPool.
+    # Tests may pass StaticPool / QueuePool explicitly — respect that.
+    if "poolclass" not in engine_kwargs and "pool" not in engine_kwargs:
+        if (database_url or "").strip().lower().startswith("sqlite"):
+            engine_kwargs["poolclass"] = NullPool
+        else:
+            engine_kwargs.setdefault("pool_size", 20)
+            engine_kwargs.setdefault("max_overflow", 40)
+            engine_kwargs.setdefault("pool_pre_ping", True)
+
     assert_db_cipher_state(database_url, key_hex)
 
     if key_hex is not None:
@@ -188,9 +201,20 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
         with engine.connect() as conn:
             verify_db_readable(conn)
         logger.info("SQLCipher enabled for portal database")
-        return engine
+    else:
+        engine = create_engine(database_url, **engine_kwargs)
 
-    return create_engine(database_url, **engine_kwargs)
+    if (database_url or "").strip().lower().startswith("sqlite"):
+
+        @event.listens_for(engine, "connect")
+        def _sqlite_busy_timeout(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA busy_timeout=5000")
+            finally:
+                cursor.close()
+
+    return engine
 
 
 def sqlite_path_from_url(database_url: str) -> Path:

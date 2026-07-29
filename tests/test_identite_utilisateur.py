@@ -694,5 +694,6 @@ def test_portal_identity_tile_has_no_impersonate_href(
     assert 'href="/api/internal/impersonate/grommunio"' not in html
     assert "bastionPasswordPrompt" in html
     assert "submitOpenWithIdentityForm" in html
+    assert "form.target = '_blank'" in html
     assert "JSON.stringify({ password:" not in html
     assert "fetch(endpoint" not in html
