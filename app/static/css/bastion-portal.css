@@ -603,6 +603,10 @@ body.page-portal > .main-content {
 
 /* Launch / manage tiles — elevate to metric-card / admin-card finish */
 .app-tile {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   box-shadow: var(--sh-card);
   transition:
     transform var(--t-base),
@@ -612,9 +616,6 @@ body.page-portal > .main-content {
 }
 
 button.app-tile {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
   width: 100%;
   margin: 0;
   font: inherit;
@@ -631,6 +632,7 @@ button.app-tile:focus-visible {
 }
 
 .app-tile .admin-icon {
+  flex: 0 0 auto;
   box-shadow: 0 0 16px rgba(16, 185, 129, 0.12);
 }
 
@@ -638,15 +640,40 @@ button.app-tile:focus-visible {
   box-shadow: var(--accent-glow);
 }
 
-.app-tile .app-tile-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  margin-top: auto;
+/* Reserve title + 2-line desc so badge rows start at the same Y across the grid. */
+.app-tile .admin-title {
+  flex: 0 0 auto;
   min-height: 1.25rem;
 }
 
+.app-tile .admin-desc {
+  flex: 1 1 auto;
+  min-height: calc(var(--fs-xs, 0.75rem) * 1.5 * 2);
+  max-height: calc(var(--fs-xs, 0.75rem) * 1.5 * 2);
+  margin: 0;
+  /* Override .truncate nowrap — keep exactly two lines across tiles. */
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Fixed badge band (≈2 rows) so Protégé / Opérationnel align even without « Mot de passe ». */
+.app-tile .app-tile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-top: auto;
+  min-height: calc(2 * 1.55rem + var(--sp-2));
+}
+
 .app-tile .admin-arrow {
+  flex: 0 0 auto;
   opacity: 1;
   font-size: var(--fs-xs);
   font-weight: 600;

@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-stitch-apps">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260729-tile-badges">
 {% endblock %}
 
 {% block content %}
@@ -81,9 +81,7 @@
           >
             {{ app_tile_icon(app) }}
             <div class="admin-title">{{ app.label }}</div>
-            {% if app.description %}
-            <div class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</div>
-            {% endif %}
+            <div class="admin-desc truncate"{% if app.description %} title="{{ app.description }}"{% endif %}>{{ app.description or '' }}</div>
             <div class="app-tile-meta">
               {{ status_badges(app) }}
               <span class="badge badge-warn">Configuration requise</span>
@@ -108,9 +106,7 @@
           >
             {{ app_tile_icon(app) }}
             <div class="admin-title">{{ app.label }}</div>
-            {% if app.description %}
-            <div class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</div>
-            {% endif %}
+            <div class="admin-desc truncate"{% if app.description %} title="{{ app.description }}"{% endif %}>{{ app.description or '' }}</div>
             <div class="app-tile-meta">
               {{ status_badges(app) }}
               {% if app.access_level == 'manage' %}
@@ -136,9 +132,7 @@
           >
             {{ app_tile_icon(app) }}
             <div class="admin-title">{{ app.label }}</div>
-            {% if app.description %}
-            <div class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</div>
-            {% endif %}
+            <div class="admin-desc truncate"{% if app.description %} title="{{ app.description }}"{% endif %}>{{ app.description or '' }}</div>
             <div class="app-tile-meta">
               {{ status_badges(app) }}
               {% if app.access_level == 'manage' %}
@@ -161,9 +155,7 @@
           >
             {{ app_tile_icon(app) }}
             <div class="admin-title">{{ app.label }}</div>
-            {% if app.description %}
-            <div class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</div>
-            {% endif %}
+            <div class="admin-desc truncate"{% if app.description %} title="{{ app.description }}"{% endif %}>{{ app.description or '' }}</div>
             <div class="app-tile-meta">{{ status_badges(app) }}</div>
             <span class="admin-arrow app-tile-locked">Lecture seule</span>
           </div>
