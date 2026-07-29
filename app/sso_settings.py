@@ -205,6 +205,15 @@ class Settings(BaseSettings):
             "oauth2_proxy_network_mode",
         ),
     )
+    # Emergency only: oauth2-proxy skips TLS verify toward OIDC issuer (Keycloak).
+    # Prefer fixing Keycloak HTTPS / ACME for the IdP FQDN instead.
+    oauth2_ssl_insecure_skip_verify: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "OAUTH2_SSL_INSECURE_SKIP_VERIFY",
+            "oauth2_ssl_insecure_skip_verify",
+        ),
+    )
 
     # Shared flag for optional LAN auth shortcuts. Default false (F-04 2026-07-25):
     # disable until the reverse01 → nginx-bastion → app client-IP chain is proven.

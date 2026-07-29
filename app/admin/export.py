@@ -67,6 +67,14 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
         # Without this, oauth2-proxy can omit/refuse the email for some users,
         # and identity_format=email apps (e.g. Grommunio) fall back to username.
         "insecure_oidc_allow_unverified_email = true",
+    ]
+    if settings.oauth2_ssl_insecure_skip_verify:
+        lines.append(
+            "# TEMP: skip TLS verify to IdP — set OAUTH2_SSL_INSECURE_SKIP_VERIFY=false once ACME covers IdP FQDN"
+        )
+        lines.append("ssl_insecure_skip_verify = true")
+    lines.extend(
+        [
         "cookie_secure = true",
         "cookie_httponly = true",
         'cookie_samesite = "lax"',
@@ -84,7 +92,8 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
         "pass_access_token = false",
         "pass_authorization_header = true",
         "",
-    ]
+        ]
+    )
     return "\n".join(lines)
 
 

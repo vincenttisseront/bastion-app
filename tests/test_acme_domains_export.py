@@ -61,6 +61,28 @@ def test_acme_domains_manifest_includes_all_families(db_session, tmp_path):
     ]
 
 
+def test_acme_domains_manifest_includes_infra_export(db_session, tmp_path):
+    settings = _settings(tmp_path)
+    exports = Path(settings.exports_dir)
+    exports.mkdir(parents=True)
+    (exports / "infra-acme-domains.json").write_text(
+        json.dumps(
+            [
+                {
+                    "fqdn": "keycloak.example.fr",
+                    "slug": "keycloak",
+                    "upstream_url": "http://keycloak:8080",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    manifest = build_acme_domains_manifest(db_session, settings)
+    by_family = {d["family"]: d["fqdn"] for d in manifest["domains"]}
+    assert by_family["infra"] == "keycloak.example.fr"
+    assert by_family["portal"] == "portal.example.fr"
+
+
 def test_write_acme_domains_export(tmp_path, db_session):
     settings = _settings(tmp_path)
     db_session.add(

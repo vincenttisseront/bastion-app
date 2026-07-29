@@ -203,6 +203,20 @@
     dest: "{{ sso_portal_exports_dir }}/nginx-infra-proxy-apps.conf"
     mode: "0644"
 
+- name: "Export infra FQDNs for ACME (Keycloak TLS after Traefik cut)"
+  ansible.builtin.copy:
+    dest: "{{ sso_portal_exports_dir }}/infra-acme-domains.json"
+    mode: "0644"
+    content: "{{ _infra_acme | to_nice_json }}\n"
+  vars:
+    _infra_acme: >-
+      {{
+        bastion_infra_proxy_vhosts
+        | rejectattr('enabled', 'equalto', false)
+        | map('combine', {'family': 'infra'})
+        | list
+      }}
+
 - name: "Ensure oauth2-core cfg from example if missing"
   ansible.builtin.copy:
     src: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg.example"
