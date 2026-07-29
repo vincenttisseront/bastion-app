@@ -28,7 +28,10 @@ server {
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        # Must be https when traffic came via :443 terminator (otherwise Keycloak
+        # advertises issuer http://host:443 and OIDC discovery fails).
+        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
+        proxy_set_header X-Forwarded-Port  $bastion_forwarded_port;
         proxy_set_header X-Forwarded-Host  $host;
         proxy_set_header Upgrade           $http_upgrade;
         proxy_set_header Connection        $http_connection;

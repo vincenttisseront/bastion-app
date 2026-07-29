@@ -124,7 +124,7 @@ def generate_nginx_realms_conf(
         lines.append("    proxy_set_header Host $host;")
         lines.append("    proxy_set_header X-Real-IP $remote_addr;")
         lines.append("    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
-        lines.append("    proxy_set_header X-Forwarded-Proto $scheme;")
+        lines.append("    proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;")
         lines.append("    proxy_set_header X-Forwarded-Host $host;")
         lines.append("}")
         lines.append("")

@@ -48,14 +48,26 @@ def test_infra_proxy_template_no_auth():
     assert "oauth2" not in tpl
     assert "listen 0.0.0.0:8080" in tpl
     assert "bastion_infra_proxy_vhosts" in tpl
+    assert "X-Forwarded-Proto $bastion_forwarded_proto" in tpl
+    assert "X-Forwarded-Port  $bastion_forwarded_port" in tpl
+
+
+def test_nginx_http_forwarded_proto_map():
+    conf = (ROOT / "docker" / "nginx" / "nginx.conf").read_text(encoding="utf-8")
+    assert "map $http_x_forwarded_proto $bastion_forwarded_proto" in conf
+    assert '""      https' in conf
 
 
 def test_entrypoint_copies_infra_proxy_export():
+    sync = (ROOT / "docker" / "nginx" / "sync-exports-to-confd.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "nginx-infra-proxy-apps.conf" in sync
+    assert "nginx-public-proxy-apps.conf" in sync
     entry = (ROOT / "docker" / "nginx" / "docker-entrypoint.sh").read_text(
         encoding="utf-8"
     )
-    assert "nginx-infra-proxy-apps.conf" in entry
-    assert "nginx-public-proxy-apps.conf" in entry
+    assert "sync-exports-to-confd.sh" in entry
 
 
 def test_traefik_catchall_example_present():
