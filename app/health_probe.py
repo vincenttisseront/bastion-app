@@ -6,10 +6,13 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy.orm import Session
 
+from app.bastion.upstream_proxy import upstream_origin
+from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.models import App, utcnow
 from app.testing_framework.connection_test import (
     CheckStatus,
@@ -20,14 +23,40 @@ from app.testing_framework.connection_test import (
 
 logger = logging.getLogger(__name__)
 
+_PROBE_TIMEOUT_S = 10.0
+
 
 def probe_target_url(app: App) -> str | None:
-    url = (app.healthcheck_url or app.upstream_url or "").strip()
-    return url or None
+    """
+    URL used for the HTTP probe.
+
+    Prefer an explicit ``healthcheck_url``. Otherwise use the upstream
+    **origin** only (no entry path like ``/web``) so reachability matches how
+    nginx talks to the backend.
+    """
+    explicit = (getattr(app, "healthcheck_url", None) or "").strip()
+    if explicit:
+        return explicit
+    raw = (getattr(app, "upstream_url", None) or "").strip()
+    if not raw:
+        return None
+    try:
+        return upstream_origin(raw).rstrip("/") + "/"
+    except ValueError:
+        return raw
 
 
 def classify_http_status(status_code: int) -> str:
+    """
+    Map HTTP codes to probe status.
+
+    401/403 count as ``ok``: the TCP/TLS hop succeeded and the app answered
+    (typical for SSO / Basic / form login). That matches catalogue reality
+    better than marking a live backend « Indisponible ».
+    """
     if 200 <= status_code < 400:
+        return "ok"
+    if status_code in (401, 403):
         return "ok"
     if 400 <= status_code < 500:
         return "warn"
@@ -36,6 +65,17 @@ def classify_http_status(status_code: int) -> str:
 
 def _status_from_http(code: int) -> CheckStatus:
     return CheckStatus(classify_http_status(code))
+
+
+def _probe_request_headers(app: App, url: str) -> dict[str, str]:
+    """Send public FQDN as Host when probing an IP/LAN upstream (vhost apps)."""
+    fqdn = (getattr(app, "public_fqdn", None) or "").strip()
+    if not fqdn:
+        return {}
+    host = (urlparse(url).hostname or "").lower()
+    if not host or host == fqdn.lower():
+        return {}
+    return {"Host": fqdn}
 
 
 def _legacy_probe_dict(result: ConnectionTestResult) -> dict[str, Any]:
@@ -87,14 +127,26 @@ async def probe_application_result(app: App) -> ConnectionTestResult:
             latency_ms=None,
         )
 
+    # Align with nginx / robotic login (default: do not verify LAN/self-signed).
+    tls_verify = resolve_upstream_tls_verify(app)
+    headers = _probe_request_headers(app, url)
     start = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=5.0, follow_redirects=True, verify=True) as client:
-            resp = await client.get(url)
+        async with httpx.AsyncClient(
+            timeout=_PROBE_TIMEOUT_S,
+            follow_redirects=True,
+            verify=tls_verify,
+        ) as client:
+            resp = await client.get(url, headers=headers)
         latency_ms = int((time.monotonic() - start) * 1000)
         status = _status_from_http(resp.status_code)
         if status == CheckStatus.OK:
-            message = f"Upstream joignable (HTTP {resp.status_code})"
+            if resp.status_code in (401, 403):
+                message = (
+                    f"Upstream joignable (HTTP {resp.status_code} — auth attendue)"
+                )
+            else:
+                message = f"Upstream joignable (HTTP {resp.status_code})"
         elif status == CheckStatus.WARN:
             message = f"Réponse client HTTP {resp.status_code}"
         else:
@@ -104,7 +156,7 @@ async def probe_application_result(app: App) -> ConnectionTestResult:
                 name="http_probe",
                 status=status,
                 message=message,
-                detail={"http_code": resp.status_code},
+                detail={"http_code": resp.status_code, "tls_verify": tls_verify},
             )
         ]
         return ConnectionTestResult(
@@ -119,7 +171,7 @@ async def probe_application_result(app: App) -> ConnectionTestResult:
             CheckStep(
                 name="http_probe",
                 status=CheckStatus.ERROR,
-                message="Timeout (> 5s)",
+                message=f"Timeout (> {_PROBE_TIMEOUT_S:g}s)",
             )
         ]
         return ConnectionTestResult(

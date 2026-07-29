@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -15,6 +15,7 @@ from app.health_probe import (
     classify_http_status,
     probe_all_enabled_apps,
     probe_application,
+    probe_application_result,
     probe_target_url,
 )
 from app.models import App
@@ -27,7 +28,14 @@ ADMIN_HEADERS = {
 
 @pytest.mark.parametrize(
     ("code", "expected"),
-    [(200, "ok"), (302, "ok"), (401, "warn"), (404, "warn"), (500, "error")],
+    [
+        (200, "ok"),
+        (302, "ok"),
+        (401, "ok"),
+        (403, "ok"),
+        (404, "warn"),
+        (500, "error"),
+    ],
 )
 def test_classify_http_status(code, expected):
     assert classify_http_status(code) == expected
@@ -44,7 +52,12 @@ async def test_probe_application_no_url():
 @pytest.mark.asyncio
 @respx.mock
 async def test_probe_application_ok():
-    app = SimpleNamespace(upstream_url="https://transfer.example.fr/", healthcheck_url=None)
+    app = SimpleNamespace(
+        upstream_url="https://transfer.example.fr/",
+        healthcheck_url=None,
+        public_fqdn=None,
+        upstream_tls_verify=False,
+    )
     respx.get("https://transfer.example.fr/").mock(return_value=Response(200))
     result = await probe_application(app)
     assert result["status"] == "ok"
@@ -54,18 +67,28 @@ async def test_probe_application_ok():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_probe_application_warn_401():
-    app = SimpleNamespace(upstream_url="https://wiki.example.fr/", healthcheck_url=None)
+async def test_probe_application_auth_challenge_is_ok():
+    app = SimpleNamespace(
+        upstream_url="https://wiki.example.fr/",
+        healthcheck_url=None,
+        public_fqdn=None,
+        upstream_tls_verify=False,
+    )
     respx.get("https://wiki.example.fr/").mock(return_value=Response(401))
     result = await probe_application(app)
-    assert result["status"] == "warn"
+    assert result["status"] == "ok"
     assert result["http_code"] == 401
 
 
 @pytest.mark.asyncio
 @respx.mock
 async def test_probe_application_error_5xx():
-    app = SimpleNamespace(upstream_url="https://app.example.fr/", healthcheck_url=None)
+    app = SimpleNamespace(
+        upstream_url="https://app.example.fr/",
+        healthcheck_url=None,
+        public_fqdn=None,
+        upstream_tls_verify=False,
+    )
     respx.get("https://app.example.fr/").mock(return_value=Response(503))
     result = await probe_application(app)
     assert result["status"] == "error"
@@ -75,7 +98,12 @@ async def test_probe_application_error_5xx():
 @pytest.mark.asyncio
 @respx.mock
 async def test_probe_application_timeout():
-    app = SimpleNamespace(upstream_url="https://slow.example.fr/", healthcheck_url=None)
+    app = SimpleNamespace(
+        upstream_url="https://slow.example.fr/",
+        healthcheck_url=None,
+        public_fqdn=None,
+        upstream_tls_verify=False,
+    )
     respx.get("https://slow.example.fr/").mock(side_effect=httpx.ReadTimeout("timeout"))
     result = await probe_application(app)
     assert result["status"] == "error"
@@ -85,11 +113,64 @@ async def test_probe_application_timeout():
 @pytest.mark.asyncio
 @respx.mock
 async def test_probe_application_connection_error():
-    app = SimpleNamespace(upstream_url="https://missing.example.fr/", healthcheck_url=None)
+    app = SimpleNamespace(
+        upstream_url="https://missing.example.fr/",
+        healthcheck_url=None,
+        public_fqdn=None,
+        upstream_tls_verify=False,
+    )
     respx.get("https://missing.example.fr/").mock(side_effect=httpx.ConnectError("dns"))
     result = await probe_application(app)
     assert result["status"] == "error"
     assert "Injoignable" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_probe_uses_app_tls_verify_default_false():
+    app = SimpleNamespace(
+        id=1,
+        upstream_url="https://10.0.0.50/",
+        healthcheck_url=None,
+        public_fqdn="webmail.example.fr",
+        upstream_tls_verify=False,
+    )
+    mock_resp = MagicMock(status_code=200)
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("app.health_probe.httpx.AsyncClient", return_value=mock_client) as client_cls:
+        result = await probe_application_result(app)
+
+    assert result.overall_status.value == "ok"
+    kwargs = client_cls.call_args.kwargs
+    assert kwargs["verify"] is False
+    mock_client.get.assert_awaited_once()
+    call_kwargs = mock_client.get.await_args
+    assert call_kwargs.args[0] == "https://10.0.0.50/"
+    assert call_kwargs.kwargs["headers"] == {"Host": "webmail.example.fr"}
+
+
+@pytest.mark.asyncio
+async def test_probe_respects_tls_verify_true():
+    app = SimpleNamespace(
+        id=2,
+        upstream_url="https://secure.example.fr/",
+        healthcheck_url=None,
+        public_fqdn=None,
+        upstream_tls_verify=True,
+    )
+    mock_resp = MagicMock(status_code=200)
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("app.health_probe.httpx.AsyncClient", return_value=mock_client) as client_cls:
+        await probe_application_result(app)
+
+    assert client_cls.call_args.kwargs["verify"] is True
 
 
 @pytest.mark.asyncio
@@ -152,3 +233,11 @@ def test_probe_single_endpoint(client, db_session: Session):
 def test_probe_target_url_prefers_healthcheck():
     app = SimpleNamespace(upstream_url="https://public/", healthcheck_url="https://health/")
     assert probe_target_url(app) == "https://health/"
+
+
+def test_probe_target_url_strips_entry_path():
+    app = SimpleNamespace(
+        upstream_url="https://10.0.0.50/web",
+        healthcheck_url=None,
+    )
+    assert probe_target_url(app) == "https://10.0.0.50/"
