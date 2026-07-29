@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import time
 from typing import Any
 
 from app.sso_settings import Settings
@@ -172,3 +173,17 @@ def read_host_apply_status(settings: Settings, *, log_max_chars: int = 4000) -> 
         "log_text": log_text,
         "data_dir": str(infra_data_dir(settings)),
     }
+
+
+def wait_for_host_apply(
+    settings: Settings, *, timeout_sec: float = 10.0, poll_interval_sec: float = 0.25
+) -> dict[str, Any]:
+    """Wait briefly for host apply to leave pending and return the latest status."""
+    deadline = time.monotonic() + max(0.0, timeout_sec)
+    while True:
+        state = read_host_apply_status(settings)
+        if state["status"] in {STATUS_OK, STATUS_ERROR}:
+            return state
+        if time.monotonic() >= deadline:
+            return state
+        time.sleep(max(0.05, poll_interval_sec))

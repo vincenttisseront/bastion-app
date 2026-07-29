@@ -7,6 +7,7 @@ from app.admin.infra_host_apply import (
     STATUS_PENDING,
     read_host_apply_status,
     request_host_apply,
+    wait_for_host_apply,
 )
 from app.sso_settings import Settings
 
@@ -55,3 +56,20 @@ def test_read_host_apply_status_ok(tmp_path: Path):
     assert host["badge"] == "ok"
     assert host["request_pending"] is False
     assert "done" in host["log_text"]
+
+
+def test_wait_for_host_apply_returns_current_ok(tmp_path: Path):
+    data = tmp_path / "data"
+    exports = data / "exports"
+    exports.mkdir(parents=True)
+    (data / "apply-infra.status").write_text(STATUS_OK + "\n", encoding="utf-8")
+    settings = Settings(
+        portal_data_dir=str(data),
+        exports_dir=str(exports),
+        vault_portal_internal_token="t",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        database_url="sqlite://",
+    )
+
+    host = wait_for_host_apply(settings, timeout_sec=0.1, poll_interval_sec=0.05)
+    assert host["status"] == STATUS_OK

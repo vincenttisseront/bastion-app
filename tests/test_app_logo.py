@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy.orm import Session
 
-from app.models import App
+from app.models import App, AuditLog
 from app.web import app_logos
 
 
@@ -289,3 +289,94 @@ def test_app_description_saved_on_edit(client: TestClient, db_session: Session):
     assert resp.status_code == 302
     db_session.refresh(app)
     assert app.description == "Base de connaissances partagée"
+
+
+def test_app_edit_logs_confirmed_host_apply(client: TestClient, db_session: Session, tmp_path, monkeypatch):
+    app = App(
+        slug="grommunio",
+        label="Grommunio",
+        upstream_url="https://10.0.0.9/",
+        enabled=True,
+        access_mode="subdomain_proxy",
+        public_fqdn="webmail.example.fr",
+    )
+    db_session.add(app)
+    db_session.commit()
+    db_session.refresh(app)
+    monkeypatch.setattr(
+        "app.web.pages.export_app_catalogue_files",
+        lambda db, settings: {"nginx_subdomain_apps_conf": str(tmp_path / "x.conf")},
+    )
+    monkeypatch.setattr(
+        "app.web.pages.request_host_apply",
+        lambda settings, exported_files=0: {"ok": True, "path": str(tmp_path / "apply-infra.request")},
+    )
+    monkeypatch.setattr(
+        "app.web.pages.wait_for_host_apply",
+        lambda settings, timeout_sec=0.0: {
+            "status": "ok",
+            "status_path": str(tmp_path / "apply-infra.status"),
+            "log_path": str(tmp_path / "apply-infra.log"),
+            "request_pending": False,
+        },
+    )
+
+    resp = client.post(
+        f"/admin/apps/{app.slug}/edit",
+        headers=ADMIN_HEADERS,
+        data={
+            "label": "Grommunio",
+            "upstream_url": "https://10.0.0.9/",
+            "access_mode": "subdomain_proxy",
+            "public_fqdn": "webmail.example.fr",
+            "description": "",
+            "enabled": "on",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    audit = (
+        db_session.query(AuditLog)
+        .filter_by(action="infrastructure.apply.ok", target=app.slug)
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.details["source"] == "app.updated"
+
+
+def test_app_edit_warns_when_host_apply_still_pending(
+    client: TestClient, db_session: Session, tmp_path, monkeypatch
+):
+    app = _app(db_session, slug="grommunio2", label="Grommunio2")
+    monkeypatch.setattr("app.web.pages.export_app_catalogue_files", lambda db, settings: {})
+    monkeypatch.setattr(
+        "app.web.pages.request_host_apply",
+        lambda settings, exported_files=0: {"ok": True, "path": str(tmp_path / "apply-infra.request")},
+    )
+    monkeypatch.setattr(
+        "app.web.pages.wait_for_host_apply",
+        lambda settings, timeout_sec=0.0: {
+            "status": "pending",
+            "status_path": str(tmp_path / "apply-infra.status"),
+            "log_path": str(tmp_path / "apply-infra.log"),
+            "request_pending": True,
+        },
+    )
+
+    resp = client.post(
+        f"/admin/apps/{app.slug}/edit",
+        headers=ADMIN_HEADERS,
+        data={
+            "label": "Grommunio2",
+            "upstream_url": "https://grommunio2.example.com/",
+            "access_mode": "sso_gate",
+            "public_fqdn": "",
+            "description": "",
+            "enabled": "on",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    page = client.get("/admin/apps", headers=ADMIN_HEADERS)
+    assert "apply hôte toujours en attente" in page.text
