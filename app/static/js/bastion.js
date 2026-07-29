@@ -267,6 +267,11 @@ function initAccessModeForm() {
     if (fqdnLabelEl) {
       fqdnLabelEl.innerHTML = copy.fqdnLabel + ' <span class="req">*</span>';
     }
+    var easWrap = document.getElementById('allow-activesync-wrap');
+    var easHelp = document.getElementById('allow-activesync-help');
+    var showEas = mode === 'subdomain_proxy';
+    if (easWrap) easWrap.hidden = !showEas;
+    if (easHelp) easHelp.hidden = !showEas;
     if (legacyWarn) legacyWarn.hidden = !copy.showLegacyWarn;
     if (publicWarn) publicWarn.hidden = !copy.showPublicWarn;
     if (rbacWarn) rbacWarn.hidden = !copy.showPublicWarn;

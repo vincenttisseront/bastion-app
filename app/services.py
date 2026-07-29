@@ -50,6 +50,7 @@ class AppCreate(BaseModel):
     identity_format: Literal["email", "username"] = "email"
     healthcheck_url: str | None = None
     enabled: bool = True
+    allow_activesync: bool = False
     tile_icon: str | None = None
     description: str | None = None
     logo_path: str | None = None
@@ -74,6 +75,7 @@ class AppUpdate(BaseModel):
     identity_format: Literal["email", "username"] | None = None
     healthcheck_url: str | None = None
     enabled: bool | None = None
+    allow_activesync: bool | None = None
     tile_icon: str | None = None
     description: str | None = None
     logo_path: str | None = None
@@ -97,6 +99,7 @@ class AppOut(BaseModel):
     identity_format: str = "email"
     healthcheck_url: str | None
     enabled: bool
+    allow_activesync: bool = False
     tile_icon: str | None
     description: str | None = None
     logo_path: str | None = None
@@ -189,6 +192,8 @@ def create_app(
 
     payload = body.model_dump()
     payload["access_mode"] = mode
+    if mode != "subdomain_proxy":
+        payload["allow_activesync"] = False
     app = App(**payload)
     db.add(app)
     db.commit()
@@ -221,6 +226,10 @@ def update_app(
         raise HTTPException(status_code=422, detail=field_errors)
     if "access_mode" in updates:
         updates["access_mode"] = mode
+    if mode != "subdomain_proxy":
+        updates["allow_activesync"] = False
+    elif "allow_activesync" in updates:
+        updates["allow_activesync"] = bool(updates["allow_activesync"])
     for key, value in updates.items():
         setattr(app, key, value)
     app.updated_at = datetime.now(timezone.utc)

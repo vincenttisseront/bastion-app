@@ -774,6 +774,7 @@ def admin_apps_create(
                 "access_mode": "sso_gate",
                 "public_fqdn": "",
                 "description": "",
+                "allow_activesync": False,
                 **_auth_form_values(),
             },
             errors={},
@@ -790,6 +791,7 @@ def admin_apps_create_post(
     access_mode: str = Form("sso_gate"),
     public_fqdn: str = Form(""),
     description: str = Form(""),
+    allow_activesync: str | None = Form(None),
     auth_mode: str = Form("sso"),
     login_form_url: str = Form(""),
     login_username_field: str = Form("username"),
@@ -818,6 +820,7 @@ def admin_apps_create_post(
         "access_mode": mode,
         "public_fqdn": public_fqdn,
         "description": description,
+        "allow_activesync": allow_activesync == "on",
         **auth_values,
     }
     errors = validate_app_access_fields(mode, upstream_url, fqdn)
@@ -848,6 +851,7 @@ def admin_apps_create_post(
         access_mode=mode,
         public_fqdn=fqdn,
         description=desc,
+        allow_activesync=allow_activesync == "on" and mode == "subdomain_proxy",
     )
     _apply_auth_config(
         app,
@@ -921,6 +925,7 @@ def admin_apps_edit_post(
     public_fqdn: str = Form(""),
     description: str = Form(""),
     enabled: str | None = Form(None),
+    allow_activesync: str | None = Form(None),
     auth_mode: str = Form("sso"),
     login_form_url: str = Form(""),
     login_username_field: str = Form("username"),
@@ -998,6 +1003,7 @@ def admin_apps_edit_post(
     app.public_fqdn = fqdn
     app.description = desc
     app.enabled = enabled == "on"
+    app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
     _apply_auth_config(
         app,
         auth_mode=auth_mode,

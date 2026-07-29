@@ -59,7 +59,64 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
         "access_mode": "subdomain_proxy",
         "session_cookie_hop": True,
         "hop_path": "/.bastion/session-cookies",
+        "allow_activesync": bool(getattr(app, "allow_activesync", False)),
     }
+
+
+def _activesync_locations(slug: str, upstream_host_esc: str, fqdn_esc: str) -> list[str]:
+    """Locations that skip browser SSO redirect; require Basic or SSO via activesync-auth."""
+    return [
+        "    # Mobile ActiveSync / Autodiscover (allow_activesync=true)",
+        "    location ~* ^/Microsoft-Server-ActiveSync {",
+        "        auth_request /internal/activesync-auth;",
+        f"        error_page 401 = @activesync_unauthorized_{slug};",
+        "",
+        "        proxy_pass $app_upstream;",
+        "        proxy_redirect off;",
+        "        proxy_http_version 1.1;",
+        "        proxy_set_header Host $host;",
+        "        proxy_set_header X-Real-IP $remote_addr;",
+        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        "        proxy_set_header Authorization $http_authorization;",
+        "        proxy_pass_request_headers on;",
+        "",
+        "        auth_request_set $auth_user $upstream_http_x_auth_user;",
+        "        auth_request_set $auth_app $upstream_http_x_auth_app;",
+        "        auth_request_set $auth_source $upstream_http_x_auth_source;",
+        "        proxy_set_header X-Auth-User $auth_user;",
+        "        proxy_set_header X-Auth-App $auth_app;",
+        "        proxy_set_header X-Auth-Source $auth_source;",
+        "    }",
+        "",
+        "    location ~* ^/(AutoDiscover|autodiscover)/ {",
+        "        auth_request /internal/activesync-auth;",
+        f"        error_page 401 = @activesync_unauthorized_{slug};",
+        "",
+        "        proxy_pass $app_upstream;",
+        "        proxy_redirect off;",
+        "        proxy_http_version 1.1;",
+        "        proxy_set_header Host $host;",
+        "        proxy_set_header X-Real-IP $remote_addr;",
+        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        "        proxy_set_header Authorization $http_authorization;",
+        "",
+        "        auth_request_set $auth_user $upstream_http_x_auth_user;",
+        "        auth_request_set $auth_app $upstream_http_x_auth_app;",
+        "        auth_request_set $auth_source $upstream_http_x_auth_source;",
+        "        proxy_set_header X-Auth-User $auth_user;",
+        "        proxy_set_header X-Auth-App $auth_app;",
+        "        proxy_set_header X-Auth-Source $auth_source;",
+        "    }",
+        "",
+        f"    location @activesync_unauthorized_{slug} {{",
+        '        add_header WWW-Authenticate \'Basic realm="ActiveSync"\' always;',
+        "        default_type text/plain;",
+        "        return 401 \"ActiveSync authentication required\\n\";",
+        "    }",
+        "",
+    ]
 
 
 def generate_subdomain_server_block(app: App, settings: Settings) -> str:
@@ -78,6 +135,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     fqdn_esc = _nginx_escape(fqdn)
     portal_esc = _nginx_escape(portal)
     upstream_host_esc = _nginx_escape(upstream_host)
+    allow_eas = bool(getattr(app, "allow_activesync", False))
 
     lines = [
         f"# [{slug}] subdomain_proxy — {fqdn} (generated from App DB)",
@@ -110,33 +168,39 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_pass_request_body off;",
         "    }",
         "",
-        "    location / {",
-        "        auth_request /internal/subdomain-auth;",
-        f"        error_page 401 = @portal_redirect_{slug};",
-        "",
-        "        proxy_pass $app_upstream;",
-        "        proxy_redirect off;",
-        "        proxy_http_version 1.1;",
-        "        proxy_set_header Host $host;",
-        "        proxy_set_header X-Real-IP $remote_addr;",
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
-        "        proxy_cookie_path / /;",
-        f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
-        "",
-        "        auth_request_set $auth_user $upstream_http_x_auth_user;",
-        "        auth_request_set $auth_app $upstream_http_x_auth_app;",
-        "        proxy_set_header X-Auth-User $auth_user;",
-        "        proxy_set_header X-Auth-App $auth_app;",
-        "    }",
-        "",
-        f"    location @portal_redirect_{slug} {{",
-        f"        return 302 https://{portal_esc}/oauth2/{_nginx_escape(realm)}/start"
-        f"?rd=$scheme://$host$request_uri;",
-        "    }",
-        "}",
-        "",
     ]
+    if allow_eas:
+        lines.extend(_activesync_locations(slug, upstream_host_esc, fqdn_esc))
+    lines.extend(
+        [
+            "    location / {",
+            "        auth_request /internal/subdomain-auth;",
+            f"        error_page 401 = @portal_redirect_{slug};",
+            "",
+            "        proxy_pass $app_upstream;",
+            "        proxy_redirect off;",
+            "        proxy_http_version 1.1;",
+            "        proxy_set_header Host $host;",
+            "        proxy_set_header X-Real-IP $remote_addr;",
+            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+            "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+            "        proxy_cookie_path / /;",
+            f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
+            "",
+            "        auth_request_set $auth_user $upstream_http_x_auth_user;",
+            "        auth_request_set $auth_app $upstream_http_x_auth_app;",
+            "        proxy_set_header X-Auth-User $auth_user;",
+            "        proxy_set_header X-Auth-App $auth_app;",
+            "    }",
+            "",
+            f"    location @portal_redirect_{slug} {{",
+            f"        return 302 https://{portal_esc}/oauth2/{_nginx_escape(realm)}/start"
+            f"?rd=$scheme://$host$request_uri;",
+            "    }",
+            "}",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 

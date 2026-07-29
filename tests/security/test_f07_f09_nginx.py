@@ -23,6 +23,22 @@ def _assert_internal_locations(text: str, path: str) -> None:
         assert "internal;" in block, f"{path}: {name} must be internal"
 
 
+def test_activesync_auth_snippet_is_internal():
+    path = ROOT / "docker/nginx/snippets/activesync_auth_common.conf"
+    text = path.read_text(encoding="utf-8")
+    assert "location = /internal/activesync-auth" in text
+    idx = text.index("location = /internal/activesync-auth")
+    assert "internal;" in text[idx : idx + 200]
+    assert "Authorization" in text
+    parent = (ROOT / "docker/nginx/snippets/subdomain_auth_common.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "activesync_auth_common.conf" in parent
+    j2 = (ROOT / "nginx/snippets/subdomain_auth_common.conf.j2").read_text(encoding="utf-8")
+    assert "location = /internal/activesync-auth" in j2
+    assert "internal;" in j2
+
+
 def test_docker_portal_unknown_host_location_is_internal():
     path = ROOT / "docker/nginx/templates/vhost_sso_portal.conf.template"
     text = path.read_text(encoding="utf-8")

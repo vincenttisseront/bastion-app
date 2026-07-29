@@ -34,6 +34,7 @@ from app.robotic.session_cookie_hop import router as session_cookie_hop_router
 from app.services import authenticated_router as apps_read_router
 from app.services import router as apps_router
 from app.subdomain.subdomain_auth import router as subdomain_router
+from app.subdomain.activesync_auth import router as activesync_router
 from app.vault.routes import router as vault_router
 from app.web.admin_dependencies import router as admin_dependencies_router
 from app.web.admin_logs import router as admin_logs_router
@@ -240,6 +241,7 @@ app.include_router(apps_read_router)
 app.include_router(apps_router)
 app.include_router(realm_router)
 app.include_router(subdomain_router)
+app.include_router(activesync_router)
 app.include_router(vault_router)
 app.include_router(robotic_router)
 app.include_router(session_cookie_hop_router)

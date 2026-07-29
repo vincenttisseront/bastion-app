@@ -101,6 +101,15 @@
           <p class="form-help" id="upstream-url-help">L'utilisateur sera redirigé ici après validation SSO. Aucun proxy.</p>
           {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
         </div>
+
+        <label class="form-check" id="allow-activesync-wrap" hidden>
+          <input type="checkbox" name="allow_activesync" id="allow_activesync"{% if form_values.allow_activesync %} checked{% endif %}>
+          Accès mobile ActiveSync / Autodiscover
+        </label>
+        <p class="form-help" id="allow-activesync-help" hidden>
+          Pour la messagerie (ex. grommunio) en mode sous-domaine : autorise ActiveSync / Autodiscover
+          avec authentification Basic (ou SSO), sans redirection vers le login navigateur.
+        </p>
       </div>
     </div>
 

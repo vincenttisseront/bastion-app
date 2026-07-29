@@ -20,3 +20,21 @@ location = /internal/subdomain-auth {
     # Ne pas intercepter les erreurs du backend FastAPI
     proxy_intercept_errors off;
 }
+
+location = /internal/activesync-auth {
+    internal;
+    auth_request off;
+
+    proxy_pass http://{{ sso_portal_bind_host | default('127.0.0.1') }}:{{ sso_portal_bind_port | default('8000') }}/internal/activesync-auth;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length  "";
+    proxy_set_header X-Original-URI  $request_uri;
+    proxy_set_header X-Original-Host $host;
+    proxy_set_header X-Real-IP       $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
+    proxy_set_header Cookie          $http_cookie;
+    proxy_set_header Authorization   $http_authorization;
+    proxy_set_header User-Agent      $http_user_agent;
+    proxy_intercept_errors off;
+}

@@ -47,6 +47,8 @@ class App(Base):
     identity_format = Column(String, default="email", nullable=False)
     # Target session cookies: host_only (default) or wide_domain (opt-in parent Domain)
     injected_cookie_scope = Column(String, default="host_only", nullable=False)
+    # Mobile messaging (EAS): allow ActiveSync/Autodiscover without browser SSO redirect
+    allow_activesync = Column(Boolean, default=False, nullable=False)
     healthcheck_url = Column(String, nullable=True)
     enabled = Column(Boolean, default=True)
     tile_icon = Column(String, nullable=True)

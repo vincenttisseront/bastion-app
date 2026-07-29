@@ -107,6 +107,17 @@
           <input type="checkbox" name="enabled"{% if app.enabled %} checked{% endif %}>
           Application activée
         </label>
+
+        <label class="form-check" id="allow-activesync-wrap" {% if app.access_mode != 'subdomain_proxy' %}hidden{% endif %}>
+          <input type="checkbox" name="allow_activesync" id="allow_activesync"{% if app.allow_activesync %} checked{% endif %}>
+          Accès mobile ActiveSync / Autodiscover
+        </label>
+        <p class="form-help" id="allow-activesync-help" {% if app.access_mode != 'subdomain_proxy' %}hidden{% endif %}>
+          Pour la messagerie (ex. grommunio) : détecte Exchange ActiveSync et Autodiscover,
+          exige une authentification Basic (ou session SSO) au lieu d’une redirection login navigateur.
+          Journalisé dans l’audit (<span class="mono">activesync.allowed</span> /
+          <span class="mono">activesync.denied</span>).
+        </p>
       </div>
     </div>
 

@@ -52,6 +52,9 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/internal/subdomain-auth": (
         "nginx auth_request — validates session + AccessGrant itself"
     ),
+    "/internal/activesync-auth": (
+        "nginx auth_request — ActiveSync/Autodiscover Basic or SSO; no oauth2 HTML redirect"
+    ),
     "/internal/portal-rfc1918-bypass-auth": (
         "LAN recovery auth_request helper; validates client IP itself"
     ),
