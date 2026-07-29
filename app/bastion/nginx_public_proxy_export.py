@@ -67,6 +67,36 @@ def generate_public_proxy_server_block(app: App) -> str:
         raise ValueError(f"app {slug}: upstream_url required")
     upstream_esc = _nginx_escape(upstream)
     fqdn_esc = _nginx_escape(fqdn)
+    upstream_is_https = upstream.lower().startswith("https://")
+
+    # HTTPS upstream to an IP often has a name-mismatched cert — verify off.
+    ssl_lines: list[str] = []
+    if upstream_is_https:
+        ssl_lines = [
+            "        proxy_ssl_server_name on;",
+            "        proxy_ssl_verify off;",
+        ]
+
+    def _proxy_common(*, force_upgrade: bool) -> list[str]:
+        conn = '"upgrade"' if force_upgrade else "$connection_upgrade"
+        lines = [
+            "        proxy_pass $app_upstream;",
+            "        proxy_redirect off;",
+            "        proxy_http_version 1.1;",
+            "        proxy_set_header Upgrade $http_upgrade;",
+            f"        proxy_set_header Connection {conn};",
+            "        proxy_buffering off;",
+            "        proxy_request_buffering off;",
+            "        proxy_read_timeout 3600s;",
+            "        proxy_send_timeout 3600s;",
+            *ssl_lines,
+            "        proxy_set_header Host $host;",
+            "        proxy_set_header X-Real-IP $remote_addr;",
+            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+            "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+            "        proxy_set_header X-Forwarded-Host $host;",
+        ]
+        return lines
 
     lines = [
         f"# [{slug}] public_proxy — {fqdn} (no bastion auth; generated from App DB)",
@@ -87,46 +117,21 @@ def generate_public_proxy_server_block(app: App) -> str:
         "        access_log off;",
         "        proxy_pass $app_upstream/;",
         "        proxy_redirect off;",
-        "        proxy_set_header Host $host;",
-        "        # Keep websocket headers consistent (harmless for /healthz)",
         "        proxy_http_version 1.1;",
-        "        proxy_set_header Upgrade $http_upgrade;",
-        "        proxy_set_header Connection $http_connection;",
-        "        proxy_read_timeout 3600s;",
-        "        proxy_send_timeout 3600s;",
+        "        proxy_set_header Host $host;",
+        "        proxy_read_timeout 60s;",
+        "        proxy_send_timeout 60s;",
+        *ssl_lines,
         "    }",
         "",
-        "    # Teleport terminal streaming /connect/ws uses a websocket upgrade; be strict",
-        "    location ~* ^/v1/webapi/.*?/connect/ws$ {",
-        "        proxy_pass $app_upstream;",
-        "        proxy_redirect off;",
-        "        proxy_http_version 1.1;",
-        "        proxy_set_header Upgrade $http_upgrade;",
-        "        proxy_set_header Connection \"upgrade\";",
-        "        proxy_read_timeout 3600s;",
-        "        proxy_send_timeout 3600s;",
-        "        proxy_set_header Host $host;",
-        "        proxy_set_header X-Real-IP $remote_addr;",
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
-        "        proxy_set_header X-Forwarded-Host $host;",
+        "    # Teleport terminal streaming /connect/ws — force Connection: upgrade",
+        "    location ~* ^/v1/webapi/.*/connect/ws {",
+        *_proxy_common(force_upgrade=True),
         "    }",
         "",
         "    # Main route — transparent proxy, no bastion authentication",
         "    location / {",
-        "        proxy_pass $app_upstream;",
-        "        proxy_redirect off;",
-        "        proxy_http_version 1.1;",
-        "        # Needed for ws/wss endpoints (e.g. Teleport terminal streaming)",
-        "        proxy_set_header Upgrade $http_upgrade;",
-        "        proxy_set_header Connection $http_connection;",
-        "        proxy_read_timeout 3600s;",
-        "        proxy_send_timeout 3600s;",
-        "        proxy_set_header Host $host;",
-        "        proxy_set_header X-Real-IP $remote_addr;",
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
-        "        proxy_set_header X-Forwarded-Host $host;",
+        *_proxy_common(force_upgrade=False),
         "    }",
         "}",
         "",

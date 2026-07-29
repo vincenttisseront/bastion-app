@@ -138,6 +138,11 @@ def test_public_proxy_nginx_has_no_auth(db_session, tmp_path):
         )
     )
     assert "server_name status.ar-systems.fr;" in block
+    assert "proxy_set_header Upgrade $http_upgrade;" in block
+    assert "proxy_set_header Connection $connection_upgrade;" in block
+    assert 'proxy_set_header Connection "upgrade";' in block
+    assert "proxy_buffering off;" in block
+    assert "connect/ws" in block
     for needle in (
         "auth_request",
         "oauth2",
@@ -147,6 +152,18 @@ def test_public_proxy_nginx_has_no_auth(db_session, tmp_path):
         "subdomain_auth_common",
     ):
         assert needle not in block
+
+    https_block = generate_public_proxy_server_block(
+        App(
+            slug="teleport",
+            label="Teleport",
+            upstream_url="https://10.0.31.103/",
+            access_mode="public_proxy",
+            public_fqdn="teleport.ar-systems.fr",
+        )
+    )
+    assert "proxy_ssl_verify off;" in https_block
+    assert "proxy_ssl_server_name on;" in https_block
 
     conf = generate_public_proxy_apps_nginx(db_session)
     for needle in (

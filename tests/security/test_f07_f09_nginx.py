@@ -93,6 +93,18 @@ def test_subdomain_and_public_proxy_exports_are_not_default_server():
     assert "error_log  /var/log/nginx/apps/doli.error.log warn;" in sub
     assert "access_log /var/log/nginx/apps/status.access.log app;" in pub
     assert "error_log  /var/log/nginx/apps/status.error.log warn;" in pub
+    assert "proxy_set_header Upgrade $http_upgrade;" in pub
+    assert "proxy_set_header Connection $connection_upgrade;" in pub
+
+
+def test_acme_tls_sync_forwards_websocket_headers():
+    """:443 → :8080 must re-set Upgrade/Connection or Teleport wss breaks."""
+    text = (ROOT / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
+    assert "proxy_set_header Upgrade" in text
+    assert "connection_upgrade" in text
+    assert "proxy_read_timeout 3600s" in text
+    main = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
+    assert "map $http_upgrade $connection_upgrade" in main
 
 
 def test_j2_portal_vhost_internal_handlers():

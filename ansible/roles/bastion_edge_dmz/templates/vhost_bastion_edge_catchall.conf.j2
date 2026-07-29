@@ -24,8 +24,9 @@ server {
 
     client_max_body_size 64M;
     large_client_header_buffers 8 32k;
-    proxy_read_timeout 300s;
-    proxy_send_timeout 300s;
+    # Teleport terminal websockets need long-lived tunnels
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
 
     location / {
         proxy_pass {{ bastion_upstream_url }};
@@ -43,6 +44,7 @@ server {
         proxy_set_header X-Portal-Client-IP $remote_addr;
 
         proxy_set_header Upgrade           $http_upgrade;
+        # Clients send Connection: Upgrade; keep as-is (edge may lack $connection_upgrade map).
         proxy_set_header Connection        $http_connection;
     }
 }
