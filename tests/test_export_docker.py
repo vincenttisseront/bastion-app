@@ -60,6 +60,7 @@ def test_generate_oauth2_proxy_config_includes_pkce(db_session: Session):
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
         oauth2_proxy_network_mode="docker",
+        portal_domain="portal.ar-systems.fr",
     )
     realm = _realm(db_session, settings)
     cfg = generate_oauth2_proxy_config(realm, settings)
@@ -71,6 +72,24 @@ def test_generate_oauth2_proxy_config_includes_pkce(db_session: Session):
     assert 'cookie_samesite = "lax"' in cfg
     assert "cookie_secure = true" in cfg
     assert "cookie_httponly = true" in cfg
+    # portal.ar-systems.fr → parent domain for subdomain SSO cookies
+    assert 'cookie_domains = [ ".ar-systems.fr" ]' in cfg
+    assert 'whitelist_domains = [ ".ar-systems.fr" ]' in cfg
+
+
+def test_generate_oauth2_proxy_config_skips_cookie_domains_for_short_portal(
+    db_session: Session,
+):
+    settings = Settings(
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        database_url="sqlite://",
+        oauth2_proxy_network_mode="docker",
+        portal_domain="portal.local",
+    )
+    realm = _realm(db_session, settings)
+    cfg = generate_oauth2_proxy_config(realm, settings)
+    assert "cookie_domains" not in cfg
+    assert "whitelist_domains" not in cfg
 
 
 def test_nginx_realms_conf_uses_docker_dns(db_session: Session):

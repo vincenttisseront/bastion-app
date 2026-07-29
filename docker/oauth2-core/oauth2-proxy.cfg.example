@@ -22,6 +22,9 @@ cookie_samesite = "lax"
 # Session lifetime — keep in sync with app/admin/export.py generate_oauth2_proxy_config()
 cookie_expire = "12h"
 cookie_refresh = "1h"
+# Share _oauth2_proxy with subdomain apps (webmail.*, …); keep in sync with export.py
+cookie_domains = [ ".ar-systems.fr" ]
+whitelist_domains = [ ".ar-systems.fr" ]
 set_xauthrequest = true
 pass_access_token = false
 pass_authorization_header = true

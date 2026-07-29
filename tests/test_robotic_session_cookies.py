@@ -31,6 +31,15 @@ def test_shared_parent_webmail_and_portal():
     )
 
 
+def test_portal_sso_cookie_domain():
+    from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
+
+    assert portal_sso_cookie_domain("portal.ar-systems.fr") == "ar-systems.fr"
+    assert portal_sso_cookie_domain("https://portal.ar-systems.fr/") == "ar-systems.fr"
+    assert portal_sso_cookie_domain("portal.local") is None
+    assert portal_sso_cookie_domain("ar-systems.fr") is None
+
+
 def test_shared_parent_when_portal_domain_is_apex():
     assert shared_parent_domain("transfer.ar-systems.fr", "ar-systems.fr") == "ar-systems.fr"
 

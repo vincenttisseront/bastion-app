@@ -78,6 +78,8 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "proxy_set_header Host portal.ar-systems.fr;" in block
     assert "auth_request /internal/subdomain-auth;" in block
     assert 'set $app_upstream "https://10.0.0.5/dolibarr";' in block
+    assert "rd=https://$host$request_uri" in block
+    assert "?rd=$request_uri;" not in block
 
 
 def test_generate_conf_and_inventory(db_session, tmp_path):

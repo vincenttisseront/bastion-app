@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.models import RealmConfig
+from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
 from app.secret_crypto import decrypt_secret, encrypt_secret, generate_cookie_secret
 from app.sso_settings import Settings
 
@@ -85,6 +86,18 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
         # ssoSessionMaxLifespan / clientSessionMaxLifespan. Align those to ≤ cookie_expire.
         'cookie_expire = "12h"',
         'cookie_refresh = "1h"',
+        ]
+    )
+    # Share SSO cookie with subdomain_proxy FQDNs (webmail.*, …). Without this,
+    # auth_request on the app host never sees host-only _oauth2_proxy from portal.
+    sso_domain = portal_sso_cookie_domain(settings.portal_domain or "")
+    if sso_domain:
+        dotted = sso_domain if sso_domain.startswith(".") else f".{sso_domain}"
+        lines.append(f'cookie_domains = [ "{dotted}" ]')
+        # Allow absolute rd=https://webmail…/ after 401 on subdomain vhosts.
+        lines.append(f'whitelist_domains = [ "{dotted}" ]')
+    lines.extend(
+        [
         "set_xauthrequest = true",
         # Keycloak subject UUID → X-Auth-Request-User (matched by AccessGrant.keycloak_user_id).
         # Preferred-Username stays the human login; Nginx maps it to X-User / X-User-Id.

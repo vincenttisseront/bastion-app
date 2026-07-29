@@ -100,6 +100,7 @@ def test_generate_oauth2_proxy_config_includes_samesite(db_session):
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
         database_url="sqlite://",
         oauth2_proxy_network_mode="docker",
+        portal_domain="portal.ar-systems.fr",
     )
     realm = RealmConfig(
         slug="clients",

@@ -252,10 +252,11 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "    }",
             "",
             f"    location @portal_redirect_{slug} {{",
-            # oauth2-proxy rejects absolute URLs in rd= (validator.go whitelist).
-            # Pass only the relative URI so the redirect is always accepted.
+            # Absolute rd= requires oauth2-proxy whitelist_domains (see export.py).
+            # Relative rd=/ would land on the portal catalogue after silent SSO
+            # instead of returning to this app FQDN.
             f"        return 302 https://{portal_esc}/oauth2/{_nginx_escape(realm)}/start"
-            "?rd=$request_uri;",
+            "?rd=https://$host$request_uri;",
             "    }",
             "}",
             "",
