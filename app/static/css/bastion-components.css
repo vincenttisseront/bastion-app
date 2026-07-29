@@ -573,6 +573,49 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 
 .rbac-side-panels{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4)}
 @media (max-width:900px){.rbac-side-panels{grid-template-columns:1fr}}
+
+/* RBAC user picker — realm + search + Afficher on one balanced row */
+.rbac-user-picker-card{margin-bottom:var(--sp-4)}
+.rbac-user-picker-card .card-header{
+  display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap;
+}
+.rbac-user-picker{
+  display:grid;
+  grid-template-columns:minmax(9rem,12rem) minmax(0,1fr) auto;
+  gap:var(--sp-3) var(--sp-4);
+  align-items:end;
+}
+.rbac-user-picker-realm .form-select{min-width:0}
+.rbac-user-picker-search{min-width:0}
+.rbac-user-picker-search-wrap{position:relative}
+.rbac-user-picker-actions{
+  display:flex;align-items:flex-end;padding-bottom:1px;
+}
+.rbac-user-picker-actions .btn{white-space:nowrap;min-height:2.65rem;padding-inline:1.25rem}
+.rbac-user-suggestions{
+  position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);
+  margin:0;padding:var(--sp-1);
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-md);
+  box-shadow:var(--sh-card);max-height:14rem;overflow:auto;
+  display:flex;flex-direction:column;gap:2px;
+}
+.rbac-user-suggestions[hidden]{display:none!important}
+.rbac-user-suggestion{
+  display:block;width:100%;text-align:left;
+  padding:var(--sp-2) var(--sp-3);border:0;border-radius:var(--r-sm);
+  background:transparent;color:var(--text);font:inherit;font-size:var(--fs-sm);
+  cursor:pointer;
+}
+.rbac-user-suggestion:hover,.rbac-user-suggestion:focus-visible{
+  background:var(--bg-tertiary);outline:none;
+}
+.rbac-user-suggestions-empty{
+  padding:var(--sp-2) var(--sp-3);color:var(--text-3);font-size:var(--fs-xs);
+}
+@media (max-width:720px){
+  .rbac-user-picker{grid-template-columns:1fr}
+  .rbac-user-picker-actions .btn{width:100%}
+}
 .dist-bar{height:8px;border-radius:var(--r-full);background:var(--bg-tertiary);overflow:hidden}
 .dist-bar > span{display:block;height:100%;background:var(--accent);border-radius:var(--r-full)}
 .anomaly-item{display:flex;gap:var(--sp-3);align-items:flex-start;padding:var(--sp-3) 0;border-bottom:1px solid var(--border)}

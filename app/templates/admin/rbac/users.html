@@ -151,26 +151,36 @@
       </div>
       {% endif %}
 
-      <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-        <form method="get" action="/admin/rbac/users" id="user-search-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
-          <div class="form-group">
-            <label class="form-label" for="realm_id">Realm</label>
-            <select id="realm_id" name="realm_id" class="form-select">
-              {% for realm in realms %}
-              <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
-              {% else %}
-              <option value="">Aucun realm avec sync activée</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="form-group" style="flex:1; min-width:240px;">
-            <label class="form-label" for="user-query">Rechercher un utilisateur</label>
-            <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" data-user-search>
-            <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="{{ keycloak_user_id or '' }}">
-            <div id="user-suggestions" class="form-hint" style="margin-top:var(--sp-2);"></div>
-          </div>
-          <button type="submit" class="btn btn-primary btn-sm">Afficher</button>
-        </form>
+      <div class="card rbac-user-picker-card">
+        <div class="card-header">
+          <span class="card-title">Ouvrir un utilisateur</span>
+          <span class="form-hint" style="margin:0;">Realm Keycloak + recherche live</span>
+        </div>
+        <div class="card-body">
+          <form method="get" action="/admin/rbac/users" id="user-search-form" class="rbac-user-picker">
+            <div class="form-group rbac-user-picker-realm">
+              <label class="form-label" for="realm_id">Realm</label>
+              <select id="realm_id" name="realm_id" class="form-select">
+                {% for realm in realms %}
+                <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
+                {% else %}
+                <option value="">Aucun realm avec sync activée</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group rbac-user-picker-search">
+              <label class="form-label" for="user-query">Rechercher un utilisateur</label>
+              <div class="rbac-user-picker-search-wrap">
+                <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" data-user-search>
+                <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="{{ keycloak_user_id or '' }}">
+                <div id="user-suggestions" class="rbac-user-suggestions" hidden></div>
+              </div>
+            </div>
+            <div class="rbac-user-picker-actions">
+              <button type="submit" class="btn btn-primary">Afficher</button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
 
@@ -393,32 +403,57 @@
   var hiddenId = document.getElementById('keycloak_user_id');
   var realmSelect = document.getElementById('realm_id');
   var suggestions = document.getElementById('user-suggestions');
-  if (searchInput && hiddenId && realmSelect) {
+  if (searchInput && hiddenId && realmSelect && suggestions) {
     var timer;
     searchInput.addEventListener('input', function () {
       clearTimeout(timer);
       var q = searchInput.value.trim();
-      if (q.length < 2) { suggestions.textContent = ''; return; }
+      if (q.length < 2) {
+        suggestions.innerHTML = '';
+        suggestions.hidden = true;
+        return;
+      }
       timer = setTimeout(async function () {
         try {
           var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
           var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
           var data = await resp.json();
-          if (!data.ok) { suggestions.textContent = data.errors && data.errors._form || 'Erreur recherche'; return; }
-          suggestions.innerHTML = (data.users || []).map(function (u) {
-            return '<button type="button" class="btn btn-ghost btn-sm" style="margin:2px;" data-pick-user="' + u.id + '">' + (u.display || u.username) + '</button>';
-          }).join(' ');
+          if (!data.ok) {
+            suggestions.hidden = false;
+            suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">' +
+              (data.errors && data.errors._form ? data.errors._form : 'Erreur recherche') + '</div>';
+            return;
+          }
+          var users = data.users || [];
+          if (!users.length) {
+            suggestions.hidden = false;
+            suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">Aucun résultat</div>';
+            return;
+          }
+          suggestions.hidden = false;
+          suggestions.innerHTML = users.map(function (u) {
+            var label = u.display || u.username || u.email || u.id;
+            return '<button type="button" class="rbac-user-suggestion" data-pick-user="' + u.id + '">' +
+              label.replace(/</g, '&lt;') + '</button>';
+          }).join('');
           suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
             btn.addEventListener('click', function () {
               hiddenId.value = btn.getAttribute('data-pick-user');
               searchInput.value = btn.textContent;
-              suggestions.textContent = '';
+              suggestions.innerHTML = '';
+              suggestions.hidden = true;
             });
           });
         } catch (e) {
-          suggestions.textContent = 'Erreur réseau';
+          suggestions.hidden = false;
+          suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">Erreur réseau</div>';
         }
       }, 300);
+    });
+    document.addEventListener('click', function (e) {
+      if (!suggestions.contains(e.target) && e.target !== searchInput) {
+        suggestions.hidden = true;
+      }
     });
   }
 
