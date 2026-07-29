@@ -103,6 +103,9 @@ def test_acme_tls_sync_forwards_websocket_headers():
     assert "proxy_set_header Upgrade" in text
     assert "connection_upgrade" in text
     assert "proxy_read_timeout 3600s" in text
+    # Large oauth2 Set-Cookie on callback must not become nginx 500
+    assert "proxy_buffer_size 128k" in text
+    assert "proxy_buffers 8 128k" in text
     main = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "map $http_upgrade $connection_upgrade" in main
 

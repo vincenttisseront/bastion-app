@@ -24,6 +24,10 @@ server {
 
     client_max_body_size 64M;
     large_client_header_buffers 8 32k;
+    # oauth2-proxy session cookies (id_token+refresh) need larger response buffers
+    proxy_buffer_size 128k;
+    proxy_buffers 8 128k;
+    proxy_busy_buffers_size 256k;
     # Teleport terminal websockets need long-lived tunnels
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;

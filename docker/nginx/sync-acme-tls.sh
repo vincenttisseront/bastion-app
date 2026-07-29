@@ -76,6 +76,11 @@ server {
         # (Teleport wss://…/connect/ws fails without these).
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
+        # oauth2-proxy Set-Cookie (id_token+refresh) often exceeds default 4k/8k
+        # → nginx 500 "upstream sent too big header" on /oauth2/*/callback.
+        proxy_buffer_size 128k;
+        proxy_buffers 8 128k;
+        proxy_busy_buffers_size 256k;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_set_header Host \$host;
@@ -143,6 +148,11 @@ server {
         # (Teleport wss://…/connect/ws fails without these).
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \$connection_upgrade;
+        # oauth2-proxy Set-Cookie (id_token+refresh) often exceeds default 4k/8k
+        # → nginx 500 "upstream sent too big header" on /oauth2/*/callback.
+        proxy_buffer_size 128k;
+        proxy_buffers 8 128k;
+        proxy_busy_buffers_size 256k;
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_set_header Host \$host;
