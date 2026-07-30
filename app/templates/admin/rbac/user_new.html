@@ -3,12 +3,17 @@
 {% block breadcrumb %}Admin / RBAC / Nouvel utilisateur{% endblock %}
 
 {% block content %}
+{% set selected_groups = form_values.group_ids or [] %}
+{% set selected_apps = form_values.application_ids or [] %}
+{% set apps_with_driver = provision_apps | selectattr('provisioning_driver') | list %}
+{% set apps_sso_only = provision_apps | rejectattr('provisioning_driver') | list %}
 <div class="page page-form">
   <div class="page-header">
     <div>
       <h1 class="page-title">Nouvel utilisateur</h1>
-      <p class="page-sub">Création interne + compte Keycloak + provisioning applicatif — chaque étape a son statut, aucune étape silencieuse</p>
+      <p class="page-sub">Compte Keycloak + groupes + provisioning applicatif</p>
     </div>
+    <a href="/admin/rbac/users" class="btn btn-ghost">← Utilisateurs</a>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
@@ -23,69 +28,133 @@
   </div>
   {% else %}
   <form method="post" action="/admin/rbac/users/new">
-    <div class="form-section">
-      <div class="form-section-title">Identité</div>
-      <div class="form-group">
-        <label class="form-label" for="realm_id">Realm cible</label>
-        <select id="realm_id" name="realm_id" class="form-select" required>
-          {% for r in provision_realms %}
-          <option value="{{ r.id }}"{% if form_values.realm_id and form_values.realm_id|string == r.id|string %} selected{% endif %}>{{ r.name }} ({{ r.slug }})</option>
-          {% endfor %}
-        </select>
-        <p class="form-hint">Seuls les realms avec provisioning explicitement activé sont proposés.</p>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="username">Identifiant (username)</label>
-        <input type="text" id="username" name="username" class="form-input" value="{{ form_values.username or '' }}" required autocomplete="off">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="email">Email</label>
-        <input type="email" id="email" name="email" class="form-input" value="{{ form_values.email or '' }}" required autocomplete="off">
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label" for="first_name">Prénom</label>
-          <input type="text" id="first_name" name="first_name" class="form-input" value="{{ form_values.first_name or '' }}" autocomplete="off">
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="last_name">Nom</label>
-          <input type="text" id="last_name" name="last_name" class="form-input" value="{{ form_values.last_name or '' }}" autocomplete="off">
+
+    <div class="form-section is-accordion is-open" data-form-accordion data-open-default>
+      <div class="form-section-header" data-form-accordion-toggle>
+        <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
+        <div>
+          <div class="form-section-title">Identité</div>
+          <div class="form-section-sub">Realm cible et identité Keycloak</div>
+          <div class="form-section-summary">
+            {% if form_values.username %}{{ form_values.username }}{% else %}Nouveau compte{% endif %}
+          </div>
         </div>
       </div>
-      <p class="form-hint">
-        Mot de passe initial : <strong>généré aléatoirement</strong>, jamais affiché ni stocké —
-        l'utilisateur devra le changer à la première connexion (<span class="mono">UPDATE_PASSWORD</span>).
-      </p>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label" for="realm_id">Realm cible <span class="req">*</span></label>
+          <select id="realm_id" name="realm_id" class="form-select" required>
+            {% for r in provision_realms %}
+            <option value="{{ r.id }}"{% if form_values.realm_id and form_values.realm_id|string == r.id|string %} selected{% endif %}>{{ r.name }} ({{ r.slug }})</option>
+            {% endfor %}
+          </select>
+          <p class="form-help">Seuls les realms avec provisioning activé sont listés.</p>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="username">Identifiant <span class="req">*</span></label>
+            <input type="text" id="username" name="username" class="form-input" value="{{ form_values.username or '' }}" required autocomplete="off" placeholder="jdoe">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="email">Email <span class="req">*</span></label>
+            <input type="email" id="email" name="email" class="form-input" value="{{ form_values.email or '' }}" required autocomplete="off" placeholder="jdoe@example.com">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="first_name">Prénom</label>
+            <input type="text" id="first_name" name="first_name" class="form-input" value="{{ form_values.first_name or '' }}" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="last_name">Nom</label>
+            <input type="text" id="last_name" name="last_name" class="form-input" value="{{ form_values.last_name or '' }}" autocomplete="off">
+          </div>
+        </div>
+        <div class="alert alert-info" style="margin:0;">
+          Mot de passe initial généré automatiquement — jamais affiché.
+          L’utilisateur devra le changer à la première connexion
+          (<span class="mono">UPDATE_PASSWORD</span>).
+        </div>
+      </div>
     </div>
 
-    <div class="form-section form-section-gap">
-      <div class="form-section-title">Groupes RBAC (optionnel)</div>
-      <div class="form-group">
+    <div class="form-section is-accordion form-section-gap{% if selected_groups %} is-open{% endif %}" data-form-accordion>
+      <div class="form-section-header" data-form-accordion-toggle>
+        <button type="button" class="ds-accordion-expand" aria-expanded="{{ 'true' if selected_groups else 'false' }}" tabindex="-1">▸</button>
+        <div>
+          <div class="form-section-title">Groupes RBAC</div>
+          <div class="form-section-sub">Optionnel — assignation Keycloak après création</div>
+          <div class="form-section-summary{% if not provision_groups %} is-off{% endif %}">
+            {% if selected_groups %}{{ selected_groups|length }} sélectionné(s){% elif provision_groups %}{{ provision_groups|length }} groupe(s) disponible(s){% else %}Aucun groupe importé{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="form-body">
         {% if provision_groups %}
-        {% for g in provision_groups %}
-        <label style="display:block;">
-          <input type="checkbox" name="group_ids" value="{{ g.id }}"{% if form_values.group_ids and g.id in form_values.group_ids %} checked{% endif %}>
-          {{ g.name }} <span class="mono" style="opacity:.6;">{{ g.path or '' }}</span>
-        </label>
-        {% endfor %}
+        <div class="stack" style="gap:var(--sp-3);">
+          {% for g in provision_groups %}
+          <label class="form-check">
+            <input type="checkbox" name="group_ids" value="{{ g.id }}"{% if g.id in selected_groups %} checked{% endif %}>
+            <span>{{ g.name }}</span>
+            {% if g.path %}<span class="mono" style="color:var(--text-3); font-size:var(--fs-xs);">{{ g.path }}</span>{% endif %}
+          </label>
+          {% endfor %}
+        </div>
         {% else %}
-        <p class="form-hint">Aucun groupe importé — lancez la sync des groupes sur la fiche realm.</p>
+        <p class="form-help">Aucun groupe importé — lancez la sync des groupes sur la fiche realm.</p>
         {% endif %}
       </div>
     </div>
 
-    <div class="form-section form-section-gap">
-      <div class="form-section-title">Applications à provisionner (optionnel)</div>
-      <div class="form-group">
-        {% for a in provision_apps %}
-        <label style="display:block;">
-          <input type="checkbox" name="application_ids" value="{{ a.id }}"{% if form_values.application_ids and a.id in form_values.application_ids %} checked{% endif %}>
-          {{ a.label }}
-          <span class="mono" style="opacity:.6;">
-            {% if a.provisioning_driver %}driver : {{ a.provisioning_driver }}{% else %}sans driver — sera marqué « non applicable »{% endif %}
-          </span>
-        </label>
-        {% endfor %}
+    <div class="form-section is-accordion form-section-gap{% if selected_apps or apps_with_driver %} is-open{% endif %}" data-form-accordion>
+      <div class="form-section-header" data-form-accordion-toggle>
+        <button type="button" class="ds-accordion-expand" aria-expanded="{{ 'true' if (selected_apps or apps_with_driver) else 'false' }}" tabindex="-1">▸</button>
+        <div>
+          <div class="form-section-title">Provisioning applicatif</div>
+          <div class="form-section-sub">Optionnel — création de compte local via le driver de l’appli</div>
+          <div class="form-section-summary{% if not apps_with_driver %} is-off{% endif %}">
+            {% if apps_with_driver %}{{ apps_with_driver|length }} driver(s) disponible(s){% else %}Aucun driver configuré — SSO uniquement{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="form-body">
+        {% if apps_with_driver %}
+        <div class="stack" style="gap:var(--sp-3);">
+          {% for a in apps_with_driver %}
+          <label class="form-check">
+            <input type="checkbox" name="application_ids" value="{{ a.id }}"{% if a.id in selected_apps %} checked{% endif %}>
+            <span>{{ a.label }}</span>
+            <span class="badge badge-ok">{{ a.provisioning_driver }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="form-help">
+          Aucune application n’a de driver de provisioning.
+          Configurez-le dans le catalogue (ex. CrushFTP).
+        </p>
+        {% endif %}
+
+        {% if apps_sso_only %}
+        <details style="margin-top:var(--sp-2);">
+          <summary class="form-help" style="cursor:pointer; user-select:none;">
+            {{ apps_sso_only|length }} application(s) SSO uniquement
+            <span style="color:var(--text-3);">(aucun compte local à créer)</span>
+          </summary>
+          <div class="stack" style="gap:var(--sp-3); margin-top:var(--sp-3); padding-left:var(--sp-2);">
+            {% for a in apps_sso_only %}
+            <label class="form-check">
+              <input type="checkbox" name="application_ids" value="{{ a.id }}"{% if a.id in selected_apps %} checked{% endif %}>
+              <span>{{ a.label }}</span>
+              <span class="badge badge-muted">SSO</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="form-help" style="margin-top:var(--sp-3);">
+            Sélection optionnelle : le statut sera « non applicable » sur la fiche du compte.
+          </p>
+        </details>
+        {% endif %}
       </div>
     </div>
 
