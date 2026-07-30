@@ -230,6 +230,14 @@ def _account_or_404(db: Session, account_id: int) -> BastionAccount:
     return account
 
 
+def _safe_redirect_url(raw: str | None, fallback: str) -> str:
+    """Only allow same-origin relative admin paths (open-redirect guard)."""
+    value = (raw or "").strip()
+    if value.startswith("/admin/") and "://" not in value and "\\" not in value:
+        return value
+    return fallback
+
+
 @router.get("/admin/rbac/accounts/{account_id}")
 def admin_rbac_account_detail(
     account_id: int,
@@ -243,6 +251,23 @@ def admin_rbac_account_detail(
     provisionings = sorted(
         account.provisionings or [], key=lambda r: (r.application.label if r.application else "")
     )
+    done_ids = {r.application_id for r in provisionings}
+    pending_apps: list[App] = []
+    pending_ids = account.pending_application_ids or []
+    if isinstance(pending_ids, list) and pending_ids:
+        parsed_ids: list[int] = []
+        for raw_id in pending_ids:
+            try:
+                parsed_ids.append(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+        if parsed_ids:
+            apps_by_id = {
+                a.id: a for a in db.query(App).filter(App.id.in_(parsed_ids)).all()
+            }
+            for aid in parsed_ids:
+                if aid not in done_ids and aid in apps_by_id:
+                    pending_apps.append(apps_by_id[aid])
 
     keycloak_console_url = None
     if account.keycloak_user_id and realm and "/realms/" in (realm.issuer_url or ""):
@@ -276,6 +301,9 @@ def admin_rbac_account_detail(
                     }
                     for row in provisionings
                 ],
+                "pending_application_ids": [
+                    a.id for a in pending_apps
+                ],
             }
         )
 
@@ -287,6 +315,7 @@ def admin_rbac_account_detail(
             account=account,
             realm=realm,
             provisionings=provisionings,
+            pending_apps=pending_apps,
             keycloak_console_url=keycloak_console_url,
             active_tab="users",
         ),
@@ -363,6 +392,7 @@ async def admin_rbac_account_provision_retry(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
+    redirect_url: str | None = Form(None),
 ):
     """Bouton « Relancer » — retry explicite, jamais de retry automatique silencieux."""
     account = _account_or_404(db, account_id)
@@ -389,7 +419,8 @@ async def admin_rbac_account_provision_retry(
             }
         )
 
-    response = RedirectResponse(url=f"/admin/rbac/accounts/{account.id}", status_code=302)
+    dest = _safe_redirect_url(redirect_url, f"/admin/rbac/accounts/{account.id}")
+    response = RedirectResponse(url=dest, status_code=302)
     secret = settings.vault_portal_internal_token or "dev"
     if row.status == "success":
         flash_redirect(response, f"Provisioning {app.label} : succès.", "success", secret)
@@ -399,4 +430,84 @@ async def admin_rbac_account_provision_retry(
         flash_redirect(
             response, f"Provisioning {app.label} : échec — {row.detail}", "error", secret
         )
+    return response
+
+
+@router.post("/admin/rbac/accounts/{account_id}/provision-retry-all")
+async def admin_rbac_account_provision_retry_all(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    redirect_url: str | None = Form(None),
+):
+    """Relance toutes les apps en échec + celles encore dans pending_application_ids."""
+    account = _account_or_404(db, account_id)
+    if not account.keycloak_user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Compte Keycloak non créé — relancez d'abord l'étape Keycloak.",
+        )
+
+    app_ids: set[int] = set()
+    for row in account.provisionings or []:
+        if row.status == "failed":
+            app_ids.add(row.application_id)
+    pending_ids = account.pending_application_ids or []
+    if isinstance(pending_ids, list):
+        for raw in pending_ids:
+            try:
+                app_ids.add(int(raw))
+            except (TypeError, ValueError):
+                continue
+
+    results: list[str] = []
+    failures = 0
+    for application_id in sorted(app_ids):
+        app = db.query(App).filter_by(id=application_id).first()
+        if app is None:
+            results.append(f"#{application_id} introuvable")
+            failures += 1
+            continue
+        row = await provision_account_app(
+            db,
+            settings,
+            account=account,
+            app=app,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+        if row.status == "failed":
+            failures += 1
+            results.append(f"{app.label} : {row.detail}")
+        else:
+            results.append(f"{app.label} : {row.status}")
+
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": failures == 0,
+                "retried": len(app_ids),
+                "failures": failures,
+                "results": results,
+                "account_status": account.status,
+            },
+            status_code=200 if failures == 0 else 502,
+        )
+
+    dest = _safe_redirect_url(redirect_url, f"/admin/rbac/accounts/{account.id}")
+    response = RedirectResponse(url=dest, status_code=302)
+    secret = settings.vault_portal_internal_token or "dev"
+    if not app_ids:
+        flash_redirect(response, "Rien à relancer.", "info", secret)
+    elif failures:
+        flash_redirect(
+            response,
+            f"Relance partielle ({failures} échec) : " + " ; ".join(results),
+            "warning",
+            secret,
+        )
+    else:
+        flash_redirect(response, "Provisioning relancé avec succès.", "success", secret)
     return response

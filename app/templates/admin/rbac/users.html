@@ -110,6 +110,7 @@
                 <th>Utilisateur</th>
                 <th>Origine</th>
                 <th>Droits</th>
+                <th>Apps</th>
                 <th>Statut</th>
                 <th>Dernière connexion</th>
                 <th></th>
@@ -132,7 +133,29 @@
                   <span class="badge badge-muted" title="Compte présent dans Keycloak (pas créé depuis le bastion)">Import Keycloak</span>
                   {% endif %}
                 </td>
-                <td><span class="badge badge-muted">{{ u.grant_count }}</span></td>
+                <td>
+                  {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
+                  {% if droits_realm %}
+                  <a class="badge badge-muted" href="/admin/rbac/users?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}" title="Voir les droits AccessGrant">{{ u.grant_count }}</a>
+                  {% else %}
+                  <span class="badge badge-muted">{{ u.grant_count }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if u.bastion_account_id %}
+                    {% if u.provision_failed %}
+                    <a class="badge badge-err" href="/admin/rbac/accounts/{{ u.bastion_account_id }}" title="Provisioning applicatif en échec — ouvrir pour relancer">{{ u.provision_failed }} échec</a>
+                    {% elif u.provision_pending and not u.provision_total %}
+                    <a class="badge badge-warn" href="/admin/rbac/accounts/{{ u.bastion_account_id }}" title="Apps sélectionnées, pas encore provisionnées">En attente</a>
+                    {% elif u.provision_total %}
+                    <a class="badge badge-ok" href="/admin/rbac/accounts/{{ u.bastion_account_id }}" title="Provisioning applicatif">{{ u.provision_ok }}/{{ u.provision_total }}</a>
+                    {% else %}
+                    <a class="badge badge-muted" href="/admin/rbac/accounts/{{ u.bastion_account_id }}" title="Fiche provisioning">—</a>
+                    {% endif %}
+                  {% else %}
+                  <span class="form-hint">—</span>
+                  {% endif %}
+                </td>
                 <td>
                   {% if u.has_portal_admin %}
                     <span class="badge badge-ok">Privilégié</span>
@@ -149,12 +172,11 @@
                 </td>
                 <td>
                   {% if u.bastion_account_id %}
-                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ u.bastion_account_id }}">Compte</a>
+                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ u.bastion_account_id }}">Provisioning</a>
                   {% endif %}
-                  {% if selected_realm %}
-                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Éditer</a>
-                  {% else %}
-                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?keycloak_user_id={{ u.keycloak_user_id }}">Éditer</a>
+                  {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
+                  {% if droits_realm %}
+                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Droits</a>
                   {% endif %}
                 </td>
               </tr>
@@ -182,12 +204,15 @@
                 <th>Identifiant</th>
                 <th>Realm</th>
                 <th>Statut</th>
-                <th>Détail</th>
+                <th>Apps</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {% for a in bastion_accounts %}
+              {% set prov_rows = a.provisionings or [] %}
+              {% set prov_fail = prov_rows | selectattr('status', 'equalto', 'failed') | list %}
+              {% set prov_ok = prov_rows | selectattr('status', 'equalto', 'success') | list %}
               <tr>
                 <td>
                   <div>{{ a.username }}</div>
@@ -204,14 +229,26 @@
                   {% else %}
                   <span class="badge badge-err">Échec Keycloak</span>
                   {% endif %}
-                  <div class="form-hint" style="margin-top:var(--sp-1);">Créé bastion</div>
                 </td>
-                <td class="form-hint">{{ a.last_error or (a.keycloak_user_id or '—') }}</td>
                 <td>
-                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Ouvrir</a>
+                  {% if prov_fail %}
+                  <span class="badge badge-err">{{ prov_fail | length }} échec</span>
+                  {% elif prov_rows %}
+                  <span class="badge badge-ok">{{ prov_ok | length }}/{{ prov_rows | length }}</span>
+                  {% elif a.pending_application_ids %}
+                  <span class="badge badge-warn">En attente</span>
+                  {% else %}
+                  <span class="form-hint">Aucune app</span>
+                  {% endif %}
+                  {% if a.last_error %}
+                  <div class="form-hint" style="margin-top:var(--sp-1);">{{ a.last_error }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  <a class="btn btn-primary btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Provisioning</a>
                   {% if not a.keycloak_user_id %}
                   <form method="post" action="/admin/rbac/accounts/{{ a.id }}/retry-keycloak" style="display:inline;">
-                    <button type="submit" class="btn btn-primary btn-sm">Relancer</button>
+                    <button type="submit" class="btn btn-ghost btn-sm">Relancer KC</button>
                   </form>
                   {% elif a.keycloak_user_id %}
                   <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ a.realm_id }}&amp;keycloak_user_id={{ a.keycloak_user_id }}">Droits</a>
@@ -312,9 +349,11 @@
       <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
         {% if bastion_account_for_user and bastion_account_for_user.origin == 'bastion' %}
         <span class="badge badge-ok">Créé bastion</span>
-        <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ bastion_account_for_user.id }}">Fiche provisioning</a>
         {% else %}
         <span class="badge badge-muted">Import Keycloak</span>
+        {% endif %}
+        {% if bastion_account_for_user %}
+        <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ bastion_account_for_user.id }}">Fiche provisioning</a>
         {% endif %}
       </div>
     </div>
@@ -369,6 +408,89 @@
       <div id="disconnect-user-result" style="margin-top:var(--sp-3);" hidden></div>
     </div>
   </div>
+
+  {% if bastion_account_for_user %}
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
+      <div>
+        <h2 class="card-title" style="margin:0;">Provisioning applicatif</h2>
+        <p class="form-hint" style="margin:var(--sp-1) 0 0;">
+          Statut CrushFTP / drivers sélectionnés à la création — relance manuelle si échec.
+        </p>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2);">
+        {% if user_provisionings | selectattr('status', 'equalto', 'failed') | list or user_pending_apps %}
+        <form method="post" action="/admin/rbac/accounts/{{ bastion_account_for_user.id }}/provision-retry-all">
+          <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ keycloak_user_id }}">
+          <button type="submit" class="btn btn-primary btn-sm">Relancer les échecs</button>
+        </form>
+        {% endif %}
+        <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ bastion_account_for_user.id }}">Ouvrir la fiche</a>
+      </div>
+    </div>
+    {% if user_provisionings or user_pending_apps %}
+    <div class="table-wrap" style="margin-top:var(--sp-3); border:none;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Application</th>
+            <th>Driver</th>
+            <th>Statut</th>
+            <th>Détail</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in user_provisionings %}
+          <tr>
+            <td>{{ row.application.label if row.application else row.application_id }}</td>
+            <td class="mono">{{ row.driver_name }}</td>
+            <td>
+              {% if row.status == 'success' %}
+              <span class="badge badge-ok">Succès</span>
+              {% elif row.status == 'not_applicable' %}
+              <span class="badge badge-muted">Non applicable</span>
+              {% elif row.status == 'failed' %}
+              <span class="badge badge-err">Échec</span>
+              {% else %}
+              <span class="badge badge-muted">En attente</span>
+              {% endif %}
+            </td>
+            <td class="form-hint">{{ row.detail or '—' }}</td>
+            <td>
+              {% if row.status == 'failed' and bastion_account_for_user.keycloak_user_id %}
+              <form method="post" action="/admin/rbac/accounts/{{ bastion_account_for_user.id }}/provision/{{ row.application_id }}" style="display:inline;">
+                <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ keycloak_user_id }}">
+                <button type="submit" class="btn btn-ghost btn-sm">Relancer</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% for app in user_pending_apps %}
+          <tr>
+            <td>{{ app.label }}</td>
+            <td class="mono">{{ app.provisioning_driver or '—' }}</td>
+            <td><span class="badge badge-warn">Pas encore tenté</span></td>
+            <td class="form-hint">Sélectionnée à la création, en attente de Keycloak ou non exécutée</td>
+            <td>
+              {% if bastion_account_for_user.keycloak_user_id %}
+              <form method="post" action="/admin/rbac/accounts/{{ bastion_account_for_user.id }}/provision/{{ app.id }}" style="display:inline;">
+                <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ keycloak_user_id }}">
+                <button type="submit" class="btn btn-ghost btn-sm">Lancer</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="form-hint" style="margin:var(--sp-3) 0 0;">Aucune application sélectionnée pour le provisioning sur ce compte.</p>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <div class="dash-grid" style="grid-template-columns:1fr 1fr; margin-bottom:var(--sp-4);">
     <div class="card" style="padding:0;">

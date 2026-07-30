@@ -291,3 +291,77 @@ async def test_bastion_account_provisioning_aggregate_never_masks_failure(db_ses
 
     update_aggregate_status(account)
     assert account.status == "partial_failure"
+
+
+@respx.mock
+def test_provision_retry_all_failed_and_pending(client, db_session):
+    """Relancer les échecs / en attente via POST provision-retry-all."""
+    ADMIN_HEADERS = {
+        "X-Email": "admin@example.com",
+        "X-Groups": "portal-admins",
+    }
+    JSON_HEADERS = {**ADMIN_HEADERS, "Accept": "application/json"}
+
+    realm = _realm(db_session)
+    crush = _crushftp_app(db_session)
+    pending_app = App(
+        slug="generic-app",
+        label="Generic App",
+        upstream_url="https://app.internal/",
+        enabled=True,
+        provisioning_driver="generic",
+    )
+    db_session.add(pending_app)
+    db_session.commit()
+    db_session.refresh(pending_app)
+
+    account = BastionAccount(
+        realm_id=realm.id,
+        username="jdoe",
+        email="jdoe@example.com",
+        status="partial_failure",
+        keycloak_user_id="kc-user-1",
+        origin="bastion",
+        created_by="admin@example.com",
+        pending_application_ids=[pending_app.id],
+    )
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+
+    failed_row = BastionAccountProvisioning(
+        bastion_account_id=account.id,
+        application_id=crush.id,
+        driver_name="crushftp",
+        status="failed",
+        detail="previous failure",
+    )
+    db_session.add(failed_row)
+    db_session.commit()
+
+    respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_SET_USER_OK)
+
+    resp = client.post(
+        f"/admin/rbac/accounts/{account.id}/provision-retry-all",
+        headers=JSON_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["retried"] == 2
+    assert body["failures"] == 0
+
+    db_session.refresh(account)
+    rows = {
+        r.application_id: r.status
+        for r in db_session.query(BastionAccountProvisioning)
+        .filter_by(bastion_account_id=account.id)
+        .all()
+    }
+    assert rows[crush.id] == "success"
+    assert rows[pending_app.id] == "not_applicable"
+
+    detail = client.get(f"/admin/rbac/accounts/{account.id}", headers=ADMIN_HEADERS)
+    assert detail.status_code == 200
+    assert "Provisioning applicatif" in detail.text
+    assert "Relancer" in detail.text or "Succès" in detail.text

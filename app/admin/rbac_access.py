@@ -13,7 +13,7 @@ from sqlalchemy import or_
 from app.audit import log_action
 from app.bastion.bastion_fields import vault_enabled_for_app
 from app.database import get_db
-from app.models import AccessGrant, App, FileResource, RBACGroup, RealmConfig
+from app.models import AccessGrant, App, BastionAccount, BastionAccountProvisioning, FileResource, RBACGroup, RealmConfig
 from app.rbac.grants_service import (
     ACCESS_LEVELS,
     SYSTEM_ROLES,
@@ -322,13 +322,16 @@ async def admin_rbac_users_page(
         db, granted_users, group_filter=group, status_filter=status
     )
 
-    from app.models import BastionAccount
-
     # Local bastion-created accounts must stay visible even without AccessGrant and
     # even when the Keycloak picker realm differs (clients vs ar-systems).
     bastion_accounts = (
         db.query(BastionAccount)
-        .options(joinedload(BastionAccount.realm))
+        .options(
+            joinedload(BastionAccount.realm),
+            joinedload(BastionAccount.provisionings).joinedload(
+                BastionAccountProvisioning.application
+            ),
+        )
         .order_by(BastionAccount.created_at.desc())
         .limit(100)
         .all()
@@ -337,9 +340,13 @@ async def admin_rbac_users_page(
     for row in bastion_accounts:
         if row.keycloak_user_id:
             bastion_by_kc[row.keycloak_user_id] = row
-    # Also index any linked rows not in the recent window (rare).
     for row in (
         db.query(BastionAccount)
+        .options(
+            joinedload(BastionAccount.provisionings).joinedload(
+                BastionAccountProvisioning.application
+            ),
+        )
         .filter(BastionAccount.keycloak_user_id.is_not(None))
         .all()
     ):
@@ -353,6 +360,21 @@ async def admin_rbac_users_page(
         u["account_source"] = (
             "bastion" if linked and linked.origin == "bastion" else "keycloak"
         )
+        u["realm_id"] = (
+            linked.realm_id
+            if linked
+            else (selected_realm.id if selected_realm else None)
+        )
+        if linked:
+            rows = list(linked.provisionings or [])
+            u["provision_ok"] = sum(1 for r in rows if r.status == "success")
+            u["provision_failed"] = sum(1 for r in rows if r.status == "failed")
+            u["provision_total"] = len(rows)
+            pending = linked.pending_application_ids or []
+            u["provision_pending"] = len(pending) if isinstance(pending, list) else 0
+        else:
+            u["provision_ok"] = u["provision_failed"] = u["provision_total"] = 0
+            u["provision_pending"] = 0
 
     bastion_account_for_user = (
         bastion_by_kc.get(keycloak_user_id) if keycloak_user_id else None
@@ -360,9 +382,33 @@ async def admin_rbac_users_page(
     if keycloak_user_id and bastion_account_for_user is None:
         bastion_account_for_user = (
             db.query(BastionAccount)
+            .options(
+                joinedload(BastionAccount.provisionings).joinedload(
+                    BastionAccountProvisioning.application
+                ),
+            )
             .filter_by(keycloak_user_id=keycloak_user_id)
             .first()
         )
+
+    user_provisionings = []
+    user_pending_apps = []
+    if bastion_account_for_user is not None:
+        user_provisionings = sorted(
+            bastion_account_for_user.provisionings or [],
+            key=lambda r: (r.application.label if r.application else ""),
+        )
+        done_ids = {r.application_id for r in user_provisionings}
+        pending_ids = bastion_account_for_user.pending_application_ids or []
+        if isinstance(pending_ids, list):
+            apps_by_id = {a.id: a for a in apps}
+            for raw_id in pending_ids:
+                try:
+                    aid = int(raw_id)
+                except (TypeError, ValueError):
+                    continue
+                if aid not in done_ids and aid in apps_by_id:
+                    user_pending_apps.append(apps_by_id[aid])
 
     vault_apps: list[dict] = []
     if keycloak_user_id and (direct_grants or effective_grants):
@@ -433,6 +479,8 @@ async def admin_rbac_users_page(
             filter_status=status or "tous",
             bastion_accounts=bastion_accounts,
             bastion_account_for_user=bastion_account_for_user,
+            user_provisionings=user_provisionings,
+            user_pending_apps=user_pending_apps,
         ),
     )
 

@@ -100,9 +100,17 @@
   </div>
 
   <div class="card" style="padding:var(--sp-4);">
-    <h2 class="form-section-title">Provisioning applicatif</h2>
-    {% if provisionings %}
-    <table class="table">
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
+      <h2 class="form-section-title" style="margin:0;">Provisioning applicatif</h2>
+      {% set failed_rows = provisionings | selectattr('status', 'equalto', 'failed') | list %}
+      {% if (failed_rows or pending_apps) and account.keycloak_user_id %}
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision-retry-all">
+        <button type="submit" class="btn btn-primary btn-sm">Relancer les échecs / en attente</button>
+      </form>
+      {% endif %}
+    </div>
+    {% if provisionings or pending_apps %}
+    <table class="table" style="margin-top:var(--sp-3);">
       <thead>
         <tr>
           <th>Application</th>
@@ -138,10 +146,27 @@
           </td>
         </tr>
         {% endfor %}
+        {% for app in pending_apps %}
+        <tr>
+          <td>{{ app.label }}</td>
+          <td class="mono">{{ app.provisioning_driver or '—' }}</td>
+          <td><span class="badge badge-warn">Pas encore tenté</span></td>
+          <td>Sélectionnée à la création — pas encore exécutée</td>
+          <td>
+            {% if account.keycloak_user_id %}
+            <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ app.id }}" style="display:inline;">
+              <button type="submit" class="btn btn-ghost btn-sm">Lancer</button>
+            </form>
+            {% else %}
+            <span class="form-hint">Keycloak requis</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <p class="form-hint">Aucun provisioning applicatif tenté pour ce compte.</p>
+    <p class="form-hint" style="margin-top:var(--sp-3);">Aucun provisioning applicatif tenté pour ce compte.</p>
     {% endif %}
   </div>
 </div>
