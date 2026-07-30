@@ -89,13 +89,79 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
     form = parse_qs(req.content.decode())
     assert form["command"] == ["setUserItem"]
     assert form["xmlItem"] == ["user"]
+    assert form["data_action"] == ["replace"]
     assert form["serverGroup"] == ["MainUsers"]
     assert form["username"] == ["jdoe"]
+    assert "vfs_items" in form and form["vfs_items"][0]
+    assert "permissions" in form and form["permissions"][0]
+    assert "<vfs" in form["vfs_items"][0]
+    assert 'name="/"' in form["permissions"][0]
 
     joined = "\n".join(r.getMessage() for r in caplog.records)
     assert ADMIN_PASS not in joined
     assert "s3cret" not in joined
     assert _basic_header("crushadmin", ADMIN_PASS) not in joined
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_crushftp_admin_accepts_response_status_ok(db_session):
+    settings = _settings()
+    app = _app(db_session)
+    respx.post(CRUSH_ADMIN_URL).respond(
+        200, text="<response_status>OK</response_status>"
+    )
+    driver = CrushFTPProvisioningDriver()
+    result = await driver.create_account(
+        db=db_session,
+        settings=settings,
+        app=app,
+        account=None,
+        credential=GeneratedCredential(username="toto", password="user-pass-16chars"),
+    )
+    assert result.status == "success"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_crushftp_admin_failure_body_not_already_exists(db_session):
+    settings = _settings()
+    app = _app(db_session)
+    respx.post(CRUSH_ADMIN_URL).respond(200, text="<response>failure</response>")
+    driver = CrushFTPProvisioningDriver()
+    result = await driver.create_account(
+        db=db_session,
+        settings=settings,
+        app=app,
+        account=None,
+        credential=GeneratedCredential(username="toto", password="user-pass-16chars"),
+    )
+    assert result.status == "failed"
+    assert "failure" in result.detail.lower()
+    assert "déjà existant" not in result.detail
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_crushftp_admin_api_redirect_hints_public_sso_url(db_session):
+    """302 from bastion/SSO URL must not look like « compte déjà existant »."""
+    settings = _settings()
+    app = _app(db_session)
+    respx.post(CRUSH_ADMIN_URL).respond(
+        302, headers={"Location": "https://portal.example/oauth2/start"}
+    )
+    driver = CrushFTPProvisioningDriver()
+    result = await driver.create_account(
+        db=db_session,
+        settings=settings,
+        app=app,
+        account=None,
+        credential=GeneratedCredential(username="toto", password="user-pass-16chars"),
+    )
+    assert result.status == "failed"
+    assert "302" in result.detail
+    assert "SSO" in result.detail or "bastion" in result.detail.lower()
+    assert "déjà existant" not in result.detail
 
 
 @respx.mock

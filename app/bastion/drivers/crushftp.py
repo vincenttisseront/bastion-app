@@ -15,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = 5.0
 _SUCCESS_RE = re.compile(r"<response>\s*success\s*</response>", re.IGNORECASE)
+_RESPONSE_OK_RE = re.compile(r"<response>\s*OK\s*</response>", re.IGNORECASE)
+_RESPONSE_STATUS_OK_RE = re.compile(
+    r"<response_status>\s*OK\s*</response_status>", re.IGNORECASE
+)
+_FAILURE_RE = re.compile(r"<response>\s*(failure|error)\s*</response>", re.IGNORECASE)
 _USERNAME_RE = re.compile(
     r"<username>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</username>",
     re.IGNORECASE,
@@ -198,6 +203,18 @@ _CRUSHFTP_USER_XML_TEMPLATE = (
     "</user>"
 )
 
+# CrushFTP wiki « Making a new User with VFS » — replace + vfs + permissions.
+_CRUSHFTP_VFS_ITEMS_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<vfs type="vector"></vfs>'
+)
+_CRUSHFTP_PERMISSIONS_XML = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<permissions type="properties">'
+    '<item name="/">(read)(write)(view)(resume)</item>'
+    "</permissions>"
+)
+
 _DEFAULT_SERVER_GROUP = "MainUsers"
 
 
@@ -206,6 +223,39 @@ def _crushftp_user_xml(credential: GeneratedCredential) -> str:
     return _CRUSHFTP_USER_XML_TEMPLATE.format(
         username=_xml_escape(credential.username),
         password=_xml_escape(credential.password),
+    )
+
+
+def _admin_response_ok(text: str) -> bool:
+    """Accept CrushFTP success shapes (login + admin API variants)."""
+    body = text or ""
+    return bool(
+        _SUCCESS_RE.search(body)
+        or _RESPONSE_OK_RE.search(body)
+        or _RESPONSE_STATUS_OK_RE.search(body)
+    )
+
+
+def _admin_reject_hint(text: str, status: int) -> str:
+    """Human-readable failure without echoing body (may contain secrets)."""
+    body = (text or "").strip()
+    if not body:
+        return f"réponse vide (HTTP {status})"
+    lowered = body.lower()
+    if _FAILURE_RE.search(body):
+        return f"CrushFTP a renvoyé failure (HTTP {status})"
+    if "<html" in lowered or "<!doctype" in lowered:
+        return (
+            f"réponse HTML (HTTP {status}) — URL API Admin incorrecte "
+            "(listener CrushFTP racine, pas UserManager / SSO)"
+        )
+    if "access denied" in lowered or "permission" in lowered or "not authorized" in lowered:
+        return f"accès refusé / droits admin insuffisants (HTTP {status})"
+    if "already" in lowered or "exist" in lowered:
+        return f"conflit username (déjà existant) (HTTP {status})"
+    return (
+        f"réponse non-success (HTTP {status}, {len(body)} octets) — "
+        "vérifiez data_action/VFS ou les droits du compte admin CrushFTP"
     )
 
 
@@ -427,10 +477,20 @@ class CrushFTPProvisioningDriver:
                 "Authentification admin CrushFTP refusée (Basic Auth)",
                 response.status_code,
             )
-        if not _SUCCESS_RE.search(response.text or ""):
+        if response.status_code in (301, 302, 303, 307, 308):
             return (
                 False,
-                f"CrushFTP a rejeté setUserItem (HTTP {response.status_code})",
+                (
+                    f"Redirection HTTP {response.status_code} — l'URL API Admin pointe "
+                    "probablement vers le bastion/SSO (URL publique) au lieu du "
+                    "listener CrushFTP direct (IP:port interne)."
+                ),
+                response.status_code,
+            )
+        if not _admin_response_ok(response.text or ""):
+            return (
+                False,
+                _admin_reject_hint(response.text or "", response.status_code),
                 response.status_code,
             )
         return True, "ok", response.status_code
@@ -445,6 +505,8 @@ class CrushFTPProvisioningDriver:
         tls_verify: bool,
         credential: GeneratedCredential,
     ) -> ProvisioningResult:
+        # CrushFTP wiki: « Making a new User with VFS » uses data_action=replace
+        # + user + vfs_items + permissions (empty vfs_items often yields HTTP 200 failure).
         ok, msg, status = await self._admin_post(
             base_url=base_url,
             admin_username=admin_username,
@@ -452,33 +514,30 @@ class CrushFTPProvisioningDriver:
             tls_verify=tls_verify,
             data={
                 "command": "setUserItem",
-                "data_action": "new",
+                "data_action": "replace",
                 "serverGroup": server_group,
                 "username": credential.username,
                 "user": _crushftp_user_xml(credential),
                 "xmlItem": "user",
-                "vfs_items": "",
+                "vfs_items": _CRUSHFTP_VFS_ITEMS_XML,
+                "permissions": _CRUSHFTP_PERMISSIONS_XML,
             },
         )
         if not ok:
             if "Authentification admin" in msg:
                 detail = msg
+            elif "Redirection HTTP" in msg:
+                detail = msg
             elif msg.startswith("Timeout"):
                 detail = "Timeout CrushFTP lors de la création du compte (setUserItem)"
             elif msg.startswith("Erreur réseau"):
                 detail = "Erreur réseau CrushFTP lors de la création du compte"
-            elif status:
-                detail = (
-                    "CrushFTP a rejeté la création du compte (setUserItem "
-                    f"HTTP {status}) — compte déjà existant ou droits admin "
-                    "insuffisants."
-                )
             else:
-                detail = msg
+                detail = f"Création compte CrushFTP échouée : {msg}"
             return ProvisioningResult(status=PROVISIONING_FAILED, detail=detail)
         return ProvisioningResult(
             status=PROVISIONING_SUCCESS,
-            detail="Compte CrushFTP créé (setUserItem)",
+            detail="Compte CrushFTP créé (setUserItem replace)",
             credential_pushed=True,
         )
 

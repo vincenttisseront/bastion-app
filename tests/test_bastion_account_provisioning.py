@@ -152,7 +152,8 @@ async def test_bastion_account_provisioning_crushftp_api_failure(db_session):
         db_session, settings, account=account, app=app, actor="admin@example.com"
     )
     assert row.status == "failed"
-    assert "rejeté" in row.detail
+    assert "failure" in row.detail.lower() or "échou" in row.detail.lower()
+    assert "déjà existant" not in row.detail
     assert account.status == "partial_failure"
     assert (
         db_session.query(UserAppCredential).filter_by(app_slug="crushftp").count() == 0

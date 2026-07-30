@@ -202,8 +202,11 @@
                  class="form-input" value="{{ app.crushftp_admin_base_url or '' }}"
                  placeholder="http://10.x.x.x:8080/" autocomplete="off">
           <p class="form-help">
-            Host:port du listener CrushFTP (souvent l'IP LAN interne), potentiellement
-            différent de l'URL publique proxifiée.
+            Listener CrushFTP joignable <strong>depuis le conteneur portail</strong>
+            (souvent <span class="mono">http://IP-LAN:8080/</span>) —
+            <strong>pas</strong> l’URL publique SSO
+            (<span class="mono">transfer.…</span> / bastion), qui renvoie un 302 oauth2-proxy
+            et fait échouer <span class="mono">setUserItem</span>.
           </p>
         </div>
         <div class="form-group">
