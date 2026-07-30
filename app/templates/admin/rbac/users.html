@@ -108,6 +108,7 @@
               <tr>
                 <th></th>
                 <th>Utilisateur</th>
+                <th>Origine</th>
                 <th>Droits</th>
                 <th>Statut</th>
                 <th>Dernière connexion</th>
@@ -123,6 +124,13 @@
                 <td>
                   <div>{{ u.display }}</div>
                   <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
+                </td>
+                <td>
+                  {% if u.account_source == 'bastion' %}
+                  <span class="badge badge-ok" title="Créé via Nouvel utilisateur">Créé bastion</span>
+                  {% else %}
+                  <span class="badge badge-muted" title="Compte présent dans Keycloak (pas créé depuis le bastion)">Import Keycloak</span>
+                  {% endif %}
                 </td>
                 <td><span class="badge badge-muted">{{ u.grant_count }}</span></td>
                 <td>
@@ -140,11 +148,53 @@
                   {% endif %}
                 </td>
                 <td>
+                  {% if u.bastion_account_id %}
+                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ u.bastion_account_id }}">Compte</a>
+                  {% endif %}
                   {% if selected_realm %}
                   <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Éditer</a>
                   {% else %}
                   <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?keycloak_user_id={{ u.keycloak_user_id }}">Éditer</a>
                   {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if pending_bastion_accounts %}
+      <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+        <div class="card-header" style="padding:var(--sp-4);">
+          <span class="card-title">Comptes bastion en attente Keycloak</span>
+          <span class="badge badge-err">{{ pending_bastion_accounts | length }}</span>
+        </div>
+        <div class="table-wrap" style="border:none;border-radius:0;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Identifiant</th>
+                <th>Email</th>
+                <th>Erreur</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in pending_bastion_accounts %}
+              <tr>
+                <td>
+                  <div>{{ a.username }}</div>
+                  <div class="form-hint">Créé bastion · {{ a.created_by }}</div>
+                </td>
+                <td class="mono">{{ a.email }}</td>
+                <td class="form-hint">{{ a.last_error or '—' }}</td>
+                <td>
+                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Ouvrir</a>
+                  <form method="post" action="/admin/rbac/accounts/{{ a.id }}/retry-keycloak" style="display:inline;">
+                    <button type="submit" class="btn btn-primary btn-sm">Relancer</button>
+                  </form>
                 </td>
               </tr>
               {% endfor %}
@@ -233,8 +283,20 @@
 
   {% if kc_user %}
   <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <h2 class="card-title">{{ kc_user.username or kc_user.email }}</h2>
-    <p class="page-sub mono">ID {{ keycloak_user_id }}</p>
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
+      <div>
+        <h2 class="card-title" style="margin:0;">{{ kc_user.username or kc_user.email }}</h2>
+        <p class="page-sub mono" style="margin:var(--sp-1) 0 0;">ID {{ keycloak_user_id }}</p>
+      </div>
+      <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
+        {% if bastion_account_for_user and bastion_account_for_user.origin == 'bastion' %}
+        <span class="badge badge-ok">Créé bastion</span>
+        <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ bastion_account_for_user.id }}">Fiche provisioning</a>
+        {% else %}
+        <span class="badge badge-muted">Import Keycloak</span>
+        {% endif %}
+      </div>
+    </div>
     {% if kc_email_diag %}
     <div style="margin-top:var(--sp-3); display:grid; gap:var(--sp-2);">
       <div>

@@ -36,6 +36,7 @@ from app.models import (
     App,
     BastionAccount,
     BastionAccountProvisioning,
+    BASTION_ACCOUNT_ORIGIN_BASTION,
     RBACGroup,
     RealmConfig,
     utcnow,
@@ -95,6 +96,20 @@ def update_aggregate_status(account: BastionAccount) -> None:
     account.status = "keycloak_created"
 
 
+def _as_int_list(raw) -> list[int]:
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        out: list[int] = []
+        for item in raw:
+            try:
+                out.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        return out
+    return []
+
+
 def _record_keycloak_failure(
     db: Session,
     account: BastionAccount,
@@ -113,6 +128,239 @@ def _record_keycloak_failure(
         target=_account_target(realm, account.username),
         details={"realm_slug": realm.slug, "username": account.username, "error": message},
         ip_address=ip_address,
+    )
+
+
+async def _assign_groups_and_provision_apps(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    realm: RealmConfig,
+    provision_token: str,
+    group_ids: list[int],
+    application_ids: list[int],
+    actor: str,
+    ip_address: str | None,
+) -> list[str]:
+    """After Keycloak user exists — assign groups then provision apps."""
+    errors: list[str] = []
+    keycloak_user_id = account.keycloak_user_id
+    assert keycloak_user_id  # caller guarantees
+
+    selected_group_names: list[str] = []
+    for group_id in group_ids:
+        group = (
+            db.query(RBACGroup)
+            .filter_by(id=group_id, realm_id=realm.id)
+            .first()
+        )
+        if group is None or not group.keycloak_group_id:
+            msg = f"Groupe RBAC #{group_id} introuvable pour ce realm"
+            errors.append(msg)
+            log_action(
+                db,
+                actor=actor,
+                action="account.group_assign_failed",
+                target=_account_target(realm, account.username),
+                details={"group_id": group_id, "error": msg},
+                ip_address=ip_address,
+            )
+            continue
+        selected_group_names.append(group.name)
+        try:
+            await add_user_to_keycloak_group(
+                realm,
+                settings,
+                keycloak_user_id=keycloak_user_id,
+                keycloak_group_id=group.keycloak_group_id,
+                token=provision_token,
+            )
+            log_action(
+                db,
+                actor=actor,
+                action="account.group_assigned",
+                target=_account_target(realm, account.username),
+                details={"group": group.name, "keycloak_group_id": group.keycloak_group_id},
+                ip_address=ip_address,
+            )
+        except ValueError as exc:
+            msg = f"Groupe {group.name} : {exc}"
+            errors.append(msg)
+            log_action(
+                db,
+                actor=actor,
+                action="account.group_assign_failed",
+                target=_account_target(realm, account.username),
+                details={"group": group.name, "error": str(exc)},
+                ip_address=ip_address,
+            )
+    if errors:
+        account.last_error = " ; ".join(errors)
+
+    for application_id in application_ids:
+        app = db.query(App).filter_by(id=application_id).first()
+        if app is None:
+            errors.append(f"Application #{application_id} introuvable")
+            continue
+        crushftp_groups = (
+            list(selected_group_names)
+            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
+            else None
+        )
+        row = await provision_account_app(
+            db,
+            settings,
+            account=account,
+            app=app,
+            actor=actor,
+            ip_address=ip_address,
+            group_names=crushftp_groups,
+        )
+        if row.status == PROVISIONING_FAILED:
+            errors.append(f"{app.label} : {row.detail}")
+        elif row.detail and "Groupes:" in row.detail and "=échec" in row.detail:
+            errors.append(f"{app.label} (groupes) : {row.detail}")
+
+    return errors
+
+
+async def push_keycloak_user_and_continue(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    actor: str,
+    ip_address: str | None = None,
+    is_retry: bool = False,
+) -> list[str]:
+    """Create Keycloak user for a pending BastionAccount, then groups + apps.
+
+    Used by initial create and by explicit « Relancer Keycloak » — never automatic.
+    """
+    realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
+    if realm is None:
+        raise AccountCreationError("Realm introuvable pour ce compte")
+    if account.keycloak_user_id:
+        raise AccountCreationError(
+            "Compte Keycloak déjà créé — utilisez Relancer sur chaque application en échec."
+        )
+    if not realm_provisioning_ready(realm):
+        raise AccountCreationError(
+            "Provisioning non activé pour ce realm — activez-le dans la fiche realm "
+            "(compte de service provisioning + opt-in explicite)."
+        )
+
+    group_ids = _as_int_list(account.pending_group_ids)
+    application_ids = _as_int_list(account.pending_application_ids)
+    username = account.username
+    email = account.email
+
+    try:
+        provision_token = await get_provision_token(realm, settings)
+        duplicate = await find_keycloak_user_exact(
+            realm, settings, username=username, email=email, token=provision_token
+        )
+    except ValueError as exc:
+        _record_keycloak_failure(
+            db, account, realm, str(exc), actor=actor, ip_address=ip_address
+        )
+        db.commit()
+        return [str(exc)]
+    if duplicate:
+        _record_keycloak_failure(
+            db, account, realm, USER_CONFLICT_MESSAGE, actor=actor, ip_address=ip_address
+        )
+        db.commit()
+        return [USER_CONFLICT_MESSAGE]
+
+    initial_password = generate_initial_password()
+    try:
+        keycloak_user_id = await create_keycloak_user(
+            realm,
+            settings,
+            username=username,
+            email=email,
+            first_name=account.first_name,
+            last_name=account.last_name,
+            initial_password=initial_password,
+            temporary_password=True,
+        )
+    except ValueError as exc:
+        _record_keycloak_failure(
+            db, account, realm, str(exc), actor=actor, ip_address=ip_address
+        )
+        db.commit()
+        return [str(exc)]
+    finally:
+        initial_password = ""  # noqa: F841
+
+    account.keycloak_user_id = keycloak_user_id
+    account.status = "keycloak_created"
+    account.last_error = None
+    log_action(
+        db,
+        actor=actor,
+        action="account.keycloak_created",
+        target=_account_target(realm, username),
+        details={
+            "realm_slug": realm.slug,
+            "username": username,
+            "keycloak_user_id": keycloak_user_id,
+            "bastion_account_id": account.id,
+            "required_actions": ["UPDATE_PASSWORD"],
+            **({"retry": True} if is_retry else {}),
+        },
+        ip_address=ip_address,
+    )
+
+    errors = await _assign_groups_and_provision_apps(
+        db,
+        settings,
+        account=account,
+        realm=realm,
+        provision_token=provision_token,
+        group_ids=group_ids,
+        application_ids=application_ids,
+        actor=actor,
+        ip_address=ip_address,
+    )
+    update_aggregate_status(account)
+    db.commit()
+    return errors
+
+
+async def retry_bastion_account_keycloak(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    actor: str,
+    ip_address: str | None = None,
+) -> list[str]:
+    """Explicit admin retry of the Keycloak step (+ pending groups/apps)."""
+    realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
+    log_action(
+        db,
+        actor=actor,
+        action="account.keycloak_retry",
+        target=_account_target(realm, account.username)
+        if realm
+        else f"account:{account.username}",
+        details={
+            "bastion_account_id": account.id,
+            "username": account.username,
+            "previous_error": account.last_error,
+        },
+        ip_address=ip_address,
+    )
+    return await push_keycloak_user_and_continue(
+        db,
+        settings,
+        account=account,
+        actor=actor,
+        ip_address=ip_address,
+        is_retry=True,
     )
 
 
@@ -139,8 +387,8 @@ async def create_bastion_account(
     email = (email or "").strip()
     first_name = (first_name or "").strip() or None
     last_name = (last_name or "").strip() or None
-    group_ids = group_ids or []
-    application_ids = application_ids or []
+    group_ids = list(group_ids or [])
+    application_ids = list(application_ids or [])
 
     if not username or not email:
         raise AccountCreationError("Identifiant et email sont requis")
@@ -162,7 +410,6 @@ async def create_bastion_account(
             f"(fiche #{existing.id})."
         )
 
-    errors: list[str] = []
     account = BastionAccount(
         realm_id=realm.id,
         username=username,
@@ -170,6 +417,9 @@ async def create_bastion_account(
         first_name=first_name,
         last_name=last_name,
         status="pending",
+        origin=BASTION_ACCOUNT_ORIGIN_BASTION,
+        pending_group_ids=group_ids or None,
+        pending_application_ids=application_ids or None,
         created_by=actor,
     )
     db.add(account)
@@ -184,150 +434,18 @@ async def create_bastion_account(
             "username": username,
             "email": email,
             "bastion_account_id": account.id,
+            "origin": account.origin,
         },
         ip_address=ip_address,
     )
 
-    # --- Step: exact duplicate pre-check (avoid a doomed write call, spec §4/§7)
-    try:
-        provision_token = await get_provision_token(realm, settings)
-        duplicate = await find_keycloak_user_exact(
-            realm, settings, username=username, email=email, token=provision_token
-        )
-    except ValueError as exc:
-        _record_keycloak_failure(
-            db, account, realm, str(exc), actor=actor, ip_address=ip_address
-        )
-        return account, [str(exc)]
-    if duplicate:
-        _record_keycloak_failure(
-            db, account, realm, USER_CONFLICT_MESSAGE, actor=actor, ip_address=ip_address
-        )
-        return account, [USER_CONFLICT_MESSAGE]
-
-    # --- Step: Keycloak user creation (random password + UPDATE_PASSWORD)
-    initial_password = generate_initial_password()
-    try:
-        keycloak_user_id = await create_keycloak_user(
-            realm,
-            settings,
-            username=username,
-            email=email,
-            first_name=first_name,
-            last_name=last_name,
-            initial_password=initial_password,
-            temporary_password=True,
-        )
-    except ValueError as exc:
-        _record_keycloak_failure(
-            db, account, realm, str(exc), actor=actor, ip_address=ip_address
-        )
-        return account, [str(exc)]
-    finally:
-        initial_password = ""  # noqa: F841 — never kept around
-
-    account.keycloak_user_id = keycloak_user_id
-    account.status = "keycloak_created"
-    account.last_error = None
-    log_action(
+    errors = await push_keycloak_user_and_continue(
         db,
+        settings,
+        account=account,
         actor=actor,
-        action="account.keycloak_created",
-        target=_account_target(realm, username),
-        details={
-            "realm_slug": realm.slug,
-            "username": username,
-            "keycloak_user_id": keycloak_user_id,
-            "bastion_account_id": account.id,
-            "required_actions": ["UPDATE_PASSWORD"],
-        },
         ip_address=ip_address,
     )
-
-    # --- Step: optional Keycloak group assignment (per-group status)
-    selected_group_names: list[str] = []
-    for group_id in group_ids:
-        group = (
-            db.query(RBACGroup)
-            .filter_by(id=group_id, realm_id=realm.id)
-            .first()
-        )
-        if group is None or not group.keycloak_group_id:
-            msg = f"Groupe RBAC #{group_id} introuvable pour ce realm"
-            errors.append(msg)
-            log_action(
-                db,
-                actor=actor,
-                action="account.group_assign_failed",
-                target=_account_target(realm, username),
-                details={"group_id": group_id, "error": msg},
-                ip_address=ip_address,
-            )
-            continue
-        # Same-name mapping for CrushFTP (décision §12.2) — use selected RBAC
-        # names even if the Keycloak PUT later fails.
-        selected_group_names.append(group.name)
-        try:
-            await add_user_to_keycloak_group(
-                realm,
-                settings,
-                keycloak_user_id=keycloak_user_id,
-                keycloak_group_id=group.keycloak_group_id,
-                token=provision_token,
-            )
-            log_action(
-                db,
-                actor=actor,
-                action="account.group_assigned",
-                target=_account_target(realm, username),
-                details={"group": group.name, "keycloak_group_id": group.keycloak_group_id},
-                ip_address=ip_address,
-            )
-        except ValueError as exc:
-            msg = f"Groupe {group.name} : {exc}"
-            errors.append(msg)
-            log_action(
-                db,
-                actor=actor,
-                action="account.group_assign_failed",
-                target=_account_target(realm, username),
-                details={"group": group.name, "error": str(exc)},
-                ip_address=ip_address,
-            )
-    if errors:
-        account.last_error = " ; ".join(errors)
-
-    # --- Step: per-app provisioning (one row per app, never aggregated away)
-    # CrushFTP: pass RBAC group names (same-name mapping, decision §12.2) so the
-    # driver can add the user to CrushFTP groups in the same admin session.
-    for application_id in application_ids:
-        app = db.query(App).filter_by(id=application_id).first()
-        if app is None:
-            errors.append(f"Application #{application_id} introuvable")
-            continue
-        crushftp_groups = (
-            list(selected_group_names)
-            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
-            else None
-        )
-        row = await provision_account_app(
-            db,
-            settings,
-            account=account,
-            app=app,
-            actor=actor,
-            ip_address=ip_address,
-            group_names=crushftp_groups,
-        )
-        if row.status == PROVISIONING_FAILED:
-            errors.append(f"{app.label} : {row.detail}")
-        elif row.detail and "Groupes:" in row.detail and "=échec" in row.detail:
-            # User create succeeded but at least one CrushFTP group call failed —
-            # surface without flipping the row status away from success (spec 1.1).
-            errors.append(f"{app.label} (groupes) : {row.detail}")
-
-    update_aggregate_status(account)
-    db.commit()
     return account, errors
 
 

@@ -315,6 +315,39 @@ async def admin_rbac_users_page(
         db, granted_users, group_filter=group, status_filter=status
     )
 
+    from app.models import BastionAccount
+
+    bastion_by_kc: dict[str, BastionAccount] = {}
+    for row in db.query(BastionAccount).filter(BastionAccount.keycloak_user_id.is_not(None)).all():
+        if row.keycloak_user_id:
+            bastion_by_kc[row.keycloak_user_id] = row
+    for u in enriched_users:
+        linked = bastion_by_kc.get(u.get("keycloak_user_id") or "")
+        u["bastion_account_id"] = linked.id if linked else None
+        u["bastion_origin"] = linked.origin if linked else None
+        u["account_source"] = (
+            "bastion" if linked and linked.origin == "bastion" else "keycloak"
+        )
+
+    pending_bastion_accounts = (
+        db.query(BastionAccount)
+        .filter(
+            BastionAccount.keycloak_user_id.is_(None),
+            BastionAccount.status == "pending",
+        )
+        .order_by(BastionAccount.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    if selected_realm is not None:
+        pending_bastion_accounts = [
+            a for a in pending_bastion_accounts if a.realm_id == selected_realm.id
+        ]
+
+    bastion_account_for_user = (
+        bastion_by_kc.get(keycloak_user_id) if keycloak_user_id else None
+    )
+
     vault_apps: list[dict] = []
     if keycloak_user_id and (direct_grants or effective_grants):
         apps_by_id = {a.id: a for a in apps}
@@ -382,6 +415,8 @@ async def admin_rbac_users_page(
             filter_groups=all_groups,
             filter_group=group or "",
             filter_status=status or "tous",
+            pending_bastion_accounts=pending_bastion_accounts,
+            bastion_account_for_user=bastion_account_for_user,
         ),
     )
 

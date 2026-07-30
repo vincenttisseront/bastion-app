@@ -5,7 +5,6 @@ from httpx import Response
 
 from app.models import (
     App,
-    AppCredential,
     BastionAccount,
     BastionAccountProvisioning,
     RealmConfig,
@@ -23,15 +22,9 @@ JSON_HEADERS = {
     "Content-Type": "application/json",
 }
 
-CRUSH_URL = "https://crush.internal/WebInterface/function/"
+CRUSH_ADMIN_URL = "https://crush-admin.internal:8080/"
 
-CRUSH_LOGIN_OK = Response(
-    200,
-    text="<response>success</response>",
-    headers=[("set-cookie", "CrushAuth=1234567890abcd; Path=/")],
-)
 CRUSH_SET_USER_OK = Response(200, text="<response>success</response>")
-CRUSH_LOGOUT_OK = Response(200, text="<response>success</response>")
 
 
 def _settings() -> Settings:
@@ -61,22 +54,18 @@ def _seed(db, *, with_account: bool = True):
     app = App(
         slug="crushftp",
         label="CrushFTP",
-        upstream_url="https://crush.internal/",
+        upstream_url="https://crush.public/",
         enabled=True,
         provisioning_driver="crushftp",
+        crushftp_admin_base_url=CRUSH_ADMIN_URL,
+        crushftp_admin_server_group="MainUsers",
+        crushftp_admin_username="crushadmin",
+        crushftp_admin_password_encrypted=encrypt_secret("admin-pass", s),
     )
     db.add_all([realm, app])
     db.commit()
     db.refresh(realm)
     db.refresh(app)
-    db.add(
-        AppCredential(
-            app_slug=app.slug,
-            robotic_username="crushadmin",
-            encrypted_password=encrypt_secret("admin-pass", s),
-            is_active=True,
-        )
-    )
     account = None
     if with_account:
         account = BastionAccount(
@@ -85,6 +74,7 @@ def _seed(db, *, with_account: bool = True):
             email="jdoe@example.com",
             status="keycloak_created",
             keycloak_user_id="kc-user-1",
+            origin="bastion",
             created_by="admin@example.com",
         )
         db.add(account)
@@ -96,9 +86,7 @@ def _seed(db, *, with_account: bool = True):
 def test_bastion_account_grant_hook_triggers_provisioning(client, db_session):
     realm, app, account = _seed(db_session)
 
-    respx.post(CRUSH_URL).mock(
-        side_effect=[CRUSH_LOGIN_OK, CRUSH_SET_USER_OK, CRUSH_LOGOUT_OK]
-    )
+    respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_SET_USER_OK)
 
     resp = client.post(
         "/admin/rbac/grants",

@@ -9,7 +9,12 @@
       <h1 class="page-title">Compte {{ account.username }}</h1>
       <p class="page-sub">{{ account.email }} — realm {{ realm.slug if realm else '?' }}</p>
     </div>
-    <div>
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:flex-end;">
+      {% if account.origin == 'bastion' %}
+      <span class="badge badge-ok" title="Créé via Admin → Nouvel utilisateur">Créé bastion</span>
+      {% else %}
+      <span class="badge badge-muted" title="Lié depuis un compte Keycloak existant">Import Keycloak</span>
+      {% endif %}
       {% if account.status == 'provisioned' %}
       <span class="badge badge-ok">Provisionné</span>
       {% elif account.status == 'keycloak_created' %}
@@ -29,9 +34,38 @@
   {% endif %}
 
   <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <h2 class="form-section-title">Étape Keycloak</h2>
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-start; justify-content:space-between;">
+      <h2 class="form-section-title" style="margin:0;">Étape Keycloak</h2>
+      {% if not account.keycloak_user_id %}
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak">
+        <button type="submit" class="btn btn-primary btn-sm">Relancer Keycloak</button>
+      </form>
+      {% endif %}
+    </div>
+    <p class="form-hint" style="margin:var(--sp-2) 0 var(--sp-3);">
+      {% if account.origin == 'bastion' %}
+      Compte créé localement dans le bastion, puis poussé vers Keycloak
+      (mot de passe temporaire + UPDATE_PASSWORD).
+      {% else %}
+      Compte lié depuis Keycloak (pas de création locale initiale).
+      {% endif %}
+      {% if not account.keycloak_user_id %}
+      Après correction des droits du compte de service provisioning, utilisez
+      <strong>Relancer Keycloak</strong> — pas de retry automatique.
+      {% endif %}
+    </p>
     <table class="table">
       <tbody>
+        <tr>
+          <th>Origine</th>
+          <td>
+            {% if account.origin == 'bastion' %}
+            Création locale (bastion → Keycloak)
+            {% else %}
+            Import / lien Keycloak
+            {% endif %}
+          </td>
+        </tr>
         <tr>
           <th>Statut</th>
           <td>
@@ -96,7 +130,7 @@
           </td>
           <td>{{ row.detail or '—' }}</td>
           <td>
-            {% if row.status == 'failed' %}
+            {% if row.status == 'failed' and account.keycloak_user_id %}
             <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ row.application_id }}" style="display:inline;">
               <button type="submit" class="btn btn-ghost btn-sm">Relancer</button>
             </form>

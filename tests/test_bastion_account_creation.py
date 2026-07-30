@@ -64,12 +64,14 @@ def _group(db, realm: RealmConfig) -> RBACGroup:
     return group
 
 
-def _mock_no_duplicate():
-    respx.get(f"{KC_ADMIN}/users", params={"username": "jdoe", "exact": "true"}).respond(
-        200, json=[]
-    )
+def _mock_no_duplicate(username: str = "jdoe", email: str = "jdoe@example.com"):
     respx.get(
-        f"{KC_ADMIN}/users", params={"email": "jdoe@example.com", "exact": "true"}
+        f"{KC_ADMIN}/users",
+        params={"username": username, "exact": "true", "max": "2"},
+    ).respond(200, json=[])
+    respx.get(
+        f"{KC_ADMIN}/users",
+        params={"email": email, "exact": "true", "max": "2"},
     ).respond(200, json=[])
 
 
@@ -291,3 +293,59 @@ def test_users_new_form_groups_tagged_by_realm(client, db_session):
     assert f'data-realm-id="{group.realm_id}"' in resp.text
     assert 'data-realm-select' in resp.text
     assert "groupes du realm cible" in resp.text.lower() or "Groupes du realm cible" in resp.text
+
+
+@respx.mock
+def test_bastion_account_retry_keycloak_after_failure(client, db_session):
+    """Pending account can be re-pushed via Relancer Keycloak (explicit retry)."""
+    realm = _realm(db_session)
+    group = _group(db_session, realm)
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    _mock_no_duplicate(username="toto", email="toto@example.com")
+    respx.post(f"{KC_ADMIN}/users").respond(403, text="missing view-users")
+
+    fail = client.post(
+        "/admin/rbac/users/new",
+        headers=JSON_HEADERS,
+        data={
+            "realm_id": str(realm.id),
+            "username": "toto",
+            "email": "toto@example.com",
+            "group_ids": str(group.id),
+        },
+    )
+    assert fail.status_code == 502
+    account = db_session.query(BastionAccount).filter_by(username="toto").first()
+    assert account is not None
+    assert account.status == "pending"
+    assert account.origin == "bastion"
+    assert account.pending_group_ids == [group.id]
+    assert account.keycloak_user_id is None
+
+    respx.reset()
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    _mock_no_duplicate(username="toto", email="toto@example.com")
+    respx.post(f"{KC_ADMIN}/users").respond(
+        201, headers={"Location": f"{KC_ADMIN}/users/kc-toto"}
+    )
+    respx.put(f"{KC_ADMIN}/users/kc-toto/groups/g1").respond(204)
+
+    retry = client.post(
+        f"/admin/rbac/accounts/{account.id}/retry-keycloak",
+        headers=JSON_HEADERS,
+    )
+    assert retry.status_code == 200, retry.text
+    body = retry.json()
+    assert body["ok"] is True
+    assert body["keycloak_user_id"] == "kc-toto"
+
+    db_session.refresh(account)
+    assert account.status in ("keycloak_created", "provisioned")
+    assert account.keycloak_user_id == "kc-toto"
+    assert account.last_error is None
+
+    detail = client.get(f"/admin/rbac/accounts/{account.id}", headers=ADMIN_HEADERS)
+    assert detail.status_code == 200
+    assert "Créé bastion" in detail.text
+    assert "Relancer Keycloak" not in detail.text

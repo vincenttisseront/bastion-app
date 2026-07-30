@@ -21,6 +21,7 @@ from app.rbac.account_service import (
     create_bastion_account,
     provision_account_app,
     realm_provisioning_ready,
+    retry_bastion_account_keycloak,
 )
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
@@ -261,6 +262,7 @@ def admin_rbac_account_detail(
                     "username": account.username,
                     "email": account.email,
                     "status": account.status,
+                    "origin": account.origin,
                     "keycloak_user_id": account.keycloak_user_id,
                     "last_error": account.last_error,
                 },
@@ -289,6 +291,68 @@ def admin_rbac_account_detail(
             active_tab="users",
         ),
     )
+
+
+@router.post("/admin/rbac/accounts/{account_id}/retry-keycloak")
+async def admin_rbac_account_retry_keycloak(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Bouton « Relancer Keycloak » — retry explicite de l'étape IdP (+ groupes/apps en attente)."""
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    try:
+        step_errors = await retry_bastion_account_keycloak(
+            db,
+            settings,
+            account=account,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except AccountCreationError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(
+            url=f"/admin/rbac/accounts/{account.id}", status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": account.status != "pending",
+                "account_id": account.id,
+                "status": account.status,
+                "keycloak_user_id": account.keycloak_user_id,
+                "errors": step_errors,
+            },
+            status_code=200 if account.status != "pending" else 502,
+        )
+
+    response = RedirectResponse(url=f"/admin/rbac/accounts/{account.id}", status_code=302)
+    if account.status == "pending":
+        flash_redirect(
+            response,
+            f"Relance Keycloak échouée : {account.last_error}",
+            "error",
+            secret,
+        )
+    elif step_errors:
+        flash_redirect(
+            response,
+            "Keycloak OK, mais certaines étapes ont échoué : " + " ; ".join(step_errors),
+            "warning",
+            secret,
+        )
+    else:
+        flash_redirect(response, "Relance Keycloak réussie.", "success", secret)
+    return response
 
 
 @router.post("/admin/rbac/accounts/{account_id}/provision/{application_id}")

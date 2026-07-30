@@ -491,6 +491,13 @@ BASTION_ACCOUNT_STATUSES: tuple[str, ...] = (
     "partial_failure",  # at least one app provisioning failed — never masked
 )
 
+# How the account entered bastion tracking.
+# - bastion: created via Admin « Nouvel utilisateur » (local form → Keycloak push)
+# - keycloak: reserved if we later link an existing IdP user into BastionAccount
+BASTION_ACCOUNT_ORIGINS: tuple[str, ...] = ("bastion", "keycloak")
+BASTION_ACCOUNT_ORIGIN_BASTION = "bastion"
+BASTION_ACCOUNT_ORIGIN_KEYCLOAK = "keycloak"
+
 PROVISIONING_STATUSES: tuple[str, ...] = (
     "pending",
     "success",
@@ -519,6 +526,11 @@ class BastionAccount(Base):
     # Filled only after successful Keycloak creation (no phantom accounts).
     keycloak_user_id = Column(String, nullable=True, index=True)
     status = Column(String, default="pending", nullable=False)
+    # bastion = form local ; keycloak = linked IdP user (see BASTION_ACCOUNT_ORIGINS)
+    origin = Column(String, default=BASTION_ACCOUNT_ORIGIN_BASTION, nullable=False)
+    # Targets chosen on create — kept so « Relancer Keycloak » can finish the pipeline.
+    pending_group_ids = Column(JSON, nullable=True)
+    pending_application_ids = Column(JSON, nullable=True)
 
     created_by = Column(String, nullable=False)  # bastion admin (email)
     created_at = Column(DateTime(timezone=True), default=utcnow)
