@@ -230,6 +230,10 @@ nginx … limit_req                      rate-limit edge (complément)
 | Écart | Livraison |
 |---|---|
 | A | `GET /auth/sso-failed` + `?error=` sur `/auth/login` → `evaluate_login_attempt(success=False)` ; hammering login sur `/auth/sso-start` |
+
+> **Suivi infra ouvert :** le câblage nginx/oauth2-proxy qui redirige réellement les échecs IdP vers `/auth/sso-failed` n’est **pas** dans `338f899`. Sans lui, l’écart A reste silencieux en prod.
+> Issue : https://github.com/vincenttisseront/bastion-app/issues/1
+
 | B | Règle `successful_login` — ban **username** ; hooks break-glass + nouvel ancre SSO (`SsoSessionAnchor`) |
 | C | Règle `hammering_login` branchée via `is_login_path` |
 | D | Middleware lit `X-Email` / `X-User` / `X-Preferred-Username` et applique `find_active_ban(..., username=)` |
