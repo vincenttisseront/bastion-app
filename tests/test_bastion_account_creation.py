@@ -238,6 +238,62 @@ def test_users_new_form_renders_before_dynamic_route(client, db_session):
     assert "Nouvel utilisateur" in resp.text
 
 
+def test_users_page_lists_bastion_accounts_without_grants(client, db_session):
+    """Local accounts must appear even without AccessGrant / other-realm picker."""
+    ar = _realm(db_session)
+    clients = RealmConfig(
+        slug="clients",
+        name="CLIENTS",
+        issuer_url=f"{KC_BASE}/realms/CLIENTS",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("secret", _settings()),
+        redirect_uri="https://portal.test/oauth2/clients/callback",
+        oauth2_proxy_port=4182,
+        enabled=True,
+        groups_sync_enabled=False,
+        provisioning_enabled=True,
+        keycloak_provision_client_id="bastion-admin-provision",
+        keycloak_provision_client_secret_encrypted=encrypt_secret(
+            "prov-secret", _settings()
+        ),
+    )
+    db_session.add(clients)
+    db_session.commit()
+    db_session.refresh(clients)
+    db_session.add(
+        BastionAccount(
+            realm_id=clients.id,
+            username="toto",
+            email="toto@example.com",
+            status="pending",
+            origin="bastion",
+            last_error="view-users missing",
+            created_by="admin@example.com",
+        )
+    )
+    db_session.add(
+        BastionAccount(
+            realm_id=clients.id,
+            username="alice",
+            email="alice@example.com",
+            status="keycloak_created",
+            origin="bastion",
+            keycloak_user_id="kc-alice",
+            created_by="admin@example.com",
+        )
+    )
+    db_session.commit()
+
+    # Default picker realm is ar-systems (groups sync) — clients accounts must still show.
+    resp = client.get(f"/admin/rbac/users?realm_id={ar.id}", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert "Comptes créés via le bastion" in resp.text
+    assert "toto" in resp.text
+    assert "alice" in resp.text
+    assert "clients" in resp.text
+    assert 'option value="%s"' % clients.id in resp.text or f'value="{clients.id}"' in resp.text
+
+
 @respx.mock
 def test_bastion_account_creation_ignores_foreign_realm_group(client, db_session):
     """A group from another realm must never be assigned (UI + crafted POST)."""

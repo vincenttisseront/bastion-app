@@ -7,7 +7,8 @@ import logging
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import or_
 
 from app.audit import log_action
 from app.bastion.bastion_fields import vault_enabled_for_app
@@ -271,7 +272,13 @@ async def admin_rbac_users_page(
 
     realms = (
         db.query(RealmConfig)
-        .filter_by(groups_sync_enabled=True)
+        .filter(
+            RealmConfig.enabled.is_(True),
+            or_(
+                RealmConfig.groups_sync_enabled.is_(True),
+                RealmConfig.provisioning_enabled.is_(True),
+            ),
+        )
         .order_by(RealmConfig.slug)
         .all()
     )
@@ -317,10 +324,28 @@ async def admin_rbac_users_page(
 
     from app.models import BastionAccount
 
+    # Local bastion-created accounts must stay visible even without AccessGrant and
+    # even when the Keycloak picker realm differs (clients vs ar-systems).
+    bastion_accounts = (
+        db.query(BastionAccount)
+        .options(joinedload(BastionAccount.realm))
+        .order_by(BastionAccount.created_at.desc())
+        .limit(100)
+        .all()
+    )
     bastion_by_kc: dict[str, BastionAccount] = {}
-    for row in db.query(BastionAccount).filter(BastionAccount.keycloak_user_id.is_not(None)).all():
+    for row in bastion_accounts:
         if row.keycloak_user_id:
             bastion_by_kc[row.keycloak_user_id] = row
+    # Also index any linked rows not in the recent window (rare).
+    for row in (
+        db.query(BastionAccount)
+        .filter(BastionAccount.keycloak_user_id.is_not(None))
+        .all()
+    ):
+        if row.keycloak_user_id and row.keycloak_user_id not in bastion_by_kc:
+            bastion_by_kc[row.keycloak_user_id] = row
+
     for u in enriched_users:
         linked = bastion_by_kc.get(u.get("keycloak_user_id") or "")
         u["bastion_account_id"] = linked.id if linked else None
@@ -329,24 +354,15 @@ async def admin_rbac_users_page(
             "bastion" if linked and linked.origin == "bastion" else "keycloak"
         )
 
-    pending_bastion_accounts = (
-        db.query(BastionAccount)
-        .filter(
-            BastionAccount.keycloak_user_id.is_(None),
-            BastionAccount.status == "pending",
-        )
-        .order_by(BastionAccount.created_at.desc())
-        .limit(50)
-        .all()
-    )
-    if selected_realm is not None:
-        pending_bastion_accounts = [
-            a for a in pending_bastion_accounts if a.realm_id == selected_realm.id
-        ]
-
     bastion_account_for_user = (
         bastion_by_kc.get(keycloak_user_id) if keycloak_user_id else None
     )
+    if keycloak_user_id and bastion_account_for_user is None:
+        bastion_account_for_user = (
+            db.query(BastionAccount)
+            .filter_by(keycloak_user_id=keycloak_user_id)
+            .first()
+        )
 
     vault_apps: list[dict] = []
     if keycloak_user_id and (direct_grants or effective_grants):
@@ -415,7 +431,7 @@ async def admin_rbac_users_page(
             filter_groups=all_groups,
             filter_group=group or "",
             filter_status=status or "tous",
-            pending_bastion_accounts=pending_bastion_accounts,
+            bastion_accounts=bastion_accounts,
             bastion_account_for_user=bastion_account_for_user,
         ),
     )
@@ -430,6 +446,10 @@ async def admin_rbac_user_detail(
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
+    # Reserved path segments must never be treated as Keycloak user ids
+    # (defence if router registration order regresses).
+    if keycloak_user_id in {"new", "search", "accounts"}:
+        raise HTTPException(status_code=404, detail="Not Found")
     realm = _realm_or_404(db, realm_id)
     try:
         kc_user = await fetch_keycloak_user(realm, keycloak_user_id, settings)

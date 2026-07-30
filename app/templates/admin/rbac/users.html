@@ -165,36 +165,57 @@
       </div>
       {% endif %}
 
-      {% if pending_bastion_accounts %}
+      {% if bastion_accounts %}
       <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
         <div class="card-header" style="padding:var(--sp-4);">
-          <span class="card-title">Comptes bastion en attente Keycloak</span>
-          <span class="badge badge-err">{{ pending_bastion_accounts | length }}</span>
+          <span class="card-title">Comptes créés via le bastion</span>
+          <span class="badge badge-muted">{{ bastion_accounts | length }}</span>
         </div>
+        <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
+          Tous les comptes issus de « Nouvel utilisateur », tous realms — indépendants
+          des droits AccessGrant et du realm sélectionné pour la recherche Keycloak.
+        </p>
         <div class="table-wrap" style="border:none;border-radius:0;">
           <table class="data-table">
             <thead>
               <tr>
                 <th>Identifiant</th>
-                <th>Email</th>
-                <th>Erreur</th>
+                <th>Realm</th>
+                <th>Statut</th>
+                <th>Détail</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {% for a in pending_bastion_accounts %}
+              {% for a in bastion_accounts %}
               <tr>
                 <td>
                   <div>{{ a.username }}</div>
-                  <div class="form-hint">Créé bastion · {{ a.created_by }}</div>
+                  <div class="mono form-hint">{{ a.email }}</div>
                 </td>
-                <td class="mono">{{ a.email }}</td>
-                <td class="form-hint">{{ a.last_error or '—' }}</td>
+                <td class="mono">{{ a.realm.slug if a.realm else a.realm_id }}</td>
+                <td>
+                  {% if a.status == 'provisioned' %}
+                  <span class="badge badge-ok">Provisionné</span>
+                  {% elif a.status == 'keycloak_created' %}
+                  <span class="badge badge-ok">Keycloak OK</span>
+                  {% elif a.status == 'partial_failure' %}
+                  <span class="badge badge-warn">Échec partiel</span>
+                  {% else %}
+                  <span class="badge badge-err">Échec Keycloak</span>
+                  {% endif %}
+                  <div class="form-hint" style="margin-top:var(--sp-1);">Créé bastion</div>
+                </td>
+                <td class="form-hint">{{ a.last_error or (a.keycloak_user_id or '—') }}</td>
                 <td>
                   <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Ouvrir</a>
+                  {% if not a.keycloak_user_id %}
                   <form method="post" action="/admin/rbac/accounts/{{ a.id }}/retry-keycloak" style="display:inline;">
                     <button type="submit" class="btn btn-primary btn-sm">Relancer</button>
                   </form>
+                  {% elif a.keycloak_user_id %}
+                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ a.realm_id }}&amp;keycloak_user_id={{ a.keycloak_user_id }}">Droits</a>
+                  {% endif %}
                 </td>
               </tr>
               {% endfor %}
@@ -207,7 +228,7 @@
       <div class="card rbac-user-picker-card">
         <div class="card-header">
           <span class="card-title">Ouvrir un utilisateur</span>
-          <span class="form-hint" style="margin:0;">Realm Keycloak + recherche live</span>
+          <span class="form-hint" style="margin:0;">Realm Keycloak (sync ou provisioning) + recherche live</span>
         </div>
         <div class="card-body">
           <form method="get" action="/admin/rbac/users" id="user-search-form" class="rbac-user-picker">
@@ -217,7 +238,7 @@
                 {% for realm in realms %}
                 <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
                 {% else %}
-                <option value="">Aucun realm avec sync activée</option>
+                <option value="">Aucun realm sync/provisioning</option>
                 {% endfor %}
               </select>
             </div>
