@@ -102,7 +102,23 @@ def test_nginx_realms_conf_uses_docker_dns(db_session: Session):
     )
     _realm(db_session, settings)
     conf = generate_nginx_realms_conf(db_session, settings)
-    assert "http://oauth2-proxy-clients:4180/oauth2/" in conf
+    # Deferred DNS: variable + rewrite — nginx -t must not require oauth2-proxy up
+    assert "set $oauth2_realm_clients oauth2-proxy-clients:4180;" in conf
+    assert "proxy_pass http://$oauth2_realm_clients;" in conf
+    assert "rewrite ^/oauth2/clients/(.*)$ /oauth2/$1 break;" in conf
+    assert "http://oauth2-proxy-clients:4180/oauth2/" not in conf
+
+
+def test_nginx_realms_conf_loopback_keeps_literal_upstream(db_session: Session):
+    settings = Settings(
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        database_url="sqlite://",
+        oauth2_proxy_network_mode="loopback",
+    )
+    _realm(db_session, settings, port=4182)
+    conf = generate_nginx_realms_conf(db_session, settings)
+    assert "proxy_pass http://127.0.0.1:4182/oauth2/;" in conf
+    assert "set $oauth2_realm_" not in conf
 
 
 def test_write_oauth2_proxy_export_nested(tmp_path, db_session: Session):
