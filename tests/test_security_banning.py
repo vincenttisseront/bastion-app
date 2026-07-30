@@ -8,13 +8,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, SecurityBan
+from app.models import AuditLog, SecurityBan, SecurityRateEvent
 from app.models import utcnow
 from app.security.banning.engine import (
     RULE_FAILED_LOGIN,
     RULE_HACK_USERNAME,
     RULE_HAMMERING,
+    RULE_HAMMERING_LOGIN,
+    RULE_SUCCESSFUL_LOGIN,
     apply_ban,
+    check_request_allowed,
     clear_counters_for_tests,
     ensure_security_defaults,
     evaluate_login_attempt,
@@ -23,16 +26,17 @@ from app.security.banning.engine import (
     is_breakglass_ip_allowed,
     lift_expired_bans,
     record_sensitive_request,
+    record_successful_login,
 )
 from app.security.banning.service import add_allowlist_entry, update_ban_rules
 
 
 @pytest.fixture(autouse=True)
 def _reset_banning(db_session: Session):
-    clear_counters_for_tests()
+    clear_counters_for_tests(db_session)
     ensure_security_defaults(db_session)
     yield
-    clear_counters_for_tests()
+    clear_counters_for_tests(db_session)
 
 
 def test_security_hammering_threshold_triggers_ban(db_session: Session):
@@ -287,7 +291,182 @@ def test_security_failed_login_bans_ip_after_threshold(db_session: Session):
 
 def test_get_rule_seeded(db_session: Session):
     assert get_rule(db_session, RULE_HAMMERING) is not None
+    assert get_rule(db_session, RULE_HAMMERING_LOGIN) is not None
+    assert get_rule(db_session, RULE_SUCCESSFUL_LOGIN) is not None
     assert get_rule(db_session, RULE_HACK_USERNAME) is not None
+
+
+def test_security_sso_failed_login_feeds_counter(client: TestClient, db_session: Session):
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_FAILED_LOGIN: {
+                "enabled": True,
+                "threshold": 2,
+                "window_seconds": 300,
+                "ban_minutes": 10,
+                "ban_username": True,
+            },
+            RULE_HAMMERING: {"enabled": False},
+            RULE_HAMMERING_LOGIN: {"enabled": False},
+        },
+        actor="test",
+    )
+    resp = client.get("/auth/sso-failed?error=access_denied&username=alice")
+    assert resp.status_code == 200
+    assert "Connexion SSO échouée" in resp.text
+    audit = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "security.sso_login_failed")
+        .all()
+    )
+    assert len(audit) >= 1
+
+    clear_counters_for_tests(db_session)
+    ip = "203.0.113.41"
+    assert (
+        evaluate_login_attempt(
+            db_session, ip=ip, username="carol", success=False
+        ).allowed
+        is True
+    )
+    assert (
+        evaluate_login_attempt(
+            db_session, ip=ip, username="carol", success=False
+        ).allowed
+        is False
+    )
+    assert find_active_ban(db_session, ip=ip) is not None
+    assert find_active_ban(db_session, username="carol") is not None
+
+
+def test_security_successful_login_hammering(db_session: Session):
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_SUCCESSFUL_LOGIN: {
+                "enabled": True,
+                "threshold": 3,
+                "window_seconds": 120,
+                "ban_minutes": 15,
+                "ban_permanent": False,
+            }
+        },
+        actor="test",
+    )
+    ip = "203.0.113.55"
+    for _ in range(2):
+        assert (
+            record_successful_login(db_session, ip=ip, username="bob@example.com")
+            is None
+        )
+    ban = record_successful_login(db_session, ip=ip, username="bob@example.com")
+    assert ban is not None
+    assert ban.target_type == "username"
+    assert ban.target == "bob@example.com"
+    assert ban.rule_type == RULE_SUCCESSFUL_LOGIN
+    assert find_active_ban(db_session, username="bob@example.com") is not None
+    assert find_active_ban(db_session, ip=ip) is None
+    detected = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "security.successful_login_hammering.detected")
+        .all()
+    )
+    assert len(detected) >= 1
+
+
+def test_security_login_only_counter(db_session: Session):
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_HAMMERING: {"enabled": False},
+            RULE_HAMMERING_LOGIN: {
+                "enabled": True,
+                "threshold": 3,
+                "window_seconds": 60,
+                "ban_minutes": 10,
+            },
+        },
+        actor="test",
+    )
+    ip = "203.0.113.60"
+    for _ in range(5):
+        assert record_sensitive_request(db_session, ip=ip, path="/admin") is None
+    assert find_active_ban(db_session, ip=ip) is None
+
+    for _ in range(2):
+        assert (
+            record_sensitive_request(
+                db_session, ip=ip, path="/auth/login", method="POST"
+            )
+            is None
+        )
+    ban = record_sensitive_request(
+        db_session, ip=ip, path="/auth/sso-start", method="GET"
+    )
+    assert ban is not None
+    assert ban.rule_type == RULE_HAMMERING_LOGIN
+
+
+def test_security_admin_username_ban(db_session: Session):
+    apply_ban(
+        db_session,
+        target_type="username",
+        target="banned.user@example.com",
+        reason="manual",
+        rule_type="manual",
+        permanent=False,
+        ban_minutes=30,
+        actor="test",
+        confirm_permanent=False,
+    )
+    allowed, reason, ban = check_request_allowed(
+        db_session,
+        ip="203.0.113.70",
+        path="/admin/security",
+        method="GET",
+        username="banned.user@example.com",
+    )
+    assert allowed is False
+    assert reason == "banned"
+    assert ban is not None
+
+    allowed2, _, _ = check_request_allowed(
+        db_session,
+        ip="203.0.113.70",
+        path="/admin/security",
+        method="GET",
+        username="other@example.com",
+    )
+    assert allowed2 is True
+
+
+def test_security_shared_counters(db_session: Session):
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_HAMMERING: {
+                "enabled": True,
+                "threshold": 100,
+                "window_seconds": 60,
+                "ban_minutes": 10,
+            },
+            RULE_HAMMERING_LOGIN: {"enabled": False},
+        },
+        actor="test",
+    )
+    ip = "203.0.113.80"
+    assert record_sensitive_request(db_session, ip=ip, path="/admin") is None
+    assert record_sensitive_request(db_session, ip=ip, path="/admin") is None
+    n = (
+        db_session.query(SecurityRateEvent)
+        .filter(
+            SecurityRateEvent.kind == "hammer",
+            SecurityRateEvent.key == ip,
+        )
+        .count()
+    )
+    assert n == 2
 
 
 def test_security_banning_page_accordion_and_modals(client: TestClient, db_session: Session):
@@ -306,5 +485,7 @@ def test_security_banning_page_accordion_and_modals(client: TestClient, db_sessi
     assert 'id="allowlist-add-modal"' in body
     assert "Ajouter un ban manuel" not in body
     assert "Enregistrer les règles" in body
+    assert "hammering_login_enabled" in body
+    assert "successful_login_enabled" in body
     assert body.count('action="/admin/security/banning/add"') == 1
     assert body.count('action="/admin/security/allowlist/add"') == 1

@@ -506,7 +506,9 @@
   {% set security_bans = security_bans | default([]) %}
   {% set security_allowlist = security_allowlist | default([]) %}
   {% set hammer = security_ban_rules.get('hammering') if security_ban_rules else none %}
+  {% set hammer_login = security_ban_rules.get('hammering_login') if security_ban_rules else none %}
   {% set failed = security_ban_rules.get('failed_login') if security_ban_rules else none %}
+  {% set success_login = security_ban_rules.get('successful_login') if security_ban_rules else none %}
   {% set hack = security_ban_rules.get('hack_username') if security_ban_rules else none %}
   {% set concurrent = security_ban_rules.get('concurrent_connections') if security_ban_rules else none %}
 
@@ -568,7 +570,9 @@
     </div>
     <div class="form-body banning-stack">
       {% set hammer_on = not hammer or hammer.enabled %}
+      {% set hammer_login_on = not hammer_login or hammer_login.enabled %}
       {% set failed_on = not failed or failed.enabled %}
+      {% set success_login_on = not success_login or success_login.enabled %}
       {% set hack_on = not hack or hack.enabled %}
       {% set concurrent_on = concurrent and concurrent.enabled and concurrent.threshold %}
       {% set bans_count = security_bans | length if security_bans else 0 %}
@@ -617,6 +621,42 @@
                 </div>
               </div>
 
+              <div class="banning-rule" data-banning-rule data-summary-kind="hammering_login">
+                <div class="banning-rule-head" data-banning-rule-toggle>
+                  <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-hammer-login" tabindex="-1">▸</button>
+                  <span class="banning-rule-title">Anti-hammering (login uniquement)</span>
+                  <label class="check-row banning-rule-enable" data-banning-enable-stop>
+                    <input type="checkbox" name="hammering_login_enabled" data-banning-enabled {% if hammer_login_on %}checked{% endif %}> Activé
+                  </label>
+                  <span class="banning-rule-summary{% if not hammer_login_on %} is-off{% endif %}" data-banning-summary>
+                    {% if hammer_login_on %}
+                    Actif · {{ hammer_login.threshold if hammer_login else 30 }} requêtes login / {{ hammer_login.window_seconds if hammer_login else 60 }}s · {% if hammer_login and hammer_login.ban_permanent %}ban permanent{% else %}ban {{ hammer_login.ban_minutes if hammer_login else 60 }} min{% endif %}
+                    {% else %}Désactivé{% endif %}
+                  </span>
+                </div>
+                <div class="banning-rule-panel" id="banning-panel-hammer-login" hidden>
+                  <div class="stack">
+                    <p class="form-help">Compteur distinct sur /auth/login, /auth/sso-start, /auth/sso-failed et login break-glass.</p>
+                    <div class="form-grid">
+                      <div>
+                        <label class="form-label" for="hammering_login_threshold">Seuil (requêtes)</label>
+                        <input class="form-input" type="number" min="1" id="hammering_login_threshold" name="hammering_login_threshold" data-banning-field="threshold" value="{{ hammer_login.threshold if hammer_login else 30 }}">
+                      </div>
+                      <div>
+                        <label class="form-label" for="hammering_login_window_seconds">Fenêtre (s)</label>
+                        <input class="form-input" type="number" min="1" id="hammering_login_window_seconds" name="hammering_login_window_seconds" data-banning-field="window" value="{{ hammer_login.window_seconds if hammer_login else 60 }}">
+                      </div>
+                      <div>
+                        <label class="form-label" for="hammering_login_ban_minutes">Durée ban (min)</label>
+                        <input class="form-input" type="number" min="1" id="hammering_login_ban_minutes" name="hammering_login_ban_minutes" data-banning-field="minutes" value="{{ hammer_login.ban_minutes if hammer_login else 60 }}">
+                      </div>
+                    </div>
+                    <label class="check-row"><input type="checkbox" name="hammering_login_ban_permanent" data-banning-field="permanent" {% if hammer_login and hammer_login.ban_permanent %}checked{% endif %}> Ban permanent</label>
+                    <label class="check-row"><input type="checkbox" name="hammering_login_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                  </div>
+                </div>
+              </div>
+
               <div class="banning-rule" data-banning-rule data-summary-kind="failed_login">
                 <div class="banning-rule-head" data-banning-rule-toggle>
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-failed" tabindex="-1">▸</button>
@@ -652,6 +692,42 @@
                     </label>
                     <label class="check-row"><input type="checkbox" name="failed_login_ban_permanent" data-banning-field="permanent" {% if failed and failed.ban_permanent %}checked{% endif %}> Ban permanent</label>
                     <label class="check-row"><input type="checkbox" name="failed_login_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="banning-rule" data-banning-rule data-summary-kind="successful_login">
+                <div class="banning-rule-head" data-banning-rule-toggle>
+                  <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-success" tabindex="-1">▸</button>
+                  <span class="banning-rule-title">Logins réussis (hammering)</span>
+                  <label class="check-row banning-rule-enable" data-banning-enable-stop>
+                    <input type="checkbox" name="successful_login_enabled" data-banning-enabled {% if success_login_on %}checked{% endif %}> Activé
+                  </label>
+                  <span class="banning-rule-summary{% if not success_login_on %} is-off{% endif %}" data-banning-summary>
+                    {% if success_login_on %}
+                    Actif · {{ success_login.threshold if success_login else 20 }} succès / IP / {{ success_login.window_seconds if success_login else 300 }}s · ban <strong>compte</strong> {% if success_login and success_login.ban_permanent %}permanent{% else %}{{ success_login.ban_minutes if success_login else 30 }} min{% endif %}
+                    {% else %}Désactivé{% endif %}
+                  </span>
+                </div>
+                <div class="banning-rule-panel" id="banning-panel-success" hidden>
+                  <div class="stack">
+                    <p class="form-help">Au-delà du seuil, le <strong>username</strong> est bloqué (pas l'IP) — partage de compte / script suspect.</p>
+                    <div class="form-grid">
+                      <div>
+                        <label class="form-label" for="successful_login_threshold">Seuil</label>
+                        <input class="form-input" type="number" min="1" id="successful_login_threshold" name="successful_login_threshold" data-banning-field="threshold" value="{{ success_login.threshold if success_login else 20 }}">
+                      </div>
+                      <div>
+                        <label class="form-label" for="successful_login_window_seconds">Fenêtre (s)</label>
+                        <input class="form-input" type="number" min="1" id="successful_login_window_seconds" name="successful_login_window_seconds" data-banning-field="window" value="{{ success_login.window_seconds if success_login else 300 }}">
+                      </div>
+                      <div>
+                        <label class="form-label" for="successful_login_ban_minutes">Durée ban compte (min)</label>
+                        <input class="form-input" type="number" min="1" id="successful_login_ban_minutes" name="successful_login_ban_minutes" data-banning-field="minutes" value="{{ success_login.ban_minutes if success_login else 30 }}">
+                      </div>
+                    </div>
+                    <label class="check-row"><input type="checkbox" name="successful_login_ban_permanent" data-banning-field="permanent" {% if success_login and success_login.ban_permanent %}checked{% endif %}> Ban permanent</label>
+                    <label class="check-row"><input type="checkbox" name="successful_login_confirm_permanent"> Je confirme le ban permanent (requis)</label>
                   </div>
                 </div>
               </div>
@@ -1186,7 +1262,7 @@
       var win = val(rule, 'window');
       var min = val(rule, 'minutes');
       var perm = val(rule, 'permanent');
-      if (kind === 'hammering') {
+      if (kind === 'hammering' || kind === 'hammering_login') {
         summary.textContent = perm
           ? ('Actif · ' + thr + ' requêtes / ' + win + 's · ban permanent')
           : ('Actif · ' + thr + ' requêtes / ' + win + 's · ban ' + min + ' min');
@@ -1196,6 +1272,10 @@
           ? ('Actif · ' + thr + ' échecs / ' + win + 's · ban permanent')
           : ('Actif · ' + thr + ' échecs / ' + win + 's · ban IP ' + min + ' min');
         summary.textContent = alsoUser ? (base + ' + compte') : base;
+      } else if (kind === 'successful_login') {
+        summary.textContent = perm
+          ? ('Actif · ' + thr + ' succès / IP / ' + win + 's · ban compte permanent')
+          : ('Actif · ' + thr + ' succès / IP / ' + win + 's · ban compte ' + min + ' min');
       } else if (kind === 'hack_username') {
         summary.textContent = perm
           ? 'Actif · ban permanent'

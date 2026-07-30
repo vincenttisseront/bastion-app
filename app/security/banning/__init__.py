@@ -8,6 +8,7 @@ from app.security.banning.engine import (
     is_breakglass_ip_allowed,
     lift_expired_bans,
     record_sensitive_request,
+    record_successful_login,
 )
 from app.security.banning.service import (
     add_allowlist_entry,
@@ -35,6 +36,7 @@ __all__ = [
     "list_active_bans",
     "list_allowlist",
     "record_sensitive_request",
+    "record_successful_login",
     "remove_allowlist_entry",
     "update_ban_rules",
     "update_policy_misc",

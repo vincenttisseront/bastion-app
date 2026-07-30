@@ -1,4 +1,4 @@
-"""Reject banned IPs / enforce hammering on sensitive bastion paths."""
+"""Reject banned IPs / usernames / enforce hammering on sensitive bastion paths."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from app.security.banning.engine import (
     begin_concurrent,
     check_request_allowed,
     end_concurrent,
+    identity_username_from_headers,
     is_sensitive_path,
 )
 
@@ -37,11 +38,16 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         ip = client_ip_from_request(request)
+        username = identity_username_from_headers(request.headers)
         db = SessionLocal()
         tracked = False
         try:
             allowed, reason, _ban = check_request_allowed(
-                db, ip=ip, path=path, method=request.method
+                db,
+                ip=ip,
+                path=path,
+                method=request.method,
+                username=username or None,
             )
             if not allowed:
                 detail = (
@@ -50,10 +56,6 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
                     else "Access temporarily blocked"
                 )
                 status = 429 if reason == "concurrent_limit" else 403
-                if path.startswith("/api/") or "application/json" in (
-                    request.headers.get("accept") or ""
-                ).lower():
-                    return JSONResponse({"detail": detail}, status_code=status)
                 return JSONResponse({"detail": detail}, status_code=status)
 
             begin_concurrent(ip)

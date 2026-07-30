@@ -181,6 +181,17 @@ def evaluate_sso_binding(
         )
         db.add(row)
         db.flush()
+        # New oauth2 cookie → count as one successful SSO login (not every auth_request).
+        try:
+            from app.security.banning.engine import record_successful_login
+
+            record_successful_login(
+                db,
+                ip=client_ip or "",
+                username=readable or label_for_anchor or "sso",
+            )
+        except Exception:
+            logger.exception("record_successful_login after new SSO anchor failed")
         return {
             "cookie_hash_prefix": cookie_hash[:12],
             "mismatch_count": 0,

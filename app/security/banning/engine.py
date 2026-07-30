@@ -5,11 +5,9 @@ from __future__ import annotations
 import ipaddress
 import logging
 import threading
-import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Deque
 
 from sqlalchemy.orm import Session
 
@@ -19,13 +17,16 @@ from app.models import (
     SecurityBan,
     SecurityBanRule,
     SecurityPolicy,
+    SecurityRateEvent,
     utcnow,
 )
 
 logger = logging.getLogger(__name__)
 
 RULE_HAMMERING = "hammering"
+RULE_HAMMERING_LOGIN = "hammering_login"
 RULE_FAILED_LOGIN = "failed_login"
+RULE_SUCCESSFUL_LOGIN = "successful_login"
 RULE_HACK_USERNAME = "hack_username"
 RULE_CONCURRENT = "concurrent_connections"
 
@@ -40,6 +41,13 @@ DEFAULT_RULES: dict[str, dict] = {
         "ban_permanent": False,
         "config_json": None,
     },
+    RULE_HAMMERING_LOGIN: {
+        "threshold": 30,
+        "window_seconds": 60,
+        "ban_minutes": 60,
+        "ban_permanent": False,
+        "config_json": None,
+    },
     RULE_FAILED_LOGIN: {
         "threshold": 15,
         "window_seconds": 300,
@@ -47,6 +55,13 @@ DEFAULT_RULES: dict[str, dict] = {
         "ban_permanent": False,
         # Also ban the attempted username (independent of IP).
         "config_json": {"ban_username": True},
+    },
+    RULE_SUCCESSFUL_LOGIN: {
+        "threshold": 20,
+        "window_seconds": 300,
+        "ban_minutes": 30,
+        "ban_permanent": False,
+        "config_json": None,
     },
     RULE_HACK_USERNAME: {
         "threshold": 1,
@@ -70,34 +85,47 @@ DEFAULT_RULES: dict[str, dict] = {
 _SENSITIVE_PREFIXES = (
     "/auth/login",
     "/auth/setup",
+    "/auth/sso-start",
+    "/auth/sso-failed",
     "/admin",
     "/api/admin",
 )
 
 _LOGIN_PATHS = {
     "/auth/login",
+    "/auth/sso-start",
+    "/auth/sso-failed",
     "/api/admin/breakglass/login",
 }
 
+# Concurrent connections stay process-local (request lifetime); rate events are shared via SQL.
 _counter_lock = threading.Lock()
-_counters: dict[tuple[str, str], Deque[float]] = defaultdict(deque)
 _concurrent: dict[str, int] = defaultdict(int)
 
 
-def clear_counters_for_tests() -> None:
+def clear_counters_for_tests(db: Session | None = None) -> None:
     with _counter_lock:
-        _counters.clear()
         _concurrent.clear()
+    if db is not None:
+        db.query(SecurityRateEvent).delete()
+        db.commit()
 
 
 def is_sensitive_path(path: str) -> bool:
-    return any(path == p or path.startswith(p + "/") or path.startswith(p + "?") for p in _SENSITIVE_PREFIXES) or path in _LOGIN_PATHS
+    return any(
+        path == p or path.startswith(p + "/") or path.startswith(p + "?")
+        for p in _SENSITIVE_PREFIXES
+    ) or path.rstrip("/") in _LOGIN_PATHS
 
 
 def is_login_path(path: str, method: str = "GET") -> bool:
+    """True for SSO/break-glass entry points (login hammering scope)."""
+    p = path.rstrip("/")
+    if p in ("/auth/sso-start", "/auth/sso-failed"):
+        return True
     if method.upper() != "POST":
         return False
-    return path.rstrip("/") in _LOGIN_PATHS or path.startswith("/api/admin/breakglass/login")
+    return p in _LOGIN_PATHS or p.startswith("/api/admin/breakglass/login")
 
 
 def ensure_security_defaults(db: Session) -> SecurityPolicy:
@@ -384,15 +412,34 @@ def apply_ban(
     return ban
 
 
-def _prune_and_count(kind: str, key: str, window_seconds: int) -> int:
-    now = time.monotonic()
-    with _counter_lock:
-        q = _counters[(kind, key)]
-        cutoff = now - max(1, window_seconds)
-        while q and q[0] < cutoff:
-            q.popleft()
-        q.append(now)
-        return len(q)
+def _prune_and_count(db: Session, kind: str, key: str, window_seconds: int) -> int:
+    """Append a rate event and return sliding-window count (shared via SQL)."""
+    key_n = (key or "").strip()[:255]
+    if not key_n:
+        return 0
+    now = utcnow()
+    cutoff = now - timedelta(seconds=max(1, int(window_seconds or 1)))
+    # Prune this key's stale events (keep table small).
+    (
+        db.query(SecurityRateEvent)
+        .filter(
+            SecurityRateEvent.kind == kind,
+            SecurityRateEvent.key == key_n,
+            SecurityRateEvent.occurred_at < cutoff,
+        )
+        .delete(synchronize_session=False)
+    )
+    db.add(SecurityRateEvent(kind=kind, key=key_n, occurred_at=now))
+    db.flush()
+    return (
+        db.query(SecurityRateEvent)
+        .filter(
+            SecurityRateEvent.kind == kind,
+            SecurityRateEvent.key == key_n,
+            SecurityRateEvent.occurred_at >= cutoff,
+        )
+        .count()
+    )
 
 
 def record_sensitive_request(
@@ -402,7 +449,7 @@ def record_sensitive_request(
     path: str,
     method: str = "GET",
 ) -> SecurityBan | None:
-    """Record hammering / concurrent counters; may apply a ban."""
+    """Record hammering counters (all sensitive + login-only); may apply a ban."""
     policy = get_policy(db)
     if not policy.enabled:
         return None
@@ -421,26 +468,117 @@ def record_sensitive_request(
             # Refuse without ban — caller should return 429/403.
             return None
 
+    ban: SecurityBan | None = None
+
     hammer = get_rule(db, RULE_HAMMERING)
-    if not hammer or not hammer.enabled or int(hammer.threshold or 0) <= 0:
+    if hammer and hammer.enabled and int(hammer.threshold or 0) > 0:
+        count = _prune_and_count(db, "hammer", ip, int(hammer.window_seconds or 1))
+        if count >= int(hammer.threshold):
+            ban = apply_ban(
+                db,
+                target_type=TARGET_IP,
+                target=ip,
+                reason=f"Hammering: {count} requests in {hammer.window_seconds}s",
+                rule_type=RULE_HAMMERING,
+                permanent=bool(hammer.ban_permanent),
+                ban_minutes=int(hammer.ban_minutes or 60),
+                actor="system",
+                ip_address=ip,
+                confirm_permanent=bool(hammer.ban_permanent),
+            )
+
+    if is_login_path(path, method):
+        login_hammer = get_rule(db, RULE_HAMMERING_LOGIN)
+        if (
+            login_hammer
+            and login_hammer.enabled
+            and int(login_hammer.threshold or 0) > 0
+            and ban is None
+        ):
+            count = _prune_and_count(
+                db, "hammer_login", ip, int(login_hammer.window_seconds or 1)
+            )
+            if count >= int(login_hammer.threshold):
+                ban = apply_ban(
+                    db,
+                    target_type=TARGET_IP,
+                    target=ip,
+                    reason=(
+                        f"Login hammering: {count} login requests "
+                        f"in {login_hammer.window_seconds}s"
+                    ),
+                    rule_type=RULE_HAMMERING_LOGIN,
+                    permanent=bool(login_hammer.ban_permanent),
+                    ban_minutes=int(login_hammer.ban_minutes or 60),
+                    actor="system",
+                    ip_address=ip,
+                    confirm_permanent=bool(login_hammer.ban_permanent),
+                )
+
+    if ban is None:
+        # Persist counter events even when no ban was applied.
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+    return ban
+
+
+def record_successful_login(
+    db: Session,
+    *,
+    ip: str,
+    username: str,
+) -> SecurityBan | None:
+    """
+    Count successful logins from one IP; ban the username when threshold exceeded.
+    """
+    policy = get_policy(db)
+    if not policy.enabled:
+        return None
+    uname = _normalize_username(username)
+    if not uname or not ip:
+        return None
+    if is_allowlisted(db, ip=ip, username=uname):
         return None
 
-    count = _prune_and_count("hammer", ip, int(hammer.window_seconds or 1))
-    if count < int(hammer.threshold):
+    rule = get_rule(db, RULE_SUCCESSFUL_LOGIN)
+    if not rule or not rule.enabled or int(rule.threshold or 0) <= 0:
         return None
 
-    return apply_ban(
+    count = _prune_and_count(db, "success_ip", ip, int(rule.window_seconds or 1))
+    if count < int(rule.threshold):
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+        return None
+
+    ban = apply_ban(
         db,
-        target_type=TARGET_IP,
-        target=ip,
-        reason=f"Hammering: {count} requests in {hammer.window_seconds}s",
-        rule_type=RULE_HAMMERING,
-        permanent=bool(hammer.ban_permanent),
-        ban_minutes=int(hammer.ban_minutes or 60),
+        target_type=TARGET_USERNAME,
+        target=uname,
+        reason=(
+            f"Successful-login hammering: {count} logins from {ip} "
+            f"in {rule.window_seconds}s"
+        ),
+        rule_type=RULE_SUCCESSFUL_LOGIN,
+        permanent=bool(rule.ban_permanent),
+        ban_minutes=int(rule.ban_minutes or 30),
         actor="system",
         ip_address=ip,
-        confirm_permanent=bool(hammer.ban_permanent),
+        confirm_permanent=bool(rule.ban_permanent),
     )
+    if ban is not None:
+        log_action(
+            db,
+            actor=uname,
+            action="security.successful_login_hammering.detected",
+            target=f"username:{uname}",
+            details={"ip": ip, "count": count, "window_seconds": rule.window_seconds},
+            ip_address=ip or None,
+        )
+    return ban
 
 
 def begin_concurrent(ip: str) -> None:
@@ -541,7 +679,7 @@ def evaluate_login_attempt(
     if success:
         return LoginEvalResult(allowed=True)
 
-    # Failed login counters (IP + username).
+    # Failed login counters (IP + username) — shared via SQL.
     fail_rule = get_rule(db, RULE_FAILED_LOGIN)
     if not fail_rule or not fail_rule.enabled or int(fail_rule.threshold or 0) <= 0:
         return LoginEvalResult(allowed=True)
@@ -551,7 +689,7 @@ def evaluate_login_attempt(
     ban: SecurityBan | None = None
 
     if ip:
-        ip_count = _prune_and_count("fail_ip", ip, window)
+        ip_count = _prune_and_count(db, "fail_ip", ip, window)
         if ip_count >= threshold:
             ban = apply_ban(
                 db,
@@ -568,7 +706,7 @@ def evaluate_login_attempt(
 
     cfg = fail_rule.config_json or {}
     if uname and cfg.get("ban_username", True):
-        user_count = _prune_and_count("fail_user", uname, window)
+        user_count = _prune_and_count(db, "fail_user", uname, window)
         if user_count >= threshold:
             ban = apply_ban(
                 db,
@@ -585,7 +723,28 @@ def evaluate_login_attempt(
 
     if ban is not None:
         return LoginEvalResult(allowed=False, ban=ban, detail="failed_login_threshold")
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
     return LoginEvalResult(allowed=True)
+
+
+def identity_username_from_headers(headers) -> str:
+    """Best-effort account id from Nginx-injected identity headers."""
+    try:
+        email = (headers.get("X-Email") or "").strip()
+        user = (headers.get("X-User") or "").strip()
+        preferred = (headers.get("X-Preferred-Username") or "").strip()
+    except Exception:
+        return ""
+    for candidate in (email, preferred, user):
+        if candidate and "@" in candidate:
+            return _normalize_username(candidate)
+    for candidate in (preferred, user, email):
+        if candidate:
+            return _normalize_username(candidate)
+    return ""
 
 
 def check_request_allowed(
@@ -594,6 +753,7 @@ def check_request_allowed(
     ip: str,
     path: str,
     method: str = "GET",
+    username: str | None = None,
 ) -> tuple[bool, str, SecurityBan | None]:
     """
     Pre-handler gate for sensitive paths.
@@ -603,10 +763,11 @@ def check_request_allowed(
     if not policy.enabled or not is_sensitive_path(path):
         return True, "", None
 
-    if is_allowlisted(db, ip=ip):
+    uname = _normalize_username(username or "")
+    if is_allowlisted(db, ip=ip, username=uname or None):
         return True, "", None
 
-    ban = find_active_ban(db, ip=ip)
+    ban = find_active_ban(db, ip=ip, username=uname or None)
     if ban is not None:
         return False, "banned", ban
 
@@ -617,8 +778,8 @@ def check_request_allowed(
     if new_ban is not None:
         return False, "hammering", new_ban
 
-    # Re-check in case hammering just applied.
-    ban = find_active_ban(db, ip=ip)
+    # Re-check in case hammering just applied (IP or username).
+    ban = find_active_ban(db, ip=ip, username=uname or None)
     if ban is not None:
         return False, "banned", ban
 

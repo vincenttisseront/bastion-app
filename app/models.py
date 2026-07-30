@@ -631,7 +631,8 @@ class SecurityBanRule(Base):
     __table_args__ = (UniqueConstraint("rule_type", name="uq_security_ban_rule_type"),)
 
     id = Column(Integer, primary_key=True)
-    # hammering | failed_login | hack_username | concurrent_connections
+    # hammering | hammering_login | failed_login | successful_login |
+    # hack_username | concurrent_connections
     rule_type = Column(String, nullable=False, index=True)
     enabled = Column(Boolean, nullable=False, default=True)
     threshold = Column(Integer, nullable=False, default=0)
@@ -681,6 +682,18 @@ class SecurityAllowlistEntry(Base):
     comment = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
     created_by = Column(String, nullable=True)
+
+
+class SecurityRateEvent(Base):
+    """Sliding-window rate events shared across workers (SQLite / SQLCipher)."""
+
+    __tablename__ = "security_rate_events"
+
+    id = Column(Integer, primary_key=True)
+    # hammer | hammer_login | fail_ip | fail_user | success_ip
+    kind = Column(String, nullable=False, index=True)
+    key = Column(String, nullable=False, index=True)
+    occurred_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, index=True)
 
 
 class ContainerLogsSettings(Base):

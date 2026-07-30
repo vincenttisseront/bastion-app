@@ -941,6 +941,17 @@ async def breakglass_login(
         db, body.username, signing, request=request
     )
     db.commit()
+    try:
+        from app.security.banning.engine import record_successful_login
+
+        record_successful_login(
+            db, ip=client_ip, username=body.username
+        )
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     set_breakglass_cookie(response, token, settings)
     log_action(
         db,

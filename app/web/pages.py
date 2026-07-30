@@ -308,6 +308,8 @@ def _breakglass_login_response(
     db: Session,
     rd: str,
 ) -> RedirectResponse:
+    from app.security.banning.engine import record_successful_login
+
     token, jti = issue_breakglass_token(
         db,
         username,
@@ -315,6 +317,15 @@ def _breakglass_login_response(
         request=request,
     )
     db.commit()
+    try:
+        record_successful_login(
+            db, ip=_client_ip(request), username=username
+        )
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     response = RedirectResponse(url=rd, status_code=302)
     set_breakglass_cookie(response, token, settings)
     log_action(
@@ -333,6 +344,26 @@ def _breakglass_login_response(
     return response
 
 
+def _record_sso_failure_from_request(request: Request, db: Session) -> None:
+    """Best-effort: IdP failures never hit FastAPI password verify — count return errors."""
+    from app.security.banning.engine import evaluate_login_attempt
+
+    err = (request.query_params.get("error") or request.query_params.get("sso_error") or "").strip()
+    if not err:
+        return
+    username = (
+        request.query_params.get("username")
+        or request.query_params.get("login_hint")
+        or ""
+    ).strip()
+    evaluate_login_attempt(
+        db,
+        ip=_client_ip(request),
+        username=username or "sso",
+        success=False,
+    )
+
+
 @router.get("/auth/login")
 @router.get("/breakglass")
 def login_page(
@@ -341,6 +372,13 @@ def login_page(
     settings: Settings = Depends(get_settings),
 ):
     rd = resolve_rd(request)
+    try:
+        _record_sso_failure_from_request(request, db)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     user = get_user_context(request, settings, db=db)
     if user and user.is_breakglass:
         # Must match /internal/oauth2-auth (binding / jti). Soft cookie checks alone
@@ -564,6 +602,54 @@ def sso_start(
     return render(
         "auth/sso_redirect.html",
         **_ctx(request, settings, hide_chrome=True, redirect_url=redirect_url),
+    )
+
+
+@router.get("/auth/sso-failed")
+def sso_failed(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """
+    Explicit SSO failure landing (nginx / oauth2-proxy can redirect here).
+    Feeds the same failed_login counters as break-glass.
+    """
+    from app.security.banning.engine import evaluate_login_attempt
+
+    username = (
+        request.query_params.get("username")
+        or request.query_params.get("login_hint")
+        or "sso"
+    ).strip()
+    evaluate_login_attempt(
+        db,
+        ip=_client_ip(request),
+        username=username,
+        success=False,
+    )
+    log_action(
+        db,
+        actor=username,
+        action="security.sso_login_failed",
+        details={
+            "error": (request.query_params.get("error") or "")[:200],
+        },
+        ip_address=_client_ip(request) or None,
+    )
+    rd = resolve_rd(request)
+    realm = get_default_idp_realm(db)
+    oauth2_url = oauth2_start_url(realm.slug, rd) if realm else None
+    return render(
+        "auth/login.html",
+        **_ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            rd=rd,
+            oauth2_url=oauth2_url,
+            login_error="Connexion SSO échouée. Réessayez ou utilisez le break-glass.",
+        ),
     )
 
 
@@ -1816,6 +1902,13 @@ def admin_security_banning_rules(
     hammering_ban_minutes: int = Form(60),
     hammering_ban_permanent: str | None = Form(None),
     hammering_confirm_permanent: str | None = Form(None),
+    # hammering_login (login-path only)
+    hammering_login_enabled: str | None = Form(None),
+    hammering_login_threshold: int = Form(30),
+    hammering_login_window_seconds: int = Form(60),
+    hammering_login_ban_minutes: int = Form(60),
+    hammering_login_ban_permanent: str | None = Form(None),
+    hammering_login_confirm_permanent: str | None = Form(None),
     # failed_login
     failed_login_enabled: str | None = Form(None),
     failed_login_threshold: int = Form(15),
@@ -1824,6 +1917,13 @@ def admin_security_banning_rules(
     failed_login_ban_permanent: str | None = Form(None),
     failed_login_confirm_permanent: str | None = Form(None),
     failed_login_ban_username: str | None = Form(None),
+    # successful_login
+    successful_login_enabled: str | None = Form(None),
+    successful_login_threshold: int = Form(20),
+    successful_login_window_seconds: int = Form(300),
+    successful_login_ban_minutes: int = Form(30),
+    successful_login_ban_permanent: str | None = Form(None),
+    successful_login_confirm_permanent: str | None = Form(None),
     # hack_username
     hack_username_enabled: str | None = Form(None),
     hack_usernames: str = Form("administrator,root"),
@@ -1847,6 +1947,14 @@ def admin_security_banning_rules(
                 "ban_permanent": hammering_ban_permanent == "on",
                 "confirm_permanent": hammering_confirm_permanent == "on",
             },
+            "hammering_login": {
+                "enabled": hammering_login_enabled == "on",
+                "threshold": hammering_login_threshold,
+                "window_seconds": hammering_login_window_seconds,
+                "ban_minutes": hammering_login_ban_minutes,
+                "ban_permanent": hammering_login_ban_permanent == "on",
+                "confirm_permanent": hammering_login_confirm_permanent == "on",
+            },
             "failed_login": {
                 "enabled": failed_login_enabled == "on",
                 "threshold": failed_login_threshold,
@@ -1855,6 +1963,14 @@ def admin_security_banning_rules(
                 "ban_permanent": failed_login_ban_permanent == "on",
                 "confirm_permanent": failed_login_confirm_permanent == "on",
                 "ban_username": failed_login_ban_username == "on",
+            },
+            "successful_login": {
+                "enabled": successful_login_enabled == "on",
+                "threshold": successful_login_threshold,
+                "window_seconds": successful_login_window_seconds,
+                "ban_minutes": successful_login_ban_minutes,
+                "ban_permanent": successful_login_ban_permanent == "on",
+                "confirm_permanent": successful_login_confirm_permanent == "on",
             },
             "hack_username": {
                 "enabled": hack_username_enabled == "on",
