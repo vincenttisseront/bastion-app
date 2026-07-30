@@ -434,6 +434,116 @@
       {{ _compose_up.stderr | default('') }}
   when: _compose_up.rc | default(0) != 0
 
+# Exports on the data volume may still use literal proxy_pass http://oauth2-proxy-*:4180
+# (resolved at nginx -t). That deadlocks when Keycloak sits behind the bastion and
+# oauth2-proxy is down. Regenerate BEFORE VERIFY so nginx can start (deferred DNS).
+- name: "Wait for bastion-app healthy (before infra export)"
+  ansible.builtin.command:
+    cmd: docker compose exec -T bastion-app true
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _app_ready
+  retries: 20
+  delay: 3
+  until: _app_ready.rc | default(1) == 0
+  changed_when: false
+
+- name: "Regenerate oauth2 exports from DB (before nginx VERIFY)"
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T bastion-app
+      python -m app.admin.infrastructure apply
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+  register: _infra_export_early
+  failed_when: false
+  changed_when: _infra_export_early.rc == 0
+
+- name: "Warn if early DB infrastructure export failed"
+  ansible.builtin.debug:
+    msg: >-
+      early infrastructure apply rc={{ _infra_export_early.rc }} —
+      {{ _infra_export_early.stderr | default(_infra_export_early.stdout) }}
+  when: _infra_export_early.rc | default(0) != 0
+
+- name: "Sanitize nginx-portal-realms.conf if still using literal oauth2 upstreams"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    CONF="{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
+    test -f "$CONF" || exit 0
+    if ! grep -qE 'proxy_pass[[:space:]]+https?://oauth2-proxy-[^;/[:space:]]+/oauth2/' "$CONF"; then
+      echo "realms conf already deferred or empty"
+      exit 0
+    fi
+    python3 - "$CONF" <<'PY'
+    import re, sys
+    path = sys.argv[1]
+    text = open(path, encoding="utf-8").read()
+    # proxy_pass http://oauth2-proxy-clients:4180/oauth2/;
+    pat = re.compile(
+        r"proxy_pass\s+https?://(oauth2-proxy-([A-Za-z0-9_-]+):(\d+))/oauth2/;"
+    )
+
+    def repl(m):
+        hostport, slug, _port = m.group(1), m.group(2), m.group(3)
+        var = "oauth2_realm_" + re.sub(r"[^A-Za-z0-9]", "_", slug)
+        return (
+            f"rewrite ^/oauth2/{slug}/(.*)$ /oauth2/$1 break;\n"
+            f"    proxy_pass http://${var};"
+        )
+
+    # Inject set $var before each location that still has literal upstream
+    lines = text.splitlines(keepends=True)
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        loc = re.match(r"location\s+\^~\s+/oauth2/([A-Za-z0-9_-]+)/\s*\{", line)
+        if loc:
+            slug = loc.group(1)
+            # look ahead for literal proxy_pass in this block
+            block = [line]
+            j = i + 1
+            while j < len(lines) and not lines[j].strip().startswith("}"):
+                block.append(lines[j])
+                j += 1
+            if j < len(lines):
+                block.append(lines[j])
+            block_text = "".join(block)
+            m = pat.search(block_text)
+            if m and m.group(2) == slug:
+                hostport = m.group(1)
+                var = "oauth2_realm_" + re.sub(r"[^A-Za-z0-9]", "_", slug)
+                out.append(f"set ${var} {hostport};\n")
+                new_block = pat.sub(repl, block_text, count=1)
+                # ensure rewrite present (repl already adds it)
+                out.append(new_block)
+                i = j + 1
+                continue
+        out.append(line)
+        i += 1
+    new_text = "".join(out)
+    if "Docker: deferred DNS" not in new_text and "set $oauth2_realm_" in new_text:
+        new_text = (
+            "# Hotfix: deferred DNS (nginx starts without oauth2-proxy/Keycloak)\n"
+            + new_text
+        )
+    open(path, "w", encoding="utf-8").write(new_text)
+    print(f"sanitized {path}")
+    PY
+  args:
+    executable: /bin/bash
+  register: _realms_sanitize
+  changed_when: "'sanitized' in (_realms_sanitize.stdout | default(''))"
+
+- name: "Restart nginx after realms export (deferred DNS)"
+  ansible.builtin.command:
+    cmd: docker compose up -d --force-recreate --no-deps nginx
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _nginx_recreate
+  failed_when: false
+  changed_when: _nginx_recreate.rc == 0
+
 # Bloque le deploy si l'image tournante n'a pas les correctifs SSO (évite login loop silencieux).
 - name: "VERIFY : image bastion-app contains SSO auth fixes"
   ansible.builtin.shell: |
@@ -507,6 +617,15 @@
       exit 1
     fi
     echo "nginx ACME TLS sync OK"
+    echo "=== nginx-portal-realms deferred DNS ==="
+    REALMS="{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
+    if [[ -f "$REALMS" ]] && grep -qE 'proxy_pass[[:space:]]+https?://oauth2-proxy-' "$REALMS"; then
+      echo "OLD nginx-portal-realms.conf still uses literal oauth2-proxy upstream (nginx -t needs DNS at start)."
+      echo "Expected: set \$oauth2_realm_* + proxy_pass http://\$oauth2_realm_* (commit abeb9db+)."
+      head -40 "$REALMS" || true
+      exit 1
+    fi
+    echo "nginx realms deferred DNS OK (or empty stub)"
     echo "=== nginx status ==="
     if ! docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' bastion-nginx 2>/dev/null | grep -qx running; then
       echo "bastion-nginx is not running (often nginx -t fail on known-hosts map)."
