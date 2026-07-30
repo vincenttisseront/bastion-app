@@ -245,6 +245,7 @@ async def create_bastion_account(
     )
 
     # --- Step: optional Keycloak group assignment (per-group status)
+    selected_group_names: list[str] = []
     for group_id in group_ids:
         group = (
             db.query(RBACGroup)
@@ -263,6 +264,9 @@ async def create_bastion_account(
                 ip_address=ip_address,
             )
             continue
+        # Same-name mapping for CrushFTP (décision §12.2) — use selected RBAC
+        # names even if the Keycloak PUT later fails.
+        selected_group_names.append(group.name)
         try:
             await add_user_to_keycloak_group(
                 realm,
@@ -294,16 +298,33 @@ async def create_bastion_account(
         account.last_error = " ; ".join(errors)
 
     # --- Step: per-app provisioning (one row per app, never aggregated away)
+    # CrushFTP: pass RBAC group names (same-name mapping, decision §12.2) so the
+    # driver can add the user to CrushFTP groups in the same admin session.
     for application_id in application_ids:
         app = db.query(App).filter_by(id=application_id).first()
         if app is None:
             errors.append(f"Application #{application_id} introuvable")
             continue
+        crushftp_groups = (
+            list(selected_group_names)
+            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
+            else None
+        )
         row = await provision_account_app(
-            db, settings, account=account, app=app, actor=actor, ip_address=ip_address
+            db,
+            settings,
+            account=account,
+            app=app,
+            actor=actor,
+            ip_address=ip_address,
+            group_names=crushftp_groups,
         )
         if row.status == PROVISIONING_FAILED:
             errors.append(f"{app.label} : {row.detail}")
+        elif row.detail and "Groupes:" in row.detail and "=échec" in row.detail:
+            # User create succeeded but at least one CrushFTP group call failed —
+            # surface without flipping the row status away from success (spec 1.1).
+            errors.append(f"{app.label} (groupes) : {row.detail}")
 
     update_aggregate_status(account)
     db.commit()
@@ -318,8 +339,13 @@ async def provision_account_app(
     app: App,
     actor: str,
     ip_address: str | None = None,
+    group_names: list[str] | None = None,
 ) -> BastionAccountProvisioning:
-    """Provision (or retry) one application for one account — upserts the row."""
+    """Provision (or retry) one application for one account — upserts the row.
+
+    ``group_names``: optional CrushFTP (same-name) groups to join after user create;
+    ignored by other drivers / when empty.
+    """
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     driver_name = normalize_provisioning_driver(app.provisioning_driver)
 
@@ -354,6 +380,11 @@ async def provision_account_app(
                 "driver": row.driver_name,
                 "detail": result.detail,
                 "bastion_account_id": account.id,
+                **(
+                    {"group_errors": list(result.group_errors)}
+                    if result.group_errors
+                    else {}
+                ),
             },
             ip_address=ip_address,
         )
@@ -387,7 +418,12 @@ async def provision_account_app(
     )
     try:
         result = await driver.create_account(
-            db=db, settings=settings, app=app, account=account, credential=credential
+            db=db,
+            settings=settings,
+            app=app,
+            account=account,
+            credential=credential,
+            group_names=group_names,
         )
     except Exception:
         logger.exception(

@@ -159,6 +159,18 @@ async def admin_rbac_users_new_submit(
             "(compte de service provisioning + opt-in explicite)."
         )
 
+    # Groups belong to a realm — drop any id that is not for the selected realm
+    # (UI filters them, but never trust a crafted POST).
+    if group_ids:
+        allowed = {
+            g.id
+            for g in db.query(RBACGroup)
+            .filter(RBACGroup.id.in_(group_ids), RBACGroup.realm_id == realm.id)
+            .all()
+        }
+        group_ids = [gid for gid in group_ids if gid in allowed]
+        form_values["group_ids"] = group_ids
+
     try:
         account, step_errors = await create_bastion_account(
             db,

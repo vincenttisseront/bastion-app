@@ -234,3 +234,60 @@ def test_users_new_form_renders_before_dynamic_route(client, db_session):
     resp = client.get("/admin/rbac/users/new", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert "Nouvel utilisateur" in resp.text
+
+
+@respx.mock
+def test_bastion_account_creation_ignores_foreign_realm_group(client, db_session):
+    """A group from another realm must never be assigned (UI + crafted POST)."""
+    target = _realm(db_session)
+    other = RealmConfig(
+        slug="other",
+        name="OTHER",
+        issuer_url=f"{KC_BASE}/realms/OTHER",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("secret", _settings()),
+        redirect_uri="https://portal.test/oauth2/other/callback",
+        oauth2_proxy_port=4181,
+        enabled=True,
+        keycloak_provision_client_id="bastion-admin-provision",
+        keycloak_provision_client_secret_encrypted=encrypt_secret("prov-secret", _settings()),
+        provisioning_enabled=True,
+    )
+    db_session.add(other)
+    db_session.commit()
+    db_session.refresh(other)
+    foreign = _group(db_session, other)  # group belongs to OTHER, not target
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    _mock_no_duplicate()
+    respx.post(f"{KC_ADMIN}/users").respond(
+        201, headers={"Location": f"{KC_ADMIN}/users/kc-new-1"}
+    )
+    foreign_group_route = respx.put(
+        f"{KC_ADMIN}/users/kc-new-1/groups/{foreign.keycloak_group_id}"
+    ).respond(204)
+
+    resp = client.post(
+        "/admin/rbac/users/new",
+        headers=JSON_HEADERS,
+        data={
+            "realm_id": str(target.id),
+            "username": "jdoe",
+            "email": "jdoe@example.com",
+            "group_ids": str(foreign.id),
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is True
+    assert not foreign_group_route.called
+
+
+def test_users_new_form_groups_tagged_by_realm(client, db_session):
+    """Each group checkbox carries data-realm-id for client-side filtering."""
+    realm = _realm(db_session)
+    group = _group(db_session, realm)
+    resp = client.get("/admin/rbac/users/new", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert f'data-realm-id="{group.realm_id}"' in resp.text
+    assert 'data-realm-select' in resp.text
+    assert "groupes du realm cible" in resp.text.lower() or "Groupes du realm cible" in resp.text

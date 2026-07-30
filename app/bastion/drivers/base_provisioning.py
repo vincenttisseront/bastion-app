@@ -48,6 +48,10 @@ class ProvisioningResult:
     # True when the driver pushed ``GeneratedCredential`` to the app — the caller
     # then stores it in the internal vault (user_app_credential_service).
     credential_pushed: bool = False
+    # CrushFTP (and similar): group membership failures after a successful user
+    # create — kept separate so status can stay "success" while detail/audit
+    # still surface which group call failed (spec Étape 1.1).
+    group_errors: tuple[str, ...] = ()
 
 
 @runtime_checkable
@@ -64,9 +68,14 @@ class AccountProvisioningDriver(Protocol):
         app: "App",
         account: "BastionAccount",
         credential: GeneratedCredential,
+        group_names: list[str] | None = None,
     ) -> ProvisioningResult:
         """Create the application-local account. Must not raise for expected
-        failures — return status="failed" with an explicit, secret-free detail."""
+        failures — return status="failed" with an explicit, secret-free detail.
+
+        ``group_names`` (optional): app-local group names to join after create
+        (CrushFTP: same name as RBACGroup.name). Ignored by no-op drivers.
+        """
         ...
 
     async def disable_account(

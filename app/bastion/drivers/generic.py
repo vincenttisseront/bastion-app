@@ -460,7 +460,9 @@ class GenericNoOpProvisioningDriver:
 
     driver_name = "generic"
 
-    async def create_account(self, *, db, settings, app, account, credential) -> ProvisioningResult:
+    async def create_account(
+        self, *, db, settings, app, account, credential, group_names=None
+    ) -> ProvisioningResult:
         return ProvisioningResult(
             status=PROVISIONING_NOT_APPLICABLE,
             detail=_NOT_APPLICABLE_DETAIL,
