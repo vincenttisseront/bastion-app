@@ -86,7 +86,15 @@ def _seed(db, *, with_account: bool = True):
 def test_bastion_account_grant_hook_triggers_provisioning(client, db_session):
     realm, app, account = _seed(db_session)
 
-    respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_SET_USER_OK)
+    respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[
+            CRUSH_SET_USER_OK,
+            Response(
+                200,
+                text='<?xml version="1.0"?><user type="properties"><username>jdoe</username><root_dir>/</root_dir></user>',
+            ),
+        ]
+    )
 
     resp = client.post(
         "/admin/rbac/grants",

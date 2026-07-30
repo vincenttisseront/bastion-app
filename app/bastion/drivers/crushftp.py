@@ -198,21 +198,11 @@ _CRUSHFTP_USER_XML_TEMPLATE = (
     '<user type="properties">'
     "<username>{username}</username>"
     "<password>{password}</password>"
+    "<version>1.0</version>"
     "<root_dir>/</root_dir>"
-    "<extra_vfs_linked_details></extra_vfs_linked_details>"
+    "<userVersion>6</userVersion>"
+    "<max_logins>0</max_logins>"
     "</user>"
-)
-
-# CrushFTP wiki « Making a new User with VFS » — replace + vfs + permissions.
-_CRUSHFTP_VFS_ITEMS_XML = (
-    '<?xml version="1.0" encoding="UTF-8"?>'
-    '<vfs type="vector"></vfs>'
-)
-_CRUSHFTP_PERMISSIONS_XML = (
-    '<?xml version="1.0" encoding="UTF-8"?>'
-    '<permissions type="properties">'
-    '<item name="/">(read)(write)(view)(resume)</item>'
-    "</permissions>"
 )
 
 _DEFAULT_SERVER_GROUP = "MainUsers"
@@ -223,6 +213,39 @@ def _crushftp_user_xml(credential: GeneratedCredential) -> str:
     return _CRUSHFTP_USER_XML_TEMPLATE.format(
         username=_xml_escape(credential.username),
         password=_xml_escape(credential.password),
+    )
+
+
+def _crushftp_vfs_items_xml(username: str) -> str:
+    """Official CrushFTP wiki shape (vfs_items vector + FILE:// home)."""
+    safe = _xml_escape((username or "").strip())
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<vfs_items type="vector">'
+        '<vfs_items_subitem type="properties">'
+        f"<name>{safe}</name>"
+        "<path>/</path>"
+        '<vfs_item type="vector">'
+        '<vfs_item_subitem type="properties">'
+        f"<url>FILE://users/{safe}/</url>"
+        "</vfs_item_subitem>"
+        "</vfs_item>"
+        "</vfs_items_subitem>"
+        "</vfs_items>"
+    )
+
+
+def _crushftp_permissions_xml(username: str) -> str:
+    """Wiki sample uses <VFS> (uppercase) with / and /NAME/ entries."""
+    folder = _xml_escape((username or "").strip().upper())
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<VFS type="properties">'
+        f'<item name="/{folder}/">'
+        "(read)(view)(write)(delete)(resume)(makedir)(deletedir)(rename)"
+        "</item>"
+        '<item name="/">(read)(view)(resume)</item>'
+        "</VFS>"
     )
 
 
@@ -505,8 +528,7 @@ class CrushFTPProvisioningDriver:
         tls_verify: bool,
         credential: GeneratedCredential,
     ) -> ProvisioningResult:
-        # CrushFTP wiki: « Making a new User with VFS » uses data_action=replace
-        # + user + vfs_items + permissions (empty vfs_items often yields HTTP 200 failure).
+        # CrushFTP wiki sample attachments: replace + vfs_items + VFS permissions.
         ok, msg, status = await self._admin_post(
             base_url=base_url,
             admin_username=admin_username,
@@ -519,8 +541,8 @@ class CrushFTPProvisioningDriver:
                 "username": credential.username,
                 "user": _crushftp_user_xml(credential),
                 "xmlItem": "user",
-                "vfs_items": _CRUSHFTP_VFS_ITEMS_XML,
-                "permissions": _CRUSHFTP_PERMISSIONS_XML,
+                "vfs_items": _crushftp_vfs_items_xml(credential.username),
+                "permissions": _crushftp_permissions_xml(credential.username),
             },
         )
         if not ok:
@@ -535,11 +557,78 @@ class CrushFTPProvisioningDriver:
             else:
                 detail = f"Création compte CrushFTP échouée : {msg}"
             return ProvisioningResult(status=PROVISIONING_FAILED, detail=detail)
+
+        verified = await self._verify_user_exists(
+            base_url=base_url,
+            admin_username=admin_username,
+            admin_password=admin_password,
+            server_group=server_group,
+            tls_verify=tls_verify,
+            username=credential.username,
+        )
+        if not verified:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail=(
+                    f"CrushFTP a répondu succès à setUserItem mais getUser ne trouve "
+                    f"pas « {credential.username} » dans {server_group} — vérifiez "
+                    "l'URL API Admin (même instance que User Manager) et le compte admin."
+                ),
+            )
+
         return ProvisioningResult(
             status=PROVISIONING_SUCCESS,
-            detail="Compte CrushFTP créé (setUserItem replace)",
+            detail=(
+                f"Compte CrushFTP créé (username={credential.username}, "
+                f"serverGroup={server_group}, setUserItem replace + getUser OK)"
+            ),
             credential_pushed=True,
         )
+
+    async def _verify_user_exists(
+        self,
+        *,
+        base_url: str,
+        admin_username: str,
+        admin_password: str,
+        server_group: str,
+        tls_verify: bool,
+        username: str,
+    ) -> bool:
+        """Confirm the user is readable via admin getUser (avoids false setUserItem OK)."""
+        try:
+            async with httpx.AsyncClient(
+                timeout=_TIMEOUT,
+                follow_redirects=False,
+                verify=tls_verify,
+                auth=(admin_username, admin_password),
+            ) as client:
+                response = await client.post(
+                    base_url,
+                    data={
+                        "command": "getUser",
+                        "serverGroup": server_group,
+                        "username": username,
+                    },
+                )
+        except (httpx.TimeoutException, httpx.RequestError):
+            return False
+        text = response.text or ""
+        if response.status_code != 200:
+            return False
+        if response.status_code in (301, 302, 303, 307, 308):
+            return False
+        if _FAILURE_RE.search(text):
+            return False
+        lowered = text.lower()
+        if "<html" in lowered or "<!doctype" in lowered:
+            return False
+        # getUser returns user properties XML — not always <response>success.
+        if username.lower() in lowered and (
+            "<user" in lowered or "password" in lowered or "root_dir" in lowered
+        ):
+            return True
+        return False
 
     async def _set_group_membership(
         self,

@@ -16,6 +16,10 @@ CRUSH_ADMIN_URL = "https://crush-admin.internal:8080/"
 
 CRUSH_OK = Response(200, text="<response>success</response>")
 CRUSH_FAIL = Response(200, text="<response>failure</response>")
+CRUSH_GET_USER = Response(
+    200,
+    text='<?xml version="1.0"?><user type="properties"><username>jdoe</username><root_dir>/</root_dir></user>',
+)
 
 
 def _settings() -> Settings:
@@ -91,7 +95,9 @@ async def test_crushftp_group_add_success_same_admin_session(db_session):
     settings = _settings()
     _, app, account = _seed(db_session)
 
-    route = respx.post(CRUSH_ADMIN_URL).mock(side_effect=[CRUSH_OK, CRUSH_OK])
+    route = respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[CRUSH_OK, CRUSH_GET_USER, CRUSH_OK]
+    )
 
     row = await provision_account_app(
         db_session,
@@ -104,7 +110,7 @@ async def test_crushftp_group_add_success_same_admin_session(db_session):
     assert row.status == "success"
     assert "Compte CrushFTP créé" in row.detail
     assert "ARSYSTEMS-Users=ok" in row.detail
-    assert route.call_count == 2  # user + group (no login/logout)
+    assert route.call_count == 3  # setUserItem + getUser + group
 
     for call in route.calls:
         _assert_basic_auth(call.request)
@@ -114,7 +120,9 @@ async def test_crushftp_group_add_success_same_admin_session(db_session):
     assert user_form["username"] == ["jdoe"]
     assert user_form["serverGroup"] == ["MainUsers"]
 
-    group_form = _form(route.calls[1].request.content)
+    assert b"getUser" in (route.calls[1].request.content or b"")
+
+    group_form = _form(route.calls[2].request.content)
     assert group_form["command"] == ["setUserItem"]
     assert group_form["xmlItem"] == ["groups"]
     assert group_form["data_action"] == ["add"]
@@ -130,7 +138,9 @@ async def test_crushftp_group_failure_keeps_user_success(db_session):
     settings = _settings()
     _, app, account = _seed(db_session)
 
-    respx.post(CRUSH_ADMIN_URL).mock(side_effect=[CRUSH_OK, CRUSH_FAIL])
+    respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[CRUSH_OK, CRUSH_GET_USER, CRUSH_FAIL]
+    )
 
     row = await provision_account_app(
         db_session,
@@ -153,7 +163,9 @@ async def test_crushftp_group_implicit_create_same_call(db_session):
     settings = _settings()
     _, app, account = _seed(db_session)
 
-    route = respx.post(CRUSH_ADMIN_URL).mock(side_effect=[CRUSH_OK, CRUSH_OK])
+    route = respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[CRUSH_OK, CRUSH_GET_USER, CRUSH_OK]
+    )
 
     row = await provision_account_app(
         db_session,
@@ -174,11 +186,11 @@ async def test_crushftp_group_implicit_create_same_call(db_session):
 @respx.mock
 @pytest.mark.asyncio
 async def test_crushftp_no_group_names_skips_group_call(db_session):
-    """Without group_names: one setUserItem user call only."""
+    """Without group_names: setUserItem + getUser only."""
     settings = _settings()
     _, app, account = _seed(db_session)
 
-    route = respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_OK)
+    route = respx.post(CRUSH_ADMIN_URL).mock(side_effect=[CRUSH_OK, CRUSH_GET_USER])
 
     row = await provision_account_app(
         db_session,
@@ -190,7 +202,7 @@ async def test_crushftp_no_group_names_skips_group_call(db_session):
     )
     assert row.status == "success"
     assert "Groupes:" not in (row.detail or "")
-    assert route.call_count == 1
+    assert route.call_count == 2
     assert not any(b"xmlItem=groups" in (c.request.content or b"") for c in route.calls)
 
 
@@ -200,7 +212,7 @@ async def test_crushftp_empty_group_names_skips_group_call(db_session):
     settings = _settings()
     _, app, account = _seed(db_session)
 
-    route = respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_OK)
+    route = respx.post(CRUSH_ADMIN_URL).mock(side_effect=[CRUSH_OK, CRUSH_GET_USER])
 
     row = await provision_account_app(
         db_session,
@@ -211,7 +223,7 @@ async def test_crushftp_empty_group_names_skips_group_call(db_session):
         group_names=[],
     )
     assert row.status == "success"
-    assert route.call_count == 1
+    assert route.call_count == 2
     assert not any(b"xmlItem=groups" in (c.request.content or b"") for c in route.calls)
 
 

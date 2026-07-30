@@ -22,6 +22,10 @@ CRUSH_ADMIN_URL = "https://crush-admin.internal:8080/"
 CRUSH_SET_USER_OK = Response(200, text="<response>success</response>")
 CRUSH_SET_USER_FAIL = Response(200, text="<response>failure</response>")
 CRUSH_AUTH_FAIL = Response(401, text="<response>failure</response>")
+CRUSH_GET_USER_OK = Response(
+    200,
+    text='<?xml version="1.0"?><user type="properties"><username>jdoe</username><root_dir>/</root_dir></user>',
+)
 
 
 def _settings() -> Settings:
@@ -108,7 +112,9 @@ async def test_bastion_account_provisioning_crushftp_success(db_session):
     account = _account(db_session, realm)
     app = _crushftp_app(db_session)
 
-    route = respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_SET_USER_OK)
+    route = respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[CRUSH_SET_USER_OK, CRUSH_GET_USER_OK]
+    )
 
     row = await provision_account_app(
         db_session, settings, account=account, app=app, actor="admin@example.com"
@@ -116,7 +122,7 @@ async def test_bastion_account_provisioning_crushftp_success(db_session):
     assert row.status == "success"
     assert row.driver_name == "crushftp"
     assert account.status == "provisioned"
-    assert route.call_count == 1  # setUserItem only — no session login/logout
+    assert route.call_count == 2  # setUserItem + getUser verify
 
     req = route.calls[0].request
     _assert_basic_auth(req)
@@ -124,6 +130,7 @@ async def test_bastion_account_provisioning_crushftp_success(db_session):
     assert "setUserItem" in set_user_call
     assert "jdoe" in set_user_call
     assert "serverGroup=MainUsers" in set_user_call or "MainUsers" in set_user_call
+    assert "getUser" in route.calls[1].request.content.decode()
 
     cred = (
         db_session.query(UserAppCredential)
@@ -324,7 +331,15 @@ def test_provision_selected_apps_from_account_detail(client, db_session):
     assert 'name="application_ids"' in page.text
     assert crush.label in page.text
 
-    respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_SET_USER_OK)
+    respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[
+            CRUSH_SET_USER_OK,
+            Response(
+                200,
+                text='<?xml version="1.0"?><user type="properties"><username>toto</username><root_dir>/</root_dir></user>',
+            ),
+        ]
+    )
     resp = client.post(
         f"/admin/rbac/accounts/{account.id}/provision",
         headers=JSON_HEADERS,
@@ -390,7 +405,9 @@ def test_provision_retry_all_failed_and_pending(client, db_session):
     db_session.add(failed_row)
     db_session.commit()
 
-    respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_SET_USER_OK)
+    respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[CRUSH_SET_USER_OK, CRUSH_GET_USER_OK]
+    )
 
     resp = client.post(
         f"/admin/rbac/accounts/{account.id}/provision-retry-all",

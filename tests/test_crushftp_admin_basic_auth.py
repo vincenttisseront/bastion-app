@@ -67,8 +67,14 @@ def _assert_basic_auth_only(request):
 async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
     settings = _settings()
     app = _app(db_session)
-    route = respx.post(CRUSH_ADMIN_URL).respond(
-        200, text="<response>success</response>"
+    route = respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[
+            Response(200, text="<response>success</response>"),
+            Response(
+                200,
+                text='<?xml version="1.0"?><user type="properties"><username>jdoe</username><root_dir>/</root_dir></user>',
+            ),
+        ]
     )
     driver = CrushFTPProvisioningDriver()
     cred = GeneratedCredential(username="jdoe", password="user-pass-16chars")
@@ -83,7 +89,8 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
         )
 
     assert result.status == "success"
-    assert route.call_count == 1
+    assert "jdoe" in result.detail
+    assert route.call_count == 2
     req = route.calls[0].request
     _assert_basic_auth_only(req)
     form = parse_qs(req.content.decode())
@@ -92,10 +99,10 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
     assert form["data_action"] == ["replace"]
     assert form["serverGroup"] == ["MainUsers"]
     assert form["username"] == ["jdoe"]
-    assert "vfs_items" in form and form["vfs_items"][0]
-    assert "permissions" in form and form["permissions"][0]
-    assert "<vfs" in form["vfs_items"][0]
-    assert 'name="/"' in form["permissions"][0]
+    assert "vfs_items" in form and "vfs_items type=" in form["vfs_items"][0]
+    assert "FILE://users/jdoe/" in form["vfs_items"][0]
+    assert "permissions" in form and "<VFS" in form["permissions"][0]
+    assert route.calls[1].request.content.decode().find("getUser") >= 0
 
     joined = "\n".join(r.getMessage() for r in caplog.records)
     assert ADMIN_PASS not in joined
@@ -105,11 +112,41 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_crushftp_admin_create_fails_when_getuser_missing(db_session):
+    settings = _settings()
+    app = _app(db_session)
+    respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[
+            Response(200, text="<response>success</response>"),
+            Response(200, text="<response>failure</response>"),
+        ]
+    )
+    driver = CrushFTPProvisioningDriver()
+    result = await driver.create_account(
+        db=db_session,
+        settings=settings,
+        app=app,
+        account=None,
+        credential=GeneratedCredential(username="toto", password="user-pass-16chars"),
+    )
+    assert result.status == "failed"
+    assert "getUser" in result.detail
+    assert "toto" in result.detail
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_crushftp_admin_accepts_response_status_ok(db_session):
     settings = _settings()
     app = _app(db_session)
-    respx.post(CRUSH_ADMIN_URL).respond(
-        200, text="<response_status>OK</response_status>"
+    respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[
+            Response(200, text="<response_status>OK</response_status>"),
+            Response(
+                200,
+                text="<user type=\"properties\"><username>toto</username><root_dir>/</root_dir></user>",
+            ),
+        ]
     )
     driver = CrushFTPProvisioningDriver()
     result = await driver.create_account(
