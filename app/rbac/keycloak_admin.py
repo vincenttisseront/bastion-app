@@ -37,6 +37,17 @@ def _manage_users_error() -> str:
     )
 
 
+def _provision_manage_users_error() -> str:
+    return (
+        "Le compte de service provisioning n'a pas le rôle "
+        "realm-management:manage-users. Vérifiez la configuration côté Keycloak "
+        "(manage-users + view-users requis pour créer des utilisateurs)."
+    )
+
+
+USER_CONFLICT_MESSAGE = "Un compte avec cet identifiant existe déjà dans ce realm"
+
+
 # Residual window after Admin API logout: oauth2-proxy keeps its local cookie until
 # cookie_refresh (~1h) or an active revalidation. Documented for UI honesty.
 SSO_LOGOUT_RESIDUAL_NOTE = (
@@ -46,24 +57,40 @@ SSO_LOGOUT_RESIDUAL_NOTE = (
 )
 
 
-async def _admin_get(realm: RealmConfig, settings: Settings, path: str) -> httpx.Response:
-    token = await get_admin_token(realm, settings)
+async def _admin_get(
+    realm: RealmConfig, settings: Settings, path: str, *, token: str | None = None
+) -> httpx.Response:
+    token = token or await get_admin_token(realm, settings)
     base, realm_name = _issuer_parts(realm.issuer_url)
     url = f"{base}/admin/realms/{realm_name}{path}"
     async with httpx.AsyncClient(timeout=10.0) as client:
         return await client.get(url, headers={"Authorization": f"Bearer {token}"})
 
 
-async def _admin_post(
-    realm: RealmConfig, settings: Settings, path: str
+async def _admin_send(
+    realm: RealmConfig,
+    settings: Settings,
+    method: str,
+    path: str,
+    *,
+    json: dict | list | None = None,
+    token: str | None = None,
 ) -> httpx.Response:
-    token = await get_admin_token(realm, settings)
+    """POST/PUT against the Keycloak Admin API.
+
+    ``token`` selects the service account: pass a provision token for writes
+    (see get_provision_token); default falls back to the sync/admin account.
+    """
+    token = token or await get_admin_token(realm, settings)
     base, realm_name = _issuer_parts(realm.issuer_url)
     url = f"{base}/admin/realms/{realm_name}{path}"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            return await client.post(
-                url, headers={"Authorization": f"Bearer {token}"}
+            return await client.request(
+                method,
+                url,
+                json=json,
+                headers={"Authorization": f"Bearer {token}"},
             )
     except httpx.TimeoutException as exc:
         raise ValueError(
@@ -73,6 +100,28 @@ async def _admin_post(
         raise ValueError(
             f"Keycloak injoignable lors de l'appel admin ({path}): {exc}"
         ) from exc
+
+
+async def _admin_post(
+    realm: RealmConfig,
+    settings: Settings,
+    path: str,
+    *,
+    json: dict | list | None = None,
+    token: str | None = None,
+) -> httpx.Response:
+    return await _admin_send(realm, settings, "POST", path, json=json, token=token)
+
+
+async def _admin_put(
+    realm: RealmConfig,
+    settings: Settings,
+    path: str,
+    *,
+    json: dict | list | None = None,
+    token: str | None = None,
+) -> httpx.Response:
+    return await _admin_send(realm, settings, "PUT", path, json=json, token=token)
 
 
 async def logout_keycloak_user(
@@ -87,7 +136,16 @@ async def logout_keycloak_user(
     uid = (keycloak_user_id or "").strip()
     if not uid:
         raise ValueError("Identifiant utilisateur Keycloak manquant")
-    resp = await _admin_post(realm, settings, f"/users/{uid}/logout")
+    # Write call (manage-users). Prefer the dedicated provision (write) account when
+    # configured so the sync account can stay read-only; fall back to the historical
+    # admin/sync account for realms without a provision account yet (Tâche 0 —
+    # migration du logout vers le compte d'écriture dédié).
+    token = (
+        await get_provision_token(realm, settings)
+        if provisioning_configured(realm)
+        else None
+    )
+    resp = await _admin_post(realm, settings, f"/users/{uid}/logout", token=token)
     if resp.status_code == 403:
         raise ValueError(_manage_users_error())
     if resp.status_code == 404:
@@ -246,6 +304,144 @@ async def search_keycloak_users_fuzzy(
     return [user for _, user in ranked[: max(1, limit)]]
 
 
+async def find_keycloak_user_exact(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    username: str | None = None,
+    email: str | None = None,
+    token: str | None = None,
+) -> dict | None:
+    """Exact-match user lookup (``?username=…&exact=true`` / ``?email=…&exact=true``).
+
+    Dedicated duplicate pre-check before user creation (audit §1.4) — the existing
+    search_keycloak_users() is substring/fuzzy-oriented and MUST NOT be used here.
+    Returns the first matching user dict, or None.
+    """
+
+    async def _query(param: str, value: str) -> dict | None:
+        resp = await _admin_get(
+            realm,
+            settings,
+            f"/users?{param}={quote(value)}&exact=true&max=2",
+            token=token,
+        )
+        if resp.status_code == 403:
+            raise ValueError(_view_users_error())
+        if resp.status_code >= 400:
+            raise ValueError(
+                f"Échec vérification de doublon (HTTP {resp.status_code})"
+            )
+        data = resp.json()
+        if isinstance(data, list) and data:
+            return data[0]
+        return None
+
+    uname = (username or "").strip()
+    mail = (email or "").strip()
+    if uname:
+        found = await _query("username", uname)
+        if found:
+            return found
+    if mail:
+        found = await _query("email", mail)
+        if found:
+            return found
+    return None
+
+
+async def create_keycloak_user(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    username: str,
+    email: str,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    initial_password: str,
+    temporary_password: bool = True,
+) -> str:
+    """Create a Keycloak user via the WRITE (provision) service account.
+
+    Password policy (décision actée §9.1): randomly generated by the caller +
+    ``requiredActions: ["UPDATE_PASSWORD"]`` so the user must change it at first
+    login. ``initial_password`` is sent to Keycloak only — never logged, never
+    stored, never returned.
+
+    Returns the new Keycloak user id (``Location`` header).
+    """
+    token = await get_provision_token(realm, settings)
+    payload: dict = {
+        "username": username,
+        "email": email,
+        "enabled": True,
+        "emailVerified": False,
+        "requiredActions": ["UPDATE_PASSWORD"] if temporary_password else [],
+        "credentials": [
+            {
+                "type": "password",
+                "value": initial_password,
+                "temporary": bool(temporary_password),
+            }
+        ],
+    }
+    if first_name:
+        payload["firstName"] = first_name
+    if last_name:
+        payload["lastName"] = last_name
+
+    resp = await _admin_post(realm, settings, "/users", json=payload, token=token)
+    if resp.status_code == 409:
+        raise ValueError(USER_CONFLICT_MESSAGE)
+    if resp.status_code == 403:
+        raise ValueError(_provision_manage_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(
+            f"Échec création utilisateur Keycloak (HTTP {resp.status_code})"
+        )
+
+    location = resp.headers.get("location", "")
+    user_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
+    if not user_id:
+        # Some proxies strip Location — fall back to the exact lookup.
+        found = await find_keycloak_user_exact(
+            realm, settings, username=username, token=token
+        )
+        user_id = str(found.get("id") or "") if found else ""
+    if not user_id:
+        raise ValueError(
+            "Utilisateur créé mais identifiant Keycloak introuvable "
+            "(header Location absent et recherche exacte vide)"
+        )
+    return user_id
+
+
+async def add_user_to_keycloak_group(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    keycloak_user_id: str,
+    keycloak_group_id: str,
+    token: str | None = None,
+) -> None:
+    """PUT /users/{id}/groups/{group_id} with the WRITE (provision) account."""
+    token = token or await get_provision_token(realm, settings)
+    resp = await _admin_put(
+        realm,
+        settings,
+        f"/users/{keycloak_user_id}/groups/{keycloak_group_id}",
+        token=token,
+    )
+    if resp.status_code == 403:
+        raise ValueError(_provision_manage_users_error())
+    if resp.status_code == 404:
+        raise ValueError("Utilisateur ou groupe Keycloak introuvable pour l'assignation")
+    if resp.status_code >= 400:
+        raise ValueError(
+            f"Échec ajout au groupe Keycloak (HTTP {resp.status_code})"
+        )
+
+
 async def fetch_user_groups(
     realm: RealmConfig, keycloak_user_id: str, settings: Settings
 ) -> list[dict]:
@@ -271,20 +467,26 @@ async def fetch_keycloak_user(
     return resp.json()
 
 
-async def get_admin_token(realm: RealmConfig, settings: Settings) -> str:
-    if not realm.keycloak_admin_client_id or not realm.keycloak_admin_client_secret_encrypted:
-        raise ValueError(
-            "Compte de service non configuré pour ce realm. "
-            "Renseignez le Client ID/Secret (admin) dans la fiche realm."
-        )
-    token_endpoint = f"{realm.issuer_url.rstrip('/')}/protocol/openid-connect/token"
-    client_secret = decrypt_secret(realm.keycloak_admin_client_secret_encrypted, settings)
+async def _client_credentials_token(
+    issuer_url: str,
+    client_id: str,
+    client_secret_encrypted: str,
+    settings: Settings,
+) -> str:
+    """client_credentials token for ANY per-realm service account.
+
+    Single parameterized core (audit §1.2) — callers pick the credential pair:
+    get_admin_token (read/sync account) or get_provision_token (write account).
+    Never duplicated per account.
+    """
+    token_endpoint = f"{issuer_url.rstrip('/')}/protocol/openid-connect/token"
+    client_secret = decrypt_secret(client_secret_encrypted, settings)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(
             token_endpoint,
             data={
                 "grant_type": "client_credentials",
-                "client_id": realm.keycloak_admin_client_id,
+                "client_id": client_id,
                 "client_secret": client_secret,
             },
         )
@@ -298,6 +500,43 @@ async def get_admin_token(realm: RealmConfig, settings: Settings) -> str:
     if not token:
         raise ValueError("Réponse token admin invalide (access_token manquant)")
     return token
+
+
+async def get_admin_token(realm: RealmConfig, settings: Settings) -> str:
+    """Token for the read-oriented sync service account (groups sync, user search)."""
+    if not realm.keycloak_admin_client_id or not realm.keycloak_admin_client_secret_encrypted:
+        raise ValueError(
+            "Compte de service non configuré pour ce realm. "
+            "Renseignez le Client ID/Secret (admin) dans la fiche realm."
+        )
+    return await _client_credentials_token(
+        realm.issuer_url,
+        realm.keycloak_admin_client_id,
+        realm.keycloak_admin_client_secret_encrypted,
+        settings,
+    )
+
+
+def provisioning_configured(realm: RealmConfig) -> bool:
+    return bool(
+        getattr(realm, "keycloak_provision_client_id", None)
+        and getattr(realm, "keycloak_provision_client_secret_encrypted", None)
+    )
+
+
+async def get_provision_token(realm: RealmConfig, settings: Settings) -> str:
+    """Token for the WRITE service account (manage-users) — user provisioning."""
+    if not provisioning_configured(realm):
+        raise ValueError(
+            "Compte de service provisioning non configuré pour ce realm. "
+            "Renseignez le Client ID/Secret (provisioning) dans la fiche realm."
+        )
+    return await _client_credentials_token(
+        realm.issuer_url,
+        realm.keycloak_provision_client_id,
+        realm.keycloak_provision_client_secret_encrypted,
+        settings,
+    )
 
 
 def _flatten_groups(groups: list[dict]) -> list[dict]:

@@ -37,6 +37,9 @@ class App(Base):
     public_fqdn = Column(String, nullable=True)
     auth_mode = Column(String, default="sso")
     robotic_driver = Column(String, nullable=True)
+    # Account provisioning driver (None = SSO only, no local account pushed).
+    # V1 values: "crushftp" | "generic" (explicit no-op). See app/bastion/drivers/registry.py.
+    provisioning_driver = Column(String, nullable=True)
     login_form_url = Column(String, nullable=True)
     login_username_field = Column(String, default="username", nullable=False)
     login_password_field = Column(String, default="password", nullable=False)
@@ -459,9 +462,106 @@ class RealmConfig(Base):
     last_groups_sync_status = Column(String, nullable=True)  # "ok" | "error"
     last_groups_sync_error = Column(String, nullable=True)
 
+    # Keycloak Admin API service account (per realm) for user provisioning (WRITE:
+    # manage-users). Distinct from the read-oriented sync account above.
+    # provisioning_enabled is an EXPLICIT opt-in (never auto-derived from the
+    # credentials being present, unlike groups_sync_enabled — write access to
+    # Keycloak deserves a conscious checkbox).
+    keycloak_provision_client_id = Column(String, nullable=True)
+    keycloak_provision_client_secret_encrypted = Column(String, nullable=True)
+    provisioning_enabled = Column(Boolean, default=False, nullable=False)
+
     @property
     def oauth2_proxy_url(self) -> str:
         return f"http://127.0.0.1:{self.oauth2_proxy_port}"
+
+
+# BastionAccount lifecycle statuses (String column + Python constants, no SQL Enum —
+# same convention as credential_mode / access_mode).
+BASTION_ACCOUNT_STATUSES: tuple[str, ...] = (
+    "pending",  # internal row created, Keycloak user not created yet (or failed)
+    "keycloak_created",  # Keycloak user exists, no app provisioning attempted/pending
+    "provisioned",  # all attempted app provisionings succeeded (or not_applicable)
+    "partial_failure",  # at least one app provisioning failed — never masked
+)
+
+PROVISIONING_STATUSES: tuple[str, ...] = (
+    "pending",
+    "success",
+    "failed",
+    "not_applicable",
+)
+
+
+class BastionAccount(Base):
+    """User account created from bastion-app, pushed to a Keycloak realm.
+
+    Each pipeline step (Keycloak creation, group assignment, per-app provisioning)
+    has its own visible status — never an optimistic aggregate (spec §1).
+    """
+
+    __tablename__ = "bastion_accounts"
+
+    id = Column(Integer, primary_key=True)
+
+    realm_id = Column(Integer, ForeignKey("realm_configs.id"), nullable=False, index=True)
+    username = Column(String, nullable=False)
+    email = Column(String, nullable=False)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+
+    # Filled only after successful Keycloak creation (no phantom accounts).
+    keycloak_user_id = Column(String, nullable=True, index=True)
+    status = Column(String, default="pending", nullable=False)
+
+    created_by = Column(String, nullable=False)  # bastion admin (email)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    last_error = Column(String, nullable=True)  # last blocking error message
+
+    realm = relationship("RealmConfig", foreign_keys=[realm_id])
+    provisionings = relationship(
+        "BastionAccountProvisioning",
+        back_populates="account",
+        cascade="all, delete-orphan",
+        foreign_keys="BastionAccountProvisioning.bastion_account_id",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("realm_id", "username", name="uq_bastion_account_realm_username"),
+    )
+
+
+class BastionAccountProvisioning(Base):
+    """One row per (account, application) provisioning attempt — partial by nature."""
+
+    __tablename__ = "bastion_account_provisioning"
+
+    id = Column(Integer, primary_key=True)
+
+    bastion_account_id = Column(
+        Integer, ForeignKey("bastion_accounts.id"), nullable=False, index=True
+    )
+    application_id = Column(Integer, ForeignKey("apps.id"), nullable=False, index=True)
+
+    driver_name = Column(String, nullable=False)  # "crushftp" | "generic" | "none"
+    status = Column(String, default="pending", nullable=False)
+    # Driver message (success or precise error) — NEVER a plaintext secret.
+    detail = Column(String, nullable=True)
+    attempted_at = Column(DateTime(timezone=True), default=utcnow)
+
+    account = relationship(
+        "BastionAccount", back_populates="provisionings", foreign_keys=[bastion_account_id]
+    )
+    application = relationship("App", foreign_keys=[application_id])
+
+    __table_args__ = (
+        UniqueConstraint(
+            "bastion_account_id",
+            "application_id",
+            name="uq_bastion_account_provisioning_app",
+        ),
+    )
 
 
 class BreakGlassAccount(Base):

@@ -12,9 +12,11 @@ from app.access_modes import (
     validate_app_access_fields,
 )
 from app.bastion.bastion_fields import (
+    PROVISIONING_DRIVER_LABELS,
     normalize_auth_mode,
     normalize_credential_mode,
     normalize_identity_format,
+    normalize_provisioning_driver,
     resolve_robotic_driver,
     validate_generic_form_fields,
     vault_enabled_for_app,
@@ -1005,6 +1007,7 @@ def admin_apps_edit(
             logo_url=logo_public_url(app),
             vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
             rbac_grant_count=rbac_grant_count,
+            provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
         ),
     )
 
@@ -1030,6 +1033,7 @@ def admin_apps_edit_post(
     credential_mode: str = Form("shared"),
     identity_format: str = Form("email"),
     injected_cookie_scope: str = Form("host_only"),
+    provisioning_driver: str = Form(""),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -1062,6 +1066,7 @@ def admin_apps_edit_post(
         app.description = desc
         app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
         app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
+        app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
         _apply_auth_config(
             app,
             auth_mode=auth_mode,
@@ -1092,6 +1097,7 @@ def admin_apps_edit_post(
                 logo_url=logo_public_url(app),
                 vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
                 rbac_grant_count=rbac_grant_count,
+                provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
             ),
         )
     app.label = label
@@ -1102,6 +1108,7 @@ def admin_apps_edit_post(
     app.enabled = enabled == "on"
     app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
     app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
+    app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
     _apply_auth_config(
         app,
         auth_mode=auth_mode,

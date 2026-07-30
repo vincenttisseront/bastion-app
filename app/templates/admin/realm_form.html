@@ -158,6 +158,42 @@
       </div>
     </div>
 
+    {% set provision_ready = form_values.keycloak_provision_client_id or form_values.provisioning_enabled %}
+    <div class="form-section is-accordion form-section-gap" data-form-accordion>
+      <div class="form-section-header" data-form-accordion-toggle>
+        <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
+        <div>
+          <div class="form-section-title">Compte de service (provisioning de comptes — écriture)</div>
+          <div class="form-section-sub">Client confidentiel dédié, distinct du compte sync, rôles : <span class="mono">realm-management:manage-users</span> + <span class="mono">view-users</span></div>
+          <div class="form-section-summary{% if not provision_ready %} is-off{% endif %}">
+            {% if form_values.provisioning_enabled %}Provisioning activé{% elif form_values.keycloak_provision_client_id %}Client provision : {{ form_values.keycloak_provision_client_id }} (non activé){% else %}Non configuré{% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label" for="keycloak_provision_client_id">Client ID (provisioning)</label>
+          <input type="text" id="keycloak_provision_client_id" name="keycloak_provision_client_id" class="form-input{% if errors.keycloak_provision_client_id %} is-invalid{% endif %}" value="{{ form_values.keycloak_provision_client_id or '' }}" placeholder="bastion-admin-provision" autocomplete="off">
+          <p class="form-hint">Ne jamais réutiliser le compte sync (lecture) — un compte d'écriture dédié, revu explicitement.</p>
+          {% if errors.keycloak_provision_client_id %}<p class="form-error">{{ errors.keycloak_provision_client_id }}</p>{% endif %}
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="keycloak_provision_client_secret">Client secret (provisioning)</label>
+          <input type="password" id="keycloak_provision_client_secret" name="keycloak_provision_client_secret" class="form-input{% if errors.keycloak_provision_client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm and form_values.provisioning_configured %}••••••••{% else %}Secret du compte de service{% endif %}" autocomplete="new-password">
+          <p class="form-hint">{% if realm %}Laissez vide pour conserver le secret actuel.{% else %}Requis si vous saisissez un Client ID.{% endif %}</p>
+          {% if errors.keycloak_provision_client_secret %}<p class="form-error">{{ errors.keycloak_provision_client_secret }}</p>{% endif %}
+        </div>
+        <div class="form-group">
+          <label style="display:flex; align-items:center; gap:8px;">
+            <input type="checkbox" name="provisioning_enabled" value="on"{% if form_values.provisioning_enabled %} checked{% endif %}>
+            Activer le provisioning de comptes pour ce realm
+          </label>
+          <p class="form-hint">Opt-in explicite : le realm n'apparaît dans le formulaire « Nouvel utilisateur » que si cette case est cochée (écriture Keycloak).</p>
+          {% if errors.provisioning_enabled %}<p class="form-error">{{ errors.provisioning_enabled }}</p>{% endif %}
+        </div>
+      </div>
+    </div>
+
     <div class="form-section form-section-gap">
       <div class="form-footer">
         <button type="submit" class="btn btn-primary">Enregistrer</button>

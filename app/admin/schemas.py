@@ -20,6 +20,19 @@ class RealmConfigBase(BaseModel):
     enabled: bool = False
     keycloak_admin_client_id: str | None = None
     keycloak_admin_client_secret: str | None = None
+    # Provisioning (WRITE) service account — distinct from the sync account above.
+    keycloak_provision_client_id: str | None = None
+    keycloak_provision_client_secret: str | None = None
+    # Explicit opt-in checkbox — never auto-derived from credentials presence.
+    provisioning_enabled: bool = False
+
+    @field_validator("keycloak_provision_client_id", "keycloak_provision_client_secret")
+    @classmethod
+    def _strip_provision_fields(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
     @field_validator("name")
     @classmethod

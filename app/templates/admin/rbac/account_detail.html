@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Compte {{ account.username }}{% endblock %}
+{% block breadcrumb %}Admin / RBAC / Comptes / {{ account.username }}{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Compte {{ account.username }}</h1>
+      <p class="page-sub">{{ account.email }} — realm {{ realm.slug if realm else '?' }}</p>
+    </div>
+    <div>
+      {% if account.status == 'provisioned' %}
+      <span class="badge badge-ok">Provisionné</span>
+      {% elif account.status == 'keycloak_created' %}
+      <span class="badge badge-ok">Keycloak créé</span>
+      {% elif account.status == 'partial_failure' %}
+      <span class="badge badge-warn">Échec partiel</span>
+      {% else %}
+      <span class="badge badge-err">En attente (échec Keycloak)</span>
+      {% endif %}
+    </div>
+  </div>
+
+  {% include "admin/rbac/_rbac_tabs.html" %}
+
+  {% if account.last_error %}
+  <div class="alert alert-err">Dernière erreur bloquante : {{ account.last_error }}</div>
+  {% endif %}
+
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+    <h2 class="form-section-title">Étape Keycloak</h2>
+    <table class="table">
+      <tbody>
+        <tr>
+          <th>Statut</th>
+          <td>
+            {% if account.keycloak_user_id %}
+            <span class="badge badge-ok">Utilisateur créé</span>
+            {% else %}
+            <span class="badge badge-err">Non créé</span>
+            {% endif %}
+          </td>
+        </tr>
+        <tr>
+          <th>Keycloak user ID</th>
+          <td class="mono">{{ account.keycloak_user_id or '—' }}</td>
+        </tr>
+        <tr>
+          <th>Créé par</th>
+          <td>{{ account.created_by }} — {{ account.created_at.strftime('%Y-%m-%d %H:%M UTC') if account.created_at else '' }}</td>
+        </tr>
+        <tr>
+          <th>Liens</th>
+          <td>
+            {% if keycloak_console_url %}
+            <a href="{{ keycloak_console_url }}" target="_blank" rel="noopener">Compte Keycloak ↗</a>
+            {% endif %}
+            {% if account.keycloak_user_id and realm %}
+            &nbsp;·&nbsp;<a href="/admin/rbac/users?realm_id={{ realm.id }}&keycloak_user_id={{ account.keycloak_user_id }}">Droits effectifs</a>
+            {% endif %}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" style="padding:var(--sp-4);">
+    <h2 class="form-section-title">Provisioning applicatif</h2>
+    {% if provisionings %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Application</th>
+          <th>Driver</th>
+          <th>Statut</th>
+          <th>Détail</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in provisionings %}
+        <tr>
+          <td>{{ row.application.label if row.application else row.application_id }}</td>
+          <td class="mono">{{ row.driver_name }}</td>
+          <td>
+            {% if row.status == 'success' %}
+            <span class="badge badge-ok">Succès</span>
+            {% elif row.status == 'not_applicable' %}
+            <span class="badge badge-muted">Non applicable</span>
+            {% elif row.status == 'failed' %}
+            <span class="badge badge-err">Échec</span>
+            {% else %}
+            <span class="badge badge-muted">En attente</span>
+            {% endif %}
+          </td>
+          <td>{{ row.detail or '—' }}</td>
+          <td>
+            {% if row.status == 'failed' %}
+            <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ row.application_id }}" style="display:inline;">
+              <button type="submit" class="btn btn-ghost btn-sm">Relancer</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="form-hint">Aucun provisioning applicatif tenté pour ce compte.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

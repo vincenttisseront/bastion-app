@@ -441,6 +441,38 @@ async def generic_basic_auth_probe(
     return response.status_code not in (401, 403)
 
 
+# ---------------------------------------------------------------------------
+# Account provisioning — explicit no-op (spec §5.1)
+# ---------------------------------------------------------------------------
+
+from app.bastion.drivers.base_provisioning import (
+    PROVISIONING_NOT_APPLICABLE,
+    ProvisioningResult,
+)
+
+_NOT_APPLICABLE_DETAIL = (
+    "Cette application utilise le SSO complet, aucun compte local à provisionner."
+)
+
+
+class GenericNoOpProvisioningDriver:
+    """Explicit no-op for full-SSO apps — never leaves an ambiguous empty status."""
+
+    driver_name = "generic"
+
+    async def create_account(self, *, db, settings, app, account, credential) -> ProvisioningResult:
+        return ProvisioningResult(
+            status=PROVISIONING_NOT_APPLICABLE,
+            detail=_NOT_APPLICABLE_DETAIL,
+        )
+
+    async def disable_account(self, *, db, settings, app, account) -> ProvisioningResult:
+        return ProvisioningResult(
+            status=PROVISIONING_NOT_APPLICABLE,
+            detail=_NOT_APPLICABLE_DETAIL,
+        )
+
+
 async def generic_wsse_probe(
     app: App,
     username: str,

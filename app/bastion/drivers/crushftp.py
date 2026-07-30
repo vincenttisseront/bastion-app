@@ -169,3 +169,167 @@ class CrushFTPDriver(RoboticDriver):
             return False
         body = (response.text or "").lower()
         return "crushftp" in body or "webinterface" in response.url.path.lower()
+
+
+# ---------------------------------------------------------------------------
+# Account provisioning (bastion accounts → CrushFTP local users)
+# ---------------------------------------------------------------------------
+#
+# The robotic driver above logs in AS the target user (impersonation). User
+# management (`setUserItem`) requires an ADMIN session instead. The session
+# mechanics (command=login → CrushAuth cookie → c2f token) are identical — only
+# the credentials differ: the shared vault AppCredential of the CrushFTP app
+# MUST be an admin account for provisioning to work (audit §2.3).
+
+from xml.sax.saxutils import escape as _xml_escape
+
+from app.bastion.drivers.base_provisioning import (
+    PROVISIONING_FAILED,
+    PROVISIONING_SUCCESS,
+    GeneratedCredential,
+    ProvisioningResult,
+)
+
+_CRUSHFTP_USER_XML_TEMPLATE = (
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    '<user type="properties">'
+    "<username>{username}</username>"
+    "<password>{password}</password>"
+    "<root_dir>/</root_dir>"
+    "<extra_vfs_linked_details></extra_vfs_linked_details>"
+    "</user>"
+)
+
+
+def _crushftp_user_xml(credential: GeneratedCredential) -> str:
+    """Minimal CrushFTP user XML for setUserItem — values XML-escaped."""
+    return _CRUSHFTP_USER_XML_TEMPLATE.format(
+        username=_xml_escape(credential.username),
+        password=_xml_escape(credential.password),
+    )
+
+
+class CrushFTPProvisioningDriver:
+    """Create CrushFTP local users via the WebInterface admin API (setUserItem)."""
+
+    driver_name = "crushftp"
+
+    async def create_account(self, *, db, settings, app, account, credential) -> ProvisioningResult:
+        from app.bastion.upstream_tls import resolve_upstream_tls_verify
+        from app.secret_crypto import decrypt_secret
+        from app.vault.app_credential_service import get_app_credential
+
+        admin_cred = get_app_credential(db, app.slug)
+        if admin_cred is None or not admin_cred.is_active:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail=(
+                    "Credential admin CrushFTP absent du vault partagé de "
+                    "l'application — configurez un compte admin CrushFTP dans le "
+                    "vault avant de provisionner."
+                ),
+            )
+        try:
+            admin_password = decrypt_secret(admin_cred.encrypted_password, settings)
+        except ValueError:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail="Déchiffrement du credential admin CrushFTP impossible",
+            )
+
+        base_url = (app.upstream_url or "").strip()
+        if not base_url:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail="upstream_url non configurée pour cette application",
+            )
+
+        driver = CrushFTPDriver()
+        tls_verify = resolve_upstream_tls_verify(app)
+        try:
+            session = await driver.login(
+                base_url,
+                admin_cred.robotic_username,
+                admin_password,
+                tls_verify=tls_verify,
+            )
+        except RoboticLoginError:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail=(
+                    "Authentification admin CrushFTP refusée — vérifiez le "
+                    "credential admin du vault partagé."
+                ),
+            )
+        finally:
+            admin_password = ""  # noqa: F841
+
+        try:
+            return await self._set_user_item(session, credential)
+        finally:
+            await driver.logout(session)
+
+    async def _set_user_item(
+        self, session: CrushFTPSession, credential: GeneratedCredential
+    ) -> ProvisioningResult:
+        url = urljoin(session.base_url, "WebInterface/function/")
+        c2f = _c2f(session.cookies)
+        if not c2f:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail="Session admin CrushFTP sans token c2f",
+            )
+        data = {
+            "command": "setUserItem",
+            "data_action": "new",
+            "serverGroup": "MainUsers",
+            "username": credential.username,
+            "user": _crushftp_user_xml(credential),
+            "xmlItem": "user",
+            "vfs_items": "",
+            "c2f": c2f,
+        }
+        headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())}
+        try:
+            async with httpx.AsyncClient(
+                timeout=_TIMEOUT,
+                follow_redirects=False,
+                verify=bool(session.tls_verify),
+            ) as client:
+                response = await client.post(url, data=data, headers=headers)
+        except httpx.TimeoutException:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail="Timeout CrushFTP lors de la création du compte (setUserItem)",
+            )
+        except httpx.RequestError:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail="Erreur réseau CrushFTP lors de la création du compte",
+            )
+
+        # Never echo the raw response body into detail: it may contain the user
+        # XML we sent (password included).
+        if not _SUCCESS_RE.search(response.text or ""):
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail=(
+                    "CrushFTP a rejeté la création du compte (setUserItem "
+                    f"HTTP {response.status_code}) — compte déjà existant ou "
+                    "droits admin insuffisants."
+                ),
+            )
+        return ProvisioningResult(
+            status=PROVISIONING_SUCCESS,
+            detail="Compte CrushFTP créé (setUserItem)",
+            credential_pushed=True,
+        )
+
+    async def disable_account(self, *, db, settings, app, account) -> ProvisioningResult:
+        return ProvisioningResult(
+            status=PROVISIONING_FAILED,
+            detail=(
+                "Désactivation automatique hors périmètre V1 — action manuelle "
+                "dans CrushFTP (cf. spec §5.3)."
+            ),
+        )

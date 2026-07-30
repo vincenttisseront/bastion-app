@@ -360,6 +360,7 @@ async def _impersonate_crushftp(
     *,
     actor: str,
     ip_address: str | None,
+    client_headers: dict[str, str] | None = None,  # unused — uniform handler signature
 ) -> RoboticSessionResult:
     # CrushFTP limits concurrent sessions per account. After login succeeds, any
     # failure (getUsername, identity mismatch, _resolve_target, …) must call
@@ -562,6 +563,14 @@ async def _impersonate_generic_form(
     )
 
 
+# Cookie-SSO driver dispatch — registry lookup instead of hardcoded if/elif
+# (same pattern as app/bastion/drivers/registry.py for provisioning drivers).
+_COOKIE_SSO_HANDLERS = {
+    "crushftp": _impersonate_crushftp,
+    "generic_form": _impersonate_generic_form,
+}
+
+
 async def impersonate(
     db: Session,
     app_slug: str,
@@ -603,7 +612,7 @@ async def impersonate(
         )
         raise ImpersonationError(f"App '{app_slug}' not found")
 
-    if driver_name not in ("crushftp", "generic_form"):
+    if driver_name not in _COOKIE_SSO_HANDLERS:
         _audit_impersonate(
             db,
             app_slug=app_slug,
@@ -673,19 +682,9 @@ async def impersonate(
             keycloak_user_id=keycloak_user_id,
         )
 
+    handler = _COOKIE_SSO_HANDLERS[driver_name]
     try:
-        if driver_name == "crushftp":
-            return await _impersonate_crushftp(
-                db,
-                app_obj,
-                app_slug,
-                settings,
-                resolved,
-                password,
-                actor=actor,
-                ip_address=ip_address,
-            )
-        return await _impersonate_generic_form(
+        return await handler(
             db,
             app_obj,
             app_slug,

@@ -28,6 +28,15 @@ ROBOTIC_DRIVERS: frozenset[str] = frozenset(
     {"crushftp", "generic_form", "generic_basic_auth", "generic_wsse"}
 )
 
+# Account provisioning drivers (V1). None/empty = SSO only, no local account.
+PROVISIONING_DRIVER_NAMES: tuple[str, ...] = ("crushftp", "generic")
+
+PROVISIONING_DRIVER_LABELS: dict[str, str] = {
+    "": "Aucun (SSO uniquement)",
+    "crushftp": "CrushFTP (création de compte via API admin)",
+    "generic": "No-op explicite (SSO complet, statut « non applicable »)",
+}
+
 CREDENTIAL_MODES: tuple[str, ...] = (
     "shared",
     "individual_required",
@@ -61,6 +70,16 @@ def normalize_auth_mode(value: str | None) -> str:
     if lowered in AUTH_MODES:
         return lowered
     return _AUTH_MODE_ALIASES.get(lowered, "sso")
+
+
+def normalize_provisioning_driver(value: str | None) -> str | None:
+    """Normalize App.provisioning_driver — None when unset or unknown."""
+    if not value:
+        return None
+    lowered = value.strip().lower()
+    if lowered in PROVISIONING_DRIVER_NAMES:
+        return lowered
+    return None
 
 
 def normalize_credential_mode(value: str | None) -> str:

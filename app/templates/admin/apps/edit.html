@@ -151,6 +151,23 @@
     {% include "admin/apps/_vault_credential_section.html" with context %}
 
     <div class="form-section form-section-gap">
+      <div class="form-section-title">Provisioning de comptes</div>
+      <div class="form-group">
+        <label class="form-label" for="provisioning_driver">Driver de provisioning</label>
+        <select id="provisioning_driver" name="provisioning_driver" class="form-select">
+          {% for value, label in provisioning_driver_labels.items() %}
+          <option value="{{ value }}"{% if (app.provisioning_driver or '') == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="form-help">
+          Utilisé par le module « Nouvel utilisateur » (création de compte bastion → Keycloak →
+          appli). <span class="mono">crushftp</span> requiert un credential <strong>admin</strong>
+          dans le vault partagé ci-dessus. Vide = SSO uniquement, aucun compte local créé.
+        </p>
+      </div>
+    </div>
+
+    <div class="form-section form-section-gap">
       <div class="form-footer">
         <button type="submit" class="btn btn-primary">Enregistrer</button>
         <a href="/admin/apps" class="btn btn-ghost">Annuler</a>

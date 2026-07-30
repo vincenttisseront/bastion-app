@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Nouvel utilisateur{% endblock %}
+{% block breadcrumb %}Admin / RBAC / Nouvel utilisateur{% endblock %}
+
+{% block content %}
+<div class="page page-form">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Nouvel utilisateur</h1>
+      <p class="page-sub">Création interne + compte Keycloak + provisioning applicatif — chaque étape a son statut, aucune étape silencieuse</p>
+    </div>
+  </div>
+
+  {% include "admin/rbac/_rbac_tabs.html" %}
+
+  {% if form_error %}<div class="alert alert-err">{{ form_error }}</div>{% endif %}
+
+  {% if not provision_realms %}
+  <div class="alert alert-warn">
+    Aucun realm avec provisioning activé. Configurez le compte de service provisioning
+    (Client ID/Secret dédié, rôle <span class="mono">realm-management:manage-users</span>)
+    et cochez « Activer le provisioning » dans la <a href="/admin/realms">fiche realm</a>.
+  </div>
+  {% else %}
+  <form method="post" action="/admin/rbac/users/new">
+    <div class="form-section">
+      <div class="form-section-title">Identité</div>
+      <div class="form-group">
+        <label class="form-label" for="realm_id">Realm cible</label>
+        <select id="realm_id" name="realm_id" class="form-select" required>
+          {% for r in provision_realms %}
+          <option value="{{ r.id }}"{% if form_values.realm_id and form_values.realm_id|string == r.id|string %} selected{% endif %}>{{ r.name }} ({{ r.slug }})</option>
+          {% endfor %}
+        </select>
+        <p class="form-hint">Seuls les realms avec provisioning explicitement activé sont proposés.</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="username">Identifiant (username)</label>
+        <input type="text" id="username" name="username" class="form-input" value="{{ form_values.username or '' }}" required autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="email">Email</label>
+        <input type="email" id="email" name="email" class="form-input" value="{{ form_values.email or '' }}" required autocomplete="off">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="first_name">Prénom</label>
+          <input type="text" id="first_name" name="first_name" class="form-input" value="{{ form_values.first_name or '' }}" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="last_name">Nom</label>
+          <input type="text" id="last_name" name="last_name" class="form-input" value="{{ form_values.last_name or '' }}" autocomplete="off">
+        </div>
+      </div>
+      <p class="form-hint">
+        Mot de passe initial : <strong>généré aléatoirement</strong>, jamais affiché ni stocké —
+        l'utilisateur devra le changer à la première connexion (<span class="mono">UPDATE_PASSWORD</span>).
+      </p>
+    </div>
+
+    <div class="form-section form-section-gap">
+      <div class="form-section-title">Groupes RBAC (optionnel)</div>
+      <div class="form-group">
+        {% if provision_groups %}
+        {% for g in provision_groups %}
+        <label style="display:block;">
+          <input type="checkbox" name="group_ids" value="{{ g.id }}"{% if form_values.group_ids and g.id in form_values.group_ids %} checked{% endif %}>
+          {{ g.name }} <span class="mono" style="opacity:.6;">{{ g.path or '' }}</span>
+        </label>
+        {% endfor %}
+        {% else %}
+        <p class="form-hint">Aucun groupe importé — lancez la sync des groupes sur la fiche realm.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="form-section form-section-gap">
+      <div class="form-section-title">Applications à provisionner (optionnel)</div>
+      <div class="form-group">
+        {% for a in provision_apps %}
+        <label style="display:block;">
+          <input type="checkbox" name="application_ids" value="{{ a.id }}"{% if form_values.application_ids and a.id in form_values.application_ids %} checked{% endif %}>
+          {{ a.label }}
+          <span class="mono" style="opacity:.6;">
+            {% if a.provisioning_driver %}driver : {{ a.provisioning_driver }}{% else %}sans driver — sera marqué « non applicable »{% endif %}
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="form-section form-section-gap">
+      <div class="form-footer">
+        <button type="submit" class="btn btn-primary">Créer le compte</button>
+        <a href="/admin/rbac/users" class="btn btn-ghost">Annuler</a>
+      </div>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -15,6 +15,7 @@ from app.bastion.unknown_host_routes import router as unknown_host_router
 from app.admin.realms import router as admin_realms_router
 from app.admin.acme import router as admin_acme_router
 from app.admin.rbac_access import router as admin_rbac_access_router
+from app.admin.rbac_accounts import router as admin_rbac_accounts_router
 from app.admin.rbac_governance import router as admin_rbac_governance_router
 from app.admin.rbac_groups import router as admin_rbac_groups_router
 from app.admin.files import router as admin_files_router
@@ -222,6 +223,8 @@ app.include_router(admin_realms_router)
 app.include_router(admin_acme_router)
 app.include_router(infrastructure_router)
 app.include_router(admin_rbac_groups_router)
+# Before rbac_access: /admin/rbac/users/new must win over /admin/rbac/users/{keycloak_user_id}.
+app.include_router(admin_rbac_accounts_router)
 app.include_router(admin_rbac_access_router)
 app.include_router(admin_rbac_governance_router)
 app.include_router(admin_files_router)

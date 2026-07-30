@@ -144,6 +144,9 @@ def _realm_form_values(
             "enabled": realm.enabled,
             "keycloak_admin_client_id": realm.keycloak_admin_client_id or "",
             "groups_sync_enabled": bool(realm.groups_sync_enabled),
+            "keycloak_provision_client_id": realm.keycloak_provision_client_id or "",
+            "provisioning_configured": bool(realm.keycloak_provision_client_secret_encrypted),
+            "provisioning_enabled": bool(realm.provisioning_enabled),
         }
     return {
         "slug": slug,
@@ -159,6 +162,9 @@ def _realm_form_values(
         "enabled": False,
         "keycloak_admin_client_id": "",
         "groups_sync_enabled": False,
+        "keycloak_provision_client_id": "",
+        "provisioning_configured": False,
+        "provisioning_enabled": False,
     }
 
 
@@ -321,6 +327,9 @@ async def admin_realms_create(
     client_secret: str = Form(""),
     keycloak_admin_client_id: str = Form(""),
     keycloak_admin_client_secret: str = Form(""),
+    keycloak_provision_client_id: str = Form(""),
+    keycloak_provision_client_secret: str = Form(""),
+    provisioning_enabled: str | None = Form(None),
     oauth2_proxy_port: int = Form(4180),
     scopes: str = Form("openid profile email"),
     is_default: str | None = Form(None),
@@ -339,6 +348,8 @@ async def admin_realms_create(
         scopes=scopes,
         is_default=_form_bool(is_default),
     )
+    form_values["keycloak_provision_client_id"] = keycloak_provision_client_id
+    form_values["provisioning_enabled"] = _form_bool(provisioning_enabled)
     enabled = _form_bool(activate)
 
     try:
@@ -350,6 +361,9 @@ async def admin_realms_create(
             client_secret=client_secret,
             keycloak_admin_client_id=keycloak_admin_client_id or None,
             keycloak_admin_client_secret=keycloak_admin_client_secret or None,
+            keycloak_provision_client_id=keycloak_provision_client_id or None,
+            keycloak_provision_client_secret=keycloak_provision_client_secret or None,
+            provisioning_enabled=_form_bool(provisioning_enabled),
             oauth2_proxy_port=oauth2_proxy_port,
             scopes=scopes,
             is_default=_form_bool(is_default),
@@ -421,6 +435,37 @@ async def admin_realms_create(
                 **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
                 status_code=400,
             )
+
+    provision_client_id: str | None = data.keycloak_provision_client_id
+    provision_secret_plain: str | None = data.keycloak_provision_client_secret
+    provision_secret_encrypted: str | None = None
+    if provision_client_id or provision_secret_plain:
+        if not provision_client_id:
+            errors["keycloak_provision_client_id"] = "Client ID requis"
+        if not provision_secret_plain:
+            errors["keycloak_provision_client_secret"] = "Client secret requis"
+        if not errors:
+            provision_secret_encrypted, enc_err = _safe_encrypt_secret(
+                provision_secret_plain, settings
+            )
+            if enc_err:
+                errors["_form"] = enc_err
+    # Opt-in EXPLICITE : jamais auto-dérivé de la présence des identifiants
+    # (contrairement à groups_sync_enabled — écriture Keycloak = case consciente).
+    provisioning_opt_in = data.provisioning_enabled
+    if provisioning_opt_in and not (provision_client_id and provision_secret_encrypted):
+        errors["provisioning_enabled"] = (
+            "Renseignez le compte de service provisioning avant d'activer le provisioning"
+        )
+    if errors:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+        return render(
+            "admin/realm_form.html",
+            **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
+            status_code=400,
+        )
+
     realm = RealmConfig(
         slug=data.slug,
         name=data.name,
@@ -435,6 +480,11 @@ async def admin_realms_create(
         keycloak_admin_client_id=admin_client_id,
         keycloak_admin_client_secret_encrypted=admin_secret_encrypted,
         groups_sync_enabled=bool(admin_client_id and admin_secret_encrypted),
+        keycloak_provision_client_id=provision_client_id,
+        keycloak_provision_client_secret_encrypted=provision_secret_encrypted,
+        provisioning_enabled=bool(
+            provisioning_opt_in and provision_client_id and provision_secret_encrypted
+        ),
     )
     db.add(realm)
     try:
@@ -537,6 +587,9 @@ async def admin_realms_update(
     client_secret: str = Form(""),
     keycloak_admin_client_id: str = Form(""),
     keycloak_admin_client_secret: str = Form(""),
+    keycloak_provision_client_id: str = Form(""),
+    keycloak_provision_client_secret: str = Form(""),
+    provisioning_enabled: str | None = Form(None),
     oauth2_proxy_port: int = Form(4180),
     scopes: str = Form("openid profile email"),
     is_default: str | None = Form(None),
@@ -558,6 +611,8 @@ async def admin_realms_update(
             "oauth2_proxy_port": oauth2_proxy_port,
             "scopes": scopes,
             "is_default": _form_bool(is_default),
+            "keycloak_provision_client_id": keycloak_provision_client_id,
+            "provisioning_enabled": _form_bool(provisioning_enabled),
         }
     )
     enabled_requested = _form_bool(activate)
@@ -570,6 +625,9 @@ async def admin_realms_update(
             client_secret=client_secret or None,
             keycloak_admin_client_id=keycloak_admin_client_id or None,
             keycloak_admin_client_secret=keycloak_admin_client_secret or None,
+            keycloak_provision_client_id=keycloak_provision_client_id or None,
+            keycloak_provision_client_secret=keycloak_provision_client_secret or None,
+            provisioning_enabled=_form_bool(provisioning_enabled),
             oauth2_proxy_port=oauth2_proxy_port,
             scopes=scopes,
             is_default=_form_bool(is_default),
@@ -695,6 +753,54 @@ async def admin_realms_update(
         (realm.keycloak_admin_client_id or "").strip()
         and (realm.keycloak_admin_client_secret_encrypted or "").strip()
     )
+
+    # --- Compte de service provisioning (écriture) ---
+    provision_id = data.keycloak_provision_client_id
+    provision_secret_plain = data.keycloak_provision_client_secret
+    provision_errors: dict[str, str] = {}
+    if provision_id or provision_secret_plain:
+        if not provision_id:
+            provision_errors["keycloak_provision_client_id"] = "Client ID requis"
+        elif not provision_secret_plain and not realm.keycloak_provision_client_secret_encrypted:
+            provision_errors["keycloak_provision_client_secret"] = "Client secret requis"
+        else:
+            realm.keycloak_provision_client_id = provision_id
+            if provision_secret_plain:
+                encrypted_provision, enc_err = _safe_encrypt_secret(
+                    provision_secret_plain, settings
+                )
+                if enc_err:
+                    provision_errors["_form"] = enc_err
+                else:
+                    realm.keycloak_provision_client_secret_encrypted = encrypted_provision
+    # Opt-in EXPLICITE : jamais auto-dérivé de la présence des identifiants
+    # (contrairement à groups_sync_enabled — écriture Keycloak = case consciente).
+    want_provisioning = _form_bool(provisioning_enabled)
+    if not provision_errors:
+        if want_provisioning and not (
+            (realm.keycloak_provision_client_id or "").strip()
+            and (realm.keycloak_provision_client_secret_encrypted or "").strip()
+        ):
+            provision_errors["provisioning_enabled"] = (
+                "Renseignez le compte de service provisioning avant d'activer le provisioning"
+            )
+        else:
+            realm.provisioning_enabled = want_provisioning
+    if provision_errors:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": provision_errors}, status_code=400)
+        return render(
+            "admin/realm_form.html",
+            **_ctx(
+                request,
+                settings,
+                realm=realm,
+                form_values=form_values,
+                errors=provision_errors,
+            ),
+            status_code=400,
+        )
+
     _apply_default_realm(db, realm, data.is_default)
 
     if enabled_requested:

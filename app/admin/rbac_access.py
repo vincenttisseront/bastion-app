@@ -567,11 +567,49 @@ async def admin_rbac_grants_create(
         created=True,
     )
 
+    # Post-grant provisioning hook (spec §5.3) — after the grant commit so a
+    # provisioning failure never rolls back the granted right. Explicit result,
+    # never silent; user-subject grants toward apps with a provisioning driver.
+    provisioning_summary = None
+    try:
+        from app.rbac.account_service import provision_for_grant
+
+        provisioning_summary = await provision_for_grant(
+            db, settings, grant, actor=user.email, ip_address=_client_ip(request)
+        )
+    except Exception:
+        logger.exception("post-grant provisioning hook failed grant_id=%s", grant.id)
+        provisioning_summary = {
+            "status": "failed",
+            "detail": "Erreur interne du hook de provisioning (voir logs serveur)",
+        }
+
     if _wants_json(request):
-        return JSONResponse({"ok": True, "grant": serialize_grant(grant, db)})
+        payload = {"ok": True, "grant": serialize_grant(grant, db)}
+        if provisioning_summary is not None:
+            payload["provisioning"] = provisioning_summary
+        return JSONResponse(payload)
 
     response = RedirectResponse(url=redirect_url, status_code=302)
-    flash_redirect(response, "Droit accordé.", "success", settings.vault_portal_internal_token or "dev")
+    secret = settings.vault_portal_internal_token or "dev"
+    if provisioning_summary is None:
+        flash_redirect(response, "Droit accordé.", "success", secret)
+    elif provisioning_summary.get("status") == "success":
+        flash_redirect(
+            response,
+            f"Droit accordé. Provisioning {provisioning_summary.get('app_slug')} : succès.",
+            "success",
+            secret,
+        )
+    else:
+        flash_redirect(
+            response,
+            "Droit accordé, mais provisioning "
+            f"{provisioning_summary.get('app_slug') or ''} : "
+            f"{provisioning_summary.get('detail')}",
+            "warning",
+            secret,
+        )
     return response
 
 
