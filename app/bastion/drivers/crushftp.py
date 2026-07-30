@@ -175,11 +175,9 @@ class CrushFTPDriver(RoboticDriver):
 # Account provisioning (bastion accounts → CrushFTP local users)
 # ---------------------------------------------------------------------------
 #
-# The robotic driver above logs in AS the target user (impersonation). User
-# management (`setUserItem`) requires an ADMIN session instead. The session
-# mechanics (command=login → CrushAuth cookie → c2f token) are identical — only
-# the credentials differ: the shared vault AppCredential of the CrushFTP app
-# MUST be an admin account for provisioning to work (audit §2.3).
+# Official CrushFTP Admin API uses HTTP Basic Auth per request (curl -u admin:pass),
+# NOT the browser-session flow (CrushAuth/c2f) used by robotic impersonation above.
+# See creation-comptes §13 — keep those two auth modes strictly separate.
 
 from xml.sax.saxutils import escape as _xml_escape
 
@@ -200,6 +198,8 @@ _CRUSHFTP_USER_XML_TEMPLATE = (
     "</user>"
 )
 
+_DEFAULT_SERVER_GROUP = "MainUsers"
+
 
 def _crushftp_user_xml(credential: GeneratedCredential) -> str:
     """Minimal CrushFTP user XML for setUserItem — values XML-escaped."""
@@ -209,11 +209,25 @@ def _crushftp_user_xml(credential: GeneratedCredential) -> str:
     )
 
 
+def _admin_api_url(base_url: str) -> str:
+    """POST target for admin commands (doc: host:port root; WebInterface also OK)."""
+    raw = (base_url or "").strip()
+    if not raw:
+        return ""
+    if "WebInterface" in raw:
+        return raw if raw.endswith("/") else raw + "/"
+    return raw.rstrip("/") + "/"
+
+
+def _server_group(app) -> str:
+    value = (getattr(app, "crushftp_admin_server_group", None) or "").strip()
+    return value or _DEFAULT_SERVER_GROUP
+
+
 class CrushFTPProvisioningDriver:
-    """Create CrushFTP local users / manage group membership via admin API."""
+    """CrushFTP Admin API via HTTP Basic Auth (setUserItem user + groups)."""
 
     driver_name = "crushftp"
-    server_group = "MainUsers"
 
     async def create_account(
         self,
@@ -225,13 +239,21 @@ class CrushFTPProvisioningDriver:
         credential,
         group_names: list[str] | None = None,
     ) -> ProvisioningResult:
-        """Create user then optionally add to CrushFTP groups — one admin session."""
-        opened = await self._open_admin_session(db=db, settings=settings, app=app)
-        if isinstance(opened, ProvisioningResult):
-            return opened
-        session, robotic = opened
+        """Create user then optionally add to CrushFTP groups — Basic Auth per call."""
+        admin = self._resolve_admin(app, settings)
+        if isinstance(admin, ProvisioningResult):
+            return admin
+        username, password, base_url, server_group, tls_verify = admin
+
         try:
-            user_result = await self._set_user_item(session, credential)
+            user_result = await self._set_user_item(
+                base_url=base_url,
+                admin_username=username,
+                admin_password=password,
+                server_group=server_group,
+                tls_verify=tls_verify,
+                credential=credential,
+            )
             if user_result.status != PROVISIONING_SUCCESS:
                 return user_result
 
@@ -243,7 +265,11 @@ class CrushFTPProvisioningDriver:
             group_errors: list[str] = []
             for name in names:
                 ok, msg = await self._set_group_membership(
-                    session,
+                    base_url=base_url,
+                    admin_username=username,
+                    admin_password=password,
+                    server_group=server_group,
+                    tls_verify=tls_verify,
                     username=credential.username,
                     group_name=name,
                     data_action="add",
@@ -254,8 +280,6 @@ class CrushFTPProvisioningDriver:
                     group_parts.append(f"{name}=échec ({msg})")
                     group_errors.append(f"{name}: {msg}")
 
-            # User create stays "success" even if a group call fails — both
-            # outcomes stay visible in detail (spec Étape 1.1).
             detail = f"{user_result.detail}. Groupes: {'; '.join(group_parts)}"
             return ProvisioningResult(
                 status=PROVISIONING_SUCCESS,
@@ -264,7 +288,7 @@ class CrushFTPProvisioningDriver:
                 group_errors=tuple(group_errors),
             )
         finally:
-            await robotic.logout(session)
+            password = ""  # noqa: F841
 
     async def add_user_to_group(
         self,
@@ -274,9 +298,8 @@ class CrushFTPProvisioningDriver:
         app,
         username: str,
         group_name: str,
-        session: CrushFTPSession | None = None,
+        session=None,  # unused — kept for call-site compat; Basic Auth is per-request
     ) -> ProvisioningResult:
-        """Add username to a CrushFTP group (creates the group if missing)."""
         return await self._group_op(
             db=db,
             settings=settings,
@@ -284,7 +307,6 @@ class CrushFTPProvisioningDriver:
             username=username,
             group_name=group_name,
             data_action="add",
-            session=session,
         )
 
     async def remove_user_from_group(
@@ -295,9 +317,8 @@ class CrushFTPProvisioningDriver:
         app,
         username: str,
         group_name: str,
-        session: CrushFTPSession | None = None,
+        session=None,
     ) -> ProvisioningResult:
-        """Remove username from a CrushFTP group."""
         return await self._group_op(
             db=db,
             settings=settings,
@@ -305,7 +326,6 @@ class CrushFTPProvisioningDriver:
             username=username,
             group_name=group_name,
             data_action="delete",
-            session=session,
         )
 
     async def _group_op(
@@ -317,109 +337,96 @@ class CrushFTPProvisioningDriver:
         username: str,
         group_name: str,
         data_action: str,
-        session: CrushFTPSession | None,
     ) -> ProvisioningResult:
-        owned_session = False
-        robotic: CrushFTPDriver | None = None
-        if session is None:
-            opened = await self._open_admin_session(db=db, settings=settings, app=app)
-            if isinstance(opened, ProvisioningResult):
-                return opened
-            session, robotic = opened
-            owned_session = True
+        admin = self._resolve_admin(app, settings)
+        if isinstance(admin, ProvisioningResult):
+            return admin
+        admin_user, admin_pass, base_url, server_group, tls_verify = admin
         try:
             ok, msg = await self._set_group_membership(
-                session,
+                base_url=base_url,
+                admin_username=admin_user,
+                admin_password=admin_pass,
+                server_group=server_group,
+                tls_verify=tls_verify,
                 username=username,
                 group_name=group_name,
                 data_action=data_action,
             )
-            if ok:
-                verb = "ajouté au" if data_action == "add" else "retiré du"
-                return ProvisioningResult(
-                    status=PROVISIONING_SUCCESS,
-                    detail=f"Utilisateur {verb} groupe CrushFTP « {group_name} »",
-                )
-            return ProvisioningResult(status=PROVISIONING_FAILED, detail=msg)
         finally:
-            if owned_session and robotic is not None:
-                await robotic.logout(session)
+            admin_pass = ""  # noqa: F841
+        if ok:
+            verb = "ajouté au" if data_action == "add" else "retiré du"
+            return ProvisioningResult(
+                status=PROVISIONING_SUCCESS,
+                detail=f"Utilisateur {verb} groupe CrushFTP « {group_name} »",
+            )
+        return ProvisioningResult(status=PROVISIONING_FAILED, detail=msg)
 
-    async def _open_admin_session(
-        self, *, db, settings, app
-    ) -> tuple[CrushFTPSession, CrushFTPDriver] | ProvisioningResult:
+    def _resolve_admin(
+        self, app, settings
+    ) -> tuple[str, str, str, str, bool] | ProvisioningResult:
+        """Return (username, password, api_url, server_group, tls_verify) or error."""
         from app.bastion.upstream_tls import resolve_upstream_tls_verify
         from app.secret_crypto import decrypt_secret
-        from app.vault.app_credential_service import get_app_credential
 
-        admin_cred = get_app_credential(db, app.slug)
-        if admin_cred is None or not admin_cred.is_active:
+        base_url = _admin_api_url(getattr(app, "crushftp_admin_base_url", None) or "")
+        username = (getattr(app, "crushftp_admin_username", None) or "").strip()
+        encrypted = getattr(app, "crushftp_admin_password_encrypted", None) or ""
+        if not base_url or not username or not encrypted:
             return ProvisioningResult(
                 status=PROVISIONING_FAILED,
                 detail=(
-                    "Credential admin CrushFTP absent du vault partagé de "
-                    "l'application — configurez un compte admin CrushFTP dans le "
-                    "vault avant de provisionner."
+                    "API Admin CrushFTP non configurée — renseignez l'URL, le "
+                    "compte admin et le mot de passe dans la section « API Admin "
+                    "CrushFTP » de la fiche application (distincte du vault individuel)."
                 ),
             )
         try:
-            admin_password = decrypt_secret(admin_cred.encrypted_password, settings)
+            password = decrypt_secret(encrypted, settings)
         except ValueError:
             return ProvisioningResult(
                 status=PROVISIONING_FAILED,
-                detail="Déchiffrement du credential admin CrushFTP impossible",
+                detail="Déchiffrement du mot de passe admin CrushFTP impossible",
             )
+        return (
+            username,
+            password,
+            base_url,
+            _server_group(app),
+            resolve_upstream_tls_verify(app),
+        )
 
-        base_url = (app.upstream_url or "").strip()
-        if not base_url:
-            return ProvisioningResult(
-                status=PROVISIONING_FAILED,
-                detail="upstream_url non configurée pour cette application",
-            )
-
-        robotic = CrushFTPDriver()
-        tls_verify = resolve_upstream_tls_verify(app)
-        try:
-            session = await robotic.login(
-                base_url,
-                admin_cred.robotic_username,
-                admin_password,
-                tls_verify=tls_verify,
-            )
-        except RoboticLoginError:
-            return ProvisioningResult(
-                status=PROVISIONING_FAILED,
-                detail=(
-                    "Authentification admin CrushFTP refusée — vérifiez le "
-                    "credential admin du vault partagé."
-                ),
-            )
-        finally:
-            admin_password = ""  # noqa: F841
-        return session, robotic
-
-    async def _admin_function_post(
-        self, session: CrushFTPSession, data: dict[str, str]
+    async def _admin_post(
+        self,
+        *,
+        base_url: str,
+        admin_username: str,
+        admin_password: str,
+        tls_verify: bool,
+        data: dict[str, str],
     ) -> tuple[bool, str, int]:
-        """POST /WebInterface/function/ with session cookies. Never returns body."""
-        url = urljoin(session.base_url, "WebInterface/function/")
-        c2f = _c2f(session.cookies)
-        if not c2f:
-            return False, "Session admin CrushFTP sans token c2f", 0
-        payload = {**data, "c2f": c2f}
-        headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())}
+        """POST admin command with HTTP Basic Auth. Never logs auth headers or body."""
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT,
                 follow_redirects=False,
-                verify=bool(session.tls_verify),
+                verify=tls_verify,
+                # httpx auth= never appears in our log lines (we do not log headers).
+                auth=(admin_username, admin_password),
             ) as client:
-                response = await client.post(url, data=payload, headers=headers)
+                response = await client.post(base_url, data=data)
         except httpx.TimeoutException:
             return False, "Timeout CrushFTP (setUserItem)", 0
         except httpx.RequestError:
             return False, "Erreur réseau CrushFTP (setUserItem)", 0
         # Never echo response.text — may contain user XML / passwords.
+        if response.status_code in (401, 403):
+            return (
+                False,
+                "Authentification admin CrushFTP refusée (Basic Auth)",
+                response.status_code,
+            )
         if not _SUCCESS_RE.search(response.text or ""):
             return (
                 False,
@@ -429,14 +436,24 @@ class CrushFTPProvisioningDriver:
         return True, "ok", response.status_code
 
     async def _set_user_item(
-        self, session: CrushFTPSession, credential: GeneratedCredential
+        self,
+        *,
+        base_url: str,
+        admin_username: str,
+        admin_password: str,
+        server_group: str,
+        tls_verify: bool,
+        credential: GeneratedCredential,
     ) -> ProvisioningResult:
-        ok, msg, status = await self._admin_function_post(
-            session,
-            {
+        ok, msg, status = await self._admin_post(
+            base_url=base_url,
+            admin_username=admin_username,
+            admin_password=admin_password,
+            tls_verify=tls_verify,
+            data={
                 "command": "setUserItem",
                 "data_action": "new",
-                "serverGroup": self.server_group,
+                "serverGroup": server_group,
                 "username": credential.username,
                 "user": _crushftp_user_xml(credential),
                 "xmlItem": "user",
@@ -444,19 +461,20 @@ class CrushFTPProvisioningDriver:
             },
         )
         if not ok:
-            detail = (
-                "Timeout CrushFTP lors de la création du compte (setUserItem)"
-                if msg.startswith("Timeout")
-                else "Erreur réseau CrushFTP lors de la création du compte"
-                if msg.startswith("Erreur réseau")
-                else (
+            if "Authentification admin" in msg:
+                detail = msg
+            elif msg.startswith("Timeout"):
+                detail = "Timeout CrushFTP lors de la création du compte (setUserItem)"
+            elif msg.startswith("Erreur réseau"):
+                detail = "Erreur réseau CrushFTP lors de la création du compte"
+            elif status:
+                detail = (
                     "CrushFTP a rejeté la création du compte (setUserItem "
                     f"HTTP {status}) — compte déjà existant ou droits admin "
                     "insuffisants."
-                    if status
-                    else msg
                 )
-            )
+            else:
+                detail = msg
             return ProvisioningResult(status=PROVISIONING_FAILED, detail=detail)
         return ProvisioningResult(
             status=PROVISIONING_SUCCESS,
@@ -466,26 +484,35 @@ class CrushFTPProvisioningDriver:
 
     async def _set_group_membership(
         self,
-        session: CrushFTPSession,
         *,
+        base_url: str,
+        admin_username: str,
+        admin_password: str,
+        server_group: str,
+        tls_verify: bool,
         username: str,
         group_name: str,
         data_action: str,
     ) -> tuple[bool, str]:
         """xmlItem=groups — creates the group implicitly on first add (CrushFTP docs)."""
-        ok, msg, status = await self._admin_function_post(
-            session,
-            {
+        ok, msg, status = await self._admin_post(
+            base_url=base_url,
+            admin_username=admin_username,
+            admin_password=admin_password,
+            tls_verify=tls_verify,
+            data={
                 "command": "setUserItem",
                 "xmlItem": "groups",
                 "data_action": data_action,
-                "serverGroup": self.server_group,
+                "serverGroup": server_group,
                 "group_name": group_name,
                 "usernames": username,
             },
         )
         if ok:
             return True, "ok"
+        if "Authentification admin" in msg:
+            return False, msg
         if status:
             return False, f"HTTP {status}"
         return False, msg

@@ -132,7 +132,8 @@ En revanche, la **mécanique de session** est réutilisable pour un compte admin
 (POST `command=login`, cookies `CrushAuth`/`currentAuth`, token `c2f`) fonctionne à
 l'identique pour un compte admin CrushFTP. Le driver de provisioning devra :
 - ajouter les appels de gestion utilisateur (`command=setUserItem`, XML utilisateur),
-- s'authentifier avec un credential **admin** dédié — stockable dans le vault partagé
+- s'authentifier avec un credential **admin** dédié — champs `crushftp_admin_*`
+  sur `App` (Basic Auth, distinct du vault `AppCredential` individuel)
   existant `AppCredential` (credential « robotic » de l'appli), ce qui évite un nouveau
   stockage de secret.
 
@@ -332,7 +333,8 @@ def log_action(
    `keycloak_user_id` du grant (message explicite, pas de silence).
 8. **§5.1 — architecture drivers** : Protocol `AccountProvisioningDriver` séparé + registre
    nom→driver ; ne pas étendre l'ABC `RoboticDriver`.
-9. **§5.4 — credential admin CrushFTP** : utiliser le vault partagé `AppCredential`
+9. **§5.4 / §13 — credential admin CrushFTP** : bloc dédié `crushftp_admin_*`
+   (Basic Auth), **pas** le vault `AppCredential` individuel
    existant pour le compte admin CrushFTP du driver de provisioning ; le credential
    *généré pour l'utilisateur* va dans `UserAppCredential` via `set_user_credential()`
    (réutilisable tel quel, commit interne à intégrer au design du pipeline).

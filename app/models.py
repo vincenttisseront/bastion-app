@@ -40,6 +40,12 @@ class App(Base):
     # Account provisioning driver (None = SSO only, no local account pushed).
     # V1 values: "crushftp" | "generic" (explicit no-op). See app/bastion/drivers/registry.py.
     provisioning_driver = Column(String, nullable=True)
+    # CrushFTP Admin API (Basic Auth) — shared per app, DISTINCT from AppCredential vault
+    # (per-end-user robotic credentials). See creation-comptes §13.
+    crushftp_admin_base_url = Column(String, nullable=True)
+    crushftp_admin_server_group = Column(String, nullable=True)  # default "MainUsers" in driver
+    crushftp_admin_username = Column(String, nullable=True)
+    crushftp_admin_password_encrypted = Column(Text, nullable=True)
     login_form_url = Column(String, nullable=True)
     login_username_field = Column(String, default="username", nullable=False)
     login_password_field = Column(String, default="password", nullable=False)

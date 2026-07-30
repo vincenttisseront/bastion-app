@@ -81,6 +81,7 @@ from app.vault.user_app_credential_service import (
     has_user_override,
     set_user_credential,
 )
+from app.secret_crypto import encrypt_secret
 from app.testing_framework.throttle import throttle_retry_after
 from app.web.user_context import get_user_context, is_portal_admin, require_admin, require_user
 from pydantic import BaseModel, Field
@@ -175,6 +176,32 @@ def _apply_auth_config(
     app.credential_mode = normalize_credential_mode(credential_mode)
     app.identity_format = normalize_identity_format(identity_format)
     app.injected_cookie_scope = normalize_injected_cookie_scope(injected_cookie_scope)
+
+
+def _apply_crushftp_admin_config(
+    app: App,
+    settings: Settings,
+    *,
+    crushftp_admin_base_url: str,
+    crushftp_admin_server_group: str,
+    crushftp_admin_username: str,
+    crushftp_admin_password: str,
+) -> dict[str, str]:
+    """Persist CrushFTP Admin API fields. Blank password keeps existing ciphertext."""
+    errors: dict[str, str] = {}
+    app.crushftp_admin_base_url = (crushftp_admin_base_url or "").strip() or None
+    group = (crushftp_admin_server_group or "").strip()
+    app.crushftp_admin_server_group = group or None
+    app.crushftp_admin_username = (crushftp_admin_username or "").strip() or None
+    plain = (crushftp_admin_password or "").strip()
+    if plain:
+        try:
+            app.crushftp_admin_password_encrypted = encrypt_secret(plain, settings)
+        except ValueError as exc:
+            errors["crushftp_admin_password"] = (
+                str(exc) or "Chiffrement du mot de passe impossible"
+            )
+    return errors
 
 
 def _validate_auth_fields(
@@ -1034,6 +1061,10 @@ def admin_apps_edit_post(
     identity_format: str = Form("email"),
     injected_cookie_scope: str = Form("host_only"),
     provisioning_driver: str = Form(""),
+    crushftp_admin_base_url: str = Form(""),
+    crushftp_admin_server_group: str = Form(""),
+    crushftp_admin_username: str = Form(""),
+    crushftp_admin_password: str = Form(""),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -1059,6 +1090,63 @@ def admin_apps_edit_post(
     if len((description or "").strip()) > _DESC_MAX:
         errors["description"] = f"La description ne doit pas dépasser {_DESC_MAX} caractères."
     if errors:
+        app.label = label
+        app.upstream_url = upstream_url
+        app.access_mode = mode
+        app.public_fqdn = fqdn
+        app.description = desc
+        app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
+        app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
+        app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
+        # Re-display CrushFTP admin fields from the form (do not encrypt yet).
+        app.crushftp_admin_base_url = (crushftp_admin_base_url or "").strip() or None
+        app.crushftp_admin_server_group = (
+            (crushftp_admin_server_group or "").strip() or None
+        )
+        app.crushftp_admin_username = (crushftp_admin_username or "").strip() or None
+        _apply_auth_config(
+            app,
+            auth_mode=auth_mode,
+            login_form_url=login_form_url,
+            login_username_field=login_username_field,
+            login_password_field=login_password_field,
+            login_http_method=login_http_method,
+            login_extra_fields=login_extra_fields,
+            credential_mode=credential_mode,
+            identity_format=identity_format,
+            injected_cookie_scope=injected_cookie_scope,
+        )
+        rbac_grant_count = (
+            db.query(AccessGrant)
+            .filter(
+                AccessGrant.resource_type == "application",
+                AccessGrant.application_id == app.id,
+            )
+            .count()
+        )
+        return render(
+            "admin/apps/edit.html",
+            **_ctx(
+                request,
+                settings,
+                app=app,
+                errors=errors,
+                logo_url=logo_public_url(app),
+                vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
+                rbac_grant_count=rbac_grant_count,
+                provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
+            ),
+        )
+    crush_errors = _apply_crushftp_admin_config(
+        app,
+        settings,
+        crushftp_admin_base_url=crushftp_admin_base_url,
+        crushftp_admin_server_group=crushftp_admin_server_group,
+        crushftp_admin_username=crushftp_admin_username,
+        crushftp_admin_password=crushftp_admin_password,
+    )
+    if crush_errors:
+        errors.update(crush_errors)
         app.label = label
         app.upstream_url = upstream_url
         app.access_mode = mode
