@@ -294,6 +294,56 @@ async def test_bastion_account_provisioning_aggregate_never_masks_failure(db_ses
 
 
 @respx.mock
+def test_provision_selected_apps_from_account_detail(client, db_session):
+    """POST /provision avec application_ids cochées lance le driver."""
+    ADMIN_HEADERS = {
+        "X-Email": "admin@example.com",
+        "X-Groups": "portal-admins",
+    }
+    JSON_HEADERS = {**ADMIN_HEADERS, "Accept": "application/json"}
+
+    realm = _realm(db_session)
+    crush = _crushftp_app(db_session)
+    account = BastionAccount(
+        realm_id=realm.id,
+        username="toto",
+        email="toto@example.com",
+        status="keycloak_created",
+        keycloak_user_id="kc-toto",
+        origin="bastion",
+        created_by="admin@example.com",
+    )
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+
+    page = client.get(f"/admin/rbac/accounts/{account.id}", headers=ADMIN_HEADERS)
+    assert page.status_code == 200
+    assert "Lancer le provisioning" in page.text
+    assert 'name="application_ids"' in page.text
+    assert crush.label in page.text
+
+    respx.post(CRUSH_ADMIN_URL).mock(return_value=CRUSH_SET_USER_OK)
+    resp = client.post(
+        f"/admin/rbac/accounts/{account.id}/provision",
+        headers=JSON_HEADERS,
+        data={"application_ids": str(crush.id)},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["retried"] == 1
+
+    row = (
+        db_session.query(BastionAccountProvisioning)
+        .filter_by(bastion_account_id=account.id, application_id=crush.id)
+        .first()
+    )
+    assert row is not None
+    assert row.status == "success"
+
+
+@respx.mock
 def test_provision_retry_all_failed_and_pending(client, db_session):
     """Relancer les échecs / en attente via POST provision-retry-all."""
     ADMIN_HEADERS = {
@@ -364,4 +414,4 @@ def test_provision_retry_all_failed_and_pending(client, db_session):
     detail = client.get(f"/admin/rbac/accounts/{account.id}", headers=ADMIN_HEADERS)
     assert detail.status_code == 200
     assert "Provisioning applicatif" in detail.text
-    assert "Relancer" in detail.text or "Succès" in detail.text
+    assert "Lancer le provisioning" in detail.text

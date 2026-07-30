@@ -3,11 +3,15 @@
 {% block breadcrumb %}Admin / RBAC / Comptes / {{ account.username }}{% endblock %}
 
 {% block content %}
-<div class="page">
+{% set apps_with_driver = provision_apps | selectattr('provisioning_driver') | list %}
+{% set apps_sso_only = provision_apps | rejectattr('provisioning_driver') | list %}
+{% set failed_rows = provisionings | selectattr('status', 'equalto', 'failed') | list %}
+{% set ok_rows = provisionings | selectattr('status', 'equalto', 'success') | list %}
+<div class="page page-form">
   <div class="page-header">
     <div>
       <h1 class="page-title">Compte {{ account.username }}</h1>
-      <p class="page-sub">{{ account.email }} — realm {{ realm.slug if realm else '?' }}</p>
+      <p class="page-sub">{{ account.email }} — realm <span class="mono">{{ realm.slug if realm else '?' }}</span></p>
     </div>
     <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:flex-end;">
       {% if account.origin == 'bastion' %}
@@ -24,6 +28,7 @@
       {% else %}
       <span class="badge badge-err">En attente (échec Keycloak)</span>
       {% endif %}
+      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">← Utilisateurs</a>
     </div>
   </div>
 
@@ -33,141 +38,241 @@
   <div class="alert alert-err">Dernière erreur bloquante : {{ account.last_error }}</div>
   {% endif %}
 
-  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-start; justify-content:space-between;">
-      <h2 class="form-section-title" style="margin:0;">Étape Keycloak</h2>
+  <div class="form-section is-accordion is-open" data-form-accordion data-open-default>
+    <div class="form-section-header" data-form-accordion-toggle>
+      <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
+      <div>
+        <div class="form-section-title">Étape Keycloak</div>
+        <div class="form-section-sub">
+          {% if account.origin == 'bastion' %}
+          Compte créé localement, puis poussé vers Keycloak (mot de passe temporaire + UPDATE_PASSWORD)
+          {% else %}
+          Compte lié depuis Keycloak (pas de création locale initiale)
+          {% endif %}
+        </div>
+        <div class="form-section-summary">
+          {% if account.keycloak_user_id %}Utilisateur créé{% else %}Non créé — relance requise{% endif %}
+        </div>
+      </div>
       {% if not account.keycloak_user_id %}
-      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak">
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak" onclick="event.stopPropagation();">
         <button type="submit" class="btn btn-primary btn-sm">Relancer Keycloak</button>
       </form>
       {% endif %}
     </div>
-    <p class="form-hint" style="margin:var(--sp-2) 0 var(--sp-3);">
-      {% if account.origin == 'bastion' %}
-      Compte créé localement dans le bastion, puis poussé vers Keycloak
-      (mot de passe temporaire + UPDATE_PASSWORD).
-      {% else %}
-      Compte lié depuis Keycloak (pas de création locale initiale).
-      {% endif %}
-      {% if not account.keycloak_user_id %}
-      Après correction des droits du compte de service provisioning, utilisez
-      <strong>Relancer Keycloak</strong> — pas de retry automatique.
-      {% endif %}
-    </p>
-    <table class="table">
-      <tbody>
-        <tr>
-          <th>Origine</th>
-          <td>
+    <div class="form-body">
+      <div class="form-row" style="gap:var(--sp-4);">
+        <div class="form-group">
+          <span class="form-label">Origine</span>
+          <div>
             {% if account.origin == 'bastion' %}
             Création locale (bastion → Keycloak)
             {% else %}
             Import / lien Keycloak
             {% endif %}
-          </td>
-        </tr>
-        <tr>
-          <th>Statut</th>
-          <td>
+          </div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">Statut</span>
+          <div>
             {% if account.keycloak_user_id %}
             <span class="badge badge-ok">Utilisateur créé</span>
             {% else %}
             <span class="badge badge-err">Non créé</span>
             {% endif %}
-          </td>
-        </tr>
-        <tr>
-          <th>Keycloak user ID</th>
-          <td class="mono">{{ account.keycloak_user_id or '—' }}</td>
-        </tr>
-        <tr>
-          <th>Créé par</th>
-          <td>{{ account.created_by }} — {{ account.created_at.strftime('%Y-%m-%d %H:%M UTC') if account.created_at else '' }}</td>
-        </tr>
-        <tr>
-          <th>Liens</th>
-          <td>
-            {% if keycloak_console_url %}
-            <a href="{{ keycloak_console_url }}" target="_blank" rel="noopener">Compte Keycloak ↗</a>
-            {% endif %}
-            {% if account.keycloak_user_id and realm %}
-            &nbsp;·&nbsp;<a href="/admin/rbac/users?realm_id={{ realm.id }}&keycloak_user_id={{ account.keycloak_user_id }}">Droits effectifs</a>
-            {% endif %}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <span class="form-label">Keycloak user ID</span>
+        <div class="mono">{{ account.keycloak_user_id or '—' }}</div>
+      </div>
+      <div class="form-group">
+        <span class="form-label">Créé par</span>
+        <div>{{ account.created_by }} — {{ account.created_at.strftime('%Y-%m-%d %H:%M UTC') if account.created_at else '' }}</div>
+      </div>
+      <div class="form-group" style="margin-bottom:0;">
+        <span class="form-label">Liens</span>
+        <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3);">
+          {% if keycloak_console_url %}
+          <a href="{{ keycloak_console_url }}" target="_blank" rel="noopener">Compte Keycloak ↗</a>
+          {% endif %}
+          {% if account.keycloak_user_id and realm %}
+          <a href="/admin/rbac/users?realm_id={{ realm.id }}&amp;keycloak_user_id={{ account.keycloak_user_id }}">Droits effectifs</a>
+          {% endif %}
+          {% if not keycloak_console_url and not (account.keycloak_user_id and realm) %}
+          <span class="form-hint">—</span>
+          {% endif %}
+        </div>
+      </div>
+      {% if not account.keycloak_user_id %}
+      <div class="alert alert-warn" style="margin:var(--sp-3) 0 0;">
+        Après correction des droits du compte de service provisioning, utilisez
+        <strong>Relancer Keycloak</strong> — pas de retry automatique.
+      </div>
+      {% endif %}
+    </div>
   </div>
 
-  <div class="card" style="padding:var(--sp-4);">
-    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
-      <h2 class="form-section-title" style="margin:0;">Provisioning applicatif</h2>
-      {% set failed_rows = provisionings | selectattr('status', 'equalto', 'failed') | list %}
+  <div class="form-section is-accordion is-open form-section-gap" data-form-accordion data-open-default>
+    <div class="form-section-header" data-form-accordion-toggle>
+      <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
+      <div>
+        <div class="form-section-title">Provisioning applicatif</div>
+        <div class="form-section-sub">Création de compte local via le driver de l’application (ex. CrushFTP)</div>
+        <div class="form-section-summary{% if not provisionings and not pending_apps %} is-off{% endif %}">
+          {% if failed_rows %}
+          {{ failed_rows|length }} échec(s) · {{ ok_rows|length }} succès
+          {% elif provisionings %}
+          {{ ok_rows|length }}/{{ provisionings|length }} OK
+          {% elif pending_apps %}
+          {{ pending_apps|length }} en attente
+          {% else %}
+          Aucune tentative
+          {% endif %}
+        </div>
+      </div>
       {% if (failed_rows or pending_apps) and account.keycloak_user_id %}
-      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision-retry-all">
-        <button type="submit" class="btn btn-primary btn-sm">Relancer les échecs / en attente</button>
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision-retry-all" onclick="event.stopPropagation();">
+        <button type="submit" class="btn btn-ghost btn-sm">Relancer les échecs</button>
       </form>
       {% endif %}
     </div>
-    {% if provisionings or pending_apps %}
-    <table class="table" style="margin-top:var(--sp-3);">
-      <thead>
-        <tr>
-          <th>Application</th>
-          <th>Driver</th>
-          <th>Statut</th>
-          <th>Détail</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in provisionings %}
-        <tr>
-          <td>{{ row.application.label if row.application else row.application_id }}</td>
-          <td class="mono">{{ row.driver_name }}</td>
-          <td>
-            {% if row.status == 'success' %}
-            <span class="badge badge-ok">Succès</span>
-            {% elif row.status == 'not_applicable' %}
-            <span class="badge badge-muted">Non applicable</span>
-            {% elif row.status == 'failed' %}
-            <span class="badge badge-err">Échec</span>
-            {% else %}
-            <span class="badge badge-muted">En attente</span>
-            {% endif %}
-          </td>
-          <td>{{ row.detail or '—' }}</td>
-          <td>
-            {% if row.status == 'failed' and account.keycloak_user_id %}
-            <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ row.application_id }}" style="display:inline;">
-              <button type="submit" class="btn btn-ghost btn-sm">Relancer</button>
-            </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-        {% for app in pending_apps %}
-        <tr>
-          <td>{{ app.label }}</td>
-          <td class="mono">{{ app.provisioning_driver or '—' }}</td>
-          <td><span class="badge badge-warn">Pas encore tenté</span></td>
-          <td>Sélectionnée à la création — pas encore exécutée</td>
-          <td>
-            {% if account.keycloak_user_id %}
-            <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ app.id }}" style="display:inline;">
-              <button type="submit" class="btn btn-ghost btn-sm">Lancer</button>
-            </form>
-            {% else %}
-            <span class="form-hint">Keycloak requis</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-    {% else %}
-    <p class="form-hint" style="margin-top:var(--sp-3);">Aucun provisioning applicatif tenté pour ce compte.</p>
-    {% endif %}
+    <div class="form-body">
+      {% if provisionings or pending_apps %}
+      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Application</th>
+              <th>Driver</th>
+              <th>Statut</th>
+              <th>Détail</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in provisionings %}
+            <tr>
+              <td>{{ row.application.label if row.application else row.application_id }}</td>
+              <td class="mono">{{ row.driver_name }}</td>
+              <td>
+                {% if row.status == 'success' %}
+                <span class="badge badge-ok">Succès</span>
+                {% elif row.status == 'not_applicable' %}
+                <span class="badge badge-muted">Non applicable</span>
+                {% elif row.status == 'failed' %}
+                <span class="badge badge-err">Échec</span>
+                {% else %}
+                <span class="badge badge-muted">En attente</span>
+                {% endif %}
+              </td>
+              <td class="form-hint">{{ row.detail or '—' }}</td>
+              <td>
+                {% if account.keycloak_user_id and row.status in ('failed', 'not_applicable', 'success') %}
+                <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ row.application_id }}" style="display:inline;">
+                  <button type="submit" class="btn btn-ghost btn-sm">Relancer</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            {% for app in pending_apps %}
+            <tr>
+              <td>{{ app.label }}</td>
+              <td class="mono">{{ app.provisioning_driver or '—' }}</td>
+              <td><span class="badge badge-warn">Pas encore tenté</span></td>
+              <td class="form-hint">Sélectionnée à la création</td>
+              <td>
+                {% if account.keycloak_user_id %}
+                <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ app.id }}" style="display:inline;">
+                  <button type="submit" class="btn btn-ghost btn-sm">Lancer</button>
+                </form>
+                {% else %}
+                <span class="form-hint">Keycloak requis</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="form-help" style="margin:0 0 var(--sp-4);">
+        Aucun provisioning tenté pour l’instant — cochez les applications ci-dessous pour en lancer un.
+      </p>
+      {% endif %}
+
+      {% if not account.keycloak_user_id %}
+      <div class="alert alert-warn" style="margin:0;">
+        Le provisioning applicatif nécessite un utilisateur Keycloak créé.
+      </div>
+      {% elif not provision_apps %}
+      <div class="alert alert-warn" style="margin:0;">
+        Aucune application activée dans le catalogue.
+      </div>
+      {% else %}
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision" id="account-provision-form">
+        <div class="form-group" style="margin-bottom:var(--sp-3);">
+          <span class="form-label">Lancer / relancer un provisioning</span>
+          <p class="form-help" style="margin:var(--sp-1) 0 var(--sp-3);">
+            Sélection explicite — aucune exécution automatique.
+          </p>
+          {% if apps_with_driver %}
+          <div class="stack" style="gap:var(--sp-3);">
+            {% for a in apps_with_driver %}
+            {% set existing = provisioned_by_app.get(a.id) %}
+            <label class="form-check">
+              <input type="checkbox" name="application_ids" value="{{ a.id }}"
+                     {% if a.id in pending_ids_set or (existing and existing.status == 'failed') %}checked{% endif %}>
+              <span>{{ a.label }}</span>
+              <span class="badge badge-ok">{{ a.provisioning_driver }}</span>
+              {% if existing %}
+                {% if existing.status == 'success' %}
+                <span class="badge badge-muted">déjà OK</span>
+                {% elif existing.status == 'failed' %}
+                <span class="badge badge-err">échec</span>
+                {% elif existing.status == 'not_applicable' %}
+                <span class="badge badge-muted">N/A</span>
+                {% endif %}
+              {% elif a.id in pending_ids_set %}
+              <span class="badge badge-warn">en attente</span>
+              {% endif %}
+            </label>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="form-help">Aucune application avec driver de provisioning — configurez-le dans le catalogue.</p>
+          {% endif %}
+
+          {% if apps_sso_only %}
+          <details style="margin-top:var(--sp-3);">
+            <summary class="form-help" style="cursor:pointer; user-select:none;">
+              {{ apps_sso_only|length }} application(s) SSO uniquement
+              <span style="color:var(--text-3);">(statut « non applicable »)</span>
+            </summary>
+            <div class="stack" style="gap:var(--sp-3); margin-top:var(--sp-3); padding-left:var(--sp-2);">
+              {% for a in apps_sso_only %}
+              {% set existing = provisioned_by_app.get(a.id) %}
+              <label class="form-check">
+                <input type="checkbox" name="application_ids" value="{{ a.id }}">
+                <span>{{ a.label }}</span>
+                <span class="badge badge-muted">SSO</span>
+                {% if existing %}<span class="badge badge-muted">{{ existing.status }}</span>{% endif %}
+              </label>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+        </div>
+        <div class="form-footer" style="margin:0; padding-top:var(--sp-3); border-top:1px solid var(--border);">
+          <button type="submit" class="btn btn-primary"{% if not apps_with_driver and not apps_sso_only %} disabled{% endif %}>
+            Lancer le provisioning
+          </button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
   </div>
 </div>
 {% endblock %}

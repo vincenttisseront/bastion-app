@@ -13,7 +13,10 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.bastion.bastion_fields import PROVISIONING_DRIVER_LABELS
+from app.bastion.bastion_fields import (
+    PROVISIONING_DRIVER_LABELS,
+    normalize_provisioning_driver,
+)
 from app.database import get_db
 from app.models import App, BastionAccount, RBACGroup, RealmConfig
 from app.rbac.account_service import (
@@ -230,6 +233,23 @@ def _account_or_404(db: Session, account_id: int) -> BastionAccount:
     return account
 
 
+def _crushftp_group_names_for_account(db: Session, account: BastionAccount) -> list[str]:
+    """RBAC group names stored at creation — used by CrushFTP membership join."""
+    raw = account.pending_group_ids or []
+    if not isinstance(raw, list) or not raw:
+        return []
+    ids: list[int] = []
+    for item in raw:
+        try:
+            ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return []
+    groups = db.query(RBACGroup).filter(RBACGroup.id.in_(ids)).all()
+    return [g.name for g in groups if g.name]
+
+
 def _safe_redirect_url(raw: str | None, fallback: str) -> str:
     """Only allow same-origin relative admin paths (open-redirect guard)."""
     value = (raw or "").strip()
@@ -307,6 +327,10 @@ def admin_rbac_account_detail(
             }
         )
 
+    provision_apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    provisioned_by_app = {r.application_id: r for r in provisionings}
+    pending_ids_set = {a.id for a in pending_apps}
+
     return render(
         "admin/rbac/account_detail.html",
         **_ctx(
@@ -316,6 +340,10 @@ def admin_rbac_account_detail(
             realm=realm,
             provisionings=provisionings,
             pending_apps=pending_apps,
+            provision_apps=provision_apps,
+            provisioned_by_app=provisioned_by_app,
+            pending_ids_set=pending_ids_set,
+            provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
             keycloak_console_url=keycloak_console_url,
             active_tab="users",
         ),
@@ -384,6 +412,95 @@ async def admin_rbac_account_retry_keycloak(
     return response
 
 
+@router.post("/admin/rbac/accounts/{account_id}/provision")
+async def admin_rbac_account_provision_selected(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Lancer le provisioning pour les applications cochées sur la fiche compte."""
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    dest = f"/admin/rbac/accounts/{account.id}"
+
+    if not account.keycloak_user_id:
+        response = RedirectResponse(url=dest, status_code=302)
+        flash_redirect(
+            response,
+            "Compte Keycloak non créé — relancez d'abord l'étape Keycloak.",
+            "error",
+            secret,
+        )
+        return response
+
+    form = await request.form()
+    application_ids = _parse_int_list([str(v) for v in form.getlist("application_ids")])
+    if not application_ids:
+        response = RedirectResponse(url=dest, status_code=302)
+        flash_redirect(response, "Sélectionnez au moins une application.", "warning", secret)
+        return response
+
+    crush_groups = _crushftp_group_names_for_account(db, account)
+    results: list[str] = []
+    failures = 0
+    for application_id in application_ids:
+        app = db.query(App).filter_by(id=application_id, enabled=True).first()
+        if app is None:
+            results.append(f"#{application_id} introuvable")
+            failures += 1
+            continue
+        group_names = (
+            crush_groups
+            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
+            else None
+        )
+        row = await provision_account_app(
+            db,
+            settings,
+            account=account,
+            app=app,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            group_names=group_names or None,
+        )
+        if row.status == "failed":
+            failures += 1
+            results.append(f"{app.label} : {row.detail}")
+        else:
+            results.append(f"{app.label} : {row.status}")
+
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": failures == 0,
+                "retried": len(application_ids),
+                "failures": failures,
+                "results": results,
+                "account_status": account.status,
+            },
+            status_code=200 if failures == 0 else 502,
+        )
+
+    response = RedirectResponse(url=dest, status_code=302)
+    if failures:
+        flash_redirect(
+            response,
+            f"Provisioning partiel ({failures} échec) : " + " ; ".join(results),
+            "warning",
+            secret,
+        )
+    else:
+        flash_redirect(
+            response,
+            "Provisioning lancé : " + " ; ".join(results),
+            "success",
+            secret,
+        )
+    return response
+
+
 @router.post("/admin/rbac/accounts/{account_id}/provision/{application_id}")
 async def admin_rbac_account_provision_retry(
     account_id: int,
@@ -400,6 +517,10 @@ async def admin_rbac_account_provision_retry(
     if app is None:
         raise HTTPException(status_code=404, detail="Application introuvable")
 
+    group_names = None
+    if normalize_provisioning_driver(app.provisioning_driver) == "crushftp":
+        group_names = _crushftp_group_names_for_account(db, account) or None
+
     row = await provision_account_app(
         db,
         settings,
@@ -407,6 +528,7 @@ async def admin_rbac_account_provision_retry(
         app=app,
         actor=user.email,
         ip_address=_client_ip(request),
+        group_names=group_names,
     )
 
     if _wants_json(request):
@@ -462,6 +584,7 @@ async def admin_rbac_account_provision_retry_all(
             except (TypeError, ValueError):
                 continue
 
+    crush_groups = _crushftp_group_names_for_account(db, account)
     results: list[str] = []
     failures = 0
     for application_id in sorted(app_ids):
@@ -470,6 +593,11 @@ async def admin_rbac_account_provision_retry_all(
             results.append(f"#{application_id} introuvable")
             failures += 1
             continue
+        group_names = (
+            crush_groups
+            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
+            else None
+        )
         row = await provision_account_app(
             db,
             settings,
@@ -477,6 +605,7 @@ async def admin_rbac_account_provision_retry_all(
             app=app,
             actor=user.email,
             ip_address=_client_ip(request),
+            group_names=group_names or None,
         )
         if row.status == "failed":
             failures += 1
