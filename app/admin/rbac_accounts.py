@@ -26,6 +26,7 @@ from app.rbac.account_service import (
     provision_account_app,
     realm_provisioning_ready,
     retry_bastion_account_keycloak,
+    update_bastion_account_identity,
 )
 from app.rbac.grants_service import (
     ACCESS_LEVELS,
@@ -537,6 +538,72 @@ def admin_rbac_account_detail(
             active_tab="users",
         ),
     )
+
+
+@router.post("/admin/rbac/accounts/{account_id}/identity")
+async def admin_rbac_account_update_identity(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    email: str = Form(""),
+    first_name: str = Form(""),
+    last_name: str = Form(""),
+    organization: str = Form(""),
+    redirect_url: str = Form(""),
+):
+    """Edit identity — BastionAccount + Keycloak + re-push vault credentials to apps."""
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/users/view?account_id={account.id}#identite"
+    try:
+        step_errors = await update_bastion_account_identity(
+            db,
+            settings,
+            account=account,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            organization=organization,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except AccountCreationError as exc:
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": {"_form": str(exc)}}, status_code=400)
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": len(step_errors) == 0,
+                "errors": step_errors,
+                "account_id": account.id,
+            }
+        )
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    if step_errors:
+        flash_redirect(
+            response,
+            "Identité enregistrée avec avertissements : " + " · ".join(step_errors),
+            "warn",
+            secret,
+        )
+    else:
+        flash_redirect(
+            response,
+            "Identité mise à jour (bastion + Keycloak + apps provisionnées).",
+            "success",
+            secret,
+        )
+    return response
 
 
 @router.post("/admin/rbac/accounts/{account_id}/retry-keycloak")

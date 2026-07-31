@@ -1454,7 +1454,7 @@ def admin_user_app_credential_read(
 
 
 @admin_router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
-def admin_user_app_credential_save(
+async def admin_user_app_credential_save(
     slug: str,
     keycloak_user_id: str,
     body: _VaultCredentialBody,
@@ -1481,11 +1481,38 @@ def admin_user_app_credential_save(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except VaultError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Push the new credential to the target app when a bastion account + driver exist.
+    sync_detail = None
+    sync_status = None
+    from app.models import BastionAccount
+    from app.rbac.account_service import sync_vault_credential_to_app
+
+    account = (
+        db.query(BastionAccount)
+        .filter_by(keycloak_user_id=keycloak_user_id)
+        .first()
+    )
+    if account is not None and getattr(app, "provisioning_driver", None):
+        result = await sync_vault_credential_to_app(
+            db,
+            settings,
+            account=account,
+            app=app,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            group_names=[account.organization] if account.organization else None,
+        )
+        sync_status = result.status
+        sync_detail = result.detail
+
     return {
         "ok": True,
         "has_override": True,
         "robotic_username": cred.robotic_username,
         "credential_source": "user_override",
+        "app_sync_status": sync_status,
+        "app_sync_detail": sync_detail,
     }
 
 

@@ -40,24 +40,66 @@
   <div class="user-fiche-panel" id="panel-identite" data-panel="identite">
     <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
       <h2 class="card-title" style="margin-top:0;">Identité</h2>
+      {% if account %}
+      <p class="form-hint" style="margin:0 0 var(--sp-3);">
+        L’identifiant (username) n’est pas modifiable. Enregistrer pousse email / nom / société
+        vers Keycloak et re-synchronise les credentials vault vers les apps provisionnées (ex. CrushFTP).
+      </p>
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/identity" class="stack" style="gap:var(--sp-3);">
+        <input type="hidden" name="redirect_url" value="{{ view_url }}#identite">
+        <div class="form-row" style="gap:var(--sp-4); flex-wrap:wrap;">
+          <div class="form-group">
+            <span class="form-label">Identifiant</span>
+            <div class="mono">{{ account.username }}</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="edit_email">Email</label>
+            <input type="email" id="edit_email" name="email" class="form-input" required
+                   value="{{ account.email or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="edit_first_name">Prénom</label>
+            <input type="text" id="edit_first_name" name="first_name" class="form-input"
+                   value="{{ account.first_name or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="edit_last_name">Nom</label>
+            <input type="text" id="edit_last_name" name="last_name" class="form-input"
+                   value="{{ account.last_name or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="edit_organization">Société</label>
+            <input type="text" id="edit_organization" name="organization" class="form-input" required
+                   value="{{ account.organization or '' }}">
+          </div>
+          <div class="form-group">
+            <span class="form-label">Keycloak user ID</span>
+            <div class="mono">{{ keycloak_user_id or '—' }}</div>
+          </div>
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary btn-sm">Enregistrer et synchroniser</button>
+        </div>
+      </form>
+      {% else %}
       <div class="form-row" style="gap:var(--sp-4); flex-wrap:wrap;">
         <div class="form-group">
           <span class="form-label">Identifiant</span>
-          <div class="mono">{{ (kc_user.username if kc_user else none) or (account.username if account else '—') }}</div>
+          <div class="mono">{{ (kc_user.username if kc_user else none) or '—' }}</div>
         </div>
         <div class="form-group">
           <span class="form-label">Email</span>
-          <div class="mono">{{ (kc_user.email if kc_user else none) or (account.email if account else '—') }}</div>
-        </div>
-        <div class="form-group">
-          <span class="form-label">Société</span>
-          <div>{{ account.organization if account and account.organization else '—' }}</div>
+          <div class="mono">{{ (kc_user.email if kc_user else none) or '—' }}</div>
         </div>
         <div class="form-group">
           <span class="form-label">Keycloak user ID</span>
           <div class="mono">{{ keycloak_user_id or '—' }}</div>
         </div>
       </div>
+      <div class="alert alert-info" style="margin-top:var(--sp-3);">
+        Compte import Keycloak sans fiche bastion — édition synchronisée non disponible ici.
+      </div>
+      {% endif %}
       {% if kc_email_diag %}
       <div style="margin-top:var(--sp-3);">
         <span class="form-label">emailVerified</span>
@@ -174,6 +216,11 @@
             </tr>
             <tr data-vault-form-row="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}" hidden>
               <td colspan="3" style="padding:var(--sp-4); background:var(--bg-secondary);">
+                <p class="form-hint" style="margin:0 0 var(--sp-3);">
+                  <strong>Tester la connexion</strong> charge le mot de passe depuis le vault
+                  (laissez le champ vide). Pour changer le secret : saisissez un nouveau mot de passe
+                  puis <strong>Enregistrer</strong> — il est poussé vers l’application (CrushFTP, etc.).
+                </p>
                 <div class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
                   <div class="form-group">
                     <label class="form-label">Login individuel</label>
@@ -181,14 +228,15 @@
                            value="{{ va.robotic_username or '' }}" placeholder="service-account">
                   </div>
                   <div class="form-group">
-                    <label class="form-label">Mot de passe individuel</label>
-                    <input type="password" class="form-input" data-vault-pass autocomplete="new-password" placeholder="••••••••">
+                    <label class="form-label">Nouveau mot de passe (optionnel)</label>
+                    <input type="password" class="form-input" data-vault-pass autocomplete="new-password"
+                           placeholder="Laisser vide pour tester le vault">
                   </div>
                   <button type="button" class="btn btn-secondary btn-sm" data-vault-save="{{ va.slug }}">Enregistrer</button>
                   <button type="button" class="btn btn-ghost btn-sm" data-vault-test="{{ va.slug }}">Tester la connexion</button>
                   <button type="button" class="btn btn-ghost btn-sm" data-vault-clear="{{ va.slug }}">Supprimer</button>
                 </div>
-                <div class="form-help" data-vault-msg style="margin-top:var(--sp-2);"></div>
+                <div data-vault-msg style="margin-top:var(--sp-3);" hidden></div>
               </td>
             </tr>
             {% endfor %}
@@ -358,6 +406,14 @@
     var row = formRow(slug);
     return row ? row.querySelector('[data-vault-msg]') : null;
   }
+  function setMsg(slug, text, kind) {
+    var el = msgEl(slug);
+    if (!el) return;
+    el.hidden = !text;
+    el.className = kind === 'ok' ? 'alert alert-ok' : (kind === 'err' ? 'alert alert-err' : 'alert alert-warn');
+    el.style.marginTop = 'var(--sp-3)';
+    el.textContent = text || '';
+  }
   document.querySelectorAll('[data-vault-configure]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var row = formRow(btn.getAttribute('data-vault-configure'));
@@ -370,9 +426,12 @@
       var row = formRow(slug);
       var username = row.querySelector('[data-vault-user]').value.trim();
       var password = row.querySelector('[data-vault-pass]').value;
-      var msg = msgEl(slug);
-      if (!username || !password) { if (msg) msg.textContent = 'Saisissez login et mot de passe.'; return; }
+      if (!username || !password) {
+        setMsg(slug, 'Saisissez login et un nouveau mot de passe pour enregistrer.', 'err');
+        return;
+      }
       btn.disabled = true;
+      setMsg(slug, 'Enregistrement et sync application…', 'warn');
       try {
         var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
           method: 'POST',
@@ -380,53 +439,77 @@
           body: JSON.stringify({ robotic_username: username, password: password })
         });
         var data = await resp.json().catch(function () { return {}; });
-        if (msg) msg.textContent = resp.ok ? 'Enregistré.' : (data.detail || 'Échec');
-        if (resp.ok) {
-          var badge = statusCell(slug);
-          if (badge) { badge.className = 'badge badge-ok'; badge.textContent = 'Configuré'; }
-          row.querySelector('[data-vault-pass]').value = '';
+        if (!resp.ok) {
+          setMsg(slug, data.detail || data.error || 'Échec de l\'enregistrement.', 'err');
+          return;
         }
-      } catch (e) { if (msg) msg.textContent = 'Erreur réseau.'; }
-      finally { btn.disabled = false; }
+        row.querySelector('[data-vault-pass]').value = '';
+        var badge = statusCell(slug);
+        if (badge) { badge.className = 'badge badge-ok'; badge.textContent = 'Configuré'; }
+        var syncNote = '';
+        if (data.app_sync_status === 'success') {
+          syncNote = ' Credential poussé vers l\'application.';
+        } else if (data.app_sync_status === 'failed') {
+          syncNote = ' Vault OK, sync app échouée : ' + (data.app_sync_detail || '');
+          setMsg(slug, 'Enregistré en vault.' + syncNote, 'warn');
+          return;
+        } else if (data.app_sync_detail) {
+          syncNote = ' ' + data.app_sync_detail;
+        }
+        setMsg(slug, 'Credential enregistré.' + syncNote, 'ok');
+      } catch (e) {
+        setMsg(slug, 'Erreur réseau.', 'err');
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
   document.querySelectorAll('[data-vault-clear]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var slug = btn.getAttribute('data-vault-clear');
       if (!confirm('Supprimer le credential individuel ?')) return;
-      var msg = msgEl(slug);
       btn.disabled = true;
       try {
         var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
           method: 'DELETE', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
         });
-        if (msg) msg.textContent = resp.ok ? 'Supprimé.' : 'Échec';
-        if (resp.ok) {
-          var badge = statusCell(slug);
-          if (badge) { badge.className = 'badge badge-muted'; badge.textContent = 'Non configuré'; }
+        var data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) {
+          setMsg(slug, data.detail || 'Échec suppression.', 'err');
+          return;
         }
-      } catch (e) { if (msg) msg.textContent = 'Erreur réseau.'; }
-      finally { btn.disabled = false; }
+        var badge = statusCell(slug);
+        if (badge) { badge.className = 'badge badge-muted'; badge.textContent = 'Non configuré'; }
+        setMsg(slug, 'Credential individuel supprimé.', 'ok');
+      } catch (e) {
+        setMsg(slug, 'Erreur réseau.', 'err');
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
   document.querySelectorAll('[data-vault-test]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var slug = btn.getAttribute('data-vault-test');
-      var row = formRow(slug);
-      var username = row.querySelector('[data-vault-user]').value.trim();
-      var password = row.querySelector('[data-vault-pass]').value;
-      var msg = msgEl(slug);
       btn.disabled = true;
+      setMsg(slug, 'Test en cours (mot de passe chargé depuis le vault)…', 'warn');
       try {
+        // No body: serveur charge le secret via resolve_credential (vault Fernet).
         var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential/test', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-          body: JSON.stringify({ robotic_username: username || null, password: password || null })
+          headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
         });
         var data = await resp.json().catch(function () { return {}; });
-        if (msg) msg.textContent = data.ok ? 'Connexion OK.' : (data.detail || data.message || 'Échec test');
-      } catch (e) { if (msg) msg.textContent = 'Erreur réseau.'; }
-      finally { btn.disabled = false; }
+        if (data.ok) {
+          setMsg(slug, 'Connexion réussie (credential vault).', 'ok');
+        } else {
+          setMsg(slug, data.error || data.detail || data.message || 'Échec du test de connexion.', 'err');
+        }
+      } catch (e) {
+        setMsg(slug, 'Erreur réseau.', 'err');
+      } finally {
+        btn.disabled = false;
+      }
     });
   });
 })();

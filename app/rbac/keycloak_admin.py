@@ -416,6 +416,63 @@ async def create_keycloak_user(
     return user_id
 
 
+async def update_keycloak_user(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    keycloak_user_id: str,
+    email: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    enabled: bool | None = None,
+    token: str | None = None,
+) -> None:
+    """GET + PUT /users/{id} — merge identity fields (WRITE provision account)."""
+    uid = (keycloak_user_id or "").strip()
+    if not uid:
+        raise ValueError("Identifiant utilisateur Keycloak manquant")
+    token = token or await get_provision_token(realm, settings)
+    current: dict | None = None
+    try:
+        current = await fetch_keycloak_user(realm, uid, settings)
+    except ValueError:
+        current = None
+    if current is None:
+        # Prefer provision token for write path when sync account lacks view-users
+        resp = await _admin_get(realm, settings, f"/users/{uid}", token=token)
+        if resp.status_code == 404:
+            raise ValueError("Utilisateur Keycloak introuvable")
+        if resp.status_code >= 400:
+            raise ValueError(f"Échec lecture utilisateur Keycloak (HTTP {resp.status_code})")
+        current = resp.json() if resp.content else {}
+    if not isinstance(current, dict):
+        raise ValueError("Réponse Keycloak utilisateur invalide")
+
+    payload = dict(current)
+    if email is not None:
+        payload["email"] = email.strip()
+    if first_name is not None:
+        payload["firstName"] = (first_name or "").strip()
+    if last_name is not None:
+        payload["lastName"] = (last_name or "").strip()
+    if enabled is not None:
+        payload["enabled"] = bool(enabled)
+    # Never re-send credentials blob from a GET (may be incomplete / empty).
+    payload.pop("credentials", None)
+
+    resp = await _admin_put(
+        realm, settings, f"/users/{uid}", json=payload, token=token
+    )
+    if resp.status_code == 403:
+        raise ValueError(_provision_manage_users_error())
+    if resp.status_code == 404:
+        raise ValueError("Utilisateur Keycloak introuvable")
+    if resp.status_code == 409:
+        raise ValueError("Conflit Keycloak (email déjà utilisé)")
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec mise à jour Keycloak (HTTP {resp.status_code})")
+
+
 async def add_user_to_keycloak_group(
     realm: RealmConfig,
     settings: Settings,

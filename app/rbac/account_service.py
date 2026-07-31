@@ -49,9 +49,13 @@ from app.rbac.keycloak_admin import (
     find_keycloak_user_exact,
     get_provision_token,
     provisioning_configured,
+    update_keycloak_user,
 )
 from app.sso_settings import Settings
-from app.vault.user_app_credential_service import set_user_credential
+from app.vault.user_app_credential_service import (
+    resolve_credential,
+    set_user_credential,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -729,3 +733,213 @@ async def provision_for_grant(
         "app_slug": app.slug,
         "bastion_account_id": account.id,
     }
+
+
+async def update_bastion_account_identity(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    email: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    organization: str | None = None,
+    actor: str,
+    ip_address: str | None = None,
+) -> list[str]:
+    """Update BastionAccount + Keycloak (+ société group). Returns step warnings."""
+    errors: list[str] = []
+    realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
+    if realm is None:
+        raise AccountCreationError("Realm introuvable pour ce compte")
+
+    new_email = (email if email is not None else account.email or "").strip()
+    new_first = (first_name if first_name is not None else account.first_name or "").strip() or None
+    new_last = (last_name if last_name is not None else account.last_name or "").strip() or None
+    org_raw = organization if organization is not None else account.organization
+    new_org = normalize_organization_name(org_raw) if org_raw is not None else None
+
+    if not new_email or "@" not in new_email:
+        raise AccountCreationError("Email invalide")
+    if organization is not None and not new_org:
+        raise AccountCreationError("Société / organisation requise")
+
+    org_changed = bool(new_org) and new_org != (account.organization or "")
+    company: RBACGroup | None = None
+    if org_changed and new_org:
+        company = await ensure_company_group(
+            db,
+            settings,
+            realm=realm,
+            organization=new_org,
+            actor=actor,
+            ip_address=ip_address,
+        )
+
+    account.email = new_email
+    account.first_name = new_first
+    account.last_name = new_last
+    if new_org is not None:
+        account.organization = new_org
+    db.flush()
+
+    if account.keycloak_user_id:
+        try:
+            await update_keycloak_user(
+                realm,
+                settings,
+                keycloak_user_id=account.keycloak_user_id,
+                email=new_email,
+                first_name=new_first or "",
+                last_name=new_last or "",
+            )
+        except ValueError as exc:
+            errors.append(f"Keycloak : {exc}")
+
+        if company is not None and company.keycloak_group_id:
+            try:
+                token = await get_provision_token(realm, settings)
+                await add_user_to_keycloak_group(
+                    realm,
+                    settings,
+                    keycloak_user_id=account.keycloak_user_id,
+                    keycloak_group_id=company.keycloak_group_id,
+                    token=token,
+                )
+            except ValueError as exc:
+                errors.append(f"Groupe société Keycloak : {exc}")
+
+    # Re-push provisioned apps that have a vault credential (password / VFS replace).
+    app_sync = await sync_account_credentials_to_apps(
+        db,
+        settings,
+        account=account,
+        actor=actor,
+        ip_address=ip_address,
+        extra_group_names=[company.name] if company is not None else None,
+    )
+    errors.extend(app_sync)
+
+    log_action(
+        db,
+        actor=actor,
+        action="account.identity_updated",
+        target=_account_target(realm, account.username),
+        details={
+            "bastion_account_id": account.id,
+            "email": new_email,
+            "organization": account.organization,
+            "org_changed": org_changed,
+            "errors": errors,
+        },
+        ip_address=ip_address,
+    )
+    db.commit()
+    return errors
+
+
+async def sync_vault_credential_to_app(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    app: App,
+    actor: str,
+    ip_address: str | None = None,
+    group_names: list[str] | None = None,
+) -> ProvisioningResult:
+    """Push the vault-stored individual credential to the app (CrushFTP replace, etc.)."""
+    if not account.keycloak_user_id:
+        return ProvisioningResult(
+            status=PROVISIONING_FAILED,
+            detail="Keycloak user id manquant — sync vault impossible",
+        )
+    driver_name = normalize_provisioning_driver(app.provisioning_driver)
+    driver = get_provisioning_driver(driver_name)
+    if driver is None:
+        return ProvisioningResult(
+            status=PROVISIONING_NOT_APPLICABLE,
+            detail=_NO_DRIVER_DETAIL,
+        )
+    try:
+        resolved, password = resolve_credential(
+            db, app.slug, settings, keycloak_user_id=account.keycloak_user_id
+        )
+    except Exception as exc:
+        return ProvisioningResult(
+            status=PROVISIONING_FAILED,
+            detail=f"Vault : {exc}",
+        )
+    credential = GeneratedCredential(
+        username=resolved.robotic_username or account.username,
+        password=password,
+    )
+    try:
+        result = await driver.create_account(
+            db=db,
+            settings=settings,
+            app=app,
+            account=account,
+            credential=credential,
+            group_names=group_names,
+        )
+    except Exception:
+        logger.exception(
+            "sync vault→app crashed app=%s account_id=%s", app.slug, account.id
+        )
+        result = ProvisioningResult(
+            status=PROVISIONING_FAILED,
+            detail="Erreur interne sync vault → application",
+        )
+    finally:
+        credential = None  # noqa: F841
+        password = ""  # noqa: F841
+
+    log_action(
+        db,
+        actor=actor,
+        action="account.credential_synced_to_app",
+        target=f"app:{app.slug}/account:{account.username}",
+        details={
+            "app_slug": app.slug,
+            "bastion_account_id": account.id,
+            "status": result.status,
+            "detail": result.detail,
+        },
+        ip_address=ip_address,
+    )
+    return result
+
+
+async def sync_account_credentials_to_apps(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    actor: str,
+    ip_address: str | None = None,
+    extra_group_names: list[str] | None = None,
+) -> list[str]:
+    """For each successful provisioning with vault override — push to the app."""
+    errors: list[str] = []
+    names = [n for n in (extra_group_names or []) if n]
+    if account.organization and account.organization not in names:
+        names = [account.organization, *names]
+    for row in account.provisionings or []:
+        if row.status != "success" or not row.application:
+            continue
+        app = row.application
+        if not normalize_provisioning_driver(app.provisioning_driver):
+            continue
+        result = await sync_vault_credential_to_app(
+            db,
+            settings,
+            account=account,
+            app=app,
+            actor=actor,
+            ip_address=ip_address,
+            group_names=names or None,
+        )
+        if result.status == PROVISIONING_FAILED:
+            errors.append(f"{app.label or app.slug} : {result.detail}")
+    return errors
