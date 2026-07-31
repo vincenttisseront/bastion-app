@@ -91,5 +91,9 @@ def test_portal_static_aliases(client: TestClient):
     css = client.get("/static/portal.css")
     assert css.status_code == 200
     assert "text/css" in css.headers.get("content-type", "")
+    # Absolute imports: /static/portal.css alias must not break @import resolution
+    assert b"/static/css/bastion-tokens.css" in css.content
+    assert b"@import url('./" not in css.content
     js = client.get("/static/portal-theme.js")
     assert js.status_code == 200
+    assert client.get("/static/css/bastion-tokens.css").status_code == 200
