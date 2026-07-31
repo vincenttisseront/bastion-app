@@ -1038,6 +1038,7 @@ def admin_apps_edit(
             vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
             rbac_grant_count=rbac_grant_count,
             provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
+            realms=db.query(RealmConfig).order_by(RealmConfig.slug).all(),
         ),
     )
 
@@ -1142,6 +1143,7 @@ def admin_apps_edit_post(
                 vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
                 rbac_grant_count=rbac_grant_count,
                 provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
+                realms=db.query(RealmConfig).order_by(RealmConfig.slug).all(),
             ),
         )
     crush_errors = _apply_crushftp_admin_config(
@@ -1194,6 +1196,7 @@ def admin_apps_edit_post(
                 vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
                 rbac_grant_count=rbac_grant_count,
                 provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
+                realms=db.query(RealmConfig).order_by(RealmConfig.slug).all(),
             ),
         )
     app.label = label
@@ -1351,6 +1354,77 @@ def admin_app_credential_read(
         "created_at": cred.created_at,
         "rotated_at": cred.rotated_at,
     }
+
+
+@admin_router.post("/admin/apps/{slug}/crushftp/sync-companies")
+async def admin_app_crushftp_sync_companies(
+    slug: str,
+    request: Request,
+    realm_id: int = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Import CrushFTP company folders under vfs base as RBAC/Keycloak société groups."""
+    from app.rbac.account_service import (
+        AccountCreationError,
+        sync_company_groups_from_crushftp,
+    )
+
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404)
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if not realm:
+        raise HTTPException(status_code=404, detail="Realm introuvable")
+
+    wants_json = "application/json" in (request.headers.get("accept") or "")
+    try:
+        summary = await sync_company_groups_from_crushftp(
+            db,
+            settings,
+            app=app,
+            realm=realm,
+            actor=user.email or user.username or "admin",
+            ip_address=_client_ip(request),
+        )
+    except AccountCreationError as exc:
+        if wants_json:
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}},
+                status_code=400,
+            )
+        response = RedirectResponse(url=f"/admin/apps/{slug}/edit", status_code=302)
+        flash_redirect(
+            response,
+            str(exc),
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
+
+    if wants_json:
+        return JSONResponse({"ok": True, **summary})
+
+    created_n = len(summary.get("created") or [])
+    existing_n = len(summary.get("existing") or [])
+    found_n = len(summary.get("folders_found") or [])
+    err_n = len(summary.get("errors") or [])
+    msg = (
+        f"Sociétés CrushFTP synchronisées ({realm.slug}) : "
+        f"{found_n} dossier(s), {created_n} créé(s), {existing_n} déjà présent(s)"
+    )
+    if err_n:
+        msg += f", {err_n} erreur(s)"
+    category = "warning" if err_n else "success"
+    response = RedirectResponse(url=f"/admin/apps/{slug}/edit", status_code=302)
+    flash_redirect(
+        response,
+        msg,
+        category,
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
 
 
 @admin_router.post("/admin/apps/{slug}/credential")

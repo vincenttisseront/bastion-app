@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -24,6 +25,19 @@ _USERNAME_RE = re.compile(
     r"<username>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</username>",
     re.IGNORECASE,
 )
+_LISTING_SUBITEM_RE = re.compile(
+    r"<listing_subitem[^>]*>(.*?)</listing_subitem>",
+    re.IGNORECASE | re.DOTALL,
+)
+_LISTING_NAME_RE = re.compile(
+    r"<name>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</name>",
+    re.IGNORECASE,
+)
+_LISTING_TYPE_RE = re.compile(
+    r"<type>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</type>",
+    re.IGNORECASE,
+)
+_SKIP_FOLDER_NAMES = frozenset({".", "..", ""})
 
 
 @dataclass(frozen=True)
@@ -260,6 +274,105 @@ def crushftp_company_file_url(base_path: str, company_folder: str) -> str:
     if not base or not folder:
         raise ValueError("crushftp_vfs_base_path et dossier société sont requis")
     return f"FILE://{base}/{folder}/"
+
+
+def normalize_crushftp_listing_path(vfs_base: str) -> str:
+    """Absolute directory path for getXMLListing (leading + trailing slash)."""
+    path = (vfs_base or "").strip().replace("\\", "/")
+    if not path:
+        return ""
+    if not path.startswith("/"):
+        path = "/" + path
+    if not path.endswith("/"):
+        path = path + "/"
+    return path
+
+
+def parse_crushftp_directory_names(body: str) -> list[str]:
+    """Extract immediate subdirectory names from getXMLListing (jsonobj or XML)."""
+    text = (body or "").strip()
+    if not text:
+        return []
+    names: list[str] = []
+
+    # Prefer JSON (format=jsonobj / json).
+    if text.startswith("{") or text.startswith("["):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = None
+        if payload is not None:
+            items: list = []
+            if isinstance(payload, list):
+                items = payload
+            elif isinstance(payload, dict):
+                for key in ("listing", "listings", "files", "rows"):
+                    val = payload.get(key)
+                    if isinstance(val, list):
+                        items = val
+                        break
+                if not items and isinstance(payload.get("data"), list):
+                    items = payload["data"]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                name = str(
+                    item.get("name")
+                    or item.get("href_path")
+                    or item.get("path")
+                    or ""
+                ).strip().rstrip("/")
+                if "/" in name:
+                    name = name.rsplit("/", 1)[-1]
+                typ = str(item.get("type") or item.get("dir") or "").strip().upper()
+                is_dir = typ in ("DIR", "DIRECTORY", "FOLDER", "TRUE", "1") or item.get(
+                    "dir"
+                ) is True
+                # CrushFTP jsonobj often uses type DIR; some builds omit type for dirs.
+                if not is_dir and typ in ("FILE", "FILELINK"):
+                    continue
+                if not is_dir and typ and typ not in ("DIR", "DIRECTORY", "FOLDER"):
+                    continue
+                if not name or name in _SKIP_FOLDER_NAMES:
+                    continue
+                if not is_dir and not typ:
+                    # No type: keep only société-like folder names (alnum/_/-).
+                    cleaned = crushftp_company_folder_name(name)
+                    if cleaned != name:
+                        continue
+                names.append(name)
+            return _dedupe_preserve(names)
+
+    # XML listing_subitem blocks.
+    for block in _LISTING_SUBITEM_RE.findall(text):
+        name_m = _LISTING_NAME_RE.search(block)
+        type_m = _LISTING_TYPE_RE.search(block)
+        if not name_m:
+            continue
+        name = name_m.group(1).strip().rstrip("/")
+        if "/" in name:
+            name = name.rsplit("/", 1)[-1]
+        typ = (type_m.group(1).strip().upper() if type_m else "")
+        if typ in ("FILE", "FILELINK"):
+            continue
+        if not name or name in _SKIP_FOLDER_NAMES:
+            continue
+        if typ and typ not in ("DIR", "DIRECTORY", "FOLDER"):
+            continue
+        names.append(name)
+    return _dedupe_preserve(names)
+
+
+def _dedupe_preserve(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in values:
+        key = v.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(v)
+    return out
 
 
 def _crushftp_user_xml(credential: GeneratedCredential) -> str:
@@ -620,6 +733,27 @@ class CrushFTPProvisioningDriver:
         data: dict[str, str],
     ) -> tuple[bool, str, int]:
         """POST admin command with HTTP Basic Auth. Never logs auth headers or body."""
+        ok, msg, status, _body = await self._admin_post_body(
+            base_url=base_url,
+            admin_username=admin_username,
+            admin_password=admin_password,
+            tls_verify=tls_verify,
+            data=data,
+            require_success_marker=True,
+        )
+        return ok, msg, status
+
+    async def _admin_post_body(
+        self,
+        *,
+        base_url: str,
+        admin_username: str,
+        admin_password: str,
+        tls_verify: bool,
+        data: dict[str, str],
+        require_success_marker: bool = True,
+    ) -> tuple[bool, str, int, str]:
+        """POST admin command; optionally accept listing bodies without <response>success."""
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT,
@@ -630,15 +764,16 @@ class CrushFTPProvisioningDriver:
             ) as client:
                 response = await client.post(base_url, data=data)
         except httpx.TimeoutException:
-            return False, "Timeout CrushFTP (setUserItem)", 0
+            return False, "Timeout CrushFTP", 0, ""
         except httpx.RequestError:
-            return False, "Erreur réseau CrushFTP (setUserItem)", 0
-        # Never echo response.text — may contain user XML / passwords.
+            return False, "Erreur réseau CrushFTP", 0, ""
+        body = response.text or ""
         if response.status_code in (401, 403):
             return (
                 False,
                 "Authentification admin CrushFTP refusée (Basic Auth)",
                 response.status_code,
+                "",
             )
         if response.status_code in (301, 302, 303, 307, 308):
             return (
@@ -649,14 +784,72 @@ class CrushFTPProvisioningDriver:
                     "listener CrushFTP direct (IP:port interne)."
                 ),
                 response.status_code,
+                "",
             )
-        if not _admin_response_ok(response.text or ""):
+        if require_success_marker and not _admin_response_ok(body):
             return (
                 False,
-                _admin_reject_hint(response.text or "", response.status_code),
+                _admin_reject_hint(body, response.status_code),
                 response.status_code,
+                "",
             )
-        return True, "ok", response.status_code
+        if response.status_code >= 400:
+            return (
+                False,
+                _admin_reject_hint(body, response.status_code),
+                response.status_code,
+                "",
+            )
+        if _FAILURE_RE.search(body):
+            return (
+                False,
+                _admin_reject_hint(body, response.status_code),
+                response.status_code,
+                "",
+            )
+        return True, "ok", response.status_code, body
+
+    async def list_company_folders(
+        self,
+        *,
+        app,
+        settings,
+    ) -> tuple[list[str], str | None]:
+        """List immediate subfolders under app.crushftp_vfs_base_path via getXMLListing."""
+        admin = self._resolve_admin(app, settings)
+        if isinstance(admin, ProvisioningResult):
+            return [], admin.detail
+        username, password, base_url, _server_group, tls_verify = admin
+        vfs_base = (getattr(app, "crushftp_vfs_base_path", None) or "").strip()
+        path = normalize_crushftp_listing_path(vfs_base)
+        if not path:
+            return [], (
+                "Racine VFS sociétés non configurée "
+                "(champ crushftp_vfs_base_path, ex. /crush_data/AR-SYSTEMS)."
+            )
+
+        ok, msg, _status, body = await self._admin_post_body(
+            base_url=base_url,
+            admin_username=username,
+            admin_password=password,
+            tls_verify=tls_verify,
+            data={
+                "command": "getXMLListing",
+                "path": path,
+                "format": "jsonobj",
+            },
+            require_success_marker=False,
+        )
+        if not ok:
+            return [], f"Lecture dossiers CrushFTP échouée : {msg}"
+
+        folders = parse_crushftp_directory_names(body)
+        cleaned: list[str] = []
+        for name in folders:
+            folder = crushftp_company_folder_name(name)
+            if folder:
+                cleaned.append(folder)
+        return _dedupe_preserve(cleaned), None
 
     async def _set_user_item(
         self,

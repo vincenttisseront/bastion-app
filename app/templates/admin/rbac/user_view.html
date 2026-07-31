@@ -10,9 +10,8 @@
     <div>
       <h1 class="page-title">{{ display_name }}</h1>
       <p class="page-sub">
-        {% if account and account.email %}{{ account.email }} — {% endif %}
-        realm <span class="mono">{{ realm.slug }}</span>
-        {% if account and account.organization %} — société <strong>{{ account.organization }}</strong>{% endif %}
+        {% if account and account.email %}{{ account.email }}{% elif kc_user and kc_user.email %}{{ kc_user.email }}{% endif %}
+        {% if account and account.organization %}{% if account.email or (kc_user and kc_user.email) %} — {% endif %}société <strong>{{ account.organization }}</strong>{% endif %}
       </p>
     </div>
     <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:flex-end;">
@@ -73,6 +72,10 @@
                    value="{{ account.organization or '' }}">
           </div>
           <div class="form-group">
+            <span class="form-label">Realm</span>
+            <div class="mono">{{ realm.slug }}</div>
+          </div>
+          <div class="form-group">
             <span class="form-label">Keycloak user ID</span>
             <div class="mono">{{ keycloak_user_id or '—' }}</div>
           </div>
@@ -90,6 +93,10 @@
         <div class="form-group">
           <span class="form-label">Email</span>
           <div class="mono">{{ (kc_user.email if kc_user else none) or '—' }}</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">Realm</span>
+          <div class="mono">{{ realm.slug }}</div>
         </div>
         <div class="form-group">
           <span class="form-label">Keycloak user ID</span>

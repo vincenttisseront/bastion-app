@@ -211,6 +211,96 @@ async def ensure_company_group(
     return group
 
 
+async def sync_company_groups_from_crushftp(
+    db: Session,
+    settings: Settings,
+    *,
+    app: App,
+    realm: RealmConfig,
+    actor: str,
+    ip_address: str | None = None,
+) -> dict:
+    """List CrushFTP folders under vfs base and ensure RBAC/Keycloak company groups.
+
+    Idempotent: existing groups (same realm + name) are skipped/reused.
+    """
+    from app.bastion.drivers.crushftp import CrushFTPProvisioningDriver
+
+    if normalize_provisioning_driver(getattr(app, "provisioning_driver", None)) != "crushftp":
+        raise AccountCreationError(
+            "L’application n’utilise pas le driver de provisioning CrushFTP."
+        )
+
+    driver = CrushFTPProvisioningDriver()
+    folders, err = await driver.list_company_folders(app=app, settings=settings)
+    if err:
+        raise AccountCreationError(err)
+
+    created: list[str] = []
+    existing: list[str] = []
+    errors: list[str] = []
+    provision_token = await get_provision_token(realm, settings)
+
+    for folder in folders:
+        before = (
+            db.query(RBACGroup)
+            .filter(
+                RBACGroup.realm_id == realm.id,
+                RBACGroup.name == folder,
+                RBACGroup.keycloak_group_id.is_not(None),
+            )
+            .first()
+        )
+        try:
+            group = await ensure_company_group(
+                db,
+                settings,
+                realm=realm,
+                organization=folder,
+                actor=actor,
+                ip_address=ip_address,
+                token=provision_token,
+            )
+        except AccountCreationError as exc:
+            errors.append(f"{folder}: {exc}")
+            continue
+        if before is not None and before.id == group.id:
+            existing.append(folder)
+        else:
+            created.append(folder)
+
+    db.commit()
+    log_action(
+        db,
+        actor=actor,
+        action="app.crushftp.companies_synced",
+        target=f"app:{app.slug}",
+        details={
+            "realm_slug": realm.slug,
+            "vfs_base": getattr(app, "crushftp_vfs_base_path", None),
+            "folders_found": folders,
+            "created": created,
+            "existing": existing,
+            "errors": errors,
+        },
+        ip_address=ip_address,
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return {
+        "ok": not errors,
+        "folders_found": folders,
+        "created": created,
+        "existing": existing,
+        "errors": errors,
+        "realm_slug": realm.slug,
+        "vfs_base": getattr(app, "crushftp_vfs_base_path", None),
+    }
+
+
 async def _assign_groups_and_provision_apps(
     db: Session,
     settings: Settings,
