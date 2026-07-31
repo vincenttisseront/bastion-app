@@ -892,9 +892,8 @@ def admin_pending_users_list(
 ):
     from app.web.pending_user_service import discover_recent_first_logins
 
-    created = discover_recent_first_logins(db)
-    if created:
-        db.commit()
+    discover_recent_first_logins(db)
+    db.commit()
     status_filter = (status or "pending").strip().lower()
     query = db.query(PendingUser)
     if status_filter != "all":

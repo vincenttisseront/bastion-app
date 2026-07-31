@@ -245,8 +245,8 @@ def build_notification_feed(
     from app.web.pending_user_service import discover_recent_first_logins
 
     try:
-        if discover_recent_first_logins(db):
-            db.commit()
+        discover_recent_first_logins(db)
+        db.commit()
     except Exception:
         db.rollback()
 

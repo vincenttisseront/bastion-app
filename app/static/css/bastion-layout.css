@@ -47,6 +47,38 @@ body.app-layout{display:flex;min-height:100vh}
   font-size:9px;font-weight:700;padding:1px 6px;border-radius:var(--r-full);
 }
 
+/* Nested admin queues under « En attente » */
+.nav-group{display:flex;flex-direction:column;gap:2px}
+.nav-group-toggle{
+  list-style:none;user-select:none;
+}
+.nav-group-toggle::-webkit-details-marker{display:none}
+.nav-group-toggle .nav-group-label{flex:1}
+.nav-group-chevron{
+  margin-left:auto;flex-shrink:0;opacity:.55;
+  transition:transform var(--t-fast);
+}
+.nav-group[open] > .nav-group-toggle .nav-group-chevron{transform:rotate(180deg)}
+.nav-group-toggle.is-parent-active{
+  color:var(--accent);font-weight:600;
+}
+.nav-group-children{
+  display:flex;flex-direction:column;gap:2px;
+  padding:0 0 2px 0;
+  border-left:1px solid var(--border-muted);
+  margin:0 0 2px calc(var(--sp-3) + 8px);
+  padding-left:var(--sp-2);
+}
+.nav-item--sub{
+  padding-left:var(--sp-3);
+  font-size:var(--fs-xs);
+  font-weight:500;
+}
+.nav-item--sub.active::before{display:none}
+.nav-item--sub.active{
+  background:var(--accent-muted);color:var(--accent);font-weight:600;
+}
+
 .sidebar-footer{padding:var(--sp-3) var(--sp-4);border-top:1px solid var(--border-muted);display:flex;align-items:center;gap:var(--sp-3)}
 .user-row{
   display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2);

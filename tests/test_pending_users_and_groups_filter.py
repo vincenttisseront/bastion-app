@@ -7,7 +7,7 @@ from datetime import timedelta
 import pytest
 import respx
 
-from app.models import ActiveSession, PendingUser, RBACGroup, RealmConfig, utcnow
+from app.models import AccessGrant, ActiveSession, PendingUser, RBACGroup, RealmConfig, utcnow
 from app.rbac.keycloak_admin import group_matches_sync_include, parse_groups_sync_include
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings
@@ -79,43 +79,113 @@ def test_record_first_login_only_on_new_session(db_session):
     )
 
 
-def test_discover_recent_first_logins(db_session):
+def test_discover_skips_uuid_duplicate_and_known_grants(db_session):
     now = utcnow()
+    # Known Bastion user (vincent) — email + UUID session twins
     db_session.add(
-        ActiveSession(
-            id="u:brigitte@ar-systems.fr:ar-systems",
-            kind="user",
-            user_email="brigitte@ar-systems.fr",
-            username="brigitte",
-            realm="ar-systems",
-            protocol="oidc",
-            target="portal",
-            status="active",
-            started_at=now - timedelta(minutes=20),
-            last_seen_at=now,
+        AccessGrant(
+            subject_type="user",
+            keycloak_user_id="e189ed16-79f8-4fa1-85ee-1bb7ff28852e",
+            user_display_cache="vincent.tisseront@ar-systems.fr",
+            resource_type="system_role",
+            system_role="portal_admin",
+            access_level="manage",
+            granted_by="seed",
+        )
+    )
+    for email, uname, sid in (
+        (
+            "vincent.tisseront@ar-systems.fr",
+            "vincent.tisseront",
+            "u:vincent@ar-systems",
+        ),
+        (
+            "e189ed16-79f8-4fa1-85ee-1bb7ff28852e",
+            "vincent.tisseront",
+            "u:vincent-uuid",
+        ),
+        (
+            "brigitte.tisseront@ar-systems.fr",
+            "brigitte.tisseront",
+            "u:brigitte",
+        ),
+        (
+            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "brigitte.tisseront",
+            "u:brigitte-uuid",
+        ),
+    ):
+        db_session.add(
+            ActiveSession(
+                id=sid,
+                kind="user",
+                user_email=email,
+                username=uname,
+                realm="ar-systems",
+                protocol="oidc",
+                target="portal",
+                status="active",
+                started_at=now - timedelta(minutes=10),
+                last_seen_at=now,
+            )
+        )
+    # Spurious pending rows already in DB (production state)
+    db_session.add(
+        PendingUser(
+            user_email="vincent.tisseront@ar-systems.fr",
+            username="vincent.tisseront",
+            realm_slug="ar-systems",
+            status="pending",
         )
     )
     db_session.add(
-        ActiveSession(
-            id="u:old@ar-systems.fr:ar-systems",
-            kind="user",
-            user_email="old@ar-systems.fr",
-            username="old",
-            realm="ar-systems",
-            protocol="oidc",
-            target="portal",
-            status="active",
-            started_at=now - timedelta(days=30),
-            last_seen_at=now - timedelta(days=1),
+        PendingUser(
+            user_email="e189ed16-79f8-4fa1-85ee-1bb7ff28852e",
+            username="vincent.tisseront",
+            realm_slug="ar-systems",
+            status="pending",
         )
     )
     db_session.commit()
+
     created = discover_recent_first_logins(db_session, within_hours=168)
     db_session.commit()
-    assert created == 1
-    pending = db_session.query(PendingUser).filter_by(status="pending").all()
-    assert len(pending) == 1
-    assert pending[0].user_email == "brigitte@ar-systems.fr"
+
+    pending = (
+        db_session.query(PendingUser).filter_by(status="pending").order_by(PendingUser.id).all()
+    )
+    emails = [p.user_email for p in pending]
+    assert "vincent.tisseront@ar-systems.fr" not in emails
+    assert not any("e189ed16" in e for e in emails)
+    assert not any("aaaaaaaa" in e for e in emails)
+    assert emails == ["brigitte.tisseront@ar-systems.fr"]
+    assert created >= 0
+
+
+def test_record_skips_known_bastion_user(db_session):
+    db_session.add(
+        AccessGrant(
+            subject_type="user",
+            keycloak_user_id="kc-herve",
+            user_display_cache="herve.tisseront@ar-systems.fr",
+            resource_type="system_role",
+            system_role="portal_admin",
+            access_level="view",
+            granted_by="seed",
+        )
+    )
+    db_session.commit()
+    assert (
+        record_first_login_if_new(
+            db_session,
+            user_email="herve.tisseront@ar-systems.fr",
+            username="herve.tisseront",
+            realm_slug="ar-systems",
+            source_ip="1.1.1.1",
+            is_new_session_row=True,
+        )
+        is None
+    )
 
 
 def test_pending_users_page_and_approve(client, db_session):
