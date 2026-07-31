@@ -760,7 +760,11 @@ def admin_apps_list(
     settings: Settings = Depends(get_settings),
 ):
     apps = db.query(App).order_by(App.slug).all()
-    return render("admin/apps/list.html", **_ctx(request, settings, apps=apps))
+    realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
+    return render(
+        "admin/apps/list.html",
+        **_ctx(request, settings, apps=apps, realms=realms),
+    )
 
 
 @admin_router.get("/admin/pending-hosts")
@@ -1038,7 +1042,6 @@ def admin_apps_edit(
             vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
             rbac_grant_count=rbac_grant_count,
             provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
-            realms=db.query(RealmConfig).order_by(RealmConfig.slug).all(),
         ),
     )
 
@@ -1143,7 +1146,6 @@ def admin_apps_edit_post(
                 vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
                 rbac_grant_count=rbac_grant_count,
                 provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
-                realms=db.query(RealmConfig).order_by(RealmConfig.slug).all(),
             ),
         )
     crush_errors = _apply_crushftp_admin_config(
@@ -1196,7 +1198,6 @@ def admin_apps_edit_post(
                 vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
                 rbac_grant_count=rbac_grant_count,
                 provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
-                realms=db.query(RealmConfig).order_by(RealmConfig.slug).all(),
             ),
         )
     app.label = label
@@ -1360,7 +1361,6 @@ def admin_app_credential_read(
 async def admin_app_crushftp_sync_companies(
     slug: str,
     request: Request,
-    realm_id: int = Form(...),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -1371,37 +1371,59 @@ async def admin_app_crushftp_sync_companies(
         sync_company_groups_from_crushftp,
     )
 
+    wants_json = "application/json" in (request.headers.get("accept") or "")
+
+    def _err(msg: str, status: int = 400):
+        if wants_json:
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": msg}},
+                status_code=status,
+            )
+        response = RedirectResponse(url="/admin/apps", status_code=302)
+        flash_redirect(
+            response,
+            msg,
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
+
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
-        raise HTTPException(status_code=404)
+        return _err("Application introuvable", 404)
+
+    # Parse form manually so JSON Accept + multipart never 500 on validation.
+    try:
+        form = await request.form()
+        realm_raw = form.get("realm_id")
+        realm_id = int(str(realm_raw)) if realm_raw not in (None, "") else None
+    except Exception:
+        return _err("Paramètres d’import invalides (realm).")
+    if not realm_id:
+        return _err("Choisissez un realm cible.")
+
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
-        raise HTTPException(status_code=404, detail="Realm introuvable")
+        return _err("Realm introuvable", 404)
 
-    wants_json = "application/json" in (request.headers.get("accept") or "")
+    actor = (getattr(user, "email", None) or getattr(user, "username", None) or "admin")
     try:
         summary = await sync_company_groups_from_crushftp(
             db,
             settings,
             app=app,
             realm=realm,
-            actor=user.email or user.username or "admin",
+            actor=str(actor),
             ip_address=_client_ip(request),
         )
     except AccountCreationError as exc:
-        if wants_json:
-            return JSONResponse(
-                {"ok": False, "errors": {"_form": str(exc)}},
-                status_code=400,
-            )
-        response = RedirectResponse(url=f"/admin/apps/{slug}/edit", status_code=302)
-        flash_redirect(
-            response,
-            str(exc),
-            "error",
-            settings.vault_portal_internal_token or "dev",
+        return _err(str(exc))
+    except Exception:
+        logger.exception("crushftp sync-companies failed app=%s realm=%s", slug, realm.slug)
+        return _err(
+            "Erreur lors de l’import CrushFTP (voir logs serveur).",
+            status=500 if not wants_json else 400,
         )
-        return response
 
     if wants_json:
         return JSONResponse({"ok": True, **summary})
@@ -1417,7 +1439,7 @@ async def admin_app_crushftp_sync_companies(
     if err_n:
         msg += f", {err_n} erreur(s)"
     category = "warning" if err_n else "success"
-    response = RedirectResponse(url=f"/admin/apps/{slug}/edit", status_code=302)
+    response = RedirectResponse(url="/admin/apps", status_code=302)
     flash_redirect(
         response,
         msg,

@@ -154,3 +154,52 @@ def test_sync_companies_endpoint_creates_groups(client, db_session):
     assert set(body["created"]) == {"SDIS74", "SDIS999"}
     groups = db_session.query(RBACGroup).filter_by(realm_id=realm.id).all()
     assert {g.name for g in groups} == {"SDIS74", "SDIS999"}
+
+
+@respx.mock
+def test_sync_companies_endpoint_missing_provision_token_returns_json_error(client, db_session):
+    s = _settings()
+    realm = RealmConfig(
+        slug="clients",
+        name="clients",
+        issuer_url="https://kc.example.com/realms/clients",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("secret", s),
+        redirect_uri="https://portal.test/oauth2/clients/callback",
+        oauth2_proxy_port=4180,
+        enabled=True,
+        groups_sync_enabled=True,
+        keycloak_admin_client_id="sync",
+        keycloak_admin_client_secret_encrypted=encrypt_secret("admin", s),
+        # no provision client → get_provision_token raises
+    )
+    app = App(
+        slug="transfer",
+        label="Transfer",
+        upstream_url="https://transfer.example/",
+        enabled=True,
+        provisioning_driver="crushftp",
+        crushftp_admin_base_url="https://crush.internal/",
+        crushftp_admin_username="crushadmin",
+        crushftp_admin_password_encrypted=encrypt_secret("secret", s),
+        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
+    )
+    db_session.add_all([realm, app])
+    db_session.commit()
+
+    respx.post("https://crush.internal/").mock(
+        return_value=Response(
+            200,
+            text='[{"name":"SDIS74","type":"DIR"}]',
+        )
+    )
+
+    resp = client.post(
+        f"/admin/apps/{app.slug}/crushftp/sync-companies",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={"realm_id": str(realm.id)},
+    )
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["ok"] is False
+    assert "provisioning" in body["errors"]["_form"].lower() or "Compte de service" in body["errors"]["_form"]

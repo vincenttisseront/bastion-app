@@ -239,7 +239,10 @@ async def sync_company_groups_from_crushftp(
     created: list[str] = []
     existing: list[str] = []
     errors: list[str] = []
-    provision_token = await get_provision_token(realm, settings)
+    try:
+        provision_token = await get_provision_token(realm, settings)
+    except ValueError as exc:
+        raise AccountCreationError(str(exc)) from exc
 
     for folder in folders:
         before = (

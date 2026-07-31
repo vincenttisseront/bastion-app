@@ -39,13 +39,33 @@
           </thead>
           <tbody>
             {% for app in apps %}
+            {% set crush_ready = app.provisioning_driver == 'crushftp'
+              and app.crushftp_vfs_base_path
+              and app.crushftp_admin_base_url
+              and app.crushftp_admin_username
+              and app.crushftp_admin_password_encrypted %}
             <tr data-searchable data-mode="{{ app.access_mode }}" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}">
               <td>{{ app.label }}</td>
               <td class="mono">{{ app.slug }}</td>
               <td class="mono truncate truncate-cell">{{ app.upstream_url }}</td>
               <td><span class="mode-badge {{ app.access_mode }}">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</span></td>
               <td><span class="badge badge-{{ 'ok' if app.enabled else 'muted' }}">{{ 'Actif' if app.enabled else 'Désactivé' }}</span></td>
-              <td><a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">Modifier</a></td>
+              <td>
+                <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2);">
+                  <a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">Modifier</a>
+                  {% if crush_ready and realms %}
+                  <button type="button"
+                          class="btn btn-ghost btn-sm"
+                          data-crushftp-import
+                          data-app-slug="{{ app.slug }}"
+                          data-app-label="{{ app.label }}"
+                          data-vfs-base="{{ app.crushftp_vfs_base_path }}"
+                          data-realm-slug="{{ app.realm_slug or '' }}">
+                    Importer sociétés
+                  </button>
+                  {% endif %}
+                </div>
+              </td>
             </tr>
             {% else %}
             <tr>
@@ -67,6 +87,50 @@
     </div>
   </div>
 </div>
+
+{% if realms %}
+<div id="crushftp-import-modal" class="bastion-modal" hidden aria-hidden="true">
+  <div class="bastion-modal-backdrop" data-crushftp-import-dismiss></div>
+  <div class="bastion-modal-dialog bastion-modal-dialog--form" role="dialog" aria-modal="true"
+       aria-labelledby="crushftp-import-title" tabindex="-1">
+    <div class="bastion-modal-header">
+      <h2 id="crushftp-import-title" class="bastion-modal-title">Importer les sociétés CrushFTP</h2>
+    </div>
+    <div class="bastion-modal-body">
+      <div id="crushftp-import-form-panel">
+        <p class="bastion-modal-message" style="margin-bottom:var(--sp-3);">
+          Liste les sous-dossiers de la racine VFS et crée les groupes société manquants
+          (RBAC + Keycloak) dans le realm choisi. Idempotent.
+        </p>
+        <p class="form-hint" style="margin-bottom:var(--sp-3);">
+          Application : <strong id="crushftp-import-app-label"></strong><br>
+          Racine : <span class="mono" id="crushftp-import-vfs"></span>
+        </p>
+        <div id="crushftp-import-error" class="form-error" hidden style="margin-bottom:var(--sp-3);"></div>
+        <form id="crushftp-import-form" method="post" action="">
+          <div class="form-group">
+            <label class="form-label" for="crushftp-import-realm">Realm cible</label>
+            <select id="crushftp-import-realm" name="realm_id" class="form-select" required>
+              {% for r in realms %}
+              <option value="{{ r.id }}" data-slug="{{ r.slug }}">{{ r.slug }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </form>
+      </div>
+      <div id="crushftp-import-result-panel" hidden>
+        <p id="crushftp-import-result-msg" class="bastion-modal-message" style="margin-bottom:var(--sp-3);"></p>
+        <ul id="crushftp-import-result-details" class="form-hint" style="margin:0; padding-left:1.2rem;"></ul>
+      </div>
+    </div>
+    <div class="bastion-modal-footer">
+      <button type="button" class="btn btn-ghost" data-crushftp-import-dismiss id="crushftp-import-cancel">Annuler</button>
+      <button type="submit" form="crushftp-import-form" class="btn btn-primary" id="crushftp-import-submit">Importer</button>
+      <button type="button" class="btn btn-primary" data-crushftp-import-dismiss id="crushftp-import-done" hidden>Fermer</button>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -106,6 +170,175 @@ document.addEventListener('DOMContentLoaded', function () {
   var searchInput = document.getElementById('apps-search');
   if (searchInput) {
     searchInput.addEventListener('input', applyFilters);
+  }
+
+  function csrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    return meta ? meta.content : '';
+  }
+
+  var modal = document.getElementById('crushftp-import-modal');
+  var form = document.getElementById('crushftp-import-form');
+  var realmSelect = document.getElementById('crushftp-import-realm');
+  var labelEl = document.getElementById('crushftp-import-app-label');
+  var vfsEl = document.getElementById('crushftp-import-vfs');
+  var formPanel = document.getElementById('crushftp-import-form-panel');
+  var resultPanel = document.getElementById('crushftp-import-result-panel');
+  var resultMsg = document.getElementById('crushftp-import-result-msg');
+  var resultDetails = document.getElementById('crushftp-import-result-details');
+  var errorEl = document.getElementById('crushftp-import-error');
+  var submitBtn = document.getElementById('crushftp-import-submit');
+  var cancelBtn = document.getElementById('crushftp-import-cancel');
+  var doneBtn = document.getElementById('crushftp-import-done');
+
+  if (modal && form) {
+    function setError(msg) {
+      if (!errorEl) return;
+      if (msg) {
+        errorEl.textContent = msg;
+        errorEl.hidden = false;
+      } else {
+        errorEl.textContent = '';
+        errorEl.hidden = true;
+      }
+    }
+
+    function showFormMode() {
+      if (formPanel) formPanel.hidden = false;
+      if (resultPanel) resultPanel.hidden = true;
+      if (submitBtn) submitBtn.hidden = false;
+      if (cancelBtn) cancelBtn.hidden = false;
+      if (doneBtn) doneBtn.hidden = true;
+      if (submitBtn) submitBtn.disabled = false;
+      setError('');
+    }
+
+    function showResultMode(ok, data) {
+      if (formPanel) formPanel.hidden = true;
+      if (resultPanel) resultPanel.hidden = false;
+      if (submitBtn) submitBtn.hidden = true;
+      if (cancelBtn) cancelBtn.hidden = true;
+      if (doneBtn) doneBtn.hidden = false;
+      var created = (data && data.created) || [];
+      var existing = (data && data.existing) || [];
+      var found = (data && data.folders_found) || [];
+      var errors = (data && data.errors) || [];
+      var realm = (data && data.realm_slug) || '';
+      if (resultMsg) {
+        if (ok) {
+          resultMsg.textContent =
+            'Import terminé' + (realm ? ' (' + realm + ')' : '') + ' : ' +
+            found.length + ' dossier(s), ' +
+            created.length + ' créé(s), ' +
+            existing.length + ' déjà présent(s)' +
+            (errors.length ? ', ' + errors.length + ' erreur(s)' : '') + '.';
+        } else {
+          resultMsg.textContent = (data && data.errors && data.errors._form) ||
+            (data && data.detail) ||
+            'Impossible d’importer les sociétés.';
+        }
+      }
+      if (resultDetails) {
+        resultDetails.innerHTML = '';
+        function addLi(text) {
+          var li = document.createElement('li');
+          li.textContent = text;
+          resultDetails.appendChild(li);
+        }
+        if (created.length) addLi('Créées : ' + created.join(', '));
+        if (existing.length) addLi('Déjà présentes : ' + existing.join(', '));
+        (errors || []).forEach(function (e) { addLi(String(e)); });
+      }
+    }
+
+    function openImport(btn) {
+      var slug = btn.getAttribute('data-app-slug') || '';
+      form.action = '/admin/apps/' + encodeURIComponent(slug) + '/crushftp/sync-companies';
+      if (labelEl) labelEl.textContent = btn.getAttribute('data-app-label') || slug;
+      if (vfsEl) vfsEl.textContent = btn.getAttribute('data-vfs-base') || '—';
+      var prefer = (btn.getAttribute('data-realm-slug') || '').trim();
+      if (realmSelect && prefer) {
+        Array.prototype.forEach.call(realmSelect.options, function (opt) {
+          if ((opt.getAttribute('data-slug') || '') === prefer) {
+            opt.selected = true;
+          }
+        });
+      }
+      showFormMode();
+      modal.hidden = false;
+      modal.setAttribute('aria-hidden', 'false');
+      modal.classList.add('is-open');
+      document.body.classList.add('bastion-modal-open');
+      if (realmSelect) realmSelect.focus();
+    }
+
+    function closeImport() {
+      modal.hidden = true;
+      modal.setAttribute('aria-hidden', 'true');
+      modal.classList.remove('is-open');
+      document.body.classList.remove('bastion-modal-open');
+      showFormMode();
+    }
+
+    document.querySelectorAll('[data-crushftp-import]').forEach(function (btn) {
+      btn.addEventListener('click', function () { openImport(btn); });
+    });
+    modal.addEventListener('click', function (e) {
+      if (e.target.closest('[data-crushftp-import-dismiss]')) {
+        e.preventDefault();
+        closeImport();
+      }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !modal.hidden) {
+        e.preventDefault();
+        closeImport();
+      }
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      setError('');
+      if (submitBtn) submitBtn.disabled = true;
+      var headers = { Accept: 'application/json' };
+      var csrf = csrfToken();
+      if (csrf) headers['X-CSRF-Token'] = csrf;
+      fetch(form.getAttribute('action') || '', {
+        method: 'POST',
+        body: new FormData(form),
+        headers: headers,
+        credentials: 'same-origin',
+      })
+        .then(function (resp) {
+          return resp.json().then(function (data) {
+            return { ok: resp.ok, status: resp.status, data: data };
+          }).catch(function () {
+            return { ok: resp.ok, status: resp.status, data: null };
+          });
+        })
+        .then(function (result) {
+          if (result.ok && result.data && result.data.ok) {
+            showResultMode(true, result.data);
+            return;
+          }
+          if (submitBtn) submitBtn.disabled = false;
+          var errors = (result.data && result.data.errors) || {};
+          var msg =
+            errors._form ||
+            (result.data && result.data.detail) ||
+            'Impossible d’importer les sociétés.';
+          // Keep form visible for recoverable errors; result panel for hard failures.
+          if (result.status >= 500) {
+            showResultMode(false, { errors: { _form: String(msg) } });
+          } else {
+            setError(typeof msg === 'string' ? msg : String(msg));
+          }
+        })
+        .catch(function () {
+          if (submitBtn) submitBtn.disabled = false;
+          setError('Erreur réseau — réessayez.');
+        });
+    });
   }
 });
 </script>

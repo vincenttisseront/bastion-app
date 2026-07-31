@@ -206,6 +206,15 @@ async def generic_exception_handler(request: Request, exc: Exception):
     logger.exception("unhandled error path=%s", request.url.path)
     if request.url.path.startswith("/api/"):
         raise exc
+    accept = (request.headers.get("accept") or "").lower()
+    if "application/json" in accept:
+        return JSONResponse(
+            {
+                "ok": False,
+                "errors": {"_form": "Erreur interne — l’incident a été journalisé."},
+            },
+            status_code=500,
+        )
     settings = get_settings()
     ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
     return render("errors/500.html", **ctx, status_code=500)

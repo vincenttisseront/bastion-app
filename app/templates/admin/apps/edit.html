@@ -220,37 +220,10 @@
             est monté en lecture seule :
             <span class="mono">FILE://…/AR-SYSTEMS/SDIS999/</span>.
             Obligatoire pour le provisioning CrushFTP.
+            L’import des dossiers existants se fait depuis la
+            <a href="/admin/apps">liste des applications</a>
+            (bouton <strong>Importer sociétés</strong>).
           </p>
-          {% if app.crushftp_vfs_base_path and crush_admin_configured and realms %}
-          <div style="margin-top:var(--sp-3); padding:var(--sp-3); border:1px solid var(--border); border-radius:var(--radius);">
-            <div class="form-label" style="margin-bottom:var(--sp-2);">Importer les sociétés depuis CrushFTP</div>
-            <p class="form-help" style="margin-top:0;">
-              Liste les sous-dossiers de
-              <span class="mono">{{ app.crushftp_vfs_base_path }}</span>
-              et crée les groupes société manquants (RBAC + Keycloak) dans le realm choisi.
-              Idempotent — les sociétés déjà présentes sont ignorées.
-            </p>
-            <div class="form-row" style="align-items:flex-end; gap:var(--sp-3); flex-wrap:wrap;">
-              <div class="form-group" style="margin:0; min-width:12rem;">
-                <label class="form-label" for="crushftp_sync_realm_id">Realm cible</label>
-                <select id="crushftp_sync_realm_id" class="form-select" form="crushftp-sync-companies-form" name="realm_id" required>
-                  {% for r in realms %}
-                  <option value="{{ r.id }}"{% if app.realm_slug and r.slug == app.realm_slug %} selected{% endif %}>{{ r.slug }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <button type="submit" form="crushftp-sync-companies-form" class="btn btn-ghost btn-sm"
-                      onclick="return confirm('Importer les dossiers CrushFTP comme sociétés dans le realm sélectionné ?');">
-                Récupérer les dossiers / créer les sociétés
-              </button>
-            </div>
-          </div>
-          {% elif app.crushftp_vfs_base_path and not crush_admin_configured %}
-          <p class="form-help" style="margin-top:var(--sp-2);">
-            Configurez l’API Admin CrushFTP (URL + compte) puis enregistrez pour activer
-            l’import des dossiers sociétés.
-          </p>
-          {% endif %}
         </div>
         <div class="form-group">
           <label class="form-label" for="crushftp_admin_server_group">Contexte serveur CrushFTP (serverGroup)</label>
@@ -294,10 +267,6 @@
       </div>
     </div>
   </form>
-  {% if app.crushftp_vfs_base_path and crush_admin_configured and realms %}
-  <form id="crushftp-sync-companies-form" method="post"
-        action="/admin/apps/{{ app.slug }}/crushftp/sync-companies" hidden aria-hidden="true"></form>
-  {% endif %}
 </div>
 {% endblock %}
 
