@@ -3,10 +3,7 @@
 {% block body_class %}page-login{% endblock %}
 
 {% block content %}
-{% set company = branding.company_name %}
-{% if branding.show_product_branding %}
-  {% set company = "Bastion Pro" %}
-{% endif %}
+{% set show_breakglass = show_breakglass | default(false) %}
 <div class="login-wrap">
   <div class="login-card">
     <div class="login-header">
@@ -44,9 +41,12 @@
       </svg>
       Connexion SSO Keycloak
     </a>
+    {% if show_breakglass %}
     <div class="login-divider">ou accès local</div>
     {% endif %}
+    {% endif %}
 
+    {% if show_breakglass %}
     <details class="login-details"{% if not oauth2_url %} open{% endif %}>
       <summary class="bg-toggle">Accès break-glass administrateur</summary>
       <form method="post" action="/auth/login" class="form-body" style="padding-bottom:0;">
@@ -69,6 +69,9 @@
         <button type="submit" class="btn btn-secondary btn-full">Connexion locale</button>
       </form>
     </details>
+    {% elif not oauth2_url %}
+    <p class="login-sub">Aucun mode de connexion n'est disponible depuis cette adresse.</p>
+    {% endif %}
   </div>
   <p class="login-footer">
     {% if branding.footer_text %}

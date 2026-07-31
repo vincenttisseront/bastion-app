@@ -244,6 +244,15 @@ def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
 
 
+def _show_breakglass_form(request: Request, db: Session, settings: Settings) -> bool:
+    """True only for LAN / allowlisted clients — never expose BG UI on the public Internet."""
+    from app.security.banning.engine import is_breakglass_ip_allowed
+
+    return is_breakglass_ip_allowed(
+        db, _client_ip(request), rfc1918_cidrs=settings.rfc1918_cidrs
+    )
+
+
 @router.get("/")
 def root():
     return RedirectResponse(url="/apps", status_code=302)
@@ -437,6 +446,7 @@ def login_page(
                         hide_chrome=True,
                         rd=rd,
                         oauth2_url=oauth2_url,
+                        show_breakglass=_show_breakglass_form(request, db, settings),
                         login_error="Session break-glass expirée ou invalide — reconnectez-vous.",
                     ),
                 )
@@ -452,7 +462,14 @@ def login_page(
     oauth2_url = oauth2_start_url(realm.slug, rd) if realm else None
     return render(
         "auth/login.html",
-        **_ctx(request, settings, hide_chrome=True, rd=rd, oauth2_url=oauth2_url),
+        **_ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            rd=rd,
+            oauth2_url=oauth2_url,
+            show_breakglass=_show_breakglass_form(request, db, settings),
+        ),
     )
 
 
@@ -510,6 +527,7 @@ async def login_post(
             login_error="Identifiants invalides.",
             rd=safe_rd,
             oauth2_url=oauth2_url,
+            show_breakglass=_show_breakglass_form(request, db, settings),
         )
         return render("auth/login.html", **ctx)
 
@@ -526,6 +544,7 @@ async def login_post(
             login_error="Identifiants invalides.",
             rd=safe_rd,
             oauth2_url=oauth2_url,
+            show_breakglass=_show_breakglass_form(request, db, settings),
         )
         return render("auth/login.html", **ctx)
 
@@ -548,6 +567,7 @@ async def login_post(
             login_error="Identifiants invalides.",
             rd=safe_rd,
             oauth2_url=oauth2_url,
+            show_breakglass=_show_breakglass_form(request, db, settings),
         )
         return render("auth/login.html", **ctx)
 
@@ -672,6 +692,12 @@ def sso_failed(
     rd = resolve_rd(request)
     realm = get_default_idp_realm(db)
     oauth2_url = oauth2_start_url(realm.slug, rd) if realm else None
+    show_breakglass = _show_breakglass_form(request, db, settings)
+    login_error = (
+        "Connexion SSO échouée. Réessayez ou utilisez le break-glass."
+        if show_breakglass
+        else "Connexion SSO échouée. Réessayez."
+    )
     return render(
         "auth/login.html",
         **_ctx(
@@ -680,7 +706,8 @@ def sso_failed(
             hide_chrome=True,
             rd=rd,
             oauth2_url=oauth2_url,
-            login_error="Connexion SSO échouée. Réessayez ou utilisez le break-glass.",
+            show_breakglass=show_breakglass,
+            login_error=login_error,
         ),
     )
 

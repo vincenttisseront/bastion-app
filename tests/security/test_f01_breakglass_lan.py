@@ -58,3 +58,42 @@ def test_breakglass_login_allowed_from_rfc1918_ip(
     assert response.status_code == 302
     assert response.headers["location"] == "/dashboard"
     assert "bg_session" in response.cookies
+
+
+def test_login_page_hides_breakglass_from_public_ip(
+    client: TestClient, db_session: Session
+):
+    _add_default_idp(db_session)
+    set_breakglass_password(db_session, "admin", "super-secret-password")
+
+    response = client.get(
+        "/auth/login",
+        headers={"X-Real-IP": "203.0.113.10"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Connexion SSO Keycloak" in response.text
+    assert "break-glass" not in response.text.lower()
+    assert "ou accès local" not in response.text
+    assert 'name="username"' not in response.text
+    assert 'name="password"' not in response.text
+    assert 'action="/auth/login"' not in response.text
+
+
+def test_login_page_shows_breakglass_from_lan_ip(
+    client: TestClient, db_session: Session
+):
+    _add_default_idp(db_session)
+    set_breakglass_password(db_session, "admin", "super-secret-password")
+
+    response = client.get(
+        "/auth/login",
+        headers={"X-Real-IP": "10.0.0.50"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Accès break-glass administrateur" in response.text
+    assert "ou accès local" in response.text
+    assert 'name="username"' in response.text

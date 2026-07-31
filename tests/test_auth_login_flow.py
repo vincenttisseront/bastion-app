@@ -38,7 +38,11 @@ def test_login_shows_sso_and_local_when_default_realm_configured(
     _add_default_idp(db_session)
     set_breakglass_password(db_session, "admin", "super-secret-password")
 
-    response = client.get("/auth/login?rd=/catalogue", follow_redirects=False)
+    response = client.get(
+        "/auth/login?rd=/catalogue",
+        headers={"X-Real-IP": "10.0.0.50"},
+        follow_redirects=False,
+    )
 
     assert response.status_code == 200
     assert "Connexion SSO Keycloak" in response.text
@@ -84,7 +88,7 @@ def test_login_redirects_to_setup_without_idp_or_account(client: TestClient):
 def test_login_shows_local_form_only_when_breakglass_exists(client: TestClient, db_session: Session):
     set_breakglass_password(db_session, "admin", "super-secret-password")
 
-    response = client.get("/auth/login")
+    response = client.get("/auth/login", headers={"X-Real-IP": "10.0.0.50"})
 
     assert response.status_code == 200
     assert 'name="username"' in response.text
