@@ -80,4 +80,5 @@ def test_authenticated_chrome_keeps_product_brand(
     assert r.status_code == 200
     assert "Bastion" in r.text
     assert "bastion.css" in r.text
+    assert "/static/css/portal.css" not in r.text
     assert "/static/portal.css" not in r.text

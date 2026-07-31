@@ -42,8 +42,8 @@ def test_login_page_neutral_defaults(client: TestClient, db_session: Session):
     assert "Portail sécurisé" in r.text
     assert "Bastion Pro" not in r.text
     assert "bastion.css" not in r.text
-    assert "/static/portal.css" in r.text
-    assert "/static/portal-theme.js" in r.text
+    assert "/static/css/portal.css" in r.text
+    assert "/static/js/portal-theme.js" in r.text
     assert "bastion-theme.js" not in r.text
     assert "generic-shield.svg" in r.text or "/media/branding/" in r.text
     assert 'name="generator"' not in r.text.lower()
@@ -88,8 +88,9 @@ def test_login_page_product_branding_opt_in(client: TestClient, db_session: Sess
 
 
 def test_portal_static_aliases(client: TestClient):
-    css = client.get("/static/portal.css")
+    css = client.get("/static/css/portal.css")
     assert css.status_code == 200
     assert "text/css" in css.headers.get("content-type", "")
-    js = client.get("/static/portal-theme.js")
+    assert b"@import" in css.content
+    js = client.get("/static/js/portal-theme.js")
     assert js.status_code == 200

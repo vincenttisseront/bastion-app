@@ -77,10 +77,6 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/media/branding/{filename}": (
         "public branding logo/favicon — non-sensitive; path traversal blocked"
     ),
-    "/static/portal.css": "neutral public alias of bastion.css",
-    "/static/portal-theme.js": "neutral public alias of bastion-theme.js",
-    "/static/portal-busy.js": "neutral public alias of bastion-busy.js",
-    "/static/portal-modal.js": "neutral public alias of bastion-modal.js",
 }
 
 # Mount prefixes treated as public static assets.

@@ -140,42 +140,6 @@ from app.security.banning.middleware import SecurityBanMiddleware  # noqa: E402
 
 app.add_middleware(SecurityBanMiddleware)
 
-# Neutral public aliases — registered before the /static mount.
-_PORTAL_STATIC_ALIASES = {
-    "/static/portal.css": ("css/bastion.css", "text/css"),
-    "/static/portal-theme.js": ("js/bastion-theme.js", "application/javascript"),
-    "/static/portal-busy.js": ("js/bastion-busy.js", "application/javascript"),
-    "/static/portal-modal.js": ("js/bastion-modal.js", "application/javascript"),
-}
-
-
-def _register_portal_static_aliases(application: FastAPI) -> None:
-    root = STATIC_DIR.resolve()
-
-    def _make_handler(rel: str, media: str):
-        async def _serve():
-            path = (STATIC_DIR / rel).resolve()
-            if not str(path).startswith(str(root)) or not path.is_file():
-                raise HTTPException(status_code=404, detail="Not found")
-            return FileResponse(
-                path,
-                media_type=media,
-                headers={"Cache-Control": "public, max-age=604800"},
-            )
-
-        return _serve
-
-    for url_path, (rel, media) in _PORTAL_STATIC_ALIASES.items():
-        application.add_api_route(
-            url_path,
-            _make_handler(rel, media),
-            methods=["GET"],
-            include_in_schema=False,
-        )
-
-
-_register_portal_static_aliases(app)
-
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

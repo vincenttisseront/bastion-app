@@ -20,7 +20,7 @@ def test_error_pages_neutral(client: TestClient, db_session: Session):
         assert r.status_code == code
         assert "Portail ACME" in r.text
         assert "Bastion Pro" not in r.text
-        assert "/static/portal.css" in r.text
+        assert "/static/css/portal.css" in r.text
         assert "bastion.css" not in r.text
 
 
