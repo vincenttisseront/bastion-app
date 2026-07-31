@@ -206,7 +206,7 @@ def test_internal_unknown_host_records(client, db_session):
     assert "Domaines découverts" in r.text
     assert "teleport.example.fr" in r.text
     assert "/admin/pending-hosts" in r.text
-    assert r.headers.get("x-bastion-unknown-host") == "1"
+    assert r.headers.get("x-portal-unknown-host") == "1"
     row = db_session.query(PendingHost).filter_by(hostname="teleport.example.fr").first()
     assert row is not None
     assert row.status == "pending"

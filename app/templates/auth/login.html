@@ -1,18 +1,36 @@
-{% extends "base.html" %}
-{% block title %}Connexion{% endblock %}
+{% extends "base_public.html" %}
+{% block title %}{{ branding.page_title }}{% endblock %}
 {% block body_class %}page-login{% endblock %}
 
 {% block content %}
+{% set company = branding.company_name %}
+{% if branding.show_product_branding %}
+  {% set company = "Bastion Pro" %}
+{% endif %}
 <div class="login-wrap">
   <div class="login-card">
     <div class="login-header">
       <div class="login-logo">
-        <svg width="28" height="28" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24">
+        {% if branding.logo_url %}
+        <img src="{{ branding.logo_url }}" alt="" width="28" height="28" style="border-radius:6px;">
+        {% else %}
+        <svg width="28" height="28" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
+        {% endif %}
       </div>
-      <h1 class="login-title">Bastion <span>Pro</span></h1>
-      <p class="login-sub">Portail sécurisé AR-Systems</p>
+      <h1 class="login-title">
+        {% if branding.show_product_branding %}
+        Bastion <span>Pro</span>
+        {% else %}
+        {{ branding.company_name }}
+        {% endif %}
+      </h1>
+      {% if branding.welcome_text %}
+      <p class="login-sub">{{ branding.welcome_text }}</p>
+      {% elif branding.show_product_branding %}
+      <p class="login-sub">Portail sécurisé</p>
+      {% endif %}
     </div>
 
     {% if login_error %}
@@ -52,6 +70,17 @@
       </form>
     </details>
   </div>
-  <p class="login-footer">Bastion Pro — Sentinel Core</p>
+  <p class="login-footer">
+    {% if branding.footer_text %}
+      {{ branding.footer_text }}
+    {% elif branding.show_product_branding %}
+      Bastion Pro — Sentinel Core
+    {% else %}
+      {{ branding.company_name }}
+    {% endif %}
+    {% if branding.support_contact %}
+      · {{ branding.support_contact }}
+    {% endif %}
+  </p>
 </div>
 {% endblock %}

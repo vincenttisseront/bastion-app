@@ -37,6 +37,7 @@ from app.services import router as apps_router
 from app.subdomain.subdomain_auth import router as subdomain_router
 from app.subdomain.activesync_auth import router as activesync_router
 from app.vault.routes import router as vault_router
+from app.web.admin_branding import router as admin_branding_router
 from app.web.admin_dependencies import router as admin_dependencies_router
 from app.web.admin_infrastructure import router as admin_infrastructure_router
 from app.web.admin_logs import router as admin_logs_router
@@ -76,6 +77,7 @@ async def lifespan(app: FastAPI):
         EncryptionKeyStoreError,
         ensure_encryption_key,
     )
+    from app.branding import ensure_branding_dir
     from app.web.app_logos import ensure_logo_dir
 
     db = SessionLocal()
@@ -113,6 +115,7 @@ async def lifespan(app: FastAPI):
         db.close()
 
     ensure_logo_dir(settings)
+    ensure_branding_dir(settings)
     start_health_scheduler(settings)
     from app.siem.worker import start_siem_scheduler, stop_siem_scheduler
 
@@ -137,6 +140,42 @@ from app.security.banning.middleware import SecurityBanMiddleware  # noqa: E402
 
 app.add_middleware(SecurityBanMiddleware)
 
+# Neutral public aliases — registered before the /static mount.
+_PORTAL_STATIC_ALIASES = {
+    "/static/portal.css": ("css/bastion.css", "text/css"),
+    "/static/portal-theme.js": ("js/bastion-theme.js", "application/javascript"),
+    "/static/portal-busy.js": ("js/bastion-busy.js", "application/javascript"),
+    "/static/portal-modal.js": ("js/bastion-modal.js", "application/javascript"),
+}
+
+
+def _register_portal_static_aliases(application: FastAPI) -> None:
+    root = STATIC_DIR.resolve()
+
+    def _make_handler(rel: str, media: str):
+        async def _serve():
+            path = (STATIC_DIR / rel).resolve()
+            if not str(path).startswith(str(root)) or not path.is_file():
+                raise HTTPException(status_code=404, detail="Not found")
+            return FileResponse(
+                path,
+                media_type=media,
+                headers={"Cache-Control": "public, max-age=604800"},
+            )
+
+        return _serve
+
+    for url_path, (rel, media) in _PORTAL_STATIC_ALIASES.items():
+        application.add_api_route(
+            url_path,
+            _make_handler(rel, media),
+            methods=["GET"],
+            include_in_schema=False,
+        )
+
+
+_register_portal_static_aliases(app)
+
 if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -159,6 +198,21 @@ async def serve_app_logo(filename: str):
     return FileResponse(
         path,
         media_type=media_type_for_filename(safe),
+        headers={"Cache-Control": "public, max-age=604800"},
+    )
+
+
+@app.get("/media/branding/{filename}")
+async def serve_branding_asset(filename: str):
+    """Serve branding logo/favicon from PORTAL_DATA_DIR."""
+    from app.branding import media_type_for_branding_filename, resolve_branding_file
+
+    path = resolve_branding_file(filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        path,
+        media_type=media_type_for_branding_filename(filename),
         headers={"Cache-Control": "public, max-age=604800"},
     )
 
@@ -241,6 +295,7 @@ app.include_router(admin_user_sessions_router)
 app.include_router(admin_logs_router)
 app.include_router(admin_notifications_router)
 app.include_router(admin_dependencies_router)
+app.include_router(admin_branding_router)
 app.include_router(admin_infrastructure_router)
 app.include_router(audit_router)
 app.include_router(metrics_router)

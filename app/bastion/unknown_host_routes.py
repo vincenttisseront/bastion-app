@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.bastion.pending_host_service import record_unknown_host
+from app.branding import get_branding_settings
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.security import require_nginx_internal_token
@@ -20,18 +21,18 @@ router = APIRouter(tags=["unknown-host"])
 # would also hit the discovery rewrite. Inline CSS + absolute portal links.
 _STUB_HTML = """\
 <!DOCTYPE html>
-<html lang="fr" data-theme="dark">
+<html lang="fr" data-theme="{theme}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <title>Hôte non enregistré — Bastion Pro</title>
+  <title>Hôte non enregistré — {company}</title>
   <style>
     :root {{
       --bg: #020d18; --card: #0c1f35; --tertiary: #0f2640;
       --border: #1e3a5f; --border-muted: rgba(30,58,95,.5);
       --text: #e2e8f0; --text-2: #94a3b8; --text-3: #475569;
-      --accent: #10b981; --accent-h: #34d399; --accent-muted: rgba(16,185,129,.12);
+      --accent: {accent}; --accent-h: #34d399; --accent-muted: rgba(16,185,129,.12);
       --warn: #f59e0b; --warn-bg: rgba(245,158,11,.12);
       --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
@@ -137,7 +138,7 @@ _STUB_HTML = """\
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
       </div>
-      <div class="brand-name">Bastion <span>Pro</span></div>
+      <div class="brand-name">{brand_html}</div>
     </div>
 
     <div class="card">
@@ -147,7 +148,7 @@ _STUB_HTML = """\
       </div>
       <div class="card-body">
         <p class="lead">
-          Ce domaine a été vu par le bastion mais n’est pas encore publié.
+          Ce domaine a été vu par le portail mais n’est pas encore publié.
           Un administrateur doit l’approuver (Admin → Domaines). nginx recharge
           ensuite la conf automatiquement sous quelques secondes.
         </p>
@@ -158,7 +159,7 @@ _STUB_HTML = """\
         <ol class="steps">
           <li><span class="step-n">1</span><span>Ouvrir <strong>Admin → Domaines découverts</strong> sur le portail.</span></li>
           <li><span class="step-n">2</span><span>Approuver en <strong>proxy public</strong> et renseigner l’URL backend.</span></li>
-          <li><span class="step-n">3</span><span>Attendre quelques secondes — bastion-nginx recharge la conf tout seul.</span></li>
+          <li><span class="step-n">3</span><span>Attendre quelques secondes — nginx recharge la conf tout seul.</span></li>
         </ol>
         <div class="actions">
           <a class="btn btn-primary" href="{pending_url}">Ouvrir Domaines découverts</a>
@@ -166,7 +167,7 @@ _STUB_HTML = """\
         </div>
       </div>
     </div>
-    <p class="foot">Réponse 503 · découverte automatique · X-Bastion-Unknown-Host</p>
+    <p class="foot">Réponse 503 · découverte automatique · X-Portal-Unknown-Host</p>
   </div>
 </body>
 </html>
@@ -180,12 +181,30 @@ def _portal_base(settings: Settings) -> str:
     return f"https://{domain}"
 
 
-def render_unknown_host_page(*, hostname: str, settings: Settings) -> str:
+def render_unknown_host_page(
+    *,
+    hostname: str,
+    settings: Settings,
+    branding: dict | None = None,
+) -> str:
     base = _portal_base(settings)
+    branding = branding or get_branding_settings(None)
+    if branding.get("show_product_branding"):
+        brand_html = "Bastion <span>Pro</span>"
+        company = "Bastion Pro"
+    else:
+        company = escape(branding.get("company_name") or "Portail sécurisé")
+        brand_html = company
+    accent = escape(branding.get("accent_color") or "#10b981")
+    theme = escape(branding.get("default_theme") or "dark")
     return _STUB_HTML.format(
         hostname=escape(hostname),
         portal_url=escape(base + "/"),
         pending_url=escape(base + "/admin/pending-hosts?status=pending"),
+        company=company,
+        brand_html=brand_html,
+        accent=accent,
+        theme=theme,
     )
 
 
@@ -210,8 +229,11 @@ def unknown_host_gateway(
         uri=uri,
     )
     host_display = (hostname or "").split(":")[0].strip() or "(inconnu)"
+    branding = get_branding_settings(db)
     return HTMLResponse(
-        content=render_unknown_host_page(hostname=host_display, settings=settings),
+        content=render_unknown_host_page(
+            hostname=host_display, settings=settings, branding=branding
+        ),
         status_code=503,
-        headers={"Cache-Control": "no-store", "X-Bastion-Unknown-Host": "1"},
+        headers={"Cache-Control": "no-store", "X-Portal-Unknown-Host": "1"},
     )

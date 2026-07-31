@@ -701,7 +701,11 @@ def health_page():
 
 
 @router.get("/errors/403")
-def error_403(request: Request, settings: Settings = Depends(get_settings)):
+def error_403(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
     return render(
         "errors/403.html",
         **_ctx(request, settings, hide_chrome=True),
@@ -710,7 +714,11 @@ def error_403(request: Request, settings: Settings = Depends(get_settings)):
 
 
 @router.get("/errors/404")
-def error_404(request: Request, settings: Settings = Depends(get_settings)):
+def error_404(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
     return render(
         "errors/404.html",
         **_ctx(request, settings, hide_chrome=True),
@@ -719,7 +727,11 @@ def error_404(request: Request, settings: Settings = Depends(get_settings)):
 
 
 @router.get("/errors/500")
-def error_500(request: Request, settings: Settings = Depends(get_settings)):
+def error_500(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
     return render(
         "errors/500.html",
         **_ctx(request, settings, hide_chrome=True),

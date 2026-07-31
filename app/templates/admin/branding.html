@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Branding{% endblock %}
+{% block breadcrumb %}Admin / Branding{% endblock %}
+
+{% block content %}
+{% set b = branding %}
+<div class="page" id="branding-page" style="--accent: {{ b.accent_color }};">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Branding portail</h1>
+      <p class="page-sub">Identité affichée sur les pages publiques (login, erreurs) — pas sur le chrome post-login</p>
+    </div>
+    <div class="page-header-actions">
+      <a href="/auth/login" class="btn btn-ghost" target="_blank" rel="noopener">Aperçu login</a>
+    </div>
+  </div>
+
+  {% if b.show_product_branding %}
+  <div class="alert alert-warn mb-4" role="alert">
+    <div class="alert-body">
+      <strong>Marque produit visible</strong> — « Bastion Pro » apparaîtra sur les pages publiques.
+      Désactivez l’option ci-dessous pour anonymiser l’empreinte produit.
+    </div>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/admin/branding" id="branding-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="form-section">
+      <div class="form-section-header">
+        <div class="form-section-title">Identité</div>
+        <div class="form-section-sub">Nom société, titres et textes d’accueil</div>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label" for="company_name">Nom de la société / portail</label>
+          <input type="text" id="company_name" name="company_name" class="form-input"
+                 maxlength="120" required value="{{ b.company_name }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="page_title">Titre de page (&lt;title&gt;)</label>
+          <input type="text" id="page_title" name="page_title" class="form-input"
+                 maxlength="120" required value="{{ b.page_title }}">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="welcome_text">Texte de bienvenue</label>
+          <textarea id="welcome_text" name="welcome_text" class="form-input" rows="3"
+                    maxlength="500">{{ b.welcome_text or '' }}</textarea>
+          <p class="form-help">Sous le nom sur la page de connexion. Laisser vide pour aucun sous-titre.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="show_product_branding" value="on"
+                   {% if b.show_product_branding %}checked{% endif %}>
+            Afficher la marque produit (« Bastion Pro ») sur les pages publiques
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section form-section-gap">
+      <div class="form-section-header">
+        <div class="form-section-title">Style</div>
+        <div class="form-section-sub">Couleur d’accent, thème et assets</div>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label" for="accent_color">Couleur d’accent</label>
+          <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
+            <input type="color" id="accent_color_picker" value="{{ b.accent_color }}"
+                   aria-label="Sélecteur de couleur"
+                   style="width:3rem;height:2.5rem;padding:0;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;">
+            <input type="text" id="accent_color" name="accent_color" class="form-input is-mono"
+                   pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.accent_color }}"
+                   style="max-width:8rem;">
+            <span class="form-help" id="accent-preview"
+                  style="display:inline-flex;align-items:center;gap:.4rem;">
+              Aperçu
+              <span style="width:1.25rem;height:1.25rem;border-radius:6px;background:{{ b.accent_color }};border:1px solid var(--border);"></span>
+            </span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="default_theme">Thème par défaut (login)</label>
+          <select id="default_theme" name="default_theme" class="form-input" style="max-width:12rem;">
+            <option value="dark" {% if b.default_theme == 'dark' %}selected{% endif %}>Sombre</option>
+            <option value="light" {% if b.default_theme == 'light' %}selected{% endif %}>Clair</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section form-section-gap">
+      <div class="form-section-header">
+        <div class="form-section-title">Pied de page</div>
+        <div class="form-section-sub">Mentions et contact support sur le login</div>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label" for="footer_text">Texte du pied de page</label>
+          <textarea id="footer_text" name="footer_text" class="form-input" rows="2"
+                    maxlength="2000">{{ b.footer_text or '' }}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="support_contact">Contact support</label>
+          <input type="text" id="support_contact" name="support_contact" class="form-input"
+                 maxlength="200" value="{{ b.support_contact or '' }}"
+                 placeholder="support@exemple.fr">
+        </div>
+        <div class="form-actions" style="margin-top:1rem;">
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="form-section form-section-gap">
+    <div class="form-section-header">
+      <div class="form-section-title">Logo</div>
+      <div class="form-section-sub">PNG / JPEG / WEBP — max 512 Ko, redimensionné à 128×128</div>
+    </div>
+    <div class="form-body">
+      {% if b.logo_url %}
+      <p style="margin-bottom:1rem;">
+        <img src="{{ b.logo_url }}" alt="Logo actuel" width="64" height="64"
+             style="border-radius:12px;border:1px solid var(--border);background:var(--tertiary);">
+      </p>
+      <form method="post" action="/admin/branding/logo/delete" style="display:inline;margin-right:.5rem;">
+        <button type="submit" class="btn btn-ghost btn-sm">Supprimer</button>
+      </form>
+      {% else %}
+      <p class="form-help">Aucun logo — icône générique utilisée.</p>
+      {% endif %}
+      <form method="post" action="/admin/branding/logo" enctype="multipart/form-data"
+            style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
+        <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required>
+        <button type="submit" class="btn btn-secondary btn-sm">Uploader le logo</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="form-section form-section-gap">
+    <div class="form-section-header">
+      <div class="form-section-title">Favicon</div>
+      <div class="form-section-sub">PNG ou ICO — max 256 Ko</div>
+    </div>
+    <div class="form-body">
+      {% if b.favicon_path %}
+      <p style="margin-bottom:1rem;">
+        <img src="{{ b.favicon_url }}" alt="Favicon actuel" width="32" height="32"
+             style="border-radius:6px;border:1px solid var(--border);">
+      </p>
+      <form method="post" action="/admin/branding/favicon/delete" style="display:inline;margin-right:.5rem;">
+        <button type="submit" class="btn btn-ghost btn-sm">Supprimer</button>
+      </form>
+      {% else %}
+      <p class="form-help">Favicon par défaut : bouclier générique.</p>
+      {% endif %}
+      <form method="post" action="/admin/branding/favicon" enctype="multipart/form-data"
+            style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
+        <input type="file" name="file" accept="image/png,image/x-icon,.ico" required>
+        <button type="submit" class="btn btn-secondary btn-sm">Uploader le favicon</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var picker = document.getElementById('accent_color_picker');
+  var input = document.getElementById('accent_color');
+  var preview = document.querySelector('#accent-preview span');
+  var page = document.getElementById('branding-page');
+  function sync(fromPicker) {
+    var val = (fromPicker ? picker.value : input.value || '').trim();
+    if (!/^#[0-9A-Fa-f]{6}$/.test(val)) return;
+    picker.value = val;
+    input.value = val.toLowerCase();
+    if (preview) preview.style.background = val;
+    if (page) page.style.setProperty('--accent', val);
+  }
+  if (picker) picker.addEventListener('input', function () { sync(true); });
+  if (input) input.addEventListener('input', function () { sync(false); });
+})();
+</script>
+{% endblock %}

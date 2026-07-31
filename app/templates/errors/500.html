@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_public.html" %}
 {% block title %}Erreur serveur{% endblock %}
 
 {% block content %}
@@ -8,7 +8,13 @@
   </div>
   <div class="error-code">500</div>
   <h1 class="page-title">Erreur interne</h1>
-  <p class="error-message">Une erreur inattendue s'est produite. L'incident a été journalisé.</p>
-  <a href="/dashboard" class="btn btn-primary">Retour au dashboard</a>
+  <p class="error-message">
+    {% if branding.show_product_branding %}
+    Une erreur inattendue s'est produite. L'incident a été journalisé.
+    {% else %}
+    {{ branding.company_name }} — une erreur inattendue s'est produite. L'incident a été journalisé.
+    {% endif %}
+  </p>
+  <a href="/auth/login" class="btn btn-primary">Connexion</a>
 </div>
 {% endblock %}

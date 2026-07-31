@@ -734,6 +734,31 @@ class PortalSettings(Base):
     updated_by = Column(String, nullable=True)
 
 
+class BrandingSettings(Base):
+    """Singleton public-portal branding (id=1) — anonymized login surface."""
+
+    __tablename__ = "branding_settings"
+
+    id = Column(Integer, primary_key=True, default=1)
+
+    company_name = Column(String, nullable=False, default="Portail sécurisé")
+    logo_path = Column(String, nullable=True)
+    favicon_path = Column(String, nullable=True)
+    page_title = Column(String, nullable=False, default="Connexion")
+
+    accent_color = Column(String, nullable=False, default="#10b981")
+    default_theme = Column(String, nullable=False, default="dark")  # dark | light
+    welcome_text = Column(Text, nullable=True)
+
+    footer_text = Column(Text, nullable=True)
+    support_contact = Column(String, nullable=True)
+    # False = hide product name on public pages (default for internet-facing installs).
+    show_product_branding = Column(Boolean, nullable=False, default=False)
+
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+    updated_by = Column(String, nullable=True)
+
+
 class SecurityPolicy(Base):
     """Singleton anti-abuse policy (id=1): enable flag + break-glass IP lists."""
 

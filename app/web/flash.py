@@ -118,6 +118,26 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         is_admin = bool(extra["is_admin"])
 
     messages = get_flash_messages(request, secret)
+
+    branding = extra.pop("branding", None)
+    if branding is None:
+        from app.branding import get_branding_settings
+
+        if db is not None:
+            branding = get_branding_settings(db)
+        else:
+            # Exception handlers / early paths may lack Depends(get_db).
+            try:
+                from app.database import SessionLocal
+
+                tmp = SessionLocal()
+                try:
+                    branding = get_branding_settings(tmp)
+                finally:
+                    tmp.close()
+            except Exception:
+                branding = get_branding_settings(None)
+
     ctx_out = {
         "request": request,
         "current_user": user,
@@ -140,6 +160,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "injected_cookie_scopes": INJECTED_COOKIE_SCOPES,
         "injected_cookie_scope_labels": INJECTED_COOKIE_SCOPE_LABELS,
         "portal_domain": getattr(settings, "portal_domain", "") or "",
+        "branding": branding,
         **extra,
     }
     # Keep resolved admin flag even if a caller passed a stale is_admin in extras.
