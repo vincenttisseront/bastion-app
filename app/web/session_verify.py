@@ -117,17 +117,31 @@ async def live_verify_user_sessions(
     the bastion session via the shared revoke path. ``unknown`` is neutral
     (no streak change, no revoke).
     """
-    from app.web.sessions_service import revoke_active_session
+    from sqlalchemy import or_
+
+    from app.web.sessions_service import identity_match_keys, revoke_active_session
 
     email = (user_email or "").strip().lower()
     if not email:
         return []
+    local = email.split("@", 1)[0] if "@" in email else email
+    emails, usernames = identity_match_keys(email=email, username=local)
+    clauses = []
+    if emails:
+        clauses.append(ActiveSession.user_email.in_(emails))
+        clauses.append(ActiveSession.username.in_(emails))
+    if usernames:
+        clauses.append(ActiveSession.user_email.in_(usernames))
+        clauses.append(ActiveSession.username.in_(usernames))
+    if not clauses:
+        return []
+
     rows = (
         db.query(ActiveSession)
         .filter(
-            ActiveSession.user_email == email,
             ActiveSession.kind == "app",
             ActiveSession.status != "isolated",
+            or_(*clauses),
         )
         .all()
     )

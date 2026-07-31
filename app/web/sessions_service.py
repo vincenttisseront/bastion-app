@@ -1009,15 +1009,30 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
 
 
 def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Merge flat sessions into one group per (user_email, realm) for UI readability."""
+    """Merge flat sessions into one group per person (realm + canonical identity).
+
+    Short preferred_username emails (``vincent.tisseront``) are merged with the
+    full email (``vincent.tisseront@…``) when both appear in the same realm —
+    otherwise the rail shows duplicate users for the same person.
+    """
+    email_map = _canonical_email_map(sessions)
     groups: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
     for s in sessions:
-        key = (s.get("user_email") or s.get("user") or "unknown", s.get("realm") or "")
+        canonical = _canonical_user_email(s, email_map)
+        # Surface the canonical identity on the session card for revoke/disconnect.
+        if canonical and canonical != "unknown":
+            s["user_email"] = canonical
+        realm = (s.get("realm") or "").strip()
+        key = (canonical, realm)
         if key not in groups:
+            display = s.get("user") or canonical
+            # Prefer human username over a raw email for the rail label.
+            if _looks_like_email(str(display)) and "@" in str(display):
+                display = str(display).split("@", 1)[0]
             groups[key] = {
-                "user": s.get("user") or key[0],
-                "user_email": key[0],
-                "realm": key[1],
+                "user": display,
+                "user_email": canonical,
+                "realm": realm,
                 "source_ip": s.get("source_ip") or "—",
                 "status": s.get("status") or "active",
                 "duration": s.get("duration") or "—",
@@ -1032,7 +1047,6 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
             }
         g = groups[key]
         g["sessions"].append(s)
-        g["session_count"] = len(g["sessions"])
         family = s.get("auth_family")
         if family == "oidc":
             g["has_oidc"] = True
@@ -1052,7 +1066,9 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
         # Longest duration among members (string compare is weak; use portal duration as headline)
         if s.get("kind") == KIND_USER:
             g["duration"] = s.get("duration") or g["duration"]
-            g["user"] = s.get("user") or g["user"]
+            label = s.get("user") or g["user"]
+            if label and not _looks_like_email(str(label)):
+                g["user"] = label
             if s.get("user_agent_label") and s.get("user_agent_label") not in (
                 "—",
                 "Non capturé",
@@ -1060,8 +1076,11 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
             ):
                 g["portal_user_agent_label"] = s.get("user_agent_label")
                 g["portal_user_agent"] = s.get("user_agent")
-    # Enrich driven sessions with portal browser when available
+
+    # Enrich driven sessions with portal browser when available; dedupe twin app rows.
     for g in groups.values():
+        g["sessions"] = _dedupe_sessions_for_group(g["sessions"])
+        g["session_count"] = len(g["sessions"])
         portal_ua = g.pop("portal_user_agent_label", None)
         portal_ua_raw = g.pop("portal_user_agent", None)
         families = []
@@ -1088,6 +1107,67 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
                 if portal_ua_raw:
                     s["user_agent"] = portal_ua_raw
     return list(groups.values())
+
+
+def _canonical_email_map(sessions: list[dict[str, Any]]) -> dict[tuple[str, str], str]:
+    """(realm, local_part) → preferred full email seen in this session set."""
+    best: dict[tuple[str, str], str] = {}
+    for s in sessions:
+        realm = (s.get("realm") or "").strip().lower()
+        for candidate in (
+            (s.get("user_email") or "").strip().lower(),
+            (s.get("user") or "").strip().lower(),
+        ):
+            if not candidate or "@" not in candidate:
+                continue
+            local = candidate.split("@", 1)[0]
+            if not local:
+                continue
+            key = (realm, local)
+            prev = best.get(key)
+            if prev is None or len(candidate) > len(prev):
+                best[key] = candidate
+    return best
+
+
+def _canonical_user_email(
+    session: dict[str, Any], email_map: dict[tuple[str, str], str]
+) -> str:
+    realm = (session.get("realm") or "").strip().lower()
+    raw = (session.get("user_email") or session.get("user") or "unknown").strip().lower()
+    if not raw:
+        raw = "unknown"
+    if "@" in raw:
+        return raw
+    for local in (
+        raw,
+        (session.get("user") or "").strip().lower(),
+    ):
+        if not local or "@" in local:
+            continue
+        mapped = email_map.get((realm, local))
+        if mapped:
+            return mapped
+    return raw
+
+
+def _dedupe_sessions_for_group(sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one row per (kind, target) — short/full email twins collapse here."""
+    best: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
+
+    def _score(s: dict[str, Any]) -> tuple:
+        details = s.get("details") if isinstance(s.get("details"), dict) else {}
+        has_cookies = bool(details.get("session_cookies"))
+        verifiable = bool(s.get("verifiable"))
+        last_seen = s.get("last_seen_at") or s.get("started_at") or ""
+        return (has_cookies, verifiable, str(last_seen))
+
+    for s in sessions:
+        key = (str(s.get("kind") or ""), str(s.get("target") or ""))
+        prev = best.get(key)
+        if prev is None or _score(s) >= _score(prev):
+            best[key] = s
+    return list(best.values())
 
 
 def enrich_session_groups_sso_logout(

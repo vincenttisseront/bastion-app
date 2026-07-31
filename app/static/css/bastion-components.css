@@ -312,6 +312,37 @@
 .alert-close{margin-left:auto;background:none;border:none;cursor:pointer;color:currentColor;opacity:.5;padding:0;line-height:1}
 .alert-close:hover{opacity:1}
 
+/* Global action busy overlay */
+body.bastion-busy{cursor:progress}
+.bastion-busy-overlay{
+  position:fixed;inset:0;z-index:10050;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(8,12,18,.45);
+  backdrop-filter:blur(2px);
+  -webkit-backdrop-filter:blur(2px);
+}
+.bastion-busy-overlay[hidden]{display:none !important}
+.bastion-busy-card{
+  display:flex;flex-direction:column;align-items:center;gap:var(--sp-3);
+  min-width:180px;padding:var(--sp-5) var(--sp-6);
+  border-radius:var(--r-md);
+  background:var(--bg-elevated, var(--bg-secondary));
+  border:1px solid var(--border);
+  box-shadow:0 12px 40px rgba(0,0,0,.35);
+}
+.bastion-busy-spinner{
+  width:28px;height:28px;
+  border:3px solid var(--border-bright);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  animation:bastion-busy-spin .7s linear infinite;
+}
+.bastion-busy-label{
+  font-size:var(--fs-sm);font-weight:600;color:var(--text-2);
+  text-align:center;
+}
+@keyframes bastion-busy-spin{to{transform:rotate(360deg)}}
+
 /* ?? Bastion modal (confirm / alert) ?? */
 body.bastion-modal-open{overflow:hidden}
 .bastion-modal{

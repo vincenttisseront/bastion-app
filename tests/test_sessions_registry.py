@@ -162,6 +162,60 @@ def test_sessions_grouped_by_user(client: TestClient, db_session: Session):
     assert "app" in group["auth_families"]
 
 
+def test_group_sessions_merges_short_and_full_email():
+    """preferred_username vs UPN must not create duplicate users in the rail."""
+    from app.web.sessions_service import group_sessions_by_user
+
+    sessions = [
+        {
+            "id": "portal:vincent.tisseront@ar-systems.fr:ar-systems",
+            "kind": "user",
+            "user": "vincent.tisseront",
+            "user_email": "vincent.tisseront@ar-systems.fr",
+            "realm": "ar-systems",
+            "target": "portal",
+            "auth_family": "oidc",
+            "source_ip": "192.168.1.1",
+            "status": "active",
+            "duration": "5m",
+        },
+        {
+            "id": "app:vincent.tisseront@ar-systems.fr:dolibarr",
+            "kind": "app",
+            "user": "vincent.tisseront",
+            "user_email": "vincent.tisseront@ar-systems.fr",
+            "realm": "ar-systems",
+            "target": "dolibarr",
+            "auth_family": "app",
+            "source_ip": "192.168.1.1",
+            "status": "active",
+            "duration": "1m",
+        },
+        {
+            "id": "app:vincent.tisseront:dolibarr",
+            "kind": "app",
+            "user": "vincent.tisseront",
+            "user_email": "vincent.tisseront",
+            "realm": "ar-systems",
+            "target": "dolibarr",
+            "auth_family": "app",
+            "source_ip": "192.168.1.1",
+            "status": "active",
+            "duration": "30s",
+            "details": {"session_cookies": {"JSESSIONID": "x"}},
+            "verifiable": True,
+        },
+    ]
+    groups = group_sessions_by_user(sessions)
+    assert len(groups) == 1
+    g = groups[0]
+    assert g["user_email"] == "vincent.tisseront@ar-systems.fr"
+    assert g["session_count"] == 2
+    targets = {s["target"] for s in g["sessions"]}
+    assert targets == {"portal", "dolibarr"}
+    assert set(g["auth_families"]) == {"oidc", "app"}
+
+
 def test_session_stores_x_real_ip_not_tcp_peer(client: TestClient, db_session: Session):
     """X-Real-IP must win over the TCP peer (docker nginx / Traefik)."""
     client.get(
