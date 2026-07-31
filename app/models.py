@@ -46,6 +46,8 @@ class App(Base):
     crushftp_admin_server_group = Column(String, nullable=True)  # default "MainUsers" in driver
     crushftp_admin_username = Column(String, nullable=True)
     crushftp_admin_password_encrypted = Column(Text, nullable=True)
+    # Physical root for company folders (e.g. /crush_data/AR-SYSTEMS) → FILE://…/SOCIETE/
+    crushftp_vfs_base_path = Column(String, nullable=True)
     login_form_url = Column(String, nullable=True)
     login_username_field = Column(String, default="username", nullable=False)
     login_password_field = Column(String, default="password", nullable=False)

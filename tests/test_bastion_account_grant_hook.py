@@ -61,6 +61,7 @@ def _seed(db, *, with_account: bool = True):
         crushftp_admin_server_group="MainUsers",
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret("admin-pass", s),
+        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
     )
     db.add_all([realm, app])
     db.commit()
@@ -72,6 +73,7 @@ def _seed(db, *, with_account: bool = True):
             realm_id=realm.id,
             username="jdoe",
             email="jdoe@example.com",
+            organization="SDIS999",
             status="keycloak_created",
             keycloak_user_id="kc-user-1",
             origin="bastion",
@@ -88,11 +90,14 @@ def test_bastion_account_grant_hook_triggers_provisioning(client, db_session):
 
     respx.post(CRUSH_ADMIN_URL).mock(
         side_effect=[
+            Response(200, text="<response>failure</response>"),
+            CRUSH_SET_USER_OK,
             CRUSH_SET_USER_OK,
             Response(
                 200,
                 text='<?xml version="1.0"?><user type="properties"><username>jdoe</username><root_dir>/</root_dir></user>',
             ),
+            CRUSH_SET_USER_OK,
         ]
     )
 

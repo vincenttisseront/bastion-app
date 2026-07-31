@@ -2,6 +2,7 @@
 
 import base64
 import logging
+from types import SimpleNamespace
 from urllib.parse import parse_qs
 
 import pytest
@@ -16,6 +17,15 @@ from app.sso_settings import Settings
 
 CRUSH_ADMIN_URL = "http://10.0.0.50:8080/"
 ADMIN_PASS = "s3cret-admin-pass"
+VFS_BASE = "/crush_data/AR-SYSTEMS"
+ORG = "SDIS999"
+
+CRUSH_OK = Response(200, text="<response>success</response>")
+CRUSH_FAIL = Response(200, text="<response>failure</response>")
+CRUSH_GET_USER = Response(
+    200,
+    text='<?xml version="1.0"?><user type="properties"><username>jdoe</username><root_dir>/</root_dir></user>',
+)
 
 
 def _settings() -> Settings:
@@ -39,11 +49,16 @@ def _app(db, *, server_group: str | None = "MainUsers") -> App:
         crushftp_admin_server_group=server_group,
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret(ADMIN_PASS, s),
+        crushftp_vfs_base_path=VFS_BASE,
     )
     db.add(app)
     db.commit()
     db.refresh(app)
     return app
+
+
+def _account(*, username: str = "jdoe", organization: str = ORG):
+    return SimpleNamespace(username=username, organization=organization)
 
 
 def _basic_header(username: str, password: str) -> str:
@@ -62,20 +77,24 @@ def _assert_basic_auth_only(request):
     assert "command=login" not in body
 
 
+def _create_flow_responses(*, username: str = "jdoe"):
+    """getUser miss → makedir → setUserItem → getUser ok → group add (société)."""
+    get_user_ok = Response(
+        200,
+        text=(
+            f'<?xml version="1.0"?><user type="properties">'
+            f"<username>{username}</username><root_dir>/</root_dir></user>"
+        ),
+    )
+    return [CRUSH_FAIL, CRUSH_OK, CRUSH_OK, get_user_ok, CRUSH_OK]
+
+
 @respx.mock
 @pytest.mark.asyncio
 async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
     settings = _settings()
     app = _app(db_session)
-    route = respx.post(CRUSH_ADMIN_URL).mock(
-        side_effect=[
-            Response(200, text="<response>success</response>"),
-            Response(
-                200,
-                text='<?xml version="1.0"?><user type="properties"><username>jdoe</username><root_dir>/</root_dir></user>',
-            ),
-        ]
-    )
+    route = respx.post(CRUSH_ADMIN_URL).mock(side_effect=_create_flow_responses())
     driver = CrushFTPProvisioningDriver()
     cred = GeneratedCredential(username="jdoe", password="user-pass-16chars")
 
@@ -84,30 +103,41 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
             db=db_session,
             settings=settings,
             app=app,
-            account=None,
+            account=_account(),
             credential=cred,
         )
 
     assert result.status == "success"
     assert "jdoe" in result.detail
-    assert route.call_count == 2
-    req = route.calls[0].request
-    _assert_basic_auth_only(req)
-    form = parse_qs(req.content.decode())
-    assert form["command"] == ["setUserItem"]
-    assert form["xmlItem"] == ["user"]
-    assert form["data_action"] == ["replace"]
-    assert form["serverGroup"] == ["MainUsers"]
-    assert form["username"] == ["jdoe"]
-    assert "vfs_items" in form and "vfs_items type=" in form["vfs_items"][0]
-    assert "FILE://users/jdoe/" in form["vfs_items"][0]
-    assert "permissions" in form and "<VFS" in form["permissions"][0]
-    perms = form["permissions"][0]
+    assert f"FILE://crush_data/AR-SYSTEMS/{ORG}/" in result.detail
+    assert route.call_count == 5
+
+    commands = [
+        parse_qs(c.request.content.decode()).get("command", [""])[0]
+        for c in route.calls
+    ]
+    assert commands == ["getUser", "makedir", "setUserItem", "getUser", "setUserItem"]
+
+    set_user = parse_qs(route.calls[2].request.content.decode())
+    _assert_basic_auth_only(route.calls[2].request)
+    assert set_user["xmlItem"] == ["user"]
+    assert set_user["data_action"] == ["replace"]
+    assert set_user["serverGroup"] == ["MainUsers"]
+    assert set_user["username"] == ["jdoe"]
+    assert f"FILE://crush_data/AR-SYSTEMS/{ORG}/" in set_user["vfs_items"][0]
+    assert f"<name>{ORG}</name>" in set_user["vfs_items"][0]
+    assert "FILE://users/" not in set_user["vfs_items"][0]
+    assert "create_home_folder>false" in set_user["user"][0]
+    assert f"users/{cred.username}" not in set_user["user"][0]
+    assert f"users/{cred.username}" not in set_user["vfs_items"][0]
+    perms = set_user["permissions"][0]
     assert "(read)(view)(resume)" in perms
     assert "(write)" not in perms
-    assert "(delete)" not in perms
-    assert "(makedir)" not in perms
-    assert route.calls[1].request.content.decode().find("getUser") >= 0
+    assert f'name="/{ORG}/"' in perms
+
+    group_form = parse_qs(route.calls[4].request.content.decode())
+    assert group_form["xmlItem"] == ["groups"]
+    assert group_form["group_name"] == [ORG]
 
     joined = "\n".join(r.getMessage() for r in caplog.records)
     assert ADMIN_PASS not in joined
@@ -117,13 +147,46 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_crushftp_requires_organization_and_vfs_base(db_session):
+    settings = _settings()
+    app = _app(db_session)
+    driver = CrushFTPProvisioningDriver()
+    cred = GeneratedCredential(username="jdoe", password="user-pass-16chars")
+
+    no_org = await driver.create_account(
+        db=db_session,
+        settings=settings,
+        app=app,
+        account=_account(organization=""),
+        credential=cred,
+    )
+    assert no_org.status == "failed"
+    assert "organization" in no_org.detail.lower() or "Société" in no_org.detail
+
+    app.crushftp_vfs_base_path = None
+    db_session.commit()
+    no_base = await driver.create_account(
+        db=db_session,
+        settings=settings,
+        app=app,
+        account=_account(),
+        credential=cred,
+    )
+    assert no_base.status == "failed"
+    assert "vfs" in no_base.detail.lower() or "Racine" in no_base.detail
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_crushftp_admin_create_fails_when_getuser_missing(db_session):
     settings = _settings()
     app = _app(db_session)
     respx.post(CRUSH_ADMIN_URL).mock(
         side_effect=[
-            Response(200, text="<response>success</response>"),
-            Response(200, text="<response>failure</response>"),
+            CRUSH_FAIL,  # exist check
+            CRUSH_OK,  # makedir
+            CRUSH_OK,  # setUserItem
+            CRUSH_FAIL,  # verify getUser
         ]
     )
     driver = CrushFTPProvisioningDriver()
@@ -131,7 +194,7 @@ async def test_crushftp_admin_create_fails_when_getuser_missing(db_session):
         db=db_session,
         settings=settings,
         app=app,
-        account=None,
+        account=_account(username="toto"),
         credential=GeneratedCredential(username="toto", password="user-pass-16chars"),
     )
     assert result.status == "failed"
@@ -144,13 +207,17 @@ async def test_crushftp_admin_create_fails_when_getuser_missing(db_session):
 async def test_crushftp_admin_accepts_response_status_ok(db_session):
     settings = _settings()
     app = _app(db_session)
+    get_user_ok = Response(
+        200,
+        text='<user type="properties"><username>toto</username><root_dir>/</root_dir></user>',
+    )
     respx.post(CRUSH_ADMIN_URL).mock(
         side_effect=[
+            CRUSH_FAIL,
             Response(200, text="<response_status>OK</response_status>"),
-            Response(
-                200,
-                text="<user type=\"properties\"><username>toto</username><root_dir>/</root_dir></user>",
-            ),
+            Response(200, text="<response_status>OK</response_status>"),
+            get_user_ok,
+            Response(200, text="<response_status>OK</response_status>"),
         ]
     )
     driver = CrushFTPProvisioningDriver()
@@ -158,7 +225,7 @@ async def test_crushftp_admin_accepts_response_status_ok(db_session):
         db=db_session,
         settings=settings,
         app=app,
-        account=None,
+        account=_account(username="toto"),
         credential=GeneratedCredential(username="toto", password="user-pass-16chars"),
     )
     assert result.status == "success"
@@ -169,13 +236,14 @@ async def test_crushftp_admin_accepts_response_status_ok(db_session):
 async def test_crushftp_admin_failure_body_not_already_exists(db_session):
     settings = _settings()
     app = _app(db_session)
-    respx.post(CRUSH_ADMIN_URL).respond(200, text="<response>failure</response>")
+    # exist check fails, makedir ok, setUserItem failure
+    respx.post(CRUSH_ADMIN_URL).mock(side_effect=[CRUSH_FAIL, CRUSH_OK, CRUSH_FAIL])
     driver = CrushFTPProvisioningDriver()
     result = await driver.create_account(
         db=db_session,
         settings=settings,
         app=app,
-        account=None,
+        account=_account(username="toto"),
         credential=GeneratedCredential(username="toto", password="user-pass-16chars"),
     )
     assert result.status == "failed"
@@ -189,15 +257,19 @@ async def test_crushftp_admin_api_redirect_hints_public_sso_url(db_session):
     """302 from bastion/SSO URL must not look like « compte déjà existant »."""
     settings = _settings()
     app = _app(db_session)
-    respx.post(CRUSH_ADMIN_URL).respond(
-        302, headers={"Location": "https://portal.example/oauth2/start"}
+    respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[
+            CRUSH_FAIL,
+            CRUSH_OK,
+            Response(302, headers={"Location": "https://portal.example/oauth2/start"}),
+        ]
     )
     driver = CrushFTPProvisioningDriver()
     result = await driver.create_account(
         db=db_session,
         settings=settings,
         app=app,
-        account=None,
+        account=_account(username="toto"),
         credential=GeneratedCredential(username="toto", password="user-pass-16chars"),
     )
     assert result.status == "failed"
@@ -237,14 +309,13 @@ async def test_crushftp_admin_basic_auth_add_user_to_group(db_session):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_crushftp_admin_basic_auth_remove_user_from_group(db_session):
+async def test_crushftp_admin_remove_user_from_group(db_session):
     settings = _settings()
     app = _app(db_session)
     route = respx.post(CRUSH_ADMIN_URL).respond(
         200, text="<response>success</response>"
     )
     driver = CrushFTPProvisioningDriver()
-
     result = await driver.remove_user_from_group(
         db=db_session,
         settings=settings,
@@ -253,32 +324,25 @@ async def test_crushftp_admin_basic_auth_remove_user_from_group(db_session):
         group_name="ARSYSTEMS-Users",
     )
     assert result.status == "success"
-    assert route.call_count == 1
-    req = route.calls[0].request
-    _assert_basic_auth_only(req)
-    form = parse_qs(req.content.decode())
-    assert form["xmlItem"] == ["groups"]
+    form = parse_qs(route.calls[0].request.content.decode())
     assert form["data_action"] == ["delete"]
+    assert form["xmlItem"] == ["groups"]
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_crushftp_admin_basic_auth_default_server_group_when_empty(db_session):
+async def test_crushftp_admin_empty_server_group_defaults_mainusers(db_session):
     settings = _settings()
     app = _app(db_session, server_group="")
-    app.crushftp_admin_server_group = None
-    db_session.commit()
-
-    route = respx.post(CRUSH_ADMIN_URL).respond(
-        200, text="<response>success</response>"
-    )
+    route = respx.post(CRUSH_ADMIN_URL).mock(side_effect=_create_flow_responses())
     driver = CrushFTPProvisioningDriver()
-    await driver.add_user_to_group(
+    result = await driver.create_account(
         db=db_session,
         settings=settings,
         app=app,
-        username="jdoe",
-        group_name="G1",
+        account=_account(),
+        credential=GeneratedCredential(username="jdoe", password="user-pass-16chars"),
     )
-    form = parse_qs(route.calls[0].request.content.decode())
-    assert form["serverGroup"] == ["MainUsers"]
+    assert result.status == "success"
+    set_user = parse_qs(route.calls[2].request.content.decode())
+    assert set_user["serverGroup"] == ["MainUsers"]

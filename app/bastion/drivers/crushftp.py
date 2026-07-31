@@ -229,6 +229,7 @@ from app.bastion.drivers.base_provisioning import (
     ProvisioningResult,
 )
 
+# Never create FILE://users/<username>/ or any per-user home on disk.
 _CRUSHFTP_USER_XML_TEMPLATE = (
     '<?xml version="1.0" encoding="UTF-8"?>'
     '<user type="properties">'
@@ -238,10 +239,27 @@ _CRUSHFTP_USER_XML_TEMPLATE = (
     "<root_dir>/</root_dir>"
     "<userVersion>6</userVersion>"
     "<max_logins>0</max_logins>"
+    "<create_home_folder>false</create_home_folder>"
     "</user>"
 )
 
 _DEFAULT_SERVER_GROUP = "MainUsers"
+
+
+def crushftp_company_folder_name(organization: str | None) -> str:
+    """Filesystem / VFS folder for a société — alphanumeric (+ - _), no spaces."""
+    raw = (organization or "").strip()
+    cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "-_")
+    return cleaned or ""
+
+
+def crushftp_company_file_url(base_path: str, company_folder: str) -> str:
+    """Build FILE:// URL under the app VFS root (CrushFTP physical path)."""
+    base = (base_path or "").strip().replace("\\", "/").strip("/")
+    folder = (company_folder or "").strip().strip("/")
+    if not base or not folder:
+        raise ValueError("crushftp_vfs_base_path et dossier société sont requis")
+    return f"FILE://{base}/{folder}/"
 
 
 def _crushftp_user_xml(credential: GeneratedCredential) -> str:
@@ -252,18 +270,19 @@ def _crushftp_user_xml(credential: GeneratedCredential) -> str:
     )
 
 
-def _crushftp_vfs_items_xml(username: str) -> str:
-    """Official CrushFTP wiki shape (vfs_items vector + FILE:// home)."""
-    safe = _xml_escape((username or "").strip())
+def _crushftp_vfs_items_xml(*, company_folder: str, file_url: str) -> str:
+    """Mount company folder only — never FILE://users/<username>/ personal homes."""
+    name = _xml_escape((company_folder or "").strip())
+    url = _xml_escape((file_url or "").strip())
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<vfs_items type="vector">'
         '<vfs_items_subitem type="properties">'
-        f"<name>{safe}</name>"
+        f"<name>{name}</name>"
         "<path>/</path>"
         '<vfs_item type="vector">'
         '<vfs_item_subitem type="properties">'
-        f"<url>FILE://users/{safe}/</url>"
+        f"<url>{url}</url>"
         "</vfs_item_subitem>"
         "</vfs_item>"
         "</vfs_items_subitem>"
@@ -271,13 +290,9 @@ def _crushftp_vfs_items_xml(username: str) -> str:
     )
 
 
-def _crushftp_permissions_xml(username: str) -> str:
-    """Default VFS permissions: read-only (no upload/write/delete/mkdir/rename).
-
-    CrushFTP flags map roughly to User Manager checkboxes:
-    read=Download, view=View, resume=Resume — no write/upload.
-    """
-    folder = _xml_escape((username or "").strip().upper())
+def _crushftp_permissions_xml(company_folder: str) -> str:
+    """Default VFS permissions: read-only (no upload/write/delete/mkdir/rename)."""
+    folder = _xml_escape((company_folder or "").strip())
     read_only = "(read)(view)(resume)"
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -351,13 +366,53 @@ class CrushFTPProvisioningDriver:
         credential,
         group_names: list[str] | None = None,
     ) -> ProvisioningResult:
-        """Create user then optionally add to CrushFTP groups — Basic Auth per call."""
+        """Create/update user with company VFS, then optional CrushFTP groups."""
         admin = self._resolve_admin(app, settings)
         if isinstance(admin, ProvisioningResult):
             return admin
         username, password, base_url, server_group, tls_verify = admin
 
+        company = crushftp_company_folder_name(getattr(account, "organization", None))
+        vfs_base = (getattr(app, "crushftp_vfs_base_path", None) or "").strip()
+        if not company:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail=(
+                    "Société / organization manquante sur le compte bastion — "
+                    "requis pour monter le dossier CrushFTP."
+                ),
+            )
+        if not vfs_base:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail=(
+                    "Racine VFS sociétés non configurée sur l'application "
+                    "(champ crushftp_vfs_base_path, ex. /crush_data/AR-SYSTEMS)."
+                ),
+            )
         try:
+            file_url = crushftp_company_file_url(vfs_base, company)
+        except ValueError as exc:
+            return ProvisioningResult(status=PROVISIONING_FAILED, detail=str(exc))
+
+        try:
+            existing = await self._verify_user_exists(
+                base_url=base_url,
+                admin_username=username,
+                admin_password=password,
+                server_group=server_group,
+                tls_verify=tls_verify,
+                username=credential.username,
+            )
+            folder_note = await self._ensure_company_folder(
+                base_url=base_url,
+                admin_username=username,
+                admin_password=password,
+                tls_verify=tls_verify,
+                vfs_base=vfs_base,
+                company_folder=company,
+            )
+
             user_result = await self._set_user_item(
                 base_url=base_url,
                 admin_username=username,
@@ -365,42 +420,88 @@ class CrushFTPProvisioningDriver:
                 server_group=server_group,
                 tls_verify=tls_verify,
                 credential=credential,
+                company_folder=company,
+                file_url=file_url,
+                account_existed=existing,
             )
             if user_result.status != PROVISIONING_SUCCESS:
                 return user_result
 
+            detail_bits = [user_result.detail, folder_note]
             names = [n.strip() for n in (group_names or []) if (n or "").strip()]
-            if not names:
-                return user_result
+            # Always try the company CrushFTP group (same name as folder) when not listed.
+            if company not in names:
+                names = [company, *names]
 
-            group_parts: list[str] = []
-            group_errors: list[str] = []
-            for name in names:
-                ok, msg = await self._set_group_membership(
-                    base_url=base_url,
-                    admin_username=username,
-                    admin_password=password,
-                    server_group=server_group,
-                    tls_verify=tls_verify,
-                    username=credential.username,
-                    group_name=name,
-                    data_action="add",
+            if names:
+                group_parts: list[str] = []
+                group_errors: list[str] = []
+                for name in names:
+                    ok, msg = await self._set_group_membership(
+                        base_url=base_url,
+                        admin_username=username,
+                        admin_password=password,
+                        server_group=server_group,
+                        tls_verify=tls_verify,
+                        username=credential.username,
+                        group_name=name,
+                        data_action="add",
+                    )
+                    if ok:
+                        group_parts.append(f"{name}=ok")
+                    else:
+                        group_parts.append(f"{name}=échec ({msg})")
+                        group_errors.append(f"{name}: {msg}")
+                detail_bits.append("Groupes: " + "; ".join(group_parts))
+                return ProvisioningResult(
+                    status=PROVISIONING_SUCCESS,
+                    detail=". ".join(p for p in detail_bits if p),
+                    credential_pushed=True,
+                    group_errors=tuple(group_errors),
                 )
-                if ok:
-                    group_parts.append(f"{name}=ok")
-                else:
-                    group_parts.append(f"{name}=échec ({msg})")
-                    group_errors.append(f"{name}: {msg}")
 
-            detail = f"{user_result.detail}. Groupes: {'; '.join(group_parts)}"
             return ProvisioningResult(
                 status=PROVISIONING_SUCCESS,
-                detail=detail,
+                detail=". ".join(p for p in detail_bits if p),
                 credential_pushed=True,
-                group_errors=tuple(group_errors),
             )
         finally:
             password = ""  # noqa: F841
+
+    async def _ensure_company_folder(
+        self,
+        *,
+        base_url: str,
+        admin_username: str,
+        admin_password: str,
+        tls_verify: bool,
+        vfs_base: str,
+        company_folder: str,
+    ) -> str:
+        """Best-effort: ensure the *company* directory exists (never a per-user home).
+
+        Personal paths like /users/<username>/ are intentionally never created.
+        """
+        base = vfs_base.strip().replace("\\", "/")
+        if not base.startswith("/"):
+            base = "/" + base
+        path = f"{base.rstrip('/')}/{company_folder}"
+        ok, msg, _status = await self._admin_post(
+            base_url=base_url,
+            admin_username=admin_username,
+            admin_password=admin_password,
+            tls_verify=tls_verify,
+            data={
+                "command": "makedir",
+                "path": path,
+            },
+        )
+        if ok:
+            return f"Dossier société {path} créé ou déjà présent"
+        lowered = (msg or "").lower()
+        if "exist" in lowered or "already" in lowered or "failure" in lowered:
+            return f"Dossier société {path} (makedir: {msg})"
+        return f"Dossier société {path} — makedir non confirmé ({msg})"
 
     async def add_user_to_group(
         self,
@@ -566,8 +667,11 @@ class CrushFTPProvisioningDriver:
         server_group: str,
         tls_verify: bool,
         credential: GeneratedCredential,
+        company_folder: str,
+        file_url: str,
+        account_existed: bool = False,
     ) -> ProvisioningResult:
-        # CrushFTP wiki sample attachments: replace + vfs_items + VFS permissions.
+        # CrushFTP wiki: replace + vfs_items (company FILE://) + VFS permissions RO.
         ok, msg, status = await self._admin_post(
             base_url=base_url,
             admin_username=admin_username,
@@ -580,8 +684,10 @@ class CrushFTPProvisioningDriver:
                 "username": credential.username,
                 "user": _crushftp_user_xml(credential),
                 "xmlItem": "user",
-                "vfs_items": _crushftp_vfs_items_xml(credential.username),
-                "permissions": _crushftp_permissions_xml(credential.username),
+                "vfs_items": _crushftp_vfs_items_xml(
+                    company_folder=company_folder, file_url=file_url
+                ),
+                "permissions": _crushftp_permissions_xml(company_folder),
             },
         )
         if not ok:
@@ -615,11 +721,12 @@ class CrushFTPProvisioningDriver:
                 ),
             )
 
+        action = "mis à jour" if account_existed else "créé"
         return ProvisioningResult(
             status=PROVISIONING_SUCCESS,
             detail=(
-                f"Compte CrushFTP créé (username={credential.username}, "
-                f"serverGroup={server_group}, setUserItem replace + getUser OK)"
+                f"Compte CrushFTP {action} (username={credential.username}, "
+                f"serverGroup={server_group}, VFS={file_url}, lecture seule)"
             ),
             credential_pushed=True,
         )

@@ -56,6 +56,7 @@ def _seed(db):
         crushftp_admin_server_group="MainUsers",
         crushftp_admin_username="crushadmin",
         crushftp_admin_password_encrypted=encrypt_secret("admin-pass", s),
+        crushftp_vfs_base_path="/crush_data/AR-SYSTEMS",
     )
     db.add_all([realm, app])
     db.commit()
@@ -65,6 +66,7 @@ def _seed(db):
         realm_id=realm.id,
         username="jdoe",
         email="jdoe@example.com",
+        organization="SDIS999",
         status="keycloak_created",
         keycloak_user_id="kc-user-1",
         created_by="admin@example.com",
@@ -96,7 +98,14 @@ async def test_crushftp_group_add_success_same_admin_session(db_session):
     _, app, account = _seed(db_session)
 
     route = respx.post(CRUSH_ADMIN_URL).mock(
-        side_effect=[CRUSH_OK, CRUSH_GET_USER, CRUSH_OK]
+        side_effect=[
+            CRUSH_FAIL,  # exist
+            CRUSH_OK,  # makedir
+            CRUSH_OK,  # setUserItem user
+            CRUSH_GET_USER,
+            CRUSH_OK,  # group SDIS999
+            CRUSH_OK,  # group ARSYSTEMS-Users
+        ]
     )
 
     row = await provision_account_app(
@@ -110,24 +119,22 @@ async def test_crushftp_group_add_success_same_admin_session(db_session):
     assert row.status == "success"
     assert "Compte CrushFTP créé" in row.detail
     assert "ARSYSTEMS-Users=ok" in row.detail
-    assert route.call_count == 3  # setUserItem + getUser + group
+    assert "SDIS999=ok" in row.detail
+    assert route.call_count == 6
 
     for call in route.calls:
         _assert_basic_auth(call.request)
 
-    user_form = _form(route.calls[0].request.content)
+    user_form = _form(route.calls[2].request.content)
     assert user_form["xmlItem"] == ["user"]
     assert user_form["username"] == ["jdoe"]
     assert user_form["serverGroup"] == ["MainUsers"]
+    assert "FILE://crush_data/AR-SYSTEMS/SDIS999/" in user_form["vfs_items"][0]
 
-    assert b"getUser" in (route.calls[1].request.content or b"")
+    assert b"getUser" in (route.calls[3].request.content or b"")
 
-    group_form = _form(route.calls[2].request.content)
-    assert group_form["command"] == ["setUserItem"]
-    assert group_form["xmlItem"] == ["groups"]
-    assert group_form["data_action"] == ["add"]
-    assert group_form["group_name"] == ["ARSYSTEMS-Users"]
-    assert group_form["usernames"] == ["jdoe"]
+    group_forms = [_form(route.calls[i].request.content) for i in (4, 5)]
+    assert {g["group_name"][0] for g in group_forms} == {"SDIS999", "ARSYSTEMS-Users"}
     assert "admin-pass" not in (row.detail or "")
 
 
@@ -139,7 +146,14 @@ async def test_crushftp_group_failure_keeps_user_success(db_session):
     _, app, account = _seed(db_session)
 
     respx.post(CRUSH_ADMIN_URL).mock(
-        side_effect=[CRUSH_OK, CRUSH_GET_USER, CRUSH_FAIL]
+        side_effect=[
+            CRUSH_FAIL,
+            CRUSH_OK,
+            CRUSH_OK,
+            CRUSH_GET_USER,
+            CRUSH_OK,  # SDIS999
+            CRUSH_FAIL,  # Missing-Group
+        ]
     )
 
     row = await provision_account_app(
@@ -164,7 +178,14 @@ async def test_crushftp_group_implicit_create_same_call(db_session):
     _, app, account = _seed(db_session)
 
     route = respx.post(CRUSH_ADMIN_URL).mock(
-        side_effect=[CRUSH_OK, CRUSH_GET_USER, CRUSH_OK]
+        side_effect=[
+            CRUSH_FAIL,
+            CRUSH_OK,
+            CRUSH_OK,
+            CRUSH_GET_USER,
+            CRUSH_OK,
+            CRUSH_OK,
+        ]
     )
 
     row = await provision_account_app(
@@ -180,17 +201,19 @@ async def test_crushftp_group_implicit_create_same_call(db_session):
     group_calls = [
         c for c in route.calls if b"xmlItem=groups" in (c.request.content or b"")
     ]
-    assert len(group_calls) == 1
+    assert len(group_calls) == 2  # société + Brand-New-Group
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_crushftp_no_group_names_skips_group_call(db_session):
-    """Without group_names: setUserItem + getUser only."""
+async def test_crushftp_always_adds_company_group(db_session):
+    """Même sans group_names explicites — groupe société monté + ajouté."""
     settings = _settings()
     _, app, account = _seed(db_session)
 
-    route = respx.post(CRUSH_ADMIN_URL).mock(side_effect=[CRUSH_OK, CRUSH_GET_USER])
+    route = respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[CRUSH_FAIL, CRUSH_OK, CRUSH_OK, CRUSH_GET_USER, CRUSH_OK]
+    )
 
     row = await provision_account_app(
         db_session,
@@ -201,18 +224,24 @@ async def test_crushftp_no_group_names_skips_group_call(db_session):
         group_names=None,
     )
     assert row.status == "success"
-    assert "Groupes:" not in (row.detail or "")
-    assert route.call_count == 2
-    assert not any(b"xmlItem=groups" in (c.request.content or b"") for c in route.calls)
+    assert "SDIS999=ok" in (row.detail or "")
+    assert route.call_count == 5
+    group_calls = [
+        c for c in route.calls if b"xmlItem=groups" in (c.request.content or b"")
+    ]
+    assert len(group_calls) == 1
+    assert _form(group_calls[0].request.content)["group_name"] == ["SDIS999"]
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_crushftp_empty_group_names_skips_group_call(db_session):
+async def test_crushftp_empty_group_names_still_adds_company(db_session):
     settings = _settings()
     _, app, account = _seed(db_session)
 
-    route = respx.post(CRUSH_ADMIN_URL).mock(side_effect=[CRUSH_OK, CRUSH_GET_USER])
+    route = respx.post(CRUSH_ADMIN_URL).mock(
+        side_effect=[CRUSH_FAIL, CRUSH_OK, CRUSH_OK, CRUSH_GET_USER, CRUSH_OK]
+    )
 
     row = await provision_account_app(
         db_session,
@@ -223,8 +252,8 @@ async def test_crushftp_empty_group_names_skips_group_call(db_session):
         group_names=[],
     )
     assert row.status == "success"
-    assert route.call_count == 2
-    assert not any(b"xmlItem=groups" in (c.request.content or b"") for c in route.calls)
+    assert route.call_count == 5
+    assert any(b"group_name=SDIS999" in (c.request.content or b"") for c in route.calls)
 
 
 @respx.mock

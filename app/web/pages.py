@@ -186,6 +186,7 @@ def _apply_crushftp_admin_config(
     crushftp_admin_server_group: str,
     crushftp_admin_username: str,
     crushftp_admin_password: str,
+    crushftp_vfs_base_path: str = "",
 ) -> dict[str, str]:
     """Persist CrushFTP Admin API fields. Blank password keeps existing ciphertext."""
     errors: dict[str, str] = {}
@@ -193,6 +194,8 @@ def _apply_crushftp_admin_config(
     group = (crushftp_admin_server_group or "").strip()
     app.crushftp_admin_server_group = group or None
     app.crushftp_admin_username = (crushftp_admin_username or "").strip() or None
+    raw_vfs = (crushftp_vfs_base_path or "").strip().replace("\\", "/")
+    app.crushftp_vfs_base_path = raw_vfs.rstrip("/") or None
     plain = (crushftp_admin_password or "").strip()
     if plain:
         try:
@@ -1065,6 +1068,7 @@ def admin_apps_edit_post(
     crushftp_admin_server_group: str = Form(""),
     crushftp_admin_username: str = Form(""),
     crushftp_admin_password: str = Form(""),
+    crushftp_vfs_base_path: str = Form(""),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -1104,6 +1108,9 @@ def admin_apps_edit_post(
             (crushftp_admin_server_group or "").strip() or None
         )
         app.crushftp_admin_username = (crushftp_admin_username or "").strip() or None
+        app.crushftp_vfs_base_path = (
+            (crushftp_vfs_base_path or "").strip().replace("\\", "/").rstrip("/") or None
+        )
         _apply_auth_config(
             app,
             auth_mode=auth_mode,
@@ -1144,6 +1151,7 @@ def admin_apps_edit_post(
         crushftp_admin_server_group=crushftp_admin_server_group,
         crushftp_admin_username=crushftp_admin_username,
         crushftp_admin_password=crushftp_admin_password,
+        crushftp_vfs_base_path=crushftp_vfs_base_path,
     )
     if crush_errors:
         errors.update(crush_errors)

@@ -210,6 +210,19 @@
           </p>
         </div>
         <div class="form-group">
+          <label class="form-label" for="crushftp_vfs_base_path">Racine VFS sociétés (serveur)</label>
+          <input type="text" id="crushftp_vfs_base_path" name="crushftp_vfs_base_path"
+                 class="form-input" value="{{ app.crushftp_vfs_base_path or '' }}"
+                 placeholder="/crush_data/AR-SYSTEMS" autocomplete="off">
+          <p class="form-help">
+            Chemin physique côté CrushFTP. Pour chaque utilisateur, le dossier société
+            (<span class="mono">organization</span>, ex. <span class="mono">SDIS999</span>)
+            est monté en lecture seule :
+            <span class="mono">FILE://…/AR-SYSTEMS/SDIS999/</span>.
+            Obligatoire pour le provisioning CrushFTP.
+          </p>
+        </div>
+        <div class="form-group">
           <label class="form-label" for="crushftp_admin_server_group">Contexte serveur CrushFTP (serverGroup)</label>
           <input type="text" id="crushftp_admin_server_group" name="crushftp_admin_server_group"
                  class="form-input" value="{{ app.crushftp_admin_server_group or 'MainUsers' }}"

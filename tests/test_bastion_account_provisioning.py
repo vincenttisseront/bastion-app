@@ -63,6 +63,7 @@ def _account(db, realm: RealmConfig, *, kc_id: str | None = "kc-user-1") -> Bast
         realm_id=realm.id,
         username="jdoe",
         email="jdoe@example.com",
+        organization="SDIS999",
         status="keycloak_created" if kc_id else "pending",
         keycloak_user_id=kc_id,
         created_by="admin@example.com",
@@ -87,6 +88,7 @@ def _crushftp_app(db, *, with_admin_api: bool = True) -> App:
         app.crushftp_admin_server_group = "MainUsers"
         app.crushftp_admin_username = "crushadmin"
         app.crushftp_admin_password_encrypted = encrypt_secret("admin-pass", s)
+        app.crushftp_vfs_base_path = "/crush_data/AR-SYSTEMS"
     db.add(app)
     db.commit()
     db.refresh(app)
@@ -113,7 +115,13 @@ async def test_bastion_account_provisioning_crushftp_success(db_session):
     app = _crushftp_app(db_session)
 
     route = respx.post(CRUSH_ADMIN_URL).mock(
-        side_effect=[CRUSH_SET_USER_OK, CRUSH_GET_USER_OK]
+        side_effect=[
+            Response(200, text="<response>failure</response>"),  # exist check
+            CRUSH_SET_USER_OK,  # makedir
+            CRUSH_SET_USER_OK,  # setUserItem
+            CRUSH_GET_USER_OK,  # verify
+            CRUSH_SET_USER_OK,  # company group
+        ]
     )
 
     row = await provision_account_app(
@@ -122,15 +130,15 @@ async def test_bastion_account_provisioning_crushftp_success(db_session):
     assert row.status == "success"
     assert row.driver_name == "crushftp"
     assert account.status == "provisioned"
-    assert route.call_count == 2  # setUserItem + getUser verify
+    assert route.call_count == 5
+    assert "FILE://crush_data/AR-SYSTEMS/SDIS999/" in (row.detail or "")
 
-    req = route.calls[0].request
-    _assert_basic_auth(req)
-    set_user_call = req.content.decode()
+    set_user_call = route.calls[2].request.content.decode()
+    _assert_basic_auth(route.calls[2].request)
     assert "setUserItem" in set_user_call
     assert "jdoe" in set_user_call
-    assert "serverGroup=MainUsers" in set_user_call or "MainUsers" in set_user_call
-    assert "getUser" in route.calls[1].request.content.decode()
+    assert "MainUsers" in set_user_call
+    assert "getUser" in route.calls[3].request.content.decode()
 
     cred = (
         db_session.query(UserAppCredential)
@@ -316,6 +324,7 @@ def test_provision_selected_apps_from_account_detail(client, db_session):
         realm_id=realm.id,
         username="toto",
         email="toto@example.com",
+        organization="SDIS999",
         status="keycloak_created",
         keycloak_user_id="kc-toto",
         origin="bastion",
@@ -333,11 +342,14 @@ def test_provision_selected_apps_from_account_detail(client, db_session):
 
     respx.post(CRUSH_ADMIN_URL).mock(
         side_effect=[
+            Response(200, text="<response>failure</response>"),
+            CRUSH_SET_USER_OK,
             CRUSH_SET_USER_OK,
             Response(
                 200,
                 text='<?xml version="1.0"?><user type="properties"><username>toto</username><root_dir>/</root_dir></user>',
             ),
+            CRUSH_SET_USER_OK,
         ]
     )
     resp = client.post(
@@ -385,6 +397,7 @@ def test_provision_retry_all_failed_and_pending(client, db_session):
         realm_id=realm.id,
         username="jdoe",
         email="jdoe@example.com",
+        organization="SDIS999",
         status="partial_failure",
         keycloak_user_id="kc-user-1",
         origin="bastion",
@@ -406,7 +419,13 @@ def test_provision_retry_all_failed_and_pending(client, db_session):
     db_session.commit()
 
     respx.post(CRUSH_ADMIN_URL).mock(
-        side_effect=[CRUSH_SET_USER_OK, CRUSH_GET_USER_OK]
+        side_effect=[
+            Response(200, text="<response>failure</response>"),
+            CRUSH_SET_USER_OK,
+            CRUSH_SET_USER_OK,
+            CRUSH_GET_USER_OK,
+            CRUSH_SET_USER_OK,
+        ]
     )
 
     resp = client.post(
