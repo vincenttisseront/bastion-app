@@ -40,7 +40,7 @@ from app.breakglass_store import (
     verify_breakglass_password,
 )
 from app.database import get_db
-from app.models import AccessGrant, App, PendingHost, RBACGroup, RealmConfig
+from app.models import AccessGrant, App, PendingHost, PendingUser, RBACGroup, RealmConfig
 from app.bastion.pending_host_service import (
     approve_pending_host,
     reject_pending_host,
@@ -877,6 +877,92 @@ def admin_pending_host_reject_post(
     flash_redirect(
         response,
         f"Domaine « {row.hostname} » rejeté.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.get("/admin/pending-users")
+def admin_pending_users_list(
+    request: Request,
+    status: str = Query("pending"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    from app.web.pending_user_service import discover_recent_first_logins
+
+    created = discover_recent_first_logins(db)
+    if created:
+        db.commit()
+    status_filter = (status or "pending").strip().lower()
+    query = db.query(PendingUser)
+    if status_filter != "all":
+        query = query.filter_by(status=status_filter)
+    rows = query.order_by(PendingUser.last_seen_at.desc()).limit(500).all()
+    realms_by_slug = {
+        r.slug: r.id for r in db.query(RealmConfig).all()
+    }
+    return render(
+        "admin/pending_users/list.html",
+        **_ctx(
+            request,
+            settings,
+            rows=rows,
+            status_filter=status_filter,
+            realms_by_slug=realms_by_slug,
+        ),
+    )
+
+
+@admin_router.post("/admin/pending-users/{user_id}/approve")
+def admin_pending_user_approve_post(
+    user_id: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.web.pending_user_service import acknowledge_pending_user
+
+    try:
+        row = acknowledge_pending_user(
+            db, user_id=user_id, actor=user.email, status="approved"
+        )
+        db.commit()
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    response = RedirectResponse(url="/admin/pending-users?status=approved", status_code=302)
+    flash_redirect(
+        response,
+        f"Première connexion « {row.user_email} » validée "
+        "(ne coupe pas l’accès IdP — ouvrez la fiche pour attribuer des droits Bastion).",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.post("/admin/pending-users/{user_id}/reject")
+def admin_pending_user_reject_post(
+    user_id: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.web.pending_user_service import acknowledge_pending_user
+
+    try:
+        row = acknowledge_pending_user(
+            db, user_id=user_id, actor=user.email, status="rejected"
+        )
+        db.commit()
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    response = RedirectResponse(url="/admin/pending-users?status=rejected", status_code=302)
+    flash_redirect(
+        response,
+        f"Première connexion « {row.user_email} » marquée rejetée "
+        "(session Keycloak non révoquée automatiquement — utilisez Sessions si besoin).",
         "success",
         settings.vault_portal_internal_token or "dev",
     )

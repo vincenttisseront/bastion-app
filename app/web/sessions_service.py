@@ -617,7 +617,8 @@ def _touch_portal_session(
     session_id = _portal_session_id(email, realm)
     now = utcnow()
     row = db.query(ActiveSession).filter_by(id=session_id).first()
-    if row is None:
+    is_new = row is None
+    if is_new:
         row = ActiveSession(
             id=session_id,
             kind=KIND_USER,
@@ -643,6 +644,19 @@ def _touch_portal_session(
             row.details = _merge_details(row.details if isinstance(row.details, dict) else None, details)
         if row.status != "isolated":
             row.status = "active"
+    try:
+        from app.web.pending_user_service import record_first_login_if_new
+
+        record_first_login_if_new(
+            db,
+            user_email=email,
+            username=user.username or email,
+            realm_slug=realm,
+            source_ip=source_ip,
+            is_new_session_row=is_new,
+        )
+    except Exception:
+        logger.exception("pending first-login record failed")
     db.commit()
     db.refresh(row)
     return row

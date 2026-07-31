@@ -466,6 +466,8 @@ class RealmConfig(Base):
     keycloak_admin_client_id = Column(String, nullable=True)
     keycloak_admin_client_secret_encrypted = Column(String, nullable=True)
     groups_sync_enabled = Column(Boolean, default=False)
+    # Optional allowlist: one group name or path per line. Empty = sync all groups.
+    groups_sync_include = Column(Text, nullable=True)
     last_groups_sync_at = Column(DateTime(timezone=True), nullable=True)
     last_groups_sync_status = Column(String, nullable=True)  # "ok" | "error"
     last_groups_sync_error = Column(String, nullable=True)
@@ -952,6 +954,27 @@ class PendingHost(Base):
     status = Column(String, nullable=False, default="pending", index=True)
     approved_app_slug = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class PendingUser(Base):
+    """First SSO sighting of a user — admin review queue (does not block login)."""
+
+    __tablename__ = "pending_users"
+
+    id = Column(Integer, primary_key=True)
+    user_email = Column(String, unique=True, nullable=False, index=True)
+    username = Column(String, nullable=True)
+    realm_slug = Column(String, nullable=False)
+    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    hit_count = Column(Integer, nullable=False, default=1)
+    last_client_ip = Column(String, nullable=True)
+    # pending | approved | rejected
+    status = Column(String, nullable=False, default="pending", index=True)
+    notes = Column(Text, nullable=True)
+    reviewed_by = Column(String, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
 

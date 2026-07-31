@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Nouveaux utilisateurs{% endblock %}
+{% block breadcrumb %}Admin / Nouveaux utilisateurs{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Nouveaux utilisateurs</h1>
+      <p class="page-sub">
+        Première connexion SSO détectée — file d’attente de validation (comme les domaines).
+        Le login Keycloak n’est <strong>pas</strong> bloqué : validez ici pour tracer / ouvrir la fiche droits.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">File d’attente · {{ rows | length }}</span>
+      <div class="card-header-actions">
+        <div class="filter-group" role="group" aria-label="Filtrer par statut">
+          <a href="/admin/pending-users?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">En attente</a>
+          <a href="/admin/pending-users?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">Validés</a>
+          <a href="/admin/pending-users?status=rejected" class="filter-chip{% if status_filter == 'rejected' %} active{% endif %}">Rejetés</a>
+          <a href="/admin/pending-users?status=all" class="filter-chip{% if status_filter == 'all' %} active{% endif %}">Tout</a>
+        </div>
+      </div>
+    </div>
+    <div class="card-body card-flush">
+      <div class="table-wrap">
+        <table class="data-table" id="pending-users-table">
+          <thead>
+            <tr>
+              <th>Utilisateur</th>
+              <th>Realm</th>
+              <th>Hits</th>
+              <th>Première vue</th>
+              <th>Dernière vue</th>
+              <th>IP</th>
+              <th>Statut</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td>
+                <div>{{ row.username or row.user_email }}</div>
+                <div class="mono form-hint">{{ row.user_email }}</div>
+              </td>
+              <td class="mono">{{ row.realm_slug }}</td>
+              <td>{{ row.hit_count }}</td>
+              <td class="mono">{{ row.first_seen_at }}</td>
+              <td class="mono">{{ row.last_seen_at }}</td>
+              <td class="mono">{{ row.last_client_ip or '—' }}</td>
+              <td>
+                {% if row.status == 'pending' %}
+                <span class="badge badge-warn">nouvelle connexion</span>
+                {% elif row.status == 'approved' %}
+                <span class="badge badge-ok">validé</span>
+                {% else %}
+                <span class="badge">rejeté</span>
+                {% endif %}
+              </td>
+              <td style="white-space:nowrap;">
+                <a class="btn btn-ghost btn-sm"
+                   href="/admin/rbac/users?list_tab=open{% if realms_by_slug.get(row.realm_slug) %}&amp;realm_id={{ realms_by_slug[row.realm_slug] }}{% endif %}">Recherche</a>
+                <a class="btn btn-ghost btn-sm" href="/sessions">Sessions</a>
+                {% if row.status == 'pending' %}
+                <form method="post" action="/admin/pending-users/{{ row.id }}/approve" style="display:inline;">
+                  <button type="submit" class="btn btn-primary btn-sm">Valider</button>
+                </form>
+                <form method="post" action="/admin/pending-users/{{ row.id }}/reject" style="display:inline;">
+                  <button type="submit" class="btn btn-ghost btn-sm">Rejeter</button>
+                </form>
+                {% elif row.reviewed_by %}
+                <span class="form-hint">{{ row.reviewed_by }}</span>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="8">
+                <div class="empty-state" style="padding:2rem;">
+                  <div class="empty-title">Aucun utilisateur {{ status_filter if status_filter != 'all' else '' }}</div>
+                  <div class="empty-desc">
+                    Les premières connexions SSO apparaissent ici automatiquement
+                    (bandeau cloche inclus).
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -155,6 +155,16 @@
             <span class="badge badge-{{ 'ok' if form_values.groups_sync_enabled else 'muted' }}">{{ 'Activé' if form_values.groups_sync_enabled else 'Non configuré' }}</span>
           </div>
         {% endif %}
+        <div class="form-group">
+          <label class="form-label" for="groups_sync_include">Groupes à synchroniser (filtre)</label>
+          <textarea id="groups_sync_include" name="groups_sync_include" class="form-textarea" rows="4"
+                    placeholder="ARSYSTEMS-Users&#10;/Societes&#10;portal-admins">{{ form_values.groups_sync_include or '' }}</textarea>
+          <p class="form-hint">
+            Un nom ou path Keycloak par ligne. Vide = <strong>tous</strong> les groupes du realm (comportement historique).
+            Ex. <span class="mono">ARSYSTEMS-Users</span> ou préfixe de path <span class="mono">/Societes</span>.
+            Configurer ici : <span class="mono">Admin → Realms → fiche realm</span> — pas sur la page RBAC Groupes.
+          </p>
+        </div>
       </div>
     </div>
 

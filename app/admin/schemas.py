@@ -25,6 +25,8 @@ class RealmConfigBase(BaseModel):
     keycloak_provision_client_secret: str | None = None
     # Explicit opt-in checkbox — never auto-derived from credentials presence.
     provisioning_enabled: bool = False
+    # Optional allowlist of Keycloak group names/paths (newline-separated).
+    groups_sync_include: str | None = None
 
     @field_validator("keycloak_provision_client_id", "keycloak_provision_client_secret")
     @classmethod
@@ -34,6 +36,15 @@ class RealmConfigBase(BaseModel):
         stripped = value.strip()
         return stripped or None
 
+    @field_validator("groups_sync_include")
+    @classmethod
+    def _normalize_groups_sync_include(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        lines = [ln.strip() for ln in value.replace(",", "\n").splitlines() if ln.strip()]
+        if not lines:
+            return None
+        return "\n".join(lines)
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:

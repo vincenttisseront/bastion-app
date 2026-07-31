@@ -35,7 +35,9 @@
         {% endfor %}
       </div>
       <p class="form-hint" style="margin:0 0 var(--sp-4);">
-        Sync = structure des groupes Keycloak (noms / paths). Les utilisateurs ne sont pas importés ; pour voir un membre, ouvrez la fiche du groupe ou Utilisateurs → Ouvrir.
+        Sync = structure des groupes Keycloak (noms / paths). Les utilisateurs ne sont pas importés.
+        Filtre des groupes à importer : <a href="/admin/realms">Admin → Realms</a> → compte de service sync → « Groupes à synchroniser ».
+        Première connexion SSO : file d’attente <a href="/admin/pending-users">Nouveaux users</a>.
       </p>
 
       <form method="get" action="/admin/rbac" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end; margin-bottom:var(--sp-4);">

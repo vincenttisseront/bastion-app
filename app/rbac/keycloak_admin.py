@@ -677,6 +677,35 @@ async def fetch_keycloak_groups(realm: RealmConfig, settings: Settings) -> list[
     return resp.json()
 
 
+def parse_groups_sync_include(raw: str | None) -> list[str]:
+    """Newline- or comma-separated group names / paths. Empty = no filter."""
+    if not raw:
+        return []
+    out: list[str] = []
+    for part in raw.replace(",", "\n").splitlines():
+        token = part.strip()
+        if token and token not in out:
+            out.append(token)
+    return out
+
+
+def group_matches_sync_include(name: str, path: str, include: list[str]) -> bool:
+    if not include:
+        return True
+    name_l = (name or "").strip().lower()
+    path_l = (path or "").strip().lower()
+    for rule in include:
+        r = rule.strip().lower()
+        if not r:
+            continue
+        if name_l == r or path_l == r:
+            return True
+        # Path prefix: "/Societes" matches "/Societes/ABIOM"
+        if path_l.startswith(r.rstrip("/") + "/") or path_l.rstrip("/") == r.rstrip("/"):
+            return True
+    return False
+
+
 async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settings) -> dict:
     if not realm.groups_sync_enabled:
         raise ValueError(
@@ -692,15 +721,20 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
         raise ValueError(f"Keycloak injoignable depuis le serveur : {exc}") from exc
 
     groups = _flatten_groups(raw if isinstance(raw, list) else [])
+    include = parse_groups_sync_include(getattr(realm, "groups_sync_include", None))
     now = utcnow()
     imported = 0
     updated = 0
+    skipped = 0
 
     for g in groups:
         kc_id = str(g.get("id") or "").strip()
         name = str(g.get("name") or "").strip()
         path = str(g.get("path") or "").strip()
         if not kc_id or not name or not path:
+            continue
+        if not group_matches_sync_include(name, path, include):
+            skipped += 1
             continue
 
         existing = (
@@ -755,6 +789,7 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
         "imported": imported,
         "updated": updated,
         "orphaned": orphaned,
+        "skipped": skipped,
         "synced_at": now.isoformat(),
     }
 

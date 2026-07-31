@@ -144,6 +144,7 @@ def _realm_form_values(
             "enabled": realm.enabled,
             "keycloak_admin_client_id": realm.keycloak_admin_client_id or "",
             "groups_sync_enabled": bool(realm.groups_sync_enabled),
+            "groups_sync_include": realm.groups_sync_include or "",
             "keycloak_provision_client_id": realm.keycloak_provision_client_id or "",
             "provisioning_configured": bool(realm.keycloak_provision_client_secret_encrypted),
             "provisioning_enabled": bool(realm.provisioning_enabled),
@@ -162,6 +163,7 @@ def _realm_form_values(
         "enabled": False,
         "keycloak_admin_client_id": "",
         "groups_sync_enabled": False,
+        "groups_sync_include": "",
         "keycloak_provision_client_id": "",
         "provisioning_configured": False,
         "provisioning_enabled": False,
@@ -327,6 +329,7 @@ async def admin_realms_create(
     client_secret: str = Form(""),
     keycloak_admin_client_id: str = Form(""),
     keycloak_admin_client_secret: str = Form(""),
+    groups_sync_include: str = Form(""),
     keycloak_provision_client_id: str = Form(""),
     keycloak_provision_client_secret: str = Form(""),
     provisioning_enabled: str | None = Form(None),
@@ -350,6 +353,7 @@ async def admin_realms_create(
     )
     form_values["keycloak_provision_client_id"] = keycloak_provision_client_id
     form_values["provisioning_enabled"] = _form_bool(provisioning_enabled)
+    form_values["groups_sync_include"] = groups_sync_include
     enabled = _form_bool(activate)
 
     try:
@@ -361,6 +365,7 @@ async def admin_realms_create(
             client_secret=client_secret,
             keycloak_admin_client_id=keycloak_admin_client_id or None,
             keycloak_admin_client_secret=keycloak_admin_client_secret or None,
+            groups_sync_include=groups_sync_include or None,
             keycloak_provision_client_id=keycloak_provision_client_id or None,
             keycloak_provision_client_secret=keycloak_provision_client_secret or None,
             provisioning_enabled=_form_bool(provisioning_enabled),
@@ -480,6 +485,7 @@ async def admin_realms_create(
         keycloak_admin_client_id=admin_client_id,
         keycloak_admin_client_secret_encrypted=admin_secret_encrypted,
         groups_sync_enabled=bool(admin_client_id and admin_secret_encrypted),
+        groups_sync_include=data.groups_sync_include,
         keycloak_provision_client_id=provision_client_id,
         keycloak_provision_client_secret_encrypted=provision_secret_encrypted,
         provisioning_enabled=bool(
@@ -587,6 +593,7 @@ async def admin_realms_update(
     client_secret: str = Form(""),
     keycloak_admin_client_id: str = Form(""),
     keycloak_admin_client_secret: str = Form(""),
+    groups_sync_include: str = Form(""),
     keycloak_provision_client_id: str = Form(""),
     keycloak_provision_client_secret: str = Form(""),
     provisioning_enabled: str | None = Form(None),
@@ -613,6 +620,7 @@ async def admin_realms_update(
             "is_default": _form_bool(is_default),
             "keycloak_provision_client_id": keycloak_provision_client_id,
             "provisioning_enabled": _form_bool(provisioning_enabled),
+            "groups_sync_include": groups_sync_include,
         }
     )
     enabled_requested = _form_bool(activate)
@@ -625,6 +633,7 @@ async def admin_realms_update(
             client_secret=client_secret or None,
             keycloak_admin_client_id=keycloak_admin_client_id or None,
             keycloak_admin_client_secret=keycloak_admin_client_secret or None,
+            groups_sync_include=groups_sync_include or None,
             keycloak_provision_client_id=keycloak_provision_client_id or None,
             keycloak_provision_client_secret=keycloak_provision_client_secret or None,
             provisioning_enabled=_form_bool(provisioning_enabled),
@@ -753,6 +762,7 @@ async def admin_realms_update(
         (realm.keycloak_admin_client_id or "").strip()
         and (realm.keycloak_admin_client_secret_encrypted or "").strip()
     )
+    realm.groups_sync_include = data.groups_sync_include
 
     # --- Compte de service provisioning (écriture) ---
     provision_id = data.keycloak_provision_client_id

@@ -131,8 +131,9 @@ async def admin_rbac_groups_sync(
         f"Synchronisation groupes OK "
         f"({result.get('imported', 0)} nouveaux groupes, "
         f"{result.get('updated', 0)} mis à jour, "
-        f"{result.get('orphaned', 0)} orphelins) — "
-        f"les membres Keycloak ne sont pas importés ici.",
+        f"{result.get('orphaned', 0)} orphelins"
+        f"{(', ' + str(result.get('skipped', 0)) + ' filtrés') if result.get('skipped') else ''}"
+        f") — les membres Keycloak ne sont pas importés ici.",
         "success",
         settings.vault_portal_internal_token or "dev",
     )

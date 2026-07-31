@@ -12,6 +12,7 @@ from app.models import (
     AdminNotificationDismissal,
     AuditLog,
     PendingHost,
+    PendingUser,
     RealmConfig,
     utcnow,
 )
@@ -39,6 +40,12 @@ SHORTCUTS: list[dict[str, str]] = [
         "label": "Domaines",
         "href": "/admin/pending-hosts",
         "hint": "Découverte d'hôtes inconnus",
+    },
+    {
+        "id": "new-users",
+        "label": "Nouveaux users",
+        "href": "/admin/pending-users",
+        "hint": "Premières connexions SSO",
     },
     {
         "id": "acme",
@@ -230,6 +237,55 @@ def build_notification_feed(
                 "href": "/admin/pending-hosts?status=pending",
                 "time": _fmt_time(latest.last_seen_at) if latest else None,
                 "count": pending_count,
+                "counts_for_badge": True,
+                "dismissible": True,
+            }
+        )
+
+    from app.web.pending_user_service import discover_recent_first_logins
+
+    try:
+        if discover_recent_first_logins(db):
+            db.commit()
+    except Exception:
+        db.rollback()
+
+    pending_user_rows = (
+        db.query(PendingUser)
+        .filter(PendingUser.status == "pending")
+        .order_by(PendingUser.last_seen_at.desc())
+        .limit(200)
+        .all()
+    )
+    pending_user_count = len(pending_user_rows)
+    if pending_user_count:
+        latest_u = pending_user_rows[0]
+        fp_u = [
+            str(pending_user_count),
+            latest_u.user_email or "",
+            str(int(latest_u.hit_count or 0)),
+        ]
+        if latest_u.last_seen_at:
+            fp_u.append(latest_u.last_seen_at.isoformat())
+        items.append(
+            {
+                "id": "pending-users",
+                "fingerprint": "|".join(fp_u),
+                "severity": "info",
+                "category": "identity",
+                "title": (
+                    f"{pending_user_count} nouvelle"
+                    f"{'s' if pending_user_count > 1 else ''} connexion"
+                    f"{'s' if pending_user_count > 1 else ''}"
+                ),
+                "body": (
+                    f"Dernier : {latest_u.user_email}"
+                    if latest_u.user_email
+                    else "Utilisateurs SSO à valider"
+                ),
+                "href": "/admin/pending-users?status=pending",
+                "time": _fmt_time(latest_u.last_seen_at) if latest_u else None,
+                "count": pending_user_count,
                 "counts_for_badge": True,
                 "dismissible": True,
             }
