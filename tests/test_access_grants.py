@@ -216,3 +216,29 @@ def test_create_grant_via_api(client, db_session):
     assert resp.status_code == 200
     assert resp.json()["grant"]["access_level"] == "view"
     assert db_session.query(AccessGrant).count() == 1
+
+
+def test_create_grant_via_formdata_with_json_accept(client, db_session):
+    """Modal posts multipart FormData but asks for JSON (Accept) — must not 500."""
+    realm = _realm(db_session)
+    group = _group(db_session, realm)
+    app = _app(db_session)
+
+    resp = client.post(
+        "/admin/rbac/grants",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={
+            "subject_type": "group",
+            "rbac_group_id": str(group.id),
+            "resource_type": "application",
+            "application_id": str(app.id),
+            "access_level": "launch",
+            "redirect_url": f"/admin/rbac/groups/{group.id}",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["grant"]["access_level"] == "launch"
+    assert body["grant"]["rbac_group_id"] == group.id
+    assert db_session.query(AccessGrant).count() == 1

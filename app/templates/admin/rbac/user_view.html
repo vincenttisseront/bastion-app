@@ -157,7 +157,7 @@
           <span class="card-title">Droits directs</span>
           <span class="badge badge-muted">{{ direct_grants | length }}</span>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" data-open-grant-modal="grant-">Ajouter un droit</button>
+        <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>Ajouter un droit</button>
       </div>
       {% with grant_rows=direct_grants, show_granted_by=true, show_source=false, show_actions=true, empty_message='Aucun droit direct.', delete_redirect=view_url ~ '#droits' %}
       {% include "admin/rbac/_grants_by_category.html" %}

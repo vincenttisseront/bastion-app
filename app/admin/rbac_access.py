@@ -622,7 +622,10 @@ async def admin_rbac_grants_create(
 ):
     redirect_url = "/admin/rbac"
     body: dict = {}
-    if _wants_json(request) or request.headers.get("content-type", "").startswith("application/json"):
+    content_type = (request.headers.get("content-type") or "").lower()
+    # Parse by Content-Type only — the modal posts multipart FormData with
+    # Accept: application/json (JSON response), which must not call request.json().
+    if content_type.startswith("application/json"):
         body = await request.json()
     else:
         form = await request.form()

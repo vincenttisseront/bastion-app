@@ -26,7 +26,13 @@
         <tbody>
           {% for m in members %}
           <tr>
-            <td class="mono">{{ m.username or '—' }}</td>
+            <td class="mono">
+              {% if m.id %}
+              <a href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ m.id }}">{{ m.username or m.id }}</a>
+              {% else %}
+              {{ m.username or '—' }}
+              {% endif %}
+            </td>
             <td>{{ m.email or '—' }}</td>
             <td>
               {% if m.enabled %}
