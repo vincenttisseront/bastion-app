@@ -7,8 +7,8 @@
   <meta name="robots" content="noindex,nofollow">
   <title>{% block title %}{{ branding.page_title }}{% endblock %}{% if branding.show_product_branding %} — Bastion Pro{% endif %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ branding.favicon_url | default('/static/img/generic-shield.svg') }}">
-  <script src="/static/portal-theme.js?v=20260731-branding"></script>
-  <link rel="stylesheet" href="/static/portal.css?v=20260731-branding">
+  <script src="/static/portal-theme.js?v=20260731-cssfix1"></script>
+  <link rel="stylesheet" href="/static/portal.css?v=20260731-cssfix1">
   {% block head_extra %}{% endblock %}
 </head>
 <body class="{% block body_class %}page-login{% endblock %}"{% if branding.accent_color %} style="--accent: {{ branding.accent_color }};"{% endif %}>
@@ -20,8 +20,8 @@
   </main>
 
   {% include 'partials/_bastion_modal.html' %}
-  <script src="/static/portal-busy.js?v=20260731-branding"></script>
-  <script src="/static/portal-modal.js?v=20260731-branding"></script>
+  <script src="/static/portal-busy.js?v=20260731-cssfix1"></script>
+  <script src="/static/portal-modal.js?v=20260731-cssfix1"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

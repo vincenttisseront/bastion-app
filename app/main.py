@@ -160,7 +160,8 @@ def _register_portal_static_aliases(application: FastAPI) -> None:
             return FileResponse(
                 path,
                 media_type=media,
-                headers={"Cache-Control": "public, max-age=604800"},
+                # Keep short — public login aliases change with branding deploys.
+                headers={"Cache-Control": "public, max-age=300"},
             )
 
         return _serve
