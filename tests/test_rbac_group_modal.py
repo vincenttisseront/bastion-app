@@ -58,18 +58,27 @@ def test_rbac_group_modal_role_config_save(client, db_session):
     assert audit.actor == "admin@example.com"
 
 
-def test_rbac_group_modal_page_has_cards(client, db_session, monkeypatch):
-    async def no_members(*args, **kwargs):
-        return []
-
-    monkeypatch.setattr(
-        "app.rbac.keycloak_admin.fetch_group_members",
-        no_members,
-    )
-    db_session.add(RBACGroup(name="readers", member_count=3))
+def test_rbac_groups_page_table_and_pagination(client, db_session):
+    for i in range(12):
+        db_session.add(RBACGroup(name=f"grp-{i:02d}", member_count=i))
     db_session.commit()
-    resp = client.get("/admin/rbac", headers=ADMIN_HEADERS)
+
+    resp = client.get("/admin/rbac?per_page=10", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert "Gestion des Groupes" in resp.text
-    assert "group-card" in resp.text
-    assert "readers" in resp.text
+    assert 'id="rbac-groups-table"' in resp.text
+    assert "group-card" not in resp.text
+    assert "grp-00" in resp.text
+    assert "grp-09" in resp.text
+    assert "grp-10" not in resp.text
+    assert "Page 1 / 2" in resp.text
+
+    page2 = client.get("/admin/rbac?per_page=10&page=2", headers=ADMIN_HEADERS)
+    assert page2.status_code == 200
+    assert "grp-10" in page2.text
+    assert "grp-00" not in page2.text
+
+    filtered = client.get("/admin/rbac?q=grp-05", headers=ADMIN_HEADERS)
+    assert filtered.status_code == 200
+    assert "grp-05" in filtered.text
+    assert "grp-00" not in filtered.text

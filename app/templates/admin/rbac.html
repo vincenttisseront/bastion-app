@@ -3,11 +3,17 @@
 {% block breadcrumb %}Admin / RBAC{% endblock %}
 
 {% block content %}
+{% set group_rows = group_rows if group_rows is defined else (group_cards | default([])) %}
+{% set groups_page = groups_page | default(1) %}
+{% set groups_total_pages = groups_total_pages | default(1) %}
+{% set groups_total = groups_total | default(group_rows | length) %}
+{% set groups_per_page = groups_per_page | default(50) %}
+{% set groups_q = groups_q | default('') %}
 <div class="page">
   <div class="page-header">
     <div>
       <h1 class="page-title">Gestion des Groupes</h1>
-      <p class="page-sub">Groupes Keycloak synchronisés, configuration de gouvernance</p>
+      <p class="page-sub">Groupes Keycloak synchronisés, configuration de gouvernance · {{ groups_total }} groupe(s)</p>
     </div>
   </div>
 
@@ -15,7 +21,7 @@
 
   <div class="dash-grid" style="grid-template-columns:minmax(0,1fr) 280px; gap:var(--sp-4); align-items:start;">
     <div>
-      <div style="display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-bottom:var(--sp-4);">
+      <div style="display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-bottom:var(--sp-2);">
         {% for realm in realms %}
           {% if realm.groups_sync_enabled %}
             <form method="post" action="/admin/rbac/groups/sync/{{ realm.id }}">
@@ -28,51 +34,106 @@
           <span class="badge badge-muted">Aucun realm configuré</span>
         {% endfor %}
       </div>
+      <p class="form-hint" style="margin:0 0 var(--sp-4);">
+        Sync = structure des groupes Keycloak (noms / paths). Les utilisateurs ne sont pas importés ; pour voir un membre, ouvrez la fiche du groupe ou Utilisateurs → Ouvrir.
+      </p>
 
-      <label class="topbar-search" style="max-width:100%; margin-bottom:var(--sp-4);" for="rbac-groups-search">
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="search" id="rbac-groups-search" placeholder="Rechercher un groupe…" autocomplete="off" aria-label="Recherche groupes RBAC">
-      </label>
-
-      <div class="group-cards-grid" id="rbac-groups-grid">
-        {% for card in group_cards %}
-        <article class="group-card" data-searchable data-fuzzy-key="{{ card.name }} {{ card.path or '' }} {{ card.realm_slug or '' }} {{ card.group_tag or '' }}">
-          {% if card.group_tag %}
-          <span class="badge badge-warn group-card-tag">{{ card.group_tag }}</span>
-          {% else %}
-          <span class="badge badge-ok group-card-tag">Actif</span>
-          {% endif %}
-          <div class="group-card-title">
-            <a href="/admin/rbac/groups/{{ card.id }}">{{ card.name }}</a>
-          </div>
-          <p class="group-card-desc">{{ card.description or 'Aucune description' }}</p>
-          <div class="avatar-stack" aria-label="Membres">
-            {% for m in card.member_previews %}
-            <div class="avatar-initials" style="background:{{ m.avatar_color }};" title="{{ m.display }}">{{ m.initials }}</div>
+      <form method="get" action="/admin/rbac" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end; margin-bottom:var(--sp-4);">
+        <div class="form-group" style="flex:1; min-width:14rem; margin:0;">
+          <label class="form-label" for="rbac-groups-search">Rechercher</label>
+          <input type="search" id="rbac-groups-search" name="q" class="form-input"
+                 value="{{ groups_q }}" placeholder="Nom, path, tag, realm…" autocomplete="off">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label" for="rbac-groups-per-page">Par page</label>
+          <select id="rbac-groups-per-page" name="per_page" class="form-select">
+            {% for n in [25, 50, 100, 200] %}
+            <option value="{{ n }}"{% if groups_per_page == n %} selected{% endif %}>{{ n }}</option>
             {% endfor %}
-            {% if card.member_more %}
-            <div class="avatar-more">+{{ card.member_more }}</div>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+        {% if groups_q %}
+        <a href="/admin/rbac" class="btn btn-ghost btn-sm">Réinitialiser</a>
+        {% endif %}
+      </form>
+
+      <div class="card" style="padding:0;">
+        <div class="table-wrap" style="border:none; border-radius:0;">
+          <table class="data-table" id="rbac-groups-table">
+            <thead>
+              <tr>
+                <th>Groupe</th>
+                <th>Realm</th>
+                <th>Tag</th>
+                <th>Membres</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in group_rows %}
+              <tr>
+                <td>
+                  <a href="/admin/rbac/groups/{{ row.id }}"><strong>{{ row.name }}</strong></a>
+                  {% if row.path %}
+                  <div class="mono form-hint">{{ row.path }}</div>
+                  {% endif %}
+                </td>
+                <td class="mono">{{ row.realm_slug or '—' }}</td>
+                <td>
+                  {% if row.group_tag %}
+                  <span class="badge badge-warn">{{ row.group_tag }}</span>
+                  {% else %}
+                  <span class="badge badge-muted">—</span>
+                  {% endif %}
+                </td>
+                <td>{{ row.member_count }}</td>
+                <td style="white-space:nowrap; text-align:right;">
+                  <button type="button" class="btn btn-ghost btn-sm"
+                          data-group-config
+                          data-group-id="{{ row.id }}"
+                          data-group-name="{{ row.name }}"
+                          data-group-tag="{{ row.group_tag or '' }}"
+                          data-group-description="{{ row.description or '' }}"
+                          data-mode="{{ row.role_mode or 'limited' }}">
+                    Permissions
+                  </button>
+                  <a href="/admin/rbac/groups/{{ row.id }}" class="btn btn-primary btn-sm">Ouvrir</a>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5">
+                  <div class="empty-state" style="padding:var(--sp-6);">
+                    <div class="empty-title">Aucun groupe</div>
+                    <div class="empty-desc">
+                      {% if groups_q %}Aucun résultat pour « {{ groups_q }} ».{% else %}Les groupes Keycloak synchronisés apparaîtront ici.{% endif %}
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if groups_total_pages > 1 or groups_total > groups_per_page %}
+        <div class="card-header" style="border-top:1px solid var(--border-muted); justify-content:space-between;">
+          <span class="form-hint">
+            Page {{ groups_page }} / {{ groups_total_pages }}
+            · {{ groups_total }} groupe(s)
+          </span>
+          <div style="display:flex; gap:var(--sp-2);">
+            {% if groups_page > 1 %}
+            <a class="btn btn-ghost btn-sm"
+               href="/admin/rbac?q={{ groups_q | urlencode }}&amp;page={{ groups_page - 1 }}&amp;per_page={{ groups_per_page }}">← Précédent</a>
+            {% endif %}
+            {% if groups_page < groups_total_pages %}
+            <a class="btn btn-ghost btn-sm"
+               href="/admin/rbac?q={{ groups_q | urlencode }}&amp;page={{ groups_page + 1 }}&amp;per_page={{ groups_per_page }}">Suivant →</a>
             {% endif %}
           </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:var(--sp-2); margin-top:auto;">
-            <span class="badge badge-muted">{{ card.member_count }} membre{% if card.member_count != 1 %}s{% endif %}</span>
-            <button type="button" class="btn btn-primary btn-sm"
-                    data-group-config
-                    data-group-id="{{ card.id }}"
-                    data-group-name="{{ card.name }}"
-                    data-group-tag="{{ card.group_tag or '' }}"
-                    data-group-description="{{ card.description or '' }}"
-                    data-mode="{{ card.role_mode or 'limited' }}">
-              Permissions
-            </button>
-          </div>
-        </article>
-        {% else %}
-        <div class="empty-state" style="padding:var(--sp-6); grid-column:1 / -1;">
-          <div class="empty-title">Aucun groupe</div>
-          <div class="empty-desc">Les groupes Keycloak synchronisés apparaîtront ici.</div>
         </div>
-        {% endfor %}
+        {% endif %}
       </div>
     </div>
 
@@ -111,14 +172,6 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  if (window.BastionFuzzy) {
-    window.BastionFuzzy.init({
-      inputId: 'rbac-groups-search',
-      itemSelector: '#rbac-groups-grid [data-searchable]',
-      getKey: function (el) { return el.dataset.fuzzyKey || ''; },
-    });
-  }
-
   function escapeHtml(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;')

@@ -128,7 +128,11 @@ async def admin_rbac_groups_sync(
     response = RedirectResponse(url="/admin/rbac", status_code=302)
     flash_redirect(
         response,
-        f"Synchronisation groupes OK ({result.get('imported', 0)} importés, {result.get('updated', 0)} mis à jour, {result.get('orphaned', 0)} orphelins).",
+        f"Synchronisation groupes OK "
+        f"({result.get('imported', 0)} nouveaux groupes, "
+        f"{result.get('updated', 0)} mis à jour, "
+        f"{result.get('orphaned', 0)} orphelins) — "
+        f"les membres Keycloak ne sont pas importés ici.",
         "success",
         settings.vault_portal_internal_token or "dev",
     )

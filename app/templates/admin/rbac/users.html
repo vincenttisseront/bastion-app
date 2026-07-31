@@ -104,7 +104,7 @@
           Créés bastion{% if bastion_accounts %} <span class="badge badge-muted">{{ bastion_accounts | length }}</span>{% endif %}
         </a>
         <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=keycloak" class="tab{% if list_tab == 'keycloak' %} active{% endif %}" role="tab"{% if list_tab == 'keycloak' %} aria-current="page"{% endif %}>
-          Import Keycloak{% if import_users %} <span class="badge badge-muted">{{ import_users | length }}</span>{% endif %}
+          Avec droits Bastion{% if import_users %} <span class="badge badge-muted">{{ import_users | length }}</span>{% endif %}
         </a>
         <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=open" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
           Ouvrir
@@ -193,9 +193,13 @@
       {% if import_users %}
       <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
         <div class="card-header" style="padding:var(--sp-4);">
-          <span class="card-title">Import Keycloak (signal Bastion)</span>
+          <span class="card-title">Utilisateurs Keycloak avec droits Bastion</span>
           <span class="badge badge-muted">{{ import_users | length }}</span>
         </div>
+        <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
+          Pas un annuaire Keycloak : uniquement les comptes qui ont déjà au moins un droit individuel dans Bastion.
+          Pour un user seulement ajouté à un groupe IdP → onglet <strong>Ouvrir</strong> (recherche live).
+        </p>
         <div class="table-wrap" style="border:none;border-radius:0;">
           <table class="data-table">
             <thead>
@@ -253,7 +257,7 @@
         </div>
       </div>
       {% else %}
-      <div class="alert alert-info">Aucun utilisateur import Keycloak avec signal Bastion.</div>
+      <div class="alert alert-info">Aucun utilisateur Keycloak avec droits Bastion pour l’instant. Utilisez l’onglet Ouvrir pour rechercher dans Keycloak.</div>
       {% endif %}
 
       {% else %}

@@ -1148,15 +1148,18 @@ def admin_apps_edit_post(
                 provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
             ),
         )
-    crush_errors = _apply_crushftp_admin_config(
-        app,
-        settings,
-        crushftp_admin_base_url=crushftp_admin_base_url,
-        crushftp_admin_server_group=crushftp_admin_server_group,
-        crushftp_admin_username=crushftp_admin_username,
-        crushftp_admin_password=crushftp_admin_password,
-        crushftp_vfs_base_path=crushftp_vfs_base_path,
-    )
+    provision_driver = normalize_provisioning_driver(provisioning_driver)
+    crush_errors: dict[str, str] = {}
+    if provision_driver == "crushftp":
+        crush_errors = _apply_crushftp_admin_config(
+            app,
+            settings,
+            crushftp_admin_base_url=crushftp_admin_base_url,
+            crushftp_admin_server_group=crushftp_admin_server_group,
+            crushftp_admin_username=crushftp_admin_username,
+            crushftp_admin_password=crushftp_admin_password,
+            crushftp_vfs_base_path=crushftp_vfs_base_path,
+        )
     if crush_errors:
         errors.update(crush_errors)
         app.label = label
@@ -1740,6 +1743,9 @@ def admin_app_logo_delete(
 @admin_router.get("/admin/rbac")
 async def admin_rbac(
     request: Request,
+    q: str = Query(""),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=10, le=200),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -1748,15 +1754,12 @@ async def admin_rbac(
         role_distribution_summary,
     )
     from app.rbac.permission_seed import seed_governance_rbac
-    from app.rbac.users_stats_service import avatar_color_for, avatar_initials
-    from app.rbac.keycloak_admin import fetch_group_members
     from app.models import AccessGrant
 
     seed_governance_rbac(db)
     db.commit()
 
     realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
-    groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
     apps = db.query(App).order_by(App.label).all()
     realms_by_id = {r.id: r for r in realms}
 
@@ -1768,47 +1771,29 @@ async def admin_rbac(
         if g.rbac_group_id
     }
 
-    group_cards: list[dict] = []
+    query = db.query(RBACGroup)
+    needle = " ".join((q or "").split()).strip()
+    if needle:
+        like = f"%{needle}%"
+        query = query.filter(
+            (RBACGroup.name.ilike(like))
+            | (RBACGroup.path.ilike(like))
+            | (RBACGroup.group_tag.ilike(like))
+            | (RBACGroup.realm_slug.ilike(like))
+            | (RBACGroup.description.ilike(like))
+        )
+    total = query.count()
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * per_page
+    groups = (
+        query.order_by(RBACGroup.name).offset(offset).limit(per_page).all()
+    )
+
+    group_rows: list[dict] = []
     for g in groups:
         realm = realms_by_id.get(g.realm_id) if g.realm_id else None
-        previews: list[dict] = []
-        more = 0
-        if realm and g.keycloak_group_id:
-            try:
-                members = await fetch_group_members(realm, g.keycloak_group_id, settings)
-            except Exception:
-                members = []
-            for m in members[:3]:
-                display = (
-                    m.get("email")
-                    or m.get("username")
-                    or " ".join(
-                        p
-                        for p in (m.get("firstName") or "", m.get("lastName") or "")
-                        if p
-                    )
-                    or "?"
-                )
-                previews.append(
-                    {
-                        "display": display,
-                        "initials": avatar_initials(display),
-                        "avatar_color": avatar_color_for(display),
-                    }
-                )
-            more = max(0, len(members) - len(previews))
-        elif g.member_count and g.member_count > 0:
-            # Fallback visual when Keycloak members unavailable
-            label = g.name or "?"
-            previews.append(
-                {
-                    "display": label,
-                    "initials": avatar_initials(label),
-                    "avatar_color": avatar_color_for(label),
-                }
-            )
-            more = max(0, int(g.member_count) - 1)
-
         grant = role_grants.get(g.id)
         mode = "limited"
         role_id = None
@@ -1817,8 +1802,7 @@ async def admin_rbac(
             role_id = grant.rbac_role_id
         elif grant:
             role_id = grant.rbac_role_id
-
-        group_cards.append(
+        group_rows.append(
             {
                 "id": g.id,
                 "name": g.name,
@@ -1826,9 +1810,7 @@ async def admin_rbac(
                 "realm_slug": (realm.slug if realm else g.realm_slug),
                 "group_tag": g.group_tag,
                 "description": g.description,
-                "member_count": int(g.member_count or len(previews) + more),
-                "member_previews": previews,
-                "member_more": more,
+                "member_count": int(g.member_count or 0),
                 "role_mode": mode,
                 "rbac_role_id": role_id,
             }
@@ -1843,7 +1825,13 @@ async def admin_rbac(
             realms_by_id=realms_by_id,
             groups=groups,
             apps=apps,
-            group_cards=group_cards,
+            group_rows=group_rows,
+            group_cards=group_rows,  # backward-compatible alias
+            groups_q=needle,
+            groups_page=page,
+            groups_per_page=per_page,
+            groups_total=total,
+            groups_total_pages=total_pages,
             role_distribution=role_distribution_summary(db),
             excess_alerts=excess_permission_alerts(db),
             active_tab="groups",
