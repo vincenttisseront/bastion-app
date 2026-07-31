@@ -31,7 +31,7 @@ def test_parse_and_match_groups_sync_include():
     ]
     assert group_matches_sync_include("ARSYSTEMS-Users", "/ARSYSTEMS-Users", []) is True
     assert group_matches_sync_include(
-        "ARSYSTEMS-Users", "/ARSYSTEMS-Users", ["ARSYSTEMS-Users"]
+        "ARSYSTEMS-Users", "/ARSYSTEMS-Users", ["ARSYSTEMS Users"]
     )
     assert group_matches_sync_include("ABIOM", "/Societes/ABIOM", ["/Societes"])
     assert not group_matches_sync_include("other", "/other", ["ARSYSTEMS-Users"])
@@ -251,6 +251,16 @@ def test_sync_respects_groups_include_filter(client, db_session):
             {"id": "2", "name": "ABIOM", "path": "/Societes/ABIOM"},
         ],
     )
+    respx.get(
+        "https://kc.example.com/admin/realms/demo/groups/1/members?max=500"
+    ).respond(
+        200,
+        json=[
+            {"id": "u1", "email": "a@example.com"},
+            {"id": "u2", "email": "b@example.com"},
+            {"id": "u3", "email": "c@example.com"},
+        ],
+    )
 
     resp = client.post(
         f"/admin/rbac/groups/sync/{realm.id}",
@@ -260,5 +270,8 @@ def test_sync_respects_groups_include_filter(client, db_session):
     data = resp.json()
     assert data["imported"] == 1
     assert data["skipped"] == 1
-    names = {g.name for g in db_session.query(RBACGroup).filter_by(realm_id=realm.id).all()}
-    assert names == {"ARSYSTEMS-Users"}
+    assert data["members_refreshed"] == 1
+    assert data["members_total"] == 3
+    group = db_session.query(RBACGroup).filter_by(realm_id=realm.id).one()
+    assert group.name == "ARSYSTEMS-Users"
+    assert group.member_count == 3

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import quote
 
 import httpx
@@ -163,9 +164,18 @@ async def logout_keycloak_user(
 
 
 async def fetch_group_members(
-    realm: RealmConfig, keycloak_group_id: str, settings: Settings
+    realm: RealmConfig,
+    keycloak_group_id: str,
+    settings: Settings,
+    *,
+    max_results: int = 500,
 ) -> list[dict]:
-    resp = await _admin_get(realm, settings, f"/groups/{keycloak_group_id}/members")
+    max_results = max(1, min(int(max_results), 2000))
+    resp = await _admin_get(
+        realm,
+        settings,
+        f"/groups/{keycloak_group_id}/members?max={max_results}",
+    )
     if resp.status_code == 403:
         raise ValueError(_view_users_error())
     if resp.status_code >= 400:
@@ -689,19 +699,32 @@ def parse_groups_sync_include(raw: str | None) -> list[str]:
     return out
 
 
+def _norm_group_token(value: str) -> str:
+    """Collapse spaces / hyphens / underscores so « ARSYSTEMS Users » ≈ « ARSYSTEMS-Users »."""
+    return re.sub(r"[\s_\-]+", "", (value or "").strip().lower())
+
+
 def group_matches_sync_include(name: str, path: str, include: list[str]) -> bool:
     if not include:
         return True
     name_l = (name or "").strip().lower()
     path_l = (path or "").strip().lower()
+    name_n = _norm_group_token(name_l)
+    path_n = _norm_group_token(path_l)
+    path_base = path_l.rsplit("/", 1)[-1] if path_l else ""
+    path_base_n = _norm_group_token(path_base)
     for rule in include:
         r = rule.strip().lower()
         if not r:
             continue
-        if name_l == r or path_l == r:
+        r_n = _norm_group_token(r)
+        if name_l == r or path_l == r or name_n == r_n or path_n == r_n or path_base_n == r_n:
             return True
         # Path prefix: "/Societes" matches "/Societes/ABIOM"
         if path_l.startswith(r.rstrip("/") + "/") or path_l.rstrip("/") == r.rstrip("/"):
+            return True
+        # Normalized prefix on path segments
+        if r_n and path_n.startswith(r_n):
             return True
     return False
 
@@ -726,6 +749,11 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
     imported = 0
     updated = 0
     skipped = 0
+    members_refreshed = 0
+    members_total = 0
+    # Refresh member counts only when an allowlist is set (avoids N Keycloak calls on 200+ groups).
+    refresh_members = bool(include)
+    synced_rows: list[RBACGroup] = []
 
     for g in groups:
         kc_id = str(g.get("id") or "").strip()
@@ -743,15 +771,14 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
             .first()
         )
         if not existing:
-            db.add(
-                RBACGroup(
-                    realm_id=realm.id,
-                    keycloak_group_id=kc_id,
-                    name=name,
-                    path=path,
-                    synced_at=now,
-                )
+            existing = RBACGroup(
+                realm_id=realm.id,
+                keycloak_group_id=kc_id,
+                name=name,
+                path=path,
+                synced_at=now,
             )
+            db.add(existing)
             imported += 1
         else:
             changed = False
@@ -764,8 +791,22 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
             existing.synced_at = now
             if changed:
                 updated += 1
+        synced_rows.append(existing)
 
     db.flush()
+
+    if refresh_members:
+        for row in synced_rows:
+            if not row.keycloak_group_id:
+                continue
+            try:
+                members = await fetch_group_members(realm, row.keycloak_group_id, settings)
+            except Exception:
+                continue
+            count = len(members)
+            row.member_count = count
+            members_refreshed += 1
+            members_total += count
 
     # Orphans: groups in DB for this realm not refreshed this run.
     # Use equality check on the run timestamp to avoid timezone/SQLite quirks.
@@ -790,6 +831,8 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
         "updated": updated,
         "orphaned": orphaned,
         "skipped": skipped,
+        "members_refreshed": members_refreshed,
+        "members_total": members_total,
         "synced_at": now.isoformat(),
     }
 

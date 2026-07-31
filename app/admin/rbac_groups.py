@@ -118,22 +118,47 @@ async def admin_rbac_groups_sync(
         actor=user.email,
         action="rbac.groups.sync",
         target=realm.slug,
-        details={k: result.get(k) for k in ("status", "imported", "updated", "orphaned")},
+        details={
+            k: result.get(k)
+            for k in (
+                "status",
+                "imported",
+                "updated",
+                "orphaned",
+                "skipped",
+                "members_refreshed",
+                "members_total",
+            )
+        },
         ip_address=_client_ip(request),
     )
 
     if _wants_json(request):
         return JSONResponse({"ok": True, **result})
 
+    parts = [
+        f"{result.get('imported', 0)} nouveaux",
+        f"{result.get('updated', 0)} mis à jour",
+        f"{result.get('orphaned', 0)} orphelins",
+    ]
+    if result.get("skipped"):
+        parts.append(f"{result.get('skipped')} filtrés")
+    members_bit = ""
+    if result.get("members_refreshed"):
+        members_bit = (
+            f" · effectifs Keycloak : {result.get('members_total', 0)} membre(s) "
+            f"sur {result.get('members_refreshed')} groupe(s)"
+        )
+    else:
+        members_bit = (
+            " · effectifs non relus (renseignez le filtre « Groupes à synchroniser » "
+            "sur la fiche realm pour compter les membres)"
+        )
+
     response = RedirectResponse(url="/admin/rbac", status_code=302)
     flash_redirect(
         response,
-        f"Synchronisation groupes OK "
-        f"({result.get('imported', 0)} nouveaux groupes, "
-        f"{result.get('updated', 0)} mis à jour, "
-        f"{result.get('orphaned', 0)} orphelins"
-        f"{(', ' + str(result.get('skipped', 0)) + ' filtrés') if result.get('skipped') else ''}"
-        f") — les membres Keycloak ne sont pas importés ici.",
+        f"Synchronisation groupes OK ({', '.join(parts)}){members_bit}.",
         "success",
         settings.vault_portal_internal_token or "dev",
     )

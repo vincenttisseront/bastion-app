@@ -130,7 +130,7 @@
         <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
         <div>
           <div class="form-section-title">Compte de service (synchronisation des groupes)</div>
-          <div class="form-section-sub">Client confidentiel dédié, rôle minimum : <span class="mono">realm-management:query-groups</span></div>
+          <div class="form-section-sub">Client confidentiel dédié, rôles : <span class="mono">realm-management:query-groups</span> + <span class="mono">view-users</span> (pour compter les membres si filtre renseigné)</div>
           <div class="form-section-summary{% if not sync_ready %} is-off{% endif %}">
             {% if form_values.groups_sync_enabled %}Sync groupes activée{% elif form_values.keycloak_admin_client_id %}Client admin : {{ form_values.keycloak_admin_client_id }}{% else %}Non configuré{% endif %}
           </div>
@@ -160,9 +160,10 @@
           <textarea id="groups_sync_include" name="groups_sync_include" class="form-textarea" rows="4"
                     placeholder="ARSYSTEMS-Users&#10;/Societes&#10;portal-admins">{{ form_values.groups_sync_include or '' }}</textarea>
           <p class="form-hint">
-            Un nom ou path Keycloak par ligne. Vide = <strong>tous</strong> les groupes du realm (comportement historique).
-            Ex. <span class="mono">ARSYSTEMS-Users</span> ou préfixe de path <span class="mono">/Societes</span>.
-            Configurer ici : <span class="mono">Admin → Realms → fiche realm</span> — pas sur la page RBAC Groupes.
+            Un nom ou path Keycloak par ligne. Vide = <strong>tous</strong> les groupes du realm
+            (sans relecture des effectifs). Avec un filtre, la sync compte aussi les membres Keycloak.
+            Ex. <span class="mono">ARSYSTEMS-Users</span> (tiret) — « ARSYSTEMS Users » est aussi accepté.
+            Préfixe de path : <span class="mono">/Societes</span>.
           </p>
         </div>
       </div>
