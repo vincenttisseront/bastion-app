@@ -1,7 +1,7 @@
-@import url('./bastion-tokens.css');
-@import url('./bastion-base.css');
-@import url('./bastion-layout.css');
-@import url('./bastion-components.css');
-@import url('./bastion-dashboard.css');
-@import url('./bastion-login.css');
-@import url('./bastion-portal.css');
+@import url('/static/css/bastion-tokens.css');
+@import url('/static/css/bastion-base.css');
+@import url('/static/css/bastion-layout.css');
+@import url('/static/css/bastion-components.css');
+@import url('/static/css/bastion-dashboard.css');
+@import url('/static/css/bastion-login.css');
+@import url('/static/css/bastion-portal.css');

@@ -1,4 +1,5 @@
-﻿@import url('/static/css/bastion-tokens.css');
+/* Public login entry — absolute imports so this file can be served as /static/portal.css */
+@import url('/static/css/bastion-tokens.css');
 @import url('/static/css/bastion-base.css');
 @import url('/static/css/bastion-layout.css');
 @import url('/static/css/bastion-components.css');
