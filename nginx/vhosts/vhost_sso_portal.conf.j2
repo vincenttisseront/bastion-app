@@ -10,6 +10,7 @@ server {
 server {
     listen 443 ssl;
     server_name {{ portal_domain }};
+    server_tokens off;
 
     ssl_certificate /etc/letsencrypt/live/{{ base_domain }}/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/{{ base_domain }}/privkey.pem;
@@ -130,6 +131,16 @@ server {
         add_header Cache-Control "public, max-age=604800" always;
     }
 
+    location ^~ /media/branding/ {
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800" always;
+    }
+
     location = /favicon.ico {
         auth_request off;
         log_not_found off;
@@ -137,7 +148,7 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
-        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/static/img/bastion-icon.svg;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/static/img/generic-shield.svg;
     }
 
     # Déconnexion SLO — direct FastAPI (pas d'auth_request : évite 500 Nginx si oauth2-proxy répond autrement que 200/401)

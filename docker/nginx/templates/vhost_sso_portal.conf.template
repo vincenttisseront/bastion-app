@@ -6,6 +6,7 @@ server {
     # server{} blocks must NOT steal Host 127.0.0.1 (healthchecks /_portal_nginx_ok).
     listen 0.0.0.0:8080 default_server;
     server_name ${PORTAL_DOMAIN} _;
+    server_tokens off;
 
     # Derrière Traefik/edge :443 — ne pas réécrire Location en :8080 (port listen interne)
     absolute_redirect off;
@@ -141,6 +142,16 @@ server {
         add_header Cache-Control "public, max-age=604800" always;
     }
 
+    location ^~ /media/branding/ {
+        auth_request off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://$bastion_app_upstream;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800" always;
+    }
+
     location = /favicon.ico {
         auth_request off;
         log_not_found off;
@@ -148,7 +159,7 @@ server {
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
-        proxy_pass http://$bastion_app_upstream/static/img/bastion-icon.svg;
+        proxy_pass http://$bastion_app_upstream/static/img/generic-shield.svg;
     }
 
     location = /logout {

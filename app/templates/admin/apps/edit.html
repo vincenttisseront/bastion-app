@@ -171,8 +171,9 @@
           </select>
           <p class="form-help">
             Utilisé par « Nouvel utilisateur » (bastion → Keycloak → appli).
-            <span class="mono">crushftp</span> requiert la section « API Admin CrushFTP »
-            ci-dessous (compte admin partagé) — distinct du Credential vault individuel.
+            Choisissez <span class="mono">crushftp</span> pour afficher et configurer
+            la section « API Admin CrushFTP » (compte admin partagé) —
+            distinct du Credential vault individuel.
             Vide = SSO uniquement, aucun compte local créé.
           </p>
         </div>
@@ -181,12 +182,17 @@
 
     {% set crush_admin_configured = app.crushftp_admin_password_encrypted and app.crushftp_admin_username and app.crushftp_admin_base_url %}
     {% set crush_admin_summary = 'Configuré' if crush_admin_configured else 'Non configuré' %}
-    <div class="form-section is-accordion form-section-gap" id="crushftp-admin-api-section" data-form-accordion>
+    {% set show_crushftp_admin = current_provision_driver == 'crushftp' %}
+    <div class="form-section is-accordion form-section-gap{% if not show_crushftp_admin %} is-off{% endif %}"
+         id="crushftp-admin-api-section"
+         data-form-accordion
+         data-crushftp-admin-section
+         {% if not show_crushftp_admin %}hidden{% endif %}>
       <div class="form-section-header" data-form-accordion-toggle>
         <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
         <div>
           <div class="form-section-title">API Admin CrushFTP</div>
-          <div class="form-section-sub">Compte admin partagé — Basic Auth (création / groupes)</div>
+          <div class="form-section-sub">Visible uniquement si le provisioning = CrushFTP</div>
           <div class="form-section-summary{% if not crush_admin_configured %} is-off{% endif %}">{{ crush_admin_summary }}</div>
         </div>
       </div>
@@ -480,6 +486,20 @@
     loadCredential();
   }
 
+  function initCrushftpAdminVisibility() {
+    var driverSelect = document.getElementById('provisioning_driver');
+    var section = document.querySelector('[data-crushftp-admin-section]');
+    if (!driverSelect || !section) return;
+    function sync() {
+      var isCrush = (driverSelect.value || '') === 'crushftp';
+      section.hidden = !isCrush;
+      section.classList.toggle('is-off', !isCrush);
+    }
+    driverSelect.addEventListener('change', sync);
+    sync();
+  }
+
+  initCrushftpAdminVisibility();
   initAuthModeForm();
   initVaultCredential();
 

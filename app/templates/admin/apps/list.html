@@ -39,13 +39,17 @@
           </thead>
           <tbody>
             {% for app in apps %}
-            {% set crush_ready = app.provisioning_driver == 'crushftp'
+            {% set is_crushftp = app.provisioning_driver == 'crushftp' %}
+            {% set crush_ready = is_crushftp
               and app.crushftp_vfs_base_path
               and app.crushftp_admin_base_url
               and app.crushftp_admin_username
               and app.crushftp_admin_password_encrypted %}
-            <tr data-searchable data-mode="{{ app.access_mode }}" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}">
-              <td>{{ app.label }}</td>
+            <tr data-searchable data-mode="{{ app.access_mode }}" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}{% if is_crushftp %} crushftp{% endif %}">
+              <td>
+                {{ app.label }}
+                {% if is_crushftp %}<span class="badge badge-muted" style="margin-left:6px;">CrushFTP</span>{% endif %}
+              </td>
               <td class="mono">{{ app.slug }}</td>
               <td class="mono truncate truncate-cell">{{ app.upstream_url }}</td>
               <td><span class="mode-badge {{ app.access_mode }}">{{ access_mode_labels.get(app.access_mode, app.access_mode) }}</span></td>

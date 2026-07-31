@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_public.html" %}
 {% block title %}Redirection SSO{% endblock %}
 
 {% block content %}
@@ -6,7 +6,9 @@
   <div class="login-card sso-redirect">
     <div class="sso-spinner" role="status" aria-label="Redirection en cours"></div>
     <h1 class="login-brand-title">Redirection SSO</h1>
-    <p class="login-brand-sub">Connexion à Keycloak en cours…</p>
+    <p class="login-brand-sub">
+      {% if branding.welcome_text %}{{ branding.welcome_text }}{% else %}Connexion en cours…{% endif %}
+    </p>
   </div>
 </div>
 <script>

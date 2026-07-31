@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_public.html" %}
 {% block title %}Accès refusé{% endblock %}
 
 {% block content %}
@@ -8,7 +8,13 @@
   </div>
   <div class="error-code">403</div>
   <h1 class="page-title">Accès refusé</h1>
-  <p class="error-message">Vous n'avez pas les droits nécessaires pour accéder à cette ressource.</p>
-  <a href="/dashboard" class="btn btn-primary">Retour au dashboard</a>
+  <p class="error-message">
+    {% if branding.show_product_branding %}
+    Vous n'avez pas les droits nécessaires pour accéder à cette ressource.
+    {% else %}
+    {{ branding.company_name }} — vous n'avez pas les droits nécessaires pour accéder à cette ressource.
+    {% endif %}
+  </p>
+  <a href="/auth/login" class="btn btn-primary">Connexion</a>
 </div>
 {% endblock %}
