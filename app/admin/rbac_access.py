@@ -55,6 +55,79 @@ def _wants_json(request: Request) -> bool:
     return "application/json" in accept or request.headers.get("x-requested-with") == "XMLHttpRequest"
 
 
+def build_vault_apps_for_user(
+    db: Session,
+    *,
+    keycloak_user_id: str | None,
+    apps: list[App],
+    grant_rows: list[dict] | None = None,
+    extra_app_slugs: set[str] | None = None,
+) -> list[dict]:
+    """Vault rows for admin UI — apps from grants and/or explicit slug set (provisioning)."""
+    if not keycloak_user_id:
+        return []
+    apps_by_id = {a.id: a for a in apps}
+    apps_by_slug = {a.slug: a for a in apps}
+    seen_slugs: set[str] = set()
+    vault_apps: list[dict] = []
+
+    def _append(app: App) -> None:
+        if app.slug in seen_slugs:
+            return
+        override = has_user_override(db, app.slug, keycloak_user_id)
+        from_extra = app.slug in (extra_app_slugs or set())
+        if not vault_enabled_for_app(app.auth_mode, app.robotic_driver):
+            if not (from_extra and override):
+                return
+        seen_slugs.add(app.slug)
+        user_cred = get_user_credential(db, app.slug, keycloak_user_id) if override else None
+        vault_apps.append(
+            {
+                "slug": app.slug,
+                "label": app.label,
+                "robotic_driver": app.robotic_driver,
+                "credential_mode": app.credential_mode or "shared",
+                "has_override": override,
+                "robotic_username": user_cred.robotic_username if user_cred else None,
+            }
+        )
+
+    for grant in grant_rows or []:
+        if grant.get("resource_type") != "application":
+            continue
+        app_id = grant.get("application_id")
+        app = apps_by_id.get(app_id) if app_id else None
+        if app is not None:
+            _append(app)
+
+    for slug in extra_app_slugs or set():
+        app = apps_by_slug.get(slug)
+        if app is not None:
+            _append(app)
+        else:
+            # Orphan credential / unknown app — still surface username if present
+            if slug in seen_slugs:
+                continue
+            override = has_user_override(db, slug, keycloak_user_id)
+            if not override:
+                continue
+            seen_slugs.add(slug)
+            user_cred = get_user_credential(db, slug, keycloak_user_id)
+            vault_apps.append(
+                {
+                    "slug": slug,
+                    "label": slug,
+                    "robotic_driver": None,
+                    "credential_mode": "shared",
+                    "has_override": True,
+                    "robotic_username": user_cred.robotic_username if user_cred else None,
+                }
+            )
+
+    vault_apps.sort(key=lambda r: (r.get("label") or r["slug"]).lower())
+    return vault_apps
+
+
 def _log_grant_mutation(
     db: Session,
     *,
@@ -259,6 +332,7 @@ async def admin_rbac_users_page(
     keycloak_user_id: str | None = None,
     group: str | None = None,
     status: str | None = None,
+    list_tab: str | None = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -288,33 +362,15 @@ async def admin_rbac_users_page(
     elif realms:
         selected_realm = realms[0]
 
-    kc_user = None
-    kc_groups: list[dict] = []
-    kc_email_diag: dict | None = None
-    direct_grants: list = []
-    effective_grants: list[dict] = []
-    user_error: str | None = None
-
-    if selected_realm and keycloak_user_id:
-        try:
-            kc_user = await fetch_keycloak_user(selected_realm, keycloak_user_id, settings)
-            if kc_user:
-                from app.rbac.oidc_email import keycloak_email_diagnostics
-
-                kc_email_diag = keycloak_email_diagnostics(kc_user)
-                raw_groups = await fetch_user_groups(selected_realm, keycloak_user_id, settings)
-                kc_groups = raw_groups
-                direct_grants = list_grants(db, keycloak_user_id=keycloak_user_id)
-                effective_grants = await compute_effective_grants(
-                    db, selected_realm, keycloak_user_id, settings
-                )
-            else:
-                user_error = "Utilisateur Keycloak introuvable"
-        except ValueError as exc:
-            user_error = str(exc)
-        except Exception:
-            logger.exception("Failed to load user RBAC detail")
-            user_error = "Erreur serveur lors du chargement de l'utilisateur"
+    # Deep-link to a user → dedicated fiche (no parent RBAC tabs on that page).
+    if keycloak_user_id and selected_realm is not None:
+        return RedirectResponse(
+            url=(
+                f"/admin/rbac/users/view?realm_id={selected_realm.id}"
+                f"&keycloak_user_id={keycloak_user_id}"
+            ),
+            status_code=302,
+        )
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     granted_users = list_users_with_direct_grants(db)
@@ -376,68 +432,15 @@ async def admin_rbac_users_page(
             u["provision_ok"] = u["provision_failed"] = u["provision_total"] = 0
             u["provision_pending"] = 0
 
-    bastion_account_for_user = (
-        bastion_by_kc.get(keycloak_user_id) if keycloak_user_id else None
-    )
-    if keycloak_user_id and bastion_account_for_user is None:
-        bastion_account_for_user = (
-            db.query(BastionAccount)
-            .options(
-                joinedload(BastionAccount.provisionings).joinedload(
-                    BastionAccountProvisioning.application
-                ),
-            )
-            .filter_by(keycloak_user_id=keycloak_user_id)
-            .first()
-        )
-
-    user_provisionings = []
-    user_pending_apps = []
-    if bastion_account_for_user is not None:
-        user_provisionings = sorted(
-            bastion_account_for_user.provisionings or [],
-            key=lambda r: (r.application.label if r.application else ""),
-        )
-        done_ids = {r.application_id for r in user_provisionings}
-        pending_ids = bastion_account_for_user.pending_application_ids or []
-        if isinstance(pending_ids, list):
-            apps_by_id = {a.id: a for a in apps}
-            for raw_id in pending_ids:
-                try:
-                    aid = int(raw_id)
-                except (TypeError, ValueError):
-                    continue
-                if aid not in done_ids and aid in apps_by_id:
-                    user_pending_apps.append(apps_by_id[aid])
-
-    vault_apps: list[dict] = []
-    if keycloak_user_id and (direct_grants or effective_grants):
-        apps_by_id = {a.id: a for a in apps}
-        seen_slugs: set[str] = set()
-        for grant in list(effective_grants) + [
-            serialize_grant(g, db) for g in direct_grants
-        ]:
-            if grant.get("resource_type") != "application":
-                continue
-            app_id = grant.get("application_id")
-            app = apps_by_id.get(app_id) if app_id else None
-            if app is None or app.slug in seen_slugs:
-                continue
-            if not vault_enabled_for_app(app.auth_mode, app.robotic_driver):
-                continue
-            seen_slugs.add(app.slug)
-            override = has_user_override(db, app.slug, keycloak_user_id)
-            user_cred = get_user_credential(db, app.slug, keycloak_user_id) if override else None
-            vault_apps.append(
-                {
-                    "slug": app.slug,
-                    "label": app.label,
-                    "robotic_driver": app.robotic_driver,
-                    "credential_mode": app.credential_mode or "shared",
-                    "has_override": override,
-                    "robotic_username": user_cred.robotic_username if user_cred else None,
-                }
-            )
+    import_users = [u for u in enriched_users if u.get("account_source") != "bastion"]
+    tab = (list_tab or "").strip().lower()
+    if tab not in {"bastion", "keycloak", "open"}:
+        if bastion_accounts:
+            tab = "bastion"
+        elif import_users:
+            tab = "keycloak"
+        else:
+            tab = "open"
 
     user_stats = await fetch_user_directory_stats(db, selected_realm, settings)
     anomalies = connection_anomalies(db)
@@ -456,21 +459,23 @@ async def admin_rbac_users_page(
             settings,
             realms=realms,
             selected_realm=selected_realm,
-            keycloak_user_id=keycloak_user_id,
-            kc_user=kc_user,
-            kc_email_diag=kc_email_diag,
-            kc_groups=kc_groups,
-            direct_grants=[serialize_grant(g, db) for g in direct_grants],
-            effective_grants=effective_grants,
-            user_error=user_error,
+            keycloak_user_id=None,
+            kc_user=None,
+            kc_email_diag=None,
+            kc_groups=[],
+            direct_grants=[],
+            effective_grants=[],
+            user_error=None,
             apps=apps,
             file_options=file_options,
             folder_options=folder_options,
-            vault_apps=vault_apps,
+            vault_apps=[],
             granted_users=enriched_users,
+            import_users=import_users,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
             active_tab="users",
+            list_tab=tab,
             user_stats=user_stats.as_dict(),
             anomalies=anomalies,
             group_distribution=distribution,
@@ -478,9 +483,9 @@ async def admin_rbac_users_page(
             filter_group=group or "",
             filter_status=status or "tous",
             bastion_accounts=bastion_accounts,
-            bastion_account_for_user=bastion_account_for_user,
-            user_provisionings=user_provisionings,
-            user_pending_apps=user_pending_apps,
+            bastion_account_for_user=None,
+            user_provisionings=[],
+            user_pending_apps=[],
         ),
     )
 
@@ -496,7 +501,7 @@ async def admin_rbac_user_detail(
 ):
     # Reserved path segments must never be treated as Keycloak user ids
     # (defence if router registration order regresses).
-    if keycloak_user_id in {"new", "search", "accounts"}:
+    if keycloak_user_id in {"new", "search", "accounts", "view"}:
         raise HTTPException(status_code=404, detail="Not Found")
     realm = _realm_or_404(db, realm_id)
     try:

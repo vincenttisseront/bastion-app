@@ -522,6 +522,8 @@ class BastionAccount(Base):
     email = Column(String, nullable=False)
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
+    # Société / organisation — drives auto company RBAC+Keycloak group
+    organization = Column(String, nullable=True)
 
     # Filled only after successful Keycloak creation (no phantom accounts).
     keycloak_user_id = Column(String, nullable=True, index=True)

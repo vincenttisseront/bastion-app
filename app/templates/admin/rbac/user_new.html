@@ -71,6 +71,17 @@
             <input type="text" id="last_name" name="last_name" class="form-input" value="{{ form_values.last_name or '' }}" autocomplete="off">
           </div>
         </div>
+        <div class="form-group">
+          <label class="form-label" for="organization">Société / organisation <span class="req">*</span></label>
+          <input type="text" id="organization" name="organization" class="form-input"
+                 value="{{ form_values.organization or '' }}" required autocomplete="off"
+                 placeholder="SDIS 999">
+          <p class="form-help">
+            Crée (ou réutilise) un groupe Keycloak/RBAC du même nom, y rattache l’utilisateur,
+            et synchronise ce groupe vers les apps de provisioning (ex. CrushFTP).
+            Les droits AccessGrant sur ce groupe sont hérités par tous les membres.
+          </p>
+        </div>
         <div class="alert alert-info" style="margin:0;">
           Mot de passe initial généré automatiquement — jamais affiché.
           L’utilisateur devra le changer à la première connexion

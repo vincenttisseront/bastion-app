@@ -51,17 +51,31 @@ def _realm(db, *, provisioning_enabled: bool = True) -> RealmConfig:
     return realm
 
 
-def _group(db, realm: RealmConfig) -> RBACGroup:
+def _group(db, realm: RealmConfig, *, name: str = "ARSYSTEMS-Users", kc_id: str = "g1") -> RBACGroup:
     group = RBACGroup(
         realm_id=realm.id,
-        keycloak_group_id="g1",
-        name="ARSYSTEMS-Users",
-        path="/ARSYSTEMS-Users",
+        keycloak_group_id=kc_id,
+        name=name,
+        path=f"/{name}",
     )
     db.add(group)
     db.commit()
     db.refresh(group)
     return group
+
+
+ORG = "ARSYSTEMS-Users"  # reuse fixture group name → ensure_company_group is idempotent
+
+
+def _create_payload(realm_id: int, **extra) -> dict:
+    data = {
+        "realm_id": str(realm_id),
+        "username": "jdoe",
+        "email": "jdoe@example.com",
+        "organization": ORG,
+    }
+    data.update(extra)
+    return data
 
 
 def _mock_no_duplicate(username: str = "jdoe", email: str = "jdoe@example.com"):
@@ -90,14 +104,12 @@ def test_bastion_account_creation_success_with_group(client, db_session):
     resp = client.post(
         "/admin/rbac/users/new",
         headers=JSON_HEADERS,
-        data={
-            "realm_id": str(realm.id),
-            "username": "jdoe",
-            "email": "jdoe@example.com",
-            "first_name": "John",
-            "last_name": "Doe",
-            "group_ids": str(group.id),
-        },
+        data=_create_payload(
+            realm.id,
+            first_name="John",
+            last_name="Doe",
+            group_ids=str(group.id),
+        ),
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -110,6 +122,7 @@ def test_bastion_account_creation_success_with_group(client, db_session):
     assert account is not None
     assert account.status == "keycloak_created"
     assert account.keycloak_user_id == "kc-new-1"
+    assert account.organization == ORG
     assert account.last_error is None
     assert group_route.called
 
@@ -128,6 +141,7 @@ def test_bastion_account_creation_success_with_group(client, db_session):
 def test_bastion_account_duplicate_detected_before_write(client, db_session):
     """Exact pre-check finds an existing user → no POST /users write attempted."""
     realm = _realm(db_session)
+    _group(db_session, realm)
 
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
     respx.get(f"{KC_ADMIN}/users", params={"username": "jdoe", "exact": "true"}).respond(
@@ -138,11 +152,7 @@ def test_bastion_account_duplicate_detected_before_write(client, db_session):
     resp = client.post(
         "/admin/rbac/users/new",
         headers=JSON_HEADERS,
-        data={
-            "realm_id": str(realm.id),
-            "username": "jdoe",
-            "email": "jdoe@example.com",
-        },
+        data=_create_payload(realm.id),
     )
     assert resp.status_code == 502
     body = resp.json()
@@ -159,6 +169,7 @@ def test_bastion_account_duplicate_detected_before_write(client, db_session):
 @respx.mock
 def test_bastion_account_keycloak_failure_no_phantom(client, db_session):
     realm = _realm(db_session)
+    _group(db_session, realm)
 
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
     _mock_no_duplicate()
@@ -167,11 +178,7 @@ def test_bastion_account_keycloak_failure_no_phantom(client, db_session):
     resp = client.post(
         "/admin/rbac/users/new",
         headers=JSON_HEADERS,
-        data={
-            "realm_id": str(realm.id),
-            "username": "jdoe",
-            "email": "jdoe@example.com",
-        },
+        data=_create_payload(realm.id),
     )
     assert resp.status_code == 502
     body = resp.json()
@@ -190,11 +197,7 @@ def test_bastion_account_creation_realm_not_enabled(client, db_session):
     resp = client.post(
         "/admin/rbac/users/new",
         headers=JSON_HEADERS,
-        data={
-            "realm_id": str(realm.id),
-            "username": "jdoe",
-            "email": "jdoe@example.com",
-        },
+        data=_create_payload(realm.id),
     )
     assert resp.status_code == 400
     assert "Provisioning non activé" in resp.json()["errors"]["_form"]
@@ -219,6 +222,18 @@ def test_bastion_account_creation_duplicate_internal(client, db_session):
     resp = client.post(
         "/admin/rbac/users/new",
         headers=JSON_HEADERS,
+        data=_create_payload(realm.id),
+    )
+    assert resp.status_code == 400
+    assert "existe déjà" in resp.json()["errors"]["_form"]
+    assert db_session.query(BastionAccount).count() == 1
+
+
+def test_bastion_account_creation_requires_organization(client, db_session):
+    realm = _realm(db_session)
+    resp = client.post(
+        "/admin/rbac/users/new",
+        headers=JSON_HEADERS,
         data={
             "realm_id": str(realm.id),
             "username": "jdoe",
@@ -226,8 +241,8 @@ def test_bastion_account_creation_duplicate_internal(client, db_session):
         },
     )
     assert resp.status_code == 400
-    assert "existe déjà" in resp.json()["errors"]["_form"]
-    assert db_session.query(BastionAccount).count() == 1
+    assert "Société" in resp.json()["errors"]["_form"] or "organisation" in resp.json()["errors"]["_form"].lower()
+    assert db_session.query(BastionAccount).count() == 0
 
 
 def test_users_new_form_renders_before_dynamic_route(client, db_session):
@@ -236,6 +251,42 @@ def test_users_new_form_renders_before_dynamic_route(client, db_session):
     resp = client.get("/admin/rbac/users/new", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert "Nouvel utilisateur" in resp.text
+    assert "Société" in resp.text or "organisation" in resp.text.lower()
+
+
+@respx.mock
+def test_bastion_account_creates_company_group_when_missing(client, db_session):
+    """New société → Keycloak POST /groups + RBACGroup + user assignment."""
+    realm = _realm(db_session)
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    _mock_no_duplicate()
+    group_create = respx.post(f"{KC_ADMIN}/groups").respond(
+        201, headers={"Location": f"{KC_ADMIN}/groups/g-sdis"}
+    )
+    respx.post(f"{KC_ADMIN}/users").respond(
+        201, headers={"Location": f"{KC_ADMIN}/users/kc-new-1"}
+    )
+    assign = respx.put(f"{KC_ADMIN}/users/kc-new-1/groups/g-sdis").respond(204)
+
+    resp = client.post(
+        "/admin/rbac/users/new",
+        headers=JSON_HEADERS,
+        data=_create_payload(realm.id, organization="SDIS 999"),
+    )
+    assert resp.status_code == 200, resp.text
+    assert group_create.called
+    assert assign.called
+    company = (
+        db_session.query(RBACGroup)
+        .filter_by(realm_id=realm.id, name="SDIS 999")
+        .first()
+    )
+    assert company is not None
+    assert company.keycloak_group_id == "g-sdis"
+    account = db_session.query(BastionAccount).filter_by(username="jdoe").first()
+    assert account.organization == "SDIS 999"
+    assert company.id in (account.pending_group_ids or [])
 
 
 def test_users_page_lists_bastion_accounts_without_grants(client, db_session):
@@ -284,14 +335,30 @@ def test_users_page_lists_bastion_accounts_without_grants(client, db_session):
     )
     db_session.commit()
 
-    # Default picker realm is ar-systems (groups sync) — clients accounts must still show.
+    # Default list tab shows bastion accounts (picker realms live under list_tab=open).
     resp = client.get(f"/admin/rbac/users?realm_id={ar.id}", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert "Comptes créés via le bastion" in resp.text
     assert "toto" in resp.text
     assert "alice" in resp.text
     assert "clients" in resp.text
-    assert 'option value="%s"' % clients.id in resp.text or f'value="{clients.id}"' in resp.text
+
+    open_tab = client.get(
+        f"/admin/rbac/users?realm_id={ar.id}&list_tab=open", headers=ADMIN_HEADERS
+    )
+    assert open_tab.status_code == 200
+    assert 'option value="%s"' % clients.id in open_tab.text or f'value="{clients.id}"' in open_tab.text
+
+    fiche = client.get(
+        f"/admin/rbac/users/view?account_id="
+        f"{db_session.query(BastionAccount).filter_by(username='toto').one().id}",
+        headers=ADMIN_HEADERS,
+    )
+    assert fiche.status_code == 200
+    assert "toto" in fiche.text
+    assert "Identité" in fiche.text
+    assert 'href="/admin/rbac/matrix"' not in fiche.text
+    assert 'href="/admin/rbac/governance"' not in fiche.text
 
 
 @respx.mock
@@ -315,6 +382,7 @@ def test_bastion_account_creation_ignores_foreign_realm_group(client, db_session
     db_session.commit()
     db_session.refresh(other)
     foreign = _group(db_session, other)  # group belongs to OTHER, not target
+    company = _group(db_session, target, name=ORG, kc_id="g-company")
 
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
     _mock_no_duplicate()
@@ -324,20 +392,19 @@ def test_bastion_account_creation_ignores_foreign_realm_group(client, db_session
     foreign_group_route = respx.put(
         f"{KC_ADMIN}/users/kc-new-1/groups/{foreign.keycloak_group_id}"
     ).respond(204)
+    company_group_route = respx.put(
+        f"{KC_ADMIN}/users/kc-new-1/groups/{company.keycloak_group_id}"
+    ).respond(204)
 
     resp = client.post(
         "/admin/rbac/users/new",
         headers=JSON_HEADERS,
-        data={
-            "realm_id": str(target.id),
-            "username": "jdoe",
-            "email": "jdoe@example.com",
-            "group_ids": str(foreign.id),
-        },
+        data=_create_payload(target.id, group_ids=str(foreign.id)),
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["ok"] is True
     assert not foreign_group_route.called
+    assert company_group_route.called
 
 
 def test_users_new_form_groups_tagged_by_realm(client, db_session):
@@ -364,12 +431,12 @@ def test_bastion_account_retry_keycloak_after_failure(client, db_session):
     fail = client.post(
         "/admin/rbac/users/new",
         headers=JSON_HEADERS,
-        data={
-            "realm_id": str(realm.id),
-            "username": "toto",
-            "email": "toto@example.com",
-            "group_ids": str(group.id),
-        },
+        data=_create_payload(
+            realm.id,
+            username="toto",
+            email="toto@example.com",
+            group_ids=str(group.id),
+        ),
     )
     assert fail.status_code == 502
     account = db_session.query(BastionAccount).filter_by(username="toto").first()

@@ -11,14 +11,15 @@ import logging
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from app.admin.rbac_access import build_vault_apps_for_user
 from app.bastion.bastion_fields import (
     PROVISIONING_DRIVER_LABELS,
     normalize_provisioning_driver,
 )
 from app.database import get_db
-from app.models import App, BastionAccount, RBACGroup, RealmConfig
+from app.models import App, BastionAccount, BastionAccountProvisioning, RBACGroup, RealmConfig
 from app.rbac.account_service import (
     AccountCreationError,
     create_bastion_account,
@@ -26,6 +27,14 @@ from app.rbac.account_service import (
     realm_provisioning_ready,
     retry_bastion_account_keycloak,
 )
+from app.rbac.grants_service import (
+    ACCESS_LEVELS,
+    SYSTEM_ROLES,
+    compute_effective_grants,
+    list_grants,
+    serialize_grant,
+)
+from app.rbac.keycloak_admin import fetch_keycloak_user, fetch_user_groups
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
@@ -106,6 +115,170 @@ def admin_rbac_users_new_form(
     )
 
 
+@router.get("/admin/rbac/users/view")
+async def admin_rbac_user_view(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+    account_id: int | None = None,
+    realm_id: int | None = None,
+    keycloak_user_id: str | None = None,
+):
+    """Dedicated user fiche — identity / groups / grants / vault / provisioning.
+
+    No parent RBAC tabs (Groupes / Matrice / Gouvernance).
+    """
+    account: BastionAccount | None = None
+    if account_id is not None:
+        account = (
+            db.query(BastionAccount)
+            .options(
+                joinedload(BastionAccount.realm),
+                joinedload(BastionAccount.provisionings).joinedload(
+                    BastionAccountProvisioning.application
+                ),
+            )
+            .filter_by(id=account_id)
+            .first()
+        )
+        if account is None:
+            raise HTTPException(status_code=404, detail="Compte introuvable")
+        realm_id = account.realm_id
+        if account.keycloak_user_id:
+            keycloak_user_id = account.keycloak_user_id
+
+    if realm_id is None:
+        raise HTTPException(status_code=400, detail="realm_id ou account_id requis")
+
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if realm is None:
+        raise HTTPException(status_code=404, detail="Realm introuvable")
+
+    if account is None and keycloak_user_id:
+        account = (
+            db.query(BastionAccount)
+            .options(
+                joinedload(BastionAccount.realm),
+                joinedload(BastionAccount.provisionings).joinedload(
+                    BastionAccountProvisioning.application
+                ),
+            )
+            .filter_by(keycloak_user_id=keycloak_user_id)
+            .first()
+        )
+
+    if not keycloak_user_id and account is None:
+        raise HTTPException(
+            status_code=400,
+            detail="keycloak_user_id ou account_id requis",
+        )
+
+    kc_user = None
+    kc_groups: list[dict] = []
+    kc_email_diag: dict | None = None
+    user_error: str | None = None
+    direct_grants: list = []
+    effective_grants: list[dict] = []
+
+    if keycloak_user_id:
+        try:
+            kc_user = await fetch_keycloak_user(realm, keycloak_user_id, settings)
+            if kc_user:
+                from app.rbac.oidc_email import keycloak_email_diagnostics
+
+                kc_email_diag = keycloak_email_diagnostics(kc_user)
+                kc_groups = await fetch_user_groups(realm, keycloak_user_id, settings)
+                direct_grants = list_grants(db, keycloak_user_id=keycloak_user_id)
+                effective_grants = await compute_effective_grants(
+                    db, realm, keycloak_user_id, settings
+                )
+            else:
+                user_error = "Utilisateur Keycloak introuvable"
+        except ValueError as exc:
+            user_error = str(exc)
+        except Exception:
+            logger.exception("Failed to load user fiche")
+            user_error = "Erreur serveur lors du chargement de l'utilisateur"
+
+    apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    provisionings = []
+    pending_apps: list[App] = []
+    if account is not None:
+        provisionings = sorted(
+            account.provisionings or [],
+            key=lambda r: (r.application.label if r.application else ""),
+        )
+        done_ids = {r.application_id for r in provisionings}
+        pending_ids = account.pending_application_ids or []
+        if isinstance(pending_ids, list):
+            apps_by_id = {a.id: a for a in apps}
+            for raw_id in pending_ids:
+                try:
+                    aid = int(raw_id)
+                except (TypeError, ValueError):
+                    continue
+                if aid not in done_ids and aid in apps_by_id:
+                    pending_apps.append(apps_by_id[aid])
+
+    extra_vault_slugs = {
+        r.application.slug
+        for r in provisionings
+        if r.application and r.status == "success"
+    }
+    grant_rows = list(effective_grants) + [serialize_grant(g, db) for g in direct_grants]
+    vault_apps = build_vault_apps_for_user(
+        db,
+        keycloak_user_id=keycloak_user_id,
+        apps=apps,
+        grant_rows=grant_rows if keycloak_user_id else None,
+        extra_app_slugs=extra_vault_slugs or None,
+    )
+
+    display_name = (
+        (kc_user or {}).get("username")
+        or (account.username if account else None)
+        or keycloak_user_id
+        or f"compte #{account.id if account else '?'}"
+    )
+    view_url = "/admin/rbac/users/view?"
+    if account is not None:
+        view_url += f"account_id={account.id}"
+    else:
+        view_url += f"realm_id={realm.id}&keycloak_user_id={keycloak_user_id}"
+
+    from app.files.service import file_grant_select_options, folder_grant_select_options
+
+    return render(
+        "admin/rbac/user_view.html",
+        **_ctx(
+            request,
+            settings,
+            realm=realm,
+            selected_realm=realm,
+            account=account,
+            keycloak_user_id=keycloak_user_id,
+            kc_user=kc_user,
+            kc_email_diag=kc_email_diag,
+            kc_groups=kc_groups,
+            user_error=user_error,
+            direct_grants=[serialize_grant(g, db) for g in direct_grants],
+            effective_grants=effective_grants,
+            vault_apps=vault_apps,
+            provisionings=provisionings,
+            pending_apps=pending_apps,
+            apps=apps,
+            file_options=file_grant_select_options(db),
+            folder_options=folder_grant_select_options(db),
+            system_roles=SYSTEM_ROLES,
+            access_levels=sorted(ACCESS_LEVELS),
+            display_name=display_name,
+            view_url=view_url,
+            provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
+        ),
+    )
+
+
 @router.post("/admin/rbac/users/new")
 async def admin_rbac_users_new_submit(
     request: Request,
@@ -119,6 +292,7 @@ async def admin_rbac_users_new_submit(
     email = str(form.get("email") or "")
     first_name = str(form.get("first_name") or "")
     last_name = str(form.get("last_name") or "")
+    organization = str(form.get("organization") or "")
     group_ids = _parse_int_list([str(v) for v in form.getlist("group_ids")])
     application_ids = _parse_int_list([str(v) for v in form.getlist("application_ids")])
 
@@ -128,6 +302,7 @@ async def admin_rbac_users_new_submit(
         "email": email,
         "first_name": first_name,
         "last_name": last_name,
+        "organization": organization,
         "group_ids": group_ids,
         "application_ids": application_ids,
     }
@@ -184,6 +359,7 @@ async def admin_rbac_users_new_submit(
             email=email,
             first_name=first_name,
             last_name=last_name,
+            organization=organization,
             group_ids=group_ids,
             application_ids=application_ids,
             actor=user.email,
@@ -330,6 +506,18 @@ def admin_rbac_account_detail(
     provision_apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     provisioned_by_app = {r.application_id: r for r in provisionings}
     pending_ids_set = {a.id for a in pending_apps}
+    extra_vault_slugs = {
+        r.application.slug
+        for r in provisionings
+        if r.application and r.status == "success"
+    }
+    vault_apps = build_vault_apps_for_user(
+        db,
+        keycloak_user_id=account.keycloak_user_id,
+        apps=provision_apps,
+        grant_rows=None,
+        extra_app_slugs=extra_vault_slugs or None,
+    )
 
     return render(
         "admin/rbac/account_detail.html",
@@ -345,6 +533,7 @@ def admin_rbac_account_detail(
             pending_ids_set=pending_ids_set,
             provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
             keycloak_console_url=keycloak_console_url,
+            vault_apps=vault_apps,
             active_tab="users",
         ),
     )

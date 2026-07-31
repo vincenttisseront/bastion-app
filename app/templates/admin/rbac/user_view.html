@@ -1,0 +1,434 @@
+{% extends "base.html" %}
+{% block title %}{{ display_name }}{% endblock %}
+{% block breadcrumb %}Admin / RBAC / Utilisateurs / {{ display_name }}{% endblock %}
+
+{% block content %}
+{% set failed_rows = provisionings | selectattr('status', 'equalto', 'failed') | list %}
+{% set ok_rows = provisionings | selectattr('status', 'equalto', 'success') | list %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{{ display_name }}</h1>
+      <p class="page-sub">
+        {% if account and account.email %}{{ account.email }} — {% endif %}
+        realm <span class="mono">{{ realm.slug }}</span>
+        {% if account and account.organization %} — société <strong>{{ account.organization }}</strong>{% endif %}
+      </p>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:flex-end;">
+      {% if account and account.origin == 'bastion' %}
+      <span class="badge badge-ok">Créé bastion</span>
+      {% else %}
+      <span class="badge badge-muted">Import Keycloak</span>
+      {% endif %}
+      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">← Utilisateurs</a>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Fiche utilisateur" id="user-fiche-tabs" style="margin-bottom:var(--sp-4);">
+    <a href="#identite" class="tab active" role="tab" data-tab="identite" aria-selected="true">Identité</a>
+    <a href="#groupes" class="tab" role="tab" data-tab="groupes" aria-selected="false">Groupes</a>
+    <a href="#droits" class="tab" role="tab" data-tab="droits" aria-selected="false">Droits</a>
+    <a href="#vault" class="tab" role="tab" data-tab="vault" aria-selected="false">Vault</a>
+    <a href="#provisioning" class="tab" role="tab" data-tab="provisioning" aria-selected="false">Provisioning</a>
+  </div>
+
+  {% if user_error %}
+  <div class="alert alert-err">{{ user_error }}</div>
+  {% endif %}
+
+  <div class="user-fiche-panel" id="panel-identite" data-panel="identite">
+    <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+      <h2 class="card-title" style="margin-top:0;">Identité</h2>
+      <div class="form-row" style="gap:var(--sp-4); flex-wrap:wrap;">
+        <div class="form-group">
+          <span class="form-label">Identifiant</span>
+          <div class="mono">{{ (kc_user.username if kc_user else none) or (account.username if account else '—') }}</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">Email</span>
+          <div class="mono">{{ (kc_user.email if kc_user else none) or (account.email if account else '—') }}</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">Société</span>
+          <div>{{ account.organization if account and account.organization else '—' }}</div>
+        </div>
+        <div class="form-group">
+          <span class="form-label">Keycloak user ID</span>
+          <div class="mono">{{ keycloak_user_id or '—' }}</div>
+        </div>
+      </div>
+      {% if kc_email_diag %}
+      <div style="margin-top:var(--sp-3);">
+        <span class="form-label">emailVerified</span>
+        {% if kc_email_diag.email_verified is sameas true %}
+          <span class="badge badge-ok">true</span>
+        {% elif kc_email_diag.email_verified is sameas false %}
+          <span class="badge badge-warn">false</span>
+        {% else %}
+          <span class="badge badge-muted">—</span>
+        {% endif %}
+        {% if kc_email_diag.warning %}
+        <div class="alert alert-warn" style="margin:var(--sp-2) 0 0;">{{ kc_email_diag.warning }}</div>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if account and account.last_error %}
+      <div class="alert alert-err" style="margin-top:var(--sp-3);">{{ account.last_error }}</div>
+      {% endif %}
+      {% if keycloak_user_id %}
+      <div style="margin-top:var(--sp-4); padding-top:var(--sp-4); border-top:1px solid var(--border);">
+        <span class="form-label">Sessions</span>
+        <p class="form-hint" style="margin:var(--sp-2) 0 var(--sp-3);">
+          Révoque les sessions robotic/vault puis logout Keycloak Admin.
+        </p>
+        <button type="button" class="btn btn-danger btn-sm" id="btn-disconnect-user"
+                data-keycloak-user-id="{{ keycloak_user_id }}"
+                data-realm-id="{{ realm.id }}">
+          Déconnecter cet utilisateur
+        </button>
+        <div id="disconnect-user-result" style="margin-top:var(--sp-3);" hidden></div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="user-fiche-panel" id="panel-groupes" data-panel="groupes" hidden>
+    <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+      <h2 class="card-title" style="margin-top:0;">Groupes Keycloak</h2>
+      <p class="form-hint">Les droits AccessGrant sur un groupe société s’appliquent à tous les membres.</p>
+      <ul style="margin:var(--sp-2) 0 0; padding-left:var(--sp-4);">
+        {% for g in kc_groups %}
+        <li class="mono">{{ g.path or g.name }}</li>
+        {% else %}
+        <li class="empty-desc">Aucun groupe{% if not keycloak_user_id %} (Keycloak non lié){% endif %}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="user-fiche-panel" id="panel-droits" data-panel="droits" hidden>
+    {% if keycloak_user_id %}
+    <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+      <div class="card-header" style="padding:var(--sp-4); display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
+        <div>
+          <span class="card-title">Droits directs</span>
+          <span class="badge badge-muted">{{ direct_grants | length }}</span>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" data-open-grant-modal="grant-">Ajouter un droit</button>
+      </div>
+      {% with grant_rows=direct_grants, show_granted_by=true, show_source=false, show_actions=true, empty_message='Aucun droit direct.', delete_redirect=view_url ~ '#droits' %}
+      {% include "admin/rbac/_grants_by_category.html" %}
+      {% endwith %}
+    </div>
+    <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+      <div class="card-header" style="padding:var(--sp-4);">
+        <span class="card-title">Droits effectifs</span>
+        <span class="badge badge-muted">{{ effective_grants | length }}</span>
+      </div>
+      {% with grant_rows=effective_grants, show_granted_by=false, show_source=true, show_actions=false, empty_message='Aucun droit effectif.' %}
+      {% include "admin/rbac/_grants_by_category.html" %}
+      {% endwith %}
+    </div>
+    {% with subject_type='user', keycloak_user_id=keycloak_user_id, user_display_cache=display_name, realm_id=realm.id, redirect_url=view_url ~ '#droits', id_prefix='grant-', modal_title='Ajouter un droit' %}
+    {% include "admin/rbac/_grant_add_modal.html" %}
+    {% endwith %}
+    {% else %}
+    <div class="alert alert-warn">Keycloak requis pour gérer les droits.</div>
+    {% endif %}
+  </div>
+
+  <div class="user-fiche-panel" id="panel-vault" data-panel="vault" hidden>
+    {% if vault_apps and keycloak_user_id %}
+    <div class="card" style="padding:0; margin-bottom:var(--sp-4);" id="user-vault-section"
+         data-keycloak-user-id="{{ keycloak_user_id }}">
+      <div class="card-header" style="padding:var(--sp-4);">
+        <span class="card-title">Vault applicatif</span>
+        <span class="badge badge-muted">{{ vault_apps | length }}</span>
+      </div>
+      <div class="table-wrap" style="border:none;border-radius:0;">
+        <table class="data-table" id="user-vault-table">
+          <thead>
+            <tr><th>Application</th><th>Statut credential</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for va in vault_apps %}
+            <tr data-app-slug="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}">
+              <td>
+                <div>{{ va.label }}</div>
+                <div class="mono form-hint">{{ va.slug }}{% if va.robotic_driver %} · {{ va.robotic_driver }}{% endif %}</div>
+              </td>
+              <td>
+                {% if va.has_override %}
+                  <span class="badge badge-ok" data-vault-status>Configuré</span>
+                  {% if va.robotic_username %}
+                  <div class="mono form-hint" data-vault-username>{{ va.robotic_username }}</div>
+                  {% endif %}
+                {% else %}
+                  <span class="badge badge-muted" data-vault-status>Non configuré</span>
+                {% endif %}
+              </td>
+              <td>
+                <button type="button" class="btn btn-ghost btn-sm" data-vault-configure="{{ va.slug }}">Configurer</button>
+              </td>
+            </tr>
+            <tr data-vault-form-row="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}" hidden>
+              <td colspan="3" style="padding:var(--sp-4); background:var(--bg-secondary);">
+                <div class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+                  <div class="form-group">
+                    <label class="form-label">Login individuel</label>
+                    <input type="text" class="form-input" data-vault-user autocomplete="off"
+                           value="{{ va.robotic_username or '' }}" placeholder="service-account">
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label">Mot de passe individuel</label>
+                    <input type="password" class="form-input" data-vault-pass autocomplete="new-password" placeholder="••••••••">
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm" data-vault-save="{{ va.slug }}">Enregistrer</button>
+                  <button type="button" class="btn btn-ghost btn-sm" data-vault-test="{{ va.slug }}">Tester la connexion</button>
+                  <button type="button" class="btn btn-ghost btn-sm" data-vault-clear="{{ va.slug }}">Supprimer</button>
+                </div>
+                <div class="form-help" data-vault-msg style="margin-top:var(--sp-2);"></div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">Aucun credential vault pour cet utilisateur.</div>
+    {% endif %}
+  </div>
+
+  <div class="user-fiche-panel" id="panel-provisioning" data-panel="provisioning" hidden>
+    {% if account %}
+    <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+      <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
+        <div>
+          <h2 class="card-title" style="margin:0;">Provisioning applicatif</h2>
+          <p class="form-hint" style="margin:var(--sp-1) 0 0;">Statut {{ account.status }}</p>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2);">
+          {% if not account.keycloak_user_id %}
+          <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak">
+            <input type="hidden" name="redirect_url" value="{{ view_url }}#provisioning">
+            <button type="submit" class="btn btn-primary btn-sm">Relancer Keycloak</button>
+          </form>
+          {% elif failed_rows or pending_apps %}
+          <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision-retry-all">
+            <input type="hidden" name="redirect_url" value="{{ view_url }}#provisioning">
+            <button type="submit" class="btn btn-primary btn-sm">Relancer les échecs</button>
+          </form>
+          {% endif %}
+          <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ account.id }}">Fiche compte détaillée</a>
+        </div>
+      </div>
+      {% if provisionings or pending_apps %}
+      <div class="table-wrap" style="margin-top:var(--sp-3); border:none;">
+        <table class="data-table">
+          <thead>
+            <tr><th>Application</th><th>Driver</th><th>Statut</th><th>Détail</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for row in provisionings %}
+            <tr>
+              <td>{{ row.application.label if row.application else row.application_id }}</td>
+              <td class="mono">{{ row.driver_name }}</td>
+              <td>
+                {% if row.status == 'success' %}<span class="badge badge-ok">Succès</span>
+                {% elif row.status == 'failed' %}<span class="badge badge-err">Échec</span>
+                {% elif row.status == 'not_applicable' %}<span class="badge badge-muted">N/A</span>
+                {% else %}<span class="badge badge-muted">{{ row.status }}</span>{% endif %}
+              </td>
+              <td class="form-hint">{{ row.detail or '—' }}</td>
+              <td>
+                {% if account.keycloak_user_id %}
+                <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ row.application_id }}" style="display:inline;">
+                  <input type="hidden" name="redirect_url" value="{{ view_url }}#provisioning">
+                  <button type="submit" class="btn btn-ghost btn-sm">Relancer</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            {% for app in pending_apps %}
+            <tr>
+              <td>{{ app.label }}</td>
+              <td class="mono">{{ app.provisioning_driver or '—' }}</td>
+              <td><span class="badge badge-warn">Pas encore tenté</span></td>
+              <td class="form-hint">Sélectionnée à la création</td>
+              <td>
+                {% if account.keycloak_user_id %}
+                <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ app.id }}" style="display:inline;">
+                  <input type="hidden" name="redirect_url" value="{{ view_url }}#provisioning">
+                  <button type="submit" class="btn btn-ghost btn-sm">Lancer</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="form-help" style="margin-top:var(--sp-3);">Aucun provisioning tenté.</p>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="alert alert-info">Pas de compte bastion lié — provisioning non applicable.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/bastion-grant-form.js?v=20260724-grant-modal"></script>
+<script>
+(function () {
+  var tabs = document.querySelectorAll('#user-fiche-tabs [data-tab]');
+  var panels = document.querySelectorAll('.user-fiche-panel[data-panel]');
+  function activate(name) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute('data-tab') === name;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    panels.forEach(function (p) {
+      p.hidden = p.getAttribute('data-panel') !== name;
+    });
+  }
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function (e) {
+      e.preventDefault();
+      var name = t.getAttribute('data-tab');
+      activate(name);
+      if (history.replaceState) history.replaceState(null, '', '#' + name);
+    });
+  });
+  var hash = (location.hash || '#identite').replace(/^#/, '');
+  if (!document.querySelector('[data-panel="' + hash + '"]')) hash = 'identite';
+  activate(hash);
+
+  var disconnectBtn = document.getElementById('btn-disconnect-user');
+  var resultEl = document.getElementById('disconnect-user-result');
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener('click', async function () {
+      if (!confirm('Déconnecter cet utilisateur (sessions robotic + SSO Keycloak) ?')) return;
+      disconnectBtn.disabled = true;
+      try {
+        var url =
+          '/admin/users/' +
+          encodeURIComponent(disconnectBtn.dataset.keycloakUserId) +
+          '/sessions/disconnect?realm_id=' +
+          encodeURIComponent(disconnectBtn.dataset.realmId);
+        var resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          credentials: 'same-origin'
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (resultEl) {
+          resultEl.hidden = false;
+          var sso = data.sso || {};
+          resultEl.innerHTML = (data.ok || sso.ok)
+            ? '<div class="alert alert-ok" style="margin:0;">Déconnexion demandée.</div>'
+            : '<div class="alert alert-err" style="margin:0;">' + (data.detail || data.error || sso.error || 'Échec') + '</div>';
+        }
+      } catch (e) {
+        if (resultEl) {
+          resultEl.hidden = false;
+          resultEl.innerHTML = '<div class="alert alert-err" style="margin:0;">Erreur réseau.</div>';
+        }
+      } finally {
+        disconnectBtn.disabled = false;
+      }
+    });
+  }
+
+  var vaultSection = document.getElementById('user-vault-section');
+  if (!vaultSection) return;
+  var kcUserId = vaultSection.dataset.keycloakUserId;
+  function formRow(slug) { return document.querySelector('[data-vault-form-row="' + slug + '"]'); }
+  function statusCell(slug) {
+    var row = document.querySelector('tr[data-app-slug="' + slug + '"]');
+    return row ? row.querySelector('[data-vault-status]') : null;
+  }
+  function msgEl(slug) {
+    var row = formRow(slug);
+    return row ? row.querySelector('[data-vault-msg]') : null;
+  }
+  document.querySelectorAll('[data-vault-configure]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var row = formRow(btn.getAttribute('data-vault-configure'));
+      if (row) row.hidden = !row.hidden;
+    });
+  });
+  document.querySelectorAll('[data-vault-save]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var slug = btn.getAttribute('data-vault-save');
+      var row = formRow(slug);
+      var username = row.querySelector('[data-vault-user]').value.trim();
+      var password = row.querySelector('[data-vault-pass]').value;
+      var msg = msgEl(slug);
+      if (!username || !password) { if (msg) msg.textContent = 'Saisissez login et mot de passe.'; return; }
+      btn.disabled = true;
+      try {
+        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ robotic_username: username, password: password })
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (msg) msg.textContent = resp.ok ? 'Enregistré.' : (data.detail || 'Échec');
+        if (resp.ok) {
+          var badge = statusCell(slug);
+          if (badge) { badge.className = 'badge badge-ok'; badge.textContent = 'Configuré'; }
+          row.querySelector('[data-vault-pass]').value = '';
+        }
+      } catch (e) { if (msg) msg.textContent = 'Erreur réseau.'; }
+      finally { btn.disabled = false; }
+    });
+  });
+  document.querySelectorAll('[data-vault-clear]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var slug = btn.getAttribute('data-vault-clear');
+      if (!confirm('Supprimer le credential individuel ?')) return;
+      var msg = msgEl(slug);
+      btn.disabled = true;
+      try {
+        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
+          method: 'DELETE', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        if (msg) msg.textContent = resp.ok ? 'Supprimé.' : 'Échec';
+        if (resp.ok) {
+          var badge = statusCell(slug);
+          if (badge) { badge.className = 'badge badge-muted'; badge.textContent = 'Non configuré'; }
+        }
+      } catch (e) { if (msg) msg.textContent = 'Erreur réseau.'; }
+      finally { btn.disabled = false; }
+    });
+  });
+  document.querySelectorAll('[data-vault-test]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      var slug = btn.getAttribute('data-vault-test');
+      var row = formRow(slug);
+      var username = row.querySelector('[data-vault-user]').value.trim();
+      var password = row.querySelector('[data-vault-pass]').value;
+      var msg = msgEl(slug);
+      btn.disabled = true;
+      try {
+        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+          body: JSON.stringify({ robotic_username: username || null, password: password || null })
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (msg) msg.textContent = data.ok ? 'Connexion OK.' : (data.detail || data.message || 'Échec test');
+      } catch (e) { if (msg) msg.textContent = 'Erreur réseau.'; }
+      finally { btn.disabled = false; }
+    });
+  });
+})();
+</script>
+{% endblock %}

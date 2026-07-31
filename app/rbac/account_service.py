@@ -44,6 +44,7 @@ from app.models import (
 from app.rbac.keycloak_admin import (
     USER_CONFLICT_MESSAGE,
     add_user_to_keycloak_group,
+    create_keycloak_group,
     create_keycloak_user,
     find_keycloak_user_exact,
     get_provision_token,
@@ -131,6 +132,81 @@ def _record_keycloak_failure(
     )
 
 
+def normalize_organization_name(raw: str | None) -> str:
+    """Trim + collapse whitespace — display name used as Keycloak/RBAC group name."""
+    return " ".join((raw or "").split()).strip()
+
+
+async def ensure_company_group(
+    db: Session,
+    settings: Settings,
+    *,
+    realm: RealmConfig,
+    organization: str,
+    actor: str,
+    ip_address: str | None = None,
+    token: str | None = None,
+) -> RBACGroup:
+    """Find or create the société group (RBAC + Keycloak). Idempotent per realm+name."""
+    name = normalize_organization_name(organization)
+    if not name:
+        raise AccountCreationError("Société / organisation requise")
+
+    existing = (
+        db.query(RBACGroup)
+        .filter(
+            RBACGroup.realm_id == realm.id,
+            RBACGroup.name == name,
+            RBACGroup.keycloak_group_id.is_not(None),
+        )
+        .first()
+    )
+    if existing is not None:
+        return existing
+
+    provision_token = token or await get_provision_token(realm, settings)
+    try:
+        kc_id = await create_keycloak_group(
+            realm, settings, name=name, token=provision_token
+        )
+    except ValueError as exc:
+        raise AccountCreationError(f"Groupe société Keycloak : {exc}") from exc
+
+    # Race: another worker may have inserted the same KC group → reuse by kc id
+    by_kc = (
+        db.query(RBACGroup)
+        .filter_by(realm_id=realm.id, keycloak_group_id=kc_id)
+        .first()
+    )
+    if by_kc is not None:
+        return by_kc
+
+    group = RBACGroup(
+        name=name,
+        realm_id=realm.id,
+        realm_slug=realm.slug,
+        keycloak_group_id=kc_id,
+        path=f"/{name}",
+        description=f"Groupe société (auto) — {name}",
+        group_tag="Société",
+    )
+    db.add(group)
+    db.flush()
+    log_action(
+        db,
+        actor=actor,
+        action="account.company_group_ensured",
+        target=f"realm:{realm.slug}/group:{name}",
+        details={
+            "organization": name,
+            "rbac_group_id": group.id,
+            "keycloak_group_id": kc_id,
+        },
+        ip_address=ip_address,
+    )
+    return group
+
+
 async def _assign_groups_and_provision_apps(
     db: Session,
     settings: Settings,
@@ -208,6 +284,8 @@ async def _assign_groups_and_provision_apps(
             if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
             else None
         )
+        # Always pass société + selected group names to drivers that support groups.
+        group_names_for_app = list(selected_group_names) if crushftp_groups is not None else None
         row = await provision_account_app(
             db,
             settings,
@@ -215,7 +293,7 @@ async def _assign_groups_and_provision_apps(
             app=app,
             actor=actor,
             ip_address=ip_address,
-            group_names=crushftp_groups,
+            group_names=group_names_for_app,
         )
         if row.status == PROVISIONING_FAILED:
             errors.append(f"{app.label} : {row.detail}")
@@ -373,6 +451,7 @@ async def create_bastion_account(
     email: str,
     first_name: str | None = None,
     last_name: str | None = None,
+    organization: str | None = None,
     group_ids: list[int] | None = None,
     application_ids: list[int] | None = None,
     actor: str,
@@ -387,6 +466,7 @@ async def create_bastion_account(
     email = (email or "").strip()
     first_name = (first_name or "").strip() or None
     last_name = (last_name or "").strip() or None
+    organization = normalize_organization_name(organization)
     group_ids = list(group_ids or [])
     application_ids = list(application_ids or [])
 
@@ -394,6 +474,8 @@ async def create_bastion_account(
         raise AccountCreationError("Identifiant et email sont requis")
     if "@" not in email:
         raise AccountCreationError("Email invalide")
+    if not organization:
+        raise AccountCreationError("Société / organisation requise")
     if not realm_provisioning_ready(realm):
         raise AccountCreationError(
             "Provisioning non activé pour ce realm — activez-le dans la fiche realm "
@@ -410,12 +492,25 @@ async def create_bastion_account(
             f"(fiche #{existing.id})."
         )
 
+    # Ensure société group before Keycloak user so pending_group_ids is complete.
+    company = await ensure_company_group(
+        db,
+        settings,
+        realm=realm,
+        organization=organization,
+        actor=actor,
+        ip_address=ip_address,
+    )
+    if company.id not in group_ids:
+        group_ids = [company.id, *group_ids]
+
     account = BastionAccount(
         realm_id=realm.id,
         username=username,
         email=email,
         first_name=first_name,
         last_name=last_name,
+        organization=organization,
         status="pending",
         origin=BASTION_ACCOUNT_ORIGIN_BASTION,
         pending_group_ids=group_ids or None,
@@ -433,6 +528,8 @@ async def create_bastion_account(
             "realm_slug": realm.slug,
             "username": username,
             "email": email,
+            "organization": organization,
+            "company_group_id": company.id,
             "bastion_account_id": account.id,
             "origin": account.origin,
         },

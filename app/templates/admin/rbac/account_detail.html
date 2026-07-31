@@ -84,6 +84,10 @@
         </div>
       </div>
       <div class="form-group">
+        <span class="form-label">Société</span>
+        <div>{{ account.organization or '—' }}</div>
+      </div>
+      <div class="form-group">
         <span class="form-label">Keycloak user ID</span>
         <div class="mono">{{ account.keycloak_user_id or '—' }}</div>
       </div>
@@ -98,7 +102,8 @@
           <a href="{{ keycloak_console_url }}" target="_blank" rel="noopener">Compte Keycloak ↗</a>
           {% endif %}
           {% if account.keycloak_user_id and realm %}
-          <a href="/admin/rbac/users?realm_id={{ realm.id }}&amp;keycloak_user_id={{ account.keycloak_user_id }}">Droits effectifs</a>
+          <a href="/admin/rbac/users/view?account_id={{ account.id }}">Fiche utilisateur</a>
+          <a href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ account.keycloak_user_id }}#droits">Droits effectifs</a>
           {% endif %}
           {% if not keycloak_console_url and not (account.keycloak_user_id and realm) %}
           <span class="form-hint">—</span>
@@ -113,6 +118,52 @@
       {% endif %}
     </div>
   </div>
+
+  {% if vault_apps %}
+  <div class="form-section is-accordion is-open form-section-gap" data-form-accordion data-open-default>
+    <div class="form-section-header" data-form-accordion-toggle>
+      <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
+      <div>
+        <div class="form-section-title">Vault applicatif</div>
+        <div class="form-section-sub">Identifiants poussés au provisioning (secret jamais affiché)</div>
+        <div class="form-section-summary">{{ vault_apps|length }} app(s)</div>
+      </div>
+    </div>
+    <div class="form-body">
+      <div class="table-wrap" style="margin:0;">
+        <table class="data-table">
+          <thead>
+            <tr><th>Application</th><th>Login vault</th><th>Statut</th></tr>
+          </thead>
+          <tbody>
+            {% for va in vault_apps %}
+            <tr>
+              <td>
+                <div>{{ va.label }}</div>
+                <div class="mono form-hint">{{ va.slug }}</div>
+              </td>
+              <td class="mono">{{ va.robotic_username or '—' }}</td>
+              <td>
+                {% if va.has_override %}
+                <span class="badge badge-ok">Configuré</span>
+                {% else %}
+                <span class="badge badge-muted">Non configuré</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if account.keycloak_user_id and realm %}
+      <p class="form-help" style="margin:var(--sp-3) 0 0;">
+        Gestion complète (test, remplacer) :
+        <a href="/admin/rbac/users/view?account_id={{ account.id }}#vault">fiche utilisateur → Vault</a>
+      </p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 
   <div class="form-section is-accordion is-open form-section-gap" data-form-accordion data-open-default>
     <div class="form-section-header" data-form-accordion-toggle>

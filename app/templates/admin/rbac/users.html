@@ -3,6 +3,8 @@
 {% block breadcrumb %}Admin / RBAC / Utilisateurs{% endblock %}
 
 {% block content %}
+{% set list_tab = list_tab | default('bastion') %}
+{% set import_users = import_users | default([]) %}
 <div class="page">
   <div class="page-header">
     <div>
@@ -75,6 +77,7 @@
           {% if selected_realm %}
           <input type="hidden" name="realm_id" value="{{ selected_realm.id }}">
           {% endif %}
+          <input type="hidden" name="list_tab" value="{{ list_tab }}">
           <div class="form-group">
             <label class="form-label" for="filter_group">Groupe</label>
             <select id="filter_group" name="group" class="form-select">
@@ -96,97 +99,19 @@
         </form>
       </div>
 
-      {% if granted_users %}
-      <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
-        <div class="card-header" style="padding:var(--sp-4);">
-          <span class="card-title">Utilisateurs avec signal Bastion</span>
-          <span class="badge badge-muted">{{ granted_users | length }}</span>
-        </div>
-        <div class="table-wrap" style="border:none;border-radius:0;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th></th>
-                <th>Utilisateur</th>
-                <th>Origine</th>
-                <th>Droits</th>
-                <th>Apps</th>
-                <th>Statut</th>
-                <th>Dernière connexion</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for u in granted_users %}
-              <tr>
-                <td>
-                  <div class="avatar-initials" style="background:{{ u.avatar_color }};">{{ u.initials }}</div>
-                </td>
-                <td>
-                  <div>{{ u.display }}</div>
-                  <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
-                </td>
-                <td>
-                  {% if u.account_source == 'bastion' %}
-                  <span class="badge badge-ok" title="Créé via Nouvel utilisateur">Créé bastion</span>
-                  {% else %}
-                  <span class="badge badge-muted" title="Compte présent dans Keycloak (pas créé depuis le bastion)">Import Keycloak</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
-                  {% if droits_realm %}
-                  <a class="badge badge-muted" href="/admin/rbac/users?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}" title="Voir les droits AccessGrant">{{ u.grant_count }}</a>
-                  {% else %}
-                  <span class="badge badge-muted">{{ u.grant_count }}</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if u.bastion_account_id %}
-                    {% if u.provision_failed %}
-                    <a class="badge badge-err" href="/admin/rbac/accounts/{{ u.bastion_account_id }}" title="Provisioning applicatif en échec — ouvrir pour relancer">{{ u.provision_failed }} échec</a>
-                    {% elif u.provision_pending and not u.provision_total %}
-                    <a class="badge badge-warn" href="/admin/rbac/accounts/{{ u.bastion_account_id }}" title="Apps sélectionnées, pas encore provisionnées">En attente</a>
-                    {% elif u.provision_total %}
-                    <a class="badge badge-ok" href="/admin/rbac/accounts/{{ u.bastion_account_id }}" title="Provisioning applicatif">{{ u.provision_ok }}/{{ u.provision_total }}</a>
-                    {% else %}
-                    <a class="badge badge-muted" href="/admin/rbac/accounts/{{ u.bastion_account_id }}" title="Fiche provisioning">—</a>
-                    {% endif %}
-                  {% else %}
-                  <span class="form-hint">—</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if u.has_portal_admin %}
-                    <span class="badge badge-ok">Privilégié</span>
-                  {% else %}
-                    <span class="badge badge-ok">Actif</span>
-                  {% endif %}
-                </td>
-                <td class="mono form-hint">
-                  {% if u.last_seen_at %}
-                    {{ u.last_seen_at }}{% if u.last_ip %} · {{ u.last_ip }}{% endif %}
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td>
-                  {% if u.bastion_account_id %}
-                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ u.bastion_account_id }}">Provisioning</a>
-                  {% endif %}
-                  {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
-                  {% if droits_realm %}
-                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Droits</a>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
+      <div class="tabs" role="tablist" aria-label="Listes utilisateurs" style="margin-bottom:var(--sp-4);">
+        <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=bastion" class="tab{% if list_tab == 'bastion' %} active{% endif %}" role="tab"{% if list_tab == 'bastion' %} aria-current="page"{% endif %}>
+          Créés bastion{% if bastion_accounts %} <span class="badge badge-muted">{{ bastion_accounts | length }}</span>{% endif %}
+        </a>
+        <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=keycloak" class="tab{% if list_tab == 'keycloak' %} active{% endif %}" role="tab"{% if list_tab == 'keycloak' %} aria-current="page"{% endif %}>
+          Import Keycloak{% if import_users %} <span class="badge badge-muted">{{ import_users | length }}</span>{% endif %}
+        </a>
+        <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=open" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
+          Ouvrir
+        </a>
       </div>
-      {% endif %}
 
+      {% if list_tab == 'bastion' %}
       {% if bastion_accounts %}
       <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
         <div class="card-header" style="padding:var(--sp-4);">
@@ -194,14 +119,14 @@
           <span class="badge badge-muted">{{ bastion_accounts | length }}</span>
         </div>
         <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
-          Tous les comptes issus de « Nouvel utilisateur », tous realms — indépendants
-          des droits AccessGrant et du realm sélectionné pour la recherche Keycloak.
+          Tous les comptes issus de « Nouvel utilisateur », tous realms.
         </p>
         <div class="table-wrap" style="border:none;border-radius:0;">
           <table class="data-table">
             <thead>
               <tr>
                 <th>Identifiant</th>
+                <th>Société</th>
                 <th>Realm</th>
                 <th>Statut</th>
                 <th>Apps</th>
@@ -218,6 +143,7 @@
                   <div>{{ a.username }}</div>
                   <div class="mono form-hint">{{ a.email }}</div>
                 </td>
+                <td>{{ a.organization or '—' }}</td>
                 <td class="mono">{{ a.realm.slug if a.realm else a.realm_id }}</td>
                 <td>
                   {% if a.status == 'provisioned' %}
@@ -245,13 +171,12 @@
                   {% endif %}
                 </td>
                 <td>
-                  <a class="btn btn-primary btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Provisioning</a>
+                  <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}">Fiche</a>
+                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Provisioning</a>
                   {% if not a.keycloak_user_id %}
                   <form method="post" action="/admin/rbac/accounts/{{ a.id }}/retry-keycloak" style="display:inline;">
                     <button type="submit" class="btn btn-ghost btn-sm">Relancer KC</button>
                   </form>
-                  {% elif a.keycloak_user_id %}
-                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?realm_id={{ a.realm_id }}&amp;keycloak_user_id={{ a.keycloak_user_id }}">Droits</a>
                   {% endif %}
                 </td>
               </tr>
@@ -260,18 +185,88 @@
           </table>
         </div>
       </div>
+      {% else %}
+      <div class="alert alert-info">Aucun compte créé via le bastion pour l’instant.</div>
       {% endif %}
 
+      {% elif list_tab == 'keycloak' %}
+      {% if import_users %}
+      <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+        <div class="card-header" style="padding:var(--sp-4);">
+          <span class="card-title">Import Keycloak (signal Bastion)</span>
+          <span class="badge badge-muted">{{ import_users | length }}</span>
+        </div>
+        <div class="table-wrap" style="border:none;border-radius:0;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Utilisateur</th>
+                <th>Droits</th>
+                <th>Statut</th>
+                <th>Dernière connexion</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in import_users %}
+              <tr>
+                <td>
+                  <div class="avatar-initials" style="background:{{ u.avatar_color }};">{{ u.initials }}</div>
+                </td>
+                <td>
+                  <div>{{ u.display }}</div>
+                  <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
+                </td>
+                <td>
+                  {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
+                  {% if droits_realm %}
+                  <a class="badge badge-muted" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}#droits">{{ u.grant_count }}</a>
+                  {% else %}
+                  <span class="badge badge-muted">{{ u.grant_count }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if u.has_portal_admin %}
+                    <span class="badge badge-ok">Privilégié</span>
+                  {% else %}
+                    <span class="badge badge-ok">Actif</span>
+                  {% endif %}
+                </td>
+                <td class="mono form-hint">
+                  {% if u.last_seen_at %}
+                    {{ u.last_seen_at }}{% if u.last_ip %} · {{ u.last_ip }}{% endif %}
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>
+                  {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
+                  {% if droits_realm %}
+                  <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Fiche</a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% else %}
+      <div class="alert alert-info">Aucun utilisateur import Keycloak avec signal Bastion.</div>
+      {% endif %}
+
+      {% else %}
       <div class="card rbac-user-picker-card">
         <div class="card-header">
           <span class="card-title">Ouvrir un utilisateur</span>
           <span class="form-hint" style="margin:0;">Realm Keycloak (sync ou provisioning) + recherche live</span>
         </div>
         <div class="card-body">
-          <form method="get" action="/admin/rbac/users" id="user-search-form" class="rbac-user-picker">
+          <form method="get" action="/admin/rbac/users/view" id="user-search-form" class="rbac-user-picker">
             <div class="form-group rbac-user-picker-realm">
               <label class="form-label" for="realm_id">Realm</label>
-              <select id="realm_id" name="realm_id" class="form-select">
+              <select id="realm_id" name="realm_id" class="form-select" required>
                 {% for realm in realms %}
                 <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
                 {% else %}
@@ -283,7 +278,7 @@
               <label class="form-label" for="user-query">Rechercher un utilisateur</label>
               <div class="rbac-user-picker-search-wrap">
                 <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" data-user-search>
-                <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="{{ keycloak_user_id or '' }}">
+                <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="" required>
                 <div id="user-suggestions" class="rbac-user-suggestions" hidden></div>
               </div>
             </div>
@@ -293,6 +288,7 @@
           </form>
         </div>
       </div>
+      {% endif %}
     </div>
 
     <aside style="display:flex; flex-direction:column; gap:var(--sp-4);">
@@ -334,587 +330,68 @@
       </div>
     </aside>
   </div>
-
-  {% if user_error %}
-  <div class="alert alert-err">{{ user_error }}</div>
-  {% endif %}
-
-  {% if kc_user %}
-  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
-      <div>
-        <h2 class="card-title" style="margin:0;">{{ kc_user.username or kc_user.email }}</h2>
-        <p class="page-sub mono" style="margin:var(--sp-1) 0 0;">ID {{ keycloak_user_id }}</p>
-      </div>
-      <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
-        {% if bastion_account_for_user and bastion_account_for_user.origin == 'bastion' %}
-        <span class="badge badge-ok">Créé bastion</span>
-        {% else %}
-        <span class="badge badge-muted">Import Keycloak</span>
-        {% endif %}
-        {% if bastion_account_for_user %}
-        <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ bastion_account_for_user.id }}">Fiche provisioning</a>
-        {% endif %}
-      </div>
-    </div>
-    {% if kc_email_diag %}
-    <div style="margin-top:var(--sp-3); display:grid; gap:var(--sp-2);">
-      <div>
-        <span class="form-label">Email Keycloak (claim OIDC)</span>
-        <div class="mono">{{ kc_email_diag.email or '—' }}</div>
-      </div>
-      <div>
-        <span class="form-label">emailVerified</span>
-        {% if kc_email_diag.email_verified is sameas true %}
-          <span class="badge badge-ok">true</span>
-        {% elif kc_email_diag.email_verified is sameas false %}
-          <span class="badge badge-warn">false</span>
-        {% else %}
-          <span class="badge badge-muted">—</span>
-        {% endif %}
-      </div>
-      {% if kc_email_diag.warning %}
-      <div class="alert alert-warn" style="margin:0;">{{ kc_email_diag.warning }}</div>
-      {% else %}
-      <div class="alert alert-ok" style="margin:0;">Email prêt pour X-Email / apps identity_format=email (ex. Grommunio).</div>
-      {% endif %}
-    </div>
-    {% endif %}
-    <div style="margin-top:var(--sp-3);">
-      <span class="form-label">Groupes Keycloak (lecture seule)</span>
-      <ul style="margin:var(--sp-2) 0 0; padding-left:var(--sp-4);">
-        {% for g in kc_groups %}
-        <li class="mono">{{ g.path or g.name }}</li>
-        {% else %}
-        <li class="empty-desc">Aucun groupe</li>
-        {% endfor %}
-      </ul>
-    </div>
-    <div style="margin-top:var(--sp-4); padding-top:var(--sp-4); border-top:1px solid var(--border);">
-      <span class="form-label">Sessions</span>
-      <p class="form-hint" style="margin:var(--sp-2) 0;">
-        Révoque toutes les sessions robotic/vault de cet utilisateur, puis invalide sa session SSO Keycloak.
-        Le break-glass n’est <strong>pas</strong> concerné (révocation séparée).
-      </p>
-      <p class="form-hint" style="margin:0 0 var(--sp-3);">
-        Après logout SSO : délai résiduel possible jusqu’à ~1&nbsp;h (cookie oauth2-proxy
-        <code>cookie_refresh</code>) — coupure portail non instantanée.
-      </p>
-      <button type="button" class="btn btn-danger btn-sm" id="btn-disconnect-user"
-              data-keycloak-user-id="{{ keycloak_user_id }}"
-              data-realm-id="{{ selected_realm.id }}">
-        Déconnecter cet utilisateur
-      </button>
-      <div id="disconnect-user-result" style="margin-top:var(--sp-3);" hidden></div>
-    </div>
-  </div>
-
-  {% if bastion_account_for_user %}
-  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
-      <div>
-        <h2 class="card-title" style="margin:0;">Provisioning applicatif</h2>
-        <p class="form-hint" style="margin:var(--sp-1) 0 0;">
-          Statut CrushFTP / drivers sélectionnés à la création — relance manuelle si échec.
-        </p>
-      </div>
-      <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2);">
-        {% if user_provisionings | selectattr('status', 'equalto', 'failed') | list or user_pending_apps %}
-        <form method="post" action="/admin/rbac/accounts/{{ bastion_account_for_user.id }}/provision-retry-all">
-          <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ keycloak_user_id }}">
-          <button type="submit" class="btn btn-primary btn-sm">Relancer les échecs</button>
-        </form>
-        {% endif %}
-        <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ bastion_account_for_user.id }}">Ouvrir la fiche</a>
-      </div>
-    </div>
-    {% if user_provisionings or user_pending_apps %}
-    <div class="table-wrap" style="margin-top:var(--sp-3); border:none;">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Application</th>
-            <th>Driver</th>
-            <th>Statut</th>
-            <th>Détail</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in user_provisionings %}
-          <tr>
-            <td>{{ row.application.label if row.application else row.application_id }}</td>
-            <td class="mono">{{ row.driver_name }}</td>
-            <td>
-              {% if row.status == 'success' %}
-              <span class="badge badge-ok">Succès</span>
-              {% elif row.status == 'not_applicable' %}
-              <span class="badge badge-muted">Non applicable</span>
-              {% elif row.status == 'failed' %}
-              <span class="badge badge-err">Échec</span>
-              {% else %}
-              <span class="badge badge-muted">En attente</span>
-              {% endif %}
-            </td>
-            <td class="form-hint">{{ row.detail or '—' }}</td>
-            <td>
-              {% if row.status == 'failed' and bastion_account_for_user.keycloak_user_id %}
-              <form method="post" action="/admin/rbac/accounts/{{ bastion_account_for_user.id }}/provision/{{ row.application_id }}" style="display:inline;">
-                <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ keycloak_user_id }}">
-                <button type="submit" class="btn btn-ghost btn-sm">Relancer</button>
-              </form>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-          {% for app in user_pending_apps %}
-          <tr>
-            <td>{{ app.label }}</td>
-            <td class="mono">{{ app.provisioning_driver or '—' }}</td>
-            <td><span class="badge badge-warn">Pas encore tenté</span></td>
-            <td class="form-hint">Sélectionnée à la création, en attente de Keycloak ou non exécutée</td>
-            <td>
-              {% if bastion_account_for_user.keycloak_user_id %}
-              <form method="post" action="/admin/rbac/accounts/{{ bastion_account_for_user.id }}/provision/{{ app.id }}" style="display:inline;">
-                <input type="hidden" name="redirect_url" value="/admin/rbac/users?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ keycloak_user_id }}">
-                <button type="submit" class="btn btn-ghost btn-sm">Lancer</button>
-              </form>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="form-hint" style="margin:var(--sp-3) 0 0;">Aucune application sélectionnée pour le provisioning sur ce compte.</p>
-    {% endif %}
-  </div>
-  {% endif %}
-
-  <div class="dash-grid" style="grid-template-columns:1fr 1fr; margin-bottom:var(--sp-4);">
-    <div class="card" style="padding:0;">
-      <div class="card-header" style="padding:var(--sp-4);">
-        <span class="card-title">Droits individuels</span>
-        <div style="display:flex;align-items:center;gap:var(--sp-3);">
-          <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>+ Ajouter un droit</button>
-          <span class="badge badge-muted">{{ direct_grants | length }}</span>
-        </div>
-      </div>
-      {% with grant_rows=direct_grants, redirect_url='/admin/rbac/users?realm_id=' ~ selected_realm.id ~ '&keycloak_user_id=' ~ keycloak_user_id, show_granted_by=false, show_actions=true, empty_message='Aucun droit direct.' %}
-      {% include "admin/rbac/_grants_by_category.html" %}
-      {% endwith %}
-    </div>
-
-    <div class="card" style="padding:0;">
-      <div class="card-header" style="padding:var(--sp-4);">
-        <span class="card-title">Droits effectifs</span>
-        <span class="badge badge-muted">{{ effective_grants | length }}</span>
-      </div>
-      {% with grant_rows=effective_grants, show_granted_by=false, show_source=true, show_actions=false, empty_message='Aucun droit effectif.' %}
-      {% include "admin/rbac/_grants_by_category.html" %}
-      {% endwith %}
-    </div>
-  </div>
-
-  {% if vault_apps %}
-  <div class="card" style="padding:0; margin-bottom:var(--sp-4);" id="user-vault-section"
-       data-keycloak-user-id="{{ keycloak_user_id }}">
-    <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Vault applicatif — {{ kc_user.username or kc_user.email }}</span>
-      <span class="badge badge-muted">{{ vault_apps | length }}</span>
-    </div>
-    <div class="table-wrap" style="border:none;border-radius:0;">
-      <table class="data-table" id="user-vault-table">
-        <thead>
-          <tr><th>Application</th><th>Statut credential</th><th></th></tr>
-        </thead>
-        <tbody>
-          {% for va in vault_apps %}
-          <tr data-app-slug="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}">
-            <td>
-              <div>{{ va.label }}</div>
-              <div class="mono form-hint">{{ va.slug }}{% if va.robotic_driver %} · {{ va.robotic_driver }}{% endif %}</div>
-            </td>
-            <td>
-              {% if va.credential_mode == 'identite_utilisateur' %}
-                <span class="badge badge-muted" data-vault-status>Identité utilisateur</span>
-                <div class="form-hint">Mot de passe redemandé à chaque ouverture — pas de credential vault.</div>
-              {% elif va.credential_mode == 'individual_required' %}
-                {% if va.has_override %}
-                  <span class="badge badge-ok" data-vault-status>Configuré</span>
-                  {% if va.robotic_username %}
-                  <div class="mono form-hint" data-vault-username>{{ va.robotic_username }}</div>
-                  {% endif %}
-                {% else %}
-                  <span class="badge badge-warn" data-vault-status>Obligatoire — non configuré</span>
-                {% endif %}
-              {% elif va.has_override %}
-                <span class="badge badge-ok" data-vault-status>Individuel</span>
-                {% if va.robotic_username %}
-                <div class="mono form-hint" data-vault-username>{{ va.robotic_username }}</div>
-                {% endif %}
-              {% else %}
-                <span class="badge badge-muted" data-vault-status>Partagé</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if va.credential_mode == 'identite_utilisateur' %}
-              <span class="form-hint">—</span>
-              {% else %}
-              <button type="button" class="btn btn-ghost btn-sm" data-vault-configure="{{ va.slug }}">Configurer</button>
-              {% endif %}
-            </td>
-          </tr>
-          <tr data-vault-form-row="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}" hidden>
-            <td colspan="3" style="padding:var(--sp-4); background:var(--bg-secondary);">
-              <div class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
-                <div class="form-group">
-                  <label class="form-label">Login individuel</label>
-                  <input type="text" class="form-input" data-vault-user autocomplete="off"
-                         value="{{ va.robotic_username or '' }}" placeholder="service-account">
-                </div>
-                <div class="form-group">
-                  <label class="form-label">Mot de passe individuel</label>
-                  <input type="password" class="form-input" data-vault-pass autocomplete="new-password" placeholder="••••••••">
-                </div>
-                <button type="button" class="btn btn-secondary btn-sm" data-vault-save="{{ va.slug }}">Enregistrer</button>
-                <button type="button" class="btn btn-ghost btn-sm" data-vault-test="{{ va.slug }}">Tester la connexion</button>
-                {% if va.credential_mode != 'individual_required' %}
-                <button type="button" class="btn btn-ghost btn-sm" data-vault-clear="{{ va.slug }}">Utiliser le compte partagé</button>
-                {% else %}
-                <button type="button" class="btn btn-ghost btn-sm" data-vault-clear="{{ va.slug }}" data-individual-required
-                        {% if not va.has_override %}hidden{% endif %}>Supprimer le credential individuel</button>
-                {% endif %}
-              </div>
-              <div class="form-help" data-vault-msg style="margin-top:var(--sp-2);"></div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-  {% endif %}
-  {% with subject_type='user', keycloak_user_id=keycloak_user_id, user_display_cache=(kc_user.username or kc_user.email), realm_id=selected_realm.id, redirect_url='/admin/rbac/users?realm_id=' ~ selected_realm.id ~ '&keycloak_user_id=' ~ keycloak_user_id, id_prefix='grant-', modal_title='Ajouter un droit' %}
-  {% include "admin/rbac/_grant_add_modal.html" %}
-  {% endwith %}
-  {% endif %}
 </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/bastion-grant-form.js?v=20260724-grant-modal"></script>
 <script>
 (function () {
   var searchInput = document.querySelector('[data-user-search]');
   var hiddenId = document.getElementById('keycloak_user_id');
   var realmSelect = document.getElementById('realm_id');
   var suggestions = document.getElementById('user-suggestions');
-  if (searchInput && hiddenId && realmSelect && suggestions) {
-    var timer;
-    searchInput.addEventListener('input', function () {
-      clearTimeout(timer);
-      var q = searchInput.value.trim();
-      if (q.length < 2) {
-        suggestions.innerHTML = '';
-        suggestions.hidden = true;
-        return;
-      }
-      timer = setTimeout(async function () {
-        try {
-          var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
-          var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
-          var data = await resp.json();
-          if (!data.ok) {
-            suggestions.hidden = false;
-            suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">' +
-              (data.errors && data.errors._form ? data.errors._form : 'Erreur recherche') + '</div>';
-            return;
-          }
-          var users = data.users || [];
-          if (!users.length) {
-            suggestions.hidden = false;
-            suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">Aucun résultat</div>';
-            return;
-          }
-          suggestions.hidden = false;
-          suggestions.innerHTML = users.map(function (u) {
-            var label = u.display || u.username || u.email || u.id;
-            return '<button type="button" class="rbac-user-suggestion" data-pick-user="' + u.id + '">' +
-              label.replace(/</g, '&lt;') + '</button>';
-          }).join('');
-          suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-              hiddenId.value = btn.getAttribute('data-pick-user');
-              searchInput.value = btn.textContent;
-              suggestions.innerHTML = '';
-              suggestions.hidden = true;
-            });
-          });
-        } catch (e) {
-          suggestions.hidden = false;
-          suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">Erreur réseau</div>';
-        }
-      }, 300);
-    });
-    document.addEventListener('click', function (e) {
-      if (!suggestions.contains(e.target) && e.target !== searchInput) {
-        suggestions.hidden = true;
-      }
-    });
-  }
-
-  var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-
-  var disconnectBtn = document.getElementById('btn-disconnect-user');
-  if (disconnectBtn) {
-    disconnectBtn.addEventListener('click', async function () {
-      var uid = disconnectBtn.getAttribute('data-keycloak-user-id');
-      var realmId = disconnectBtn.getAttribute('data-realm-id');
-      var resultEl = document.getElementById('disconnect-user-result');
-      var ok = window.bastionConfirm
-        ? await window.bastionConfirm({
-            title: 'Déconnecter cet utilisateur ?',
-            message:
-              'Révoque les sessions robotic/vault puis logout Keycloak Admin. ' +
-              'Le break-glass n’est pas concerné. Le cookie portail peut rester ' +
-              'valide jusqu’à ~1 h (cookie_refresh).',
-            confirmLabel: 'Déconnecter',
-            danger: true,
-          })
-        : window.confirm('Déconnecter cet utilisateur ?');
-      if (!ok) return;
-      disconnectBtn.disabled = true;
-      if (resultEl) {
-        resultEl.hidden = false;
-        resultEl.innerHTML = '<div class="form-hint">Déconnexion en cours…</div>';
-      }
-      try {
-        var url =
-          '/admin/users/' +
-          encodeURIComponent(uid) +
-          '/sessions/disconnect?realm_id=' +
-          encodeURIComponent(realmId);
-        var resp = await fetch(url, {
-          method: 'POST',
-          headers: {
-            Accept: 'application/json',
-            'X-CSRF-Token': csrf,
-          },
-          credentials: 'same-origin',
-        });
-        var data = await resp.json().catch(function () {
-          return {};
-        });
-        var app = data.app_sessions || {};
-        var sso = data.sso || {};
-        var appLine =
-          app.ok === false
-            ? 'Sessions app : échec — ' + (app.error || 'erreur')
-            : 'Sessions app : ' +
-              (app.revoked_count || 0) +
-              ' révoquée(s)' +
-              (app.failed_count
-                ? ', ' + app.failed_count + ' échec(s)'
-                : '');
-        if (app.failed && app.failed.length) {
-          appLine +=
-            ' (' +
-            app.failed
-              .map(function (f) {
-                return (f.target || f.session_id) + ': ' + (f.error || '');
-              })
-              .join('; ') +
-            ')';
-        }
-        var ssoLine = sso.ok
-          ? 'SSO Keycloak : logout OK'
-          : 'SSO Keycloak : échec — ' + (sso.error || data.error || 'erreur');
-        var residual = sso.residual_note
-          ? '<p class="form-hint" style="margin-top:var(--sp-2);">' +
-            sso.residual_note +
-            '</p>'
-          : '';
-        var bgNote =
-          data.breakglass && data.breakglass.note
-            ? '<p class="form-hint">' + data.breakglass.note + '</p>'
-            : '';
-        if (resultEl) {
-          resultEl.innerHTML =
-            '<div class="alert ' +
-            (app.ok !== false && sso.ok ? 'alert-ok' : 'alert-warn') +
-            '" style="margin:0;">' +
-            '<div>' +
-            appLine +
-            '</div><div style="margin-top:var(--sp-2);">' +
-            ssoLine +
-            '</div>' +
-            residual +
-            bgNote +
-            '</div>';
-        }
-      } catch (e) {
-        if (resultEl) {
-          resultEl.innerHTML =
-            '<div class="alert alert-err" style="margin:0;">Erreur réseau.</div>';
-        }
-      } finally {
-        disconnectBtn.disabled = false;
-      }
-    });
-  }
-
-  var vaultSection = document.getElementById('user-vault-section');
-  if (!vaultSection) return;
-  var kcUserId = vaultSection.dataset.keycloakUserId;
-
-  function formRow(slug) {
-    return document.querySelector('[data-vault-form-row="' + slug + '"]');
-  }
-  function statusCell(slug) {
-    var row = document.querySelector('tr[data-app-slug="' + slug + '"]');
-    return row ? row.querySelector('[data-vault-status]') : null;
-  }
-  function msgEl(slug) {
-    var row = formRow(slug);
-    return row ? row.querySelector('[data-vault-msg]') : null;
-  }
-  function credentialMode(slug) {
-    var row = document.querySelector('tr[data-app-slug="' + slug + '"]');
-    return (row && row.dataset.credentialMode) || 'shared';
-  }
-  function setConfiguredBadge(slug) {
-    var badge = statusCell(slug);
-    if (!badge) return;
-    badge.className = 'badge badge-ok';
-    badge.textContent = credentialMode(slug) === 'individual_required' ? 'Configuré' : 'Individuel';
-  }
-  function setClearedBadge(slug) {
-    var badge = statusCell(slug);
-    if (!badge) return;
-    if (credentialMode(slug) === 'individual_required') {
-      badge.className = 'badge badge-warn';
-      badge.textContent = 'Obligatoire — non configuré';
-    } else {
-      badge.className = 'badge badge-muted';
-      badge.textContent = 'Partagé';
+  if (!(searchInput && hiddenId && realmSelect && suggestions)) return;
+  var timer;
+  searchInput.addEventListener('input', function () {
+    clearTimeout(timer);
+    hiddenId.value = '';
+    var q = searchInput.value.trim();
+    if (q.length < 2) {
+      suggestions.innerHTML = '';
+      suggestions.hidden = true;
+      return;
     }
-  }
-
-  document.querySelectorAll('[data-vault-configure]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      var slug = btn.getAttribute('data-vault-configure');
-      var row = formRow(slug);
-      if (row) row.hidden = !row.hidden;
-    });
-  });
-
-  document.querySelectorAll('[data-vault-save]').forEach(function (btn) {
-    btn.addEventListener('click', async function () {
-      var slug = btn.getAttribute('data-vault-save');
-      var row = formRow(slug);
-      var username = row.querySelector('[data-vault-user]').value.trim();
-      var password = row.querySelector('[data-vault-pass]').value;
-      var msg = msgEl(slug);
-      if (!username || !password) {
-        if (msg) msg.textContent = 'Saisissez login et mot de passe.';
-        return;
-      }
-      btn.disabled = true;
+    timer = setTimeout(async function () {
       try {
-        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-CSRF-Token': csrf
-          },
-          body: JSON.stringify({ robotic_username: username, password: password })
-        });
-        var data = await resp.json().catch(function () { return {}; });
-        if (!resp.ok) {
-          if (msg) msg.textContent = data.detail || 'Échec de l\'enregistrement.';
+        var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
+        var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+        var data = await resp.json();
+        if (!data.ok) {
+          suggestions.hidden = false;
+          suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">' +
+            (data.errors && data.errors._form ? data.errors._form : 'Erreur recherche') + '</div>';
           return;
         }
-        row.querySelector('[data-vault-pass]').value = '';
-        setConfiguredBadge(slug);
-        var clearBtn = row.querySelector('[data-vault-clear][data-individual-required]');
-        if (clearBtn) clearBtn.hidden = false;
-        if (msg) msg.textContent = 'Credential individuel enregistré.';
-      } catch (e) {
-        if (msg) msg.textContent = 'Erreur réseau.';
-      } finally {
-        btn.disabled = false;
-      }
-    });
-  });
-
-  document.querySelectorAll('[data-vault-clear]').forEach(function (btn) {
-    btn.addEventListener('click', async function () {
-      var slug = btn.getAttribute('data-vault-clear');
-      var msg = msgEl(slug);
-      var individual = btn.hasAttribute('data-individual-required') || credentialMode(slug) === 'individual_required';
-      var confirmMsg = individual
-        ? 'Cette application nécessite un credential individuel. Supprimer cet override empêchera cet utilisateur d\'accéder à l\'application jusqu\'à nouvelle configuration.'
-        : 'Revenir au compte partagé pour cette application ?';
-      if (!(await window.bastionConfirm({
-        title: individual ? 'Supprimer le credential individuel' : 'Revenir au compte partagé',
-        message: confirmMsg,
-        danger: true,
-      }))) return;
-      btn.disabled = true;
-      try {
-        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {
-          method: 'DELETE',
-          headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrf }
-        });
-        var data = await resp.json().catch(function () { return {}; });
-        if (!resp.ok) {
-          if (msg) msg.textContent = data.detail || 'Échec.';
+        var users = data.users || [];
+        if (!users.length) {
+          suggestions.hidden = false;
+          suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">Aucun résultat</div>';
           return;
         }
-        setClearedBadge(slug);
-        var form = formRow(slug);
-        if (form) {
-          form.querySelector('[data-vault-user]').value = '';
-          form.querySelector('[data-vault-pass]').value = '';
-        }
-        if (individual) {
-          btn.hidden = true;
-          if (msg) msg.textContent = 'Credential individuel supprimé — accès bloqué jusqu\'à reconfiguration.';
-        } else if (msg) {
-          msg.textContent = 'Override supprimé — compte partagé.';
-        }
-      } catch (e) {
-        if (msg) msg.textContent = 'Erreur réseau.';
-      } finally {
-        btn.disabled = false;
-      }
-    });
-  });
-
-  document.querySelectorAll('[data-vault-test]').forEach(function (btn) {
-    btn.addEventListener('click', async function () {
-      var slug = btn.getAttribute('data-vault-test');
-      var msg = msgEl(slug);
-      btn.disabled = true;
-      if (msg) msg.textContent = 'Test en cours…';
-      try {
-        var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential/test', {
-          method: 'POST',
-          headers: { 'Accept': 'application/json', 'X-CSRF-Token': csrf }
+        suggestions.hidden = false;
+        suggestions.innerHTML = users.map(function (u) {
+          var label = u.display || u.username || u.email || u.id;
+          return '<button type="button" class="rbac-user-suggestion" data-pick-user="' + u.id + '">' +
+            label.replace(/</g, '&lt;') + '</button>';
+        }).join('');
+        suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            hiddenId.value = btn.getAttribute('data-pick-user');
+            searchInput.value = btn.textContent;
+            suggestions.innerHTML = '';
+            suggestions.hidden = true;
+          });
         });
-        var data = await resp.json().catch(function () { return {}; });
-        if (msg) {
-          msg.textContent = data.ok ? 'Connexion réussie.' : (data.error || data.detail || 'Échec du test.');
-        }
       } catch (e) {
-        if (msg) msg.textContent = 'Erreur réseau.';
-      } finally {
-        btn.disabled = false;
+        suggestions.hidden = false;
+        suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">Erreur réseau</div>';
       }
-    });
+    }, 300);
+  });
+  document.addEventListener('click', function (e) {
+    if (!suggestions.contains(e.target) && e.target !== searchInput) {
+      suggestions.hidden = true;
+    }
   });
 })();
 </script>

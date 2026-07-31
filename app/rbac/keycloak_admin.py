@@ -442,6 +442,58 @@ async def add_user_to_keycloak_group(
         )
 
 
+async def create_keycloak_group(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    name: str,
+    token: str | None = None,
+) -> str:
+    """POST /groups — create a top-level group; return Keycloak group id."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("Nom de groupe Keycloak requis")
+    token = token or await get_provision_token(realm, settings)
+
+    async def _find_id() -> str:
+        resp = await _admin_get(
+            realm,
+            settings,
+            "/groups?briefRepresentation=false",
+            token=token,
+        )
+        if resp.status_code >= 400:
+            return ""
+        data = resp.json()
+        groups = data if isinstance(data, list) else []
+        for g in _flatten_groups(groups):
+            if (g.get("name") or "").strip().lower() == name.lower():
+                return str(g.get("id") or "")
+        return ""
+
+    resp = await _admin_post(
+        realm, settings, "/groups", json={"name": name}, token=token
+    )
+    if resp.status_code == 403:
+        raise ValueError(_provision_manage_users_error())
+    if resp.status_code == 409:
+        gid = await _find_id()
+        if gid:
+            return gid
+        raise ValueError(f"Groupe Keycloak « {name} » en conflit (409) sans id résolu")
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec création groupe Keycloak (HTTP {resp.status_code})")
+    location = resp.headers.get("location", "")
+    group_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
+    if not group_id:
+        group_id = await _find_id()
+    if not group_id:
+        raise ValueError(
+            f"Groupe « {name} » créé mais identifiant Keycloak introuvable"
+        )
+    return group_id
+
+
 async def fetch_user_groups(
     realm: RealmConfig, keycloak_user_id: str, settings: Settings
 ) -> list[dict]:
