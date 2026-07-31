@@ -25,6 +25,8 @@ def score_query_against_fields(query: str, fields: Sequence[str]) -> float:
             continue
         if q == f:
             return 1.0
+        if f.startswith(q):
+            best = max(best, 0.95)
         if q in f:
             best = max(best, 0.92)
         best = max(best, SequenceMatcher(None, q, f).ratio())

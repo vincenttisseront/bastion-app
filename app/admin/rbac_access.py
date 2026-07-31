@@ -452,6 +452,62 @@ async def admin_rbac_users_page(
     file_options = file_grant_select_options(db)
     folder_options = folder_grant_select_options(db)
 
+    directory_users: list[dict] = []
+    directory_source: str | None = None
+    directory_error: str | None = None
+    if tab == "open" and selected_realm is not None:
+        from app.rbac.keycloak_admin import (
+            fetch_group_members,
+            group_matches_sync_include,
+            parse_groups_sync_include,
+        )
+
+        include = parse_groups_sync_include(
+            getattr(selected_realm, "groups_sync_include", None)
+        )
+        realm_groups = [
+            g
+            for g in all_groups
+            if g.realm_id == selected_realm.id and g.keycloak_group_id
+        ]
+        if include:
+            candidate_groups = [
+                g
+                for g in realm_groups
+                if group_matches_sync_include(g.name or "", g.path or "", include)
+            ][:5]
+        else:
+            preferred = [
+                g
+                for g in realm_groups
+                if "users" in (g.name or "").lower()
+                or "users" in (g.path or "").lower()
+            ]
+            candidate_groups = preferred[:3] if preferred else realm_groups[:1]
+
+        seen_ids: set[str] = set()
+        source_names: list[str] = []
+        for g in candidate_groups:
+            try:
+                raw = await fetch_group_members(
+                    selected_realm, g.keycloak_group_id, settings
+                )
+            except ValueError as exc:
+                directory_error = str(exc)
+                break
+            except Exception:
+                continue
+            source_names.append(g.name or g.path or str(g.id))
+            for m in raw:
+                ser = serialize_user_search_result(m)
+                uid = str(ser.get("id") or "")
+                if not uid or uid in seen_ids:
+                    continue
+                seen_ids.add(uid)
+                directory_users.append(ser)
+        if source_names:
+            directory_source = ", ".join(source_names)
+
     return render(
         "admin/rbac/users.html",
         **_ctx(
@@ -486,6 +542,9 @@ async def admin_rbac_users_page(
             bastion_account_for_user=None,
             user_provisionings=[],
             user_pending_apps=[],
+            directory_users=directory_users,
+            directory_source=directory_source,
+            directory_error=directory_error,
         ),
     )
 

@@ -107,7 +107,7 @@
           Avec droits Bastion{% if import_users %} <span class="badge badge-muted">{{ import_users | length }}</span>{% endif %}
         </a>
         <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=open" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
-          Ouvrir
+          Recherche Keycloak
         </a>
       </div>
 
@@ -198,7 +198,7 @@
         </div>
         <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
           Pas un annuaire Keycloak : uniquement les comptes qui ont déjà au moins un droit individuel dans Bastion.
-          Pour un user seulement ajouté à un groupe IdP → onglet <strong>Ouvrir</strong> (recherche live).
+          Pour un user seulement dans Keycloak → onglet <strong>Recherche Keycloak</strong>.
         </p>
         <div class="table-wrap" style="border:none;border-radius:0;">
           <table class="data-table">
@@ -257,16 +257,17 @@
         </div>
       </div>
       {% else %}
-      <div class="alert alert-info">Aucun utilisateur Keycloak avec droits Bastion pour l’instant. Utilisez l’onglet Ouvrir pour rechercher dans Keycloak.</div>
+      <div class="alert alert-info">Aucun utilisateur Keycloak avec droits Bastion pour l’instant. Utilisez l’onglet Recherche Keycloak.</div>
       {% endif %}
 
       {% else %}
-      <div class="card rbac-user-picker-card">
-        <div class="card-header">
-          <span class="card-title">Ouvrir un utilisateur</span>
-          <span class="form-hint" style="margin:0;">Realm Keycloak (sync ou provisioning) + recherche live</span>
+      {% set directory_users = directory_users | default([]) %}
+      <div class="card rbac-user-picker-card" style="padding:0; margin-bottom:var(--sp-4); overflow:visible;">
+        <div class="card-header" style="padding:var(--sp-4);">
+          <span class="card-title">Recherche Keycloak</span>
+          <span class="form-hint" style="margin:0;">Annuaire live du realm — tapez un nom/email ou parcourez les membres des groupes synchronisés</span>
         </div>
-        <div class="card-body">
+        <div class="card-body" style="padding:var(--sp-4); overflow:visible;">
           <form method="get" action="/admin/rbac/users/view" id="user-search-form" class="rbac-user-picker">
             <div class="form-group rbac-user-picker-realm">
               <label class="form-label" for="realm_id">Realm</label>
@@ -279,17 +280,63 @@
               </select>
             </div>
             <div class="form-group rbac-user-picker-search">
-              <label class="form-label" for="user-query">Rechercher un utilisateur</label>
+              <label class="form-label" for="user-query">Filtrer (min. 2 caractères)</label>
               <div class="rbac-user-picker-search-wrap">
-                <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" data-user-search>
-                <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="" required>
-                <div id="user-suggestions" class="rbac-user-suggestions" hidden></div>
+                <input type="search" id="user-query" class="form-input" placeholder="ex. brigitte, @ar-systems.fr…" autocomplete="off" data-user-search>
+                <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="">
               </div>
             </div>
             <div class="rbac-user-picker-actions">
-              <button type="submit" class="btn btn-primary">Afficher</button>
+              <button type="submit" class="btn btn-primary" id="user-search-submit" disabled>Voir la fiche</button>
             </div>
           </form>
+          {% if directory_error %}
+          <div class="alert alert-warn" style="margin-top:var(--sp-4);">{{ directory_error }}</div>
+          {% endif %}
+        </div>
+        <div class="table-wrap" style="border:none;border-radius:0;border-top:1px solid var(--border-muted);">
+          <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
+            <span class="card-title" id="user-results-title" style="font-size:var(--fs-sm);">
+              {% if directory_source %}Membres · {{ directory_source }}{% else %}Résultats{% endif %}
+            </span>
+            <span class="badge badge-muted" id="user-results-count">{{ directory_users | length }}</span>
+          </div>
+          <table class="data-table" id="user-results-table">
+            <thead>
+              <tr>
+                <th>Utilisateur</th>
+                <th>Email</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="user-results-body">
+              {% for u in directory_users %}
+              <tr>
+                <td>
+                  <div>{{ u.display or u.username or u.id }}</div>
+                  {% if u.username and u.username != u.display %}
+                  <div class="mono form-hint">{{ u.username }}</div>
+                  {% endif %}
+                </td>
+                <td class="mono">{{ u.email or '—' }}</td>
+                <td style="text-align:right;white-space:nowrap;">
+                  {% if selected_realm and u.id %}
+                  <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ u.id }}">Fiche</a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr class="user-results-empty">
+                <td colspan="3">
+                  <div class="empty-state" style="padding:var(--sp-5);">
+                    <div class="empty-title">Aucun utilisateur listé</div>
+                    <div class="empty-desc">Tapez au moins 2 caractères pour rechercher dans Keycloak, ou configurez le filtre de sync groupes sur la fiche realm.</div>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
       </div>
       {% endif %}
@@ -343,58 +390,107 @@
   var searchInput = document.querySelector('[data-user-search]');
   var hiddenId = document.getElementById('keycloak_user_id');
   var realmSelect = document.getElementById('realm_id');
-  var suggestions = document.getElementById('user-suggestions');
-  if (!(searchInput && hiddenId && realmSelect && suggestions)) return;
+  var tbody = document.getElementById('user-results-body');
+  var countEl = document.getElementById('user-results-count');
+  var titleEl = document.getElementById('user-results-title');
+  var submitBtn = document.getElementById('user-search-submit');
+  if (!(searchInput && hiddenId && realmSelect && tbody)) return;
+
+  var initialHtml = tbody.innerHTML;
+  var initialCount = countEl ? countEl.textContent : '0';
+  var initialTitle = titleEl ? titleEl.textContent : 'Résultats';
   var timer;
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function setSubmitEnabled(on) {
+    if (submitBtn) submitBtn.disabled = !on;
+  }
+
+  function renderUsers(users, title) {
+    if (titleEl && title) titleEl.textContent = title;
+    if (countEl) countEl.textContent = String(users.length);
+    if (!users.length) {
+      tbody.innerHTML =
+        '<tr class="user-results-empty"><td colspan="3">' +
+        '<div class="empty-state" style="padding:var(--sp-5);">' +
+        '<div class="empty-title">Aucun résultat</div>' +
+        '<div class="empty-desc">Aucun utilisateur Keycloak pour cette recherche.</div>' +
+        '</div></td></tr>';
+      return;
+    }
+    var realmId = realmSelect.value;
+    tbody.innerHTML = users.map(function (u) {
+      var label = u.display || u.username || u.email || u.id || '';
+      var email = u.email || '—';
+      var href = '/admin/rbac/users/view?realm_id=' + encodeURIComponent(realmId) +
+        '&keycloak_user_id=' + encodeURIComponent(u.id);
+      return '<tr>' +
+        '<td><div>' + escapeHtml(label) + '</div>' +
+        (u.username && u.username !== label ? '<div class="mono form-hint">' + escapeHtml(u.username) + '</div>' : '') +
+        '</td>' +
+        '<td class="mono">' + escapeHtml(email) + '</td>' +
+        '<td style="text-align:right;white-space:nowrap;">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-pick-user="' + escapeHtml(u.id) + '" data-pick-label="' + escapeHtml(label) + '">Sélectionner</button> ' +
+        '<a class="btn btn-primary btn-sm" href="' + href + '">Fiche</a>' +
+        '</td></tr>';
+    }).join('');
+    tbody.querySelectorAll('[data-pick-user]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        hiddenId.value = btn.getAttribute('data-pick-user') || '';
+        searchInput.value = btn.getAttribute('data-pick-label') || '';
+        setSubmitEnabled(!!hiddenId.value);
+      });
+    });
+  }
+
   searchInput.addEventListener('input', function () {
     clearTimeout(timer);
     hiddenId.value = '';
+    setSubmitEnabled(false);
     var q = searchInput.value.trim();
     if (q.length < 2) {
-      suggestions.innerHTML = '';
-      suggestions.hidden = true;
+      tbody.innerHTML = initialHtml;
+      if (countEl) countEl.textContent = initialCount;
+      if (titleEl) titleEl.textContent = initialTitle;
       return;
     }
     timer = setTimeout(async function () {
       try {
-        var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) + '&q=' + encodeURIComponent(q);
+        var url = '/admin/rbac/users/search?realm_id=' + encodeURIComponent(realmSelect.value) +
+          '&q=' + encodeURIComponent(q);
         var resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
         var data = await resp.json();
         if (!data.ok) {
-          suggestions.hidden = false;
-          suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">' +
-            (data.errors && data.errors._form ? data.errors._form : 'Erreur recherche') + '</div>';
+          renderUsers([], 'Recherche');
+          tbody.innerHTML =
+            '<tr><td colspan="3"><div class="alert alert-warn" style="margin:var(--sp-3);">' +
+            escapeHtml((data.errors && data.errors._form) || 'Erreur recherche') +
+            '</div></td></tr>';
           return;
         }
-        var users = data.users || [];
-        if (!users.length) {
-          suggestions.hidden = false;
-          suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">Aucun résultat</div>';
-          return;
-        }
-        suggestions.hidden = false;
-        suggestions.innerHTML = users.map(function (u) {
-          var label = u.display || u.username || u.email || u.id;
-          return '<button type="button" class="rbac-user-suggestion" data-pick-user="' + u.id + '">' +
-            label.replace(/</g, '&lt;') + '</button>';
-        }).join('');
-        suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
-          btn.addEventListener('click', function () {
-            hiddenId.value = btn.getAttribute('data-pick-user');
-            searchInput.value = btn.textContent;
-            suggestions.innerHTML = '';
-            suggestions.hidden = true;
-          });
-        });
+        renderUsers(data.users || [], 'Résultats pour « ' + q + ' »');
       } catch (e) {
-        suggestions.hidden = false;
-        suggestions.innerHTML = '<div class="rbac-user-suggestions-empty">Erreur réseau</div>';
+        tbody.innerHTML =
+          '<tr><td colspan="3"><div class="alert alert-warn" style="margin:var(--sp-3);">Erreur réseau</div></td></tr>';
       }
-    }, 300);
+    }, 280);
   });
-  document.addEventListener('click', function (e) {
-    if (!suggestions.contains(e.target) && e.target !== searchInput) {
-      suggestions.hidden = true;
+
+  realmSelect.addEventListener('change', function () {
+    var rid = realmSelect.value;
+    if (rid) {
+      location.href = '/admin/rbac/users?realm_id=' + encodeURIComponent(rid) + '&list_tab=open';
+    }
+  });
+
+  document.getElementById('user-search-form').addEventListener('submit', function (e) {
+    if (!hiddenId.value) {
+      e.preventDefault();
     }
   });
 })();
