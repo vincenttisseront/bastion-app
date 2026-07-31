@@ -193,13 +193,36 @@
       setError("");
       if (submitBtn) submitBtn.disabled = true;
 
-      var headers = { Accept: "application/json" };
+      var headers = {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      };
       var csrf = csrfToken();
       if (csrf) headers["X-CSRF-Token"] = csrf;
 
+      var payload = {};
+      var fd = new FormData(form);
+      fd.forEach(function (value, key) {
+        if (value === "" || value == null) return;
+        payload[key] = value;
+      });
+      [
+        "rbac_group_id",
+        "application_id",
+        "file_id",
+        "folder_id",
+        "rbac_role_id",
+        "realm_id",
+      ].forEach(function (k) {
+        if (Object.prototype.hasOwnProperty.call(payload, k)) {
+          var n = Number(payload[k]);
+          if (!Number.isNaN(n)) payload[k] = n;
+        }
+      });
+
       fetch(form.getAttribute("action") || "/admin/rbac/grants", {
         method: "POST",
-        body: new FormData(form),
+        body: JSON.stringify(payload),
         headers: headers,
         credentials: "same-origin",
       })

@@ -197,7 +197,7 @@
             {% for va in vault_apps %}
             <tr data-app-slug="{{ va.slug }}" data-credential-mode="{{ va.credential_mode | default('shared') }}">
               <td>
-                <div>{{ va.label }}</div>
+                <div><a href="/admin/apps/{{ va.slug }}/edit">{{ va.label }}</a></div>
                 <div class="mono form-hint">{{ va.slug }}{% if va.robotic_driver %} · {{ va.robotic_driver }}{% endif %}</div>
               </td>
               <td>
@@ -281,7 +281,13 @@
           <tbody>
             {% for row in provisionings %}
             <tr>
-              <td>{{ row.application.label if row.application else row.application_id }}</td>
+              <td>
+                {% if row.application and row.application.slug %}
+                <a href="/admin/apps/{{ row.application.slug }}/edit">{{ row.application.label }}</a>
+                {% else %}
+                {{ row.application.label if row.application else row.application_id }}
+                {% endif %}
+              </td>
               <td class="mono">{{ row.driver_name }}</td>
               <td>
                 {% if row.status == 'success' %}<span class="badge badge-ok">Succès</span>
@@ -302,7 +308,13 @@
             {% endfor %}
             {% for app in pending_apps %}
             <tr>
-              <td>{{ app.label }}</td>
+              <td>
+                {% if app.slug %}
+                <a href="/admin/apps/{{ app.slug }}/edit">{{ app.label }}</a>
+                {% else %}
+                {{ app.label }}
+                {% endif %}
+              </td>
               <td class="mono">{{ app.provisioning_driver or '—' }}</td>
               <td><span class="badge badge-warn">Pas encore tenté</span></td>
               <td class="form-hint">Sélectionnée à la création</td>
@@ -331,7 +343,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/bastion-grant-form.js?v=20260724-grant-modal"></script>
+<script src="/static/js/bastion-grant-form.js?v=20260731-grant-json"></script>
 <script>
 (function () {
   var tabs = document.querySelectorAll('#user-fiche-tabs [data-tab]');

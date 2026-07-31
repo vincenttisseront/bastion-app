@@ -623,13 +623,29 @@ async def admin_rbac_grants_create(
     redirect_url = "/admin/rbac"
     body: dict = {}
     content_type = (request.headers.get("content-type") or "").lower()
-    # Parse by Content-Type only — the modal posts multipart FormData with
-    # Accept: application/json (JSON response), which must not call request.json().
-    if content_type.startswith("application/json"):
-        body = await request.json()
+    # Parse by Content-Type only — never call request.json() on multipart/form-data
+    # (the modal used to send FormData with Accept: application/json).
+    if "application/json" in content_type:
+        try:
+            raw = await request.json()
+        except Exception:
+            logger.exception("grant create: invalid JSON body")
+            if _wants_json(request):
+                return JSONResponse(
+                    {"ok": False, "errors": {"_form": "Corps JSON invalide"}},
+                    status_code=400,
+                )
+            raise HTTPException(status_code=400, detail="Corps JSON invalide")
+        body = raw if isinstance(raw, dict) else {}
     else:
         form = await request.form()
-        body = {k: (v if v != "" else None) for k, v in dict(form).items()}
+        body = {}
+        for k, v in dict(form).items():
+            if v is None or v == "":
+                continue
+            if hasattr(v, "filename"):
+                continue
+            body[k] = v
         redirect_url = str(form.get("redirect_url") or redirect_url)
 
     preferred_redirect = body.get("redirect_url") or redirect_url
@@ -667,16 +683,42 @@ async def admin_rbac_grants_create(
     elif data.resource_type == "file" and data.file_id:
         redirect_url = f"/admin/files/{data.file_id}"
 
-    grant = create_grant(db, data, user.email)
-    db.commit()
+    granted_by = (getattr(user, "email", None) or getattr(user, "username", None) or "admin").strip()
+    if not granted_by:
+        granted_by = "admin"
+
+    try:
+        grant = create_grant(db, data, granted_by)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("grant create failed subject=%s resource=%s", data.subject_type, data.resource_type)
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": "Impossible d’enregistrer ce droit (contrainte ou erreur base)."}},
+                status_code=400,
+            )
+        response = RedirectResponse(url=redirect_url, status_code=302)
+        flash_redirect(
+            response,
+            "Impossible d’enregistrer ce droit.",
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
 
     _log_grant_mutation(
         db,
-        actor=user.email,
+        actor=granted_by,
         grant=grant,
         request=request,
         created=True,
     )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("grant audit commit failed grant_id=%s", grant.id)
 
     # Post-grant provisioning hook (spec §5.3) — after the grant commit so a
     # provisioning failure never rolls back the granted right. Explicit result,
@@ -686,7 +728,7 @@ async def admin_rbac_grants_create(
         from app.rbac.account_service import provision_for_grant
 
         provisioning_summary = await provision_for_grant(
-            db, settings, grant, actor=user.email, ip_address=_client_ip(request)
+            db, settings, grant, actor=granted_by, ip_address=_client_ip(request)
         )
     except Exception:
         logger.exception("post-grant provisioning hook failed grant_id=%s", grant.id)

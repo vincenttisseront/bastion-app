@@ -205,7 +205,13 @@
           <tbody>
             {% for row in provisionings %}
             <tr>
-              <td>{{ row.application.label if row.application else row.application_id }}</td>
+              <td>
+                {% if row.application and row.application.slug %}
+                <a href="/admin/apps/{{ row.application.slug }}/edit">{{ row.application.label }}</a>
+                {% else %}
+                {{ row.application.label if row.application else row.application_id }}
+                {% endif %}
+              </td>
               <td class="mono">{{ row.driver_name }}</td>
               <td>
                 {% if row.status == 'success' %}
@@ -230,7 +236,13 @@
             {% endfor %}
             {% for app in pending_apps %}
             <tr>
-              <td>{{ app.label }}</td>
+              <td>
+                {% if app.slug %}
+                <a href="/admin/apps/{{ app.slug }}/edit">{{ app.label }}</a>
+                {% else %}
+                {{ app.label }}
+                {% endif %}
+              </td>
               <td class="mono">{{ app.provisioning_driver or '—' }}</td>
               <td><span class="badge badge-warn">Pas encore tenté</span></td>
               <td class="form-hint">Sélectionnée à la création</td>
