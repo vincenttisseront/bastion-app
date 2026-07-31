@@ -47,8 +47,32 @@ async def test_login_rejected():
         return_value=Response(200, text="<response>failure</response>")
     )
     driver = CrushFTPDriver()
-    with pytest.raises(RoboticLoginError, match="rejected"):
+    with pytest.raises(RoboticLoginError, match="login rejected"):
         await driver.login(BASE, "robot", "wrong")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_login_sso_redirect_message():
+    respx.post(LOGIN_URL).mock(
+        return_value=Response(
+            302, headers={"location": "https://sso.example/auth"}, text=""
+        )
+    )
+    driver = CrushFTPDriver()
+    with pytest.raises(RoboticLoginError, match="redirected|SSO"):
+        await driver.login(BASE, "robot", "secret")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_login_html_response_message():
+    respx.post(LOGIN_URL).mock(
+        return_value=Response(200, text="<!DOCTYPE html><html><body>login</body></html>")
+    )
+    driver = CrushFTPDriver()
+    with pytest.raises(RoboticLoginError, match="HTML|SSO"):
+        await driver.login(BASE, "robot", "secret")
 
 
 @respx.mock

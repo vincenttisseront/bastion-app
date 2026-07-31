@@ -102,6 +102,11 @@ async def test_crushftp_admin_basic_auth_create_account(db_session, caplog):
     assert "vfs_items" in form and "vfs_items type=" in form["vfs_items"][0]
     assert "FILE://users/jdoe/" in form["vfs_items"][0]
     assert "permissions" in form and "<VFS" in form["permissions"][0]
+    perms = form["permissions"][0]
+    assert "(read)(view)(resume)" in perms
+    assert "(write)" not in perms
+    assert "(delete)" not in perms
+    assert "(makedir)" not in perms
     assert route.calls[1].request.content.decode().find("getUser") >= 0
 
     joined = "\n".join(r.getMessage() for r in caplog.records)

@@ -189,10 +189,16 @@ async def test_app_credential_connection(
                 )
             )
     else:
+        # Prefer CrushFTP Admin API base URL for credential tests: upstream_url is
+        # often the public SSO FQDN (302/HTML) and cannot accept native login.
+        crush_login_url = (
+            (getattr(app, "crushftp_admin_base_url", None) or "").strip()
+            or (app.upstream_url or "").strip()
+        )
         crush_driver = CrushFTPDriver()
         try:
             session = await crush_driver.login(
-                app.upstream_url,
+                crush_login_url,
                 resolved.robotic_username,
                 password,
                 tls_verify=resolve_upstream_tls_verify(app),
@@ -200,7 +206,11 @@ async def test_app_credential_connection(
             password = ""
             password_cleared = True
             checks.append(
-                CheckStep(name="login", status=CheckStatus.OK, message="Robotic login OK")
+                CheckStep(
+                    name="login",
+                    status=CheckStatus.OK,
+                    message=f"Robotic login OK ({crush_login_url.rstrip('/')})",
+                )
             )
             identity = await crush_driver.get_username(session)
             if identity != resolved.robotic_username:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import httpx
 
@@ -37,6 +37,28 @@ class CrushFTPSession:
 
 def _normalize_base_url(base_url: str) -> str:
     return base_url.rstrip("/") + "/"
+
+
+def _login_reject_hint(text: str, status: int) -> str:
+    """Secret-free hint for WebInterface login failures."""
+    body = (text or "").strip()
+    if not body:
+        return f"réponse vide (HTTP {status})"
+    lowered = body.lower()
+    if _FAILURE_RE.search(body):
+        return (
+            f"CrushFTP a renvoyé failure (HTTP {status}) — "
+            "mot de passe vault incorrect ou compte désactivé ; "
+            "ré-enregistrez le credential pour le re-pousser"
+        )
+    if "<html" in lowered or "<!doctype" in lowered:
+        return (
+            f"réponse HTML (HTTP {status}) — l’URL pointe vers un portail SSO "
+            "ou une page web, pas l’API WebInterface CrushFTP"
+        )
+    if "oauth" in lowered or "keycloak" in lowered or "sso" in lowered:
+        return f"réponse type SSO (HTTP {status}) — utilisez l’URL Admin API interne"
+    return f"pas de <response>success</response> (HTTP {status}, {len(body)} octets)"
 
 
 def _extract_session_cookies(response: httpx.Response) -> dict[str, str]:
@@ -75,10 +97,12 @@ class CrushFTPDriver(RoboticDriver):
     ) -> CrushFTPSession:
         base = _normalize_base_url(base_url)
         url = urljoin(base, "WebInterface/function/")
+        # encoded=true: CrushFTP URI-decodes username/password after form parse.
+        # Pre-encode so characters like '+' '/' survive the form round-trip.
         data = {
             "command": "login",
-            "username": username,
-            "password": password,
+            "username": quote(username or "", safe=""),
+            "password": quote(password or "", safe=""),
             "encoded": "true",
             "language": "en",
         }
@@ -94,8 +118,20 @@ class CrushFTPDriver(RoboticDriver):
         except httpx.RequestError as exc:
             raise RoboticLoginError("CrushFTP login network error") from exc
 
-        if not _SUCCESS_RE.search(response.text or ""):
-            raise RoboticLoginError("CrushFTP login rejected")
+        if response.status_code in (301, 302, 303, 307, 308):
+            loc = response.headers.get("location") or ""
+            raise RoboticLoginError(
+                "CrushFTP login redirected (HTTP "
+                f"{response.status_code}) — URL probablement SSO/publique, "
+                "utilisez l’URL Admin API CrushFTP (interne). "
+                f"Location: {loc[:120] if loc else '—'}"
+            )
+
+        body = response.text or ""
+        if not _SUCCESS_RE.search(body):
+            raise RoboticLoginError(
+                f"CrushFTP login rejected — {_login_reject_hint(body, response.status_code)}"
+            )
 
         cookies = _extract_session_cookies(response)
         if "CrushAuth" not in cookies:
@@ -236,15 +272,18 @@ def _crushftp_vfs_items_xml(username: str) -> str:
 
 
 def _crushftp_permissions_xml(username: str) -> str:
-    """Wiki sample uses <VFS> (uppercase) with / and /NAME/ entries."""
+    """Default VFS permissions: read-only (no upload/write/delete/mkdir/rename).
+
+    CrushFTP flags map roughly to User Manager checkboxes:
+    read=Download, view=View, resume=Resume — no write/upload.
+    """
     folder = _xml_escape((username or "").strip().upper())
+    read_only = "(read)(view)(resume)"
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<VFS type="properties">'
-        f'<item name="/{folder}/">'
-        "(read)(view)(write)(delete)(resume)(makedir)(deletedir)(rename)"
-        "</item>"
-        '<item name="/">(read)(view)(resume)</item>'
+        f'<item name="/{folder}/">{read_only}</item>'
+        f'<item name="/">{read_only}</item>'
         "</VFS>"
     )
 
