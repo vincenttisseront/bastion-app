@@ -75,6 +75,8 @@ class OidcTokenResult:
     sub: str
     preferred_username: str | None
     claims: dict[str, Any]
+    groups: tuple[str, ...] = ()
+    email: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +210,70 @@ def _decode_id_token_claims(id_token: str) -> dict[str, Any]:
             "verify_exp": False,
         },
     )
+
+
+def _try_decode_jwt_claims(token: str | None) -> dict[str, Any]:
+    """Best-effort decode (no verify) — access tokens may carry the groups claim."""
+    raw = (token or "").strip()
+    if not raw or raw.count(".") != 2:
+        return {}
+    try:
+        payload = jwt.decode(
+            raw,
+            options={
+                "verify_signature": False,
+                "verify_aud": False,
+                "verify_exp": False,
+            },
+        )
+    except jwt.PyJWTError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _leaf_group_name(raw: str) -> str:
+    """Keycloak may emit path-style groups (/foo/bar); portal RBAC matches leaf names."""
+    name = (raw or "").strip()
+    if "/" in name:
+        name = name.rstrip("/").rsplit("/", 1)[-1]
+    return name
+
+
+def extract_groups_from_oidc_claims(*claim_dicts: dict[str, Any] | None) -> tuple[str, ...]:
+    """Collect unique group leaf names from one or more OIDC claim maps.
+
+    Accepts ``groups`` as a JSON array (Keycloak mapper) or a comma-separated string
+    (oauth2-proxy style). Paths are reduced to their leaf segment for RBAC parity.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for claims in claim_dicts:
+        if not claims:
+            continue
+        raw = claims.get("groups")
+        items: list[str] = []
+        if isinstance(raw, list):
+            items = [str(x).strip() for x in raw if str(x).strip()]
+        elif isinstance(raw, str):
+            items = [part.strip() for part in raw.split(",") if part.strip()]
+        for item in items:
+            leaf = _leaf_group_name(item)
+            if not leaf:
+                continue
+            key = leaf.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(leaf)
+    return tuple(out)
+
+
+def _email_from_claims(claims: dict[str, Any]) -> str | None:
+    email = claims.get("email")
+    if email is None:
+        return None
+    text = str(email).strip()
+    return text or None
 
 
 def _serialize_cookies(client: httpx.AsyncClient) -> list[dict[str, str]]:
@@ -358,12 +424,21 @@ async def _exchange_code_for_tokens(
     if preferred is not None:
         preferred = str(preferred).strip() or None
 
+    access_claims = _try_decode_jwt_claims(str(access_token))
+    groups = extract_groups_from_oidc_claims(claims, access_claims)
+    email = _email_from_claims(claims) or _email_from_claims(access_claims)
+
     expires_in = int(payload.get("expires_in") or 0)
     refresh = payload.get("refresh_token")
     if refresh is not None:
         refresh = str(refresh)
 
-    logger.info("oidc_bff headless_login ok realm=%s sub=%s", realm, sub)
+    logger.info(
+        "oidc_bff headless_login ok realm=%s sub=%s groups=%d",
+        realm,
+        sub,
+        len(groups),
+    )
     return OidcTokenResult(
         access_token=str(access_token),
         refresh_token=refresh,
@@ -372,6 +447,8 @@ async def _exchange_code_for_tokens(
         sub=sub,
         preferred_username=preferred,
         claims=claims,
+        groups=groups,
+        email=email,
     )
 
 

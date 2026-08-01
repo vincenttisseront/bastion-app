@@ -27,6 +27,7 @@ router = APIRouter()
 #   $upstream_http_x_auth_request_groups
 #   $upstream_http_x_auth_request_preferred_username
 # Whitelist by prefix — never relay Set-Cookie or other oauth2-proxy headers.
+# Native bastion_session must emit the same set (incl. groups) for AccessGrant parity.
 _AUTH_REQUEST_HEADER_PREFIX = "x-auth-request-"
 
 
@@ -106,10 +107,15 @@ def _native_oidc_auth_response(
         "X-Auth-Request-User": claims.sub,
     }
     username = (claims.username or "").strip()
+    email = (claims.email or "").strip()
     if username:
         headers["X-Auth-Request-Preferred-Username"] = username
-        if "@" in username:
-            headers["X-Auth-Request-Email"] = username
+    if email:
+        headers["X-Auth-Request-Email"] = email
+    elif username and "@" in username:
+        headers["X-Auth-Request-Email"] = username
+    if claims.groups:
+        headers["X-Auth-Request-Groups"] = ",".join(claims.groups)
     return Response(status_code=200, headers=headers)
 
 

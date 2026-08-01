@@ -125,15 +125,35 @@ def _login_html(*, error: bool = False) -> str:
     """
 
 
-def _id_token(*, sub: str = "kc-sub-e2e", preferred: str = "alice") -> str:
+def _id_token(
+    *,
+    sub: str = "kc-sub-e2e",
+    preferred: str = "alice",
+    groups: list[str] | None = None,
+    email: str | None = None,
+) -> str:
+    payload: dict = {
+        "sub": sub,
+        "preferred_username": preferred,
+        "iss": f"{KC}/realms/{REALM}",
+    }
+    if groups is not None:
+        payload["groups"] = groups
+    if email is not None:
+        payload["email"] = email
     return jwt.encode(
-        {"sub": sub, "preferred_username": preferred, "iss": f"{KC}/realms/{REALM}"},
+        payload,
         key="unit-test-hmac-key-32bytes-min!!",
         algorithm="HS256",
     )
 
 
-def _mock_keycloak_success(*, password: str = "s3cret") -> tuple:
+def _mock_keycloak_success(
+    *,
+    password: str = "s3cret",
+    groups: list[str] | None = None,
+    email: str | None = None,
+) -> tuple:
     """Wire respx Keycloak: auth HTML → 302 code → token. Reject wrong password."""
     auth_route = respx.get(AUTH).mock(
         return_value=Response(
@@ -163,13 +183,14 @@ def _mock_keycloak_success(*, password: str = "s3cret") -> tuple:
         url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
     ).mock(side_effect=_login)
 
+    id_groups = groups if groups is not None else ["/ARSYSTEMS-Users"]
     token_route = respx.post(TOKEN).mock(
         return_value=Response(
             200,
             json={
                 "access_token": "access-e2e",
                 "refresh_token": "refresh-e2e",
-                "id_token": _id_token(),
+                "id_token": _id_token(groups=id_groups, email=email),
                 "expires_in": 300,
                 "token_type": "Bearer",
             },
@@ -209,7 +230,37 @@ def test_e2e_login_sets_cookie_and_oauth2_auth_accepts(
     assert auth.status_code == 200
     assert auth.headers.get("x-auth-request-user") == "kc-sub-e2e"
     assert auth.headers.get("x-auth-request-preferred-username") == "alice"
+    assert auth.headers.get("x-auth-request-groups") == "ARSYSTEMS-Users"
     assert not oauth2_route.called
+
+
+@respx.mock
+def test_e2e_login_admin_api_groups_fallback_when_claim_missing(
+    client: TestClient, db_session: Session, e2e_settings: Settings, monkeypatch
+):
+    """BFF client without groups mapper still populates X-Auth-Request-Groups via Admin API."""
+    _add_realm(db_session, e2e_settings)
+    _mock_keycloak_success(groups=[])
+
+    async def _fake_fetch_user_groups(realm, keycloak_user_id, settings):
+        assert keycloak_user_id == "kc-sub-e2e"
+        return [{"id": "g1", "name": "ARSYSTEMS-Users", "path": "/ARSYSTEMS-Users"}]
+
+    monkeypatch.setattr(
+        "app.rbac.keycloak_admin.fetch_user_groups",
+        _fake_fetch_user_groups,
+    )
+
+    login = client.post(
+        "/auth/login",
+        data={"username": "alice", "password": "s3cret"},
+        headers={"X-Real-IP": "10.0.0.42"},
+    )
+    assert login.status_code == 200
+    client.cookies.set(COOKIE, login.cookies[COOKIE])
+    auth = client.get("/internal/oauth2-auth")
+    assert auth.status_code == 200
+    assert auth.headers.get("x-auth-request-groups") == "ARSYSTEMS-Users"
 
 
 @respx.mock

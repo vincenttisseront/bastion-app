@@ -107,6 +107,112 @@ def test_user_portal_group_grant(db_session: Session):
     assert apps[0].sources == ["via groupe team-ops"]
 
 
+def test_native_oidc_empty_groups_hides_group_grants_keeps_direct(db_session: Session):
+    """Regression: native bastion_session without groups looked like SSO with only direct apps.
+
+    Group App grants (Dolibarr, Grommunio, …) require X-Groups / OIDC groups claim;
+    a direct Transfer grant still appears when groups are missing.
+    """
+    transfer = _app(db_session, slug="transfer", label="Transfer")
+    dolibarr = _app(db_session, slug="dolibarr", label="Dolibarr")
+    grommunio = _app(db_session, slug="grommunio", label="Grommunio")
+    group = _group(db_session, "ARSYSTEMS-Users")
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id="kc-vincent",
+            resource_type="application",
+            application_id=transfer.id,
+            access_level="launch",
+        ),
+        "admin@breakglass.local",
+    )
+    for app in (dolibarr, grommunio):
+        create_grant(
+            db_session,
+            AccessGrantCreate(
+                subject_type="group",
+                rbac_group_id=group.id,
+                resource_type="application",
+                application_id=app.id,
+                access_level="launch",
+            ),
+            "admin@breakglass.local",
+        )
+    db_session.commit()
+
+    broken = get_effective_apps_for_user(
+        db_session, keycloak_user_id="kc-vincent", group_names=[]
+    )
+    assert [e.app.slug for e in broken] == ["transfer"]
+
+    fixed = get_effective_apps_for_user(
+        db_session,
+        keycloak_user_id="kc-vincent",
+        group_names=["ARSYSTEMS-Users"],
+    )
+    assert {e.app.slug for e in fixed} == {"transfer", "dolibarr", "grommunio"}
+
+
+def test_apps_portal_renders_group_grants_from_x_groups(client: TestClient, db_session: Session):
+    transfer = _app(db_session, slug="transfer", label="Transfer")
+    dolibarr = _app(db_session, slug="dolibarr", label="Dolibarr")
+    group = _group(db_session, "ARSYSTEMS-Users")
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id="kc-vincent",
+            resource_type="application",
+            application_id=transfer.id,
+            access_level="launch",
+        ),
+        "admin@breakglass.local",
+    )
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="application",
+            application_id=dolibarr.id,
+            access_level="launch",
+        ),
+        "admin@breakglass.local",
+    )
+    db_session.commit()
+
+    empty = client.get(
+        "/apps",
+        headers={
+            "X-Email": "vincent.tisseront@ar-systems.fr",
+            "X-Preferred-Username": "vincent.tisseront",
+            "X-User-Id": "kc-vincent",
+            "X-Groups": "",
+            "X-Portal-Realm-Slug": "ar-systems",
+        },
+    )
+    assert empty.status_code == 200
+    assert "Transfer" in empty.text
+    assert "Dolibarr" not in empty.text
+    assert "1 application accessible" in empty.text or "1 application" in empty.text
+
+    ok = client.get(
+        "/apps",
+        headers={
+            "X-Email": "vincent.tisseront@ar-systems.fr",
+            "X-Preferred-Username": "vincent.tisseront",
+            "X-User-Id": "kc-vincent",
+            "X-Groups": "ARSYSTEMS-Users",
+            "X-Portal-Realm-Slug": "ar-systems",
+        },
+    )
+    assert ok.status_code == 200
+    assert "Transfer" in ok.text
+    assert "Dolibarr" in ok.text
+
+
 def test_user_portal_view_only_disabled_tile(client: TestClient, db_session: Session):
     app = _app(db_session, slug="reports", label="Reports")
     create_grant(
