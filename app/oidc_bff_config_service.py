@@ -24,6 +24,7 @@ class OidcBffConfig:
     """Plaintext BFF client config for server-side use only — never serialize to API/logs."""
 
     realm_slug: str
+    keycloak_realm: str
     keycloak_base_url: str
     client_id: str
     client_secret: str
@@ -32,6 +33,26 @@ class OidcBffConfig:
 
 def _normalize_base_url(url: str) -> str:
     return (url or "").strip().rstrip("/")
+
+
+def keycloak_realm_from_issuer(issuer_url: str) -> str | None:
+    """
+    Extract Keycloak realm name from issuer URL.
+
+    Bastion ``RealmConfig.slug`` is often lowercase (``ar-systems``) while the
+    Keycloak realm path keeps its own casing (``AR-SYSTEMS``).
+    """
+    raw = (issuer_url or "").strip().rstrip("/")
+    if not raw:
+        return None
+    lower = raw.lower()
+    marker = "/realms/"
+    idx = lower.rfind(marker)
+    if idx < 0:
+        return None
+    rest = raw[idx + len(marker) :]
+    name = (rest.split("/")[0] or "").strip()
+    return name or None
 
 
 def get_oidc_bff_config(
@@ -70,8 +91,10 @@ def get_oidc_bff_config(
         return None
     if not client_secret:
         return None
+    kc_realm = keycloak_realm_from_issuer(realm.issuer_url or "") or realm.slug
     return OidcBffConfig(
         realm_slug=realm.slug,
+        keycloak_realm=kc_realm,
         keycloak_base_url=base,
         client_id=client_id,
         client_secret=client_secret,
@@ -192,15 +215,15 @@ def generate_oidc_session_jwt_secret(
     return plain
 
 
-async def ping_oidc_discovery(base_url: str, realm_slug: str) -> dict[str, str | bool]:
-    """GET ``{base}/realms/{realm}/.well-known/openid-configuration`` (no secrets)."""
+async def ping_oidc_discovery(base_url: str, keycloak_realm: str) -> dict[str, str | bool]:
+    """GET ``{base}/realms/{keycloak_realm}/.well-known/openid-configuration`` (no secrets)."""
     import httpx
 
     base = _normalize_base_url(base_url)
-    slug = (realm_slug or "").strip()
-    if not base or not slug:
-        return {"ok": False, "error": "base_url et realm requis"}
-    url = f"{base}/realms/{slug}/.well-known/openid-configuration"
+    realm = (keycloak_realm or "").strip()
+    if not base or not realm:
+        return {"ok": False, "error": "base_url et realm Keycloak requis"}
+    url = f"{base}/realms/{realm}/.well-known/openid-configuration"
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(url)

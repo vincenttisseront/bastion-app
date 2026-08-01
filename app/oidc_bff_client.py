@@ -205,6 +205,9 @@ async def perform_headless_login(
     if not realm or not username or password is None or password == "":
         raise InvalidCredentialsError("Identifiants incomplets")
 
+    # Bastion slug (session/audit) vs Keycloak path segment (may differ in casing).
+    keycloak_realm = realm
+
     if not all([keycloak_base_url, client_id, client_secret, redirect_uri]):
         if db is None:
             raise OidcBffConfigError(
@@ -221,6 +224,7 @@ async def perform_headless_login(
         client_id = cfg.client_id
         client_secret = cfg.client_secret
         redirect_uri = cfg.redirect_uri
+        keycloak_realm = cfg.keycloak_realm or realm
 
     base, client_id, client_secret, redirect_uri = _require_bff_config(
         base=keycloak_base_url or "",
@@ -231,8 +235,8 @@ async def perform_headless_login(
     code_verifier, code_challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
 
-    auth_url = f"{base}{_AUTH_PATH.format(realm=realm)}"
-    token_url = f"{base}{_TOKEN_PATH.format(realm=realm)}"
+    auth_url = f"{base}{_AUTH_PATH.format(realm=keycloak_realm)}"
+    token_url = f"{base}{_TOKEN_PATH.format(realm=keycloak_realm)}"
     auth_params = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
