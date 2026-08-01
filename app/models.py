@@ -654,6 +654,31 @@ class SsoSessionAnchor(Base):
     last_seen = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class OidcSession(Base):
+    """Native bastion OIDC session registry (distinct from oauth2-proxy cookies).
+
+    Mirrors ``BreakGlassSession``: JWT ``jti`` is the revocation key; identity-binding
+    columns detect cookie theft (same shape as ``SsoSessionAnchor`` / break-glass).
+    """
+
+    __tablename__ = "oidc_sessions"
+
+    id = Column(Integer, primary_key=True)
+    jti = Column(String, unique=True, nullable=False, index=True)
+    sub = Column(String, nullable=False, index=True)
+    username = Column(String, nullable=True)
+    realm = Column(String, nullable=False)
+    issued_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked = Column(Boolean, nullable=False, default=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by = Column(String, nullable=True)
+    revoked_reason = Column(String, nullable=True)
+    # Identity binding (nullable until first successful bind).
+    ip_subnet = Column(String, nullable=True)
+    fingerprint_hash = Column(String, nullable=True)
+
+
 class AuditLog(Base):
     """Admin action audit journal."""
 
