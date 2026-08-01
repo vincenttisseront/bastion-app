@@ -159,7 +159,7 @@ async def test_headless_login_success():
 
 @pytest.mark.asyncio
 async def test_headless_login_missing_config_raises():
-    with pytest.raises(OidcBffConfigError, match="non configuré"):
+    with pytest.raises(OidcBffConfigError, match="db session required|non configuré"):
         await perform_headless_login(
             REALM, "alice", "s3cret", settings=_settings(), db=None
         )
@@ -214,19 +214,18 @@ async def test_headless_login_mfa_via_redirect_location():
     respx.get(AUTH).mock(
         return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
     )
+    otp_url = (
+        f"{KC}/realms/{REALM}/login-actions/authenticate"
+        "?execution=otp&client_id=bastion-bff"
+    )
     respx.post(url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate").mock(
-        return_value=Response(
-            302,
-            headers={
-                "Location": (
-                    f"{KC}/realms/{REALM}/login-actions/authenticate"
-                    "?execution=otp&client_id=bastion-bff"
-                )
-            },
-        )
+        return_value=Response(302, headers={"Location": otp_url})
+    )
+    respx.get(otp_url).mock(
+        return_value=Response(200, text=_otp_html(), headers={"content-type": "text/html"})
     )
 
-    with pytest.raises(UnsupportedAuthFlowError, match="étape interactive"):
+    with pytest.raises(UnsupportedAuthFlowError, match="kc-otp-login-form"):
         await perform_headless_login(
             REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
         )

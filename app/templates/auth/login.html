@@ -5,6 +5,7 @@
 {% block content %}
 {% set show_breakglass = show_breakglass | default(false) %}
 {% set show_native_login = show_native_login | default(false) %}
+{% set otp_required = otp_required | default(false) %}
 <div class="login-wrap">
   <div class="login-card">
     <div class="login-header">
@@ -35,7 +36,7 @@
     <div class="alert alert-err" role="alert">{{ login_error }}</div>
     {% endif %}
 
-    {% if oauth2_url %}
+    {% if oauth2_url and not otp_required %}
     <a href="{{ oauth2_url }}" class="btn btn-primary btn-full">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>
@@ -45,6 +46,29 @@
     {% endif %}
 
     {% if show_native_login %}
+    {% if otp_required %}
+    <p class="login-sub" style="margin-bottom:1rem;">Code à usage unique (OTP)</p>
+    <form method="post" action="/auth/login" class="form-body" style="padding-bottom:0;" autocomplete="one-time-code">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="rd" value="{{ rd | default('/apps') }}">
+      {% if native_realm_slug %}
+      <input type="hidden" name="realm" value="{{ native_realm_slug }}">
+      {% endif %}
+      <input type="hidden" name="attempt_id" value="{{ attempt_id }}">
+      <input type="hidden" name="username" value="{{ form_username | default('') }}">
+      <div class="form-group">
+        <label class="form-label" for="oidc-otp">Code OTP</label>
+        <div class="input-wrap">
+          <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <input type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="8" id="oidc-otp" name="otp_code" class="form-input" required autofocus autocomplete="one-time-code" placeholder="123456">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Valider</button>
+    </form>
+    <p class="login-sub" style="margin-top:1rem;text-align:center;">
+      <a href="/login?rd={{ rd | default('/apps') }}">Recommencer</a>
+    </p>
+    {% else %}
     {% if oauth2_url %}
     <div class="login-divider">ou connexion native{% if native_realm_name %} ({{ native_realm_name }}){% endif %}</div>
     {% elif native_realm_name %}
@@ -73,8 +97,9 @@
       <button type="submit" class="btn {% if oauth2_url %}btn-secondary{% else %}btn-primary{% endif %} btn-full">Connexion</button>
     </form>
     {% endif %}
+    {% endif %}
 
-    {% if show_breakglass %}
+    {% if show_breakglass and not otp_required %}
     {% if show_native_login or oauth2_url %}
     <div class="login-divider">ou accès d'urgence</div>
     {% endif %}
@@ -103,7 +128,7 @@
         <button type="submit" class="btn btn-secondary btn-full">Connexion break-glass</button>
       </form>
     </details>
-    {% elif not show_native_login and not oauth2_url %}
+    {% elif not show_native_login and not oauth2_url and not otp_required %}
     <p class="login-sub">Aucun mode de connexion n'est disponible depuis cette adresse.</p>
     {% endif %}
   </div>

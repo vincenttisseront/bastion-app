@@ -286,3 +286,224 @@ def test_e2e_rate_limit_after_failures(
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
     assert db_session.query(OidcSession).count() == 0
+
+
+def _otp_html(*, error: bool = False) -> str:
+    err = (
+        '<span id="input-error" class="kc-feedback-text">Invalid authenticator code.</span>'
+        if error
+        else ""
+    )
+    return f"""
+    <html><body>
+      {err}
+      <form id="kc-otp-login-form" action="{LOGIN_ACTION}&otp=1" method="post">
+        <input type="hidden" name="session_code" value="otp-sess">
+        <input type="hidden" name="execution" value="otp-exec">
+        <input type="hidden" name="tab_id" value="tab-otp">
+        <input type="text" name="otp" value="">
+        <input type="submit" value="Submit">
+      </form>
+    </body></html>
+    """
+
+
+@respx.mock
+def test_e2e_otp_flow_success(
+    client: TestClient, db_session: Session, e2e_settings: Settings
+):
+    from app.models import AuditLog, OidcLoginAttempt
+
+    _add_realm(db_session, e2e_settings)
+    auth_route = respx.get(AUTH).mock(
+        return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
+    )
+
+    def _pw_login(request):
+        return Response(
+            200,
+            text=_otp_html(),
+            headers={"content-type": "text/html"},
+        )
+
+    login_route = respx.post(
+        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
+    ).mock(side_effect=_pw_login)
+
+    def _otp_submit(request):
+        body = dict(parse_qs(request.content.decode()))
+        code = (body.get("otp") or [""])[0]
+        if code != "123456":
+            return Response(
+                200,
+                text=_otp_html(error=True),
+                headers={"content-type": "text/html"},
+            )
+        state = "fallback"
+        if auth_route.called:
+            state = parse_qs(urlparse(str(auth_route.calls[0].request.url)).query)[
+                "state"
+            ][0]
+        return Response(
+            302,
+            headers={"Location": f"{REDIRECT_URI}?code=auth-code-otp&state={state}"},
+        )
+
+    # Second POST (OTP) hits same authenticate URL prefix — replace side_effect after first call.
+    call_n = {"n": 0}
+
+    def _authenticate(request):
+        call_n["n"] += 1
+        if call_n["n"] == 1:
+            return _pw_login(request)
+        return _otp_submit(request)
+
+    login_route.side_effect = _authenticate
+
+    respx.post(TOKEN).mock(
+        return_value=Response(
+            200,
+            json={
+                "access_token": "access-otp",
+                "refresh_token": "refresh-otp",
+                "id_token": _id_token(sub="kc-sub-otp", preferred="alice"),
+                "expires_in": 300,
+                "token_type": "Bearer",
+            },
+        )
+    )
+
+    step1 = client.post(
+        "/auth/login",
+        data={"username": "alice", "password": "s3cret"},
+        headers={"X-Real-IP": "10.0.0.50"},
+    )
+    assert step1.status_code == 200
+    body = step1.json()
+    assert body["status"] == "otp_required"
+    attempt_id = body["attempt_id"]
+    assert db_session.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).count() == 1
+    assert (
+        db_session.query(AuditLog).filter_by(action="oidc_login_otp_required").count()
+        >= 1
+    )
+
+    step2 = client.post(
+        "/auth/login",
+        data={"attempt_id": attempt_id, "otp_code": "123456"},
+        headers={"X-Real-IP": "10.0.0.50"},
+    )
+    assert step2.status_code == 200
+    assert step2.json()["status"] == "ok"
+    assert COOKIE in step2.cookies
+    assert db_session.query(OidcLoginAttempt).count() == 0
+    assert db_session.query(OidcSession).filter_by(sub="kc-sub-otp").count() == 1
+    assert (
+        db_session.query(AuditLog).filter_by(action="oidc_login_otp_success").count()
+        >= 1
+    )
+
+    # Single-use: reuse attempt_id → generic failure
+    reuse = client.post(
+        "/auth/login",
+        data={"attempt_id": attempt_id, "otp_code": "123456"},
+        headers={"X-Real-IP": "10.0.0.50"},
+    )
+    assert reuse.status_code == 401
+    assert reuse.json()["detail"] == "Identifiants invalides."
+
+
+@respx.mock
+def test_e2e_otp_wrong_then_lockout(
+    client: TestClient, db_session: Session, e2e_settings: Settings
+):
+    from app.models import OidcLoginAttempt
+    from app.oidc_bff_client import MAX_OTP_FAILURES
+
+    _add_realm(db_session, e2e_settings)
+    respx.get(AUTH).mock(
+        return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
+    )
+    call_n = {"n": 0}
+
+    def _authenticate(request):
+        call_n["n"] += 1
+        if call_n["n"] == 1:
+            return Response(
+                200, text=_otp_html(), headers={"content-type": "text/html"}
+            )
+        return Response(
+            200, text=_otp_html(error=True), headers={"content-type": "text/html"}
+        )
+
+    respx.post(
+        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
+    ).mock(side_effect=_authenticate)
+
+    step1 = client.post(
+        "/auth/login",
+        data={"username": "alice", "password": "s3cret"},
+        headers={"X-Real-IP": "10.0.0.51"},
+    )
+    attempt_id = step1.json()["attempt_id"]
+
+    for i in range(MAX_OTP_FAILURES):
+        bad = client.post(
+            "/auth/login",
+            data={"attempt_id": attempt_id, "otp_code": "000000"},
+            headers={"X-Real-IP": "10.0.0.51"},
+        )
+        assert bad.status_code == 401
+        assert bad.json()["detail"] == "Identifiants invalides."
+        if i < MAX_OTP_FAILURES - 1:
+            assert (
+                db_session.query(OidcLoginAttempt)
+                .filter_by(attempt_id=attempt_id)
+                .count()
+                == 1
+            )
+
+    assert db_session.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).count() == 0
+
+
+@respx.mock
+def test_e2e_otp_expired_attempt_generic_401(
+    client: TestClient, db_session: Session, e2e_settings: Settings
+):
+    from datetime import timedelta
+
+    from app.models import OidcLoginAttempt, utcnow
+    from app.secret_crypto import encrypt_secret
+
+    _add_realm(db_session, e2e_settings)
+    past = utcnow() - timedelta(minutes=10)
+    db_session.add(
+        OidcLoginAttempt(
+            attempt_id="expired-attempt-1",
+            realm=REALM,
+            username="alice",
+            keycloak_cookies_encrypted=encrypt_secret("[]", e2e_settings),
+            otp_form_encrypted=encrypt_secret(
+                '{"action":"http://x","fields":{}}', e2e_settings
+            ),
+            code_verifier="v",
+            state="s",
+            keycloak_base_url=KC,
+            keycloak_realm=REALM,
+            client_id="bastion-bff",
+            redirect_uri=REDIRECT_URI,
+            otp_failures=0,
+            created_at=past,
+            expires_at=past,
+        )
+    )
+    db_session.commit()
+
+    resp = client.post(
+        "/auth/login",
+        data={"attempt_id": "expired-attempt-1", "otp_code": "123456"},
+        headers={"X-Real-IP": "10.0.0.52"},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Identifiants invalides."
+    assert "expired" not in resp.text.lower()

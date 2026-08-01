@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.breakglass_store import set_breakglass_password
 from app.models import RealmConfig
-from app.oidc_bff_client import InvalidCredentialsError, OidcTokenResult
+from app.oidc_bff_client import InvalidCredentialsError, LoginStepResult, OidcTokenResult
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import reset_throttles
@@ -121,8 +121,8 @@ def test_html_post_login_success_redirects(
         claims={"sub": "kc-sub-1"},
     )
     with patch(
-        "app.oidc_bff.perform_headless_login",
-        new=AsyncMock(return_value=tokens),
+        "app.oidc_bff.start_headless_login",
+        new=AsyncMock(return_value=LoginStepResult(status="success", tokens=tokens)),
     ):
         response = client.post(
             "/auth/login",
@@ -145,7 +145,7 @@ def test_html_post_login_invalid_shows_generic_error(
 ):
     _add_realm(db_session)
     with patch(
-        "app.oidc_bff.perform_headless_login",
+        "app.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=InvalidCredentialsError("bad")),
     ):
         response = client.post(
