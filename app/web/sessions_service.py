@@ -611,7 +611,11 @@ def _touch_portal_session(
     details: dict[str, Any] | None = None,
 ) -> ActiveSession:
     email = (user.email or user.username or "unknown").strip().lower()
-    realm = user.realm_slug or "ar-systems"
+    # Break-glass is not an SSO realm member — never stamp default realm slug.
+    if user.is_breakglass:
+        realm = ""
+    else:
+        realm = (user.realm_slug or "").strip() or "ar-systems"
     if _looks_like_email(email):
         _heal_short_session_emails(db, full_email=email, username=user.username)
     session_id = _portal_session_id(email, realm)
@@ -638,25 +642,42 @@ def _touch_portal_session(
         row.user_email = email
         row.username = user.username or email
         row.protocol = _protocol_for_user(user)
+        row.realm = realm
         row.source_ip = prefer_client_ip(row.source_ip, source_ip)
         row.last_seen_at = now
         if details:
             row.details = _merge_details(row.details if isinstance(row.details, dict) else None, details)
         if row.status != "isolated":
             row.status = "active"
-    try:
-        from app.web.pending_user_service import record_first_login_if_new
 
-        record_first_login_if_new(
-            db,
-            user_email=email,
-            username=user.username or email,
-            realm_slug=realm,
-            source_ip=source_ip,
-            is_new_session_row=is_new,
-        )
-    except Exception:
-        logger.exception("pending first-login record failed")
+    # Drop legacy break-glass portal rows wrongly keyed under an SSO realm.
+    if user.is_breakglass:
+        for legacy in (
+            db.query(ActiveSession)
+            .filter(
+                ActiveSession.kind == KIND_USER,
+                ActiveSession.user_email == email,
+                ActiveSession.protocol == _PROTOCOL_BREAKGLASS,
+                ActiveSession.id != session_id,
+            )
+            .all()
+        ):
+            db.delete(legacy)
+
+    if not user.is_breakglass:
+        try:
+            from app.web.pending_user_service import record_first_login_if_new
+
+            record_first_login_if_new(
+                db,
+                user_email=email,
+                username=user.username or email,
+                realm_slug=realm,
+                source_ip=source_ip,
+                is_new_session_row=is_new,
+            )
+        except Exception:
+            logger.exception("pending first-login record failed")
     db.commit()
     db.refresh(row)
     return row
@@ -740,7 +761,10 @@ def _touch_app_presence(
     if not email_n or email_n == "unknown":
         return None
     uname = (username or email_n).strip() or email_n
-    realm_n = (realm or app.realm_slug or "ar-systems").strip() or "ar-systems"
+    if (auth_source or "").strip().lower() == "breakglass":
+        realm_n = ""
+    else:
+        realm_n = (realm or app.realm_slug or "ar-systems").strip() or "ar-systems"
     if _looks_like_email(email_n):
         _heal_short_session_emails(db, full_email=email_n, username=uname)
 
@@ -812,7 +836,10 @@ def _touch_app_session(
     details: dict[str, Any] | None = None,
 ) -> ActiveSession:
     email = (user.email or user.username or "unknown").strip().lower()
-    realm = user.realm_slug or app.realm_slug or "ar-systems"
+    if user.is_breakglass:
+        realm = ""
+    else:
+        realm = (user.realm_slug or app.realm_slug or "ar-systems").strip() or "ar-systems"
     if _looks_like_email(email):
         _heal_short_session_emails(db, full_email=email, username=user.username)
     session_id = _app_session_id(email, app.slug)

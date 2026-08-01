@@ -154,6 +154,15 @@ def enrich_user_identity(user: UserContext, db: Session | None) -> UserContext:
     return user
 
 
+BREAKGLASS_EMAIL_DOMAIN = "breakglass.local"
+
+
+def is_breakglass_email(email: str | None) -> bool:
+    """Synthetic break-glass identities use ``user@breakglass.local``."""
+    text = (email or "").strip().lower()
+    return text.endswith(f"@{BREAKGLASS_EMAIL_DOMAIN}")
+
+
 def get_user_context(
     request: Request,
     settings: Settings | None = None,
@@ -189,7 +198,7 @@ def get_user_context(
             if not payload:
                 return None
             username = payload.get("sub", "breakglass")
-            email = f"{username}@breakglass.local"
+            email = f"{username}@{BREAKGLASS_EMAIL_DOMAIN}"
             auth_source = "breakglass"
             groups = list(settings.portal_admin_groups)
             keycloak_user_id = None
@@ -198,6 +207,12 @@ def get_user_context(
 
     if not email:
         email = username
+
+    # Break-glass is emergency local auth — never attribute to an SSO realm.
+    if auth_source == "breakglass" or is_breakglass_email(email):
+        auth_source = "breakglass"
+        realm_slug = ""
+        keycloak_user_id = None
 
     # Fallback: X-User / X-User-Id holding a Keycloak subject (not an email).
     if not keycloak_user_id:
