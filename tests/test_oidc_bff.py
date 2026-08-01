@@ -19,6 +19,7 @@ from app.oidc_bff import (
 )
 from app.oidc_bff_client import (
     InvalidCredentialsError,
+    LoginStepResult,
     OidcTokenResult,
     UnsupportedAuthFlowError,
 )
@@ -75,12 +76,16 @@ def _token_result(*, username: str = "alice") -> OidcTokenResult:
     )
 
 
+def _ok_step(*, username: str = "alice") -> LoginStepResult:
+    return LoginStepResult(status="success", tokens=_token_result(username=username))
+
+
 def test_oidc_login_success_sets_cookie_and_session(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.perform_headless_login",
-        new=AsyncMock(return_value=_token_result()),
+        "app.oidc_bff.start_headless_login",
+        new=AsyncMock(return_value=_ok_step()),
     ):
         response = client.post(
             "/auth/login",
@@ -120,7 +125,7 @@ def test_oidc_login_invalid_credentials_generic_401(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.perform_headless_login",
+        "app.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=InvalidCredentialsError("bad")),
     ):
         response = client.post(
@@ -139,7 +144,7 @@ def test_oidc_login_mfa_also_generic_401(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.perform_headless_login",
+        "app.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=UnsupportedAuthFlowError("MFA required")),
     ):
         response = client.post(
@@ -161,6 +166,31 @@ def test_oidc_login_mfa_also_generic_401(
     assert "MFA" in (audit.details.get("detail") or "")
 
 
+def test_oidc_login_otp_required_json(
+    client: TestClient, db_session: Session, oidc_settings: Settings
+):
+    with patch(
+        "app.oidc_bff.start_headless_login",
+        new=AsyncMock(
+            return_value=LoginStepResult(status="otp_required", attempt_id="att-1")
+        ),
+    ):
+        response = client.post(
+            "/auth/login",
+            data={"username": "alice", "password": "secret"},
+            headers={"X-Real-IP": "10.0.0.24"},
+        )
+    assert response.status_code == 200
+    assert response.json() == {"status": "otp_required", "attempt_id": "att-1"}
+    audit = (
+        db_session.query(AuditLog)
+        .filter_by(action="oidc_login_otp_required")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+
+
 def test_oidc_login_enabled_but_bff_config_missing_503(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
@@ -180,7 +210,7 @@ def test_oidc_login_rate_limit_429(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.perform_headless_login",
+        "app.oidc_bff.start_headless_login",
         new=AsyncMock(side_effect=InvalidCredentialsError("bad")),
     ):
         for _ in range(OIDC_LOGIN_MAX_FAILURES):
@@ -266,8 +296,8 @@ def test_oidc_logout_revokes_and_clears_cookie(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
     with patch(
-        "app.oidc_bff.perform_headless_login",
-        new=AsyncMock(return_value=_token_result()),
+        "app.oidc_bff.start_headless_login",
+        new=AsyncMock(return_value=_ok_step()),
     ):
         login = client.post(
             "/auth/login",

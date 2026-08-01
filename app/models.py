@@ -686,6 +686,30 @@ class OidcSession(Base):
     fingerprint_hash = Column(String, nullable=True)
 
 
+class OidcLoginAttempt(Base):
+    """Short-lived server-side state between password and OTP headless steps.
+
+    Cookie jar + OTP form fields are Fernet-encrypted. Never expose to the browser.
+    """
+
+    __tablename__ = "oidc_login_attempts"
+
+    attempt_id = Column(String, primary_key=True)
+    realm = Column(String, nullable=False, index=True)
+    username = Column(String, nullable=False)
+    keycloak_cookies_encrypted = Column(Text, nullable=False)
+    otp_form_encrypted = Column(Text, nullable=False)
+    code_verifier = Column(String, nullable=False)
+    state = Column(String, nullable=False)
+    keycloak_base_url = Column(String, nullable=False)
+    keycloak_realm = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    redirect_uri = Column(String, nullable=False)
+    otp_failures = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
 class AuditLog(Base):
     """Admin action audit journal."""
 

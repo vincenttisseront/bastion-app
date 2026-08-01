@@ -12,7 +12,7 @@
 | 2 | Session portail | Cookie JWT HS256 `bastion_session` + table `oidc_sessions` (denylist `jti`) |
 | 3 | Cohabitation | oauth2-proxy (`_oauth2_proxy` / cookies realm) **reste actif** ; dual-accept sur `/internal/oauth2-auth` |
 | 4 | Feature flag | **Par realm** : `RealmConfig.oidc_native_session_enabled` (Admin UI) + CSV env optionnel |
-| 5 | MFA / required action | **Non automatisé** → `UnsupportedAuthFlowError` + audit `oidc_login_unsupported_flow` (UI reste générique) |
+| 5 | MFA / required action | **OTP TOTP** en 2 POST headless (`OidcLoginAttempt`) ; WebAuthn / required-action → `UnsupportedAuthFlowError` + audit |
 | 6 | Sous-domaines | **Hors V1** — `/internal/subdomain-auth` inchangé (V2 séparée) |
 | 7 | Realm pilote | **Pas** `ar-systems` en premier — realm secondaire / faible trafic (voir § Rollout) |
 
@@ -93,6 +93,7 @@ Navigateur                    Bastion (FastAPI)                 Keycloak (intern
 | `oidc_login_success` | Session émise (`username` / `realm` / `jti` / `sub` — **jamais** password ni tokens) |
 | `oidc_login_failed` | Credentials / erreur BFF |
 | `oidc_login_unsupported_flow` | MFA / required-action Keycloak — **filtre admin** (détail technique dans `details`, UI user générique) |
+| `oidc_login_otp_required` / `_otp_success` / `_otp_failed` | Étape TOTP (jamais le code OTP en clair) |
 | `oidc_logout` | Révocation `jti` + clear cookie |
 | `realm.oidc_native_session_enabled` / `_disabled` | Toggle Admin par realm |
 | `realm.oidc_bff_config_set` | Enregistrement config BFF (pas de secret en clair dans `details`) |

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditLog, RealmConfig
 from app.oidc_bff import issue_oidc_session
-from app.oidc_bff_client import OidcTokenResult
+from app.oidc_bff_client import LoginStepResult, OidcTokenResult
 from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
 from app.secret_crypto import encrypt_secret
 from app.sso_settings import Settings, get_settings
@@ -196,16 +196,19 @@ def test_login_rejects_non_pilot_realm(
 ):
     _add_realm(db_session, slug="ar-systems", is_default=True, native=False, port=4180)
     with patch(
-        "app.oidc_bff.perform_headless_login",
+        "app.oidc_bff.start_headless_login",
         new=AsyncMock(
-            return_value=OidcTokenResult(
-                access_token="a",
-                refresh_token=None,
-                id_token="i",
-                expires_in=60,
-                sub="s",
-                preferred_username="u",
-                claims={},
+            return_value=LoginStepResult(
+                status="success",
+                tokens=OidcTokenResult(
+                    access_token="a",
+                    refresh_token=None,
+                    id_token="i",
+                    expires_in=60,
+                    sub="s",
+                    preferred_username="u",
+                    claims={},
+                ),
             )
         ),
     ) as mocked:

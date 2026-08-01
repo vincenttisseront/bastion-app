@@ -18,10 +18,12 @@ from app.database import get_db
 from app.models import OidcSession, utcnow
 from app.oidc_bff_client import (
     InvalidCredentialsError,
+    InvalidOtpError,
     OidcBffConfigError,
     OidcBffError,
     UnsupportedAuthFlowError,
-    perform_headless_login,
+    start_headless_login,
+    submit_headless_otp,
 )
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
@@ -307,6 +309,8 @@ def _html_login_error(
     rd: str,
     username: str,
     login_error: str,
+    otp_required: bool = False,
+    attempt_id: str | None = None,
 ):
     """Re-render the public login page with a generic error (HTML form posts)."""
     from app.web.constants import APP_VERSION
@@ -322,6 +326,36 @@ def _html_login_error(
             hide_chrome=True,
             login_error=login_error,
             form_username=username,
+            otp_required=otp_required,
+            attempt_id=attempt_id or "",
+            **_login_surface_flags(request, db, settings, rd=rd),
+        ),
+    )
+
+
+def _html_otp_challenge(
+    request: Request,
+    settings: Settings,
+    db: Session,
+    *,
+    rd: str,
+    username: str,
+    attempt_id: str,
+):
+    from app.web.constants import APP_VERSION
+    from app.web.flash import base_template_context
+    from app.web.pages import _login_surface_flags
+
+    return render(
+        "auth/login.html",
+        **base_template_context(
+            request,
+            settings,
+            APP_VERSION,
+            hide_chrome=True,
+            form_username=username,
+            otp_required=True,
+            attempt_id=attempt_id,
             **_login_surface_flags(request, db, settings, rd=rd),
         ),
     )
@@ -381,21 +415,34 @@ def _record_unsupported_flow(
 async def oidc_login(
     request: Request,
     response: Response,
-    username: str = Form(...),
-    password: str = Form(...),
+    username: str = Form(""),
+    password: str = Form(""),
     realm: str | None = Form(None),
     rd: str | None = Form(None),
+    attempt_id: str | None = Form(None),
+    otp_code: str | None = Form(None),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
+    from app.models import OidcLoginAttempt
     from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
 
     username = (username or "").strip()
     realm_slug = (realm or "").strip() or settings.sso_portal_default_realm_slug
+    attempt_id = (attempt_id or "").strip() or None
+    otp_code = (otp_code or "").strip() or None
+    otp_step = bool(attempt_id and otp_code)
     client_ip = _client_ip(request)
     # Presence of ``rd`` marks a classic HTML form submit (vs JSON API clients).
     html_mode = rd is not None
     safe_rd = _safe_login_rd(rd)
+
+    if otp_step:
+        # Recover username/realm from attempt for rate-limit + gate (no enumeration).
+        row = db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).first()
+        if row is not None:
+            username = (row.username or username or "").strip()
+            realm_slug = (row.realm or realm_slug).strip()
 
     if not is_oidc_native_session_enabled_for_realm(db, realm_slug, settings):
         if html_mode:
@@ -422,6 +469,8 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 login_error=_GENERIC_AUTH_FAILURE,
+                otp_required=otp_step,
+                attempt_id=attempt_id,
             )
         raise HTTPException(
             status_code=429,
@@ -430,9 +479,52 @@ async def oidc_login(
         )
 
     try:
-        tokens = await perform_headless_login(
-            realm_slug, username, password, settings=settings, db=db
+        if otp_step:
+            assert attempt_id is not None and otp_code is not None
+            step = await submit_headless_otp(
+                attempt_id, otp_code, settings=settings, db=db
+            )
+        else:
+            if not username or password is None or password == "":
+                raise InvalidCredentialsError("Identifiants incomplets")
+            step = await start_headless_login(
+                realm_slug, username, password, settings=settings, db=db
+            )
+    except InvalidOtpError:
+        if html_mode:
+            _record_failed_attempt(
+                db,
+                request=request,
+                username=username,
+                realm=realm_slug,
+                reason="invalid_otp",
+                action="oidc_login_otp_failed",
+            )
+            # Keep OTP form if attempt still exists.
+            still = (
+                db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).first()
+                if attempt_id
+                else None
+            )
+            return _html_login_error(
+                request,
+                settings,
+                db,
+                rd=safe_rd,
+                username=username,
+                login_error=_GENERIC_AUTH_FAILURE,
+                otp_required=still is not None,
+                attempt_id=attempt_id if still is not None else None,
+            )
+        _record_failed_attempt(
+            db,
+            request=request,
+            username=username,
+            realm=realm_slug,
+            reason="invalid_otp",
+            action="oidc_login_otp_failed",
         )
+        raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
     except InvalidCredentialsError:
         if html_mode:
             _record_failed_attempt(
@@ -509,6 +601,40 @@ async def oidc_login(
             db, request=request, username=username, realm=realm_slug, reason="bff_error"
         )
 
+    if step.status == "otp_required":
+        aid = step.attempt_id or ""
+        db.commit()
+        log_action(
+            db,
+            actor=username or "unknown",
+            action="oidc_login_otp_required",
+            details={"realm": realm_slug, "attempt_id": aid},
+            ip_address=client_ip or None,
+        )
+        if html_mode:
+            return _html_otp_challenge(
+                request,
+                settings,
+                db,
+                rd=safe_rd,
+                username=username,
+                attempt_id=aid,
+            )
+        return {"status": "otp_required", "attempt_id": aid}
+
+    tokens = step.tokens
+    if tokens is None:
+        if html_mode:
+            return _html_login_error(
+                request,
+                settings,
+                db,
+                rd=safe_rd,
+                username=username,
+                login_error=_GENERIC_AUTH_FAILURE,
+            )
+        raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE)
+
     display_username = (tokens.preferred_username or username or "").strip() or None
     from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
 
@@ -538,10 +664,11 @@ async def oidc_login(
     )
     db.commit()
     _clear_login_failures(client_ip, username)
+    success_action = "oidc_login_otp_success" if otp_step else "oidc_login_success"
     log_action(
         db,
         actor=display_username or tokens.sub,
-        action="oidc_login_success",
+        action=success_action,
         details={"realm": realm_slug, "jti": jti, "sub": tokens.sub},
         ip_address=client_ip or None,
     )
