@@ -1271,7 +1271,7 @@ async def admin_realms_oidc_bff_test(
     _user=Depends(require_admin),
 ):
     """Ping Keycloak discovery for the BFF base URL (no client secret, no login)."""
-    from app.oidc_bff_config_service import ping_oidc_discovery
+    from app.oidc_bff_config_service import keycloak_realm_from_issuer, ping_oidc_discovery
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
@@ -1282,7 +1282,9 @@ async def admin_realms_oidc_bff_test(
     except Exception:
         body = {}
     base = (body.get("oidc_keycloak_base_url") or realm.oidc_keycloak_base_url or "").strip()
-    result = await ping_oidc_discovery(base, realm.slug)
+    issuer = (body.get("issuer_url") or realm.issuer_url or "").strip()
+    kc_realm = keycloak_realm_from_issuer(issuer) or realm.slug
+    result = await ping_oidc_discovery(base, kc_realm)
     status = 200 if result.get("ok") else 400
     return JSONResponse(result, status_code=status)
 
@@ -1292,16 +1294,18 @@ async def admin_realms_oidc_bff_test_draft(
     request: Request,
     _user=Depends(require_admin),
 ):
-    """Draft realm: ping discovery with posted base_url + slug (before save)."""
-    from app.oidc_bff_config_service import ping_oidc_discovery
+    """Draft realm: ping discovery with posted base_url + issuer/slug (before save)."""
+    from app.oidc_bff_config_service import keycloak_realm_from_issuer, ping_oidc_discovery
 
     try:
         body = await request.json()
     except Exception:
         return JSONResponse({"ok": False, "error": "JSON invalide"}, status_code=400)
     base = (body.get("oidc_keycloak_base_url") or "").strip()
+    issuer = (body.get("issuer_url") or "").strip()
     slug = (body.get("slug") or "").strip()
-    result = await ping_oidc_discovery(base, slug)
+    kc_realm = keycloak_realm_from_issuer(issuer) or slug
+    result = await ping_oidc_discovery(base, kc_realm)
     status = 200 if result.get("ok") else 400
     return JSONResponse(result, status_code=status)
 

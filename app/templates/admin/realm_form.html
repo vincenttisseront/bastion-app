@@ -368,9 +368,11 @@
     bffTestBtn.addEventListener('click', async function () {
       const baseEl = document.getElementById('oidc_keycloak_base_url');
       const slugEl = document.getElementById('slug');
+      const issuerEl = document.getElementById('issuer_url');
       const body = {
         oidc_keycloak_base_url: baseEl ? baseEl.value : '',
-        slug: slugEl ? slugEl.value : ''
+        slug: slugEl ? slugEl.value : '',
+        issuer_url: issuerEl ? issuerEl.value : ''
       };
       if (!body.oidc_keycloak_base_url) {
         await window.bastionAlert({
