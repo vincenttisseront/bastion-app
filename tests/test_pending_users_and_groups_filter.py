@@ -188,6 +188,57 @@ def test_record_skips_known_bastion_user(db_session):
     )
 
 
+def test_breakglass_never_enters_pending_queue(db_session):
+    """Break-glass is local emergency auth — not an SSO first-login candidate."""
+    assert (
+        record_first_login_if_new(
+            db_session,
+            user_email="admin@breakglass.local",
+            username="admin",
+            realm_slug="ar-systems",
+            source_ip="10.0.0.1",
+            is_new_session_row=True,
+        )
+        is None
+    )
+
+    now = utcnow()
+    db_session.add(
+        PendingUser(
+            user_email="admin@breakglass.local",
+            username="admin",
+            realm_slug="ar-systems",
+            status="pending",
+            hit_count=3,
+        )
+    )
+    db_session.add(
+        ActiveSession(
+            id="portal:admin@breakglass.local:ar-systems",
+            kind="user",
+            user_email="admin@breakglass.local",
+            username="admin",
+            realm="ar-systems",
+            protocol="BREAKGLASS",
+            target="portal",
+            status="active",
+            started_at=now - timedelta(minutes=5),
+            last_seen_at=now,
+        )
+    )
+    db_session.commit()
+
+    created = discover_recent_first_logins(db_session, within_hours=168)
+    db_session.commit()
+    assert created == 0
+    assert (
+        db_session.query(PendingUser)
+        .filter_by(user_email="admin@breakglass.local")
+        .first()
+        is None
+    )
+
+
 def test_pending_users_page_and_approve(client, db_session):
     db_session.add(
         PendingUser(

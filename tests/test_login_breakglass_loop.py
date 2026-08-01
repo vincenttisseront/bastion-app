@@ -23,7 +23,7 @@ def test_login_clears_invalid_breakglass_instead_of_redirect_loop(
         email="admin@breakglass.local",
         username="admin",
         groups=["portal-admins"],
-        realm_slug="ar-systems",
+        realm_slug="",
         auth_source="breakglass",
         is_admin=True,
     )

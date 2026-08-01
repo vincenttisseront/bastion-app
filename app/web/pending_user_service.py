@@ -10,11 +10,14 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.models import AccessGrant, ActiveSession, BastionAccount, PendingUser, utcnow
+from app.web.user_context import is_breakglass_email
 
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.I,
 )
+
+_PROTOCOL_BREAKGLASS = "BREAKGLASS"
 
 
 def _aware(dt):
@@ -147,6 +150,13 @@ def prune_spurious_pending_users(db: Session) -> int:
     for row in list(pending):
         uname = (row.username or "").strip().lower() or None
         raw = (row.user_email or "").strip().lower()
+
+        # Break-glass is local emergency auth — never an SSO first-login candidate.
+        if is_breakglass_email(raw):
+            db.delete(row)
+            changed += 1
+            continue
+
         canonical = resolve_canonical_email(db, user_email=raw, username=uname)
 
         # Bare UUID / non-email duplicate of an email row → delete
@@ -199,6 +209,8 @@ def record_first_login_if_new(
     uname = (username or "").strip() or None
     email = resolve_canonical_email(db, user_email=user_email, username=uname)
     if not email:
+        return None
+    if is_breakglass_email(email):
         return None
     if is_known_bastion_user(db, email=email, username=uname):
         return None
@@ -293,6 +305,9 @@ def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int
         email = resolve_canonical_email(db, user_email=raw_email, username=uname)
         if not email or email in seen_canonical:
             continue
+        if is_breakglass_email(email):
+            seen_canonical.add(email)
+            continue
         if is_known_bastion_user(db, email=email, username=uname):
             seen_canonical.add(email)
             continue
@@ -303,6 +318,9 @@ def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int
             .order_by(ActiveSession.last_seen_at.desc())
             .first()
         )
+        if sample is not None and (sample.protocol or "").upper() == _PROTOCOL_BREAKGLASS:
+            seen_canonical.add(email)
+            continue
         db.add(
             PendingUser(
                 user_email=email,
