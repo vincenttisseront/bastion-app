@@ -256,6 +256,8 @@ def test_oauth2_auth_bastion_session_alone_valid(client, db_session):
         realm="ar-systems",
         secret=OIDC_SECRET,
         max_age=3600,
+        groups=["ARSYSTEMS-Users", "portal-admins"],
+        email="alice@example.com",
     )
     db_session.commit()
 
@@ -273,6 +275,36 @@ def test_oauth2_auth_bastion_session_alone_valid(client, db_session):
     assert resp.headers.get("x-auth-request-user") == "kc-sub-native"
     assert resp.headers.get("x-auth-request-preferred-username") == "alice@example.com"
     assert resp.headers.get("x-auth-request-email") == "alice@example.com"
+    assert resp.headers.get("x-auth-request-groups") == "ARSYSTEMS-Users,portal-admins"
+
+
+@respx.mock
+def test_oauth2_auth_bastion_session_without_groups_omits_groups_header(client, db_session):
+    """Legacy JWTs without groups still authenticate (user must re-login for grants)."""
+    from app.oidc_bff import issue_oidc_session
+
+    settings = _settings_native_enabled()
+    _override_settings(client, settings)
+    _add_default_realm(db_session)
+
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub="kc-sub-legacy",
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+    )
+    db_session.commit()
+
+    resp = client.get(
+        "/internal/oauth2-auth",
+        headers={"Cookie": f"bastion_session={token}"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-request-user") == "kc-sub-legacy"
+    assert resp.headers.get("x-auth-request-groups") is None
 
 
 @respx.mock

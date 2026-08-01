@@ -53,6 +53,8 @@ class OidcSessionClaims:
     jti: str
     exp: int
     type: str = "oidc"
+    groups: tuple[str, ...] = ()
+    email: str | None = None
 
 
 def _client_ip(request: Request) -> str:
@@ -92,10 +94,13 @@ def create_oidc_session_token(
     jti: str,
     secret: str,
     max_age: int,
+    groups: list[str] | tuple[str, ...] | None = None,
+    email: str | None = None,
 ) -> str:
     """Build a native bastion OIDC session JWT (type=oidc, includes jti)."""
     now = datetime.now(timezone.utc)
-    payload = {
+    group_list = [g for g in (groups or ()) if (g or "").strip()]
+    payload: dict[str, Any] = {
         "sub": sub,
         "username": username,
         "realm": realm,
@@ -103,7 +108,10 @@ def create_oidc_session_token(
         "iat": now,
         "exp": now + timedelta(seconds=max_age),
         "type": "oidc",
+        "groups": group_list,
     }
+    if email:
+        payload["email"] = email
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
@@ -139,6 +147,8 @@ def issue_oidc_session(
     realm: str,
     secret: str,
     max_age: int,
+    groups: list[str] | tuple[str, ...] | None = None,
+    email: str | None = None,
 ) -> tuple[str, str]:
     """Create JWT + OidcSession row. Returns ``(token, jti)``."""
     jti = str(uuid4())
@@ -149,6 +159,8 @@ def issue_oidc_session(
         jti=jti,
         secret=secret,
         max_age=max_age,
+        groups=groups,
+        email=email,
     )
     now = datetime.now(timezone.utc)
     register_oidc_session(
@@ -261,6 +273,16 @@ def validate_oidc_session_cookie(
     exp = payload.get("exp")
     if not isinstance(exp, int):
         return None
+    raw_groups = payload.get("groups")
+    groups: tuple[str, ...] = ()
+    if isinstance(raw_groups, list):
+        groups = tuple(
+            str(g).strip() for g in raw_groups if isinstance(g, (str, int)) and str(g).strip()
+        )
+    elif isinstance(raw_groups, str) and raw_groups.strip():
+        groups = tuple(g.strip() for g in raw_groups.split(",") if g.strip())
+    email_raw = payload.get("email")
+    email = str(email_raw).strip() if isinstance(email_raw, str) and email_raw.strip() else None
     return OidcSessionClaims(
         sub=sub,
         username=username,
@@ -268,6 +290,8 @@ def validate_oidc_session_cookie(
         jti=jti,
         exp=exp,
         type="oidc",
+        groups=groups,
+        email=email,
     )
 
 
@@ -299,6 +323,52 @@ def _safe_login_rd(rd: str | None) -> str:
     if value in ("/dashboard", "/admin/dashboard"):
         return "/apps"
     return value
+
+
+async def _resolve_session_groups(
+    db: Session,
+    *,
+    settings: Settings,
+    realm_slug: str,
+    sub: str,
+    claim_groups: tuple[str, ...] | list[str] | None,
+) -> tuple[str, ...]:
+    """Prefer OIDC token groups; fall back to Keycloak Admin API (BFF client may lack mapper)."""
+    from app.oidc_bff_client import extract_groups_from_oidc_claims
+
+    claimed = extract_groups_from_oidc_claims({"groups": list(claim_groups or ())})
+    if claimed:
+        return claimed
+
+    from app.models import RealmConfig
+    from app.rbac.keycloak_admin import fetch_user_groups
+
+    realm = (
+        db.query(RealmConfig)
+        .filter_by(slug=realm_slug, enabled=True)
+        .first()
+    )
+    if realm is None or not (sub or "").strip():
+        return ()
+    try:
+        kc_groups = await fetch_user_groups(realm, sub, settings)
+    except Exception:
+        logger.warning(
+            "oidc_login groups Admin API fallback failed realm=%s sub=%s",
+            realm_slug,
+            sub,
+            exc_info=True,
+        )
+        return ()
+
+    names: list[str] = []
+    for entry in kc_groups:
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("path") or entry.get("name")
+        if raw is not None and str(raw).strip():
+            names.append(str(raw).strip())
+    return extract_groups_from_oidc_claims({"groups": names})
 
 
 def _html_login_error(
@@ -654,6 +724,17 @@ async def oidc_login(
             detail="Authentification temporairement indisponible.",
         )
 
+    session_groups = await _resolve_session_groups(
+        db,
+        settings=settings,
+        realm_slug=realm_slug,
+        sub=tokens.sub,
+        claim_groups=tokens.groups,
+    )
+    session_email = (tokens.email or "").strip() or None
+    if not session_email and display_username and "@" in display_username:
+        session_email = display_username
+
     token, jti = issue_oidc_session(
         db,
         sub=tokens.sub,
@@ -661,6 +742,8 @@ async def oidc_login(
         realm=realm_slug,
         secret=secret,
         max_age=settings.oidc_session_max_age,
+        groups=session_groups,
+        email=session_email,
     )
     db.commit()
     _clear_login_failures(client_ip, username)

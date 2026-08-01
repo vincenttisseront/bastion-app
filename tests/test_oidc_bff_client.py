@@ -81,9 +81,12 @@ def _otp_html() -> str:
     """
 
 
-def _id_token(*, sub: str = "kc-sub-1", preferred: str = "alice") -> str:
+def _id_token(*, sub: str = "kc-sub-1", preferred: str = "alice", groups=None) -> str:
+    payload = {"sub": sub, "preferred_username": preferred, "iss": f"{KC}/realms/{REALM}"}
+    if groups is not None:
+        payload["groups"] = groups
     return jwt.encode(
-        {"sub": sub, "preferred_username": preferred, "iss": f"{KC}/realms/{REALM}"},
+        payload,
         key="unit-test-hmac-key-32bytes-min!!",
         algorithm="HS256",
     )
@@ -137,6 +140,7 @@ async def test_headless_login_success():
     assert result.sub == "kc-sub-1"
     assert result.preferred_username == "alice"
     assert result.expires_in == 300
+    assert result.groups == ()
     assert auth_route.called and login_route.called and token_route.called
 
     auth_q = parse_qs(urlparse(str(auth_route.calls.last.request.url)).query)
@@ -229,3 +233,56 @@ async def test_headless_login_mfa_via_redirect_location():
         await perform_headless_login(
             REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
         )
+
+
+def test_extract_groups_from_oidc_claims_paths_and_csv():
+    from app.oidc_bff_client import extract_groups_from_oidc_claims
+
+    assert extract_groups_from_oidc_claims(
+        {"groups": ["/ARSYSTEMS-Users", "/portal-admins"]}
+    ) == ("ARSYSTEMS-Users", "portal-admins")
+    assert extract_groups_from_oidc_claims(
+        {"groups": "ARSYSTEMS-Users,portal-admins"}
+    ) == ("ARSYSTEMS-Users", "portal-admins")
+    assert extract_groups_from_oidc_claims(
+        {"groups": ["/dup"]},
+        {"groups": ["dup", "/other"]},
+    ) == ("dup", "other")
+    assert extract_groups_from_oidc_claims(None, {}) == ()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_headless_login_extracts_groups_from_id_token():
+    settings = _settings()
+    respx.get(AUTH).mock(
+        return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
+    )
+
+    def _login_with_state(request):
+        auth_req = respx.calls[0].request
+        state = parse_qs(urlparse(str(auth_req.url)).query)["state"][0]
+        return Response(
+            302,
+            headers={"Location": f"{REDIRECT_URI}?code=auth-code-1&state={state}"},
+        )
+
+    respx.post(url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate").mock(
+        side_effect=_login_with_state
+    )
+    respx.post(TOKEN).mock(
+        return_value=Response(
+            200,
+            json={
+                "access_token": "access-xyz",
+                "id_token": _id_token(groups=["/ARSYSTEMS-Users"]),
+                "expires_in": 300,
+                "token_type": "Bearer",
+            },
+        )
+    )
+
+    result = await perform_headless_login(
+        REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
+    )
+    assert result.groups == ("ARSYSTEMS-Users",)
