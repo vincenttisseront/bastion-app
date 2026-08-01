@@ -41,11 +41,18 @@ def test_branding_defaults_seeded_on_read(db_session: Session):
     assert data["company_name"] == "Portail sécurisé"
     assert data["page_title"] == "Connexion"
     assert data["accent_color"] == "#10b981"
+    assert data["secondary_color"] == "#059669"
+    assert data["highlight_color"] == "#34d399"
+    assert "--accent:#10b981" in data["css_vars"]
+    assert "--accent-dim:#059669" in data["css_vars"]
+    assert "--accent-h:#34d399" in data["css_vars"]
     assert data["default_theme"] == "dark"
     assert data["show_product_branding"] is False
     assert data["favicon_url"] == "/static/img/generic-shield.svg"
     row = db_session.query(BrandingSettings).filter_by(id=1).one()
     assert row.company_name == "Portail sécurisé"
+    assert row.secondary_color == "#059669"
+    assert row.highlight_color == "#34d399"
 
 
 def test_admin_branding_page_requires_admin(client: TestClient):
@@ -61,6 +68,8 @@ def test_admin_branding_save(client: TestClient, db_session: Session, branding_d
             "company_name": "ACME Corp",
             "page_title": "Connexion ACME",
             "accent_color": "#2563eb",
+            "secondary_color": "#1d4ed8",
+            "highlight_color": "#60a5fa",
             "default_theme": "light",
             "welcome_text": "Bienvenue",
             "footer_text": "© ACME",
@@ -73,6 +82,11 @@ def test_admin_branding_save(client: TestClient, db_session: Session, branding_d
     assert data["company_name"] == "ACME Corp"
     assert data["page_title"] == "Connexion ACME"
     assert data["accent_color"] == "#2563eb"
+    assert data["secondary_color"] == "#1d4ed8"
+    assert data["highlight_color"] == "#60a5fa"
+    assert "--accent:#2563eb" in data["css_vars"]
+    assert "--accent-dim:#1d4ed8" in data["css_vars"]
+    assert "--accent-h:#60a5fa" in data["css_vars"]
     assert data["default_theme"] == "light"
     assert data["welcome_text"] == "Bienvenue"
     assert data["footer_text"] == "© ACME"
@@ -97,11 +111,21 @@ def test_admin_branding_invalid_color(client: TestClient, branding_dirs):
             "company_name": "X",
             "page_title": "Y",
             "accent_color": "red",
+            "secondary_color": "#059669",
+            "highlight_color": "#34d399",
             "default_theme": "dark",
         },
         follow_redirects=False,
     )
     assert r.status_code == 302
+
+
+def test_branding_css_vars_rgba(db_session: Session):
+    data = branding_mod.branding_css_vars("#2563eb", "#1d4ed8", "#60a5fa", theme="dark")
+    assert "--accent:#2563eb" in data
+    assert "--accent-dim:#1d4ed8" in data
+    assert "--accent-h:#60a5fa" in data
+    assert "rgba(37,99,235," in data
 
 
 def test_logo_upload_and_media(

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" data-theme="dark">
+<html lang="fr" data-theme="dark"{% if branding and branding.css_vars %} style="{{ branding.css_vars }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="/static/img/bastion-icon.svg">
   <script src="/static/js/bastion-theme.js?v=20260724-system"></script>
   {# Fonts are local/system only — edge CSP style-src is 'self' (no fonts.googleapis.com). #}
-  <link rel="stylesheet" href="/static/css/bastion.css?v=20260731-busy">
+  <link rel="stylesheet" href="/static/css/bastion.css?v=20260801-branding3">
   {% block head_extra %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% if hide_chrome %}page-login{% else %}app-layout{% endif %}{% endblock %}">

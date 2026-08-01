@@ -47,7 +47,8 @@ def test_login_page_neutral_defaults(client: TestClient, db_session: Session):
     assert "bastion-theme.js" not in r.text
     assert "generic-shield.svg" in r.text or "/media/branding/" in r.text
     assert 'name="generator"' not in r.text.lower()
-    assert "--accent: #10b981" in r.text or "--accent:#10b981" in r.text
+    assert "--accent:#10b981" in r.text or "--accent: #10b981" in r.text
+    assert "--accent-dim:#059669" in r.text or "--accent-h:#34d399" in r.text
 
 
 def test_login_page_custom_branding(client: TestClient, db_session: Session):
@@ -58,6 +59,8 @@ def test_login_page_custom_branding(client: TestClient, db_session: Session):
         company_name="Société Demo",
         page_title="Accès Demo",
         accent_color="#ef4444",
+        secondary_color="#b91c1c",
+        highlight_color="#f87171",
         welcome_text="Bienvenue collaborateurs",
         footer_text="Confidential",
         support_contact="soc@demo.test",
@@ -71,6 +74,11 @@ def test_login_page_custom_branding(client: TestClient, db_session: Session):
     assert "Confidential" in r.text
     assert "soc@demo.test" in r.text
     assert "#ef4444" in r.text
+    assert "#b91c1c" in r.text
+    assert "#f87171" in r.text
+    assert "--accent:#ef4444" in r.text
+    assert "--accent-dim:#b91c1c" in r.text
+    assert "--accent-h:#f87171" in r.text
     assert "Bastion Pro" not in r.text
 
 
