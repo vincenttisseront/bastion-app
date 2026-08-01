@@ -4,11 +4,11 @@
 
 {% block content %}
 {% set b = branding %}
-<div class="page" id="branding-page" style="--accent: {{ b.accent_color }};">
+<div class="page" id="branding-page" style="{{ b.css_vars }}">
   <div class="page-header">
     <div>
       <h1 class="page-title">Branding portail</h1>
-      <p class="page-sub">Identité affichée sur les pages publiques (login, erreurs) — pas sur le chrome post-login</p>
+      <p class="page-sub">Identité et palette société — pages publiques et chrome authentifié</p>
     </div>
     <div class="page-header-actions">
       <a href="/auth/login" class="btn btn-ghost" target="_blank" rel="noopener">Aperçu login</a>
@@ -61,27 +61,52 @@
 
     <div class="form-section form-section-gap">
       <div class="form-section-header">
-        <div class="form-section-title">Style</div>
-        <div class="form-section-sub">Couleur d’accent, thème et assets</div>
+        <div class="form-section-title">Couleurs société</div>
+        <div class="form-section-sub">Trois couleurs pour boutons, dégradés et survols — adaptées à la charte</div>
       </div>
       <div class="form-body">
         <div class="form-group">
-          <label class="form-label" for="accent_color">Couleur d’accent</label>
-          <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
+          <label class="form-label" for="accent_color">Principale</label>
+          <div class="brand-color-row">
             <input type="color" id="accent_color_picker" value="{{ b.accent_color }}"
-                   aria-label="Sélecteur de couleur"
-                   style="width:3rem;height:2.5rem;padding:0;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;">
-            <input type="text" id="accent_color" name="accent_color" class="form-input is-mono"
-                   pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.accent_color }}"
-                   style="max-width:8rem;">
-            <span class="form-help" id="accent-preview"
-                  style="display:inline-flex;align-items:center;gap:.4rem;">
-              Aperçu
-              <span style="width:1.25rem;height:1.25rem;border-radius:6px;background:{{ b.accent_color }};border:1px solid var(--border);"></span>
-            </span>
+                   aria-label="Couleur principale"
+                   class="brand-color-swatch">
+            <input type="text" id="accent_color" name="accent_color" class="form-input is-mono brand-color-hex"
+                   pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.accent_color }}">
           </div>
+          <p class="form-help">Boutons primaires, navigation active, liens d’action.</p>
         </div>
         <div class="form-group">
+          <label class="form-label" for="secondary_color">Secondaire</label>
+          <div class="brand-color-row">
+            <input type="color" id="secondary_color_picker" value="{{ b.secondary_color }}"
+                   aria-label="Couleur secondaire"
+                   class="brand-color-swatch">
+            <input type="text" id="secondary_color" name="secondary_color" class="form-input is-mono brand-color-hex"
+                   pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.secondary_color }}">
+          </div>
+          <p class="form-help">Dégradés, surfaces teintées, marque / logo fond.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="highlight_color">Accent / survol</label>
+          <div class="brand-color-row">
+            <input type="color" id="highlight_color_picker" value="{{ b.highlight_color }}"
+                   aria-label="Couleur d’accent"
+                   class="brand-color-swatch">
+            <input type="text" id="highlight_color" name="highlight_color" class="form-input is-mono brand-color-hex"
+                   pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.highlight_color }}">
+          </div>
+          <p class="form-help">Hover, focus, emphase et textes mis en avant.</p>
+        </div>
+
+        <div class="brand-palette-preview" id="brand-palette-preview" aria-label="Aperçu palette">
+          <div class="brand-preview-btn">Bouton</div>
+          <div class="brand-preview-chip">Survol</div>
+          <div class="brand-preview-grad"></div>
+          <div class="brand-preview-link">Lien</div>
+        </div>
+
+        <div class="form-group" style="margin-top:1.25rem;">
           <label class="form-label" for="default_theme">Thème par défaut (login)</label>
           <select id="default_theme" name="default_theme" class="form-input" style="max-width:12rem;">
             <option value="dark" {% if b.default_theme == 'dark' %}selected{% endif %}>Sombre</option>
@@ -165,22 +190,98 @@
     </div>
   </div>
 </div>
+<style>
+.brand-color-row{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;}
+.brand-color-swatch{width:3rem;height:2.5rem;padding:0;border:1px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;}
+.brand-color-hex{max-width:8rem;}
+.brand-palette-preview{
+  display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;
+  margin-top:.5rem;padding:1rem;border:1px solid var(--border);border-radius:12px;
+  background:var(--tertiary);
+}
+.brand-preview-btn{
+  padding:.55rem 1rem;border-radius:8px;font-size:.85rem;font-weight:600;
+  background:var(--accent);color:#042f1e;border:1px solid var(--accent);
+}
+.brand-preview-chip{
+  padding:.4rem .75rem;border-radius:8px;font-size:.8rem;font-weight:600;
+  color:var(--accent-h);background:var(--accent-muted);border:1px solid var(--accent-border);
+}
+.brand-preview-grad{
+  width:4.5rem;height:1.75rem;border-radius:8px;
+  background:linear-gradient(135deg,var(--accent-dim),var(--accent));
+  border:1px solid var(--border);
+}
+.brand-preview-link{font-size:.9rem;font-weight:600;color:var(--text-link);}
+</style>
 <script>
 (function () {
-  var picker = document.getElementById('accent_color_picker');
-  var input = document.getElementById('accent_color');
-  var preview = document.querySelector('#accent-preview span');
   var page = document.getElementById('branding-page');
-  function sync(fromPicker) {
-    var val = (fromPicker ? picker.value : input.value || '').trim();
-    if (!/^#[0-9A-Fa-f]{6}$/.test(val)) return;
-    picker.value = val;
-    input.value = val.toLowerCase();
-    if (preview) preview.style.background = val;
-    if (page) page.style.setProperty('--accent', val);
+  var themeEl = document.getElementById('default_theme');
+  var fields = [
+    { key: 'accent', picker: 'accent_color_picker', input: 'accent_color' },
+    { key: 'secondary', picker: 'secondary_color_picker', input: 'secondary_color' },
+    { key: 'highlight', picker: 'highlight_color_picker', input: 'highlight_color' }
+  ];
+
+  function hexToRgb(hex) {
+    var raw = hex.replace('#', '');
+    return [
+      parseInt(raw.slice(0, 2), 16),
+      parseInt(raw.slice(2, 4), 16),
+      parseInt(raw.slice(4, 6), 16)
+    ];
   }
-  if (picker) picker.addEventListener('input', function () { sync(true); });
-  if (input) input.addEventListener('input', function () { sync(false); });
+  function rgba(hex, a) {
+    var rgb = hexToRgb(hex);
+    return 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + a + ')';
+  }
+  function readColor(id) {
+    var el = document.getElementById(id);
+    var val = (el && el.value || '').trim();
+    return /^#[0-9A-Fa-f]{6}$/.test(val) ? val.toLowerCase() : null;
+  }
+  function applyVars() {
+    if (!page) return;
+    var primary = readColor('accent_color');
+    var secondary = readColor('secondary_color');
+    var highlight = readColor('highlight_color');
+    if (!primary || !secondary || !highlight) return;
+    var theme = themeEl ? themeEl.value : 'dark';
+    var mutedA = theme === 'light' ? 0.08 : 0.12;
+    var glowA = theme === 'light' ? 0.15 : 0.30;
+    var borderA = theme === 'light' ? 0.28 : 0.35;
+    var heroA = theme === 'light' ? 0.05 : 0.07;
+    page.style.setProperty('--brand-primary', primary);
+    page.style.setProperty('--brand-secondary', secondary);
+    page.style.setProperty('--brand-highlight', highlight);
+    page.style.setProperty('--accent', primary);
+    page.style.setProperty('--accent-h', highlight);
+    page.style.setProperty('--accent-dim', secondary);
+    page.style.setProperty('--accent-muted', rgba(primary, mutedA));
+    page.style.setProperty('--accent-glow', '0 0 24px ' + rgba(primary, glowA));
+    page.style.setProperty('--accent-border', rgba(primary, borderA));
+    page.style.setProperty('--text-link', highlight);
+    page.style.setProperty('--portal-hero-glow', rgba(primary, heroA));
+    page.style.setProperty('--accent-primary', primary);
+    page.style.setProperty('--accent-hover', highlight);
+    page.style.setProperty('--border-accent', rgba(primary, borderA));
+  }
+  fields.forEach(function (f) {
+    var picker = document.getElementById(f.picker);
+    var input = document.getElementById(f.input);
+    function sync(fromPicker) {
+      var val = (fromPicker ? picker.value : input.value || '').trim();
+      if (!/^#[0-9A-Fa-f]{6}$/.test(val)) return;
+      picker.value = val;
+      input.value = val.toLowerCase();
+      applyVars();
+    }
+    if (picker) picker.addEventListener('input', function () { sync(true); });
+    if (input) input.addEventListener('input', function () { sync(false); });
+  });
+  if (themeEl) themeEl.addEventListener('change', applyVars);
+  applyVars();
 })();
 </script>
 {% endblock %}

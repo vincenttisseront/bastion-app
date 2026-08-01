@@ -32,7 +32,7 @@ _STUB_HTML = """\
       --bg: #020d18; --card: #0c1f35; --tertiary: #0f2640;
       --border: #1e3a5f; --border-muted: rgba(30,58,95,.5);
       --text: #e2e8f0; --text-2: #94a3b8; --text-3: #475569;
-      --accent: {accent}; --accent-h: #34d399; --accent-muted: rgba(16,185,129,.12);
+      {css_vars}
       --warn: #f59e0b; --warn-bg: rgba(245,158,11,.12);
       --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
@@ -42,7 +42,7 @@ _STUB_HTML = """\
     body {{
       margin: 0; min-height: 100vh; font-family: var(--font); color: var(--text);
       background:
-        radial-gradient(ellipse 80% 50% at 50% -10%, rgba(16,185,129,.12), transparent 55%),
+        radial-gradient(ellipse 80% 50% at 50% -10%, var(--portal-hero-glow, rgba(16,185,129,.12)), transparent 55%),
         var(--bg);
       display: flex; align-items: center; justify-content: center;
       padding: 1.5rem;
@@ -54,9 +54,9 @@ _STUB_HTML = """\
     }}
     .brand-mark {{
       width: 2.25rem; height: 2.25rem; border-radius: 10px;
-      background: linear-gradient(145deg, var(--accent), #059669);
+      background: linear-gradient(145deg, var(--accent), var(--accent-dim));
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 0 20px rgba(16,185,129,.25);
+      box-shadow: var(--accent-glow, 0 0 20px rgba(16,185,129,.25));
     }}
     .brand-mark svg {{ display: block; }}
     .brand-name {{ font-size: 1.05rem; font-weight: 700; letter-spacing: -.02em; }}
@@ -195,15 +195,16 @@ def render_unknown_host_page(
     else:
         company = escape(branding.get("company_name") or "Portail sécurisé")
         brand_html = company
-    accent = escape(branding.get("accent_color") or "#10b981")
     theme = escape(branding.get("default_theme") or "dark")
+    css_vars = branding.get("css_vars") or ""
+    # css_vars is generated server-side from validated hex colors only
     return _STUB_HTML.format(
         hostname=escape(hostname),
         portal_url=escape(base + "/"),
         pending_url=escape(base + "/admin/pending-hosts?status=pending"),
         company=company,
         brand_html=brand_html,
-        accent=accent,
+        css_vars=css_vars,
         theme=theme,
     )
 

@@ -29,7 +29,9 @@ _HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 DEFAULTS: dict[str, Any] = {
     "company_name": "Portail sécurisé",
     "page_title": "Connexion",
-    "accent_color": "#10b981",
+    "accent_color": "#10b981",  # primary — buttons, nav active
+    "secondary_color": "#059669",  # gradients / dim surfaces
+    "highlight_color": "#34d399",  # hover, focus, emphasis
     "default_theme": "dark",
     "welcome_text": None,
     "footer_text": None,
@@ -38,6 +40,56 @@ DEFAULTS: dict[str, Any] = {
     "logo_path": None,
     "favicon_path": None,
 }
+
+
+def _normalize_hex_color(value: str | None, fallback: str) -> str:
+    color = (value or "").strip()
+    if not _HEX_COLOR.match(color):
+        return fallback
+    return color.lower()
+
+
+def _hex_to_rgb(color: str) -> tuple[int, int, int]:
+    raw = color.lstrip("#")
+    return int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16)
+
+
+def _rgba(color: str, alpha: float) -> str:
+    r, g, b = _hex_to_rgb(color)
+    return f"rgba({r},{g},{b},{alpha})"
+
+
+def branding_css_vars(
+    primary: str,
+    secondary: str,
+    highlight: str,
+    *,
+    theme: str = "dark",
+) -> str:
+    """
+    Inline CSS custom properties so company colors replace the hard-coded green
+    token set (``--accent``, ``--accent-h``, ``--accent-dim``, muted/glow/border).
+    """
+    muted_a = 0.08 if theme == "light" else 0.12
+    glow_a = 0.15 if theme == "light" else 0.30
+    border_a = 0.28 if theme == "light" else 0.35
+    hero_a = 0.05 if theme == "light" else 0.07
+    return (
+        f"--brand-primary:{primary};"
+        f"--brand-secondary:{secondary};"
+        f"--brand-highlight:{highlight};"
+        f"--accent:{primary};"
+        f"--accent-h:{highlight};"
+        f"--accent-dim:{secondary};"
+        f"--accent-muted:{_rgba(primary, muted_a)};"
+        f"--accent-glow:0 0 24px {_rgba(primary, glow_a)};"
+        f"--accent-border:{_rgba(primary, border_a)};"
+        f"--text-link:{highlight};"
+        f"--portal-hero-glow:{_rgba(primary, hero_a)};"
+        f"--accent-primary:{primary};"
+        f"--accent-hover:{highlight};"
+        f"--border-accent:{_rgba(primary, border_a)};"
+    )
 
 
 def get_branding_dir(settings: Settings | None = None) -> Path:
@@ -63,6 +115,8 @@ def ensure_branding_settings(db: Session) -> BrandingSettings:
         company_name=DEFAULTS["company_name"],
         page_title=DEFAULTS["page_title"],
         accent_color=DEFAULTS["accent_color"],
+        secondary_color=DEFAULTS["secondary_color"],
+        highlight_color=DEFAULTS["highlight_color"],
         default_theme=DEFAULTS["default_theme"],
         show_product_branding=False,
         updated_at=utcnow(),
@@ -89,9 +143,13 @@ def branding_to_dict(row: BrandingSettings) -> dict[str, Any]:
     theme = (row.default_theme or "dark").strip().lower()
     if theme not in {"dark", "light"}:
         theme = "dark"
-    accent = (row.accent_color or DEFAULTS["accent_color"]).strip()
-    if not _HEX_COLOR.match(accent):
-        accent = DEFAULTS["accent_color"]
+    primary = _normalize_hex_color(row.accent_color, DEFAULTS["accent_color"])
+    secondary = _normalize_hex_color(
+        getattr(row, "secondary_color", None), DEFAULTS["secondary_color"]
+    )
+    highlight = _normalize_hex_color(
+        getattr(row, "highlight_color", None), DEFAULTS["highlight_color"]
+    )
     logo = (row.logo_path or "").strip() or None
     favicon = (row.favicon_path or "").strip() or None
     return {
@@ -99,7 +157,11 @@ def branding_to_dict(row: BrandingSettings) -> dict[str, Any]:
         or DEFAULTS["company_name"],
         "page_title": (row.page_title or DEFAULTS["page_title"]).strip()
         or DEFAULTS["page_title"],
-        "accent_color": accent,
+        "accent_color": primary,
+        "primary_color": primary,
+        "secondary_color": secondary,
+        "highlight_color": highlight,
+        "css_vars": branding_css_vars(primary, secondary, highlight, theme=theme),
         "default_theme": theme,
         "welcome_text": (row.welcome_text or "").strip() or None,
         "footer_text": (row.footer_text or "").strip() or None,
@@ -117,8 +179,14 @@ def branding_to_dict(row: BrandingSettings) -> dict[str, Any]:
 
 
 def _dict_from_defaults() -> dict[str, Any]:
+    primary = DEFAULTS["accent_color"]
+    secondary = DEFAULTS["secondary_color"]
+    highlight = DEFAULTS["highlight_color"]
+    theme = DEFAULTS["default_theme"]
     return {
         **DEFAULTS,
+        "primary_color": primary,
+        "css_vars": branding_css_vars(primary, secondary, highlight, theme=theme),
         "logo_url": None,
         "favicon_url": "/static/img/generic-shield.svg",
     }
@@ -132,6 +200,8 @@ def update_branding_settings(
     company_name: str | None = None,
     page_title: str | None = None,
     accent_color: str | None = None,
+    secondary_color: str | None = None,
+    highlight_color: str | None = None,
     default_theme: str | None = None,
     welcome_text: str | None = None,
     footer_text: str | None = None,
@@ -148,17 +218,23 @@ def update_branding_settings(
             setattr(row, field, value)
             changed[field] = {"previous": old, "new": value}
 
+    def _set_color(field: str, value: str | None, label: str) -> None:
+        if value is None:
+            return
+        color = value.strip()
+        if not _HEX_COLOR.match(color):
+            raise ValueError(f"{label} invalide (attendu #RRGGBB)")
+        _set(field, color.lower())
+
     if company_name is not None:
         name = company_name.strip() or DEFAULTS["company_name"]
         _set("company_name", name[:120])
     if page_title is not None:
         title = page_title.strip() or DEFAULTS["page_title"]
         _set("page_title", title[:120])
-    if accent_color is not None:
-        color = accent_color.strip()
-        if not _HEX_COLOR.match(color):
-            raise ValueError("Couleur d'accent invalide (attendu #RRGGBB)")
-        _set("accent_color", color.lower())
+    _set_color("accent_color", accent_color, "Couleur principale")
+    _set_color("secondary_color", secondary_color, "Couleur secondaire")
+    _set_color("highlight_color", highlight_color, "Couleur d'accent")
     if default_theme is not None:
         theme = default_theme.strip().lower()
         if theme not in {"dark", "light"}:

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" data-theme="{{ branding.default_theme | default('dark') }}" style="--accent: {{ branding.accent_color | default('#10b981') }};">
+<html lang="fr" data-theme="{{ branding.default_theme | default('dark') }}"{% if branding.css_vars %} style="{{ branding.css_vars }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,11 +7,11 @@
   <meta name="robots" content="noindex,nofollow">
   <title>{% block title %}{{ branding.page_title }}{% endblock %}{% if branding.show_product_branding %} — Bastion Pro{% endif %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ branding.favicon_url | default('/static/img/generic-shield.svg') }}">
-  <script src="/static/portal-theme.js?v=20260731-branding"></script>
-  <link rel="stylesheet" href="/static/portal.css?v=20260731-branding">
+  <script src="/static/portal-theme.js?v=20260801-branding3"></script>
+  <link rel="stylesheet" href="/static/portal.css?v=20260801-branding3">
   {% block head_extra %}{% endblock %}
 </head>
-<body class="{% block body_class %}page-login{% endblock %}"{% if branding.accent_color %} style="--accent: {{ branding.accent_color }};"{% endif %}>
+<body class="{% block body_class %}page-login{% endblock %}">
   <main class="main-content" id="main-content">
     {% if messages %}
       <div class="flash-container">{% include 'partials/_flash.html' %}</div>
