@@ -138,6 +138,14 @@ class Settings(BaseSettings):
             "oidc_keycloak_internal_base_url",
         ),
     )
+    # Registered redirect_uri for the BFF client (never followed in the browser).
+    oidc_bff_redirect_uri: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "OIDC_BFF_REDIRECT_URI",
+            "oidc_bff_redirect_uri",
+        ),
+    )
     vault_sso_portal_oidc_client_secret: str = Field(
         default="",
         validation_alias=AliasChoices(
