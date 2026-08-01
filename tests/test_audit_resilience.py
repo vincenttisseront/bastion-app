@@ -44,7 +44,7 @@ def test_login_failed_with_legacy_audit_schema(client: TestClient, db_session: S
     set_breakglass_password(db_session, "admin", "correct-password-12")
 
     response = client.post(
-        "/auth/login",
+        "/auth/breakglass",
         data={"username": "admin", "password": "wrong-password"},
         headers={"X-Real-IP": "10.0.0.8"},
     )
@@ -59,7 +59,7 @@ def test_login_success_with_valid_breakglass(client: TestClient, db_session: Ses
     set_breakglass_password(db_session, "admin", password)
 
     response = client.post(
-        "/auth/login",
+        "/auth/breakglass",
         data={"username": "admin", "password": password, "rd": "/dashboard"},
         headers={"X-Real-IP": "10.0.0.8"},
         follow_redirects=False,

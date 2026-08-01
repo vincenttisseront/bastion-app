@@ -100,7 +100,7 @@ def test_breakglass_rejected_when_only_reverse_ip_visible(
     set_breakglass_password(db_session, "admin", "super-secret-password")
 
     response = client.post(
-        "/auth/login",
+        "/auth/breakglass",
         data={
             "username": "admin",
             "password": "super-secret-password",

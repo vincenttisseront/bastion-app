@@ -83,7 +83,9 @@ DEFAULT_RULES: dict[str, dict] = {
 }
 
 _SENSITIVE_PREFIXES = (
+    "/login",
     "/auth/login",
+    "/auth/breakglass",
     "/auth/setup",
     "/auth/sso-start",
     "/auth/sso-failed",
@@ -92,7 +94,9 @@ _SENSITIVE_PREFIXES = (
 )
 
 _LOGIN_PATHS = {
+    "/login",
     "/auth/login",
+    "/auth/breakglass",
     "/auth/sso-start",
     "/auth/sso-failed",
     "/api/admin/breakglass/login",

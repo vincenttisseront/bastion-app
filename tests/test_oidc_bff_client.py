@@ -13,6 +13,7 @@ from httpx import Response
 
 from app.oidc_bff_client import (
     InvalidCredentialsError,
+    OidcBffConfigError,
     UnsupportedAuthFlowError,
     perform_headless_login,
 )
@@ -33,14 +34,20 @@ def _settings() -> Settings:
     return Settings(
         environment="test",
         portal_domain="portal.example",
-        oidc_keycloak_internal_base_url=KC,
-        oidc_bff_client_id="bastion-bff",
-        oidc_bff_client_secret="bff-secret",
-        oidc_bff_redirect_uri=REDIRECT_URI,
         oidc_session_jwt_secret="test-oidc-session-secret-not-shared",
         breakglass_jwt_secret="other-bg-secret",
         vault_portal_internal_token="other-vault-token",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
     )
+
+
+def _bff_kwargs() -> dict:
+    return {
+        "keycloak_base_url": KC,
+        "client_id": "bastion-bff",
+        "client_secret": "bff-secret",
+        "redirect_uri": REDIRECT_URI,
+    }
 
 
 def _login_html(*, error: bool = False) -> str:
@@ -97,8 +104,6 @@ async def test_headless_login_success():
             },
         )
     )
-    # State is generated inside perform_headless_login — capture from auth query, then
-    # rewrite login redirect to use the same state.
     token_route = respx.post(TOKEN).mock(
         return_value=Response(
             200,
@@ -112,9 +117,7 @@ async def test_headless_login_success():
         )
     )
 
-    # Intercept login response to inject matching state from the auth request.
     def _login_with_state(request):
-        # Pull state from the earlier auth call query string.
         assert auth_route.called
         auth_req = auth_route.calls.last.request
         state = parse_qs(urlparse(str(auth_req.url)).query)["state"][0]
@@ -126,7 +129,7 @@ async def test_headless_login_success():
     login_route.side_effect = _login_with_state
 
     result = await perform_headless_login(
-        REALM, "alice", "s3cret", settings=settings
+        REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
     )
 
     assert result.access_token == "access-xyz"
@@ -136,7 +139,6 @@ async def test_headless_login_success():
     assert result.expires_in == 300
     assert auth_route.called and login_route.called and token_route.called
 
-    # Auth request carried PKCE S256 + client_id
     auth_q = parse_qs(urlparse(str(auth_route.calls.last.request.url)).query)
     assert auth_q["client_id"] == ["bastion-bff"]
     assert auth_q["code_challenge_method"] == ["S256"]
@@ -144,7 +146,6 @@ async def test_headless_login_success():
     challenge = auth_q["code_challenge"][0]
     assert len(challenge) >= 40
 
-    # Token exchange includes code_verifier that matches challenge
     body = dict(parse_qs(token_route.calls.last.request.content.decode()))
     verifier = body["code_verifier"][0]
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
@@ -152,9 +153,16 @@ async def test_headless_login_success():
     assert expected == challenge
     assert body["code"] == ["auth-code-1"]
     assert body["client_secret"] == ["bff-secret"]
-    # Password must never appear in token exchange
     assert "password" not in body
     assert "s3cret" not in token_route.calls.last.request.content.decode()
+
+
+@pytest.mark.asyncio
+async def test_headless_login_missing_config_raises():
+    with pytest.raises(OidcBffConfigError, match="non configuré"):
+        await perform_headless_login(
+            REALM, "alice", "s3cret", settings=_settings(), db=None
+        )
 
 
 @pytest.mark.asyncio
@@ -173,7 +181,9 @@ async def test_headless_login_invalid_password():
     )
 
     with pytest.raises(InvalidCredentialsError):
-        await perform_headless_login(REALM, "alice", "wrong", settings=settings)
+        await perform_headless_login(
+            REALM, "alice", "wrong", settings=settings, **_bff_kwargs()
+        )
 
 
 @pytest.mark.asyncio
@@ -192,7 +202,9 @@ async def test_headless_login_mfa_required():
     )
 
     with pytest.raises(UnsupportedAuthFlowError, match="kc-otp-login-form"):
-        await perform_headless_login(REALM, "alice", "s3cret", settings=settings)
+        await perform_headless_login(
+            REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
+        )
 
 
 @pytest.mark.asyncio
@@ -215,4 +227,6 @@ async def test_headless_login_mfa_via_redirect_location():
     )
 
     with pytest.raises(UnsupportedAuthFlowError, match="étape interactive"):
-        await perform_headless_login(REALM, "alice", "s3cret", settings=settings)
+        await perform_headless_login(
+            REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
+        )

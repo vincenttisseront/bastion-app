@@ -71,26 +71,30 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-def _require_settings(settings: Settings) -> tuple[str, str, str, str]:
-    base = (settings.oidc_keycloak_internal_base_url or "").strip().rstrip("/")
-    client_id = (settings.oidc_bff_client_id or "").strip()
-    client_secret = (settings.oidc_bff_client_secret or "").strip()
-    redirect_uri = (settings.oidc_bff_redirect_uri or "").strip()
-    if not redirect_uri:
-        domain = (settings.portal_domain or "portal.local").strip()
-        redirect_uri = f"https://{domain}/.bastion/oidc/callback"
+def _require_bff_config(
+    *,
+    base: str,
+    client_id: str,
+    client_secret: str,
+    redirect_uri: str,
+) -> tuple[str, str, str, str]:
+    base = (base or "").strip().rstrip("/")
+    client_id = (client_id or "").strip()
+    client_secret = (client_secret or "").strip()
+    redirect_uri = (redirect_uri or "").strip()
     missing = [
         name
         for name, val in (
-            ("OIDC_KEYCLOAK_INTERNAL_BASE_URL", base),
-            ("OIDC_BFF_CLIENT_ID", client_id),
-            ("OIDC_BFF_CLIENT_SECRET", client_secret),
+            ("keycloak_base_url", base),
+            ("client_id", client_id),
+            ("client_secret", client_secret),
+            ("redirect_uri", redirect_uri),
         )
         if not val
     ]
     if missing:
         raise OidcBffConfigError(
-            "OIDC BFF settings incomplets: " + ", ".join(missing)
+            "OIDC BFF config incomplete: " + ", ".join(missing)
         )
     return base, client_id, client_secret, redirect_uri
 
@@ -184,15 +188,46 @@ async def perform_headless_login(
     password: str,
     *,
     settings: Settings | None = None,
+    keycloak_base_url: str | None = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    redirect_uri: str | None = None,
+    db: Any | None = None,
 ) -> OidcTokenResult:
-    """Run authorization-code + PKCE headlessly against internal Keycloak."""
+    """Run authorization-code + PKCE headlessly against internal Keycloak.
+
+    Prefer explicit BFF credentials (from ``get_oidc_bff_config``). When ``db`` is
+    provided and credentials are omitted, loads per-realm config from SQLite.
+    """
     settings = settings or get_settings()
     realm = (realm or "").strip()
     username = (username or "").strip()
     if not realm or not username or password is None or password == "":
         raise InvalidCredentialsError("Identifiants incomplets")
 
-    base, client_id, client_secret, redirect_uri = _require_settings(settings)
+    if not all([keycloak_base_url, client_id, client_secret, redirect_uri]):
+        if db is None:
+            raise OidcBffConfigError(
+                f"OIDC natif non configuré pour le realm '{realm}'"
+            )
+        from app.oidc_bff_config_service import get_oidc_bff_config
+
+        cfg = get_oidc_bff_config(db, realm, settings)
+        if cfg is None:
+            raise OidcBffConfigError(
+                f"OIDC natif non configuré pour le realm '{realm}'"
+            )
+        keycloak_base_url = cfg.keycloak_base_url
+        client_id = cfg.client_id
+        client_secret = cfg.client_secret
+        redirect_uri = cfg.redirect_uri
+
+    base, client_id, client_secret, redirect_uri = _require_bff_config(
+        base=keycloak_base_url or "",
+        client_id=client_id or "",
+        client_secret=client_secret or "",
+        redirect_uri=redirect_uri or "",
+    )
     code_verifier, code_challenge = _pkce_pair()
     state = secrets.token_urlsafe(24)
 

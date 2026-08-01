@@ -8,9 +8,9 @@ BASE = "https://portal.ar-systems.fr"
 
 def main() -> None:
     c = httpx.Client(base_url=BASE, timeout=15.0, follow_redirects=False, verify=True)
-    print("=== POST /auth/login bad password ===")
+    print("=== POST /auth/breakglass bad password ===")
     r = c.post(
-        "/auth/login",
+        "/auth/breakglass",
         data={
             "username": "audit-probe-nonexistent",
             "password": "AuditProbe-Disposable-Wrong-9xQ",

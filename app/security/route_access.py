@@ -30,7 +30,10 @@ SECURITY_DEPENDENCY_NAMES: frozenset[str] = frozenset(
 # Keys are FastAPI path templates (as on APIRoute.path).
 PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/": "root redirect to /apps",
+    "/login": "native SSO login page (alias of /auth/login)",
     "/auth/login": "authentication entry — cannot require a session",
+    "/auth/logout": "clears/revokes native OIDC bastion_session; usable without portal session",
+    "/auth/breakglass": "HTML break-glass login POST — password + LAN gate; public by design",
     "/auth/setup": "initial break-glass setup before any session exists",
     "/auth/sso-start": "OIDC start redirect — unauthenticated by design",
     "/auth/sso-failed": "OIDC failure landing — unauthenticated by design",

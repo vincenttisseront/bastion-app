@@ -67,7 +67,7 @@ def test_login_post_uses_breakglass_not_idp_redirect(client: TestClient, db_sess
     set_breakglass_password(db_session, "admin", "super-secret-password")
 
     response = client.post(
-        "/auth/login",
+        "/auth/breakglass",
         data={"username": "admin", "password": "super-secret-password", "rd": "/dashboard"},
         headers={"X-Real-IP": "10.0.0.50"},
         follow_redirects=False,

@@ -78,6 +78,75 @@
             Realm par défaut
           </label>
         </div>
+        {% if realm %}
+        <div class="form-group">
+          <label class="form-check">
+            <input type="checkbox" disabled {% if form_values.oidc_native_session_enabled %}checked{% endif %}>
+            Session native OIDC (pilote)
+          </label>
+          <p class="form-help">
+            Activer / désactiver depuis la liste Realms (boutons dédiés) pour journaliser l'action admin.
+            {% if form_values.oidc_native_session_enabled %}
+            <strong>Actuellement activé</strong> — formulaire natif + acceptation de <code>bastion_session</code> pour ce realm.
+            {% else %}
+            Actuellement désactivé — SSO via oauth2-proxy uniquement.
+            {% endif %}
+          </p>
+        </div>
+        {% endif %}
+        <div class="form-group form-section-gap">
+          <div class="form-section-title" style="font-size:1rem;margin-bottom:.5rem">Client OIDC BFF (session native)</div>
+          <p class="form-help">
+            Configuration headless par realm (stockée en base, secret chiffré Fernet).
+            Requis avant d'activer le toggle OIDC natif. Le secret n'est jamais réaffiché.
+          </p>
+          <div class="form-group">
+            <label class="form-label" for="oidc_keycloak_base_url">URL Keycloak interne</label>
+            <input type="url" id="oidc_keycloak_base_url" name="oidc_keycloak_base_url"
+              class="form-input{% if errors.oidc_keycloak_base_url %} is-invalid{% endif %}"
+              value="{{ form_values.oidc_keycloak_base_url }}"
+              placeholder="http://keycloak:8080" autocomplete="off">
+            {% if errors.oidc_keycloak_base_url %}<p class="form-error">{{ errors.oidc_keycloak_base_url }}</p>{% endif %}
+            <p class="form-hint">Base URL joignable depuis bastion (jamais exposée au navigateur).</p>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="oidc_bff_client_id">Client ID BFF</label>
+              <input type="text" id="oidc_bff_client_id" name="oidc_bff_client_id"
+                class="form-input{% if errors.oidc_bff_client_id %} is-invalid{% endif %}"
+                value="{{ form_values.oidc_bff_client_id }}"
+                placeholder="bastion-portal-bff" autocomplete="off">
+              {% if errors.oidc_bff_client_id %}<p class="form-error">{{ errors.oidc_bff_client_id }}</p>{% endif %}
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="oidc_bff_client_secret">Client secret BFF</label>
+              <input type="password" id="oidc_bff_client_secret" name="oidc_bff_client_secret"
+                class="form-input{% if errors.oidc_bff_client_secret %} is-invalid{% endif %}"
+                value="" placeholder="{% if form_values.oidc_bff_has_client_secret %}••••••••{% else %}Secret client confidentiel{% endif %}"
+                autocomplete="new-password">
+              {% if form_values.oidc_bff_has_client_secret %}<p class="form-hint">Laissez vide pour conserver le secret actuel.</p>{% endif %}
+              {% if errors.oidc_bff_client_secret %}<p class="form-error">{{ errors.oidc_bff_client_secret }}</p>{% endif %}
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="oidc_bff_redirect_uri">Redirect URI BFF</label>
+            <input type="url" id="oidc_bff_redirect_uri" name="oidc_bff_redirect_uri"
+              class="form-input{% if errors.oidc_bff_redirect_uri %} is-invalid{% endif %}"
+              value="{{ form_values.oidc_bff_redirect_uri }}"
+              placeholder="https://portal.example/.bastion/oidc/callback" autocomplete="off">
+            {% if errors.oidc_bff_redirect_uri %}<p class="form-error">{{ errors.oidc_bff_redirect_uri }}</p>{% endif %}
+            <p class="form-hint">URI enregistrée côté Keycloak — jamais suivie par le navigateur (échange code côté serveur).</p>
+          </div>
+          <div class="form-footer" style="padding-top:.25rem">
+            <button type="button" id="btn-test-oidc-bff" class="btn btn-ghost">Tester la connexion</button>
+            <span id="oidc-bff-test-result" class="form-help is-hidden" hidden></span>
+            {% if form_values.oidc_bff_configured %}
+            <span class="badge badge-ok">BFF configuré</span>
+            {% else %}
+            <span class="badge badge-muted">BFF non configuré</span>
+            {% endif %}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -292,6 +361,60 @@
       testBtn.disabled = false;
     }
   });
+
+  const bffTestBtn = document.getElementById('btn-test-oidc-bff');
+  const bffTestResult = document.getElementById('oidc-bff-test-result');
+  if (bffTestBtn) {
+    bffTestBtn.addEventListener('click', async function () {
+      const baseEl = document.getElementById('oidc_keycloak_base_url');
+      const slugEl = document.getElementById('slug');
+      const body = {
+        oidc_keycloak_base_url: baseEl ? baseEl.value : '',
+        slug: slugEl ? slugEl.value : ''
+      };
+      if (!body.oidc_keycloak_base_url) {
+        await window.bastionAlert({
+          title: 'URL Keycloak requise',
+          message: 'Saisissez l\'URL Keycloak interne avant de tester.',
+        });
+        return;
+      }
+      const url = realmId
+        ? ('/admin/realms/' + realmId + '/oidc-bff/test')
+        : '/admin/realms/oidc-bff/test';
+      bffTestBtn.disabled = true;
+      try {
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await resp.json();
+        if (bffTestResult) {
+          bffTestResult.hidden = false;
+          bffTestResult.classList.remove('is-hidden');
+          if (data.ok) {
+            bffTestResult.classList.remove('form-error');
+            bffTestResult.classList.add('form-help');
+            bffTestResult.textContent = 'OK — issuer: ' + (data.issuer || data.url || '');
+          } else {
+            bffTestResult.classList.add('form-error');
+            bffTestResult.classList.remove('form-help');
+            bffTestResult.textContent = 'Échec — ' + (data.error || 'injoignable');
+          }
+        }
+      } catch (err) {
+        if (bffTestResult) {
+          bffTestResult.hidden = false;
+          bffTestResult.classList.remove('is-hidden');
+          bffTestResult.classList.add('form-error');
+          bffTestResult.textContent = 'Erreur réseau lors du test BFF.';
+        }
+      } finally {
+        bffTestBtn.disabled = false;
+      }
+    });
+  }
 
   function showPortMsg(ok, msg) {
     if (!portTestResult) return;

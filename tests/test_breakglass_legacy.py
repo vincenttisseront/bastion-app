@@ -64,7 +64,7 @@ def test_unknown_username_fails_without_500(client, db_session: Session):
     set_breakglass_password(db_session, "admin", "correct-password-12")
 
     response = client.post(
-        "/auth/login",
+        "/auth/breakglass",
         data={"username": "vincent", "password": "any-password"},
         headers={"X-Real-IP": "10.0.0.8"},
     )

@@ -217,7 +217,7 @@ def test_breakglass_html_login_rejects_bad_password_no_cookie(staging_base_url: 
     )
     try:
         resp = client.post(
-            "/auth/login",
+            "/auth/breakglass",
             data={
                 "username": "audit-probe-nonexistent",
                 "password": "AuditProbe-Disposable-Wrong-9xQ",

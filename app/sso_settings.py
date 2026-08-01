@@ -115,35 +115,13 @@ class Settings(BaseSettings):
             "oidc_session_max_age",
         ),
     )
-    # BFF confidential client toward Keycloak (server-side only; never browser-facing).
-    oidc_bff_client_id: str = Field(
+    # Progressive cutover — prefer Admin UI toggle on RealmConfig; CSV is ops bootstrap.
+    # Example: OIDC_NATIVE_SESSION_ENABLED_REALMS=pilot-clients,sandbox
+    oidc_native_session_enabled_realms: str = Field(
         default="",
         validation_alias=AliasChoices(
-            "OIDC_BFF_CLIENT_ID",
-            "oidc_bff_client_id",
-        ),
-    )
-    oidc_bff_client_secret: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "OIDC_BFF_CLIENT_SECRET",
-            "oidc_bff_client_secret",
-        ),
-    )
-    # Internal Keycloak base URL (docker DNS / LAN) — never expose to the browser.
-    oidc_keycloak_internal_base_url: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "OIDC_KEYCLOAK_INTERNAL_BASE_URL",
-            "oidc_keycloak_internal_base_url",
-        ),
-    )
-    # Registered redirect_uri for the BFF client (never followed in the browser).
-    oidc_bff_redirect_uri: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "OIDC_BFF_REDIRECT_URI",
-            "oidc_bff_redirect_uri",
+            "OIDC_NATIVE_SESSION_ENABLED_REALMS",
+            "oidc_native_session_enabled_realms",
         ),
     )
     vault_sso_portal_oidc_client_secret: str = Field(
