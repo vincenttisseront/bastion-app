@@ -456,6 +456,13 @@ class RealmConfig(Base):
     oauth2_cookie_secret_encrypted = Column(String, nullable=True)
     is_default = Column(Boolean, default=False)
     enabled = Column(Boolean, default=False)
+    # Pilot rollout: accept/issue bastion_session for this realm (Admin toggle).
+    oidc_native_session_enabled = Column(Boolean, nullable=False, default=False)
+    # Native OIDC BFF client (per-realm) — secrets Fernet, never returned in clear by API/UI.
+    oidc_keycloak_base_url = Column(String, nullable=True)
+    oidc_bff_client_id = Column(String, nullable=True)
+    oidc_bff_client_secret_encrypted = Column(Text, nullable=True)
+    oidc_bff_redirect_uri = Column(String, nullable=True)
     last_test_status = Column(String, nullable=True)
     last_test_detail = Column(Text, nullable=True)
     last_tested_at = Column(DateTime(timezone=True), nullable=True)
@@ -654,6 +661,31 @@ class SsoSessionAnchor(Base):
     last_seen = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 
+class OidcSession(Base):
+    """Native bastion OIDC session registry (distinct from oauth2-proxy cookies).
+
+    Mirrors ``BreakGlassSession``: JWT ``jti`` is the revocation key; identity-binding
+    columns detect cookie theft (same shape as ``SsoSessionAnchor`` / break-glass).
+    """
+
+    __tablename__ = "oidc_sessions"
+
+    id = Column(Integer, primary_key=True)
+    jti = Column(String, unique=True, nullable=False, index=True)
+    sub = Column(String, nullable=False, index=True)
+    username = Column(String, nullable=True)
+    realm = Column(String, nullable=False)
+    issued_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked = Column(Boolean, nullable=False, default=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_by = Column(String, nullable=True)
+    revoked_reason = Column(String, nullable=True)
+    # Identity binding (nullable until first successful bind).
+    ip_subnet = Column(String, nullable=True)
+    fingerprint_hash = Column(String, nullable=True)
+
+
 class AuditLog(Base):
     """Admin action audit journal."""
 
@@ -728,6 +760,8 @@ class PortalSettings(Base):
     breakglass_jwt_secret_encrypted = Column(Text, nullable=True)
     # Previous UI secret kept for validation during rotation (never logged in clear).
     breakglass_jwt_secret_previous_encrypted = Column(Text, nullable=True)
+    # Global native OIDC session JWT HMAC (Fernet) — one portal-wide signing key.
+    oidc_session_jwt_secret_encrypted = Column(Text, nullable=True)
     # Session-cookie hop HMAC (Fernet) — DB source of truth; env only for pytest override.
     session_hop_secret_encrypted = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)

@@ -1,6 +1,7 @@
 """Portal configuration via environment variables."""
 
 from functools import lru_cache
+import secrets
 from typing import Annotated, Any
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -88,6 +89,39 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             "SESSION_HOP_SECRET",
             "session_hop_secret",
+        ),
+    )
+    # Native OIDC session JWT (bastion_session cookie) — NEVER reuse break-glass
+    # or VAULT_PORTAL_INTERNAL_TOKEN (see model_validator ensure_oidc_session_secret).
+    oidc_session_jwt_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "OIDC_SESSION_JWT_SECRET",
+            "oidc_session_jwt_secret",
+        ),
+    )
+    oidc_session_cookie_name: str = Field(
+        default="bastion_session",
+        validation_alias=AliasChoices(
+            "OIDC_SESSION_COOKIE_NAME",
+            "oidc_session_cookie_name",
+        ),
+    )
+    # Seconds — aligned with oauth2-proxy cookie_expire (12h).
+    oidc_session_max_age: int = Field(
+        default=12 * 3600,
+        validation_alias=AliasChoices(
+            "OIDC_SESSION_MAX_AGE",
+            "oidc_session_max_age",
+        ),
+    )
+    # Progressive cutover — prefer Admin UI toggle on RealmConfig; CSV is ops bootstrap.
+    # Example: OIDC_NATIVE_SESSION_ENABLED_REALMS=pilot-clients,sandbox
+    oidc_native_session_enabled_realms: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "OIDC_NATIVE_SESSION_ENABLED_REALMS",
+            "oidc_native_session_enabled_realms",
         ),
     )
     vault_sso_portal_oidc_client_secret: str = Field(
@@ -312,6 +346,20 @@ class Settings(BaseSettings):
         if raw in ("dev", "development", "local"):
             return "development"
         return raw or "development"
+
+    @model_validator(mode="after")
+    def ensure_oidc_session_secret(self) -> "Settings":
+        """Mint a dedicated OIDC session HMAC when unset (never share break-glass / vault)."""
+        forbidden = {
+            (self.breakglass_jwt_secret or "").strip(),
+            (self.vault_portal_internal_token or "").strip(),
+            (self.session_hop_secret or "").strip(),
+        }
+        forbidden.discard("")
+        current = (self.oidc_session_jwt_secret or "").strip()
+        if not current or current in forbidden:
+            object.__setattr__(self, "oidc_session_jwt_secret", secrets.token_urlsafe(32))
+        return self
 
     @model_validator(mode="after")
     def enforce_production_secrets(self) -> "Settings":

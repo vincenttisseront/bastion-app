@@ -253,6 +253,52 @@ def _show_breakglass_form(request: Request, db: Session, settings: Settings) -> 
     )
 
 
+def _login_surface_flags(
+    request: Request,
+    db: Session,
+    settings: Settings,
+    *,
+    rd: str,
+) -> dict:
+    """Shared flags for auth/login.html (native SSO vs oauth2-proxy vs break-glass)."""
+    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+
+    default = get_default_idp_realm(db)
+    native_realm = None
+    # Prefer an explicitly native-enabled realm; default first if it qualifies.
+    candidates: list = []
+    if default is not None:
+        candidates.append(default)
+    for row in (
+        db.query(RealmConfig)
+        .filter(RealmConfig.enabled.is_(True))
+        .order_by(RealmConfig.slug.asc())
+        .all()
+    ):
+        if default is None or row.id != default.id:
+            candidates.append(row)
+    for row in candidates:
+        if is_oidc_native_session_enabled_for_realm(db, row.slug, settings):
+            native_realm = row
+            break
+
+    show_native = native_realm is not None
+    # Keep Keycloak redirect for the default realm while a non-default pilot is active.
+    show_oauth2 = bool(
+        default
+        and not is_oidc_native_session_enabled_for_realm(db, default.slug, settings)
+    )
+    oauth2_url = oauth2_start_url(default.slug, rd) if show_oauth2 and default else None
+    return {
+        "show_native_login": show_native,
+        "native_realm_slug": native_realm.slug if native_realm else None,
+        "native_realm_name": native_realm.name if native_realm else None,
+        "oauth2_url": oauth2_url,
+        "show_breakglass": _show_breakglass_form(request, db, settings),
+        "rd": rd,
+    }
+
+
 @router.get("/")
 def root():
     return RedirectResponse(url="/apps", status_code=302)
@@ -405,6 +451,7 @@ def _record_sso_failure_from_request(request: Request, db: Session) -> None:
     )
 
 
+@router.get("/login")
 @router.get("/auth/login")
 @router.get("/breakglass")
 def login_page(
@@ -436,18 +483,14 @@ def login_page(
             except Exception:
                 db.rollback()
             if not result.ok:
-                realm = get_default_idp_realm(db)
-                oauth2_url = oauth2_start_url(realm.slug, rd) if realm else None
                 response = render(
                     "auth/login.html",
                     **_ctx(
                         request,
                         settings,
                         hide_chrome=True,
-                        rd=rd,
-                        oauth2_url=oauth2_url,
-                        show_breakglass=_show_breakglass_form(request, db, settings),
                         login_error="Session break-glass expirée ou invalide — reconnectez-vous.",
+                        **_login_surface_flags(request, db, settings, rd=rd),
                     ),
                 )
                 response.delete_cookie(COOKIE_NAME, path="/")
@@ -455,26 +498,24 @@ def login_page(
     if user:
         return RedirectResponse(url=rd, status_code=302)
 
+    surface = _login_surface_flags(request, db, settings, rd=rd)
     realm = get_default_idp_realm(db)
-    if not realm and not has_active_breakglass_account(db):
+    if not realm and not has_active_breakglass_account(db) and not surface["show_native_login"]:
         return RedirectResponse(url=setup_url(rd), status_code=302)
 
-    oauth2_url = oauth2_start_url(realm.slug, rd) if realm else None
     return render(
         "auth/login.html",
         **_ctx(
             request,
             settings,
             hide_chrome=True,
-            rd=rd,
-            oauth2_url=oauth2_url,
-            show_breakglass=_show_breakglass_form(request, db, settings),
+            **surface,
         ),
     )
 
 
-@router.post("/auth/login")
-async def login_post(
+@router.post("/auth/breakglass")
+async def breakglass_login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -482,6 +523,7 @@ async def login_post(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
+    """HTML break-glass login (POST). Native OIDC BFF owns ``POST /auth/login``."""
     # Break-glass is never an end-user: default landing is admin dashboard.
     safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"
     if safe_rd == "/apps":
@@ -518,16 +560,12 @@ async def login_post(
             },
             ip_address=client_ip or None,
         )
-        realm = get_default_idp_realm(db)
-        oauth2_url = oauth2_start_url(realm.slug, safe_rd) if realm else None
         ctx = _ctx(
             request,
             settings,
             hide_chrome=True,
             login_error="Identifiants invalides.",
-            rd=safe_rd,
-            oauth2_url=oauth2_url,
-            show_breakglass=_show_breakglass_form(request, db, settings),
+            **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render("auth/login.html", **ctx)
 
@@ -535,16 +573,12 @@ async def login_post(
         db, ip=client_ip, username=username, success=True
     )
     if not pre.allowed:
-        realm = get_default_idp_realm(db)
-        oauth2_url = oauth2_start_url(realm.slug, safe_rd) if realm else None
         ctx = _ctx(
             request,
             settings,
             hide_chrome=True,
             login_error="Identifiants invalides.",
-            rd=safe_rd,
-            oauth2_url=oauth2_url,
-            show_breakglass=_show_breakglass_form(request, db, settings),
+            **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render("auth/login.html", **ctx)
 
@@ -558,16 +592,12 @@ async def login_post(
             action="breakglass.login_failed",
             ip_address=client_ip or None,
         )
-        realm = get_default_idp_realm(db)
-        oauth2_url = oauth2_start_url(realm.slug, safe_rd) if realm else None
         ctx = _ctx(
             request,
             settings,
             hide_chrome=True,
             login_error="Identifiants invalides.",
-            rd=safe_rd,
-            oauth2_url=oauth2_url,
-            show_breakglass=_show_breakglass_form(request, db, settings),
+            **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render("auth/login.html", **ctx)
 
@@ -690,9 +720,8 @@ def sso_failed(
         ip_address=_client_ip(request) or None,
     )
     rd = resolve_rd(request)
-    realm = get_default_idp_realm(db)
-    oauth2_url = oauth2_start_url(realm.slug, rd) if realm else None
-    show_breakglass = _show_breakglass_form(request, db, settings)
+    surface = _login_surface_flags(request, db, settings, rd=rd)
+    show_breakglass = surface["show_breakglass"]
     login_error = (
         "Connexion SSO échouée. Réessayez ou utilisez le break-glass."
         if show_breakglass
@@ -704,10 +733,8 @@ def sso_failed(
             request,
             settings,
             hide_chrome=True,
-            rd=rd,
-            oauth2_url=oauth2_url,
-            show_breakglass=show_breakglass,
             login_error=login_error,
+            **surface,
         ),
     )
 

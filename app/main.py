@@ -23,6 +23,7 @@ from app.files.routes import router as files_browser_router
 from app.admin.user_sessions import router as admin_user_sessions_router
 from app.breakglass import admin_router as breakglass_admin_router
 from app.breakglass import router as breakglass_router
+from app.oidc_bff import router as oidc_bff_router
 from app.database import engine
 from app.health_scheduler import start_health_scheduler, stop_health_scheduler
 from app.logging_config import configure_logging
@@ -230,8 +231,17 @@ def _admin_logs_api_path(path: str) -> bool:
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     path = request.url.path
-    if path.startswith("/api/") or _admin_logs_api_path(path):
-        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    # Native OIDC BFF + REST APIs: return JSON (do not HTML-redirect /auth/login → itself).
+    if (
+        path.startswith("/api/")
+        or path in ("/auth/login", "/auth/logout")
+        or _admin_logs_api_path(path)
+    ):
+        return JSONResponse(
+            {"detail": exc.detail},
+            status_code=exc.status_code,
+            headers=dict(exc.headers) if exc.headers else None,
+        )
     wants_json = "application/json" in (request.headers.get("accept") or "").lower()
     if exc.status_code == 401:
         if wants_json:
@@ -302,6 +312,7 @@ app.include_router(metrics_router)
 app.include_router(sessions_router)
 app.include_router(sessions_admin_router)
 app.include_router(auth_router)
+app.include_router(oidc_bff_router)
 app.include_router(breakglass_router)
 # Admin break-glass session APIs — guard attached here to avoid circular import
 # with user_context (which imports breakglass for cookie validation).

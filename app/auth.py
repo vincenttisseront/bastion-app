@@ -77,6 +77,42 @@ def _rfc1918_response(request: Request, settings: Settings) -> Response | None:
     return None
 
 
+def _native_oidc_auth_response(
+    request: Request,
+    settings: Settings,
+    db: Session,
+) -> Response | None:
+    """
+    Accept native ``bastion_session`` when the cookie's realm is pilot-enabled.
+
+    Returns a 200 Response with X-Auth-Request-* headers, or None to fall through
+    to the oauth2-proxy path (cookie absent, invalid, revoked, or realm not enabled).
+    """
+    cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
+    raw = request.cookies.get(cookie_name)
+    if not raw:
+        return None
+
+    from app.oidc_bff import validate_oidc_session_cookie
+    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+
+    claims = validate_oidc_session_cookie(raw, db=db, settings=settings)
+    if claims is None:
+        return None
+    if not is_oidc_native_session_enabled_for_realm(db, claims.realm, settings):
+        return None
+
+    headers: dict[str, str] = {
+        "X-Auth-Request-User": claims.sub,
+    }
+    username = (claims.username or "").strip()
+    if username:
+        headers["X-Auth-Request-Preferred-Username"] = username
+        if "@" in username:
+            headers["X-Auth-Request-Email"] = username
+    return Response(status_code=200, headers=headers)
+
+
 async def _oauth2_proxy_auth_response(
     request: Request,
     settings: Settings,
@@ -126,6 +162,11 @@ async def oauth2_auth(
     # Do NOT apply RFC1918 bypass here. Behind Traefik/vpcbr, X-Real-IP is often
     # 10.5.0.0/16 — a bypass would return 200 with no identity and break SSO
     # (auth OK → portal 401 → /auth/login loop). LAN recovery = break-glass.
+
+    # Progressive cutover: native bastion_session before oauth2-proxy (flag-gated).
+    native = _native_oidc_auth_response(request, settings, db)
+    if native is not None:
+        return native
 
     # Prefer SSO session over break-glass when both cookies are present.
     # Otherwise a leftover bg_session sends /apps → 302 /dashboard and never hits oauth2.

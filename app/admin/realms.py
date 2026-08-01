@@ -118,16 +118,89 @@ def _resolve_admin_client_secret(
     return None
 
 
+def _oidc_bff_form_values(realm: RealmConfig | None) -> dict[str, Any]:
+    from app.oidc_bff_config_service import oidc_bff_config_status
+
+    if realm is None:
+        return {
+            "oidc_keycloak_base_url": "",
+            "oidc_bff_client_id": "",
+            "oidc_bff_redirect_uri": "",
+            "oidc_bff_has_client_secret": False,
+            "oidc_bff_configured": False,
+        }
+    status = oidc_bff_config_status(realm)
+    return {
+        "oidc_keycloak_base_url": str(status.get("base_url") or ""),
+        "oidc_bff_client_id": str(status.get("client_id") or ""),
+        "oidc_bff_redirect_uri": str(status.get("redirect_uri") or ""),
+        "oidc_bff_has_client_secret": bool(status.get("has_client_secret")),
+        "oidc_bff_configured": bool(status.get("configured")),
+    }
+
+
+def _apply_oidc_bff_from_form(
+    db: Session,
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    oidc_keycloak_base_url: str,
+    oidc_bff_client_id: str,
+    oidc_bff_client_secret: str,
+    oidc_bff_redirect_uri: str,
+    actor: str,
+    ip_address: str | None,
+) -> str | None:
+    """Persist BFF fields when any are submitted. Empty block = no-op. Returns error msg."""
+    from app.oidc_bff_config_service import AUDIT_BFF_CONFIG_SET, set_oidc_bff_config
+
+    base = (oidc_keycloak_base_url or "").strip()
+    cid = (oidc_bff_client_id or "").strip()
+    redir = (oidc_bff_redirect_uri or "").strip()
+    secret = (oidc_bff_client_secret or "").strip()
+    if not (base or cid or redir or secret):
+        return None
+    try:
+        set_oidc_bff_config(
+            db,
+            realm.slug,
+            settings,
+            base_url=base,
+            client_id=cid,
+            client_secret=secret or None,
+            redirect_uri=redir,
+            keep_existing_secret=bool(
+                getattr(realm, "oidc_bff_client_secret_encrypted", None)
+            ),
+        )
+    except (ValueError, LookupError) as exc:
+        return str(exc)
+    log_action(
+        db,
+        actor=actor,
+        action=AUDIT_BFF_CONFIG_SET,
+        target=realm.slug,
+        details={
+            "has_client_secret": True,
+            "base_url_set": bool(base),
+            "client_id_set": bool(cid),
+            "redirect_uri_set": bool(redir),
+        },
+        ip_address=ip_address,
+    )
+    return None
+
+
 def _realm_form_values(
-  realm: RealmConfig | None,
-  *,
-  slug: str = "",
-  name: str = "",
-  issuer_url: str = "",
-  client_id: str = "",
-  oauth2_proxy_port: int | str = "",
-  scopes: str = "openid profile email",
-  is_default: bool = False,
+    realm: RealmConfig | None,
+    *,
+    slug: str = "",
+    name: str = "",
+    issuer_url: str = "",
+    client_id: str = "",
+    oauth2_proxy_port: int | str = "",
+    scopes: str = "openid profile email",
+    is_default: bool = False,
 ) -> dict[str, Any]:
     if realm:
         return {
@@ -148,6 +221,10 @@ def _realm_form_values(
             "keycloak_provision_client_id": realm.keycloak_provision_client_id or "",
             "provisioning_configured": bool(realm.keycloak_provision_client_secret_encrypted),
             "provisioning_enabled": bool(realm.provisioning_enabled),
+            "oidc_native_session_enabled": bool(
+                getattr(realm, "oidc_native_session_enabled", False)
+            ),
+            **_oidc_bff_form_values(realm),
         }
     return {
         "slug": slug,
@@ -167,6 +244,8 @@ def _realm_form_values(
         "keycloak_provision_client_id": "",
         "provisioning_configured": False,
         "provisioning_enabled": False,
+        "oidc_native_session_enabled": False,
+        **_oidc_bff_form_values(None),
     }
 
 
@@ -333,6 +412,10 @@ async def admin_realms_create(
     keycloak_provision_client_id: str = Form(""),
     keycloak_provision_client_secret: str = Form(""),
     provisioning_enabled: str | None = Form(None),
+    oidc_keycloak_base_url: str = Form(""),
+    oidc_bff_client_id: str = Form(""),
+    oidc_bff_client_secret: str = Form(""),
+    oidc_bff_redirect_uri: str = Form(""),
     oauth2_proxy_port: int = Form(4180),
     scopes: str = Form("openid profile email"),
     is_default: str | None = Form(None),
@@ -354,6 +437,9 @@ async def admin_realms_create(
     form_values["keycloak_provision_client_id"] = keycloak_provision_client_id
     form_values["provisioning_enabled"] = _form_bool(provisioning_enabled)
     form_values["groups_sync_include"] = groups_sync_include
+    form_values["oidc_keycloak_base_url"] = oidc_keycloak_base_url
+    form_values["oidc_bff_client_id"] = oidc_bff_client_id
+    form_values["oidc_bff_redirect_uri"] = oidc_bff_redirect_uri
     enabled = _form_bool(activate)
 
     try:
@@ -535,6 +621,28 @@ async def admin_realms_create(
         if test_result["status"] == "ok":
             realm.enabled = True
 
+    bff_err = _apply_oidc_bff_from_form(
+        db,
+        realm,
+        settings,
+        oidc_keycloak_base_url=oidc_keycloak_base_url,
+        oidc_bff_client_id=oidc_bff_client_id,
+        oidc_bff_client_secret=oidc_bff_client_secret,
+        oidc_bff_redirect_uri=oidc_bff_redirect_uri,
+        actor=user.email,
+        ip_address=_client_ip(request),
+    )
+    if bff_err:
+        db.rollback()
+        errors["_form"] = bff_err
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+        return render(
+            "admin/realm_form.html",
+            **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
+            status_code=400,
+        )
+
     db.commit()
     db.refresh(realm)
     log_action(
@@ -597,6 +705,10 @@ async def admin_realms_update(
     keycloak_provision_client_id: str = Form(""),
     keycloak_provision_client_secret: str = Form(""),
     provisioning_enabled: str | None = Form(None),
+    oidc_keycloak_base_url: str = Form(""),
+    oidc_bff_client_id: str = Form(""),
+    oidc_bff_client_secret: str = Form(""),
+    oidc_bff_redirect_uri: str = Form(""),
     oauth2_proxy_port: int = Form(4180),
     scopes: str = Form("openid profile email"),
     is_default: str | None = Form(None),
@@ -621,6 +733,9 @@ async def admin_realms_update(
             "keycloak_provision_client_id": keycloak_provision_client_id,
             "provisioning_enabled": _form_bool(provisioning_enabled),
             "groups_sync_include": groups_sync_include,
+            "oidc_keycloak_base_url": oidc_keycloak_base_url,
+            "oidc_bff_client_id": oidc_bff_client_id,
+            "oidc_bff_redirect_uri": oidc_bff_redirect_uri,
         }
     )
     enabled_requested = _form_bool(activate)
@@ -838,6 +953,34 @@ async def admin_realms_update(
             )
         realm.enabled = True
 
+    bff_err = _apply_oidc_bff_from_form(
+        db,
+        realm,
+        settings,
+        oidc_keycloak_base_url=oidc_keycloak_base_url,
+        oidc_bff_client_id=oidc_bff_client_id,
+        oidc_bff_client_secret=oidc_bff_client_secret,
+        oidc_bff_redirect_uri=oidc_bff_redirect_uri,
+        actor=user.email,
+        ip_address=_client_ip(request),
+    )
+    if bff_err:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": bff_err}}, status_code=400
+            )
+        return render(
+            "admin/realm_form.html",
+            **_ctx(
+                request,
+                settings,
+                realm=realm,
+                form_values=form_values,
+                errors={"_form": bff_err},
+            ),
+            status_code=400,
+        )
+
     db.commit()
     log_action(
         db,
@@ -1042,6 +1185,125 @@ def admin_realms_disable(
         settings.vault_portal_internal_token or "dev",
     )
     return response
+
+
+@router.post("/admin/realms/{realm_id}/oidc-native-session/enable")
+def admin_realms_oidc_native_enable(
+    realm_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.oidc_native_session import set_oidc_native_session_enabled
+
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if not realm:
+        raise HTTPException(status_code=404)
+    changed = set_oidc_native_session_enabled(db, realm, enabled=True)
+    db.commit()
+    if changed:
+        log_action(
+            db,
+            actor=user.email,
+            action="realm.oidc_native_session_enabled",
+            target=realm.slug,
+            details={"enabled": True},
+            ip_address=_client_ip(request),
+        )
+    if _wants_json(request):
+        return JSONResponse(
+            {"ok": True, "slug": realm.slug, "oidc_native_session_enabled": True}
+        )
+    response = RedirectResponse(url="/admin/realms", status_code=302)
+    flash_redirect(
+        response,
+        f"Session native OIDC activée pour '{realm.slug}' (pilote).",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@router.post("/admin/realms/{realm_id}/oidc-native-session/disable")
+def admin_realms_oidc_native_disable(
+    realm_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.oidc_native_session import set_oidc_native_session_enabled
+
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if not realm:
+        raise HTTPException(status_code=404)
+    changed = set_oidc_native_session_enabled(db, realm, enabled=False)
+    db.commit()
+    if changed:
+        log_action(
+            db,
+            actor=user.email,
+            action="realm.oidc_native_session_disabled",
+            target=realm.slug,
+            details={"enabled": False},
+            ip_address=_client_ip(request),
+        )
+    if _wants_json(request):
+        return JSONResponse(
+            {"ok": True, "slug": realm.slug, "oidc_native_session_enabled": False}
+        )
+    response = RedirectResponse(url="/admin/realms", status_code=302)
+    flash_redirect(
+        response,
+        f"Session native OIDC désactivée pour '{realm.slug}'.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@router.post("/admin/realms/{realm_id}/oidc-bff/test")
+async def admin_realms_oidc_bff_test(
+    realm_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    _user=Depends(require_admin),
+):
+    """Ping Keycloak discovery for the BFF base URL (no client secret, no login)."""
+    from app.oidc_bff_config_service import ping_oidc_discovery
+
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if not realm:
+        raise HTTPException(status_code=404)
+    body: dict[str, Any] = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    base = (body.get("oidc_keycloak_base_url") or realm.oidc_keycloak_base_url or "").strip()
+    result = await ping_oidc_discovery(base, realm.slug)
+    status = 200 if result.get("ok") else 400
+    return JSONResponse(result, status_code=status)
+
+
+@router.post("/admin/realms/oidc-bff/test")
+async def admin_realms_oidc_bff_test_draft(
+    request: Request,
+    _user=Depends(require_admin),
+):
+    """Draft realm: ping discovery with posted base_url + slug (before save)."""
+    from app.oidc_bff_config_service import ping_oidc_discovery
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "JSON invalide"}, status_code=400)
+    base = (body.get("oidc_keycloak_base_url") or "").strip()
+    slug = (body.get("slug") or "").strip()
+    result = await ping_oidc_discovery(base, slug)
+    status = 200 if result.get("ok") else 400
+    return JSONResponse(result, status_code=status)
 
 
 @router.post("/admin/realms/{realm_id}/export")

@@ -1,4 +1,4 @@
-"""F-01: break-glass POST /auth/login must be LAN-only (defense in depth)."""
+"""F-01: break-glass POST /auth/breakglass must be LAN-only (defense in depth)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def test_breakglass_login_rejected_from_public_ip(
     set_breakglass_password(db_session, "admin", "super-secret-password")
 
     response = client.post(
-        "/auth/login",
+        "/auth/breakglass",
         data={
             "username": "admin",
             "password": "super-secret-password",
@@ -45,7 +45,7 @@ def test_breakglass_login_allowed_from_rfc1918_ip(
     set_breakglass_password(db_session, "admin", "super-secret-password")
 
     response = client.post(
-        "/auth/login",
+        "/auth/breakglass",
         data={
             "username": "admin",
             "password": "super-secret-password",
@@ -78,7 +78,7 @@ def test_login_page_hides_breakglass_from_public_ip(
     assert "ou accès local" not in response.text
     assert 'name="username"' not in response.text
     assert 'name="password"' not in response.text
-    assert 'action="/auth/login"' not in response.text
+    assert 'action="/auth/breakglass"' not in response.text
 
 
 def test_login_page_shows_breakglass_from_lan_ip(
@@ -95,5 +95,6 @@ def test_login_page_shows_breakglass_from_lan_ip(
 
     assert response.status_code == 200
     assert "Accès break-glass administrateur" in response.text
-    assert "ou accès local" in response.text
+    assert "ou accès d'urgence" in response.text
     assert 'name="username"' in response.text
+    assert 'action="/auth/breakglass"' in response.text

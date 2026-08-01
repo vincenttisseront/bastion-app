@@ -42,8 +42,10 @@ class RotationReport:
     realm_client_secrets: int = 0
     realm_oauth2_cookie_secrets: int = 0
     realm_admin_client_secrets: int = 0
+    realm_oidc_bff_client_secrets: int = 0
     portal_breakglass_jwt_secrets: int = 0
     portal_session_hop_secrets: int = 0
+    portal_oidc_session_jwt_secrets: int = 0
     duration_ms: float = 0.0
     error: str | None = None
 
@@ -55,8 +57,10 @@ class RotationReport:
             + self.realm_client_secrets
             + self.realm_oauth2_cookie_secrets
             + self.realm_admin_client_secrets
+            + self.realm_oidc_bff_client_secrets
             + self.portal_breakglass_jwt_secrets
             + self.portal_session_hop_secrets
+            + self.portal_oidc_session_jwt_secrets
         )
 
     def to_audit_details(self) -> dict[str, Any]:
@@ -104,8 +108,10 @@ def rotate_fernet_key(
         "realm_client_secrets": 0,
         "realm_oauth2_cookie_secrets": 0,
         "realm_admin_client_secrets": 0,
+        "realm_oidc_bff_client_secrets": 0,
         "portal_breakglass_jwt_secrets": 0,
         "portal_session_hop_secrets": 0,
+        "portal_oidc_session_jwt_secrets": 0,
     }
 
     try:
@@ -145,6 +151,16 @@ def rotate_fernet_key(
                     new_material,
                 )
                 counts["realm_admin_client_secrets"] += 1
+            if (
+                getattr(realm, "oidc_bff_client_secret_encrypted", None)
+                and str(realm.oidc_bff_client_secret_encrypted).strip()
+            ):
+                realm.oidc_bff_client_secret_encrypted = _reencrypt_field(
+                    realm.oidc_bff_client_secret_encrypted,
+                    old_material,
+                    new_material,
+                )
+                counts["realm_oidc_bff_client_secrets"] += 1
 
         for portal in db.query(PortalSettings).all():
             if (
@@ -177,6 +193,16 @@ def rotate_fernet_key(
                     new_material,
                 )
                 counts["portal_session_hop_secrets"] += 1
+            if (
+                getattr(portal, "oidc_session_jwt_secret_encrypted", None)
+                and str(portal.oidc_session_jwt_secret_encrypted).strip()
+            ):
+                portal.oidc_session_jwt_secret_encrypted = _reencrypt_field(
+                    portal.oidc_session_jwt_secret_encrypted,
+                    old_material,
+                    new_material,
+                )
+                counts["portal_oidc_session_jwt_secrets"] += 1
 
         db.commit()
     except Exception as exc:
