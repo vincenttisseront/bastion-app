@@ -393,6 +393,7 @@ def app_cookie_diagnostics(
     app_label: str | None = None,
     verify_base_url: str | None = None,
     upstream_tls_verify: bool = False,
+    verify_host: str | None = None,
 ) -> dict[str, Any]:
     """Store robotic cookie presence + fingerprints after a successful impersonate."""
     from app.robotic.impersonate_service import cookie_fingerprint
@@ -426,6 +427,9 @@ def app_cookie_diagnostics(
         "upstream_tls_verify": bool(upstream_tls_verify),
         "verifiable": (driver or "").strip().lower() in ("crushftp", "generic_form"),
     }
+    host = (verify_host or "").strip()
+    if host:
+        out["verify_host"] = host
     if app_label:
         out["app_label"] = app_label
     ua = request_client_diagnostics(request)

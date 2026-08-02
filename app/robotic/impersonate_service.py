@@ -20,6 +20,7 @@ from app.bastion.drivers.generic import (
     generic_basic_auth_header,
     generic_form_login,
     generic_wsse_header,
+    public_host_binding_headers,
 )
 from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.models import App
@@ -162,18 +163,28 @@ def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
     """
     Base URL for CrushFTP robotic login/getUsername.
 
-    In subdomain mode the browser presents cookies on the public FQDN. Sessions
-    created against upstream_url (often a bare backend IP / Host) are rejected
-    by CrushFTP on the FQDN path (new-ui → login.html). Login must therefore
-    use the same public URL the browser will hit.
+    Robotic login runs **server-side** from bastion-app and cannot satisfy the
+    browser SSO ``auth_request`` on ``public_fqdn``. Prefer ``upstream_url``
+    (internal). ``public_host_binding_headers`` still forces Host=FQDN so the
+    CrushFTP session matches cookies hop-injected on the public hostname.
     """
     from app.portal_settings_service import get_subdomain_sso_enabled
 
     mode = normalize_access_mode(app.access_mode)
     fqdn = (app.public_fqdn or "").strip() or None
-    if get_subdomain_sso_enabled(db, settings) and mode == "subdomain_proxy" and fqdn:
+    upstream = (app.upstream_url or "").strip()
+    if (
+        get_subdomain_sso_enabled(db, settings)
+        and mode == "subdomain_proxy"
+        and fqdn
+        and upstream
+    ):
+        return upstream.rstrip("/") + "/"
+    if upstream:
+        return upstream.rstrip("/") + "/"
+    if fqdn:
         return f"https://{fqdn}/"
-    return (app.upstream_url or "").rstrip("/") + "/"
+    return "/"
 
 
 def _generic_form_login_url(app: App) -> str:
@@ -371,6 +382,7 @@ async def _impersonate_crushftp(
     driver = CrushFTPDriver()
     session = None
     login_base = _crushftp_login_base_url(app, settings, db)
+    host_headers = public_host_binding_headers(app, login_base)
     tls_verify = resolve_upstream_tls_verify(app)
     try:
         session = await driver.login(
@@ -378,6 +390,7 @@ async def _impersonate_crushftp(
             resolved.robotic_username,
             password,
             tls_verify=tls_verify,
+            extra_headers=host_headers or None,
         )
     except RoboticLoginError as exc:
         _audit_impersonate(

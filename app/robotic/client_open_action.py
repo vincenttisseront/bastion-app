@@ -234,6 +234,9 @@ def _touch_open_session(
     app = get_app_by_slug(db, slug)
     if app is None:
         return
+    verify_host = None
+    if result.driver == "crushftp" and result.mode == "subdomain":
+        verify_host = (result.fqdn or "").strip() or None
     touch_app_session(
         db,
         user,
@@ -248,6 +251,7 @@ def _touch_open_session(
             app_label=app.label,
             verify_base_url=result.login_base_url,
             upstream_tls_verify=resolve_upstream_tls_verify(app),
+            verify_host=verify_host,
         ),
     )
 

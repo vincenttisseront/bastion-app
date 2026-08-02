@@ -229,8 +229,10 @@ async def test_impersonate_logout_on_resolve_target_failure(db_session: Session)
 
 
 @pytest.mark.asyncio
-async def test_crushftp_subdomain_login_uses_public_fqdn(db_session: Session):
-    """Robotic login must hit the public FQDN, not upstream IP (CrushFTP Host/session)."""
+async def test_crushftp_subdomain_login_uses_upstream_with_public_host(
+    db_session: Session,
+):
+    """Robotic login must hit upstream (bypass SSO) with Host=public FQDN."""
     app = App(
         slug="transfer",
         label="Transfer",
@@ -247,7 +249,8 @@ async def test_crushftp_subdomain_login_uses_public_fqdn(db_session: Session):
 
     fake_session = CrushFTPSession(
         cookies={"CrushAuth": "FQDNCOOKIE1234", "currentAuth": "1234"},
-        base_url="https://transfer.ar-systems.fr/",
+        base_url="https://172.24.0.106/",
+        request_headers={"Host": "transfer.ar-systems.fr"},
     )
     login_mock = AsyncMock(return_value=fake_session)
     with (
@@ -267,6 +270,10 @@ async def test_crushftp_subdomain_login_uses_public_fqdn(db_session: Session):
         result = await impersonate(db_session, "transfer", settings, actor="user@test")
 
     login_mock.assert_awaited_once()
-    assert login_mock.await_args.args[0] == "https://transfer.ar-systems.fr/"
+    assert login_mock.await_args.args[0] == "https://172.24.0.106/"
+    assert login_mock.await_args.kwargs.get("extra_headers", {}).get("Host") == (
+        "transfer.ar-systems.fr"
+    )
     assert result.mode == "subdomain"
     assert result.target_url == "https://transfer.ar-systems.fr/"
+    assert result.login_base_url == "https://172.24.0.106/"
