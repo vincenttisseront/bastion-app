@@ -121,6 +121,47 @@ def _deny_no_app(
     )
 
 
+def native_subdomain_auth_would_allow(
+    db: Session,
+    request: Request,
+    settings: Settings,
+    *,
+    host: str,
+) -> bool:
+    """
+    True when ``/internal/subdomain-auth`` would return 200 for this Host
+    using only a native ``bastion_session`` (same validation + AccessGrant).
+
+    Used by ``/auth/login`` before bouncing absolute ``rd=`` back to a
+    subdomain — mirrors the break-glass login harden (stale cookie must not
+    redirect-loop).
+    """
+    from app.auth import _native_oidc_auth_response
+
+    app = _resolve_app_by_host(db, host)
+    if not app:
+        return False
+
+    native = _native_oidc_auth_response(request, settings, db)
+    if native is None:
+        return False
+
+    keycloak_user_id = _header(
+        native.headers,
+        "X-Auth-Request-User",
+        "X-Auth-User",
+    )
+    groups = parse_groups_header(
+        _header(native.headers, "X-Auth-Request-Groups", "X-Auth-Groups")
+    )
+    return user_can_launch_application(
+        db,
+        application_id=app.id,
+        keycloak_user_id=keycloak_user_id or None,
+        group_names=groups,
+    )
+
+
 @router.get("/internal/subdomain-auth")
 async def subdomain_auth(
     request: Request,

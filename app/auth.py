@@ -91,30 +91,53 @@ def _cookie_value_from_header(cookie_header: str, name: str) -> str | None:
     return found
 
 
+def iter_oidc_session_cookie_candidates(
+    request: Request,
+    settings: Settings,
+) -> list[str]:
+    """
+    All distinct bastion_session JWT candidates from an auth_request / login.
+
+    Order matters for the first non-empty peek (``extract_oidc_session_cookie_raw``),
+    but ``_native_oidc_auth_response`` validates each until one succeeds — a
+    garbled Starlette parse must not hide a good ``X-Bastion-Session-Cookie``
+    or raw Cookie value (HAR transfer loop after CrushFTP Cookie filtering).
+    """
+    cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str | None) -> None:
+        raw = (value or "").strip()
+        if not raw or raw in seen:
+            return
+        seen.add(raw)
+        ordered.append(raw)
+
+    # Explicit nginx header first — set from $cookie_bastion_session at rewrite
+    # time (server-level set) so CrushFTP location / Cookie rewrites cannot
+    # starve the auth subrequest.
+    _add(
+        request.headers.get("X-Bastion-Session-Cookie")
+        or request.headers.get("x-bastion-session-cookie")
+    )
+    _add(request.cookies.get(cookie_name))
+    _add(_cookie_value_from_header(request.headers.get("Cookie") or "", cookie_name))
+    return ordered
+
+
 def extract_oidc_session_cookie_raw(
     request: Request,
     settings: Settings,
 ) -> str | None:
     """
-    Resolve native session JWT from the auth_request.
+    Resolve native session JWT from the auth_request (first non-empty candidate).
 
-    Prefer Starlette's cookie jar, then nginx ``X-Bastion-Session-Cookie``
-    (``$cookie_bastion_session`` — survives CrushFTP upstream Cookie rewrites
-    that must not affect the auth subrequest), then raw Cookie header parsing.
+    Prefer nginx ``X-Bastion-Session-Cookie``, then Starlette's cookie jar, then
+    raw Cookie header parsing.
     """
-    cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
-    raw = (request.cookies.get(cookie_name) or "").strip()
-    if raw:
-        return raw
-    # Nginx subdomain_auth_common forwards $cookie_bastion_session explicitly.
-    header_raw = (
-        request.headers.get("X-Bastion-Session-Cookie")
-        or request.headers.get("x-bastion-session-cookie")
-        or ""
-    ).strip()
-    if header_raw:
-        return header_raw
-    return _cookie_value_from_header(request.headers.get("Cookie") or "", cookie_name)
+    candidates = iter_oidc_session_cookie_candidates(request, settings)
+    return candidates[0] if candidates else None
 
 
 def _native_oidc_auth_response(
@@ -128,17 +151,19 @@ def _native_oidc_auth_response(
     Returns a 200 Response with X-Auth-Request-* headers, or None to fall through
     to the oauth2-proxy path (cookie absent, invalid, revoked, or realm not enabled).
     """
-    raw = extract_oidc_session_cookie_raw(request, settings)
-    if not raw:
-        return None
-
     from app.oidc_bff import validate_oidc_session_cookie
     from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
 
-    claims = validate_oidc_session_cookie(raw, db=db, settings=settings)
+    claims = None
+    for raw in iter_oidc_session_cookie_candidates(request, settings):
+        claims = validate_oidc_session_cookie(raw, db=db, settings=settings)
+        if claims is None:
+            continue
+        if not is_oidc_native_session_enabled_for_realm(db, claims.realm, settings):
+            claims = None
+            continue
+        break
     if claims is None:
-        return None
-    if not is_oidc_native_session_enabled_for_realm(db, claims.realm, settings):
         return None
 
     headers: dict[str, str] = {

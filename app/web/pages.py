@@ -495,31 +495,47 @@ def login_page(
                 )
                 response.delete_cookie(COOKIE_NAME, path="/")
                 return response
-    # Absolute subdomain rd= (from @portal_redirect) must never bounce back when
-    # the browser only has nginx-injected portal identity without a session cookie
-    # that subdomain-auth can accept — that is the transfer↔login loop.
+    # Absolute subdomain rd= (from @portal_redirect) must never bounce back unless
+    # subdomain-auth would accept this session for that Host — otherwise the
+    # transfer↔login loop (HAR: login 302 → transfer auth_request 401 → login).
     from urllib.parse import urlparse
 
-    from app.auth import extract_oidc_session_cookie_raw
+    from app.auth import (
+        extract_oidc_session_cookie_raw,
+        iter_oidc_session_cookie_candidates,
+    )
     from app.oidc_bff import set_oidc_session_cookie, validate_oidc_session_cookie
     from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+    from app.subdomain.subdomain_auth import native_subdomain_auth_would_allow
 
-    raw_session = extract_oidc_session_cookie_raw(request, settings)
+    raw_session = None
     native_ok = False
-    if raw_session:
-        claims = validate_oidc_session_cookie(raw_session, db=db, settings=settings)
-        native_ok = bool(
-            claims is not None
-            and is_oidc_native_session_enabled_for_realm(db, claims.realm, settings)
-        )
+    for candidate in iter_oidc_session_cookie_candidates(request, settings):
+        claims = validate_oidc_session_cookie(candidate, db=db, settings=settings)
+        if claims is None:
+            continue
+        if not is_oidc_native_session_enabled_for_realm(db, claims.realm, settings):
+            continue
+        raw_session = candidate
+        native_ok = True
+        break
+    if raw_session is None:
+        raw_session = extract_oidc_session_cookie_raw(request, settings)
 
     rd_host = (urlparse(rd).hostname or "").lower() if rd.startswith("https://") else ""
     portal_host = (settings.portal_domain or "").strip().lower()
     rd_is_absolute_subdomain = bool(rd_host and rd_host != portal_host)
 
-    def _has_subdomain_usable_session() -> bool:
-        if native_ok:
+    def _subdomain_rd_safe() -> bool:
+        """Proven accept for absolute rd= — native path preferred (HAR loop)."""
+        if not rd_is_absolute_subdomain:
             return True
+        if native_ok and native_subdomain_auth_would_allow(
+            db, request, settings, host=rd_host
+        ):
+            return True
+        # Legacy oauth2 / break-glass: presence-only (cannot probe oauth2 here
+        # without an outbound call); never bounce on nginx-injected identity alone.
         if request.cookies.get(COOKIE_NAME):
             return True
         return any(
@@ -529,9 +545,8 @@ def login_page(
 
     if user:
         # Nginx-injected identity on /login (when /login still hits auth_request):
-        # only honour absolute subdomain rd when a cookie subdomain-auth can use
-        # is present; otherwise land on /apps to break the 401↔302 loop.
-        if rd_is_absolute_subdomain and not _has_subdomain_usable_session():
+        # only honour absolute subdomain rd when subdomain-auth would accept.
+        if rd_is_absolute_subdomain and not _subdomain_rd_safe():
             return RedirectResponse(url="/apps", status_code=302)
         response = RedirectResponse(url=rd, status_code=302)
         if native_ok and raw_session:
@@ -539,9 +554,13 @@ def login_page(
         return response
 
     # Native bastion_session: /auth/login is public (auth_request off).
-    # Re-emit with Domain=parent (upgrades host-only cutover cookies) and honour
-    # absolute subdomain rd= without forcing Keycloak.
+    # Re-emit with Domain=parent (upgrades host-only cutover cookies). Absolute
+    # subdomain rd= only when subdomain-auth would return 200 for that Host.
     if native_ok and raw_session:
+        if rd_is_absolute_subdomain and not _subdomain_rd_safe():
+            response = RedirectResponse(url="/apps", status_code=302)
+            set_oidc_session_cookie(response, raw_session, settings)
+            return response
         response = RedirectResponse(url=rd, status_code=302)
         set_oidc_session_cookie(response, raw_session, settings)
         return response

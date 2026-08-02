@@ -224,6 +224,11 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "",
         "    set $bastion_app_upstream bastion-app:8000;",
         f'    set $app_upstream "{origin_esc}";',
+        # Capture client Cookie/Host before location / CrushFTP Cookie rewrite
+        # so auth_request (subdomain_auth_common) always sees bastion_session.
+        "    set $bastion_auth_host $host;",
+        "    set $bastion_auth_cookie $http_cookie;",
+        "    set $bastion_session_ck $cookie_bastion_session;",
         "",
         "    include /etc/nginx/snippets/subdomain_auth_common.conf;",
         "",
@@ -273,6 +278,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "    location / {",
             "        auth_request /internal/subdomain-auth;",
             f"        error_page 401 = @portal_redirect_{slug};",
+            # Do not map CrushFTP/upstream 401 through @portal_redirect.
+            "        proxy_intercept_errors off;",
             "",
             "        proxy_pass $app_upstream;",
             "        proxy_redirect off;",
