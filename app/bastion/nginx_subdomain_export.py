@@ -169,7 +169,6 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     origin = upstream_origin(raw_upstream)
     upstream_host = _upstream_host(raw_upstream)
     portal = (settings.portal_domain or "portal.ar-systems.fr").strip()
-    realm = (app.realm_slug or "").strip() or settings.sso_portal_default_realm_slug
     origin_esc = _nginx_escape(origin)
     fqdn_esc = _nginx_escape(fqdn)
     portal_esc = _nginx_escape(portal)
@@ -255,10 +254,12 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "    }",
             "",
             f"    location @portal_redirect_{slug} {{",
-            # Absolute rd= requires oauth2-proxy whitelist_domains (see export.py).
-            # Relative rd=/ would land on the portal catalogue after silent SSO
-            # instead of returning to this app FQDN.
-            f"        return 302 https://{portal_esc}/oauth2/{_nginx_escape(realm)}/start"
+            # Native bastion_session cutover: send browsers to /login (BFF form /
+            # SSO button), not oauth2-proxy /oauth2/.../start → Keycloak.
+            # Absolute rd= is accepted by safe_post_login_rd when the host shares
+            # the portal parent domain; oauth2-proxy whitelist_domains still
+            # covers the legacy SSO button path.
+            f"        return 302 https://{portal_esc}/login"
             "?rd=https://$host$request_uri;",
             "    }",
             "}",

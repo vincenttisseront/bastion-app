@@ -142,9 +142,34 @@ def test_resolve_target_legacy_and_subdomain(db_session: Session):
     # No portal_settings row → fallback on Settings.subdomain_sso_enabled
     mode, url, fqdn = _resolve_target(sub, settings_on, db_session)
     assert mode == "subdomain"
-    assert url == "https://transfer.example.fr/"
+    assert url == "https://transfer.example.fr/WebInterface/new-ui/index.html"
     assert fqdn == "transfer.example.fr"
     assert url != "/"
+
+
+def test_crushftp_resolve_target_ignores_login_html_form_url(db_session: Session):
+    """login_form_url often points at login.html — post-SSO must land on new-ui."""
+    settings_on = Settings(
+        vault_portal_internal_token="t",
+        portal_secret_encryption_key="k",
+        database_url="sqlite://",
+        subdomain_sso_enabled=True,
+    )
+    sub = App(
+        slug="transfer",
+        label="T",
+        upstream_url="http://10.0.0.1/",
+        access_mode="subdomain_proxy",
+        public_fqdn="transfer.example.fr",
+        robotic_driver="crushftp",
+        login_form_url="https://transfer.example.fr/WebInterface/login.html",
+        enabled=True,
+    )
+    mode, url, fqdn = _resolve_target(sub, settings_on, db_session)
+    assert mode == "subdomain"
+    assert url == "https://transfer.example.fr/WebInterface/new-ui/index.html"
+    assert "login.html" not in url
+    assert fqdn == "transfer.example.fr"
 
 
 @pytest.fixture(autouse=True)

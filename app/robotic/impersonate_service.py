@@ -139,6 +139,11 @@ def _credential_mode_for_source(source: CredentialSource | None) -> str | None:
     return None
 
 
+# CrushFTP browser UI after robotic SSO — never login.html (that path is the
+# unauthenticated form; login_form_url often points there for fingerprinting).
+_CRUSHFTP_UI_ENTRY = "/WebInterface/new-ui/index.html"
+
+
 def _resolve_target(
     app: App,
     settings: Settings,
@@ -151,11 +156,15 @@ def _resolve_target(
     mode = normalize_access_mode(app.access_mode)
     fqdn = (app.public_fqdn or "").strip() or None
     if get_subdomain_sso_enabled(db, settings) and mode == "subdomain_proxy" and fqdn:
-        return (
-            "subdomain",
-            public_app_entry_url(app, root_trailing_slash=True) or f"https://{fqdn}/",
-            fqdn,
-        )
+        driver = (getattr(app, "robotic_driver", None) or "").strip().lower()
+        if driver == "crushftp":
+            target = f"https://{fqdn}{_CRUSHFTP_UI_ENTRY}"
+        else:
+            target = (
+                public_app_entry_url(app, root_trailing_slash=True)
+                or f"https://{fqdn}/"
+            )
+        return ("subdomain", target, fqdn)
     return "legacy", f"/proxy/{app.slug}/", None
 
 
