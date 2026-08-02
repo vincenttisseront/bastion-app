@@ -163,28 +163,51 @@ def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
     """
     Base URL for CrushFTP robotic login/getUsername.
 
-    Robotic login runs **server-side** from bastion-app and cannot satisfy the
-    browser SSO ``auth_request`` on ``public_fqdn``. Prefer ``upstream_url``
-    (internal). ``public_host_binding_headers`` still forces Host=FQDN so the
-    CrushFTP session matches cookies hop-injected on the public hostname.
-    """
-    from app.portal_settings_service import get_subdomain_sso_enabled
+    Robotic login runs **server-side** and cannot pass browser SSO
+    ``auth_request`` on ``public_fqdn``. Prefer (in order):
 
-    mode = normalize_access_mode(app.access_mode)
-    fqdn = (app.public_fqdn or "").strip() or None
+    1. ``crushftp_admin_base_url`` — dedicated internal Admin/WebInterface URL
+    2. ``upstream_url`` when its host is **not** the public FQDN
+       (``upstream_url`` is often filled with the public SSO URL by mistake)
+
+    Never POST to ``public_fqdn`` (302 → ``/oauth2/.../start``).
+    """
+    from urllib.parse import urlparse
+
+    from app.bastion.drivers.crushftp import _admin_api_url
+
+    fqdn = (app.public_fqdn or "").strip().lower() or None
+
+    def _host(url: str) -> str:
+        return (urlparse(url).hostname or "").lower()
+
+    def _is_public_sso_url(url: str) -> bool:
+        host = _host(url)
+        if not host:
+            return False
+        if fqdn and host == fqdn:
+            return True
+        # Portal edge itself is never a valid CrushFTP login target.
+        portal = (getattr(settings, "portal_domain", None) or "").strip().lower()
+        if portal and host == portal:
+            return True
+        return False
+
+    admin = _admin_api_url(getattr(app, "crushftp_admin_base_url", None) or "")
+    if admin and not _is_public_sso_url(admin):
+        return admin
+
     upstream = (app.upstream_url or "").strip()
-    if (
-        get_subdomain_sso_enabled(db, settings)
-        and mode == "subdomain_proxy"
-        and fqdn
-        and upstream
-    ):
+    if upstream and not _is_public_sso_url(upstream):
         return upstream.rstrip("/") + "/"
-    if upstream:
-        return upstream.rstrip("/") + "/"
-    if fqdn:
-        return f"https://{fqdn}/"
-    return "/"
+
+    # No usable internal URL — fail loudly (do not silently hit public FQDN).
+    raise ValueError(
+        "CrushFTP : aucune URL interne pour le login robotique. "
+        "Renseignez « URL API Admin CrushFTP » (ex. https://172.24.0.106:8080/) "
+        "ou une upstream_url interne distincte du FQDN public "
+        f"({fqdn or 'public_fqdn'})."
+    )
 
 
 def _generic_form_login_url(app: App) -> str:
@@ -381,7 +404,21 @@ async def _impersonate_crushftp(
     # are returned to the user's browser for the live session.
     driver = CrushFTPDriver()
     session = None
-    login_base = _crushftp_login_base_url(app, settings, db)
+    try:
+        login_base = _crushftp_login_base_url(app, settings, db)
+    except ValueError as exc:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver="crushftp",
+            error="login_failed",
+            credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
+        )
+        raise ImpersonationError(str(exc)) from exc
     host_headers = public_host_binding_headers(app, login_base)
     tls_verify = resolve_upstream_tls_verify(app)
     try:

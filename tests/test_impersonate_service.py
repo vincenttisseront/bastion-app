@@ -277,3 +277,47 @@ async def test_crushftp_subdomain_login_uses_upstream_with_public_host(
     assert result.mode == "subdomain"
     assert result.target_url == "https://transfer.ar-systems.fr/"
     assert result.login_base_url == "https://172.24.0.106/"
+
+
+@pytest.mark.asyncio
+async def test_crushftp_subdomain_login_prefers_admin_api_when_upstream_is_public(
+    db_session: Session,
+):
+    app = App(
+        slug="transfer",
+        label="Transfer",
+        upstream_url="https://transfer.ar-systems.fr/",
+        public_fqdn="transfer.ar-systems.fr",
+        crushftp_admin_base_url="https://172.24.0.106:8080/",
+        robotic_driver="crushftp",
+        access_mode="subdomain_proxy",
+        enabled=True,
+    )
+    db_session.add(app)
+    db_session.commit()
+    settings = _settings(subdomain_sso_enabled=True, portal_domain="portal.ar-systems.fr")
+    set_app_credential(db_session, "transfer", "robot", SECRET_PASSWORD, settings)
+
+    fake_session = CrushFTPSession(
+        cookies={"CrushAuth": "ADMINBASE1234", "currentAuth": "1234"},
+        base_url="https://172.24.0.106:8080/",
+    )
+    login_mock = AsyncMock(return_value=fake_session)
+    with (
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.login",
+            new=login_mock,
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.get_username",
+            new=AsyncMock(return_value="robot"),
+        ),
+        patch(
+            "app.robotic.impersonate_service.CrushFTPDriver.logout",
+            new=AsyncMock(),
+        ),
+    ):
+        result = await impersonate(db_session, "transfer", settings, actor="user@test")
+
+    assert login_mock.await_args.args[0] == "https://172.24.0.106:8080/"
+    assert result.login_base_url == "https://172.24.0.106:8080/"

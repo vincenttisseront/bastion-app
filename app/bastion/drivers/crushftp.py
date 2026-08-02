@@ -154,8 +154,9 @@ class CrushFTPDriver(RoboticDriver):
             loc = response.headers.get("location") or ""
             raise RoboticLoginError(
                 "CrushFTP login redirected (HTTP "
-                f"{response.status_code}) — URL probablement SSO/publique, "
-                "utilisez l’URL Admin API CrushFTP (interne). "
+                f"{response.status_code}) — URL probablement SSO/publique "
+                f"(tentée: {base}). Utilisez l’URL API Admin CrushFTP interne "
+                f"(ex. https://172.x.x.x:8080/), pas le FQDN public. "
                 f"Location: {loc[:120] if loc else '—'}"
             )
 
