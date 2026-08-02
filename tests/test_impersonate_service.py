@@ -275,7 +275,9 @@ async def test_crushftp_subdomain_login_uses_upstream_with_public_host(
         "transfer.ar-systems.fr"
     )
     assert result.mode == "subdomain"
-    assert result.target_url == "https://transfer.ar-systems.fr/"
+    assert result.target_url == (
+        "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html"
+    )
     assert result.login_base_url == "https://172.24.0.106/"
 
 

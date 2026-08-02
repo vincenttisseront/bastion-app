@@ -210,22 +210,38 @@ def set_oidc_session_cookie(
     token: str,
     settings: Settings,
 ) -> None:
-    response.set_cookie(
-        key=settings.oidc_session_cookie_name,
-        value=token,
-        max_age=settings.oidc_session_max_age,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        path="/",
-    )
+    """
+    Emit ``bastion_session`` with ``Domain=<portal parent>`` when possible so
+    subdomain auth_request (transfer/webmail/…) receives the same cookie as the
+    portal — mirroring oauth2-proxy ``cookie_domains``.
+    """
+    from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
+
+    kwargs: dict = {
+        "key": settings.oidc_session_cookie_name,
+        "value": token,
+        "max_age": settings.oidc_session_max_age,
+        "httponly": True,
+        "secure": True,
+        "samesite": "lax",
+        "path": "/",
+    }
+    domain = portal_sso_cookie_domain(settings.portal_domain or "")
+    if domain:
+        kwargs["domain"] = domain
+    response.set_cookie(**kwargs)
 
 
 def clear_oidc_session_cookie(response: Response, settings: Settings) -> None:
-    response.delete_cookie(
-        key=settings.oidc_session_cookie_name,
-        path="/",
-    )
+    """Clear parent-domain cookie and any legacy host-only copy on the portal."""
+    from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
+
+    name = settings.oidc_session_cookie_name
+    domain = portal_sso_cookie_domain(settings.portal_domain or "")
+    if domain:
+        response.delete_cookie(key=name, path="/", domain=domain)
+    # Pre-cutover cookies were host-only on the portal FQDN.
+    response.delete_cookie(key=name, path="/")
 
 
 def validate_oidc_session_cookie(
@@ -316,13 +332,10 @@ def _auth_failure_response(
     raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE)
 
 
-def _safe_login_rd(rd: str | None) -> str:
-    value = (rd or "").strip() or "/apps"
-    if not value.startswith("/") or value.startswith("//"):
-        return "/apps"
-    if value in ("/dashboard", "/admin/dashboard"):
-        return "/apps"
-    return value
+def _safe_login_rd(rd: str | None, *, portal_domain: str = "") -> str:
+    from app.auth_flow import safe_post_login_rd
+
+    return safe_post_login_rd(rd, portal_domain=portal_domain, default="/apps")
 
 
 async def _resolve_session_groups(
@@ -505,7 +518,7 @@ async def oidc_login(
     client_ip = _client_ip(request)
     # Presence of ``rd`` marks a classic HTML form submit (vs JSON API clients).
     html_mode = rd is not None
-    safe_rd = _safe_login_rd(rd)
+    safe_rd = _safe_login_rd(rd, portal_domain=settings.portal_domain or "")
 
     if otp_step:
         # Recover username/realm from attempt for rate-limit + gate (no enumeration).

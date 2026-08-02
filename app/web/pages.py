@@ -459,7 +459,7 @@ def login_page(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    rd = resolve_rd(request)
+    rd = resolve_rd(request, portal_domain=settings.portal_domain or "")
     try:
         _record_sso_failure_from_request(request, db)
     except Exception:
@@ -497,6 +497,23 @@ def login_page(
                 return response
     if user:
         return RedirectResponse(url=rd, status_code=302)
+
+    # Native bastion_session: /login is public (no nginx auth_request headers).
+    # Validate the cookie, re-emit with Domain=parent (upgrades host-only cutover
+    # cookies), and honour absolute subdomain rd= without forcing Keycloak.
+    cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
+    raw_session = request.cookies.get(cookie_name)
+    if raw_session:
+        from app.oidc_bff import set_oidc_session_cookie, validate_oidc_session_cookie
+        from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+
+        claims = validate_oidc_session_cookie(raw_session, db=db, settings=settings)
+        if claims is not None and is_oidc_native_session_enabled_for_realm(
+            db, claims.realm, settings
+        ):
+            response = RedirectResponse(url=rd, status_code=302)
+            set_oidc_session_cookie(response, raw_session, settings)
+            return response
 
     surface = _login_surface_flags(request, db, settings, rd=rd)
     realm = get_default_idp_realm(db)
@@ -612,7 +629,7 @@ def setup_page(
 ):
     if get_default_idp_realm(db) or has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Setup is locked")
-    rd = resolve_rd(request)
+    rd = resolve_rd(request, portal_domain=settings.portal_domain or "")
     return render(
         "auth/setup.html",
         **_ctx(request, settings, hide_chrome=True, rd=rd),
@@ -719,7 +736,7 @@ def sso_failed(
         },
         ip_address=_client_ip(request) or None,
     )
-    rd = resolve_rd(request)
+    rd = resolve_rd(request, portal_domain=settings.portal_domain or "")
     surface = _login_surface_flags(request, db, settings, rd=rd)
     show_breakglass = surface["show_breakglass"]
     login_error = (

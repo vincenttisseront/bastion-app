@@ -297,3 +297,108 @@ def test_oauth2_auth_portal_still_ok_without_app_grant(client, db_session):
         headers={"Cookie": "_oauth2_proxy=valid"},
     )
     assert resp.status_code == 202
+
+
+OIDC_SECRET = "oidc-subdomain-hmac-key-32bytes-min!"
+COOKIE = "bastion_session"
+
+
+def _native_settings() -> Settings:
+    return Settings(
+        vault_portal_internal_token="test-secret",
+        breakglass_jwt_secret="test-bg-jwt-secret",
+        breakglass_jwt_secret_fallback_enabled=True,
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        portal_domain="portal.ar-systems.fr",
+        database_url="sqlite://",
+        oauth2_proxy_default_url="http://127.0.0.1:4180",
+        rfc1918_bypass_enabled=False,
+        oidc_session_jwt_secret=OIDC_SECRET,
+        oidc_session_cookie_name=COOKIE,
+        oidc_session_max_age=3600,
+        oidc_native_session_enabled_realms="ar-systems",
+    )
+
+
+@respx.mock
+def test_subdomain_auth_accepts_native_bastion_session(client, db_session):
+    """Native SSO: bastion_session must authorize subdomain apps (not Keycloak)."""
+    from app.oidc_bff import issue_oidc_session
+
+    settings = _native_settings()
+    _override_settings(client, settings)
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    app = _app(db_session)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+        email="alice@example.com",
+        groups=(),
+    )
+    db_session.commit()
+
+    oauth_route = respx.get(OIDC_URL).mock(return_value=Response(401))
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-URI": "/WebInterface/new-ui/index.html",
+            "X-Real-IP": "8.8.8.8",
+            "Cookie": f"{COOKIE}={token}",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "oidc-native"
+    assert resp.headers.get("x-auth-app") == "transfer"
+    assert not oauth_route.called
+
+
+@respx.mock
+def test_subdomain_auth_native_without_grant_returns_403(client, db_session):
+    from app.oidc_bff import issue_oidc_session
+
+    settings = _native_settings()
+    _override_settings(client, settings)
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    _app(db_session)
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+    )
+    db_session.commit()
+
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-URI": "/",
+            "X-Real-IP": "8.8.8.8",
+            "Cookie": f"{COOKIE}={token}",
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.headers.get("x-auth-error") == "access_denied_no_grant"

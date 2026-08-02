@@ -134,7 +134,7 @@ async def subdomain_auth(
         X-Original-Host — vhost FQDN (e.g. transfer.ar-systems.fr)
         X-Original-URI  — requested URI
         X-Real-IP         — client source IP
-        Cookie            — client cookies (oauth2-proxy / break-glass session)
+        Cookie            — client cookies (bastion_session / oauth2-proxy / break-glass)
 
     Decision flow:
         1. RFC1918 bypass (if RFC1918_BYPASS_ENABLED) -> 200 (LAN, no identity —
@@ -142,7 +142,8 @@ async def subdomain_auth(
            until the client-IP chain is proven; re-enable only for confirmed LAN
            need. IP via client_ip_from_request (trusted proxy only).
         2. App resolution       -> 401 if no app for this Host
-        3. Session              -> OIDC (oauth2-proxy) or break-glass cookie
+        3. Session              -> native bastion_session, then oauth2-proxy, then
+           break-glass cookie
         4. Authorization        -> AccessGrant launch+ via get_effective_apps_for_user
            Break-glass: full access to all apps (emergency admin; no grant required)
         5. Deny                 -> 403 (authenticated but not authorized)
@@ -173,10 +174,88 @@ async def subdomain_auth(
             ip_address=client_ip,
         )
 
-    # 3a. Prefer OIDC session (same preference as /internal/oauth2-auth).
+    # 3a. Prefer native bastion_session (same cutover as /internal/oauth2-auth),
+    # then oauth2-proxy. Native check needs the DB; release only before httpx.
     app_id = app.id
     app_slug = app.slug
     proxy_url = get_realm_proxy_url(app.realm_slug, settings, db)
+
+    from app.auth import _native_oidc_auth_response
+
+    native = _native_oidc_auth_response(request, settings, db)
+    if native is not None:
+        keycloak_user_id = _header(
+            native.headers,
+            "X-Auth-Request-User",
+            "X-Auth-User",
+        )
+        groups = parse_groups_header(
+            _header(native.headers, "X-Auth-Request-Groups", "X-Auth-Groups")
+        )
+        email = _header(native.headers, "X-Auth-Request-Email", "X-Auth-Email")
+        preferred = _header(
+            native.headers,
+            "X-Auth-Request-Preferred-Username",
+            "X-Auth-Preferred-Username",
+        )
+        actor = email or preferred or keycloak_user_id or "unknown"
+        auth_source = "oidc-native"
+
+        if not user_can_launch_application(
+            db,
+            application_id=app_id,
+            keycloak_user_id=keycloak_user_id or None,
+            group_names=groups,
+        ):
+            app = db.get(App, app_id)
+            if app is None:
+                return Response(
+                    status_code=401, headers={"X-Auth-Error": "no-app-for-host"}
+                )
+            return _deny_no_grant(
+                db,
+                actor=actor,
+                app=app,
+                ip_address=client_ip,
+                auth_source=auth_source,
+                uri=original_uri,
+                host=original_host,
+            )
+
+        try:
+            evaluate_sso_binding(
+                db,
+                request,
+                username=email or preferred or None,
+                keycloak_user_id=keycloak_user_id or None,
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        app_row = db.get(App, app_id)
+        if app_row is not None:
+            from app.web.sessions_service import touch_app_presence
+
+            touch_app_presence(
+                db,
+                email=email or preferred or keycloak_user_id or "",
+                username=preferred or email or None,
+                realm=app_row.realm_slug,
+                app=app_row,
+                source_ip=client_ip,
+                auth_source=auth_source,
+            )
+
+        return Response(
+            status_code=200,
+            headers={
+                "X-Auth-Source": auth_source,
+                "X-Auth-User": keycloak_user_id or preferred or email,
+                "X-Auth-App": app_slug,
+            },
+        )
+
     # auth_request is high-concurrency — never hold a pool slot across httpx.
     release_db_connection(db)
 
