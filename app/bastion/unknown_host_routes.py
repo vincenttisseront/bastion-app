@@ -54,7 +54,7 @@ _STUB_HTML = """\
     }}
     .brand-mark {{
       width: 2.25rem; height: 2.25rem; border-radius: 10px;
-      background: linear-gradient(145deg, var(--accent), var(--accent-dim));
+      background: var(--accent);
       display: flex; align-items: center; justify-content: center;
       box-shadow: var(--accent-glow, 0 0 20px rgba(16,185,129,.25));
     }}

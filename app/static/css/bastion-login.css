@@ -17,7 +17,7 @@ body.page-login,body.auth-layout{
 .login-header,.login-brand{text-align:center}
 .login-logo,.login-brand-icon{
   width:56px;height:56px;border-radius:var(--r-xl);
-  background:linear-gradient(135deg,var(--accent-dim),var(--accent));
+  background:var(--accent);
   display:flex;align-items:center;justify-content:center;
   margin:0 auto var(--sp-4);box-shadow:var(--accent-glow);
 }

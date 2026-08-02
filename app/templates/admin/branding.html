@@ -62,7 +62,7 @@
     <div class="form-section form-section-gap">
       <div class="form-section-header">
         <div class="form-section-title">Couleurs société</div>
-        <div class="form-section-sub">Trois couleurs pour boutons, dégradés et survols — adaptées à la charte</div>
+        <div class="form-section-sub">Chaque couleur s’applique en aplat sur ses éléments — jamais mélangées en dégradé</div>
       </div>
       <div class="form-body">
         <div class="form-group">
@@ -74,7 +74,7 @@
             <input type="text" id="accent_color" name="accent_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.accent_color }}">
           </div>
-          <p class="form-help">Boutons primaires, navigation active, liens d’action.</p>
+          <p class="form-help">Boutons primaires, navigation active, icônes marque — couleur unie uniquement.</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="secondary_color">Secondaire</label>
@@ -85,7 +85,7 @@
             <input type="text" id="secondary_color" name="secondary_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.secondary_color }}">
           </div>
-          <p class="form-help">Dégradés, surfaces teintées, marque / logo fond.</p>
+          <p class="form-help">Pastilles / surfaces secondaires dédiées — jamais mélangée à la principale.</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="highlight_color">Accent / survol</label>
@@ -96,13 +96,13 @@
             <input type="text" id="highlight_color" name="highlight_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.highlight_color }}">
           </div>
-          <p class="form-help">Hover, focus, emphase et textes mis en avant.</p>
+          <p class="form-help">État hover des boutons, focus, emphase et liens — aplat unique.</p>
         </div>
 
         <div class="brand-palette-preview" id="brand-palette-preview" aria-label="Aperçu palette">
           <div class="brand-preview-btn">Bouton</div>
           <div class="brand-preview-chip">Survol</div>
-          <div class="brand-preview-grad"></div>
+          <div class="brand-preview-secondary">Secondaire</div>
           <div class="brand-preview-link">Lien</div>
         </div>
 
@@ -201,16 +201,15 @@
 }
 .brand-preview-btn{
   padding:.55rem 1rem;border-radius:8px;font-size:.85rem;font-weight:600;
-  background:var(--accent);color:#042f1e;border:1px solid var(--accent);
+  background:var(--accent);color:#fff;border:1px solid var(--accent);
 }
 .brand-preview-chip{
   padding:.4rem .75rem;border-radius:8px;font-size:.8rem;font-weight:600;
-  color:var(--accent-h);background:var(--accent-muted);border:1px solid var(--accent-border);
+  background:var(--accent-h);color:#fff;border:1px solid var(--accent-h);
 }
-.brand-preview-grad{
-  width:4.5rem;height:1.75rem;border-radius:8px;
-  background:linear-gradient(135deg,var(--accent-dim),var(--accent));
-  border:1px solid var(--border);
+.brand-preview-secondary{
+  padding:.4rem .75rem;border-radius:8px;font-size:.8rem;font-weight:600;
+  background:var(--accent-dim);color:#111;border:1px solid var(--accent-dim);
 }
 .brand-preview-link{font-size:.9rem;font-weight:600;color:var(--text-link);}
 </style>
