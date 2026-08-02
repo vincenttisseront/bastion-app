@@ -225,6 +225,17 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
+    # Alias of /auth/login — must stay public. Bare /login otherwise matches
+    # location / (auth_request) and can bounce absolute subdomain rd= in a loop.
+    location = /login {
+        auth_request off;
+        limit_req zone=portal_login burst=10 nodelay;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://$bastion_app_upstream;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
     # Always delegate to FastAPI (SSO preferred over bg_session — see /internal/oauth2-auth).
     # auth_request uses /portal_auth_check (internal) → proxy_pass FastAPI path.
     # Public GETs to /internal/* must 404 like subdomain-auth (not fall through to / → 302 login).

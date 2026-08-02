@@ -148,7 +148,15 @@ async def subdomain_auth(
            Break-glass: full access to all apps (emergency admin; no grant required)
         5. Deny                 -> 403 (authenticated but not authorized)
     """
-    original_host = request.headers.get("X-Original-Host", "")
+    # Prefer X-Original-Host (auth_request snippet). Fall back like activesync-auth
+    # when a misconfigured edge omits it — Host alone is the vhost FQDN on
+    # bastion-nginx subdomain server blocks.
+    original_host = (
+        request.headers.get("X-Original-Host")
+        or request.headers.get("X-Forwarded-Host")
+        or request.headers.get("Host")
+        or ""
+    )
     original_uri = request.headers.get("X-Original-URI", "") or request.url.path
     client_ip = client_ip_from_request(request)
     cookie_header = request.headers.get("Cookie", "")
@@ -387,4 +395,19 @@ async def subdomain_auth(
 
     if oauth2_unreachable:
         return Response(status_code=503)
-    return Response(status_code=401)
+    # Unauthenticated — nginx error_page 401 → @portal_redirect → /auth/login.
+    # Distinct from 403 (authenticated, no AccessGrant).
+    from app.auth import extract_oidc_session_cookie_raw
+
+    had_native = bool(extract_oidc_session_cookie_raw(request, settings))
+    return Response(
+        status_code=401,
+        headers={
+            "X-Auth-Error": (
+                "native-session-rejected"
+                if had_native
+                else "no-session"
+            ),
+            "X-Auth-App": app_slug,
+        },
+    )

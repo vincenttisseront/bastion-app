@@ -402,3 +402,118 @@ def test_subdomain_auth_native_without_grant_returns_403(client, db_session):
     )
     assert resp.status_code == 403
     assert resp.headers.get("x-auth-error") == "access_denied_no_grant"
+
+
+@respx.mock
+def test_subdomain_auth_accepts_native_via_x_bastion_session_header(client, db_session):
+    """CrushFTP upstream Cookie filter must not starve auth_request of bastion_session."""
+    from app.oidc_bff import issue_oidc_session
+
+    settings = _native_settings()
+    _override_settings(client, settings)
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    app = _app(db_session)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+        groups=("ARSYSTEMS-Users",),
+    )
+    db_session.commit()
+
+    oauth_route = respx.get(OIDC_URL).mock(return_value=Response(401))
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-URI": "/WebInterface/new-ui/index.html",
+            "X-Real-IP": "8.8.8.8",
+            # Simulate auth_request with only CrushAuth in Cookie + explicit header.
+            "Cookie": "CrushAuth=abc; currentAuth=def",
+            "X-Bastion-Session-Cookie": token,
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "oidc-native"
+    assert not oauth_route.called
+
+
+@respx.mock
+def test_subdomain_auth_resolves_app_from_host_header_fallback(client, db_session):
+    from app.oidc_bff import issue_oidc_session
+
+    settings = _native_settings()
+    _override_settings(client, settings)
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    app = _app(db_session)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+    )
+    db_session.commit()
+
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            # No X-Original-Host — edge misconfig; Host is the vhost FQDN.
+            "Host": "transfer.ar-systems.fr",
+            "X-Original-URI": "/",
+            "X-Real-IP": "8.8.8.8",
+            "Cookie": f"{COOKIE}={token}",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-app") == "transfer"
+
+
+@respx.mock
+def test_subdomain_auth_unauthenticated_sets_no_session_error(client, db_session):
+    settings = _native_settings()
+    _override_settings(client, settings)
+    _realm(db_session)
+    _app(db_session)
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-URI": "/",
+            "X-Real-IP": "8.8.8.8",
+        },
+    )
+    assert resp.status_code == 401
+    assert resp.headers.get("x-auth-error") == "no-session"

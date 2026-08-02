@@ -121,6 +121,26 @@ def test_subdomain_auth_snippet_still_internal():
     text = path.read_text(encoding="utf-8")
     assert "location = /internal/subdomain-auth" in text
     assert "internal;" in text
+    assert "X-Bastion-Session-Cookie" in text
+    assert "$cookie_bastion_session" in text
+    docker = (ROOT / "docker/nginx/snippets/subdomain_auth_common.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "X-Bastion-Session-Cookie" in docker
+
+
+def test_login_alias_bypasses_portal_auth_request():
+    """Bare /login must not hit location / auth_request (subdomain rd= bounce loop)."""
+    for rel in (
+        "docker/nginx/templates/vhost_sso_portal.conf.template",
+        "nginx/vhosts/vhost_sso_portal.conf.j2",
+    ):
+        path = ROOT / rel
+        text = path.read_text(encoding="utf-8")
+        assert "location = /login" in text, f"{rel} missing location = /login"
+        idx = text.index("location = /login")
+        block = text[idx : idx + 400]
+        assert "auth_request off" in block, f"{rel} /login must disable auth_request"
 
 
 def test_docker_portal_no_duplicate_security_headers_at_server():
