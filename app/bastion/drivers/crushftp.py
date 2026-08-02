@@ -47,10 +47,24 @@ class CrushFTPSession:
     cookies: dict[str, str]
     base_url: str
     tls_verify: bool = False
+    # Host/Origin/Referer when login hits upstream IP but browser uses public_fqdn.
+    request_headers: dict[str, str] | None = None
 
 
 def _normalize_base_url(base_url: str) -> str:
     return base_url.rstrip("/") + "/"
+
+
+def _merge_request_headers(
+    base: dict[str, str] | None,
+    extra: dict[str, str] | None,
+) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if base:
+        out.update(base)
+    if extra:
+        out.update(extra)
+    return out
 
 
 def _login_reject_hint(text: str, status: int) -> str:
@@ -108,6 +122,7 @@ class CrushFTPDriver(RoboticDriver):
         password: str,
         *,
         tls_verify: bool = False,
+        extra_headers: dict[str, str] | None = None,
     ) -> CrushFTPSession:
         base = _normalize_base_url(base_url)
         url = urljoin(base, "WebInterface/function/")
@@ -120,13 +135,16 @@ class CrushFTPDriver(RoboticDriver):
             "encoded": "true",
             "language": "en",
         }
+        headers = _merge_request_headers(None, extra_headers)
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT,
                 follow_redirects=False,
                 verify=tls_verify,
             ) as client:
-                response = await client.post(url, data=data)
+                response = await client.post(
+                    url, data=data, headers=headers or None
+                )
         except httpx.TimeoutException as exc:
             raise RoboticLoginError("CrushFTP login timed out") from exc
         except httpx.RequestError as exc:
@@ -151,7 +169,12 @@ class CrushFTPDriver(RoboticDriver):
         if "CrushAuth" not in cookies:
             raise RoboticLoginError("CrushFTP login missing CrushAuth cookie")
 
-        return CrushFTPSession(cookies=cookies, base_url=base, tls_verify=tls_verify)
+        return CrushFTPSession(
+            cookies=cookies,
+            base_url=base,
+            tls_verify=tls_verify,
+            request_headers=dict(extra_headers) if extra_headers else None,
+        )
 
     async def get_username(self, session: CrushFTPSession) -> str:
         url = urljoin(session.base_url, "WebInterface/function/")
@@ -159,7 +182,10 @@ class CrushFTPDriver(RoboticDriver):
         if not c2f:
             raise RoboticLoginError("CrushFTP session missing auth token")
         data = {"command": "getUsername", "c2f": c2f}
-        headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())}
+        headers = _merge_request_headers(
+            {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())},
+            session.request_headers,
+        )
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT,
@@ -199,7 +225,10 @@ class CrushFTPDriver(RoboticDriver):
         data: dict[str, str] = {"command": "logout"}
         if c2f:
             data["c2f"] = c2f
-        headers = {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())}
+        headers = _merge_request_headers(
+            {"Cookie": "; ".join(f"{k}={v}" for k, v in session.cookies.items())},
+            session.request_headers,
+        )
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT,

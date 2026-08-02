@@ -38,10 +38,21 @@ async def verify_crushftp_session(details: dict[str, Any]) -> VerifyStatus:
     if not cookies.get("CrushAuth") or not base:
         return "unknown"
     tls_verify = bool(details.get("upstream_tls_verify", False))
+    verify_host = (details.get("verify_host") or "").strip()
+    request_headers = (
+        {
+            "Host": verify_host,
+            "Origin": f"https://{verify_host}",
+            "Referer": f"https://{verify_host}/",
+        }
+        if verify_host
+        else None
+    )
     session = CrushFTPSession(
         cookies=dict(cookies),
         base_url=base,
         tls_verify=tls_verify,
+        request_headers=request_headers,
     )
     driver = CrushFTPDriver()
     try:
