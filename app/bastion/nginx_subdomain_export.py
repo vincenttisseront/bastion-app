@@ -156,6 +156,12 @@ def _activesync_locations(
     ]
 
 
+def _is_crushftp_app(app: App) -> bool:
+    driver = (getattr(app, "robotic_driver", None) or "").strip().lower()
+    provision = (getattr(app, "provisioning_driver", None) or "").strip().lower()
+    return driver == "crushftp" or provision == "crushftp"
+
+
 def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     """One HTTP server{} for front nginx (TLS offloaded). Includes hop + auth_request."""
     fqdn = (app.public_fqdn or "").strip()
@@ -174,6 +180,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     portal_esc = _nginx_escape(portal)
     upstream_host_esc = _nginx_escape(upstream_host)
     allow_eas = bool(getattr(app, "allow_activesync", False))
+    crushftp = _is_crushftp_app(app)
     upstream_is_https = origin.lower().startswith("https://")
     tls_verify = resolve_upstream_tls_verify(app)
     ssl_lines: list[str] = []
@@ -182,6 +189,26 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "        proxy_ssl_server_name on;",
             nginx_proxy_ssl_verify_directive(tls_verify),
         ]
+        if crushftp:
+            # CrushFTP often negotiates poorly with default openssl defaults.
+            ssl_lines.insert(0, "        proxy_ssl_protocols TLSv1.2 TLSv1.3;")
+            ssl_lines.append("        proxy_ssl_session_reuse off;")
+
+    # CrushFTP: never forward bastion_session / oauth2 JWT (causes 502 / header too large).
+    # Keep only CrushAuth + currentAuth toward the backend.
+    if crushftp:
+        cookie_line = (
+            '        proxy_set_header Cookie '
+            '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth";'
+        )
+        # Robotic login + browser must share the same reverse IP or CrushFTP
+        # invalidates CrushAuth (dedicated transfer vhost contract).
+        real_ip_line = "        proxy_set_header X-Real-IP $server_addr;"
+        xff_line = "        proxy_set_header X-Forwarded-For $server_addr;"
+    else:
+        cookie_line = "        proxy_set_header Cookie $http_cookie;"
+        real_ip_line = "        proxy_set_header X-Real-IP $remote_addr;"
+        xff_line = "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
 
     lines = [
         f"# [{slug}] subdomain_proxy — {fqdn} (generated from App DB)",
@@ -215,6 +242,22 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "    }",
         "",
     ]
+    if crushftp:
+        # CrushFTP aborts TLS on directory URLs; force the explicit index file.
+        lines.extend(
+            [
+                "    location = /WebInterface/new-ui {",
+                "        return 302 /WebInterface/new-ui/index.html;",
+                "    }",
+                "    location = /WebInterface/new-ui/ {",
+                "        return 302 /WebInterface/new-ui/index.html;",
+                "    }",
+                "    location = / {",
+                "        return 302 /WebInterface/new-ui/index.html;",
+                "    }",
+                "",
+            ]
+        )
     if allow_eas:
         lines.extend(
             _activesync_locations(
@@ -237,15 +280,22 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             # Needed for ws/wss endpoints (e.g. Teleport terminal streaming).
             "        proxy_set_header Upgrade $http_upgrade;",
             "        proxy_set_header Connection $http_connection;",
+            "        proxy_connect_timeout 60s;",
             "        proxy_read_timeout 3600s;",
             "        proxy_send_timeout 3600s;",
             *ssl_lines,
             "        proxy_set_header Host $host;",
-            "        proxy_set_header X-Real-IP $remote_addr;",
-            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+            real_ip_line,
+            xff_line,
             "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+            cookie_line,
             "        proxy_cookie_path / /;",
             f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
+            *(
+                ["        proxy_hide_header WWW-Authenticate;"]
+                if crushftp
+                else []
+            ),
             "",
             "        auth_request_set $auth_user $upstream_http_x_auth_user;",
             "        auth_request_set $auth_app $upstream_http_x_auth_app;",
