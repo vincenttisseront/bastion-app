@@ -2,6 +2,9 @@
 # Snippet : auth subdomain commun
 # Inclus dans tous les vhosts subdomain SSO
 # CRITIQUE : auth_request off sur ce bloc interne (évite récursion — fe15325)
+# $bastion_auth_host / $bastion_auth_cookie / $bastion_session_ck must be set
+# at server{} rewrite time (see vhost templates / nginx_subdomain_export) so
+# CrushFTP location / Cookie rewrites cannot starve this auth subrequest.
 
 location = /internal/subdomain-auth {
     internal;
@@ -11,15 +14,14 @@ location = /internal/subdomain-auth {
     proxy_pass_request_body off;
     proxy_set_header Content-Length  "";
     proxy_set_header X-Original-URI  $request_uri;
-    proxy_set_header X-Original-Host $host;
+    proxy_set_header X-Original-Host $bastion_auth_host;
     proxy_set_header X-Real-IP       $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
     # Full jar for oauth2-proxy / break-glass; plus explicit native session so
-    # CrushFTP location / Cookie filtering (CrushAuth-only upstream) cannot be
-    # mistaken for auth_request losing bastion_session.
-    proxy_set_header Cookie          $http_cookie;
-    proxy_set_header X-Bastion-Session-Cookie $cookie_bastion_session;
+    # CrushFTP location / Cookie filtering cannot starve auth_request.
+    proxy_set_header Cookie          $bastion_auth_cookie;
+    proxy_set_header X-Bastion-Session-Cookie $bastion_session_ck;
 
     # Ne pas intercepter les erreurs du backend FastAPI
     proxy_intercept_errors off;

@@ -517,3 +517,114 @@ def test_subdomain_auth_unauthenticated_sets_no_session_error(client, db_session
     )
     assert resp.status_code == 401
     assert resp.headers.get("x-auth-error") == "no-session"
+
+
+@respx.mock
+def test_har_transfer_loop_crushauth_cookie_x_bastion_session_accepts(
+    client, db_session
+):
+    """
+    HAR 2026-08-02: transfer request has CrushAuth + bastion_session; auth_request
+    must accept via X-Bastion-Session-Cookie even when Cookie is CrushAuth-only
+    (CrushFTP upstream filter must not starve subdomain-auth).
+    """
+    from app.models import RBACGroup
+    from app.oidc_bff import issue_oidc_session
+
+    settings = _native_settings()
+    _override_settings(client, settings)
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    app = _app(db_session)
+    grp = RBACGroup(name="ARSYSTEMS-Users")
+    db_session.add(grp)
+    db_session.flush()
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=grp.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+        groups=("ARSYSTEMS-Users",),
+    )
+    db_session.commit()
+
+    oauth_route = respx.get(OIDC_URL).mock(return_value=Response(401))
+    # Simulate filtered auth_request Cookie (CrushAuth only) + explicit header.
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-URI": "/WebInterface/new-ui/index.html",
+            "X-Real-IP": "8.8.8.8",
+            "Cookie": "CrushAuth=abc123; currentAuth=def456",
+            "X-Bastion-Session-Cookie": token,
+        },
+    )
+    assert resp.status_code == 200, resp.headers
+    assert resp.headers.get("x-auth-source") == "oidc-native"
+    assert resp.headers.get("x-auth-app") == "transfer"
+    assert not oauth_route.called
+
+
+@respx.mock
+def test_har_garbled_starlette_cookie_falls_back_to_x_bastion_header(
+    client, db_session
+):
+    """Invalid candidate must not prevent a later valid bastion_session source."""
+    from app.oidc_bff import issue_oidc_session
+
+    settings = _native_settings()
+    _override_settings(client, settings)
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    app = _app(db_session)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+    )
+    db_session.commit()
+
+    respx.get(OIDC_URL).mock(return_value=Response(401))
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-URI": "/index.html",
+            "X-Real-IP": "8.8.8.8",
+            # Bad explicit header first in candidate order; Cookie still has the JWT.
+            "Cookie": f"bastion_session={token}; CrushAuth=abc",
+            "X-Bastion-Session-Cookie": "not-a-valid-jwt",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "oidc-native"

@@ -122,11 +122,14 @@ def test_subdomain_auth_snippet_still_internal():
     assert "location = /internal/subdomain-auth" in text
     assert "internal;" in text
     assert "X-Bastion-Session-Cookie" in text
-    assert "$cookie_bastion_session" in text
+    assert "$bastion_session_ck" in text
+    assert "$bastion_auth_cookie" in text
+    assert "$bastion_auth_host" in text
     docker = (ROOT / "docker/nginx/snippets/subdomain_auth_common.conf").read_text(
         encoding="utf-8"
     )
     assert "X-Bastion-Session-Cookie" in docker
+    assert "$bastion_session_ck" in docker
 
 
 def test_login_alias_bypasses_portal_auth_request():
