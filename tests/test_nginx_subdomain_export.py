@@ -80,7 +80,7 @@ def test_generate_server_block_includes_hop_not_internal():
     assert 'set $app_upstream "https://10.0.0.5";' in block
     assert "rewrite ^/(.*)$ /dolibarr/$1 break;" not in block
     assert "rd=https://$host$request_uri" in block
-    assert "/login?rd=https://" in block
+    assert "/auth/login?rd=https://" in block
     assert "/oauth2/" not in block.split("@portal_redirect")[1]
     assert "?rd=$request_uri;" not in block
     assert "proxy_set_header Cookie $http_cookie;" in block
@@ -128,7 +128,27 @@ def test_generate_server_block_strips_web_path():
     assert 'set $app_upstream "https://10.0.0.50/web"' not in block
     assert "rewrite " not in block
     assert "rd=https://$host$request_uri" in block
-    assert "/login?rd=https://" in block
+    assert "/auth/login?rd=https://" in block
+
+
+def test_generate_crushftp_auth_include_keeps_full_cookie_path():
+    """Upstream CrushAuth filter must not imply auth_request drops bastion_session."""
+    app = App(
+        slug="transfer",
+        label="Transfer",
+        upstream_url="https://172.24.0.106/",
+        access_mode="subdomain_proxy",
+        public_fqdn="transfer.ar-systems.fr",
+        realm_slug="ar-systems",
+        robotic_driver="crushftp",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert "include /etc/nginx/snippets/subdomain_auth_common.conf;" in block
+    assert "/auth/login?rd=https://" in block
+    # CrushFTP filter is only inside location / — not a server-level Cookie wipe.
+    before_main = block.split("location / {", 1)[0]
+    assert "CrushAuth=$cookie_CrushAuth" not in before_main
 
 
 def test_generate_conf_and_inventory(db_session, tmp_path):

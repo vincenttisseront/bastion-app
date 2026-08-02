@@ -304,12 +304,14 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "    }",
             "",
             f"    location @portal_redirect_{slug} {{",
-            # Native bastion_session cutover: send browsers to /login (BFF form /
-            # SSO button), not oauth2-proxy /oauth2/.../start → Keycloak.
+            # Native bastion_session cutover: send browsers to /auth/login
+            # (auth_request off on portal) — NOT bare /login which falls through
+            # location / → portal_auth_check → bounce-back loop when subdomain
+            # auth_request still returns 401.
             # Absolute rd= is accepted by safe_post_login_rd when the host shares
             # the portal parent domain; oauth2-proxy whitelist_domains still
             # covers the legacy SSO button path.
-            f"        return 302 https://{portal_esc}/login"
+            f"        return 302 https://{portal_esc}/auth/login"
             "?rd=https://$host$request_uri;",
             "    }",
             "}",

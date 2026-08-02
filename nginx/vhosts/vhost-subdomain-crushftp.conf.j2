@@ -83,7 +83,8 @@ server {
     }
 
     # ─── Redirection vers portail pour login ──────────────────────────────────
+    # /auth/login is auth_request off (unlike bare /login → location / bounce loop).
     location @portal_redirect_{{ vhost.slug }} {
-        return 302 https://{{ portal_domain }}/oauth2/{{ vhost.realm_slug | default(sso_portal_default_realm_slug) }}/start?rd=$scheme://$host$request_uri;
+        return 302 https://{{ portal_domain }}/auth/login?rd=$scheme://$host$request_uri;
     }
 }

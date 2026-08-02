@@ -219,6 +219,17 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
+    # Alias of /auth/login — must stay public. Bare /login otherwise matches
+    # location / (auth_request) and can bounce absolute subdomain rd= in a loop.
+    location = /login {
+        auth_request off;
+        limit_req zone=portal_login burst=10 nodelay;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
     # auth_request central : toujours FastAPI (/internal/oauth2-auth).
     # SSO session preferred over bg_session when both present (avoids /apps → /dashboard steal).
     # Public /internal/* must 404 (same as subdomain-auth), not fall through to / → 302 login.

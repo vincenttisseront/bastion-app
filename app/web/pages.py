@@ -495,25 +495,60 @@ def login_page(
                 )
                 response.delete_cookie(COOKIE_NAME, path="/")
                 return response
-    if user:
-        return RedirectResponse(url=rd, status_code=302)
+    # Absolute subdomain rd= (from @portal_redirect) must never bounce back when
+    # the browser only has nginx-injected portal identity without a session cookie
+    # that subdomain-auth can accept — that is the transfer↔login loop.
+    from urllib.parse import urlparse
 
-    # Native bastion_session: /login is public (no nginx auth_request headers).
-    # Validate the cookie, re-emit with Domain=parent (upgrades host-only cutover
-    # cookies), and honour absolute subdomain rd= without forcing Keycloak.
-    cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
-    raw_session = request.cookies.get(cookie_name)
+    from app.auth import extract_oidc_session_cookie_raw
+    from app.oidc_bff import set_oidc_session_cookie, validate_oidc_session_cookie
+    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+
+    raw_session = extract_oidc_session_cookie_raw(request, settings)
+    native_ok = False
     if raw_session:
-        from app.oidc_bff import set_oidc_session_cookie, validate_oidc_session_cookie
-        from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
-
         claims = validate_oidc_session_cookie(raw_session, db=db, settings=settings)
-        if claims is not None and is_oidc_native_session_enabled_for_realm(
-            db, claims.realm, settings
-        ):
-            response = RedirectResponse(url=rd, status_code=302)
+        native_ok = bool(
+            claims is not None
+            and is_oidc_native_session_enabled_for_realm(db, claims.realm, settings)
+        )
+
+    rd_host = (urlparse(rd).hostname or "").lower() if rd.startswith("https://") else ""
+    portal_host = (settings.portal_domain or "").strip().lower()
+    rd_is_absolute_subdomain = bool(rd_host and rd_host != portal_host)
+
+    def _has_subdomain_usable_session() -> bool:
+        if native_ok:
+            return True
+        if request.cookies.get(COOKIE_NAME):
+            return True
+        return any(
+            (name or "").startswith("_oauth2_proxy") or (name or "").startswith("_kc_")
+            for name in request.cookies
+        )
+
+    if user:
+        # Nginx-injected identity on /login (when /login still hits auth_request):
+        # only honour absolute subdomain rd when a cookie subdomain-auth can use
+        # is present; otherwise land on /apps to break the 401↔302 loop.
+        if rd_is_absolute_subdomain and not _has_subdomain_usable_session():
+            return RedirectResponse(url="/apps", status_code=302)
+        response = RedirectResponse(url=rd, status_code=302)
+        if native_ok and raw_session:
             set_oidc_session_cookie(response, raw_session, settings)
-            return response
+        return response
+
+    # Native bastion_session: /auth/login is public (auth_request off).
+    # Re-emit with Domain=parent (upgrades host-only cutover cookies) and honour
+    # absolute subdomain rd= without forcing Keycloak.
+    if native_ok and raw_session:
+        response = RedirectResponse(url=rd, status_code=302)
+        set_oidc_session_cookie(response, raw_session, settings)
+        return response
+
+    # Stale/invalid bastion_session + absolute rd would loop via @portal_redirect.
+    if rd_is_absolute_subdomain:
+        rd = "/apps"
 
     surface = _login_surface_flags(request, db, settings, rd=rd)
     realm = get_default_idp_realm(db)

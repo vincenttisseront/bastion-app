@@ -15,7 +15,11 @@ location = /internal/subdomain-auth {
     proxy_set_header X-Real-IP       $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
+    # Full jar for oauth2-proxy / break-glass; plus explicit native session so
+    # CrushFTP location / Cookie filtering (CrushAuth-only upstream) cannot be
+    # mistaken for auth_request losing bastion_session.
     proxy_set_header Cookie          $http_cookie;
+    proxy_set_header X-Bastion-Session-Cookie $cookie_bastion_session;
 
     # Ne pas intercepter les erreurs du backend FastAPI
     proxy_intercept_errors off;

@@ -78,6 +78,45 @@ def _rfc1918_response(request: Request, settings: Settings) -> Response | None:
     return None
 
 
+def _cookie_value_from_header(cookie_header: str, name: str) -> str | None:
+    """Parse ``name=value`` from a raw Cookie header (last match wins)."""
+    if not cookie_header or not name:
+        return None
+    prefix = f"{name}="
+    found: str | None = None
+    for part in cookie_header.split(";"):
+        piece = part.strip()
+        if piece.startswith(prefix):
+            found = piece[len(prefix) :].strip() or None
+    return found
+
+
+def extract_oidc_session_cookie_raw(
+    request: Request,
+    settings: Settings,
+) -> str | None:
+    """
+    Resolve native session JWT from the auth_request.
+
+    Prefer Starlette's cookie jar, then nginx ``X-Bastion-Session-Cookie``
+    (``$cookie_bastion_session`` — survives CrushFTP upstream Cookie rewrites
+    that must not affect the auth subrequest), then raw Cookie header parsing.
+    """
+    cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
+    raw = (request.cookies.get(cookie_name) or "").strip()
+    if raw:
+        return raw
+    # Nginx subdomain_auth_common forwards $cookie_bastion_session explicitly.
+    header_raw = (
+        request.headers.get("X-Bastion-Session-Cookie")
+        or request.headers.get("x-bastion-session-cookie")
+        or ""
+    ).strip()
+    if header_raw:
+        return header_raw
+    return _cookie_value_from_header(request.headers.get("Cookie") or "", cookie_name)
+
+
 def _native_oidc_auth_response(
     request: Request,
     settings: Settings,
@@ -89,8 +128,7 @@ def _native_oidc_auth_response(
     Returns a 200 Response with X-Auth-Request-* headers, or None to fall through
     to the oauth2-proxy path (cookie absent, invalid, revoked, or realm not enabled).
     """
-    cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
-    raw = request.cookies.get(cookie_name)
+    raw = extract_oidc_session_cookie_raw(request, settings)
     if not raw:
         return None
 
