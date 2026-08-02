@@ -83,6 +83,33 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "/login?rd=https://" in block
     assert "/oauth2/" not in block.split("@portal_redirect")[1]
     assert "?rd=$request_uri;" not in block
+    assert "proxy_set_header Cookie $http_cookie;" in block
+    assert "$cookie_CrushAuth" not in block
+
+
+def test_generate_crushftp_block_filters_portal_cookies():
+    """bastion_session Domain=parent must not be forwarded to CrushFTP (502)."""
+    app = App(
+        slug="transfer",
+        label="Transfer",
+        upstream_url="https://172.24.0.106/",
+        access_mode="subdomain_proxy",
+        public_fqdn="transfer.ar-systems.fr",
+        realm_slug="ar-systems",
+        robotic_driver="crushftp",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert "CrushAuth=$cookie_CrushAuth" in block
+    assert "currentAuth=$cookie_currentAuth" in block
+    assert "proxy_set_header X-Real-IP $server_addr;" in block
+    assert "proxy_set_header X-Forwarded-For $server_addr;" in block
+    assert "location = /WebInterface/new-ui/" in block
+    assert "return 302 /WebInterface/new-ui/index.html;" in block
+    assert "proxy_hide_header WWW-Authenticate;" in block
+    # Full browser cookie jar must not be proxied to CrushFTP.
+    main = block.split("location / {", 1)[1]
+    assert "proxy_set_header Cookie $http_cookie;" not in main
 
 
 def test_generate_server_block_strips_web_path():
