@@ -75,8 +75,15 @@ _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
 )
 
-# Parent location must capture Cookie before auth_request — $http_cookie is
-# often empty on the auth subrequest (HAR: ae=no-session).
+# Capture client Cookie before auth_request. Prefer server{} (rewrite phase on
+# the original request) so CrushFTP's upstream Cookie filter in location / cannot
+# leak into the auth subrequest (HAR ae=no-session:ck=72).
+_AUTH_COOKIE_CAPTURE_SERVER_LINES = (
+    "    # Client Cookie for auth_request (not CrushFTP upstream filter).",
+    "    set $bastion_pass_cookie $http_cookie;",
+    "    set $bastion_pass_session $cookie_bastion_session;",
+    "",
+)
 _AUTH_COOKIE_CAPTURE_LINES = (
     "        set $bastion_pass_cookie $http_cookie;",
     "        set $bastion_pass_session $cookie_bastion_session;",
@@ -214,18 +221,20 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             ssl_lines.append("        proxy_ssl_session_reuse off;")
 
     # CrushFTP: never forward bastion_session / oauth2 JWT (causes 502 / header too large).
-    # Keep only CrushAuth + currentAuth toward the backend.
+    # Keep only CrushAuth + currentAuth toward the backend — dedicated variable so
+    # auth_request cannot inherit this filtered Cookie (HAR ae=no-session:ck=72).
     if crushftp:
-        cookie_line = (
-            '        proxy_set_header Cookie '
-            '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth";'
-        )
+        cookie_lines = [
+            '        set $bastion_upstream_cookie '
+            '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth";',
+            "        proxy_set_header Cookie $bastion_upstream_cookie;",
+        ]
         # Robotic login + browser must share the same reverse IP or CrushFTP
         # invalidates CrushAuth (dedicated transfer vhost contract).
         real_ip_line = "        proxy_set_header X-Real-IP $server_addr;"
         xff_line = "        proxy_set_header X-Forwarded-For $server_addr;"
     else:
-        cookie_line = "        proxy_set_header Cookie $http_cookie;"
+        cookie_lines = ["        proxy_set_header Cookie $http_cookie;"]
         real_ip_line = "        proxy_set_header X-Real-IP $remote_addr;"
         xff_line = "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
 
@@ -247,6 +256,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         # can be on the subrequest (HAR: portal OK, Transfer 401 no-app).
         f'    set $bastion_vhost_fqdn "{fqdn_esc}";',
         "",
+        *_AUTH_COOKIE_CAPTURE_SERVER_LINES,
         "    include /etc/nginx/snippets/subdomain_auth_common.conf;",
         "",
         "    # Cookie hop — exact = beats any location ~ /\\. deny; never internal;",
@@ -316,7 +326,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             real_ip_line,
             xff_line,
             "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
-            cookie_line,
+            *cookie_lines,
             "        proxy_cookie_path / /;",
             f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
             *(
