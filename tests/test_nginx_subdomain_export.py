@@ -141,8 +141,13 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in block
     assert "proxy_redirect http://172.24.0.106/" in block
     assert "proxy_redirect https://172.24.0.106/" in block
-    assert "proxy_set_header X-Real-IP $server_addr;" in block
-    assert "proxy_set_header X-Forwarded-For $server_addr;" in block
+    # No forwarded-IP headers to CrushFTP: robotic login hits CrushFTP directly
+    # (TCP source = docker host) while the browser goes through this vhost
+    # ($server_addr = 127.0.0.1). Diverging X-Real-IP/XFF → CrushFTP session
+    # IP lock invalidates CrushAuth → 302 login.html + cookie wipe loop.
+    named_block = block.split("location @app_upstream_transfer {", 1)[1]
+    assert "proxy_set_header X-Real-IP" not in named_block
+    assert "proxy_set_header X-Forwarded-For" not in named_block
     assert "location = /WebInterface/new-ui/" in block
     assert "return 302 /WebInterface/new-ui/index.html;" in block
     assert "proxy_hide_header WWW-Authenticate;" in block
