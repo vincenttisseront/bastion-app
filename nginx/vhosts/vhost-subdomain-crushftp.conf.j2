@@ -60,8 +60,10 @@ server {
 
     # ─── Route principale — protégée par auth_request ─────────────────────────
     # REGLE : auth_request + error_page 401 uniquement ici (jamais au niveau server)
-    # Snippet uses $bastion_vhost_fqdn (literal) + $http_cookie.
+    # Capture Cookie in parent before auth_request ($http_cookie empty on subrequest).
     location / {
+        set $bastion_pass_cookie $http_cookie;
+        set $bastion_pass_session $cookie_bastion_session;
         auth_request /internal/subdomain-auth;
         auth_request_set $bastion_auth_err $upstream_http_x_auth_error;
 

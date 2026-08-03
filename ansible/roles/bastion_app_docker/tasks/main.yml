@@ -617,19 +617,19 @@
       exit 1
     fi
     echo "nginx ACME TLS sync OK"
-    echo "=== nginx subdomain auth snippet (Transfer — literal vhost Host) ==="
+    echo "=== nginx subdomain auth snippet (Transfer — literal Host + parent Cookie) ==="
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
-      'proxy_set_header Cookie          \$http_cookie;' \
+      'proxy_set_header Cookie          \$bastion_auth_cookie;' \
       /etc/nginx/snippets/subdomain_auth_common.conf; then
-      echo "OLD nginx snippet — expected Cookie \$http_cookie."
+      echo "OLD nginx snippet — expected Cookie \$bastion_auth_cookie (parent capture)."
       docker run --rm --entrypoint sed bastion-nginx:local -n '1,35p' \
         /etc/nginx/snippets/subdomain_auth_common.conf || true
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
-      'X-Bastion-Session-Cookie \$cookie_bastion_session' \
+      'X-Bastion-Session-Cookie \$bastion_auth_session' \
       /etc/nginx/snippets/subdomain_auth_common.conf; then
-      echo "OLD nginx snippet — expected X-Bastion-Session-Cookie \$cookie_bastion_session"
+      echo "OLD nginx snippet — expected X-Bastion-Session-Cookie \$bastion_auth_session"
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
@@ -642,6 +642,12 @@
       'map \$bastion_vhost_fqdn \$bastion_auth_host' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
       echo "OLD nginx map — expected map \$bastion_vhost_fqdn \$bastion_auth_host"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_pass_cookie \$bastion_auth_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — expected map \$bastion_pass_cookie \$bastion_auth_cookie"
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
@@ -889,11 +895,11 @@
     set -euo pipefail
     CONF_HOST="{{ sso_portal_exports_dir }}/nginx-subdomain-apps.conf"
     CONF_NGX="/etc/nginx/conf.d/nginx-subdomain-apps.conf"
-    echo "=== live snippet (literal vhost Host + Cookie) ==="
-    docker exec bastion-nginx grep -q 'proxy_set_header Cookie          \$http_cookie;' \
+    echo "=== live snippet (literal vhost Host + parent Cookie capture) ==="
+    docker exec bastion-nginx grep -q 'proxy_set_header Cookie          \$bastion_auth_cookie;' \
       /etc/nginx/snippets/subdomain_auth_common.conf \
-      || { echo "live snippet missing Cookie \$http_cookie — rebuild nginx image"; exit 1; }
-    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$cookie_bastion_session' \
+      || { echo "live snippet missing Cookie \$bastion_auth_cookie — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_auth_session' \
       /etc/nginx/snippets/subdomain_auth_common.conf \
       || { echo "live snippet missing X-Bastion-Session-Cookie — rebuild nginx image"; exit 1; }
     docker exec bastion-nginx grep -q 'X-Original-Host \$bastion_auth_host' \
@@ -902,6 +908,9 @@
     docker exec bastion-nginx grep -q 'map \$bastion_vhost_fqdn \$bastion_auth_host' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf \
       || { echo "live map missing \$bastion_auth_host — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_auth_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf \
+      || { echo "live map missing \$bastion_auth_cookie — rebuild nginx image"; exit 1; }
     echo "snippet OK"
     if [[ ! -f "$CONF_HOST" ]]; then
       echo "no host export yet — skip export contract"
@@ -920,8 +929,10 @@
       || { echo "export missing auth_request_set \$bastion_auth_err — rebuild bastion-app + re-apply"; exit 1; }
     grep -q 'set \$bastion_vhost_fqdn "' "$CONF_HOST" \
       || { echo "export missing set \$bastion_vhost_fqdn literal — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$CONF_HOST" \
+      || { echo "export missing parent Cookie capture — rebuild bastion-app + re-apply"; exit 1; }
     if grep -q 'set \$bastion_auth_cookie \$http_cookie;' "$CONF_HOST"; then
-      echo "export still has parent Cookie capture — rebuild bastion-app + re-apply (clears auth_request)"
+      echo "export still has legacy bastion_auth_cookie name — rebuild bastion-app + re-apply"
       exit 1
     fi
     echo "host export OK"
@@ -933,6 +944,8 @@
       || { echo "live nginx conf missing auth_err diag — sync-exports/reload failed"; exit 1; }
     docker exec bastion-nginx grep -q 'set \$bastion_vhost_fqdn "' "$CONF_NGX" \
       || { echo "live nginx conf missing \$bastion_vhost_fqdn literal — sync-exports/reload failed"; exit 1; }
+    docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$CONF_NGX" \
+      || { echo "live nginx conf missing parent Cookie capture — sync-exports/reload failed"; exit 1; }
     echo "subdomain auth Transfer contract OK"
   args:
     executable: /bin/bash

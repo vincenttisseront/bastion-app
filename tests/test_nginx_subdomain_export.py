@@ -89,13 +89,18 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "proxy_set_header Cookie $http_cookie;" in block
     assert "$cookie_CrushAuth" not in block
     main = block.split("location / {", 1)[1]
+    assert "set $bastion_pass_cookie $http_cookie;" in main
+    assert "set $bastion_pass_session $cookie_bastion_session;" in main
+    assert main.index("set $bastion_pass_cookie") < main.index(
+        "auth_request /internal/subdomain-auth"
+    )
     assert "set $bastion_auth_cookie $http_cookie;" not in main
     assert "auth_request_set $bastion_auth_err" in main
     assert main.index("auth_request /internal/subdomain-auth") < main.index(
         "auth_request_set $bastion_auth_err"
     )
     before_main = block.split("location / {", 1)[0]
-    assert "set $bastion_auth_cookie $http_cookie;" not in before_main
+    assert "set $bastion_pass_cookie $http_cookie;" not in before_main
     assert "proxy_intercept_errors off;" in main
 
 

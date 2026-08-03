@@ -442,13 +442,18 @@ async def subdomain_auth(
     from app.auth import extract_oidc_session_cookie_raw
 
     had_native = bool(extract_oidc_session_cookie_raw(request, settings))
+    cookie_len = len(request.headers.get("Cookie") or "")
+    had_x = bool(
+        (request.headers.get("X-Bastion-Session-Cookie") or "").strip()
+        or (request.headers.get("x-bastion-session-cookie") or "").strip()
+    )
     return Response(
         status_code=401,
         headers={
             "X-Auth-Error": (
                 "native-session-rejected"
                 if had_native
-                else "no-session"
+                else f"no-session:ck={cookie_len}:x={int(had_x)}"
             ),
             "X-Auth-App": app_slug,
         },

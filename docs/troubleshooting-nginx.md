@@ -105,7 +105,7 @@ Le rôle `nginx_reverse_proxy_dmz` avertit si `http://backend:80/` renvoie une r
 | Scénario | Cause | Correctif |
 |----------|-------|-----------|
 | Login en boucle | `redirect_uri` Keycloak ≠ callback réel ; **rd= non encodé** (`/proxy/…` dans l'URL) ; refresh concurrent `invalid_grant` | Sign-in via FastAPI `/auth/sso-start` ; cache + verrou auth_request ; vider cookies `_kc_portal_*` |
-| Transfer ↔ `/auth/login` (HAR 302→`/apps`) | `auth_request` envoie un Host Docker (pas le FQDN) → FastAPI `no-app-for-host` ; le cookie est valide (portail 200) | 1) Rebuild **nginx + bastion-app** (`--no-cache`) 2) Apply infra (export avec `set $bastion_vhost_fqdn "…"` + `ae=$bastion_auth_err`) 3) Vérifier : `grep bastion_auth_host` dans snippet + `grep bastion_vhost_fqdn` dans export 4) HAR : `ae=no-app-for-host:…` vs `no-session` |
+| Transfer ↔ `/auth/login` (`ae=no-session`) | `$http_cookie` vide sur la sous-requête `auth_request` → FastAPI sans cookie ; Host OK grâce à `$bastion_vhost_fqdn` | 1) Rebuild **nginx + bastion-app** 2) Apply (export avec `set $bastion_pass_cookie` avant `auth_request`) 3) `grep bastion_pass_cookie` dans export + `grep bastion_auth_cookie` dans snippet 4) HAR : plus de `ae=no-session` |
 | `/logout` boucle | 401 → sign_in | FastAPI détecte l'absence de session → `302 /` (plus d'`auth_request` sur `/logout`) |
 | Popup login/mdp navigateur sur tuile CrushFTP | 401 + `WWW-Authenticate: Basic` du backend | `proxy_hide_header WWW-Authenticate` sur le proxy transparent ; vérifier robotic SSO (cookie CrushAuth, ban IP) |
 | `/proxy/slug` boucle 401 | Session absente ou **oauth2_listen SQLite ≠ :4180 core** | Aligner realm ar-systems sur `OAUTH2_CORE_LISTEN` ; logs `PROXY-DEBUG` FastAPI |
