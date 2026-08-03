@@ -84,6 +84,7 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/static/portal-theme.js": "neutral public alias of bastion-theme.js",
     "/static/portal-busy.js": "neutral public alias of bastion-busy.js",
     "/static/portal-modal.js": "neutral public alias of bastion-modal.js",
+    "/static/portal-login.js": "neutral public alias of bastion-login.js",
 }
 
 # Mount prefixes treated as public static assets.

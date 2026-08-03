@@ -87,10 +87,10 @@ def test_get_login_shows_native_form_not_keycloak_redirect(
     assert response.status_code == 200
     assert 'action="/auth/login"' in response.text
     assert 'id="oidc-username"' in response.text
-    assert "Connexion SSO Keycloak" not in response.text
-    assert "Accès break-glass administrateur" in response.text
+    assert "Se connecter via SSO / Identifiant Unique" in response.text
+    assert "Connexion locale (Administration / Secours)" in response.text
     assert 'action="/auth/breakglass"' in response.text
-    assert "ou accès d'urgence" in response.text
+    assert 'data-initial-panel="sso"' in response.text
 
 
 def test_get_login_hides_breakglass_on_public_ip(

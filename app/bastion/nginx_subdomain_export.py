@@ -68,6 +68,17 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
     }
 
 
+# Capture client Cookie/Host in the *parent* location rewrite phase (before
+# auth_request). Do NOT set these at server{} level: auth_request subrequests
+# re-run server rewrite and would overwrite $bastion_auth_* with empty
+# $http_cookie/$host — HAR transfer↔login loop (portal 302, transfer 401).
+_AUTH_CAPTURE_LINES = (
+    "        set $bastion_auth_host $host;",
+    "        set $bastion_auth_cookie $http_cookie;",
+    "        set $bastion_session_ck $cookie_bastion_session;",
+)
+
+
 def _activesync_locations(
     slug: str,
     upstream_host_esc: str,
@@ -91,6 +102,7 @@ def _activesync_locations(
         "    # Mobile ActiveSync / Autodiscover (allow_activesync=true)",
         "    # Ping heartbeat needs read timeout >> default 60s (iOS often 900–1800s).",
         "    location ~* ^/Microsoft-Server-ActiveSync {",
+        *_AUTH_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
         f"        error_page 401 = @activesync_unauthorized_{slug};",
         "",
@@ -121,6 +133,7 @@ def _activesync_locations(
         "    }",
         "",
         "    location ~* ^/(AutoDiscover|autodiscover)/ {",
+        *_AUTH_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
         f"        error_page 401 = @activesync_unauthorized_{slug};",
         "",
@@ -224,11 +237,6 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "",
         "    set $bastion_app_upstream bastion-app:8000;",
         f'    set $app_upstream "{origin_esc}";',
-        # Capture client Cookie/Host before location / CrushFTP Cookie rewrite
-        # so auth_request (subdomain_auth_common) always sees bastion_session.
-        "    set $bastion_auth_host $host;",
-        "    set $bastion_auth_cookie $http_cookie;",
-        "    set $bastion_session_ck $cookie_bastion_session;",
         "",
         "    include /etc/nginx/snippets/subdomain_auth_common.conf;",
         "",
@@ -276,6 +284,9 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     lines.extend(
         [
             "    location / {",
+            # Parent-location capture (see _AUTH_CAPTURE_LINES) — required for
+            # auth_request to see bastion_session / public Host.
+            *_AUTH_CAPTURE_LINES,
             "        auth_request /internal/subdomain-auth;",
             f"        error_page 401 = @portal_redirect_{slug};",
             # Do not map CrushFTP/upstream 401 through @portal_redirect.

@@ -104,4 +104,7 @@ def test_portal_static_aliases(client: TestClient):
     assert b"@import url('./" not in css.content
     js = client.get("/static/portal-theme.js")
     assert js.status_code == 200
+    login_js = client.get("/static/portal-login.js")
+    assert login_js.status_code == 200
+    assert b"data-login-show" in login_js.content or b"login-panel" in login_js.content
     assert client.get("/static/css/bastion-tokens.css").status_code == 200
