@@ -237,10 +237,15 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth";',
             "        proxy_set_header Cookie $bastion_upstream_cookie;",
         ]
-        # Robotic login + browser must share the same reverse IP or CrushFTP
-        # invalidates CrushAuth (dedicated transfer vhost contract).
-        real_ip_line = "        proxy_set_header X-Real-IP $server_addr;"
-        xff_line = "        proxy_set_header X-Forwarded-For $server_addr;"
+        # Robotic login + browser must present the SAME IP to CrushFTP or it
+        # invalidates CrushAuth (session IP lock). The robotic login reaches
+        # CrushFTP directly (TCP source = docker host NAT), while browser
+        # traffic is proxied by this vhost where $server_addr is 127.0.0.1
+        # (internal :8080 listener). Sending X-Real-IP/X-Forwarded-For here
+        # makes CrushFTP see two different IPs for the same CrushAuth →
+        # 302 login.html + cookie wipe loop. Send NO forwarded-IP headers:
+        # CrushFTP then uses the TCP source IP, identical for both paths.
+        forwarded_ip_lines: list[str] = []
         # CrushFTP often emits Absolute Location: http(s)://<upstream-ip>/...
         # With proxy_redirect off the browser leaves the SSO vhost (IP login).
         upstream_host_re = re.escape(upstream_host)
@@ -254,8 +259,10 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         ]
     else:
         cookie_lines = ["        proxy_set_header Cookie $http_cookie;"]
-        real_ip_line = "        proxy_set_header X-Real-IP $remote_addr;"
-        xff_line = "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
+        forwarded_ip_lines = [
+            "        proxy_set_header X-Real-IP $remote_addr;",
+            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+        ]
         redirect_lines = ["        proxy_redirect off;"]
 
     named_upstream = f"@app_upstream_{slug}"
@@ -279,8 +286,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_send_timeout 3600s;",
         *ssl_lines,
         "        proxy_set_header Host $host;",
-        real_ip_line,
-        xff_line,
+        *forwarded_ip_lines,
         "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
         *cookie_lines,
         "        proxy_cookie_path / /;",
