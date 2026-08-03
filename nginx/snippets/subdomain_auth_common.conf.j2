@@ -4,10 +4,12 @@
 # CRITIQUE : auth_request off sur ce bloc interne (évite récursion — fe15325)
 #
 # Host: $bastion_vhost_fqdn (literal set in server{}).
-# Cookie: parent/server MUST set $bastion_pass_cookie / $bastion_pass_session
-# before auth_request — $http_cookie is often empty on the auth subrequest.
+# Cookie: parent location / MUST set $bastion_pass_cookie / $bastion_pass_session
+# and rebuild $bastion_auth_cookie BEFORE auth_request — never re-set at server{}
+# (auth rewrite wipe → HAR ae=no-session:ck=72:x=0).
+# Use $bastion_pass_* / $bastion_auth_cookie DIRECTLY — no $http_cookie fallback.
 # proxy_pass_request_headers off: prevents CrushFTP upstream Cookie filter
-# inheritance into auth (HAR ae=no-session:ck=72).
+# inheritance into auth.
 
 location = /internal/subdomain-auth {
     internal;
@@ -23,7 +25,7 @@ location = /internal/subdomain-auth {
     proxy_set_header X-Real-IP       $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
-    proxy_set_header Cookie          $bastion_pass_cookie;
+    proxy_set_header Cookie          $bastion_auth_cookie;
     proxy_set_header X-Bastion-Session-Cookie $bastion_pass_session;
 
     # Ne pas intercepter les erreurs du backend FastAPI
@@ -44,7 +46,7 @@ location = /internal/activesync-auth {
     proxy_set_header X-Real-IP       $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
-    proxy_set_header Cookie          $bastion_pass_cookie;
+    proxy_set_header Cookie          $bastion_auth_cookie;
     proxy_set_header X-Bastion-Session-Cookie $bastion_pass_session;
     proxy_set_header Authorization   $http_authorization;
     proxy_set_header User-Agent      $http_user_agent;

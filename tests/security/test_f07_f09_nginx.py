@@ -123,7 +123,7 @@ def test_subdomain_auth_snippet_still_internal():
     assert "internal;" in text
     assert "X-Bastion-Session-Cookie" in text
     assert "$bastion_pass_session" in text
-    assert "$bastion_pass_cookie" in text
+    assert "$bastion_auth_cookie" in text
     assert "proxy_pass_request_headers off;" in text
     assert "proxy_set_header Host            $bastion_vhost_fqdn;" in text
     docker = (ROOT / "docker/nginx/snippets/subdomain_auth_common.conf").read_text(
@@ -131,11 +131,14 @@ def test_subdomain_auth_snippet_still_internal():
     )
     assert "X-Bastion-Session-Cookie" in docker
     assert "X-Bastion-Session-From-Jar" in docker
-    assert "X-Bastion-Session-Cookie $bastion_auth_session" in docker
+    # Session headers from parent capture DIRECTLY — not map fallbacks to $http_cookie.
+    assert "X-Bastion-Session-Cookie $bastion_pass_session" in docker
+    assert "X-Bastion-Session-From-Jar $bastion_session_from_jar" in docker
     assert "proxy_set_header Cookie          $bastion_auth_cookie;" in docker
     assert "proxy_pass_request_headers off;" in docker
     assert "proxy_set_header Host            $bastion_auth_host;" in docker
     assert "$bastion_x_session" not in docker
+    assert "$bastion_auth_session" not in docker
     nginx_conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "auth_err=$bastion_auth_err" in nginx_conf
     assert "nginx-subdomain-auth.map.conf" in nginx_conf
@@ -144,16 +147,21 @@ def test_subdomain_auth_snippet_still_internal():
     )
     assert "$bastion_auth_host" in auth_map
     assert "$bastion_vhost_fqdn" in auth_map
-    assert "$bastion_auth_cookie" in auth_map
-    assert "$bastion_pass_cookie" in auth_map
     assert "$bastion_session_from_jar" in auth_map
-    assert "$bastion_session_from_pass" in auth_map
-    assert "$bastion_session_from_http" in auth_map
+    assert "$bastion_pass_cookie" in auth_map
+    # No map that falls back auth Cookie/session to filtered $http_cookie.
+    assert "map $bastion_pass_cookie $bastion_auth_cookie" not in auth_map
+    assert "map $bastion_pass_session $bastion_auth_session" not in auth_map
+    assert "map $http_cookie" not in auth_map
+    assert '""      $http_cookie;' not in auth_map
+    assert '""      $cookie_bastion_session;' not in auth_map
+    assert "$bastion_session_from_http" not in auth_map
+    assert "$bastion_session_from_pass" not in auth_map
     activesync = (
         ROOT / "docker/nginx/snippets/activesync_auth_common.conf"
     ).read_text(encoding="utf-8")
     assert "proxy_pass_request_headers off;" in activesync
-    assert "X-Bastion-Session-Cookie $bastion_auth_session" in activesync
+    assert "X-Bastion-Session-Cookie $bastion_pass_session" in activesync
     assert "X-Bastion-Session-From-Jar $bastion_session_from_jar" in activesync
     assert "proxy_set_header Cookie          $bastion_auth_cookie;" in activesync
 
