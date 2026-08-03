@@ -89,24 +89,24 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "proxy_set_header Cookie $http_cookie;" in block
     assert "$cookie_CrushAuth" not in block
     main = block.split("location / {", 1)[1]
-    # Snapshot + return 418 → auth gate (no if{}, no map cycle).
+    # Snapshot + auth in same location / (no 418 gate / if{} / map cycle).
     assert "set $bastion_pass_session $cookie_bastion_session;" in main
     assert "set $bastion_pass_cookie $http_cookie;" in main
-    assert "return 418;" in main
-    assert "error_page 418 = @bastion_auth_gate_doli;" in main
-    assert "location @bastion_auth_gate_doli {" in block
+    assert "return 418;" not in main
+    assert "bastion_auth_gate_" not in block
     assert 'if ($bastion_fresh_session != "") {' not in main
     assert "set $bastion_pass_session $bastion_pick_session;" not in main
     assert (
         'set $bastion_auth_cookie '
         '"bastion_session=$bastion_pass_session; $bastion_pass_cookie";'
     ) in main
-    assert main.index("set $bastion_auth_cookie") < main.index("return 418;")
+    assert main.index("set $bastion_auth_cookie") < main.index(
+        "auth_request /internal/subdomain-auth"
+    )
     assert "set $bastion_auth_cookie $http_cookie;" not in main
-    gate = block.split("location @bastion_auth_gate_doli {", 1)[1]
-    assert "auth_request /internal/subdomain-auth;" in gate
-    assert "auth_request_set $bastion_auth_err" in gate
-    assert gate.index("auth_request /internal/subdomain-auth") < gate.index(
+    assert "auth_request /internal/subdomain-auth;" in main
+    assert "auth_request_set $bastion_auth_err" in main
+    assert main.index("auth_request /internal/subdomain-auth") < main.index(
         "auth_request_set $bastion_auth_err"
     )
     # Location-/ capture only — server{} re-set wipes on auth subrequest (ck=72).
@@ -114,7 +114,7 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "set $bastion_pass_cookie $http_cookie;" not in before_main
     assert "set $bastion_pass_session $cookie_bastion_session;" not in before_main
     assert "set $bastion_auth_cookie" not in before_main
-    assert "proxy_intercept_errors off;" in gate
+    assert "proxy_intercept_errors off;" in main
 
 
 def test_generate_crushftp_block_filters_portal_cookies():
@@ -147,17 +147,13 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "return 302 /WebInterface/new-ui/index.html;" in block
     assert "proxy_hide_header WWW-Authenticate;" in block
     # Auth gate must NOT contain CrushFTP Cookie filter (inherits into auth_request).
-    main = block.split("location / {", 1)[1].split("location @bastion_auth_gate_transfer", 1)[0]
+    main = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
     assert "CrushAuth=$cookie_CrushAuth" not in main
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" not in main
-    assert "return 418;" in main
-    assert "error_page 418 = @bastion_auth_gate_transfer;" in main
-    assert "auth_request /internal/subdomain-auth;" not in main
-    gate = block.split("location @bastion_auth_gate_transfer {", 1)[1].split(
-        "location @app_upstream_transfer", 1
-    )[0]
-    assert "auth_request /internal/subdomain-auth;" in gate
-    assert "try_files /nonexistent @app_upstream_transfer;" in gate
+    assert "return 418;" not in main
+    assert "bastion_auth_gate_" not in block
+    assert "auth_request /internal/subdomain-auth;" in main
+    assert "try_files /nonexistent @app_upstream_transfer;" in main
     # Filter lives only in the named upstream location (after auth).
     named = block.split("location @app_upstream_transfer {", 1)[1]
     assert "set $bastion_upstream_cookie" in named
@@ -168,7 +164,7 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "set $bastion_pass_cookie $http_cookie;" not in before_main
     assert "set $bastion_auth_cookie" not in before_main
     assert "CrushAuth=$cookie_CrushAuth" not in before_main
-    main_gate = block.split("location / {", 1)[1].split("location @bastion_auth_gate_transfer", 1)[0]
+    main_gate = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
     assert "set $bastion_pass_session $cookie_bastion_session;" in main_gate
     assert "set $bastion_pass_cookie $http_cookie;" in main_gate
     assert "set $bastion_pass_session $bastion_pick_session;" not in main_gate
@@ -222,10 +218,11 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     # No server{} Cookie capture — that rewrite re-runs on auth and wipes (ck=72).
     assert "set $bastion_pass_cookie $http_cookie;" not in before_main
     assert "set $bastion_auth_cookie" not in before_main
-    main = block.split("location / {", 1)[1].split("location @bastion_auth_gate_transfer", 1)[0]
+    main = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
     assert "set $bastion_pass_session $cookie_bastion_session;" in main
     assert "set $bastion_pass_cookie $http_cookie;" in main
-    assert "return 418;" in main
+    assert "return 418;" not in main
+    assert "bastion_auth_gate_" not in block
     assert "set $bastion_pass_session $bastion_pick_session;" not in main
     assert 'if ($bastion_fresh_session != "") {' not in main
     assert (
@@ -234,11 +231,10 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     ) in main
     assert "set $bastion_auth_cookie $http_cookie;" not in main
     assert "set $bastion_upstream_cookie" not in main
-    gate = block.split("location @bastion_auth_gate_transfer {", 1)[1]
-    assert "auth_request_set $bastion_auth_err" in gate
-    assert "auth_request_set $auth_user" in gate
-    assert "proxy_intercept_errors off;" in gate
-    assert "try_files /nonexistent @app_upstream_transfer;" in gate
+    assert "auth_request_set $bastion_auth_err" in main
+    assert "auth_request_set $auth_user" in main
+    assert "proxy_intercept_errors off;" in main
+    assert "try_files /nonexistent @app_upstream_transfer;" in main
     named = block.split("location @app_upstream_transfer {", 1)[1]
     assert "set $bastion_upstream_cookie" in named
     assert "proxy_set_header X-Auth-User $auth_user;" in named

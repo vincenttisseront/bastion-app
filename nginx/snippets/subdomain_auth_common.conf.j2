@@ -4,10 +4,10 @@
 # CRITIQUE : auth_request off sur ce bloc interne (évite récursion — fe15325)
 #
 # Host: $bastion_vhost_fqdn (literal set in server{}).
-# Cookie: parent location / snapshots $bastion_pass_* then return 418 →
-# @bastion_auth_gate_* (never if{} / never map pick←pass cycle → 404/500).
-# Rebuild $bastion_auth_cookie BEFORE the gate — never re-set at server{}
-# (HAR ae=no-session:ck=72/90 then 404 then 500).
+# Cookie: parent location / snapshots $bastion_pass_* from $cookie_bastion_session
+# / $http_cookie then auth_request in the SAME location (never return 418 → gate —
+# nested error_page breaks @portal_redirect → bare nginx 401 HTML).
+# Never if{} / map pick←pass (404 / 500). Never re-set at server{} (ck=72 wipe).
 # Use $bastion_pass_* / $bastion_auth_cookie DIRECTLY — no $http_cookie fallback.
 # proxy_pass_request_headers off: prevents CrushFTP upstream Cookie filter
 # inheritance into auth.
