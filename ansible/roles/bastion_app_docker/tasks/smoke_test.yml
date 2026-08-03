@@ -298,10 +298,10 @@
   register: _auth_image_smoke
   changed_when: false
 
-- name: "SMOKE : nginx subdomain auth snippet rebuilds Cookie + session headers"
+- name: "SMOKE : nginx subdomain auth snippet uses auth Cookie + session headers"
   ansible.builtin.shell: |
     set -euo pipefail
-    docker exec bastion-nginx grep -q 'bastion_session=\$cookie_bastion_session' \
+    docker exec bastion-nginx grep -q 'proxy_set_header Cookie          \$bastion_auth_cookie;' \
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'proxy_pass_request_headers off;' \
       /etc/nginx/snippets/subdomain_auth_common.conf
@@ -337,7 +337,11 @@
     docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$conf"
     if docker exec bastion-nginx grep -q 'CrushAuth=\$cookie_CrushAuth' "$conf"; then
       docker exec bastion-nginx grep -q 'try_files /nonexistent @app_upstream_' "$conf"
-      docker exec bastion-nginx grep -q 'bastion_session=\$cookie_bastion_session' "$conf"
+      if docker exec bastion-nginx grep -q 'bastion_session=\$cookie_bastion_session' "$conf"; then
+        echo "CrushFTP must not forward bastion_session upstream"
+        exit 1
+      fi
+      docker exec bastion-nginx grep -q 'proxy_redirect http://' "$conf"
     fi
     echo "subdomain export bastion_sub + vhost fqdn + Cookie capture OK"
   args:
