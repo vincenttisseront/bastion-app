@@ -342,10 +342,14 @@
     docker exec bastion-nginx grep -q 'set \$bastion_vhost_fqdn "' "$conf"
     docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$cookie_bastion_session;' "$conf"
     docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$conf"
-    docker exec bastion-nginx grep -q 'error_page 418 = @bastion_auth_gate_' "$conf"
+    docker exec bastion-nginx grep -q 'auth_request /internal/subdomain-auth' "$conf"
     docker exec bastion-nginx grep -q \
       'set \$bastion_auth_cookie "bastion_session=\$bastion_pass_session; \$bastion_pass_cookie";' \
       "$conf"
+    if docker exec bastion-nginx grep -q 'error_page 418 = @bastion_auth_gate_' "$conf"; then
+      echo "418 auth gate still present (nested error_page → bare 401)"
+      exit 1
+    fi
     if docker exec bastion-nginx grep -q 'if (\$bastion_fresh_session' "$conf"; then
       echo "sticky if{} still present (ifisevil → 404 new-ui)"
       exit 1

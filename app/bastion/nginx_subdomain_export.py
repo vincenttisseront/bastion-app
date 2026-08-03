@@ -75,18 +75,20 @@ _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
 )
 
-# Capture client Cookie in location / BEFORE handing off to @bastion_auth_gate_*.
+# Capture client Cookie in location / BEFORE auth_request.
 # Do NOT also set these at server{} — server rewrite re-runs on auth and wipes.
 #
 # HAR stack 2026-08-03:
-# - ck=90: unconditional set re-ran during auth with CrushAuth-only $http_cookie
-# - 404: sticky if{} in location / skipped try_files (if is evil)
-# - 500: map $pick ← $pass + set $pass ← $pick (circular variable → nginx 500)
+# - ck=90: sticky if{} / map pick←pass (404 / 500)
+# - 500: map $pick ← $pass + set $pass ← $pick (circular → nginx 500)
+# - 401 bare nginx HTML after #38: return 418 → @gate then auth 401 — nested
+#   error_page does not run @portal_redirect (client sees 401 Authorization Required)
 #
-# Fix: snapshot from $cookie_* / $http_cookie once, return 418 → named gate that
-# runs auth_request + try_files/proxy. No if{}, no self-referential maps.
+# Fix: snapshot from $cookie_bastion_session (stable client cookie module) +
+# $http_cookie jar; auth_request + error_page 401 + try_files/proxy stay in the
+# SAME location / (no 418 handoff). No if{}, no self-referential maps.
 _AUTH_COOKIE_CAPTURE_LINES = (
-    "        # Snapshot once — gate does auth+proxy (no if{} / no map cycle).",
+    "        # Snapshot from cookie module — no if{} / map cycle / 418 gate.",
     "        set $bastion_pass_session $cookie_bastion_session;",
     "        set $bastion_pass_cookie $http_cookie;",
     '        set $bastion_auth_cookie '
@@ -354,16 +356,10 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             )
         )
     if crushftp:
-        # Capture in location / then 418 → gate (auth) → @app_upstream (Cookie filter).
-        # Keeps filtered Cookie out of the auth_request location (ck=72 / x=0).
+        # Auth gate only — CrushFTP Cookie filter is in the named location below.
         location_slash = [
             "    location / {",
-            f"        error_page 418 = @bastion_auth_gate_{slug};",
             *_AUTH_COOKIE_CAPTURE_LINES,
-            "        return 418;",
-            "    }",
-            "",
-            f"    location @bastion_auth_gate_{slug} {{",
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
             *auth_request_set_user_lines,
@@ -383,14 +379,10 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     else:
         location_slash = [
             "    location / {",
-            # Snapshot Cookie here, then 418 → gate — avoids auth rewrite wipe
-            # (HAR ae=no-session) and keeps capture out of the proxy location.
-            f"        error_page 418 = @bastion_auth_gate_{slug};",
+            # Capture Cookie here (parent) — auth + proxy in same location.
+            # Do NOT use return 418 → named gate: nested error_page breaks
+            # @portal_redirect (HAR bare nginx 401 HTML).
             *_AUTH_COOKIE_CAPTURE_LINES,
-            "        return 418;",
-            "    }",
-            "",
-            f"    location @bastion_auth_gate_{slug} {{",
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
             *auth_request_set_user_lines,
