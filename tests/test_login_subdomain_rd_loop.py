@@ -120,6 +120,35 @@ def test_login_with_native_session_bounces_to_subdomain_and_sets_domain(
     assert "Domain=ar-systems.fr" in set_cookie or "domain=ar-systems.fr" in set_cookie
 
 
+def test_login_bastion_sub_flag_stops_bounce_despite_grant(
+    client: TestClient, db_session: Session
+):
+    """@portal_redirect sets bastion_sub=1 after auth_request 401 — never re-bounce."""
+    settings = _native_settings()
+    get_settings.cache_clear()
+    client.app.dependency_overrides[get_settings] = lambda: settings
+    _enable_native_realm(db_session)
+    _transfer_app_with_grant(db_session)
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+        groups=("ARSYSTEMS-Users",),
+    )
+    db_session.commit()
+
+    resp = client.get(
+        f"/auth/login?rd={TRANSFER_RD}&bastion_sub=1",
+        cookies={"bastion_session": token},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert resp.headers.get("location") == "/apps"
+
+
 def test_login_native_session_without_transfer_grant_goes_to_apps(
     client: TestClient, db_session: Session
 ):

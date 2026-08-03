@@ -526,11 +526,16 @@ def login_page(
     rd_host = (urlparse(rd).hostname or "").lower() if rd.startswith("https://") else ""
     portal_host = (settings.portal_domain or "").strip().lower()
     rd_is_absolute_subdomain = bool(rd_host and rd_host != portal_host)
+    # Set by subdomain @portal_redirect after auth_request 401. Never bounce back
+    # to that Host — FastAPI would_allow can be true while nginx still 401s.
+    sub_auth_denied = (request.query_params.get("bastion_sub") or "").strip() == "1"
 
     def _subdomain_rd_safe() -> bool:
         """Proven accept for absolute rd= — native path preferred (HAR loop)."""
         if not rd_is_absolute_subdomain:
             return True
+        if sub_auth_denied:
+            return False
         if native_ok and native_subdomain_auth_would_allow(
             db, request, settings, host=rd_host
         ):
