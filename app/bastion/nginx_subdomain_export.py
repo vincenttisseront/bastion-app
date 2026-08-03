@@ -68,14 +68,11 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
     }
 
 
-# Capture Cookie/Host in the *parent* location rewrite phase (before
-# auth_request). Never set these from $http_* at server{} — auth subrequests
-# re-run server rewrite and would clear them. Snippet maps fall back to
-# $host / $http_cookie / $cookie_bastion_session when these are empty.
-_AUTH_CAPTURE_LINES = (
-    "        set $bastion_auth_host $host;",
-    "        set $bastion_auth_cookie $http_cookie;",
-    "        set $bastion_session_ck $cookie_bastion_session;",
+# auth_request_set — surface FastAPI X-Auth-Error in access logs (no-session,
+# no-app-for-host, native-session-rejected). Snippet uses $host/$http_cookie
+# directly (portal_auth_check parity); do not re-set those before auth_request.
+_AUTH_REQUEST_DIAG_LINES = (
+    "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
 )
 
 
@@ -102,8 +99,8 @@ def _activesync_locations(
         "    # Mobile ActiveSync / Autodiscover (allow_activesync=true)",
         "    # Ping heartbeat needs read timeout >> default 60s (iOS often 900–1800s).",
         "    location ~* ^/Microsoft-Server-ActiveSync {",
-        *_AUTH_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
+        *_AUTH_REQUEST_DIAG_LINES,
         f"        error_page 401 = @activesync_unauthorized_{slug};",
         "",
         "        client_max_body_size 64m;",
@@ -133,8 +130,8 @@ def _activesync_locations(
         "    }",
         "",
         "    location ~* ^/(AutoDiscover|autodiscover)/ {",
-        *_AUTH_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
+        *_AUTH_REQUEST_DIAG_LINES,
         f"        error_page 401 = @activesync_unauthorized_{slug};",
         "",
         "        client_max_body_size 1m;",
@@ -284,9 +281,11 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     lines.extend(
         [
             "    location / {",
-            # Parent capture feeds maps in subdomain_auth_common (see _AUTH_CAPTURE_LINES).
-            *_AUTH_CAPTURE_LINES,
+            # Snippet uses $host/$http_cookie directly (portal parity). Capture
+            # via set $bastion_auth_* before auth_request can clear Cookie/Host
+            # when rewrite re-runs on the auth subrequest.
             "        auth_request /internal/subdomain-auth;",
+            *_AUTH_REQUEST_DIAG_LINES,
             f"        error_page 401 = @portal_redirect_{slug};",
             # Do not map CrushFTP/upstream 401 through @portal_redirect.
             "        proxy_intercept_errors off;",

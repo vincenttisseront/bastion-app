@@ -3,9 +3,9 @@
 # Inclus dans tous les vhosts subdomain SSO
 # CRITIQUE : auth_request off sur ce bloc interne (évite récursion — fe15325)
 #
-# Parent location / must set $bastion_auth_host / $bastion_auth_cookie /
-# $bastion_session_ck before auth_request. Fall back to request-native vars
-# when customs are empty (no http-level map on bare-metal ansible path).
+# Portal-parity: $host / $http_cookie / $cookie_bastion_session (same as
+# portal_auth_check). Do not capture via set $bastion_auth_* before
+# auth_request — rewrite can clear them on the subrequest.
 
 location = /internal/subdomain-auth {
     internal;
@@ -14,14 +14,14 @@ location = /internal/subdomain-auth {
     proxy_pass http://{{ sso_portal_bind_host | default('127.0.0.1') }}:{{ sso_portal_bind_port | default('8000') }}/internal/subdomain-auth;
     proxy_pass_request_body off;
     proxy_set_header Content-Length  "";
-    proxy_set_header Host            $bastion_auth_host;
+    proxy_set_header Host            $host;
     proxy_set_header X-Original-URI  $request_uri;
-    proxy_set_header X-Original-Host $bastion_auth_host;
+    proxy_set_header X-Original-Host $host;
     proxy_set_header X-Real-IP       $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
-    proxy_set_header Cookie          $bastion_auth_cookie;
-    proxy_set_header X-Bastion-Session-Cookie $bastion_session_ck;
+    proxy_set_header Cookie          $http_cookie;
+    proxy_set_header X-Bastion-Session-Cookie $cookie_bastion_session;
 
     # Ne pas intercepter les erreurs du backend FastAPI
     proxy_intercept_errors off;
@@ -34,13 +34,13 @@ location = /internal/activesync-auth {
     proxy_pass http://{{ sso_portal_bind_host | default('127.0.0.1') }}:{{ sso_portal_bind_port | default('8000') }}/internal/activesync-auth;
     proxy_pass_request_body off;
     proxy_set_header Content-Length  "";
-    proxy_set_header Host            $bastion_auth_host;
+    proxy_set_header Host            $host;
     proxy_set_header X-Original-URI  $request_uri;
-    proxy_set_header X-Original-Host $bastion_auth_host;
+    proxy_set_header X-Original-Host $host;
     proxy_set_header X-Real-IP       $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
-    proxy_set_header Cookie          $bastion_auth_cookie;
+    proxy_set_header Cookie          $http_cookie;
     proxy_set_header Authorization   $http_authorization;
     proxy_set_header User-Agent      $http_user_agent;
     proxy_intercept_errors off;

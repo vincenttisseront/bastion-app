@@ -25,12 +25,14 @@ AUDIT_ENSURED = "portal_runtime_secrets_ensured"
 # Process cache after ensure/resolve (avoids DB hit on every hop seal / request without db).
 _CACHED_HOP_SECRET: str | None = None
 _CACHED_BREAKGLASS_SECRET: str | None = None
+_CACHED_OIDC_SESSION_JWT_SECRET: str | None = None
 
 
 def reset_runtime_secrets_cache_for_tests() -> None:
-    global _CACHED_HOP_SECRET, _CACHED_BREAKGLASS_SECRET
+    global _CACHED_HOP_SECRET, _CACHED_BREAKGLASS_SECRET, _CACHED_OIDC_SESSION_JWT_SECRET
     _CACHED_HOP_SECRET = None
     _CACHED_BREAKGLASS_SECRET = None
+    _CACHED_OIDC_SESSION_JWT_SECRET = None
 
 
 def cache_session_hop_secret(plain: str) -> None:
@@ -43,8 +45,17 @@ def cache_breakglass_secret(plain: str) -> None:
     _CACHED_BREAKGLASS_SECRET = (plain or "").strip() or None
 
 
+def cache_oidc_session_jwt_secret(plain: str) -> None:
+    global _CACHED_OIDC_SESSION_JWT_SECRET
+    _CACHED_OIDC_SESSION_JWT_SECRET = (plain or "").strip() or None
+
+
 def get_cached_breakglass_secret() -> str | None:
     return _CACHED_BREAKGLASS_SECRET
+
+
+def get_cached_oidc_session_jwt_secret() -> str | None:
+    return _CACHED_OIDC_SESSION_JWT_SECRET
 
 
 def get_db_session_hop_secret(db: Session | None, settings: Settings) -> str | None:
@@ -58,6 +69,21 @@ def get_db_session_hop_secret(db: Session | None, settings: Settings) -> str | N
         plain = decrypt_secret(raw, settings).strip()
     except ValueError:
         logger.warning("failed to decrypt portal_settings.session_hop_secret_encrypted")
+        return None
+    return plain or None
+
+
+def get_db_oidc_session_jwt_secret(db: Session | None, settings: Settings) -> str | None:
+    if db is None:
+        return None
+    row = ensure_portal_settings(db, settings)
+    raw = (getattr(row, "oidc_session_jwt_secret_encrypted", None) or "").strip()
+    if not raw:
+        return None
+    try:
+        plain = decrypt_secret(raw, settings).strip()
+    except ValueError:
+        logger.warning("failed to decrypt portal_settings.oidc_session_jwt_secret_encrypted")
         return None
     return plain or None
 
@@ -97,6 +123,9 @@ def ensure_portal_runtime_secrets(
     - session hop: always required outside tests — generate if DB+env empty
     - breakglass JWT: generate into DB if neither env nor UI secret exists
       (production-safe path without ``.env``)
+    - OIDC session JWT (``bastion_session``): same — must survive container
+      rebuilds or native SSO cookies are rejected while the registry still shows
+      REGISTRE
 
     If env holds a value and DB is empty, copy env → DB (migrate off ``.env``).
     Never logs or returns plaintext.
@@ -136,6 +165,19 @@ def ensure_portal_runtime_secrets(
     elif bg_ui:
         cache_breakglass_secret(bg_ui)
 
+    oidc_db = get_db_oidc_session_jwt_secret(db, settings)
+    oidc_env = (settings.oidc_session_jwt_secret or "").strip()
+    if not oidc_db:
+        plain = oidc_env or generate_cookie_secret()
+        row.oidc_session_jwt_secret_encrypted = encrypt_secret(plain, settings)
+        if oidc_env:
+            migrated_from_env.append("oidc_session_jwt")
+        else:
+            created.append("oidc_session_jwt")
+        cache_oidc_session_jwt_secret(plain)
+    else:
+        cache_oidc_session_jwt_secret(oidc_db)
+
     if created or migrated_from_env:
         row.updated_at = utcnow()
         row.updated_by = actor
@@ -171,6 +213,11 @@ def ensure_portal_runtime_secrets(
         "session_hop_present": True,
         "breakglass_present": bool(
             bg_env or get_ui_breakglass_secret(db, settings) or get_cached_breakglass_secret()
+        ),
+        "oidc_session_jwt_present": bool(
+            get_cached_oidc_session_jwt_secret()
+            or get_db_oidc_session_jwt_secret(db, settings)
+            or (settings.oidc_session_jwt_secret or "").strip()
         ),
     }
 

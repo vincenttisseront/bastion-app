@@ -1,7 +1,6 @@
 """Portal configuration via environment variables."""
 
 from functools import lru_cache
-import secrets
 from typing import Annotated, Any
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -349,7 +348,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def ensure_oidc_session_secret(self) -> "Settings":
-        """Mint a dedicated OIDC session HMAC when unset (never share break-glass / vault)."""
+        """Reject shared secrets; do not mint an ephemeral HMAC here.
+
+        Auto-minting on every process start invalidated ``bastion_session`` after
+        each container rebuild while ``OidcSession`` rows stayed in SQLite
+        (sessions UI still REGISTRE → forced SSO re-login). Persist via
+        ``ensure_portal_runtime_secrets`` / ``resolve_oidc_session_jwt_secret``.
+        """
         forbidden = {
             (self.breakglass_jwt_secret or "").strip(),
             (self.vault_portal_internal_token or "").strip(),
@@ -357,8 +362,8 @@ class Settings(BaseSettings):
         }
         forbidden.discard("")
         current = (self.oidc_session_jwt_secret or "").strip()
-        if not current or current in forbidden:
-            object.__setattr__(self, "oidc_session_jwt_secret", secrets.token_urlsafe(32))
+        if current and current in forbidden:
+            object.__setattr__(self, "oidc_session_jwt_secret", "")
         return self
 
     @model_validator(mode="after")

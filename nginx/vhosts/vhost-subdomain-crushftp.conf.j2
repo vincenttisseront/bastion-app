@@ -58,12 +58,10 @@ server {
 
     # ─── Route principale — protégée par auth_request ─────────────────────────
     # REGLE : auth_request + error_page 401 uniquement ici (jamais au niveau server)
-    # Capture Cookie/Host in parent location — never server-level set from $http_*.
+    # Snippet uses $host/$http_cookie directly (portal parity).
     location / {
-        set $bastion_auth_host $host;
-        set $bastion_auth_cookie $http_cookie;
-        set $bastion_session_ck $cookie_bastion_session;
         auth_request /internal/subdomain-auth;
+        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;
 
         # error_page 401 dans location, jamais au niveau server (dfcc5c7)
         error_page 401 = @portal_redirect_{{ vhost.slug }};
