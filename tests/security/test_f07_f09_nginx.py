@@ -149,10 +149,10 @@ def test_subdomain_auth_snippet_still_internal():
     assert "$bastion_vhost_fqdn" in auth_map
     assert "$bastion_session_from_jar" in auth_map
     assert "$bastion_pass_cookie" in auth_map
+    assert "map $http_cookie $bastion_fresh_session" in auth_map
     # No map that falls back auth Cookie/session to filtered $http_cookie.
     assert "map $bastion_pass_cookie $bastion_auth_cookie" not in auth_map
     assert "map $bastion_pass_session $bastion_auth_session" not in auth_map
-    assert "map $http_cookie" not in auth_map
     assert '""      $http_cookie;' not in auth_map
     assert '""      $cookie_bastion_session;' not in auth_map
     assert "$bastion_session_from_http" not in auth_map

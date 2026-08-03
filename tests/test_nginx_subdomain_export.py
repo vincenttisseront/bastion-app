@@ -89,19 +89,21 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "proxy_set_header Cookie $http_cookie;" in block
     assert "$cookie_CrushAuth" not in block
     main = block.split("location / {", 1)[1]
-    assert "set $bastion_pass_cookie $http_cookie;" in main
-    assert "set $bastion_pass_session $cookie_bastion_session;" in main
+    assert 'if ($bastion_fresh_session != "") {' in main
+    assert "set $bastion_pass_session $bastion_fresh_session;" in main
     assert (
         'set $bastion_auth_cookie '
         '"bastion_session=$bastion_pass_session; $bastion_pass_cookie";'
     ) in main
-    assert main.index("set $bastion_pass_cookie") < main.index(
+    assert main.index("bastion_fresh_session") < main.index(
         "auth_request /internal/subdomain-auth"
     )
     assert main.index("set $bastion_auth_cookie") < main.index(
         "auth_request /internal/subdomain-auth"
     )
     assert "set $bastion_auth_cookie $http_cookie;" not in main
+    # Unconditional capture wiped JWT on filtered re-run (ck=90).
+    assert "set $bastion_pass_session $cookie_bastion_session;" not in main
     assert "auth_request_set $bastion_auth_err" in main
     assert main.index("auth_request /internal/subdomain-auth") < main.index(
         "auth_request_set $bastion_auth_err"
@@ -160,12 +162,13 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "set $bastion_auth_cookie" not in before_main
     assert "CrushAuth=$cookie_CrushAuth" not in before_main
     main_gate = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
-    assert "set $bastion_pass_cookie $http_cookie;" in main_gate
-    assert "set $bastion_pass_session $cookie_bastion_session;" in main_gate
+    assert 'if ($bastion_fresh_session != "") {' in main_gate
+    assert "set $bastion_pass_session $bastion_fresh_session;" in main_gate
     assert (
         'set $bastion_auth_cookie '
         '"bastion_session=$bastion_pass_session; $bastion_pass_cookie";'
     ) in main_gate
+    assert "set $bastion_pass_session $cookie_bastion_session;" not in main_gate
     assert "CrushAuth=$cookie_CrushAuth" not in main_gate
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" not in main_gate
 
@@ -212,11 +215,13 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     assert "set $bastion_pass_cookie $http_cookie;" not in before_main
     assert "set $bastion_auth_cookie" not in before_main
     main = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
-    assert "set $bastion_pass_cookie $http_cookie;" in main
+    assert 'if ($bastion_fresh_session != "") {' in main
+    assert "set $bastion_pass_session $bastion_fresh_session;" in main
     assert (
         'set $bastion_auth_cookie '
         '"bastion_session=$bastion_pass_session; $bastion_pass_cookie";'
     ) in main
+    assert "set $bastion_pass_session $cookie_bastion_session;" not in main
     assert "set $bastion_auth_cookie $http_cookie;" not in main
     assert "set $bastion_upstream_cookie" not in main
     assert "auth_request_set $bastion_auth_err" in main

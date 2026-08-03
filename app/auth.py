@@ -115,8 +115,8 @@ def iter_oidc_session_cookie_candidates(
         ordered.append(raw)
 
     # Explicit nginx headers first — CrushFTP Cookie filters can starve the
-    # auth subrequest Cookie jar (HAR ae=no-session:ck=72:x=0). Snippet sends
-    # X-Bastion-Session-Cookie from parent $bastion_pass_session and
+    # auth subrequest Cookie jar (HAR ae=no-session:ck=72/90:x=0). Snippet sends
+    # X-Bastion-Session-Cookie from sticky parent $bastion_pass_session and
     # X-Bastion-Session-From-Jar from a regex on $bastion_pass_cookie (never
     # map-fallback to filtered $http_cookie on the auth subrequest).
     _add(
