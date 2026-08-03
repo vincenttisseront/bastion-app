@@ -49,7 +49,7 @@ _ACCESS_MODE_PROTOCOL: dict[str, str] = {
     "legacy_path_proxy": "HTTPS",
 }
 
-_PORTAL_COOKIE_HINTS = ("_oauth2_proxy", "oauth2_proxy")
+_PORTAL_COOKIE_HINTS = ("_oauth2_proxy", "oauth2_proxy", "bastion_session")
 
 _ACTION_TITLES = {
     "revoke": "Révoquer : supprime la session du registre bastion et invalide les cookies stockés.",
@@ -902,7 +902,11 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
             auth_family = "breakglass"
         else:
             resource_title = "Portail SSO"
-            resource_subtitle = "Session OIDC (oauth2-proxy)"
+            cookies = (details or {}).get("cookies_present") or []
+            if any(str(c) == "bastion_session" for c in cookies):
+                resource_subtitle = "Session OIDC native (bastion_session)"
+            else:
+                resource_subtitle = "Session OIDC (oauth2-proxy / native)"
             type_label = "Portail OIDC"
             auth_family = "oidc"
     else:

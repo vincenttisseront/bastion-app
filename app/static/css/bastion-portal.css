@@ -276,8 +276,51 @@ body.page-portal > .main-content {
 .portal-filter-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--sp-2);
   margin-bottom: var(--sp-4);
+}
+
+.portal-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.portal-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+}
+
+.portal-view-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: calc(var(--r-md) - 2px);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+
+.portal-view-btn:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.portal-view-btn.is-active {
+  color: var(--accent);
+  background: var(--accent-muted);
 }
 
 .portal-filter-chip {
@@ -332,7 +375,7 @@ body.page-portal > .main-content {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) 0;
+  padding: 0.35rem 0;
   border-bottom: 1px solid var(--border-muted);
 }
 
@@ -495,6 +538,9 @@ body.page-portal > .main-content {
   .portal-security-grid {
     grid-template-columns: 1fr;
   }
+  .portal-app-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .portal-header {
@@ -578,20 +624,13 @@ body.page-portal > .main-content {
 }
 
 .portal-app-grid {
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--sp-3);
 }
 
-/* Few apps: keep tiles sized and centered instead of a lone stretched card. */
-.portal-app-grid--compact {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--sp-4);
-}
-
-.portal-app-grid--compact .app-tile {
-  width: min(100%, 260px);
-  flex: 0 1 260px;
+.portal-app-grid[data-apps-view="list"] {
+  grid-template-columns: 1fr;
+  gap: 2px;
 }
 
 .portal-apps-hint {
@@ -601,18 +640,24 @@ body.page-portal > .main-content {
   color: var(--text-3);
 }
 
-/* Launch / manage tiles — elevate to metric-card / admin-card finish */
+/* Compact horizontal launch tiles */
 .app-tile {
-  height: 100%;
+  height: auto;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) !important;
   box-shadow: var(--sh-card);
   transition:
     transform var(--t-base),
     box-shadow var(--t-base),
     border-color var(--t-base),
     background var(--t-base);
+}
+
+.app-tile--compact {
+  min-height: 0;
 }
 
 button.app-tile {
@@ -633,58 +678,138 @@ button.app-tile:focus-visible {
 
 .app-tile .admin-icon {
   flex: 0 0 auto;
-  box-shadow: 0 0 16px rgba(16, 185, 129, 0.12);
+  width: 40px !important;
+  height: 40px !important;
+  margin: 0 !important;
+  box-shadow: none;
+}
+
+.app-tile .admin-icon--logo {
+  width: 40px !important;
+  height: 40px !important;
+  padding: 4px !important;
+}
+
+.app-tile .app-tile-logo {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
 }
 
 .app-tile:hover .admin-icon {
   box-shadow: var(--accent-glow);
 }
 
-/* Reserve title + 2-line desc so badge rows start at the same Y across the grid. */
+.app-tile-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.app-tile-headline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
 .app-tile .admin-title {
   flex: 0 0 auto;
-  min-height: 1.25rem;
+  min-height: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.25;
 }
 
 .app-tile .admin-desc {
-  flex: 1 1 auto;
-  min-height: calc(var(--fs-xs, 0.75rem) * 1.5 * 2);
-  max-height: calc(var(--fs-xs, 0.75rem) * 1.5 * 2);
+  flex: 0 0 auto;
+  min-height: 0;
+  max-height: none;
   margin: 0;
-  /* Override .truncate nowrap — keep exactly two lines across tiles. */
-  white-space: normal;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
 }
 
-/* Fixed badge band (≈2 rows) so Protégé / Opérationnel align even without « Mot de passe ». */
 .app-tile .app-tile-meta {
   display: flex;
   flex-wrap: wrap;
-  align-content: flex-start;
-  align-items: flex-start;
-  gap: var(--sp-2);
-  margin-top: auto;
-  min-height: calc(2 * 1.55rem + var(--sp-2));
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0;
+  min-height: 0;
 }
 
-.app-tile .admin-arrow {
+.app-tile .app-tile-meta .badge {
+  font-size: 0.65rem !important;
+  padding: 0.1rem 0.4rem !important;
+  line-height: 1.3;
+}
+
+.app-tile-cred {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  opacity: 0.9;
+}
+
+.app-tile-open {
   flex: 0 0 auto;
-  opacity: 1;
-  font-size: var(--fs-xs);
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--r-md);
   color: var(--accent);
-  align-self: flex-end;
-  transition: transform var(--t-fast), color var(--t-fast);
+  background: var(--accent-muted);
+  transition: transform var(--t-fast), background var(--t-fast);
+}
+
+.app-tile-open--locked {
+  color: var(--text-3);
+  background: var(--bg-tertiary);
+}
+
+.app-tile:hover .app-tile-open:not(.app-tile-open--locked) {
+  transform: translateX(2px);
 }
 
 .app-tile:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: var(--sh-md);
+}
+
+/* List mode: denser full-width rows */
+.portal-app-grid[data-apps-view="list"] .app-tile {
+  padding: 0.45rem 0.75rem !important;
+  box-shadow: none;
+}
+
+.portal-app-grid[data-apps-view="list"] .app-tile:hover {
+  transform: none;
+}
+
+.portal-app-grid[data-apps-view="list"] .app-tile .admin-icon {
+  width: 32px !important;
+  height: 32px !important;
+}
+
+.portal-app-grid[data-apps-view="list"] .app-tile-headline {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.portal-app-grid[data-apps-view="list"] .app-tile .admin-desc {
+  flex: 1 1 auto;
 }
 
 .app-tile--highlight {
@@ -700,11 +825,6 @@ button.app-tile:focus-visible {
   100% {
     box-shadow: 0 0 0 0 rgba(16, 185, 129, 0), var(--sh-card);
   }
-}
-
-.app-tile:hover .admin-arrow {
-  color: var(--accent-h, var(--accent));
-  transform: translateX(3px);
 }
 
 .app-tile--disabled {
@@ -730,10 +850,8 @@ button.app-tile:focus-visible {
   box-shadow: none;
 }
 
-.app-tile-locked {
-  opacity: 0.7 !important;
-  color: var(--text-3) !important;
-  transform: none !important;
+.app-tile--disabled:hover .app-tile-open {
+  transform: none;
 }
 
 .portal-empty {

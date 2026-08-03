@@ -169,23 +169,28 @@ def resolve_oidc_session_jwt_secret(
     """
     Global portal HMAC for ``bastion_session`` (not per-realm).
 
-    Priority: env ``OIDC_SESSION_JWT_SECRET`` → PortalSettings encrypted → settings auto.
+    Priority: env ``OIDC_SESSION_JWT_SECRET`` → process cache → PortalSettings
+    encrypted. Never invent an ephemeral secret here (that broke SSO across
+    container rebuilds while the sessions registry still showed REGISTRE).
     """
+    from app.runtime_secrets_service import (
+        cache_oidc_session_jwt_secret,
+        get_cached_oidc_session_jwt_secret,
+        get_db_oidc_session_jwt_secret,
+    )
+
     env = (settings.oidc_session_jwt_secret or "").strip()
     if env:
         return env
+    cached = get_cached_oidc_session_jwt_secret()
+    if cached:
+        return cached
     if db is not None:
-        row = ensure_portal_settings(db, settings)
-        raw = (row.oidc_session_jwt_secret_encrypted or "").strip()
-        if raw:
-            try:
-                plain = decrypt_secret(raw, settings).strip()
-                if plain:
-                    return plain
-            except ValueError:
-                logger.warning("failed to decrypt portal oidc_session_jwt_secret")
-    # Settings validator always mints a process secret if empty.
-    return (settings.oidc_session_jwt_secret or "").strip()
+        plain = get_db_oidc_session_jwt_secret(db, settings)
+        if plain:
+            cache_oidc_session_jwt_secret(plain)
+            return plain
+    return ""
 
 
 def generate_oidc_session_jwt_secret(
@@ -212,6 +217,9 @@ def generate_oidc_session_jwt_secret(
     if actor:
         row.updated_by = actor
     db.flush()
+    from app.runtime_secrets_service import cache_oidc_session_jwt_secret
+
+    cache_oidc_session_jwt_secret(plain)
     return plain
 
 

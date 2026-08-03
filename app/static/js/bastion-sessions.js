@@ -6,11 +6,20 @@
   var groupsCache = Array.isArray(window.__SESSIONS_BOOT__) ? window.__SESSIONS_BOOT__ : [];
   var selectedEmail = '';
   var railFilter = '';
+  var openSessionId = null;
+  var previousFocus = null;
 
   var TITLE_REVOKE =
     'Révoquer : supprime la session du registre bastion et invalide les cookies stockés.';
   var TITLE_ROTATE =
     'Rotation : lance le renouvellement des secrets/clés liés à cette session.';
+
+  var ICON_APP =
+    '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>';
+  var ICON_PORTAL =
+    '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>';
+  var ICON_BG =
+    '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
 
   function getCsrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
@@ -20,7 +29,7 @@
   async function postAction(url, confirmMsg) {
     if (confirmMsg) {
       var ok = await window.bastionConfirm({
-        title: 'Confirmer l\'action',
+        title: "Confirmer l'action",
         message: confirmMsg,
         confirmLabel: 'Confirmer',
         danger: true,
@@ -45,7 +54,7 @@
       .catch(function () {
         window.bastionAlert({
           title: 'Erreur',
-          message: 'Erreur lors de l\'exécution de l\'action.',
+          message: "Erreur lors de l'exécution de l'action.",
         });
       });
   }
@@ -75,6 +84,16 @@
   function findGroup(email) {
     for (var i = 0; i < groupsCache.length; i++) {
       if (groupsCache[i].user_email === email) return groupsCache[i];
+    }
+    return null;
+  }
+
+  function findSession(sessionId) {
+    for (var i = 0; i < groupsCache.length; i++) {
+      var sessions = groupsCache[i].sessions || [];
+      for (var j = 0; j < sessions.length; j++) {
+        if (sessions[j].id === sessionId) return sessions[j];
+      }
     }
     return null;
   }
@@ -119,6 +138,373 @@
         );
       })
       .join('');
+  }
+
+  function liveBadgeClass(s) {
+    var st = s.live_status || s.status;
+    if (st === 'active') return 'ok';
+    if (st === 'invalid') return 'err';
+    if (st === 'isolated') return 'warn';
+    if (st === 'declarative' || st === 'presence') return 'info';
+    return 'warn';
+  }
+
+  function familyOf(s) {
+    return s.auth_family || (s.kind === 'app' ? 'app' : 'oidc');
+  }
+
+  function familyIcon(family) {
+    if (family === 'app') return ICON_APP;
+    if (family === 'breakglass') return ICON_BG;
+    return ICON_PORTAL;
+  }
+
+  function typeLabelOf(s, family) {
+    return (
+      s.type_label ||
+      (family === 'breakglass'
+        ? 'Break-glass'
+        : s.kind === 'app'
+          ? 'Application'
+          : 'Portail OIDC')
+    );
+  }
+
+  function typeDetailOf(family) {
+    if (family === 'oidc') return 'OIDC / Keycloak';
+    if (family === 'breakglass') return 'Break-glass (hors Keycloak)';
+    return 'Application robotic/vault';
+  }
+
+  function statusTitleOf(s) {
+    if (s.verifiable) return 'Statut vérifié auprès de l’app cible (live)';
+    if (s.presence_only || s.live_status === 'presence') {
+      return 'Présence SSO détectée via accès subdomain (pas une vérif cookies robotic)';
+    }
+    if (s.freshness && s.freshness.note) return s.freshness.note;
+    return 'Statut déclaratif côté bastion';
+  }
+
+  function verifiedMetaHtml(s) {
+    if (s.verifiable) {
+      return (
+        '<div class="session-verified-meta mono">' +
+        (s.last_verified_ago
+          ? 'Vérifié ' + escapeHtml(s.last_verified_ago)
+          : 'En attente de vérification live…') +
+        '</div>'
+      );
+    }
+    if (s.presence_only || s.live_status === 'presence') {
+      return (
+        '<div class="session-verified-meta mono" title="Heartbeat subdomain-auth">' +
+        'Vu ' +
+        escapeHtml(s.last_seen_ago || '—') +
+        '</div>'
+      );
+    }
+    if (s.freshness) {
+      return (
+        '<div class="session-verified-meta mono" title="' +
+        escapeHtml(s.freshness.note || '') +
+        '">Âge ' +
+        escapeHtml(s.freshness.age_label || '—') +
+        ' · ' +
+        escapeHtml(s.freshness.policy_label || '') +
+        '</div>'
+      );
+    }
+    return '';
+  }
+
+  /* ── SessionDetailPanel (drawer) ─────────────────────────────────────── */
+
+  function drawerEls() {
+    return {
+      backdrop: document.getElementById('session-detail-backdrop'),
+      drawer: document.getElementById('session-detail-drawer'),
+      title: document.getElementById('session-detail-title'),
+      subtitle: document.getElementById('session-detail-subtitle'),
+      body: document.getElementById('session-detail-body'),
+      actions: document.getElementById('session-detail-actions'),
+      closeBtn: document.getElementById('session-detail-close'),
+    };
+  }
+
+  function drawerFocusables() {
+    var els = drawerEls();
+    if (!els.drawer || els.drawer.hidden) return [];
+    return Array.prototype.slice
+      .call(
+        els.drawer.querySelectorAll(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      )
+      .filter(function (el) {
+        return el.offsetParent !== null || el === document.activeElement;
+      });
+  }
+
+  function markRowExpanded(sessionId, open) {
+    document.querySelectorAll('.session-row').forEach(function (row) {
+      var match = row.getAttribute('data-session-id') === sessionId && open;
+      row.classList.toggle('is-open', match);
+      row.setAttribute('aria-expanded', match ? 'true' : 'false');
+    });
+  }
+
+  function fillSessionDetailPanel(s) {
+    var els = drawerEls();
+    if (!els.drawer || !s) return;
+    var family = familyOf(s);
+    var statusClass = liveBadgeClass(s);
+    var kindClass =
+      family === 'breakglass' ? 'warn' : family === 'app' ? 'ok' : 'info';
+    var cookieClass = s.cookies_ok ? 'ok' : 'warn';
+    var liveDot =
+      s.live_status === 'active' || s.live_status === 'presence'
+        ? '<span class="live-dot live-dot-sm"></span> '
+        : '';
+    var cookieTitle = s.cookies_title || '';
+    if (s.cookies_issued_at) cookieTitle += ' · émis ' + s.cookies_issued_at;
+    if (s.crushauth_age) cookieTitle += ' · CrushAuth ' + s.crushauth_age;
+
+    if (els.title) {
+      els.title.textContent = s.resource_title || s.target || 'Session';
+    }
+    if (els.subtitle) {
+      els.subtitle.textContent = s.resource_subtitle || '';
+    }
+
+    var logoutBanner = '';
+    if (s.sso_logout && s.sso_logout.label) {
+      logoutBanner =
+        '<div class="session-sso-logout-banner" title="' +
+        escapeHtml(s.sso_logout.residual_note || '') +
+        '">' +
+        escapeHtml(s.sso_logout.label) +
+        '</div>';
+    }
+    var bindingBanner = '';
+    if (s.identity_binding && s.identity_binding.unusual) {
+      bindingBanner =
+        '<div class="session-binding-banner" title="Ancrage inhabituel">⚠ IP/empreinte inhabituelle</div>';
+    }
+
+    if (els.body) {
+      els.body.innerHTML =
+        logoutBanner +
+        bindingBanner +
+        '<div class="session-detail-chips">' +
+        '<span class="badge badge-' +
+        kindClass +
+        '">' +
+        escapeHtml(typeLabelOf(s, family)) +
+        '</span>' +
+        '<span class="proto-tag ' +
+        escapeHtml(String(s.protocol || '').toLowerCase()) +
+        '">' +
+        escapeHtml(s.protocol || '') +
+        '</span>' +
+        '<span class="badge badge-' +
+        statusClass +
+        '" title="' +
+        escapeHtml(statusTitleOf(s)) +
+        '">' +
+        liveDot +
+        escapeHtml(s.live_status_label || String(s.status || '').toUpperCase()) +
+        '</span></div>' +
+        verifiedMetaHtml(s) +
+        '<dl class="session-card-facts">' +
+        '<div><dt>Type</dt><dd>' +
+        escapeHtml(typeDetailOf(family)) +
+        '</dd></div>' +
+        '<div><dt>IP client</dt><dd class="mono' +
+        (s.client_ip_is_infra ? ' is-infra-ip' : '') +
+        '" title="' +
+        escapeHtml(s.client_ip_note || '') +
+        '">' +
+        escapeHtml(s.client_ip || s.source_ip || '—') +
+        '</dd></div>' +
+        '<div><dt>Durée</dt><dd class="mono">' +
+        escapeHtml(s.duration || '—') +
+        '</dd></div>' +
+        '<div><dt>Dernière activité</dt><dd title="' +
+        escapeHtml(s.last_seen_label || '') +
+        '">' +
+        escapeHtml(s.last_seen_ago || '—') +
+        '</dd></div>' +
+        '<div><dt>Navigateur</dt><dd title="' +
+        escapeHtml(s.browser_note || s.user_agent || '') +
+        '">' +
+        escapeHtml(s.user_agent_label || '—') +
+        '</dd></div>' +
+        '<div><dt>Cookies</dt><dd><span class="session-cookies badge badge-' +
+        cookieClass +
+        '" title="' +
+        escapeHtml(cookieTitle) +
+        '">' +
+        escapeHtml(s.cookies_label || '—') +
+        '</span></dd></div>' +
+        (String(s.protocol || '').toUpperCase() === 'BREAKGLASS' && s.jti
+          ? '<div><dt>jti</dt><dd class="mono" title="Identifiant JWT break-glass">' +
+            escapeHtml(String(s.jti).slice(0, 8)) +
+            '…</dd></div>'
+          : '') +
+        '</dl>';
+    }
+
+    if (els.actions) {
+      if (!isAdmin) {
+        els.actions.innerHTML = '';
+        els.actions.hidden = true;
+      } else {
+        var titles = s.action_titles || {};
+        var buttons =
+          '<button type="button" class="btn btn-danger btn-sm btn-revoke" title="' +
+          escapeHtml(titles.revoke || TITLE_REVOKE) +
+          '" onclick="revokeSession(\'' +
+          escapeHtml(s.id) +
+          '\')">Révoquer cette session</button>';
+        if (s.can_rotate !== false && s.kind === 'app') {
+          buttons +=
+            '<button type="button" class="btn btn-secondary btn-sm btn-rotate" title="' +
+            escapeHtml(titles.rotate || TITLE_ROTATE) +
+            '" onclick="rotateKeys(\'' +
+            escapeHtml(s.id) +
+            '\')">Rotation</button>';
+        }
+        els.actions.innerHTML = buttons;
+        els.actions.hidden = false;
+      }
+    }
+  }
+
+  function openSessionDetailPanel(sessionId) {
+    var s = findSession(sessionId);
+    var els = drawerEls();
+    if (!s || !els.drawer) return;
+    previousFocus = document.activeElement;
+    openSessionId = sessionId;
+    fillSessionDetailPanel(s);
+    els.drawer.hidden = false;
+    if (els.backdrop) {
+      els.backdrop.hidden = false;
+      els.backdrop.classList.add('is-open');
+    }
+    els.drawer.classList.add('is-open');
+    document.body.classList.add('session-detail-open');
+    markRowExpanded(sessionId, true);
+    window.setTimeout(function () {
+      if (els.closeBtn) els.closeBtn.focus();
+    }, 0);
+  }
+
+  function closeSessionDetailPanel() {
+    var els = drawerEls();
+    openSessionId = null;
+    markRowExpanded('', false);
+    if (els.drawer) {
+      els.drawer.classList.remove('is-open');
+      els.drawer.hidden = true;
+    }
+    if (els.backdrop) {
+      els.backdrop.classList.remove('is-open');
+      els.backdrop.hidden = true;
+    }
+    document.body.classList.remove('session-detail-open');
+    if (previousFocus && typeof previousFocus.focus === 'function') {
+      try {
+        previousFocus.focus();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+    previousFocus = null;
+  }
+
+  function toggleSessionDetailPanel(sessionId) {
+    if (openSessionId === sessionId) {
+      closeSessionDetailPanel();
+      return;
+    }
+    openSessionDetailPanel(sessionId);
+  }
+
+  window.SessionDetailPanel = {
+    open: openSessionDetailPanel,
+    close: closeSessionDetailPanel,
+    toggle: toggleSessionDetailPanel,
+  };
+
+  /* ── Compact row ─────────────────────────────────────────────────────── */
+
+  function renderSessionRow(s) {
+    var family = familyOf(s);
+    var statusClass = liveBadgeClass(s);
+    var kindClass =
+      family === 'breakglass' ? 'warn' : family === 'app' ? 'ok' : 'info';
+    var liveDot =
+      s.live_status === 'active'
+        ? '<span class="live-dot live-dot-sm"></span> '
+        : '';
+    var isOpen = openSessionId === s.id;
+    return (
+      '<li><button type="button" class="session-row session-row-' +
+      escapeHtml(family) +
+      (isOpen ? ' is-open' : '') +
+      '" data-session-id="' +
+      escapeHtml(s.id) +
+      '" data-kind="' +
+      escapeHtml(s.kind) +
+      '" data-auth-family="' +
+      escapeHtml(family) +
+      '" aria-expanded="' +
+      (isOpen ? 'true' : 'false') +
+      '" aria-controls="session-detail-drawer">' +
+      '<span class="session-row-icon session-row-icon--' +
+      escapeHtml(family) +
+      '" aria-hidden="true">' +
+      familyIcon(family) +
+      '</span>' +
+      '<span class="session-row-main">' +
+      '<span class="session-row-title truncate">' +
+      escapeHtml(s.resource_title || s.target || '') +
+      '</span>' +
+      '<span class="session-row-slug mono truncate">' +
+      escapeHtml(s.resource_subtitle || '') +
+      '</span></span>' +
+      '<span class="session-row-badges">' +
+      '<span class="badge badge-' +
+      kindClass +
+      '">' +
+      escapeHtml(typeLabelOf(s, family)) +
+      '</span>' +
+      '<span class="proto-tag ' +
+      escapeHtml(String(s.protocol || '').toLowerCase()) +
+      '">' +
+      escapeHtml(s.protocol || '') +
+      '</span></span>' +
+      '<span class="session-row-status badge badge-' +
+      statusClass +
+      '" title="' +
+      escapeHtml(statusTitleOf(s)) +
+      '">' +
+      liveDot +
+      escapeHtml(s.live_status_label || String(s.status || '').toUpperCase()) +
+      '</span>' +
+      '<span class="session-row-meta mono" title="Durée">' +
+      escapeHtml(s.duration || '—') +
+      '</span>' +
+      '<span class="session-row-meta session-row-ago" title="' +
+      escapeHtml(s.last_seen_label || '') +
+      '">' +
+      escapeHtml(s.last_seen_ago || '—') +
+      '</span>' +
+      '<span class="session-row-chevron" aria-hidden="true">' +
+      '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>' +
+      '</span></button></li>'
+    );
   }
 
   function renderUserList() {
@@ -186,185 +572,6 @@
       .join('');
   }
 
-  function liveBadgeClass(s) {
-    var st = s.live_status || s.status;
-    if (st === 'active') return 'ok';
-    if (st === 'invalid') return 'err';
-    if (st === 'isolated') return 'warn';
-    if (st === 'declarative' || st === 'presence') return 'info';
-    return 'warn'; // unverified / unknown
-  }
-
-  function renderSessionCard(s) {
-    var statusClass = liveBadgeClass(s);
-    var family = s.auth_family || (s.kind === 'app' ? 'app' : 'oidc');
-    var kindClass =
-      family === 'breakglass' ? 'warn' : family === 'app' ? 'ok' : 'info';
-    var cookieClass = s.cookies_ok ? 'ok' : 'warn';
-    var liveDot =
-      s.live_status === 'active' || s.live_status === 'presence'
-        ? '<span class="live-dot" style="width:6px;height:6px;"></span> '
-        : '';
-    var statusTitle = s.verifiable
-      ? 'Statut vérifié auprès de l’app cible (live)'
-      : s.presence_only || s.live_status === 'presence'
-        ? 'Présence SSO détectée via accès subdomain (pas une vérif cookies robotic)'
-      : s.freshness && s.freshness.note
-        ? s.freshness.note
-        : 'Statut déclaratif côté bastion';
-    var titles = s.action_titles || {};
-    var footer = '';
-    if (isAdmin) {
-      var buttons =
-        '<button type="button" class="btn btn-danger btn-sm btn-revoke" title="' +
-        escapeHtml(titles.revoke || TITLE_REVOKE) +
-        '" onclick="revokeSession(\'' +
-        escapeHtml(s.id) +
-        '\')">Révoquer cette session</button>';
-      if (s.can_rotate !== false && s.kind === 'app') {
-        buttons +=
-          '<button type="button" class="btn btn-secondary btn-sm btn-rotate" title="' +
-          escapeHtml(titles.rotate || TITLE_ROTATE) +
-          '" onclick="rotateKeys(\'' +
-          escapeHtml(s.id) +
-          '\')">Rotation</button>';
-      }
-      footer =
-        '<footer class="session-card-footer session-actions">' + buttons + '</footer>';
-    }
-    var cookieTitle = s.cookies_title || '';
-    if (s.cookies_issued_at) cookieTitle += ' · émis ' + s.cookies_issued_at;
-    if (s.crushauth_age) cookieTitle += ' · CrushAuth ' + s.crushauth_age;
-
-    var verifiedMeta = '';
-    if (s.verifiable) {
-      verifiedMeta =
-        '<div class="session-verified-meta mono">' +
-        (s.last_verified_ago
-          ? 'Vérifié ' + escapeHtml(s.last_verified_ago)
-          : 'En attente de vérification live…') +
-        '</div>';
-    } else if (s.presence_only || s.live_status === 'presence') {
-      verifiedMeta =
-        '<div class="session-verified-meta mono" title="Heartbeat subdomain-auth">' +
-        'Vu ' +
-        escapeHtml(s.last_seen_ago || '—') +
-        '</div>';
-    } else if (s.freshness) {
-      verifiedMeta =
-        '<div class="session-verified-meta mono" title="' +
-        escapeHtml(s.freshness.note || '') +
-        '">Âge ' +
-        escapeHtml(s.freshness.age_label || '—') +
-        ' · ' +
-        escapeHtml(s.freshness.policy_label || '') +
-        '</div>';
-    }
-
-    var logoutBanner = '';
-    if (s.sso_logout && s.sso_logout.label) {
-      logoutBanner =
-        '<div class="session-sso-logout-banner" title="' +
-        escapeHtml(s.sso_logout.residual_note || '') +
-        '">' +
-        escapeHtml(s.sso_logout.label) +
-        '</div>';
-    }
-
-    return (
-      '<article class="card session-card session-card-' +
-      escapeHtml(family) +
-      '" data-session-id="' +
-      escapeHtml(s.id) +
-      '" data-kind="' +
-      escapeHtml(s.kind) +
-      '" data-auth-family="' +
-      escapeHtml(family) +
-      '">' +
-      '<header class="card-header session-card-header">' +
-      '<div class="session-card-title-row">' +
-      '<span class="badge badge-' +
-      kindClass +
-      '">' +
-      escapeHtml(
-        s.type_label ||
-          (family === 'breakglass'
-            ? 'Break-glass'
-            : s.kind === 'app'
-              ? 'Application'
-              : 'Portail OIDC')
-      ) +
-      '</span>' +
-      '<span class="proto-tag ' +
-      escapeHtml(String(s.protocol || '').toLowerCase()) +
-      '">' +
-      escapeHtml(s.protocol) +
-      '</span></div>' +
-      '<span class="badge badge-' +
-      statusClass +
-      '" title="' +
-      escapeHtml(statusTitle) +
-      '">' +
-      liveDot +
-      escapeHtml(s.live_status_label || String(s.status || '').toUpperCase()) +
-      '</span></header>' +
-      '<div class="card-body session-card-body">' +
-      logoutBanner +
-      '<div class="session-card-resource">' +
-      escapeHtml(s.resource_title || s.target) +
-      '</div>' +
-      '<div class="session-card-slug mono">' +
-      escapeHtml(s.resource_subtitle || '') +
-      '</div>' +
-      verifiedMeta +
-      '<dl class="session-card-facts">' +
-      '<div><dt>Type</dt><dd>' +
-      escapeHtml(
-        family === 'oidc'
-          ? 'OIDC / Keycloak'
-          : family === 'breakglass'
-            ? 'Break-glass (hors Keycloak)'
-            : 'Application robotic/vault'
-      ) +
-      '</dd></div>' +
-      '<div><dt>IP client</dt><dd class="mono' +
-      (s.client_ip_is_infra ? ' is-infra-ip' : '') +
-      '" title="' +
-      escapeHtml(s.client_ip_note || '') +
-      '">' +
-      escapeHtml(s.client_ip || s.source_ip || '—') +
-      '</dd></div>' +
-      '<div><dt>Durée</dt><dd class="mono">' +
-      escapeHtml(s.duration) +
-      '</dd></div>' +
-      '<div><dt>Dernière activité</dt><dd title="' +
-      escapeHtml(s.last_seen_label || '') +
-      '">' +
-      escapeHtml(s.last_seen_ago || '—') +
-      '</dd></div>' +
-      '<div><dt>Navigateur</dt><dd title="' +
-      escapeHtml(s.browser_note || s.user_agent || '') +
-      '">' +
-      escapeHtml(s.user_agent_label || '—') +
-      '</dd></div>' +
-      '<div><dt>Cookies</dt><dd><span class="session-cookies badge badge-' +
-      cookieClass +
-      '" title="' +
-      escapeHtml(cookieTitle) +
-      '">' +
-      escapeHtml(s.cookies_label || '—') +
-      '</span></dd></div>' +
-      (String(s.protocol || '').toUpperCase() === 'BREAKGLASS' && s.jti
-        ? '<div><dt>jti</dt><dd class="mono" title="Identifiant JWT break-glass">' +
-          escapeHtml(String(s.jti).slice(0, 8)) +
-          '…</dd></div>'
-        : '') +
-      '</dl></div>' +
-      footer +
-      '</article>'
-    );
-  }
-
   function renderDetail() {
     var detail = document.getElementById('sessions-detail');
     if (!detail) return;
@@ -374,6 +581,7 @@
 
     var g = findGroup(selectedEmail);
     if (!groupsCache.length) {
+      closeSessionDetailPanel();
       detail.innerHTML =
         '<div class="sessions-detail-empty" id="sessions-detail-empty">' +
         '<div class="empty-state">' +
@@ -382,7 +590,14 @@
         '</div></div>';
       return;
     }
-    if (!g || (railFilter && filteredGroups().every(function (x) { return x.user_email !== g.user_email; }))) {
+    if (
+      !g ||
+      (railFilter &&
+        filteredGroups().every(function (x) {
+          return x.user_email !== g.user_email;
+        }))
+    ) {
+      closeSessionDetailPanel();
       detail.innerHTML =
         '<div class="sessions-detail-empty" id="sessions-detail-empty">' +
         '<div class="empty-state">' +
@@ -391,6 +606,19 @@
         '</div></div>';
       return;
     }
+
+    // Keep drawer open only if the session still belongs to this user.
+    if (openSessionId) {
+      var stillThere = (g.sessions || []).some(function (s) {
+        return s.id === openSessionId;
+      });
+      if (!stillThere) closeSessionDetailPanel();
+      else {
+        var current = findSession(openSessionId);
+        if (current) fillSessionDetailPanel(current);
+      }
+    }
+
     var statusClass = g.status === 'active' ? 'ok' : 'warn';
     var disconnectBtn = '';
     if (isAdmin && g.show_disconnect !== false && (g.has_oidc || g.has_app)) {
@@ -427,7 +655,7 @@
       '<div class="sessions-user-families" style="margin-top:6px;">' +
       familyChips(g) +
       '</div></div>' +
-      '<div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;">' +
+      '<div class="session-actions-group">' +
       '<span class="badge badge-' +
       statusClass +
       '">' +
@@ -436,10 +664,10 @@
       disconnectBtn +
       '</div></div>' +
       logoutBanner +
-      '<div id="disconnect-user-result" style="margin:0 0 var(--sp-3);"></div>' +
-      '<div class="sessions-card-grid" id="sessions-card-grid">' +
-      (g.sessions || []).map(renderSessionCard).join('') +
-      '</div>';
+      '<div id="disconnect-user-result" class="session-detail-spacer"></div>' +
+      '<ul class="sessions-row-list" id="sessions-card-grid" role="list">' +
+      (g.sessions || []).map(renderSessionRow).join('') +
+      '</ul>';
   }
 
   window.disconnectUser = async function (userEmail, realmSlug) {
@@ -513,7 +741,6 @@
           residual +
           '</div>';
       }
-      // Refresh list so SSO logout badge appears without full reload delay
       setTimeout(function () {
         refreshSessions();
       }, 400);
@@ -546,8 +773,38 @@
     var btn = ev.target.closest('.sessions-user-item');
     if (!btn) return;
     selectedEmail = btn.getAttribute('data-user-email') || '';
+    closeSessionDetailPanel();
     renderAll();
     liveVerifySelected();
+  }
+
+  function onSessionRowClick(ev) {
+    var row = ev.target.closest('.session-row');
+    if (!row) return;
+    var id = row.getAttribute('data-session-id');
+    if (!id) return;
+    toggleSessionDetailPanel(id);
+  }
+
+  function onDrawerKeydown(e) {
+    if (!openSessionId) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeSessionDetailPanel();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    var nodes = drawerFocusables();
+    if (!nodes.length) return;
+    var first = nodes[0];
+    var last = nodes[nodes.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
   }
 
   function liveVerifySelected() {
@@ -617,6 +874,8 @@
     selectedEmail = page.getAttribute('data-selected-email') || '';
     var list = document.getElementById('sessions-user-list');
     if (list) list.addEventListener('click', onUserClick);
+    var detail = document.getElementById('sessions-detail');
+    if (detail) detail.addEventListener('click', onSessionRowClick);
     var filterInput = document.getElementById('sessions-user-filter');
     if (filterInput) {
       filterInput.addEventListener('input', function () {
@@ -624,6 +883,19 @@
         renderAll();
       });
     }
+    var els = drawerEls();
+    if (els.closeBtn) {
+      els.closeBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        closeSessionDetailPanel();
+      });
+    }
+    if (els.backdrop) {
+      els.backdrop.addEventListener('click', function () {
+        closeSessionDetailPanel();
+      });
+    }
+    document.addEventListener('keydown', onDrawerKeydown);
     liveVerifySelected();
     setInterval(refreshSessions, POLL_MS);
   }

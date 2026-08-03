@@ -298,21 +298,22 @@
   register: _auth_image_smoke
   changed_when: false
 
-- name: "SMOKE : nginx subdomain auth snippet uses map vars"
+- name: "SMOKE : nginx subdomain auth snippet uses portal-parity Cookie/Host"
   ansible.builtin.shell: |
     set -euo pipefail
-    docker exec bastion-nginx test -f /etc/nginx/includes/nginx-subdomain-auth.map.conf
-    docker exec bastion-nginx grep -q 'bastion_x_original_host' \
+    docker exec bastion-nginx grep -q 'proxy_set_header Cookie          \$http_cookie;' \
       /etc/nginx/snippets/subdomain_auth_common.conf
-    docker exec bastion-nginx grep -q 'bastion_x_session' \
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$cookie_bastion_session' \
       /etc/nginx/snippets/subdomain_auth_common.conf
-    echo "nginx subdomain auth maps/snippet OK"
+    docker exec bastion-nginx grep -q 'proxy_set_header Host            \$host;' \
+      /etc/nginx/snippets/subdomain_auth_common.conf
+    echo "nginx subdomain auth portal-parity OK"
   args:
     executable: /bin/bash
   register: _nginx_subdomain_auth_smoke
   changed_when: false
 
-- name: "SMOKE : subdomain export has bastion_sub=1 and parent Cookie capture"
+- name: "SMOKE : subdomain export has bastion_sub=1 and auth_err diag"
   ansible.builtin.shell: |
     set -euo pipefail
     conf=/etc/nginx/conf.d/nginx-subdomain-apps.conf
@@ -322,8 +323,8 @@
       exit 0
     fi
     docker exec bastion-nginx grep -q 'bastion_sub=1' "$conf"
-    docker exec bastion-nginx grep -q 'set \$bastion_auth_cookie \$http_cookie;' "$conf"
-    echo "subdomain export bastion_sub + parent capture OK"
+    docker exec bastion-nginx grep -q 'auth_request_set \$bastion_auth_err' "$conf"
+    echo "subdomain export bastion_sub + auth_err OK"
   args:
     executable: /bin/bash
   register: _nginx_subdomain_export_smoke
@@ -333,8 +334,8 @@
 - name: "SMOKE : warn if subdomain export missing Transfer loop fixes"
   ansible.builtin.debug:
     msg: >-
-      nginx-subdomain-apps.conf sans bastion_sub=1 / parent capture ?
-      Relancer infrastructure apply après rebuild bastion-app.
+      nginx-subdomain-apps.conf sans bastion_sub=1 / auth_err diag ?
+      Relancer infrastructure apply après rebuild bastion-app + nginx.
       rc={{ _nginx_subdomain_export_smoke.rc }}
       {{ _nginx_subdomain_export_smoke.stdout | default('') }}
       {{ _nginx_subdomain_export_smoke.stderr | default('') }}

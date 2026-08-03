@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260729-tile-badges">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260803-apps-compact">
 {% endblock %}
 
 {% block content %}
@@ -12,6 +12,52 @@
   {% for b in app.status_badges or [] %}
   <span class="badge {{ b.class }}">{{ b.label }}</span>
   {% endfor %}
+{%- endmacro %}
+{% macro password_hint() -%}
+  <span class="app-tile-cred" title="Authentification par mot de passe requise à l’ouverture" aria-label="Mot de passe requis">
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+  </span>
+{%- endmacro %}
+{% macro open_chevron(locked_label=none) -%}
+  {% if locked_label %}
+  <span class="app-tile-open app-tile-open--locked" title="{{ locked_label }}">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </svg>
+  </span>
+  {% else %}
+  <span class="app-tile-open" aria-hidden="true" title="Ouvrir">
+    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path d="M5 12h14"/><polyline points="12 5 19 12 12 19"/>
+    </svg>
+  </span>
+  {% endif %}
+{%- endmacro %}
+{% macro app_tile_body(app, locked_label=none, show_password=false) -%}
+  {{ app_tile_icon(app) }}
+  <div class="app-tile-copy">
+    <div class="app-tile-headline">
+      <span class="admin-title truncate">{{ app.label }}</span>
+      {% if app.description %}
+      <span class="admin-desc truncate" title="{{ app.description }}">{{ app.description }}</span>
+      {% endif %}
+    </div>
+    <div class="app-tile-meta">
+      {{ status_badges(app) }}
+      {% if app.access_level == 'manage' %}
+      <span class="badge badge-ok">Gérée</span>
+      {% endif %}
+      {% if show_password %}{{ password_hint() }}{% endif %}
+      {% if locked_label == 'Configuration requise' %}
+      <span class="badge badge-warn">Configuration requise</span>
+      {% elif locked_label == 'Lecture seule' %}
+      <span class="badge badge-muted">Lecture seule</span>
+      {% endif %}
+    </div>
+  </div>
+  {{ open_chevron(locked_label) }}
 {%- endmacro %}
 <div class="portal-shell">
 {% include "portal/_topbar.html" %}
@@ -43,9 +89,27 @@
 
   {% if apps %}
   <div class="portal-filter-row" role="toolbar" aria-label="Filtres applications">
-    {% for key, label in portal_filters %}
-    <button type="button" class="portal-filter-chip{% if key == 'all' %} is-active{% endif %}" data-protocol-filter="{{ key }}">{{ label }}</button>
-    {% endfor %}
+    <div class="portal-filter-chips">
+      {% for key, label in portal_filters %}
+      <button type="button" class="portal-filter-chip{% if key == 'all' %} is-active{% endif %}" data-protocol-filter="{{ key }}">{{ label }}</button>
+      {% endfor %}
+    </div>
+    <div class="portal-view-toggle" role="group" aria-label="Mode d’affichage">
+      <button type="button" class="portal-view-btn is-active" data-apps-view="grid" aria-pressed="true" title="Vue grille">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+        </svg>
+        <span class="visually-hidden">Grille</span>
+      </button>
+      <button type="button" class="portal-view-btn" data-apps-view="list" aria-pressed="false" title="Vue liste">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+          <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+          <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+        </svg>
+        <span class="visually-hidden">Liste</span>
+      </button>
+    </div>
   </div>
 
   <div class="portal-apps-workspace">
@@ -65,12 +129,12 @@
         </div>
       </div>
 
-      <div class="admin-grid portal-app-grid{% if apps | length <= 3 %} portal-app-grid--compact{% endif %}" id="portal-app-grid">
+      <div class="admin-grid portal-app-grid" id="portal-app-grid" data-apps-view="grid">
         {% for app in apps %}
           {% if app.needs_credential_setup %}
           <div
             id="app-{{ app.slug }}"
-            class="admin-card app-tile app-tile--disabled"
+            class="admin-card app-tile app-tile--disabled app-tile--compact"
             data-searchable
             data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
             data-protocol-filter="{{ app.protocol_filter }}"
@@ -79,20 +143,13 @@
             title="Cette application nécessite une configuration par votre administrateur avant le premier accès."
             aria-disabled="true"
           >
-            {{ app_tile_icon(app) }}
-            <div class="admin-title">{{ app.label }}</div>
-            <div class="admin-desc truncate"{% if app.description %} title="{{ app.description }}"{% endif %}>{{ app.description or '' }}</div>
-            <div class="app-tile-meta">
-              {{ status_badges(app) }}
-              <span class="badge badge-warn">Configuration requise</span>
-            </div>
-            <span class="admin-arrow app-tile-locked">Contactez un administrateur</span>
+            {{ app_tile_body(app, locked_label='Configuration requise') }}
           </div>
           {% elif app.can_launch and app.credential_mode == 'identite_utilisateur' %}
           <button
             type="button"
             id="app-{{ app.slug }}"
-            class="admin-card app-tile"
+            class="admin-card app-tile app-tile--compact"
             data-searchable
             data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
             data-protocol-filter="{{ app.protocol_filter }}"
@@ -104,23 +161,13 @@
             data-open-with-identity
             data-open-identity-url="/api/apps/{{ app.slug }}/open-with-identity"
           >
-            {{ app_tile_icon(app) }}
-            <div class="admin-title">{{ app.label }}</div>
-            <div class="admin-desc truncate"{% if app.description %} title="{{ app.description }}"{% endif %}>{{ app.description or '' }}</div>
-            <div class="app-tile-meta">
-              {{ status_badges(app) }}
-              {% if app.access_level == 'manage' %}
-              <span class="badge badge-ok">Gérée</span>
-              {% endif %}
-              <span class="badge badge-muted">Mot de passe</span>
-            </div>
-            <span class="admin-arrow">Ouvrir →</span>
+            {{ app_tile_body(app, show_password=true) }}
           </button>
           {% elif app.can_launch %}
           <a
             id="app-{{ app.slug }}"
             href="{{ app.launch_url }}"
-            class="admin-card app-tile"
+            class="admin-card app-tile app-tile--compact"
             data-searchable
             data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
             data-protocol-filter="{{ app.protocol_filter }}"
@@ -130,21 +177,12 @@
             data-app-label="{{ app.label }}"
             {% if app.access_mode != 'legacy_path_proxy' %}target="_blank" rel="noopener noreferrer"{% endif %}
           >
-            {{ app_tile_icon(app) }}
-            <div class="admin-title">{{ app.label }}</div>
-            <div class="admin-desc truncate"{% if app.description %} title="{{ app.description }}"{% endif %}>{{ app.description or '' }}</div>
-            <div class="app-tile-meta">
-              {{ status_badges(app) }}
-              {% if app.access_level == 'manage' %}
-              <span class="badge badge-ok">Gérée</span>
-              {% endif %}
-            </div>
-            <span class="admin-arrow">Ouvrir →</span>
+            {{ app_tile_body(app) }}
           </a>
           {% else %}
           <div
             id="app-{{ app.slug }}"
-            class="admin-card app-tile app-tile--disabled"
+            class="admin-card app-tile app-tile--disabled app-tile--compact"
             data-searchable
             data-fuzzy-key="{{ app.label }} {{ app.description or '' }} {{ app.slug }}"
             data-protocol-filter="{{ app.protocol_filter }}"
@@ -153,11 +191,7 @@
             title="Accès lecture seule — ouverture non autorisée"
             aria-disabled="true"
           >
-            {{ app_tile_icon(app) }}
-            <div class="admin-title">{{ app.label }}</div>
-            <div class="admin-desc truncate"{% if app.description %} title="{{ app.description }}"{% endif %}>{{ app.description or '' }}</div>
-            <div class="app-tile-meta">{{ status_badges(app) }}</div>
-            <span class="admin-arrow app-tile-locked">Lecture seule</span>
+            {{ app_tile_body(app, locked_label='Lecture seule') }}
           </div>
           {% endif %}
         {% endfor %}
@@ -234,8 +268,6 @@
     var form = document.createElement('form');
     form.method = 'POST';
     form.action = endpoint;
-    // New tab: Set-Cookie + hop still apply (top-level document navigation).
-    // Keep catalogue on /apps; must run inside onConfirm click (popup blockers).
     form.target = '_blank';
     form.rel = 'noopener noreferrer';
     form.acceptCharset = 'UTF-8';
@@ -305,6 +337,8 @@
   var activeFilter = 'all';
   var chips = document.querySelectorAll('[data-protocol-filter]');
   var emptyHint = document.getElementById('portal-filter-empty');
+  var grid = document.getElementById('portal-app-grid');
+  var VIEW_KEY = 'bp-apps-view';
 
   function applyProtocolFilter() {
     var visible = 0;
@@ -327,6 +361,31 @@
       applyProtocolFilter();
     });
   });
+
+  function setAppsView(mode) {
+    var view = mode === 'list' ? 'list' : 'grid';
+    if (grid) grid.setAttribute('data-apps-view', view);
+    document.querySelectorAll('[data-apps-view]').forEach(function (btn) {
+      if (!btn.classList.contains('portal-view-btn')) return;
+      var on = btn.getAttribute('data-apps-view') === view;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch (_) { /* private mode */ }
+  }
+
+  document.querySelectorAll('.portal-view-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setAppsView(btn.getAttribute('data-apps-view'));
+    });
+  });
+
+  try {
+    var saved = localStorage.getItem(VIEW_KEY);
+    if (saved === 'list' || saved === 'grid') setAppsView(saved);
+  } catch (_) { /* ignore */ }
 })();
 </script>
 {% endblock %}

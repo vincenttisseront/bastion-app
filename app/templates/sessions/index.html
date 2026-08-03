@@ -2,7 +2,7 @@
 {% block title %}Sessions Actives{% endblock %}
 {% block breadcrumb %}Sessions{% endblock %}
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-sessions.css">
+<link rel="stylesheet" href="/static/css/bastion-sessions.css?v=20260803-compact">
 {% endblock %}
 
 {% block content %}
@@ -96,80 +96,48 @@
       <div class="session-sso-logout-banner mb-3" title="{{ first.sso_logout.residual_note or '' }}">{{ first.sso_logout.label }}</div>
       {% endif %}
       <div id="disconnect-user-result" class="session-detail-spacer"></div>
-      <div class="sessions-card-grid" id="sessions-card-grid">
+      <ul class="sessions-row-list" id="sessions-card-grid" role="list">
         {% for s in first.sessions %}
-        <article class="card session-card session-card-{{ s.auth_family | default('oidc') }}" data-session-id="{{ s.id }}" data-kind="{{ s.kind }}" data-auth-family="{{ s.auth_family | default('') }}">
-          <header class="card-header session-card-header">
-            <div class="session-card-title-row">
-              <span class="badge badge-{{ 'warn' if s.auth_family == 'breakglass' else ('ok' if s.kind == 'app' else 'info') }}">{{ s.type_label }}</span>
+        {% set family = s.auth_family | default('oidc') %}
+        <li>
+          <button type="button"
+                  class="session-row session-row-{{ family }}"
+                  data-session-id="{{ s.id }}"
+                  data-kind="{{ s.kind }}"
+                  data-auth-family="{{ family }}"
+                  aria-expanded="false"
+                  aria-controls="session-detail-drawer">
+            <span class="session-row-icon session-row-icon--{{ family }}" aria-hidden="true">
+              {% if family == 'app' %}
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+              {% elif family == 'breakglass' %}
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              {% else %}
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+              {% endif %}
+            </span>
+            <span class="session-row-main">
+              <span class="session-row-title truncate">{{ s.resource_title }}</span>
+              <span class="session-row-slug mono truncate">{{ s.resource_subtitle }}</span>
+            </span>
+            <span class="session-row-badges">
+              <span class="badge badge-{{ 'warn' if family == 'breakglass' else ('ok' if s.kind == 'app' else 'info') }}">{{ s.type_label }}</span>
               <span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span>
-            </div>
-            <span class="badge badge-{{ 'ok' if s.live_status == 'active' else ('err' if s.live_status == 'invalid' else ('info' if s.live_status == 'declarative' else 'warn')) }}"
+            </span>
+            <span class="session-row-status badge badge-{{ 'ok' if s.live_status == 'active' else ('err' if s.live_status == 'invalid' else ('info' if s.live_status == 'declarative' else 'warn')) }}"
                   title="{% if s.verifiable %}Statut vérifié auprès de l’app cible (live){% elif s.freshness %}{{ s.freshness.note }}{% else %}Statut déclaratif côté bastion{% endif %}">
               {% if s.live_status == 'active' %}<span class="live-dot live-dot-sm"></span>{% endif %}
               {{ s.live_status_label }}
             </span>
-          </header>
-          <div class="card-body session-card-body">
-            {% if s.sso_logout %}
-            <div class="session-sso-logout-banner" title="{{ s.sso_logout.residual_note or '' }}">{{ s.sso_logout.label }}</div>
-            {% endif %}
-            {% if s.identity_binding and s.identity_binding.unusual %}
-            <div class="session-binding-banner"
-                 title="Ancrage {{ s.identity_binding.first_ip_subnet or '—' }} / {{ (s.identity_binding.first_fingerprint_hash or '')[:8] }}… → dernier {{ s.identity_binding.last_ip_subnet or '—' }} / {{ (s.identity_binding.last_fingerprint_hash or '')[:8] }}… ({{ s.identity_binding.mismatch_count }} écart(s))">
-              ⚠ IP/empreinte inhabituelle
-            </div>
-            {% endif %}
-            <div class="session-card-resource">{{ s.resource_title }}</div>
-            <div class="session-card-slug mono">{{ s.resource_subtitle }}</div>
-            {% if s.verifiable %}
-            <div class="session-verified-meta mono">
-              {% if s.last_verified_ago %}Vérifié {{ s.last_verified_ago }}{% else %}En attente de vérification live…{% endif %}
-            </div>
-            {% elif s.freshness %}
-            <div class="session-verified-meta mono" title="{{ s.freshness.note }}">Âge {{ s.freshness.age_label }} · {{ s.freshness.policy_label }}</div>
-            {% endif %}
-            <dl class="session-card-facts">
-              <div><dt>Type</dt>
-                <dd>{% if s.auth_family == 'oidc' %}OIDC / Keycloak{% elif s.auth_family == 'breakglass' %}Break-glass (hors Keycloak){% else %}Application robotic/vault{% endif %}</dd>
-              </div>
-              <div><dt>IP client</dt>
-                <dd class="mono{% if s.client_ip_is_infra %} is-infra-ip{% endif %}"
-                    title="{{ s.client_ip_note or '' }}">{{ s.client_ip or s.source_ip }}</dd>
-              </div>
-              <div><dt>Durée</dt><dd class="mono">{{ s.duration }}</dd></div>
-              <div><dt>Dernière activité</dt><dd title="{{ s.last_seen_label }}">{{ s.last_seen_ago }}</dd></div>
-              <div><dt>Navigateur</dt><dd title="{{ s.browser_note or s.user_agent or '' }}">{{ s.user_agent_label }}</dd></div>
-              <div><dt>Cookies</dt>
-                <dd>
-                  <span class="session-cookies badge badge-{{ 'ok' if s.cookies_ok else 'warn' }}"
-                        title="{{ s.cookies_title }}{% if s.cookies_issued_at %} · émis {{ s.cookies_issued_at }}{% endif %}{% if s.crushauth_age %} · CrushAuth {{ s.crushauth_age }}{% endif %}">
-                    {{ s.cookies_label }}
-                  </span>
-                </dd>
-              </div>
-              {% if s.protocol == 'BREAKGLASS' and s.jti %}
-              <div><dt>jti courant</dt><dd class="mono" title="Identifiant JWT break-glass (chaîne)">{{ s.jti[:8] }}…{% if s.details and s.details.chain_id %} · chaîne {{ s.details.chain_id[:8] }}…{% endif %}</dd></div>
-              {% endif %}
-            </dl>
-          </div>
-          {% if is_admin %}
-          <footer class="session-card-footer session-actions">
-            <div class="session-actions-group">
-              <button type="button" class="btn btn-danger btn-sm btn-revoke"
-                      title="{{ s.action_titles.revoke }}"
-                      onclick="revokeSession('{{ s.id }}')">Révoquer cette session</button>
-              {% if s.can_rotate %}
-              <button type="button" class="btn btn-secondary btn-sm btn-rotate"
-                      title="{{ s.action_titles.rotate }}"
-                      onclick="rotateKeys('{{ s.id }}')">Rotation</button>
-              {% endif %}
-            </div>
-          </footer>
-          {% endif %}
-        </article>
+            <span class="session-row-meta mono" title="Durée">{{ s.duration }}</span>
+            <span class="session-row-meta session-row-ago" title="{{ s.last_seen_label }}">{{ s.last_seen_ago }}</span>
+            <span class="session-row-chevron" aria-hidden="true">
+              <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+            </span>
+          </button>
+        </li>
         {% endfor %}
-      </div>
+      </ul>
       {% else %}
       <div class="sessions-detail-empty" id="sessions-detail-empty">
         <div class="empty-state">
@@ -184,6 +152,29 @@
     </section>
   </div>
 </div>
+
+{# SessionDetailPanel — drawer (desktop) / full-screen sheet (mobile) #}
+<div id="session-detail-backdrop" class="session-detail-backdrop" hidden></div>
+<aside id="session-detail-drawer"
+       class="session-detail-drawer"
+       role="dialog"
+       aria-modal="true"
+       aria-labelledby="session-detail-title"
+       hidden>
+  <header class="session-detail-drawer-head">
+    <div class="session-detail-drawer-titles">
+      <h2 id="session-detail-title" class="session-detail-drawer-title">Session</h2>
+      <p id="session-detail-subtitle" class="session-detail-drawer-sub mono"></p>
+    </div>
+    <button type="button" class="icon-btn session-detail-close" id="session-detail-close" aria-label="Fermer le détail">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  </header>
+  <div class="session-detail-drawer-body" id="session-detail-body"></div>
+  <footer class="session-detail-drawer-foot session-actions" id="session-detail-actions"></footer>
+</aside>
 {% endblock %}
 
 {% block scripts %}
@@ -191,5 +182,5 @@
   window.__SESSIONS_IS_ADMIN__ = {{ 'true' if is_admin else 'false' }};
   window.__SESSIONS_BOOT__ = {{ session_groups | default([]) | tojson }};
 </script>
-<script src="/static/js/bastion-sessions.js"></script>
+<script src="/static/js/bastion-sessions.js?v=20260803-compact"></script>
 {% endblock %}
