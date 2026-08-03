@@ -194,7 +194,7 @@ def test_subdomain_auth_no_app_for_host_is_audited(client, db_session):
         },
     )
     assert resp.status_code == 401
-    assert resp.headers.get("x-auth-error") == "no-app-for-host"
+    assert resp.headers.get("x-auth-error") == "no-app-for-host:ghost.ar-systems.fr"
 
     entry = (
         db_session.query(AuditLog)
