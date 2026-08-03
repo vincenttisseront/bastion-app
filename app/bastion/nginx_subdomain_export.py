@@ -75,21 +75,26 @@ _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
 )
 
-# Capture + rebuild client Cookie in location / (rewrite) BEFORE auth_request.
-# Do NOT also set these at server{} — server rewrite re-runs on the auth
-# subrequest and overwrites a good capture with a filtered/empty $http_cookie
-# (HAR ae=no-session:ck=72:x=0). Location-/ sets do not re-run for the
-# internal auth location, so the parent capture survives.
+# Sticky capture + rebuild in location / BEFORE auth_request.
+# Do NOT also set these at server{} — server rewrite re-runs on auth and wipes.
 #
-# Rebuild Cookie as bastion_session=<JWT>; <full parent jar> so auth_request
-# always sees the JWT even when a CrushFTP Cookie filter later inherits into
-# the subrequest and leaves $http_cookie as CrushAuth-only (ck=72). Snippet
-# uses $bastion_pass_session / $bastion_auth_cookie DIRECTLY — no map fallback
-# to filtered $http_cookie.
+# HAR 2026-08-03 ae=no-session:ck=90:x=0: unconditional
+#   set $bastion_pass_* $http_cookie / $cookie_bastion_session
+# re-ran (shared vars) after CrushFTP Cookie inheritance left $http_cookie as
+# CrushAuth-only → baked auth Cookie became "bastion_session=; CrushAuth=…"
+# (len≈90) with empty X-Bastion-Session-* headers.
+#
+# Sticky: only refresh when $bastion_fresh_session is non-empty (map extracts
+# JWT from $http_cookie). A filtered re-run keeps the previous good capture.
+# Rebuild auth Cookie from the sticky vars for the snippet.
 _AUTH_COOKIE_CAPTURE_LINES = (
-    "        # Parent capture — survives auth_request (do not mirror at server{}).",
-    "        set $bastion_pass_cookie $http_cookie;",
-    "        set $bastion_pass_session $cookie_bastion_session;",
+    "        # Sticky parent capture — refresh only while jar still has JWT.",
+    "        set $bastion_pass_cookie $bastion_pass_cookie;",
+    "        set $bastion_pass_session $bastion_pass_session;",
+    '        if ($bastion_fresh_session != "") {',
+    "            set $bastion_pass_cookie $http_cookie;",
+    "            set $bastion_pass_session $bastion_fresh_session;",
+    "        }",
     '        set $bastion_auth_cookie '
     '"bastion_session=$bastion_pass_session; $bastion_pass_cookie";',
 )

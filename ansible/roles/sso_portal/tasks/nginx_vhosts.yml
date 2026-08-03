@@ -77,6 +77,32 @@
   when: portal_breakglass_map_included.rc != 0
   notify: Reload nginx
 
+- name: Ensure subdomain auth map file exists
+  ansible.builtin.copy:
+    src: "{{ bastion_app_root }}/nginx/maps/nginx-subdomain-auth.map.conf"
+    dest: "{{ sso_portal_exports_path }}/nginx-subdomain-auth.map.conf"
+    owner: "{{ sso_portal_user }}"
+    group: "{{ sso_portal_user }}"
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Check if subdomain auth map is included in nginx.conf
+  ansible.builtin.command: grep -q 'nginx-subdomain-auth.map.conf' /etc/nginx/nginx.conf
+  register: subdomain_auth_map_included
+  changed_when: false
+  failed_when: false
+
+- name: Include subdomain auth maps in nginx http block
+  ansible.builtin.blockinfile:
+    path: /etc/nginx/nginx.conf
+    marker: "# {mark} ANSIBLE MANAGED — subdomain auth maps"
+    insertafter: 'http {'
+    block: |2
+      include {{ sso_portal_exports_path }}/nginx-subdomain-auth.map.conf;
+    create: false
+  when: subdomain_auth_map_included.rc != 0
+  notify: Reload nginx
+
 - name: Assurer un fragment nginx-portal-realms.conf valide (include obligatoire)
   ansible.builtin.copy:
     dest: "{{ sso_portal_exports_path }}/nginx-portal-realms.conf"
