@@ -238,14 +238,21 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "        proxy_set_header Cookie $bastion_upstream_cookie;",
         ]
         # Robotic login + browser must present the SAME IP to CrushFTP or it
-        # invalidates CrushAuth (session IP lock). The robotic login reaches
-        # CrushFTP directly (TCP source = docker host NAT), while browser
-        # traffic is proxied by this vhost where $server_addr is 127.0.0.1
-        # (internal :8080 listener). Sending X-Real-IP/X-Forwarded-For here
-        # makes CrushFTP see two different IPs for the same CrushAuth →
-        # 302 login.html + cookie wipe loop. Send NO forwarded-IP headers:
-        # CrushFTP then uses the TCP source IP, identical for both paths.
-        forwarded_ip_lines: list[str] = []
+        # invalidates CrushAuth (session IP lock):
+        #   "User session invalidated due to IP change" in CrushFTP.log.
+        # The robotic login reaches CrushFTP directly (TCP source = docker
+        # host NAT, no forwarded headers), while browser traffic traverses
+        # the DMZ reverse proxy which ADDS X-Forwarded-For: <client-ip>.
+        # Simply omitting proxy_set_header here is NOT enough: nginx then
+        # forwards the inbound X-Forwarded-For/X-Real-IP unchanged and
+        # CrushFTP trusts it → two different IPs for the same CrushAuth →
+        # 302 login.html + cookie wipe loop. Explicitly BLANK the headers
+        # (empty value removes them) so CrushFTP only ever sees the TCP
+        # source IP, identical for both paths.
+        forwarded_ip_lines = [
+            '        proxy_set_header X-Real-IP "";',
+            '        proxy_set_header X-Forwarded-For "";',
+        ]
         # CrushFTP often emits Absolute Location: http(s)://<upstream-ip>/...
         # With proxy_redirect off the browser leaves the SSO vhost (IP login).
         upstream_host_re = re.escape(upstream_host)
