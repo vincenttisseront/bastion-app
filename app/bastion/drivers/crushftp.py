@@ -73,6 +73,23 @@ def _login_reject_hint(text: str, status: int) -> str:
     if not body:
         return f"réponse vide (HTTP {status})"
     lowered = body.lower()
+    if "ip is banned" in lowered or "hammering" in lowered:
+        # CrushFTP DENIAL: "---Your IP is banned, no further requests will be
+        # processed from this IP---:<ip>:<since>:hammering http". The banned IP
+        # is the docker host NAT — it carries the robotic login AND every
+        # proxied browser user, so the whole platform is locked out at once.
+        return (
+            f"IP bastion bannie par CrushFTP (protection anti-hammering, "
+            f"HTTP {status}) — débannir dans l'admin CrushFTP "
+            "(Server Admin → IP restrictions / ban list) puis chercher la "
+            "cause de la rafale (ex. boucle de redirections login.html)"
+        )
+    if "max simultaneous" in lowered or "user limit" in lowered:
+        return (
+            f"limite de sessions simultanées CrushFTP atteinte (HTTP {status}) "
+            "— augmentez « Max logins » du compte robotique ou attendez "
+            "l'expiration des sessions orphelines"
+        )
     if _FAILURE_RE.search(body):
         return (
             f"CrushFTP a renvoyé failure (HTTP {status}) — "
@@ -87,6 +104,13 @@ def _login_reject_hint(text: str, status: int) -> str:
     if "oauth" in lowered or "keycloak" in lowered or "sso" in lowered:
         return f"réponse type SSO (HTTP {status}) — utilisez l’URL Admin API interne"
     return f"pas de <response>success</response> (HTTP {status}, {len(body)} octets)"
+
+
+def _body_excerpt(text: str, limit: int = 200) -> str:
+    """Whitespace-collapsed body excerpt for WARNING logs (login responses only —
+    they never echo credentials; at worst the username)."""
+    collapsed = re.sub(r"\s+", " ", (text or "").strip())
+    return collapsed[:limit] + ("…" if len(collapsed) > limit else "")
 
 
 def _extract_session_cookies(response: httpx.Response) -> dict[str, str]:
@@ -162,9 +186,18 @@ class CrushFTPDriver(RoboticDriver):
 
         body = response.text or ""
         if not _SUCCESS_RE.search(body):
-            raise RoboticLoginError(
-                f"CrushFTP login rejected — {_login_reject_hint(body, response.status_code)}"
+            hint = _login_reject_hint(body, response.status_code)
+            # Mirror CrushFTP.log diagnostics (DENIAL ban, session limit, …) in
+            # bastion logs — the response body is the only place CrushFTP says why.
+            logger.warning(
+                "CrushFTP login rejected: %s | url=%s user=%s http=%s body=%r",
+                hint,
+                url,
+                username,
+                response.status_code,
+                _body_excerpt(body),
             )
+            raise RoboticLoginError(f"CrushFTP login rejected — {hint}")
 
         cookies = _extract_session_cookies(response)
         if "CrushAuth" not in cookies:
@@ -201,6 +234,13 @@ class CrushFTPDriver(RoboticDriver):
 
         text = response.text or ""
         if not _SUCCESS_RE.search(text):
+            logger.warning(
+                "CrushFTP getUsername rejected: %s | url=%s http=%s body=%r",
+                _login_reject_hint(text, response.status_code),
+                url,
+                response.status_code,
+                _body_excerpt(text),
+            )
             raise RoboticLoginError("CrushFTP getUsername rejected")
         match = _USERNAME_RE.search(text)
         if not match:

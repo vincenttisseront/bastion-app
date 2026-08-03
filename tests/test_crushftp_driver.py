@@ -53,6 +53,44 @@ async def test_login_rejected():
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_login_ip_banned_hint_and_warning(caplog):
+    """CrushFTP anti-hammering ban (DENIAL in CrushFTP.log) must surface both in
+    the raised error and as a bastion-side WARNING with the body excerpt."""
+    import logging
+
+    ban_text = (
+        "---Your IP is banned, no further requests will be processed "
+        "from this IP---"
+    )
+    respx.post(LOGIN_URL).mock(return_value=Response(200, text=ban_text))
+    driver = CrushFTPDriver()
+    with caplog.at_level(logging.WARNING, logger="app.bastion.drivers.crushftp"):
+        with pytest.raises(RoboticLoginError, match="bannie par CrushFTP"):
+            await driver.login(BASE, "robot", "secret")
+
+    warnings = [r for r in caplog.records if "CrushFTP login rejected" in r.message]
+    assert len(warnings) == 1
+    msg = warnings[0].getMessage()
+    assert "anti-hammering" in msg
+    assert "Your IP is banned" in msg  # body excerpt mirrored in bastion logs
+    assert "secret" not in msg  # never the password
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_login_session_limit_hint():
+    respx.post(LOGIN_URL).mock(
+        return_value=Response(
+            200, text="421 Max simultaneous user limit reached."
+        )
+    )
+    driver = CrushFTPDriver()
+    with pytest.raises(RoboticLoginError, match="sessions simultanées"):
+        await driver.login(BASE, "robot", "secret")
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_login_sso_redirect_message():
     respx.post(LOGIN_URL).mock(
         return_value=Response(
