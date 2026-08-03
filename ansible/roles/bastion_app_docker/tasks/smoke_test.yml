@@ -305,7 +305,7 @@
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'proxy_pass_request_headers off;' \
       /etc/nginx/snippets/subdomain_auth_common.conf
-    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_auth_session' \
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_pass_session' \
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'X-Bastion-Session-From-Jar \$bastion_session_from_jar' \
       /etc/nginx/snippets/subdomain_auth_common.conf
@@ -313,10 +313,14 @@
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'map \$bastion_vhost_fqdn \$bastion_auth_host' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf
-    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_session_from_pass' \
+    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_session_from_jar' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf
-    docker exec bastion-nginx grep -q 'map \$bastion_session_from_pass \$bastion_session_from_jar' \
-      /etc/nginx/includes/nginx-subdomain-auth.map.conf
+    if docker exec bastion-nginx grep -qE \
+      '""[[:space:]]+\$http_cookie;|map \$bastion_pass_cookie \$bastion_auth_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "map still falls back auth Cookie to filtered \$http_cookie"
+      exit 1
+    fi
     echo "nginx subdomain auth Host/Cookie contract OK"
   args:
     executable: /bin/bash
@@ -337,6 +341,9 @@
     docker exec bastion-nginx grep -q 'auth_request_set \$bastion_auth_err' "$conf"
     docker exec bastion-nginx grep -q 'set \$bastion_vhost_fqdn "' "$conf"
     docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$conf"
+    docker exec bastion-nginx grep -q \
+      'set \$bastion_auth_cookie "bastion_session=\$bastion_pass_session; \$bastion_pass_cookie";' \
+      "$conf"
     if docker exec bastion-nginx grep -q 'CrushAuth=\$cookie_CrushAuth' "$conf"; then
       docker exec bastion-nginx grep -q 'try_files /nonexistent @app_upstream_' "$conf"
       if docker exec bastion-nginx grep -q 'bastion_session=\$cookie_bastion_session' "$conf"; then
@@ -356,7 +363,7 @@
   ansible.builtin.debug:
     msg: >-
       nginx-subdomain-apps.conf sans bastion_sub=1 / bastion_vhost_fqdn /
-      bastion_pass_cookie / auth_err ?
+      bastion_pass_cookie / auth Cookie rebuild / auth_err ?
       Relancer infrastructure apply après rebuild bastion-app + nginx.
       rc={{ _nginx_subdomain_export_smoke.rc }}
       {{ _nginx_subdomain_export_smoke.stdout | default('') }}

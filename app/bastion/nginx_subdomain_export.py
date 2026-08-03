@@ -70,20 +70,28 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
 
 # auth_request_set — surface FastAPI X-Auth-Error in access logs (no-session,
 # no-app-for-host, native-session-rejected). Host = literal $bastion_vhost_fqdn;
-# Cookie = $bastion_pass_* captured in parent location before auth_request.
+# Cookie = $bastion_auth_cookie rebuilt from $bastion_pass_* in location /.
 _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
 )
 
-# Capture client Cookie in location / (rewrite) BEFORE auth_request.
+# Capture + rebuild client Cookie in location / (rewrite) BEFORE auth_request.
 # Do NOT also set these at server{} — server rewrite re-runs on the auth
 # subrequest and overwrites a good capture with a filtered/empty $http_cookie
 # (HAR ae=no-session:ck=72:x=0). Location-/ sets do not re-run for the
 # internal auth location, so the parent capture survives.
+#
+# Rebuild Cookie as bastion_session=<JWT>; <full parent jar> so auth_request
+# always sees the JWT even when a CrushFTP Cookie filter later inherits into
+# the subrequest and leaves $http_cookie as CrushAuth-only (ck=72). Snippet
+# uses $bastion_pass_session / $bastion_auth_cookie DIRECTLY — no map fallback
+# to filtered $http_cookie.
 _AUTH_COOKIE_CAPTURE_LINES = (
     "        # Parent capture — survives auth_request (do not mirror at server{}).",
     "        set $bastion_pass_cookie $http_cookie;",
     "        set $bastion_pass_session $cookie_bastion_session;",
+    '        set $bastion_auth_cookie '
+    '"bastion_session=$bastion_pass_session; $bastion_pass_cookie";',
 )
 
 

@@ -621,7 +621,7 @@
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
       'proxy_set_header Cookie          \$bastion_auth_cookie;' \
       /etc/nginx/snippets/subdomain_auth_common.conf; then
-      echo "OLD nginx snippet — expected Cookie \$bastion_auth_cookie (parent capture)."
+      echo "OLD nginx snippet — expected Cookie \$bastion_auth_cookie (rebuilt in location /)."
       docker run --rm --entrypoint sed bastion-nginx:local -n '1,35p' \
         /etc/nginx/snippets/subdomain_auth_common.conf || true
       exit 1
@@ -633,15 +633,21 @@
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
-      'X-Bastion-Session-Cookie \$bastion_auth_session' \
+      'X-Bastion-Session-Cookie \$bastion_pass_session' \
       /etc/nginx/snippets/subdomain_auth_common.conf; then
-      echo "OLD nginx snippet — expected X-Bastion-Session-Cookie \$bastion_auth_session"
+      echo "OLD nginx snippet — expected X-Bastion-Session-Cookie \$bastion_pass_session (direct)"
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
       'X-Bastion-Session-From-Jar \$bastion_session_from_jar' \
       /etc/nginx/snippets/subdomain_auth_common.conf; then
       echo "OLD nginx snippet — expected X-Bastion-Session-From-Jar \$bastion_session_from_jar"
+      exit 1
+    fi
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'X-Bastion-Session-Cookie \$bastion_auth_session' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "OLD nginx snippet — still uses map \$bastion_auth_session (falls back to filtered cookie)"
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
@@ -657,21 +663,27 @@
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_pass_cookie \$bastion_session_from_jar' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — expected session extract from \$bastion_pass_cookie only"
+      exit 1
+    fi
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
       'map \$bastion_pass_cookie \$bastion_auth_cookie' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
-      echo "OLD nginx map — expected map \$bastion_pass_cookie \$bastion_auth_cookie"
+      echo "OLD nginx map — \$bastion_auth_cookie must be set in location /, not mapped from \$http_cookie"
       exit 1
     fi
-    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
-      'map \$bastion_pass_cookie \$bastion_session_from_pass' \
+    if docker run --rm --entrypoint grep bastion-nginx:local -qE \
+      '""[[:space:]]+\$http_cookie;|""[[:space:]]+\$cookie_bastion_session;' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
-      echo "OLD nginx map — expected session extract from \$bastion_pass_cookie"
+      echo "OLD nginx map — still falls back auth Cookie/session to filtered \$http_cookie"
       exit 1
     fi
-    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
-      'map \$bastion_session_from_pass \$bastion_session_from_jar' \
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
+      '\$bastion_session_from_http' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
-      echo "OLD nginx map — expected \$bastion_session_from_jar chain"
+      echo "OLD nginx map — still extracts session from filtered \$http_cookie"
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
@@ -921,24 +933,37 @@
     docker exec bastion-nginx grep -q 'proxy_set_header Cookie          \$bastion_auth_cookie;' \
       /etc/nginx/snippets/subdomain_auth_common.conf \
       || { echo "live snippet missing Cookie \$bastion_auth_cookie — rebuild nginx image"; exit 1; }
-    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_auth_session' \
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_pass_session' \
       /etc/nginx/snippets/subdomain_auth_common.conf \
-      || { echo "live snippet missing X-Bastion-Session-Cookie — rebuild nginx image"; exit 1; }
+      || { echo "live snippet missing X-Bastion-Session-Cookie \$bastion_pass_session — rebuild nginx image"; exit 1; }
     docker exec bastion-nginx grep -q 'X-Bastion-Session-From-Jar \$bastion_session_from_jar' \
       /etc/nginx/snippets/subdomain_auth_common.conf \
       || { echo "live snippet missing X-Bastion-Session-From-Jar — rebuild nginx image"; exit 1; }
+    if docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_auth_session' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "live snippet still uses map \$bastion_auth_session (filtered fallback) — rebuild nginx image"
+      exit 1
+    fi
     docker exec bastion-nginx grep -q 'X-Original-Host \$bastion_auth_host' \
       /etc/nginx/snippets/subdomain_auth_common.conf \
       || { echo "live snippet missing X-Original-Host \$bastion_auth_host — rebuild nginx image"; exit 1; }
     docker exec bastion-nginx grep -q 'map \$bastion_vhost_fqdn \$bastion_auth_host' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf \
       || { echo "live map missing \$bastion_auth_host — rebuild nginx image"; exit 1; }
-    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_session_from_pass' \
+    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_session_from_jar' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf \
-      || { echo "live map missing session_from_pass — rebuild nginx image"; exit 1; }
-    docker exec bastion-nginx grep -q 'map \$bastion_session_from_pass \$bastion_session_from_jar' \
-      /etc/nginx/includes/nginx-subdomain-auth.map.conf \
-      || { echo "live map missing \$bastion_session_from_jar chain — rebuild nginx image"; exit 1; }
+      || { echo "live map missing session_from_jar from pass_cookie — rebuild nginx image"; exit 1; }
+    if docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_auth_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "live map still maps \$bastion_auth_cookie (must be set in location /) — rebuild nginx image"
+      exit 1
+    fi
+    if docker exec bastion-nginx grep -qE \
+      '""[[:space:]]+\$http_cookie;|""[[:space:]]+\$cookie_bastion_session;' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "live map still falls back to filtered \$http_cookie — rebuild nginx image"
+      exit 1
+    fi
     echo "snippet OK"
     if [[ ! -f "$CONF_HOST" ]]; then
       echo "no host export yet — skip export contract"
@@ -959,6 +984,8 @@
       || { echo "export missing set \$bastion_vhost_fqdn literal — rebuild bastion-app + re-apply"; exit 1; }
     grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$CONF_HOST" \
       || { echo "export missing parent Cookie capture — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'set \$bastion_auth_cookie "bastion_session=\$bastion_pass_session; \$bastion_pass_cookie";' "$CONF_HOST" \
+      || { echo "export missing auth Cookie rebuild (bastion_session= + pass jar) — rebuild bastion-app + re-apply"; exit 1; }
     if grep -q 'CrushAuth=\$cookie_CrushAuth' "$CONF_HOST"; then
       grep -q 'try_files /nonexistent @app_upstream_' "$CONF_HOST" \
         || { echo "CrushFTP export missing @app_upstream_ handoff — rebuild bastion-app + re-apply"; exit 1; }
@@ -979,7 +1006,7 @@
       awk '/server_name[[:space:]]+transfer\./,/^}/' "$CONF_HOST" | head -n 120 || true
     fi
     if grep -q 'set \$bastion_auth_cookie \$http_cookie;' "$CONF_HOST"; then
-      echo "export still has legacy bastion_auth_cookie name — rebuild bastion-app + re-apply"
+      echo "export still has legacy bastion_auth_cookie=\$http_cookie — rebuild bastion-app + re-apply"
       exit 1
     fi
     echo "host export OK"
@@ -993,6 +1020,10 @@
       || { echo "live nginx conf missing \$bastion_vhost_fqdn literal — sync-exports/reload failed"; exit 1; }
     docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$CONF_NGX" \
       || { echo "live nginx conf missing parent Cookie capture — sync-exports/reload failed"; exit 1; }
+    docker exec bastion-nginx grep -q \
+      'set \$bastion_auth_cookie "bastion_session=\$bastion_pass_session; \$bastion_pass_cookie";' \
+      "$CONF_NGX" \
+      || { echo "live nginx conf missing auth Cookie rebuild — sync-exports/reload failed"; exit 1; }
     if docker exec bastion-nginx grep -q 'CrushAuth=\$cookie_CrushAuth' "$CONF_NGX"; then
       docker exec bastion-nginx grep -q 'try_files /nonexistent @app_upstream_' "$CONF_NGX" \
         || { echo "live CrushFTP conf missing @app_upstream_ handoff — re-apply + reload"; exit 1; }

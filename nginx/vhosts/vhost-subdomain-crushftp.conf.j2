@@ -23,9 +23,9 @@ server {
     set $app_upstream     {{ vhost.upstream_url }};
     # Literal FQDN for auth_request (must survive rewrite re-run on subrequest).
     set $bastion_vhost_fqdn "{{ vhost.fqdn }}";
-    # Client Cookie for auth_request (before CrushFTP upstream Cookie filter).
-    set $bastion_pass_cookie $http_cookie;
-    set $bastion_pass_session $cookie_bastion_session;
+    # Do NOT capture Cookie at server{} — rewrite re-runs on auth_request and
+    # can wipe a good jar with CrushAuth-filtered $http_cookie (ck=72 / x=0).
+    # Capture + rebuild lives in location / only (below).
 
     # ─── Bloc interne auth subdomain ──────────────────────────────────────────
     # Définit location = /internal/subdomain-auth avec auth_request off
@@ -63,10 +63,11 @@ server {
 
     # ─── Route principale — protégée par auth_request ─────────────────────────
     # REGLE : auth_request + error_page 401 uniquement ici (jamais au niveau server)
-    # Capture Cookie in parent before auth_request ($http_cookie empty on subrequest).
+    # Capture + rebuild Cookie in parent before auth_request (never at server{}).
     location / {
         set $bastion_pass_cookie $http_cookie;
         set $bastion_pass_session $cookie_bastion_session;
+        set $bastion_auth_cookie "bastion_session=$bastion_pass_session; $bastion_pass_cookie";
         auth_request /internal/subdomain-auth;
         auth_request_set $bastion_auth_err $upstream_http_x_auth_error;
 
