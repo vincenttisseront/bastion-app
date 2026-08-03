@@ -220,26 +220,37 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             ssl_lines.insert(0, "        proxy_ssl_protocols TLSv1.2 TLSv1.3;")
             ssl_lines.append("        proxy_ssl_session_reuse off;")
 
-    # CrushFTP: strip oauth2/Keycloak JWTs (header too large / 502) but KEEP
-    # bastion_session. If this Cookie filter ever leaks into auth_request
-    # (same location / inheritance), FastAPI still sees the native session
-    # (HAR ae=no-session:ck=72 when bastion_session was stripped). Always put
-    # the filter in @app_upstream_* — never in the auth gate location /.
+    # CrushFTP: forward ONLY CrushAuth + currentAuth. Never bastion_session /
+    # oauth2 JWTs (header too large → 502, or CrushFTP drops the session and
+    # Absolute-redirects to the upstream IP login page).
+    # CRITICAL: put that Cookie filter in @app_upstream_* only — never in the
+    # same location as auth_request (inherits → HAR ae=no-session:ck=72:x=0).
     if crushftp:
         cookie_lines = [
             '        set $bastion_upstream_cookie '
-            '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth; '
-            'bastion_session=$cookie_bastion_session";',
+            '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth";',
             "        proxy_set_header Cookie $bastion_upstream_cookie;",
         ]
         # Robotic login + browser must share the same reverse IP or CrushFTP
         # invalidates CrushAuth (dedicated transfer vhost contract).
         real_ip_line = "        proxy_set_header X-Real-IP $server_addr;"
         xff_line = "        proxy_set_header X-Forwarded-For $server_addr;"
+        # CrushFTP often emits Absolute Location: http(s)://<upstream-ip>/...
+        # With proxy_redirect off the browser leaves the SSO vhost (IP login).
+        upstream_host_re = re.escape(upstream_host)
+        redirect_lines = [
+            f"        proxy_redirect http://{upstream_host_esc}/ "
+            f"https://{fqdn_esc}/;",
+            f"        proxy_redirect https://{upstream_host_esc}/ "
+            f"https://{fqdn_esc}/;",
+            f"        proxy_redirect ~^https?://{upstream_host_re}(?::\\d+)?(/.*)$ "
+            f"https://{fqdn_esc}$1;",
+        ]
     else:
         cookie_lines = ["        proxy_set_header Cookie $http_cookie;"]
         real_ip_line = "        proxy_set_header X-Real-IP $remote_addr;"
         xff_line = "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
+        redirect_lines = ["        proxy_redirect off;"]
 
     named_upstream = f"@app_upstream_{slug}"
     auth_request_set_user_lines = [
@@ -252,7 +263,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     ]
     proxy_body_lines = [
         f"        proxy_pass $app_upstream;",
-        "        proxy_redirect off;",
+        *redirect_lines,
         "        proxy_http_version 1.1;",
         # Needed for ws/wss endpoints (e.g. Teleport terminal streaming).
         "        proxy_set_header Upgrade $http_upgrade;",

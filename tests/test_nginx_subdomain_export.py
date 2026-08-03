@@ -107,10 +107,10 @@ def test_generate_server_block_includes_hop_not_internal():
 
 
 def test_generate_crushftp_block_filters_portal_cookies():
-    """CrushFTP Cookie: keep CrushAuth/currentAuth/bastion_session; strip oauth2 JWTs.
+    """CrushFTP Cookie: CrushAuth + currentAuth only — never bastion_session JWT.
 
-    bastion_session stays in the upstream jar so a leaked filter into auth_request
-    still authenticates (HAR ae=no-session:ck=72 when session was stripped).
+    bastion_session / oauth2 cookies cause CrushFTP 502 or Absolute IP login
+    redirects. Auth isolation is @app_upstream_* (filter not in location /).
     """
     app = App(
         slug="transfer",
@@ -125,9 +125,11 @@ def test_generate_crushftp_block_filters_portal_cookies():
     block = generate_subdomain_server_block(app, _settings())
     assert "CrushAuth=$cookie_CrushAuth" in block
     assert "currentAuth=$cookie_currentAuth" in block
-    assert "bastion_session=$cookie_bastion_session" in block
+    assert "bastion_session=$cookie_bastion_session" not in block
     assert "set $bastion_upstream_cookie" in block
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in block
+    assert "proxy_redirect http://172.24.0.106/" in block
+    assert "proxy_redirect https://172.24.0.106/" in block
     assert "proxy_set_header X-Real-IP $server_addr;" in block
     assert "proxy_set_header X-Forwarded-For $server_addr;" in block
     assert "location = /WebInterface/new-ui/" in block
