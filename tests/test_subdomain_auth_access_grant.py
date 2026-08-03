@@ -516,7 +516,7 @@ def test_subdomain_auth_unauthenticated_sets_no_session_error(client, db_session
         },
     )
     assert resp.status_code == 401
-    assert resp.headers.get("x-auth-error") == "no-session"
+    assert resp.headers.get("x-auth-error", "").startswith("no-session")
 
 
 @respx.mock

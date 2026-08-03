@@ -69,10 +69,17 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
 
 
 # auth_request_set — surface FastAPI X-Auth-Error in access logs (no-session,
-# no-app-for-host, native-session-rejected). Host comes from $bastion_auth_host
-# (literal $bastion_vhost_fqdn); Cookie is $http_cookie.
+# no-app-for-host, native-session-rejected). Host = literal $bastion_vhost_fqdn;
+# Cookie = $bastion_pass_* captured in parent location before auth_request.
 _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
+)
+
+# Parent location must capture Cookie before auth_request — $http_cookie is
+# often empty on the auth subrequest (HAR: ae=no-session).
+_AUTH_COOKIE_CAPTURE_LINES = (
+    "        set $bastion_pass_cookie $http_cookie;",
+    "        set $bastion_pass_session $cookie_bastion_session;",
 )
 
 
@@ -99,6 +106,7 @@ def _activesync_locations(
         "    # Mobile ActiveSync / Autodiscover (allow_activesync=true)",
         "    # Ping heartbeat needs read timeout >> default 60s (iOS often 900–1800s).",
         "    location ~* ^/Microsoft-Server-ActiveSync {",
+        *_AUTH_COOKIE_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
         f"        error_page 401 = @activesync_unauthorized_{slug};",
@@ -130,6 +138,7 @@ def _activesync_locations(
         "    }",
         "",
         "    location ~* ^/(AutoDiscover|autodiscover)/ {",
+        *_AUTH_COOKIE_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
         f"        error_page 401 = @activesync_unauthorized_{slug};",
@@ -284,8 +293,9 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     lines.extend(
         [
             "    location / {",
-            # Host for auth_request comes from $bastion_vhost_fqdn (server literal)
-            # via map → $bastion_auth_host. Do not capture $host before auth_request.
+            # Capture Cookie here (parent) — $http_cookie is empty on auth
+            # subrequest (HAR ae=no-session). Host stays literal $bastion_vhost_fqdn.
+            *_AUTH_COOKIE_CAPTURE_LINES,
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
             f"        error_page 401 = @portal_redirect_{slug};",
