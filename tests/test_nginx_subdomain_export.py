@@ -80,6 +80,7 @@ def test_generate_server_block_includes_hop_not_internal():
     assert 'set $app_upstream "https://10.0.0.5";' in block
     assert "rewrite ^/(.*)$ /dolibarr/$1 break;" not in block
     assert "rd=https://$host$request_uri" in block
+    assert "bastion_sub=1" in block
     assert "/auth/login?rd=https://" in block
     assert "/oauth2/" not in block.split("@portal_redirect")[1]
     assert "?rd=$request_uri;" not in block
@@ -133,6 +134,7 @@ def test_generate_server_block_strips_web_path():
     assert 'set $app_upstream "https://10.0.0.50/web"' not in block
     assert "rewrite " not in block
     assert "rd=https://$host$request_uri" in block
+    assert "bastion_sub=1" in block
     assert "/auth/login?rd=https://" in block
 
 

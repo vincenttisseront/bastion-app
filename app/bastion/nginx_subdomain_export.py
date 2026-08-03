@@ -312,11 +312,10 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             # (auth_request off on portal) — NOT bare /login which falls through
             # location / → portal_auth_check → bounce-back loop when subdomain
             # auth_request still returns 401.
-            # Absolute rd= is accepted by safe_post_login_rd when the host shares
-            # the portal parent domain; oauth2-proxy whitelist_domains still
-            # covers the legacy SSO button path.
+            # bastion_sub=1: login must NOT bounce back to this Host (HAR loop when
+            # auth_request 401 despite a valid bastion_session — stale nginx snippet).
             f"        return 302 https://{portal_esc}/auth/login"
-            "?rd=https://$host$request_uri;",
+            "?rd=https://$host$request_uri&bastion_sub=1;",
             "    }",
             "}",
             "",
