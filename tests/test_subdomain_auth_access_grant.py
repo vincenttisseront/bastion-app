@@ -155,6 +155,93 @@ def test_subdomain_auth_records_app_presence(client, db_session):
 
 
 @respx.mock
+def test_subdomain_auth_warns_on_crushftp_login_bounce(client, db_session, caplog):
+    """Authenticated user on /WebInterface/login.html with a live CrushAuth =
+    CrushFTP invalidated the robotic session upstream (IP lock / limit) —
+    must surface as a bastion-side WARNING, not only in CrushFTP.log."""
+    import logging
+
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session)
+    app.robotic_driver = "crushftp"
+    db_session.add(app)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    headers = _auth_headers(uri="/WebInterface/login.html")
+    headers["Cookie"] = (
+        "_oauth2_proxy=valid; CrushAuth=1785773795018_Rn5Qq6y1rdDy7WTxayhKPSKipORdeF; "
+        "currentAuth=RdeF"
+    )
+    with caplog.at_level(logging.WARNING, logger="app.subdomain.subdomain_auth"):
+        resp = client.get("/internal/subdomain-auth", headers=headers)
+
+    assert resp.status_code == 200
+    bounce_logs = [r for r in caplog.records if "CrushFTP login bounce" in r.message]
+    assert len(bounce_logs) == 1
+    msg = bounce_logs[0].getMessage()
+    assert "app=transfer" in msg
+    assert "user=alice@example.com" in msg
+    assert "client_ip=8.8.8.8" in msg
+    # Cookie value must never be logged in full — fingerprint only.
+    assert "1785773795018_Rn5Qq6y1rdDy7WTxayhKPSKipORdeF" not in msg
+    assert "crushauth=17…#" in msg
+
+
+@respx.mock
+def test_subdomain_auth_no_warning_without_crushauth_or_on_normal_uri(
+    client, db_session, caplog
+):
+    import logging
+
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session)
+    app.robotic_driver = "crushftp"
+    db_session.add(app)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    with caplog.at_level(logging.WARNING, logger="app.subdomain.subdomain_auth"):
+        # login.html but no CrushAuth cookie (fresh SSO redirect) → silent.
+        resp1 = client.get(
+            "/internal/subdomain-auth",
+            headers=_auth_headers(uri="/WebInterface/login.html"),
+        )
+        # Normal UI path with CrushAuth → silent.
+        headers = _auth_headers(uri="/WebInterface/new-ui/index.html")
+        headers["Cookie"] = "_oauth2_proxy=valid; CrushAuth=abc123; currentAuth=c123"
+        resp2 = client.get("/internal/subdomain-auth", headers=headers)
+
+    assert resp1.status_code == 200
+    assert resp2.status_code == 200
+    assert not [r for r in caplog.records if "CrushFTP login bounce" in r.message]
+
+
+@respx.mock
 def test_subdomain_auth_no_grant_returns_403(client, db_session):
     _override_settings(client, _settings())
     _realm(db_session)

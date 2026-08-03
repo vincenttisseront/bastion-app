@@ -6,6 +6,9 @@ cuts direct URL access immediately — without waiting for cookie expiry.
 
 from __future__ import annotations
 
+import hashlib
+import logging
+import re
 from typing import Mapping, Optional
 
 import httpx
@@ -27,7 +30,59 @@ from app.security.session_binding_service import evaluate_sso_binding
 from app.sso_settings import Settings, get_settings
 from app.web.user_context import parse_groups_header
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["subdomain-auth"])
+
+# CrushFTP bounces invalidated sessions to this URI (302 + cookie wipe).
+_CRUSHFTP_LOGIN_URI = "/WebInterface/login.html"
+_CRUSHAUTH_RE = re.compile(r"(?:^|;\s*)CrushAuth=([^;]+)")
+
+
+def _warn_crushftp_login_bounce(
+    app: App | None,
+    *,
+    uri: str,
+    cookie_header: str,
+    actor: str,
+    client_ip: str | None,
+) -> None:
+    """
+    Bastion-side mirror of CrushFTP's
+    ``WARNING! User session invalidated due to IP change`` trace.
+
+    An *authenticated* portal user requesting ``/WebInterface/login.html`` on a
+    CrushFTP app while still presenting a non-empty ``CrushAuth`` cookie means
+    CrushFTP just 302-bounced them: it invalidated the robotic session upstream
+    (IP-lock mismatch, expiry, or per-account session limit). The 302 loop is
+    otherwise only visible in CrushFTP.log — log it here too so the diagnosis
+    shows up in ``docker logs bastion-app``.
+    """
+    if app is None:
+        return
+    if (getattr(app, "robotic_driver", None) or "").strip().lower() != "crushftp":
+        return
+    if not (uri or "").startswith(_CRUSHFTP_LOGIN_URI):
+        return
+    match = _CRUSHAUTH_RE.search(cookie_header or "")
+    if not match:
+        return
+    value = match.group(1).strip()
+    if not value:
+        return
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    logger.warning(
+        "CrushFTP login bounce: authenticated user hit %s with a live CrushAuth "
+        "cookie — CrushFTP invalidated the robotic session upstream (check "
+        "CrushFTP.log for 'session invalidated due to IP change' / session "
+        "limit). app=%s user=%s client_ip=%s crushauth=%s…#%s",
+        _CRUSHFTP_LOGIN_URI,
+        app.slug,
+        actor,
+        client_ip or "-",
+        value[:2],
+        digest,
+    )
 
 
 def _resolve_app_by_host(db: Session, host: str) -> Optional[App]:
@@ -297,6 +352,13 @@ async def subdomain_auth(
                 auth_source=auth_source,
             )
 
+        _warn_crushftp_login_bounce(
+            app_row,
+            uri=original_uri,
+            cookie_header=cookie_header,
+            actor=actor,
+            client_ip=client_ip,
+        )
         return Response(
             status_code=200,
             headers={
@@ -389,6 +451,13 @@ async def subdomain_auth(
                 auth_source="oidc",
             )
 
+        _warn_crushftp_login_bounce(
+            app_row,
+            uri=original_uri,
+            cookie_header=cookie_header,
+            actor=actor,
+            client_ip=client_ip,
+        )
         return Response(
             status_code=200,
             headers={
