@@ -133,29 +133,80 @@ function writeAccordionState(state) {
   }
 }
 
+/** Migrate legacy { id: bool, … } → exclusive open id (one group). */
+function exclusiveAccordionId(stored) {
+  if (!stored || typeof stored !== 'object') return null;
+  if (typeof stored.exclusive === 'string' && stored.exclusive) return stored.exclusive;
+  var keys = Object.keys(stored);
+  for (var i = 0; i < keys.length; i++) {
+    if (keys[i] !== 'exclusive' && stored[keys[i]]) return keys[i];
+  }
+  return null;
+}
+
 function initSidebarNav() {
   var root = document.querySelector('[data-sidebar-nav]');
   if (!root) return;
 
-  var stored = readAccordionState();
-  var accordions = root.querySelectorAll('[data-nav-accordion]');
+  var accordions = Array.prototype.slice.call(
+    root.querySelectorAll('[data-nav-accordion]')
+  );
+  if (!accordions.length) return;
 
-  accordions.forEach(function (el) {
-    var id = el.getAttribute('data-nav-accordion');
-    var hasActive = !!el.querySelector('.nav-item.active, .nav-group-toggle.is-parent-active');
-    if (hasActive) {
-      el.open = true;
-    } else if (Object.prototype.hasOwnProperty.call(stored, id)) {
-      el.open = !!stored[id];
-    }
-
-    el.addEventListener('toggle', function () {
-      if (root.getAttribute('data-nav-filtering') === '1') return;
-      var next = readAccordionState();
-      next[id] = el.open;
-      writeAccordionState(next);
+  function closeOthers(except) {
+    accordions.forEach(function (el) {
+      if (el !== except && el.open) el.open = false;
     });
-  });
+  }
+
+  function persistExclusive() {
+    var openId = null;
+    accordions.forEach(function (el) {
+      if (el.open) openId = el.getAttribute('data-nav-accordion');
+    });
+    writeAccordionState({ exclusive: openId });
+  }
+
+  function applyExclusiveOpen() {
+    var activeEl = null;
+    accordions.forEach(function (el) {
+      if (el.querySelector('.nav-item.active, .nav-group-toggle.is-parent-active')) {
+        activeEl = el;
+      }
+    });
+    var restoreId = exclusiveAccordionId(readAccordionState());
+    // Suppress toggle handlers while syncing open state (details fire toggle on .open=).
+    root.setAttribute('data-accordion-syncing', '1');
+    accordions.forEach(function (el) {
+      if (activeEl) {
+        el.open = el === activeEl;
+      } else if (restoreId) {
+        el.open = el.getAttribute('data-nav-accordion') === restoreId;
+      } else {
+        el.open = false;
+      }
+    });
+    root.removeAttribute('data-accordion-syncing');
+  }
+
+  applyExclusiveOpen();
+
+  // Bind once — initSidebarNav is also called when clearing the filter.
+  if (!root.getAttribute('data-accordion-bound')) {
+    root.setAttribute('data-accordion-bound', '1');
+    accordions.forEach(function (el) {
+      el.addEventListener('toggle', function () {
+        if (root.getAttribute('data-nav-filtering') === '1') return;
+        if (root.getAttribute('data-accordion-syncing') === '1') return;
+        if (el.open) {
+          root.setAttribute('data-accordion-syncing', '1');
+          closeOthers(el);
+          root.removeAttribute('data-accordion-syncing');
+        }
+        persistExclusive();
+      });
+    });
+  }
 
   root.querySelectorAll('[data-nav-subgroup]').forEach(function (el) {
     if (el.querySelector('.nav-item.active')) {

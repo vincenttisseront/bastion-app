@@ -53,7 +53,7 @@ body.app-layout{display:flex;min-height:100vh}
   list-style:none;user-select:none;
 }
 .nav-group-toggle::-webkit-details-marker{display:none}
-.nav-group-toggle .nav-group-label{flex:1}
+.nav-group-toggle .nav-group-label{flex:1;min-width:0}
 .nav-group-chevron{
   margin-left:auto;flex-shrink:0;opacity:.55;
   transition:transform var(--t-fast);
@@ -64,10 +64,9 @@ body.app-layout{display:flex;min-height:100vh}
 }
 .nav-group-children{
   display:flex;flex-direction:column;gap:2px;
-  padding:0 0 2px 0;
   border-left:1px solid var(--border-muted);
   margin:0 0 2px calc(var(--sp-3) + 8px);
-  padding-left:var(--sp-2);
+  padding:0 0 2px var(--sp-2);
 }
 .nav-item--sub{
   padding-left:var(--sp-3);
@@ -79,8 +78,6 @@ body.app-layout{display:flex;min-height:100vh}
   background:var(--accent-muted);color:var(--accent);font-weight:600;
 }
 
-/* Admin accordion groups
-   Hierarchy: .nav-section (separator) > .nav-accordion-toggle (group) > .nav-item */
 .sidebar-search-wrap{padding:0 var(--sp-2) var(--sp-3)}
 .sidebar-search{
   width:100%;padding:var(--sp-2) var(--sp-3);
@@ -96,35 +93,56 @@ body.app-layout{display:flex;min-height:100vh}
   position:absolute;width:1px;height:1px;padding:0;margin:-1px;
   overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
 }
-.nav-accordion{display:flex;flex-direction:column;gap:2px;margin-top:2px}
+/* Admin accordion — hierarchy: .nav-section > .nav-accordion-toggle > .nav-item
+   Exclusive open (one group) is enforced in bastion.js.
+   Shared metrics keep groups/items aligned across light + dark themes. */
+.sidebar-nav-admin{
+  --nav-row-pad-y: var(--sp-2);
+  --nav-row-pad-x: var(--sp-3);
+  --nav-stack-gap: 2px;
+  --nav-level2-indent: calc(var(--sp-3) + 4px);
+  display:flex;flex-direction:column;gap:var(--nav-stack-gap);
+}
+.nav-accordion{display:flex;flex-direction:column;gap:var(--nav-stack-gap);margin:0}
 .nav-accordion[hidden]{display:none!important}
 .nav-accordion-toggle{
   display:flex;align-items:center;gap:var(--sp-2);
   list-style:none;user-select:none;cursor:pointer;
-  padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);
-  /* Same size as .nav-item, stronger than .nav-section (9px / --text-3) */
+  padding:var(--nav-row-pad-y) var(--nav-row-pad-x);border-radius:var(--r-md);
   color:var(--text-2);font-size:var(--fs-sm);font-weight:600;
-  letter-spacing:.04em;text-transform:uppercase;
+  letter-spacing:0;text-transform:none;line-height:1.25;
+  white-space:nowrap;
   transition:color var(--t-fast),background var(--t-fast);
 }
 .nav-accordion-toggle::-webkit-details-marker{display:none}
 .nav-accordion-toggle:hover{color:var(--text);background:var(--hover-bg)}
 .nav-accordion-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .nav-accordion[open] > .nav-accordion-toggle{color:var(--text);font-weight:700}
-.nav-accordion-label{flex:1;min-width:0}
-.nav-accordion-badge{margin-left:0;letter-spacing:0;text-transform:none;font-size:9px}
+.nav-accordion-label{
+  flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.nav-accordion-badge{
+  flex-shrink:0;margin-left:0;
+  letter-spacing:0;text-transform:none;font-size:9px;
+}
 .nav-accordion-chevron{
-  flex-shrink:0;opacity:.65;color:currentColor;transition:transform var(--t-fast);
+  flex-shrink:0;margin-left:auto;
+  opacity:.65;color:currentColor;transition:transform var(--t-fast);
 }
 .nav-accordion[open] > .nav-accordion-toggle .nav-accordion-chevron{transform:rotate(180deg)}
 .nav-accordion-body{
-  display:flex;flex-direction:column;gap:2px;
-  /* Level-2 indent under the group label */
-  margin:0 0 4px calc(var(--sp-3) + 4px);
-  padding:0 0 2px var(--sp-2);
+  display:flex;flex-direction:column;gap:var(--nav-stack-gap);
+  margin:0 0 var(--nav-stack-gap) var(--nav-level2-indent);
+  padding:0 0 var(--nav-stack-gap) var(--sp-2);
   border-left:1px solid var(--border-muted);
 }
 .nav-accordion.is-filter-hit > .nav-accordion-toggle{color:var(--accent)}
+
+/* Level-2 items inherit the same row padding as top-level .nav-item */
+.sidebar-nav-admin .nav-item{
+  padding:var(--nav-row-pad-y) var(--nav-row-pad-x);
+}
 
 .sidebar-footer{padding:var(--sp-3) var(--sp-4);border-top:1px solid var(--border-muted);display:flex;align-items:center;gap:var(--sp-3)}
 .user-row{

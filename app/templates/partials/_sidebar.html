@@ -53,6 +53,7 @@
 
     <div class="nav-section">Administration</div>
 
+    <div class="sidebar-nav-admin" data-sidebar-admin-accordion>
     {% call accordion_menu_group('general', 'Général', open=general_open) %}
     <a href="/admin/dashboard" class="nav-item{% if path == '/admin/dashboard' or path == '/admin' %} active{% endif %}" data-nav-label="Admin">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -64,7 +65,7 @@
     </a>
     {% endcall %}
 
-    {% call accordion_menu_group('access', 'Accès & Sécurité', open=access_open) %}
+    {% call accordion_menu_group('access', 'Accès & sécurité', open=access_open) %}
     <a href="/admin/realms" class="nav-item{% if path.startswith('/admin/realms') %} active{% endif %}" data-nav-label="Realms">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg>
       Realms
@@ -85,7 +86,7 @@
 
     {% call accordion_menu_group(
       'content',
-      'Contenu & Applications',
+      'Contenu & apps',
       open=content_open,
       badge_count=pending_users_count,
       badge_aria=(pending_users_count ~ ' nouveaux utilisateurs en attente') if pending_users_count else ''
@@ -121,7 +122,7 @@
     </details>
     {% endcall %}
 
-    {% call accordion_menu_group('infra', 'Infrastructure & Supervision', open=infra_open) %}
+    {% call accordion_menu_group('infra', 'Infra & supervision', open=infra_open) %}
     <a href="/admin/infrastructure" class="nav-item{% if path.startswith('/admin/infrastructure') %} active{% endif %}" data-nav-label="Infrastructure">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       Infrastructure
@@ -139,6 +140,7 @@
       Santé
     </a>
     {% endcall %}
+    </div>
     {% endif %}
   </nav>
 
