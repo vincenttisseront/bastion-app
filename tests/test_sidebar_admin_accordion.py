@@ -23,9 +23,10 @@ def test_admin_sidebar_has_accordion_groups(client: TestClient):
     assert 'data-nav-accordion="content"' in html
     assert 'data-nav-accordion="infra"' in html
     assert "Général" in html
-    assert "Accès &amp; Sécurité" in html or "Accès & Sécurité" in html
-    assert "Contenu &amp; Applications" in html or "Contenu & Applications" in html
-    assert "Infrastructure &amp; Supervision" in html or "Infrastructure & Supervision" in html
+    assert "Accès &amp; sécurité" in html or "Accès & sécurité" in html
+    assert "Contenu &amp; apps" in html or "Contenu & apps" in html
+    assert "Infra &amp; supervision" in html or "Infra & supervision" in html
+    assert 'data-sidebar-admin-accordion' in html
     assert 'id="sidebar-search"' in html
     assert 'href="/admin/rbac"' in html
     assert 'href="/admin/pending-users"' in html
@@ -33,16 +34,26 @@ def test_admin_sidebar_has_accordion_groups(client: TestClient):
 
 
 def test_admin_sidebar_opens_group_for_active_route(client: TestClient):
+    import re
+
     resp = client.get("/admin/infrastructure", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     html = resp.text
-    # Active group must be open in markup (JS also restores localStorage).
+    # Active group must be open in markup; siblings stay closed (strict accordion).
     assert 'data-nav-accordion="infra"' in html
-    infra_idx = html.index('data-nav-accordion="infra"')
-    snippet = html[infra_idx - 80 : infra_idx + 120]
-    assert " open" in snippet or snippet.count("open") >= 1
     assert 'href="/admin/infrastructure"' in html
     assert "active" in html.split('href="/admin/infrastructure"', 1)[1][:80]
+
+    def details_open_for(group_id: str) -> bool:
+        marker = f'data-nav-accordion="{group_id}"'
+        idx = html.index(marker)
+        tag_end = html.index(">", idx)
+        return re.search(r"\bopen\b", html[idx:tag_end]) is not None
+
+    assert details_open_for("infra") is True
+    assert details_open_for("general") is False
+    assert details_open_for("access") is False
+    assert details_open_for("content") is False
 
 
 def test_admin_sidebar_pending_badge(client: TestClient, db_session: Session):
