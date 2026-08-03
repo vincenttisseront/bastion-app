@@ -305,7 +305,7 @@
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'proxy_pass_request_headers off;' \
       /etc/nginx/snippets/subdomain_auth_common.conf
-    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$cookie_bastion_session' \
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_auth_session' \
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'X-Bastion-Session-From-Jar \$bastion_session_from_jar' \
       /etc/nginx/snippets/subdomain_auth_common.conf
