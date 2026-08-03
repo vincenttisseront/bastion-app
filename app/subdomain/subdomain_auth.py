@@ -446,6 +446,8 @@ async def subdomain_auth(
     had_x = bool(
         (request.headers.get("X-Bastion-Session-Cookie") or "").strip()
         or (request.headers.get("x-bastion-session-cookie") or "").strip()
+        or (request.headers.get("X-Bastion-Session-From-Jar") or "").strip()
+        or (request.headers.get("x-bastion-session-from-jar") or "").strip()
     )
     return Response(
         status_code=401,

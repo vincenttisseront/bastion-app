@@ -130,8 +130,8 @@ def test_subdomain_auth_snippet_still_internal():
         encoding="utf-8"
     )
     assert "X-Bastion-Session-Cookie" in docker
-    assert "$bastion_auth_session" in docker
-    assert "proxy_set_header Cookie          $bastion_auth_cookie;" in docker
+    assert "X-Bastion-Session-From-Jar" in docker
+    assert "bastion_session=$cookie_bastion_session" in docker
     assert "proxy_pass_request_headers off;" in docker
     assert "proxy_set_header Host            $bastion_auth_host;" in docker
     assert "$bastion_x_session" not in docker
@@ -145,11 +145,13 @@ def test_subdomain_auth_snippet_still_internal():
     assert "$bastion_vhost_fqdn" in auth_map
     assert "$bastion_auth_cookie" in auth_map
     assert "$bastion_pass_cookie" in auth_map
+    assert "$bastion_session_from_jar" in auth_map
     activesync = (
         ROOT / "docker/nginx/snippets/activesync_auth_common.conf"
     ).read_text(encoding="utf-8")
     assert "proxy_pass_request_headers off;" in activesync
-    assert "X-Bastion-Session-Cookie $bastion_auth_session" in activesync
+    assert "X-Bastion-Session-Cookie $cookie_bastion_session" in activesync
+    assert "X-Bastion-Session-From-Jar $bastion_session_from_jar" in activesync
 
 
 def test_login_alias_bypasses_portal_auth_request():
