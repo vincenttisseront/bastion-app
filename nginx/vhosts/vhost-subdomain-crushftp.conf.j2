@@ -58,12 +58,9 @@ server {
 
     # ─── Route principale — protégée par auth_request ─────────────────────────
     # REGLE : auth_request + error_page 401 uniquement ici (jamais au niveau server)
-    # Capture Cookie/Host in parent location — never server-level set (auth
-    # subrequest would clear $bastion_auth_* and 401-loop to /auth/login).
+    # Snippet uses $host / $http_cookie / $cookie_bastion_session directly
+    # (no parent $bastion_auth_* — those go empty on auth_request subrequests).
     location / {
-        set $bastion_auth_host $host;
-        set $bastion_auth_cookie $http_cookie;
-        set $bastion_session_ck $cookie_bastion_session;
         auth_request /internal/subdomain-auth;
 
         # error_page 401 dans location, jamais au niveau server (dfcc5c7)

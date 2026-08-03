@@ -86,12 +86,9 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "proxy_set_header Cookie $http_cookie;" in block
     assert "$cookie_CrushAuth" not in block
     main = block.split("location / {", 1)[1]
-    assert "set $bastion_auth_cookie $http_cookie;" in main
-    assert "set $bastion_session_ck $cookie_bastion_session;" in main
-    assert main.index("set $bastion_auth_cookie") < main.index("auth_request /internal/subdomain-auth")
-    # Must NOT capture at server level (auth subrequest would clear the vars).
-    before_main = block.split("location / {", 1)[0]
-    assert "set $bastion_auth_cookie $http_cookie;" not in before_main
+    assert "auth_request /internal/subdomain-auth;" in main
+    # No fragile parent $bastion_auth_* — snippet uses $host / $http_cookie.
+    assert "set $bastion_auth_cookie" not in block
     assert "proxy_intercept_errors off;" in main
 
 
@@ -157,14 +154,9 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     # CrushFTP filter is only inside location / — not a server-level Cookie wipe.
     before_main = block.split("location / {", 1)[0]
     assert "CrushAuth=$cookie_CrushAuth" not in before_main
-    assert "set $bastion_auth_cookie $http_cookie;" not in before_main
+    assert "set $bastion_auth_cookie" not in block
     main = block.split("location / {", 1)[1]
-    # Parent-location capture feeds auth_request (snippet uses $bastion_*).
-    assert "set $bastion_auth_cookie $http_cookie;" in main
-    assert "set $bastion_session_ck $cookie_bastion_session;" in main
-    assert main.index("set $bastion_auth_host") < main.index(
-        "auth_request /internal/subdomain-auth"
-    )
+    assert "auth_request /internal/subdomain-auth;" in main
     assert "proxy_intercept_errors off;" in main
 
 
