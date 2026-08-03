@@ -114,12 +114,17 @@ def iter_oidc_session_cookie_candidates(
         seen.add(raw)
         ordered.append(raw)
 
-    # Explicit nginx header first — set from $cookie_bastion_session at rewrite
-    # time (server-level set) so CrushFTP location / Cookie rewrites cannot
-    # starve the auth subrequest.
+    # Explicit nginx headers first — CrushFTP Cookie filters can starve the
+    # auth subrequest Cookie jar (HAR ae=no-session:ck=72:x=0). Snippet sends
+    # X-Bastion-Session-Cookie from $cookie_bastion_session and a regex extract
+    # from the jar as X-Bastion-Session-From-Jar.
     _add(
         request.headers.get("X-Bastion-Session-Cookie")
         or request.headers.get("x-bastion-session-cookie")
+    )
+    _add(
+        request.headers.get("X-Bastion-Session-From-Jar")
+        or request.headers.get("x-bastion-session-from-jar")
     )
     _add(request.cookies.get(cookie_name))
     _add(_cookie_value_from_header(request.headers.get("Cookie") or "", cookie_name))

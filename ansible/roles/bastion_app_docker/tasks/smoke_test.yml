@@ -298,20 +298,22 @@
   register: _auth_image_smoke
   changed_when: false
 
-- name: "SMOKE : nginx subdomain auth snippet uses literal Host + parent Cookie"
+- name: "SMOKE : nginx subdomain auth snippet rebuilds Cookie + session headers"
   ansible.builtin.shell: |
     set -euo pipefail
-    docker exec bastion-nginx grep -q 'proxy_set_header Cookie          \$bastion_auth_cookie;' \
+    docker exec bastion-nginx grep -q 'bastion_session=\$cookie_bastion_session' \
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'proxy_pass_request_headers off;' \
       /etc/nginx/snippets/subdomain_auth_common.conf
-    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_auth_session' \
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$cookie_bastion_session' \
+      /etc/nginx/snippets/subdomain_auth_common.conf
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-From-Jar \$bastion_session_from_jar' \
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'proxy_set_header Host            \$bastion_auth_host;' \
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'map \$bastion_vhost_fqdn \$bastion_auth_host' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf
-    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_auth_cookie' \
+    docker exec bastion-nginx grep -q 'map \$http_cookie \$bastion_session_from_jar' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf
     echo "nginx subdomain auth Host/Cookie contract OK"
   args:
@@ -335,6 +337,7 @@
     docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$conf"
     if docker exec bastion-nginx grep -q 'CrushAuth=\$cookie_CrushAuth' "$conf"; then
       docker exec bastion-nginx grep -q 'try_files /nonexistent @app_upstream_' "$conf"
+      docker exec bastion-nginx grep -q 'bastion_session=\$cookie_bastion_session' "$conf"
     fi
     echo "subdomain export bastion_sub + vhost fqdn + Cookie capture OK"
   args:

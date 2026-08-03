@@ -220,15 +220,16 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             ssl_lines.insert(0, "        proxy_ssl_protocols TLSv1.2 TLSv1.3;")
             ssl_lines.append("        proxy_ssl_session_reuse off;")
 
-    # CrushFTP: never forward bastion_session / oauth2 JWT (causes 502 / header too large).
-    # Keep only CrushAuth + currentAuth toward the backend.
-    # CRITICAL: that Cookie filter must NOT live in the same location as auth_request —
-    # nginx inherits parent proxy_set_header Cookie into the auth subrequest, so FastAPI
-    # only sees ~72 bytes (HAR ae=no-session:ck=72:x=0). Proxy lives in @app_upstream_*.
+    # CrushFTP: strip oauth2/Keycloak JWTs (header too large / 502) but KEEP
+    # bastion_session. If this Cookie filter ever leaks into auth_request
+    # (same location / inheritance), FastAPI still sees the native session
+    # (HAR ae=no-session:ck=72 when bastion_session was stripped). Always put
+    # the filter in @app_upstream_* — never in the auth gate location /.
     if crushftp:
         cookie_lines = [
             '        set $bastion_upstream_cookie '
-            '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth";',
+            '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth; '
+            'bastion_session=$cookie_bastion_session";',
             "        proxy_set_header Cookie $bastion_upstream_cookie;",
         ]
         # Robotic login + browser must share the same reverse IP or CrushFTP

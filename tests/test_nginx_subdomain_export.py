@@ -107,7 +107,11 @@ def test_generate_server_block_includes_hop_not_internal():
 
 
 def test_generate_crushftp_block_filters_portal_cookies():
-    """bastion_session Domain=parent must not be forwarded to CrushFTP (502)."""
+    """CrushFTP Cookie: keep CrushAuth/currentAuth/bastion_session; strip oauth2 JWTs.
+
+    bastion_session stays in the upstream jar so a leaked filter into auth_request
+    still authenticates (HAR ae=no-session:ck=72 when session was stripped).
+    """
     app = App(
         slug="transfer",
         label="Transfer",
@@ -121,6 +125,7 @@ def test_generate_crushftp_block_filters_portal_cookies():
     block = generate_subdomain_server_block(app, _settings())
     assert "CrushAuth=$cookie_CrushAuth" in block
     assert "currentAuth=$cookie_currentAuth" in block
+    assert "bastion_session=$cookie_bastion_session" in block
     assert "set $bastion_upstream_cookie" in block
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in block
     assert "proxy_set_header X-Real-IP $server_addr;" in block

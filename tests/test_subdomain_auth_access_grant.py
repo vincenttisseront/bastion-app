@@ -581,6 +581,59 @@ def test_har_transfer_loop_crushauth_cookie_x_bastion_session_accepts(
 
 
 @respx.mock
+def test_har_transfer_loop_accepts_session_from_jar_header(client, db_session):
+    """Regex extract header when $cookie_bastion_session is empty on auth subrequest."""
+    from app.models import RBACGroup
+    from app.oidc_bff import issue_oidc_session
+
+    settings = _native_settings()
+    _override_settings(client, settings)
+    realm = _realm(db_session)
+    realm.oidc_native_session_enabled = True
+    db_session.commit()
+    app = _app(db_session)
+    grp = RBACGroup(name="ARSYSTEMS-Users")
+    db_session.add(grp)
+    db_session.flush()
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=grp.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="alice",
+        realm="ar-systems",
+        secret=OIDC_SECRET,
+        max_age=3600,
+        groups=("ARSYSTEMS-Users",),
+    )
+    db_session.commit()
+
+    oauth_route = respx.get(OIDC_URL).mock(return_value=Response(401))
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            "X-Original-Host": "transfer.ar-systems.fr",
+            "X-Original-URI": "/WebInterface/new-ui/index.html",
+            "X-Real-IP": "8.8.8.8",
+            "Cookie": "CrushAuth=abc123; currentAuth=def456",
+            "X-Bastion-Session-From-Jar": token,
+        },
+    )
+    assert resp.status_code == 200, resp.headers
+    assert resp.headers.get("x-auth-source") == "oidc-native"
+    assert not oauth_route.called
+
+
+@respx.mock
 def test_har_garbled_starlette_cookie_falls_back_to_x_bastion_header(
     client, db_session
 ):
