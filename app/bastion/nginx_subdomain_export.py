@@ -221,8 +221,10 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             ssl_lines.append("        proxy_ssl_session_reuse off;")
 
     # CrushFTP: never forward bastion_session / oauth2 JWT (causes 502 / header too large).
-    # Keep only CrushAuth + currentAuth toward the backend — dedicated variable so
-    # auth_request cannot inherit this filtered Cookie (HAR ae=no-session:ck=72).
+    # Keep only CrushAuth + currentAuth toward the backend.
+    # CRITICAL: that Cookie filter must NOT live in the same location as auth_request —
+    # nginx inherits parent proxy_set_header Cookie into the auth subrequest, so FastAPI
+    # only sees ~72 bytes (HAR ae=no-session:ck=72:x=0). Proxy lives in @app_upstream_*.
     if crushftp:
         cookie_lines = [
             '        set $bastion_upstream_cookie '
@@ -237,6 +239,42 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         cookie_lines = ["        proxy_set_header Cookie $http_cookie;"]
         real_ip_line = "        proxy_set_header X-Real-IP $remote_addr;"
         xff_line = "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
+
+    named_upstream = f"@app_upstream_{slug}"
+    auth_request_set_user_lines = [
+        "        auth_request_set $auth_user $upstream_http_x_auth_user;",
+        "        auth_request_set $auth_app $upstream_http_x_auth_app;",
+    ]
+    proxy_auth_header_lines = [
+        "        proxy_set_header X-Auth-User $auth_user;",
+        "        proxy_set_header X-Auth-App $auth_app;",
+    ]
+    proxy_body_lines = [
+        f"        proxy_pass $app_upstream;",
+        "        proxy_redirect off;",
+        "        proxy_http_version 1.1;",
+        # Needed for ws/wss endpoints (e.g. Teleport terminal streaming).
+        "        proxy_set_header Upgrade $http_upgrade;",
+        "        proxy_set_header Connection $http_connection;",
+        "        proxy_connect_timeout 60s;",
+        "        proxy_read_timeout 3600s;",
+        "        proxy_send_timeout 3600s;",
+        *ssl_lines,
+        "        proxy_set_header Host $host;",
+        real_ip_line,
+        xff_line,
+        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        *cookie_lines,
+        "        proxy_cookie_path / /;",
+        f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
+        *(
+            ["        proxy_hide_header WWW-Authenticate;"]
+            if crushftp
+            else []
+        ),
+        "",
+        *proxy_auth_header_lines,
+    ]
 
     lines = [
         f"# [{slug}] subdomain_proxy — {fqdn} (generated from App DB)",
@@ -300,46 +338,46 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
                 upstream_tls_verify=tls_verify,
             )
         )
-    lines.extend(
-        [
+    if crushftp:
+        # Auth gate only — CrushFTP Cookie filter is in the named location below.
+        location_slash = [
+            "    location / {",
+            *_AUTH_COOKIE_CAPTURE_LINES,
+            "        auth_request /internal/subdomain-auth;",
+            *_AUTH_REQUEST_DIAG_LINES,
+            *auth_request_set_user_lines,
+            f"        error_page 401 = @portal_redirect_{slug};",
+            # Do not map CrushFTP/upstream 401 through @portal_redirect.
+            "        proxy_intercept_errors off;",
+            "",
+            "        # Hand off AFTER auth — filtered Cookie must not share this location",
+            "        # with auth_request (inherits proxy_set_header -> ck=72 / x=0).",
+            f"        try_files /nonexistent {named_upstream};",
+            "    }",
+            "",
+            f"    location {named_upstream} {{",
+            *proxy_body_lines,
+            "    }",
+        ]
+    else:
+        location_slash = [
             "    location / {",
             # Capture Cookie here (parent) — $http_cookie is empty on auth
             # subrequest (HAR ae=no-session). Host stays literal $bastion_vhost_fqdn.
             *_AUTH_COOKIE_CAPTURE_LINES,
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
+            *auth_request_set_user_lines,
             f"        error_page 401 = @portal_redirect_{slug};",
-            # Do not map CrushFTP/upstream 401 through @portal_redirect.
             "        proxy_intercept_errors off;",
             "",
-            "        proxy_pass $app_upstream;",
-            "        proxy_redirect off;",
-            "        proxy_http_version 1.1;",
-            # Needed for ws/wss endpoints (e.g. Teleport terminal streaming).
-            "        proxy_set_header Upgrade $http_upgrade;",
-            "        proxy_set_header Connection $http_connection;",
-            "        proxy_connect_timeout 60s;",
-            "        proxy_read_timeout 3600s;",
-            "        proxy_send_timeout 3600s;",
-            *ssl_lines,
-            "        proxy_set_header Host $host;",
-            real_ip_line,
-            xff_line,
-            "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
-            *cookie_lines,
-            "        proxy_cookie_path / /;",
-            f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
-            *(
-                ["        proxy_hide_header WWW-Authenticate;"]
-                if crushftp
-                else []
-            ),
-            "",
-            "        auth_request_set $auth_user $upstream_http_x_auth_user;",
-            "        auth_request_set $auth_app $upstream_http_x_auth_app;",
-            "        proxy_set_header X-Auth-User $auth_user;",
-            "        proxy_set_header X-Auth-App $auth_app;",
+            *proxy_body_lines,
             "    }",
+        ]
+
+    lines.extend(location_slash)
+    lines.extend(
+        [
             "",
             f"    location @portal_redirect_{slug} {{",
             # Native bastion_session cutover: send browsers to /auth/login
