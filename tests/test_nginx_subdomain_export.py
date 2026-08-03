@@ -128,9 +128,17 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "location = /WebInterface/new-ui/" in block
     assert "return 302 /WebInterface/new-ui/index.html;" in block
     assert "proxy_hide_header WWW-Authenticate;" in block
-    # Full browser cookie jar must not be proxied to CrushFTP.
-    main = block.split("location / {", 1)[1]
-    assert "proxy_set_header Cookie $http_cookie;" not in main
+    # Auth gate must NOT contain CrushFTP Cookie filter (inherits into auth_request).
+    main = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
+    assert "CrushAuth=$cookie_CrushAuth" not in main
+    assert "proxy_set_header Cookie $bastion_upstream_cookie;" not in main
+    assert "try_files /nonexistent @app_upstream_transfer;" in main
+    assert "auth_request /internal/subdomain-auth;" in main
+    # Filter lives only in the named upstream location (after auth).
+    named = block.split("location @app_upstream_transfer {", 1)[1]
+    assert "set $bastion_upstream_cookie" in named
+    assert "proxy_set_header Cookie $bastion_upstream_cookie;" in named
+    assert "proxy_set_header Cookie $http_cookie;" not in named
     # Auth still gets client jar via server-level capture.
     before_main = block.split("location / {", 1)[0]
     assert "set $bastion_pass_cookie $http_cookie;" in before_main
@@ -172,16 +180,21 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     block = generate_subdomain_server_block(app, _settings())
     assert "include /etc/nginx/snippets/subdomain_auth_common.conf;" in block
     assert "/auth/login?rd=https://" in block
-    # CrushFTP filter is only inside location / — not a server-level Cookie wipe.
+    # CrushFTP filter is only inside @app_upstream_* — not server-level / auth gate.
     before_main = block.split("location / {", 1)[0]
     assert "CrushAuth=$cookie_CrushAuth" not in before_main
     assert "set $bastion_pass_cookie $http_cookie;" in before_main
     assert "set $bastion_auth_cookie $http_cookie;" not in before_main
-    main = block.split("location / {", 1)[1]
+    main = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
     assert "set $bastion_auth_cookie $http_cookie;" not in main
-    assert "set $bastion_upstream_cookie" in main
+    assert "set $bastion_upstream_cookie" not in main
     assert "auth_request_set $bastion_auth_err" in main
+    assert "auth_request_set $auth_user" in main
     assert "proxy_intercept_errors off;" in main
+    assert "try_files /nonexistent @app_upstream_transfer;" in main
+    named = block.split("location @app_upstream_transfer {", 1)[1]
+    assert "set $bastion_upstream_cookie" in named
+    assert "proxy_set_header X-Auth-User $auth_user;" in named
 
 
 def test_generate_conf_and_inventory(db_session, tmp_path):
