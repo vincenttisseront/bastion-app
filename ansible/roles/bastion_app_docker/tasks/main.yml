@@ -671,19 +671,19 @@
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
       'map \$http_cookie \$bastion_fresh_session' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
-      echo "OLD nginx map — missing \$bastion_fresh_session (sticky capture for ck=90)"
+      echo "OLD nginx map — missing \$bastion_fresh_session"
       exit 1
     fi
-    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
       'map \$bastion_fresh_session \$bastion_pick_session' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
-      echo "OLD nginx map — missing \$bastion_pick_session (map sticky, no ifisevil)"
+      echo "OLD nginx map — \$bastion_pick_session cycle with \$bastion_pass_* causes 500 — rebuild nginx image"
       exit 1
     fi
-    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
       'map \$bastion_fresh_session \$bastion_pick_cookie' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
-      echo "OLD nginx map — missing \$bastion_pick_cookie (map sticky, no ifisevil)"
+      echo "OLD nginx map — \$bastion_pick_cookie cycle causes 500 — rebuild nginx image"
       exit 1
     fi
     if docker run --rm --entrypoint grep bastion-nginx:local -q \
@@ -973,13 +973,17 @@
       || { echo "live map missing session_from_jar from pass_cookie — rebuild nginx image"; exit 1; }
     docker exec bastion-nginx grep -q 'map \$http_cookie \$bastion_fresh_session' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf \
-      || { echo "live map missing \$bastion_fresh_session (ck=90 sticky) — rebuild nginx image"; exit 1; }
-    docker exec bastion-nginx grep -q 'map \$bastion_fresh_session \$bastion_pick_session' \
-      /etc/nginx/includes/nginx-subdomain-auth.map.conf \
-      || { echo "live map missing \$bastion_pick_session (no ifisevil) — rebuild nginx image"; exit 1; }
-    docker exec bastion-nginx grep -q 'map \$bastion_fresh_session \$bastion_pick_cookie' \
-      /etc/nginx/includes/nginx-subdomain-auth.map.conf \
-      || { echo "live map missing \$bastion_pick_cookie (no ifisevil) — rebuild nginx image"; exit 1; }
+      || { echo "live map missing \$bastion_fresh_session — rebuild nginx image"; exit 1; }
+    if docker exec bastion-nginx grep -q 'map \$bastion_fresh_session \$bastion_pick_session' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "live map still has \$bastion_pick_session (cycle → 500) — rebuild nginx image"
+      exit 1
+    fi
+    if docker exec bastion-nginx grep -q 'map \$bastion_fresh_session \$bastion_pick_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "live map still has \$bastion_pick_cookie (cycle → 500) — rebuild nginx image"
+      exit 1
+    fi
     if docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_auth_cookie' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
       echo "live map still maps \$bastion_auth_cookie (must be set in location /) — rebuild nginx image"
@@ -1009,16 +1013,20 @@
       || { echo "export missing auth_request_set \$bastion_auth_err — rebuild bastion-app + re-apply"; exit 1; }
     grep -q 'set \$bastion_vhost_fqdn "' "$CONF_HOST" \
       || { echo "export missing set \$bastion_vhost_fqdn literal — rebuild bastion-app + re-apply"; exit 1; }
-    grep -q 'set \$bastion_pass_cookie \$bastion_pick_cookie;' "$CONF_HOST" \
-      || { echo "export missing map sticky Cookie capture — rebuild bastion-app + re-apply"; exit 1; }
-    grep -q 'set \$bastion_pass_session \$bastion_pick_session;' "$CONF_HOST" \
-      || { echo "export missing map sticky session assign — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'set \$bastion_pass_session \$cookie_bastion_session;' "$CONF_HOST" \
+      || { echo "export missing Cookie snapshot (\$cookie_bastion_session) — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$CONF_HOST" \
+      || { echo "export missing Cookie jar snapshot — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'error_page 418 = @bastion_auth_gate_' "$CONF_HOST" \
+      || { echo "export missing 418 → @bastion_auth_gate_ handoff — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'location @bastion_auth_gate_' "$CONF_HOST" \
+      || { echo "export missing @bastion_auth_gate_ location — rebuild bastion-app + re-apply"; exit 1; }
     if grep -q 'if (\$bastion_fresh_session' "$CONF_HOST"; then
       echo "export still has sticky if{} (ifisevil → 404 new-ui) — rebuild bastion-app + re-apply"
       exit 1
     fi
-    if grep -q 'set \$bastion_pass_session \$cookie_bastion_session;' "$CONF_HOST"; then
-      echo "export still has unconditional pass_session=\$cookie_bastion_session (ck=90 wipe) — rebuild bastion-app + re-apply"
+    if grep -q 'set \$bastion_pass_session \$bastion_pick_session;' "$CONF_HOST"; then
+      echo "export still has map-pick session (cycle → 500) — rebuild bastion-app + re-apply"
       exit 1
     fi
     grep -q 'set \$bastion_auth_cookie "bastion_session=\$bastion_pass_session; \$bastion_pass_cookie";' "$CONF_HOST" \
@@ -1055,16 +1063,16 @@
       || { echo "live nginx conf missing auth_err diag — sync-exports/reload failed"; exit 1; }
     docker exec bastion-nginx grep -q 'set \$bastion_vhost_fqdn "' "$CONF_NGX" \
       || { echo "live nginx conf missing \$bastion_vhost_fqdn literal — sync-exports/reload failed"; exit 1; }
-    docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$bastion_pick_cookie;' "$CONF_NGX" \
-      || { echo "live nginx conf missing map sticky Cookie capture — sync-exports/reload failed"; exit 1; }
-    docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$bastion_pick_session;' "$CONF_NGX" \
-      || { echo "live nginx conf missing map sticky session — sync-exports/reload failed"; exit 1; }
+    docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$cookie_bastion_session;' "$CONF_NGX" \
+      || { echo "live nginx conf missing Cookie snapshot — sync-exports/reload failed"; exit 1; }
+    docker exec bastion-nginx grep -q 'error_page 418 = @bastion_auth_gate_' "$CONF_NGX" \
+      || { echo "live nginx conf missing 418 auth gate — sync-exports/reload failed"; exit 1; }
     if docker exec bastion-nginx grep -q 'if (\$bastion_fresh_session' "$CONF_NGX"; then
       echo "live nginx conf still has sticky if{} (ifisevil → 404) — re-apply + reload"
       exit 1
     fi
-    if docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$cookie_bastion_session;' "$CONF_NGX"; then
-      echo "live nginx conf still has unconditional pass_session wipe (ck=90) — re-apply + reload"
+    if docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$bastion_pick_session;' "$CONF_NGX"; then
+      echo "live nginx conf still has map-pick session (cycle → 500) — re-apply + reload"
       exit 1
     fi
     docker exec bastion-nginx grep -q \

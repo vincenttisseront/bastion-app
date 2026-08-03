@@ -61,13 +61,16 @@ server {
         proxy_pass_request_body off;
     }
 
-    # ─── Route principale — protégée par auth_request ─────────────────────────
-    # REGLE : auth_request + error_page 401 uniquement ici (jamais au niveau server)
-    # Map sticky capture + rebuild before auth_request (never at server{}, never if{}).
+    # ─── Route principale — capture then 418 → auth gate (never if{} / map cycle)
     location / {
-        set $bastion_pass_session $bastion_pick_session;
-        set $bastion_pass_cookie $bastion_pick_cookie;
+        error_page 418 = @bastion_auth_gate_{{ vhost.slug }};
+        set $bastion_pass_session $cookie_bastion_session;
+        set $bastion_pass_cookie $http_cookie;
         set $bastion_auth_cookie "bastion_session=$bastion_pass_session; $bastion_pass_cookie";
+        return 418;
+    }
+
+    location @bastion_auth_gate_{{ vhost.slug }} {
         auth_request /internal/subdomain-auth;
         auth_request_set $bastion_auth_err $upstream_http_x_auth_error;
 

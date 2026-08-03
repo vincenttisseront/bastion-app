@@ -75,21 +75,20 @@ _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
 )
 
-# Sticky capture + rebuild in location / BEFORE auth_request.
+# Capture client Cookie in location / BEFORE handing off to @bastion_auth_gate_*.
 # Do NOT also set these at server{} — server rewrite re-runs on auth and wipes.
 #
-# HAR 2026-08-03 ae=no-session:ck=90 then 404 on new-ui:
-# - Unconditional set wiped JWT when $http_cookie became CrushAuth-only (ck=90).
-# - Sticky via `if ($bastion_fresh_session…)` fixed the wipe but nginx "if is
-#   evil": a matching if in location / skips try_files/proxy_pass → bare
-#   nginx 404 while auth_request still succeeded (no portal redirect).
+# HAR stack 2026-08-03:
+# - ck=90: unconditional set re-ran during auth with CrushAuth-only $http_cookie
+# - 404: sticky if{} in location / skipped try_files (if is evil)
+# - 500: map $pick ← $pass + set $pass ← $pick (circular variable → nginx 500)
 #
-# Map-based sticky (no if): $bastion_pick_* prefer $bastion_fresh_session /
-# $http_cookie when the jar still has a JWT; otherwise keep $bastion_pass_*.
+# Fix: snapshot from $cookie_* / $http_cookie once, return 418 → named gate that
+# runs auth_request + try_files/proxy. No if{}, no self-referential maps.
 _AUTH_COOKIE_CAPTURE_LINES = (
-    "        # Map sticky capture — no if{} (would skip try_files → 404).",
-    "        set $bastion_pass_session $bastion_pick_session;",
-    "        set $bastion_pass_cookie $bastion_pick_cookie;",
+    "        # Snapshot once — gate does auth+proxy (no if{} / no map cycle).",
+    "        set $bastion_pass_session $cookie_bastion_session;",
+    "        set $bastion_pass_cookie $http_cookie;",
     '        set $bastion_auth_cookie '
     '"bastion_session=$bastion_pass_session; $bastion_pass_cookie";',
 )
@@ -355,10 +354,16 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             )
         )
     if crushftp:
-        # Auth gate only — CrushFTP Cookie filter is in the named location below.
+        # Capture in location / then 418 → gate (auth) → @app_upstream (Cookie filter).
+        # Keeps filtered Cookie out of the auth_request location (ck=72 / x=0).
         location_slash = [
             "    location / {",
+            f"        error_page 418 = @bastion_auth_gate_{slug};",
             *_AUTH_COOKIE_CAPTURE_LINES,
+            "        return 418;",
+            "    }",
+            "",
+            f"    location @bastion_auth_gate_{slug} {{",
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
             *auth_request_set_user_lines,
@@ -378,9 +383,14 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     else:
         location_slash = [
             "    location / {",
-            # Capture Cookie here (parent) — $http_cookie is empty on auth
-            # subrequest (HAR ae=no-session). Host stays literal $bastion_vhost_fqdn.
+            # Snapshot Cookie here, then 418 → gate — avoids auth rewrite wipe
+            # (HAR ae=no-session) and keeps capture out of the proxy location.
+            f"        error_page 418 = @bastion_auth_gate_{slug};",
             *_AUTH_COOKIE_CAPTURE_LINES,
+            "        return 418;",
+            "    }",
+            "",
+            f"    location @bastion_auth_gate_{slug} {{",
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
             *auth_request_set_user_lines,
