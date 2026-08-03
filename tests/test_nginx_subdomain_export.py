@@ -99,10 +99,10 @@ def test_generate_server_block_includes_hop_not_internal():
     assert main.index("auth_request /internal/subdomain-auth") < main.index(
         "auth_request_set $bastion_auth_err"
     )
-    # Server-level capture (rewrite phase) — survives CrushFTP Cookie filter leak.
+    # Location-/ capture only — server{} re-set wipes on auth subrequest (ck=72).
     before_main = block.split("location / {", 1)[0]
-    assert "set $bastion_pass_cookie $http_cookie;" in before_main
-    assert "set $bastion_pass_session $cookie_bastion_session;" in before_main
+    assert "set $bastion_pass_cookie $http_cookie;" not in before_main
+    assert "set $bastion_pass_session $cookie_bastion_session;" not in before_main
     assert "proxy_intercept_errors off;" in main
 
 
@@ -146,10 +146,13 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "set $bastion_upstream_cookie" in named
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in named
     assert "proxy_set_header Cookie $http_cookie;" not in named
-    # Auth still gets client jar via server-level capture.
+    # Auth gets client jar via location-/ capture (not server{} — wipe on auth).
     before_main = block.split("location / {", 1)[0]
-    assert "set $bastion_pass_cookie $http_cookie;" in before_main
+    assert "set $bastion_pass_cookie $http_cookie;" not in before_main
     assert "CrushAuth=$cookie_CrushAuth" not in before_main
+    main_gate = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
+    assert "set $bastion_pass_cookie $http_cookie;" in main_gate
+    assert "set $bastion_pass_session $cookie_bastion_session;" in main_gate
 
 
 def test_generate_server_block_strips_web_path():
@@ -190,9 +193,11 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     # CrushFTP filter is only inside @app_upstream_* — not server-level / auth gate.
     before_main = block.split("location / {", 1)[0]
     assert "CrushAuth=$cookie_CrushAuth" not in before_main
-    assert "set $bastion_pass_cookie $http_cookie;" in before_main
+    # No server{} Cookie capture — that rewrite re-runs on auth and wipes (ck=72).
+    assert "set $bastion_pass_cookie $http_cookie;" not in before_main
     assert "set $bastion_auth_cookie $http_cookie;" not in before_main
     main = block.split("location / {", 1)[1].split("location @app_upstream_transfer", 1)[0]
+    assert "set $bastion_pass_cookie $http_cookie;" in main
     assert "set $bastion_auth_cookie $http_cookie;" not in main
     assert "set $bastion_upstream_cookie" not in main
     assert "auth_request_set $bastion_auth_err" in main

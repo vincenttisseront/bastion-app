@@ -313,7 +313,9 @@
       /etc/nginx/snippets/subdomain_auth_common.conf
     docker exec bastion-nginx grep -q 'map \$bastion_vhost_fqdn \$bastion_auth_host' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf
-    docker exec bastion-nginx grep -q 'map \$http_cookie \$bastion_session_from_jar' \
+    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_session_from_pass' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf
+    docker exec bastion-nginx grep -q 'map \$bastion_session_from_pass \$bastion_session_from_jar' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf
     echo "nginx subdomain auth Host/Cookie contract OK"
   args:

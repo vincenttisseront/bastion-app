@@ -663,6 +663,18 @@
       exit 1
     fi
     if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_pass_cookie \$bastion_session_from_pass' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — expected session extract from \$bastion_pass_cookie"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_session_from_pass \$bastion_session_from_jar' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — expected \$bastion_session_from_jar chain"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
       'auth_err=\$bastion_auth_err' /etc/nginx/nginx.conf; then
       echo "OLD nginx.conf — missing auth_err=\$bastion_auth_err in app log_format"
       exit 1
@@ -921,9 +933,12 @@
     docker exec bastion-nginx grep -q 'map \$bastion_vhost_fqdn \$bastion_auth_host' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf \
       || { echo "live map missing \$bastion_auth_host — rebuild nginx image"; exit 1; }
-    docker exec bastion-nginx grep -q 'map \$http_cookie \$bastion_session_from_jar' \
+    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_session_from_pass' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf \
-      || { echo "live map missing \$bastion_session_from_jar — rebuild nginx image"; exit 1; }
+      || { echo "live map missing session_from_pass — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'map \$bastion_session_from_pass \$bastion_session_from_jar' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf \
+      || { echo "live map missing \$bastion_session_from_jar chain — rebuild nginx image"; exit 1; }
     echo "snippet OK"
     if [[ ! -f "$CONF_HOST" ]]; then
       echo "no host export yet — skip export contract"
@@ -955,6 +970,11 @@
       fi
       grep -q 'proxy_redirect http://' "$CONF_HOST" \
         || { echo "CrushFTP export missing proxy_redirect for Absolute IP Location — rebuild bastion-app + re-apply"; exit 1; }
+      if awk '/server_name[[:space:]]+transfer\./,/location \/ \{/' "$CONF_HOST" \
+           | grep -q 'set \$bastion_pass_cookie'; then
+        echo "CrushFTP export has server-level Cookie capture (auth rewrite wipe → ck=72) — rebuild bastion-app + re-apply"
+        exit 1
+      fi
       echo "=== CrushFTP Transfer server block (host export) ==="
       awk '/server_name[[:space:]]+transfer\./,/^}/' "$CONF_HOST" | head -n 120 || true
     fi
@@ -982,6 +1002,11 @@
       fi
       docker exec bastion-nginx grep -q 'proxy_redirect http://' "$CONF_NGX" \
         || { echo "live CrushFTP conf missing proxy_redirect — re-apply + reload"; exit 1; }
+      if docker exec bastion-nginx sh -c \
+           "awk '/server_name[[:space:]]+transfer\./,/location \/ \{/' '$CONF_NGX' | grep -q 'set \\\$bastion_pass_cookie'"; then
+        echo "live CrushFTP conf has server-level Cookie capture (auth wipe → ck=72) — re-apply + reload"
+        exit 1
+      fi
       echo "=== CrushFTP Transfer server block (live nginx) ==="
       docker exec bastion-nginx sh -c "awk '/server_name[[:space:]]+transfer\./,/^}/' '$CONF_NGX' | head -n 120" || true
     fi
