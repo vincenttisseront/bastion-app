@@ -78,23 +78,18 @@ _AUTH_REQUEST_DIAG_LINES = (
 # Sticky capture + rebuild in location / BEFORE auth_request.
 # Do NOT also set these at server{} — server rewrite re-runs on auth and wipes.
 #
-# HAR 2026-08-03 ae=no-session:ck=90:x=0: unconditional
-#   set $bastion_pass_* $http_cookie / $cookie_bastion_session
-# re-ran (shared vars) after CrushFTP Cookie inheritance left $http_cookie as
-# CrushAuth-only → baked auth Cookie became "bastion_session=; CrushAuth=…"
-# (len≈90) with empty X-Bastion-Session-* headers.
+# HAR 2026-08-03 ae=no-session:ck=90 then 404 on new-ui:
+# - Unconditional set wiped JWT when $http_cookie became CrushAuth-only (ck=90).
+# - Sticky via `if ($bastion_fresh_session…)` fixed the wipe but nginx "if is
+#   evil": a matching if in location / skips try_files/proxy_pass → bare
+#   nginx 404 while auth_request still succeeded (no portal redirect).
 #
-# Sticky: only refresh when $bastion_fresh_session is non-empty (map extracts
-# JWT from $http_cookie). A filtered re-run keeps the previous good capture.
-# Rebuild auth Cookie from the sticky vars for the snippet.
+# Map-based sticky (no if): $bastion_pick_* prefer $bastion_fresh_session /
+# $http_cookie when the jar still has a JWT; otherwise keep $bastion_pass_*.
 _AUTH_COOKIE_CAPTURE_LINES = (
-    "        # Sticky parent capture — refresh only while jar still has JWT.",
-    "        set $bastion_pass_cookie $bastion_pass_cookie;",
-    "        set $bastion_pass_session $bastion_pass_session;",
-    '        if ($bastion_fresh_session != "") {',
-    "            set $bastion_pass_cookie $http_cookie;",
-    "            set $bastion_pass_session $bastion_fresh_session;",
-    "        }",
+    "        # Map sticky capture — no if{} (would skip try_files → 404).",
+    "        set $bastion_pass_session $bastion_pick_session;",
+    "        set $bastion_pass_cookie $bastion_pick_cookie;",
     '        set $bastion_auth_cookie '
     '"bastion_session=$bastion_pass_session; $bastion_pass_cookie";',
 )
