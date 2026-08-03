@@ -141,13 +141,20 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "proxy_set_header Cookie $bastion_upstream_cookie;" in block
     assert "proxy_redirect http://172.24.0.106/" in block
     assert "proxy_redirect https://172.24.0.106/" in block
-    # No forwarded-IP headers to CrushFTP: robotic login hits CrushFTP directly
-    # (TCP source = docker host) while the browser goes through this vhost
-    # ($server_addr = 127.0.0.1). Diverging X-Real-IP/XFF → CrushFTP session
-    # IP lock invalidates CrushAuth → 302 login.html + cookie wipe loop.
+    # Forwarded-IP headers must be BLANKED (not just omitted) toward CrushFTP:
+    # the DMZ edge proxy adds X-Forwarded-For: <client-ip> and nginx forwards
+    # inbound headers unchanged unless overridden. CrushFTP trusts XFF, while
+    # the robotic login (direct, no XFF) registers the docker host IP →
+    # "session invalidated due to IP change" → 302 login.html + cookie wipe.
+    # Empty value makes nginx drop the header so CrushFTP always sees the
+    # TCP source IP, identical for both paths.
     named_block = block.split("location @app_upstream_transfer {", 1)[1]
-    assert "proxy_set_header X-Real-IP" not in named_block
-    assert "proxy_set_header X-Forwarded-For" not in named_block
+    assert 'proxy_set_header X-Real-IP "";' in named_block
+    assert 'proxy_set_header X-Forwarded-For "";' in named_block
+    assert "proxy_set_header X-Real-IP $remote_addr" not in named_block
+    assert (
+        "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for" not in named_block
+    )
     assert "location = /WebInterface/new-ui/" in block
     assert "return 302 /WebInterface/new-ui/index.html;" in block
     assert "proxy_hide_header WWW-Authenticate;" in block
