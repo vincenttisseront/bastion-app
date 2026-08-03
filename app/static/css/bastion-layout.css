@@ -79,7 +79,8 @@ body.app-layout{display:flex;min-height:100vh}
   background:var(--accent-muted);color:var(--accent);font-weight:600;
 }
 
-/* Admin accordion groups */
+/* Admin accordion groups
+   Hierarchy: .nav-section (separator) > .nav-accordion-toggle (group) > .nav-item */
 .sidebar-search-wrap{padding:0 var(--sp-2) var(--sp-3)}
 .sidebar-search{
   width:100%;padding:var(--sp-2) var(--sp-3);
@@ -101,21 +102,27 @@ body.app-layout{display:flex;min-height:100vh}
   display:flex;align-items:center;gap:var(--sp-2);
   list-style:none;user-select:none;cursor:pointer;
   padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);
-  color:var(--text-3);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  /* Same size as .nav-item, stronger than .nav-section (9px / --text-3) */
+  color:var(--text-2);font-size:var(--fs-sm);font-weight:600;
+  letter-spacing:.04em;text-transform:uppercase;
   transition:color var(--t-fast),background var(--t-fast);
 }
 .nav-accordion-toggle::-webkit-details-marker{display:none}
-.nav-accordion-toggle:hover{color:var(--text-2);background:var(--hover-bg)}
+.nav-accordion-toggle:hover{color:var(--text);background:var(--hover-bg)}
 .nav-accordion-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.nav-accordion-label{flex:1}
-.nav-accordion-badge{margin-left:0;letter-spacing:0;text-transform:none}
+.nav-accordion[open] > .nav-accordion-toggle{color:var(--text);font-weight:700}
+.nav-accordion-label{flex:1;min-width:0}
+.nav-accordion-badge{margin-left:0;letter-spacing:0;text-transform:none;font-size:9px}
 .nav-accordion-chevron{
-  flex-shrink:0;opacity:.55;transition:transform var(--t-fast);
+  flex-shrink:0;opacity:.65;color:currentColor;transition:transform var(--t-fast);
 }
 .nav-accordion[open] > .nav-accordion-toggle .nav-accordion-chevron{transform:rotate(180deg)}
 .nav-accordion-body{
   display:flex;flex-direction:column;gap:2px;
-  padding:0 0 4px;
+  /* Level-2 indent under the group label */
+  margin:0 0 4px calc(var(--sp-3) + 4px);
+  padding:0 0 2px var(--sp-2);
+  border-left:1px solid var(--border-muted);
 }
 .nav-accordion.is-filter-hit > .nav-accordion-toggle{color:var(--accent)}
 
