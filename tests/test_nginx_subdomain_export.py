@@ -81,6 +81,8 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "rewrite ^/(.*)$ /dolibarr/$1 break;" not in block
     assert "rd=https://$host$request_uri" in block
     assert "bastion_sub=1" in block
+    assert "ae=$bastion_auth_err" in block
+    assert 'set $bastion_vhost_fqdn "dolibarr.ar-systems.fr";' in block
     assert "/auth/login?rd=https://" in block
     assert "/oauth2/" not in block.split("@portal_redirect")[1]
     assert "?rd=$request_uri;" not in block

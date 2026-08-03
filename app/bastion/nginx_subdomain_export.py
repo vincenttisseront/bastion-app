@@ -69,8 +69,8 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
 
 
 # auth_request_set — surface FastAPI X-Auth-Error in access logs (no-session,
-# no-app-for-host, native-session-rejected). Snippet uses $host/$http_cookie
-# directly (portal_auth_check parity); do not re-set those before auth_request.
+# no-app-for-host, native-session-rejected). Host comes from $bastion_auth_host
+# (literal $bastion_vhost_fqdn); Cookie is $http_cookie.
 _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
 )
@@ -234,6 +234,9 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "",
         "    set $bastion_app_upstream bastion-app:8000;",
         f'    set $app_upstream "{origin_esc}";',
+        # Literal FQDN — re-set on auth_request rewrite; never empty like $host
+        # can be on the subrequest (HAR: portal OK, Transfer 401 no-app).
+        f'    set $bastion_vhost_fqdn "{fqdn_esc}";',
         "",
         "    include /etc/nginx/snippets/subdomain_auth_common.conf;",
         "",
@@ -281,9 +284,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     lines.extend(
         [
             "    location / {",
-            # Snippet uses $host/$http_cookie directly (portal parity). Capture
-            # via set $bastion_auth_* before auth_request can clear Cookie/Host
-            # when rewrite re-runs on the auth subrequest.
+            # Host for auth_request comes from $bastion_vhost_fqdn (server literal)
+            # via map → $bastion_auth_host. Do not capture $host before auth_request.
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
             f"        error_page 401 = @portal_redirect_{slug};",
@@ -326,8 +328,10 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             # auth_request still returns 401.
             # bastion_sub=1: login must NOT bounce back to this Host (HAR loop when
             # auth_request 401 despite a valid bastion_session — stale nginx snippet).
+            # ae=$bastion_auth_err: surface FastAPI X-Auth-Error in the next HAR
+            # (no-session / no-app-for-host / native-session-rejected).
             f"        return 302 https://{portal_esc}/auth/login"
-            "?rd=https://$host$request_uri&bastion_sub=1;",
+            "?rd=https://$host$request_uri&bastion_sub=1&ae=$bastion_auth_err;",
             "    }",
             "}",
             "",

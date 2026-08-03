@@ -115,9 +115,10 @@ def _deny_no_app(
         },
         ip_address=ip_address or None,
     )
+    host_hint = (host or "").split(":")[0].strip().lower()[:80] or "-"
     return Response(
         status_code=401,
-        headers={"X-Auth-Error": "no-app-for-host"},
+        headers={"X-Auth-Error": f"no-app-for-host:{host_hint}"},
     )
 
 

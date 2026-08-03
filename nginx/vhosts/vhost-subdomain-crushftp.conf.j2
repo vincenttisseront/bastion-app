@@ -21,6 +21,8 @@ server {
 
     set $fastapi_upstream http://{{ sso_portal_bind_host | default('127.0.0.1') }}:{{ sso_portal_bind_port | default('8000') }};
     set $app_upstream     {{ vhost.upstream_url }};
+    # Literal FQDN for auth_request (must survive rewrite re-run on subrequest).
+    set $bastion_vhost_fqdn "{{ vhost.fqdn }}";
 
     # ─── Bloc interne auth subdomain ──────────────────────────────────────────
     # Définit location = /internal/subdomain-auth avec auth_request off
@@ -58,7 +60,7 @@ server {
 
     # ─── Route principale — protégée par auth_request ─────────────────────────
     # REGLE : auth_request + error_page 401 uniquement ici (jamais au niveau server)
-    # Snippet uses $host/$http_cookie directly (portal parity).
+    # Snippet uses $bastion_vhost_fqdn (literal) + $http_cookie.
     location / {
         auth_request /internal/subdomain-auth;
         auth_request_set $bastion_auth_err $upstream_http_x_auth_error;
@@ -90,6 +92,6 @@ server {
     # /auth/login is auth_request off (unlike bare /login → location / bounce loop).
     location @portal_redirect_{{ vhost.slug }} {
         # bastion_sub=1 stops /auth/login from bouncing back (auth_request 401 loop).
-        return 302 https://{{ portal_domain }}/auth/login?rd=$scheme://$host$request_uri&bastion_sub=1;
+        return 302 https://{{ portal_domain }}/auth/login?rd=$scheme://$host$request_uri&bastion_sub=1&ae=$bastion_auth_err;
     }
 }
