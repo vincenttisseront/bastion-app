@@ -298,6 +298,48 @@
   register: _auth_image_smoke
   changed_when: false
 
+- name: "SMOKE : nginx subdomain auth snippet uses map vars"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker exec bastion-nginx test -f /etc/nginx/includes/nginx-subdomain-auth.map.conf
+    docker exec bastion-nginx grep -q 'bastion_x_original_host' \
+      /etc/nginx/snippets/subdomain_auth_common.conf
+    docker exec bastion-nginx grep -q 'bastion_x_session' \
+      /etc/nginx/snippets/subdomain_auth_common.conf
+    echo "nginx subdomain auth maps/snippet OK"
+  args:
+    executable: /bin/bash
+  register: _nginx_subdomain_auth_smoke
+  changed_when: false
+
+- name: "SMOKE : subdomain export has bastion_sub=1 and parent Cookie capture"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    conf=/etc/nginx/conf.d/nginx-subdomain-apps.conf
+    docker exec bastion-nginx test -f "$conf"
+    if ! docker exec bastion-nginx grep -q 'auth_request /internal/subdomain-auth' "$conf"; then
+      echo "no subdomain_proxy apps — skip"
+      exit 0
+    fi
+    docker exec bastion-nginx grep -q 'bastion_sub=1' "$conf"
+    docker exec bastion-nginx grep -q 'set \$bastion_auth_cookie \$http_cookie;' "$conf"
+    echo "subdomain export bastion_sub + parent capture OK"
+  args:
+    executable: /bin/bash
+  register: _nginx_subdomain_export_smoke
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : warn if subdomain export missing Transfer loop fixes"
+  ansible.builtin.debug:
+    msg: >-
+      nginx-subdomain-apps.conf sans bastion_sub=1 / parent capture ?
+      Relancer infrastructure apply après rebuild bastion-app.
+      rc={{ _nginx_subdomain_export_smoke.rc }}
+      {{ _nginx_subdomain_export_smoke.stdout | default('') }}
+      {{ _nginx_subdomain_export_smoke.stderr | default('') }}
+  when: _nginx_subdomain_export_smoke.rc | default(1) != 0
+
 - name: "SMOKE : nginx signin defaults rd to /apps"
   ansible.builtin.shell: |
     set -euo pipefail

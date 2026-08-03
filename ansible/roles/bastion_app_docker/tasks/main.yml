@@ -617,6 +617,25 @@
       exit 1
     fi
     echo "nginx ACME TLS sync OK"
+    echo "=== nginx subdomain auth maps + snippet (Transfer loop) ==="
+    if ! docker run --rm --entrypoint test bastion-nginx:local -f \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx image — missing nginx-subdomain-auth.map.conf (need PR #21+)."
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'bastion_x_original_host' /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "OLD nginx snippet — expected \$bastion_x_original_host (parent capture + map)."
+      docker run --rm --entrypoint sed bastion-nginx:local -n '1,30p' \
+        /etc/nginx/snippets/subdomain_auth_common.conf || true
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'nginx-subdomain-auth.map.conf' /etc/nginx/nginx.conf; then
+      echo "OLD nginx.conf — missing include nginx-subdomain-auth.map.conf"
+      exit 1
+    fi
+    echo "nginx subdomain auth maps OK"
     echo "=== nginx-portal-realms deferred DNS ==="
     REALMS="{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
     if [[ -f "$REALMS" ]] && grep -qE 'proxy_pass[[:space:]]+https?://oauth2-proxy-' "$REALMS"; then
@@ -850,6 +869,44 @@
   ansible.builtin.debug:
     msg: "apply-infra-docker rc={{ _apply_docker.rc }} — {{ _apply_docker.stderr | default(_apply_docker.stdout) }}"
   when: _apply_docker.rc | default(0) != 0
+
+- name: "VERIFY : subdomain export has parent capture + bastion_sub loop breaker"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    CONF_HOST="{{ sso_portal_exports_dir }}/nginx-subdomain-apps.conf"
+    CONF_NGX="/etc/nginx/conf.d/nginx-subdomain-apps.conf"
+    echo "=== live snippet (always) ==="
+    docker exec bastion-nginx grep -q 'bastion_x_original_host' \
+      /etc/nginx/snippets/subdomain_auth_common.conf \
+      || { echo "live snippet missing bastion_x_original_host — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx test -f /etc/nginx/includes/nginx-subdomain-auth.map.conf \
+      || { echo "missing nginx-subdomain-auth.map.conf — rebuild nginx image"; exit 1; }
+    echo "snippet OK"
+    if [[ ! -f "$CONF_HOST" ]]; then
+      echo "no host export yet — skip export contract"
+      exit 0
+    fi
+    if ! grep -q 'auth_request /internal/subdomain-auth' "$CONF_HOST"; then
+      echo "no subdomain_proxy apps in export — skip export contract"
+      exit 0
+    fi
+    echo "=== exports/nginx-subdomain-apps.conf ==="
+    grep -q 'set \$bastion_auth_cookie \$http_cookie;' "$CONF_HOST" \
+      || { echo "export missing parent Cookie capture — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'bastion_sub=1' "$CONF_HOST" \
+      || { echo "export missing bastion_sub=1 loop breaker — rebuild bastion-app + re-apply"; exit 1; }
+    echo "host export OK"
+    echo "=== live bastion-nginx conf.d copy ==="
+    docker exec bastion-nginx test -f "$CONF_NGX"
+    docker exec bastion-nginx grep -q 'set \$bastion_auth_cookie \$http_cookie;' "$CONF_NGX" \
+      || { echo "live nginx conf missing parent capture — sync-exports/reload failed"; exit 1; }
+    docker exec bastion-nginx grep -q 'bastion_sub=1' "$CONF_NGX" \
+      || { echo "live nginx conf missing bastion_sub=1 — sync-exports/reload failed"; exit 1; }
+    echo "subdomain auth Transfer contract OK"
+  args:
+    executable: /bin/bash
+  register: _subdomain_auth_verify
+  changed_when: false
 
 # Traefik catch-all → bastion-nginx (unknown Host → Domaines découverts)
 - name: "Install Traefik catch-all for Host discovery"
