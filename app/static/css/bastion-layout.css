@@ -79,6 +79,46 @@ body.app-layout{display:flex;min-height:100vh}
   background:var(--accent-muted);color:var(--accent);font-weight:600;
 }
 
+/* Admin accordion groups */
+.sidebar-search-wrap{padding:0 var(--sp-2) var(--sp-3)}
+.sidebar-search{
+  width:100%;padding:var(--sp-2) var(--sp-3);
+  background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--r-md);
+  color:var(--text);font-family:var(--font);font-size:var(--fs-xs);
+  transition:border-color var(--t-fast),box-shadow var(--t-fast);
+}
+.sidebar-search::placeholder{color:var(--text-3)}
+.sidebar-search:focus{
+  outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-muted);
+}
+.visually-hidden{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
+.nav-accordion{display:flex;flex-direction:column;gap:2px;margin-top:2px}
+.nav-accordion[hidden]{display:none!important}
+.nav-accordion-toggle{
+  display:flex;align-items:center;gap:var(--sp-2);
+  list-style:none;user-select:none;cursor:pointer;
+  padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);
+  color:var(--text-3);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  transition:color var(--t-fast),background var(--t-fast);
+}
+.nav-accordion-toggle::-webkit-details-marker{display:none}
+.nav-accordion-toggle:hover{color:var(--text-2);background:var(--hover-bg)}
+.nav-accordion-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.nav-accordion-label{flex:1}
+.nav-accordion-badge{margin-left:0;letter-spacing:0;text-transform:none}
+.nav-accordion-chevron{
+  flex-shrink:0;opacity:.55;transition:transform var(--t-fast);
+}
+.nav-accordion[open] > .nav-accordion-toggle .nav-accordion-chevron{transform:rotate(180deg)}
+.nav-accordion-body{
+  display:flex;flex-direction:column;gap:2px;
+  padding:0 0 4px;
+}
+.nav-accordion.is-filter-hit > .nav-accordion-toggle{color:var(--accent)}
+
 .sidebar-footer{padding:var(--sp-3) var(--sp-4);border-top:1px solid var(--border-muted);display:flex;align-items:center;gap:var(--sp-3)}
 .user-row{
   display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2);

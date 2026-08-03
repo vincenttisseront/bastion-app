@@ -73,9 +73,9 @@ def test_login_page_hides_breakglass_from_public_ip(
     )
 
     assert response.status_code == 200
-    assert "Connexion SSO Keycloak" in response.text
+    assert "Se connecter via SSO / Identifiant Unique" in response.text
     assert "break-glass" not in response.text.lower()
-    assert "ou accès local" not in response.text
+    assert "Connexion locale" not in response.text
     assert 'name="username"' not in response.text
     assert 'name="password"' not in response.text
     assert 'action="/auth/breakglass"' not in response.text
@@ -94,7 +94,7 @@ def test_login_page_shows_breakglass_from_lan_ip(
     )
 
     assert response.status_code == 200
-    assert "Accès break-glass administrateur" in response.text
-    assert "ou accès d'urgence" in response.text
+    assert "Connexion locale (Administration / Secours)" in response.text
     assert 'name="username"' in response.text
     assert 'action="/auth/breakglass"' in response.text
+    assert 'data-initial-panel="sso"' in response.text

@@ -11,9 +11,15 @@ export async function loginBreakGlass(
   password: string,
 ): Promise<void> {
   await page.goto("/auth/login");
-  await page.fill('input[name="username"]', username);
-  await page.fill('input[name="password"]', password);
-  await page.click('button[type="submit"]');
+  const localTrigger = page.getByRole("button", {
+    name: /Connexion locale/i,
+  });
+  if (await localTrigger.count()) {
+    await localTrigger.click();
+  }
+  await page.locator("#login-panel-local input[name='username']").fill(username);
+  await page.locator("#login-panel-local input[name='password']").fill(password);
+  await page.locator("#login-panel-local button[type='submit']").click();
 }
 
 export function adminHeaders(): Record<string, string> {

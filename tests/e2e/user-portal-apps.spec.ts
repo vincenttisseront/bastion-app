@@ -19,7 +19,7 @@ test.describe("user portal apps", () => {
   }) => {
     await page.goto("/auth/login");
     // Staging: follow SSO button when present
-    const sso = page.getByRole("link", { name: /Connexion SSO/i });
+    const sso = page.getByRole("link", { name: /Se connecter via SSO/i });
     if (await sso.count()) {
       await sso.click();
       // External IdP — caller must have storageState / already-authenticated session

@@ -408,6 +408,7 @@ def _html_login_error(
             APP_VERSION,
             hide_chrome=True,
             login_error=login_error,
+            login_panel="sso",
             form_username=username,
             otp_required=otp_required,
             attempt_id=attempt_id or "",

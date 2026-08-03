@@ -1,0 +1,31 @@
+{# Reusable collapsible admin nav group (accordion).
+   Usage:
+     {% from 'partials/_accordion_menu_group.html' import accordion_menu_group %}
+     {% call accordion_menu_group('general', 'Général', open=true, badge_count=0) %}
+       <a class="nav-item" href="...">...</a>
+     {% endcall %}
+#}
+{% macro accordion_menu_group(group_id, label, open=false, badge_count=0, badge_aria='') -%}
+<details
+  class="nav-accordion"
+  data-nav-accordion="{{ group_id }}"
+  {% if open %}open{% endif %}
+>
+  <summary class="nav-accordion-toggle">
+    <span class="nav-accordion-label">{{ label }}</span>
+    {% if badge_count and badge_count > 0 %}
+    <span
+      class="nav-badge nav-accordion-badge"
+      title="{{ badge_aria or (badge_count ~ ' en attente') }}"
+      aria-label="{{ badge_aria or (badge_count ~ ' éléments en attente') }}"
+    >{{ badge_count }}</span>
+    {% endif %}
+    <svg class="nav-accordion-chevron" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9"/>
+    </svg>
+  </summary>
+  <div class="nav-accordion-body">
+    {{ caller() }}
+  </div>
+</details>
+{%- endmacro %}

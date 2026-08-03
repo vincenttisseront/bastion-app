@@ -490,6 +490,7 @@ def login_page(
                         settings,
                         hide_chrome=True,
                         login_error="Session break-glass expirée ou invalide — reconnectez-vous.",
+                        login_panel="local",
                         **_login_surface_flags(request, db, settings, rd=rd),
                     ),
                 )
@@ -636,6 +637,7 @@ async def breakglass_login_post(
             settings,
             hide_chrome=True,
             login_error="Identifiants invalides.",
+            login_panel="local",
             **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render("auth/login.html", **ctx)
@@ -649,6 +651,7 @@ async def breakglass_login_post(
             settings,
             hide_chrome=True,
             login_error="Identifiants invalides.",
+            login_panel="local",
             **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render("auth/login.html", **ctx)
@@ -668,6 +671,7 @@ async def breakglass_login_post(
             settings,
             hide_chrome=True,
             login_error="Identifiants invalides.",
+            login_panel="local",
             **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
         return render("auth/login.html", **ctx)

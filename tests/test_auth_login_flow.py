@@ -45,8 +45,9 @@ def test_login_shows_sso_and_local_when_default_realm_configured(
     )
 
     assert response.status_code == 200
-    assert "Connexion SSO Keycloak" in response.text
+    assert "Se connecter via SSO / Identifiant Unique" in response.text
     assert "/oauth2/ar-systems/start?rd=%2Fcatalogue" in response.text
+    assert "Connexion locale (Administration / Secours)" in response.text
     assert 'name="username"' in response.text
     assert 'name="password"' in response.text
 
@@ -93,9 +94,10 @@ def test_login_shows_local_form_only_when_breakglass_exists(client: TestClient, 
     assert response.status_code == 200
     assert 'name="username"' in response.text
     assert 'name="password"' in response.text
-    assert "Connexion SSO Keycloak" not in response.text
+    assert "Se connecter via SSO" not in response.text
     assert "/oauth2/" not in response.text
     assert "Break-glass" not in response.text
+    assert 'data-initial-panel="local"' in response.text
 
 
 def test_setup_forbidden_when_account_already_exists(client: TestClient, db_session: Session):

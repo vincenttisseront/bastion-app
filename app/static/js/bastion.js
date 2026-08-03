@@ -68,13 +68,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }, 2000);
   })();
 
+  initSidebarNav();
+
   var sidebarSearch = document.getElementById('sidebar-search');
   if (sidebarSearch) {
     sidebarSearch.addEventListener('input', function () {
-      var q = sidebarSearch.value.toLowerCase();
-      document.querySelectorAll('.nav-item, .sidebar-nav-item').forEach(function (item) {
-        item.style.display = item.textContent.toLowerCase().includes(q) ? '' : 'none';
-      });
+      filterSidebarNav(sidebarSearch.value);
     });
   }
 
@@ -111,6 +110,107 @@ function slugify(str) {
     .toLowerCase().trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+}
+
+var SIDEBAR_ACCORDION_KEY = 'bastion-nav-accordion';
+
+function readAccordionState() {
+  try {
+    var raw = localStorage.getItem(SIDEBAR_ACCORDION_KEY);
+    if (!raw) return {};
+    var parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (err) {
+    return {};
+  }
+}
+
+function writeAccordionState(state) {
+  try {
+    localStorage.setItem(SIDEBAR_ACCORDION_KEY, JSON.stringify(state));
+  } catch (err) {
+    /* ignore quota / private mode */
+  }
+}
+
+function initSidebarNav() {
+  var root = document.querySelector('[data-sidebar-nav]');
+  if (!root) return;
+
+  var stored = readAccordionState();
+  var accordions = root.querySelectorAll('[data-nav-accordion]');
+
+  accordions.forEach(function (el) {
+    var id = el.getAttribute('data-nav-accordion');
+    var hasActive = !!el.querySelector('.nav-item.active, .nav-group-toggle.is-parent-active');
+    if (hasActive) {
+      el.open = true;
+    } else if (Object.prototype.hasOwnProperty.call(stored, id)) {
+      el.open = !!stored[id];
+    }
+
+    el.addEventListener('toggle', function () {
+      if (root.getAttribute('data-nav-filtering') === '1') return;
+      var next = readAccordionState();
+      next[id] = el.open;
+      writeAccordionState(next);
+    });
+  });
+
+  root.querySelectorAll('[data-nav-subgroup]').forEach(function (el) {
+    if (el.querySelector('.nav-item.active')) {
+      el.open = true;
+    }
+  });
+}
+
+function filterSidebarNav(query) {
+  var root = document.querySelector('[data-sidebar-nav]');
+  if (!root) return;
+
+  var q = (query || '').trim().toLowerCase();
+  var filtering = q.length > 0;
+  root.setAttribute('data-nav-filtering', filtering ? '1' : '0');
+
+  var items = root.querySelectorAll('[data-nav-label]');
+  items.forEach(function (item) {
+    var label = (item.getAttribute('data-nav-label') || item.textContent || '').toLowerCase();
+    var match = !filtering || label.indexOf(q) !== -1;
+    item.hidden = !match;
+    item.classList.toggle('is-nav-filter-miss', filtering && !match);
+  });
+
+  root.querySelectorAll('[data-nav-subgroup]').forEach(function (group) {
+    var childHit = !!group.querySelector('[data-nav-label]:not([hidden])');
+    var toggle = group.querySelector('.nav-group-toggle');
+    var toggleHit = toggle && !toggle.hidden;
+    var show = !filtering || childHit || toggleHit;
+    group.hidden = !show;
+    if (filtering && show) {
+      group.open = true;
+    }
+  });
+
+  root.querySelectorAll('[data-nav-accordion]').forEach(function (accordion) {
+    var hit = !!accordion.querySelector(
+      '.nav-accordion-body [data-nav-label]:not([hidden]), [data-nav-subgroup]:not([hidden])'
+    );
+    accordion.hidden = filtering && !hit;
+    accordion.classList.toggle('is-filter-hit', filtering && hit);
+    if (filtering && hit) {
+      accordion.open = true;
+    }
+  });
+
+  if (!filtering) {
+    root.querySelectorAll('[data-nav-accordion], [data-nav-subgroup], [data-nav-label]').forEach(
+      function (el) {
+        el.hidden = false;
+        el.classList.remove('is-nav-filter-miss', 'is-filter-hit');
+      }
+    );
+    initSidebarNav();
+  }
 }
 
 function initSlugFromLabel() {

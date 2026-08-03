@@ -166,4 +166,21 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
     # Keep resolved admin flag even if a caller passed a stale is_admin in extras.
     ctx_out["is_admin"] = is_admin
     ctx_out["is_portal_admin"] = bool(extra.get("is_portal_admin", is_admin))
+
+    # Sidebar badge: pending users queue (admin chrome only).
+    if "pending_users_nav_count" not in ctx_out:
+        pending_count = 0
+        if is_admin and db is not None and not ctx_out.get("hide_chrome"):
+            try:
+                from app.models import PendingUser
+
+                pending_count = (
+                    db.query(PendingUser)
+                    .filter(PendingUser.status == "pending")
+                    .count()
+                )
+            except Exception:
+                pending_count = 0
+        ctx_out["pending_users_nav_count"] = pending_count
+
     return ctx_out

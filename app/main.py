@@ -147,6 +147,7 @@ _PORTAL_STATIC_ALIASES = {
     "/static/portal-theme.js": ("js/bastion-theme.js", "application/javascript"),
     "/static/portal-busy.js": ("js/bastion-busy.js", "application/javascript"),
     "/static/portal-modal.js": ("js/bastion-modal.js", "application/javascript"),
+    "/static/portal-login.js": ("js/bastion-login.js", "application/javascript"),
 }
 
 
