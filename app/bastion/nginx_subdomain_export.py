@@ -75,16 +75,13 @@ _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
 )
 
-# Capture client Cookie before auth_request. Prefer server{} (rewrite phase on
-# the original request) so CrushFTP's upstream Cookie filter in location / cannot
-# leak into the auth subrequest (HAR ae=no-session:ck=72).
-_AUTH_COOKIE_CAPTURE_SERVER_LINES = (
-    "    # Client Cookie for auth_request (not CrushFTP upstream filter).",
-    "    set $bastion_pass_cookie $http_cookie;",
-    "    set $bastion_pass_session $cookie_bastion_session;",
-    "",
-)
+# Capture client Cookie in location / (rewrite) BEFORE auth_request.
+# Do NOT also set these at server{} — server rewrite re-runs on the auth
+# subrequest and overwrites a good capture with a filtered/empty $http_cookie
+# (HAR ae=no-session:ck=72:x=0). Location-/ sets do not re-run for the
+# internal auth location, so the parent capture survives.
 _AUTH_COOKIE_CAPTURE_LINES = (
+    "        # Parent capture — survives auth_request (do not mirror at server{}).",
     "        set $bastion_pass_cookie $http_cookie;",
     "        set $bastion_pass_session $cookie_bastion_session;",
 )
@@ -306,7 +303,6 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         # can be on the subrequest (HAR: portal OK, Transfer 401 no-app).
         f'    set $bastion_vhost_fqdn "{fqdn_esc}";',
         "",
-        *_AUTH_COOKIE_CAPTURE_SERVER_LINES,
         "    include /etc/nginx/snippets/subdomain_auth_common.conf;",
         "",
         "    # Cookie hop — exact = beats any location ~ /\\. deny; never internal;",

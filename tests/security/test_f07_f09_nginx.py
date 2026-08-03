@@ -147,6 +147,8 @@ def test_subdomain_auth_snippet_still_internal():
     assert "$bastion_auth_cookie" in auth_map
     assert "$bastion_pass_cookie" in auth_map
     assert "$bastion_session_from_jar" in auth_map
+    assert "$bastion_session_from_pass" in auth_map
+    assert "$bastion_session_from_http" in auth_map
     activesync = (
         ROOT / "docker/nginx/snippets/activesync_auth_common.conf"
     ).read_text(encoding="utf-8")
