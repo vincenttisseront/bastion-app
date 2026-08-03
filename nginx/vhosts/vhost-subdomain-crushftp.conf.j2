@@ -63,15 +63,10 @@ server {
 
     # ─── Route principale — protégée par auth_request ─────────────────────────
     # REGLE : auth_request + error_page 401 uniquement ici (jamais au niveau server)
-    # Sticky capture + rebuild before auth_request (never at server{}).
-    # Refresh only while $bastion_fresh_session is set — avoids ck=90 wipe.
+    # Map sticky capture + rebuild before auth_request (never at server{}, never if{}).
     location / {
-        set $bastion_pass_cookie $bastion_pass_cookie;
-        set $bastion_pass_session $bastion_pass_session;
-        if ($bastion_fresh_session != "") {
-            set $bastion_pass_cookie $http_cookie;
-            set $bastion_pass_session $bastion_fresh_session;
-        }
+        set $bastion_pass_session $bastion_pick_session;
+        set $bastion_pass_cookie $bastion_pick_cookie;
         set $bastion_auth_cookie "bastion_session=$bastion_pass_session; $bastion_pass_cookie";
         auth_request /internal/subdomain-auth;
         auth_request_set $bastion_auth_err $upstream_http_x_auth_error;

@@ -340,11 +340,15 @@
     docker exec bastion-nginx grep -q 'ae=\$bastion_auth_err' "$conf"
     docker exec bastion-nginx grep -q 'auth_request_set \$bastion_auth_err' "$conf"
     docker exec bastion-nginx grep -q 'set \$bastion_vhost_fqdn "' "$conf"
-    docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$conf"
-    docker exec bastion-nginx grep -q 'if (\$bastion_fresh_session != "")' "$conf"
+    docker exec bastion-nginx grep -q 'set \$bastion_pass_cookie \$bastion_pick_cookie;' "$conf"
+    docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$bastion_pick_session;' "$conf"
     docker exec bastion-nginx grep -q \
       'set \$bastion_auth_cookie "bastion_session=\$bastion_pass_session; \$bastion_pass_cookie";' \
       "$conf"
+    if docker exec bastion-nginx grep -q 'if (\$bastion_fresh_session' "$conf"; then
+      echo "sticky if{} still present (ifisevil → 404 new-ui)"
+      exit 1
+    fi
     if docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$cookie_bastion_session;' "$conf"; then
       echo "unconditional pass_session capture still present (ck=90 wipe)"
       exit 1
@@ -352,6 +356,11 @@
     if ! docker exec bastion-nginx grep -q 'map \$http_cookie \$bastion_fresh_session' \
       /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
       echo "map missing \$bastion_fresh_session"
+      exit 1
+    fi
+    if ! docker exec bastion-nginx grep -q 'map \$bastion_fresh_session \$bastion_pick_session' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "map missing \$bastion_pick_session"
       exit 1
     fi
     if docker exec bastion-nginx grep -q 'CrushAuth=\$cookie_CrushAuth' "$conf"; then
