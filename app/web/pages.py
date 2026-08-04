@@ -254,34 +254,60 @@ def _show_breakglass_form(request: Request, db: Session, settings: Settings) -> 
     )
 
 
+def _login_audience_label(realm: RealmConfig) -> str:
+    """Short audience label for the login chooser (Interne / Clients / name)."""
+    blob = f"{realm.slug or ''} {realm.name or ''}".lower()
+    if any(token in blob for token in ("client", "externe", "customer")):
+        return "Clients"
+    if any(
+        token in blob
+        for token in ("interne", "internal", "staff", "ar-system", "arsystem")
+    ):
+        return "Interne"
+    return (realm.name or realm.slug or "Realm").strip()
+
+
 def _login_surface_flags(
     request: Request,
     db: Session,
     settings: Settings,
     *,
     rd: str,
+    preferred_realm: str | None = None,
 ) -> dict:
     """Shared flags for auth/login.html (native SSO vs oauth2-proxy vs break-glass)."""
     from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
 
     default = get_default_idp_realm(db)
-    native_realm = None
-    # Prefer an explicitly native-enabled realm; default first if it qualifies.
-    candidates: list = []
-    if default is not None:
-        candidates.append(default)
-    for row in (
+    enabled_rows = (
         db.query(RealmConfig)
         .filter(RealmConfig.enabled.is_(True))
         .order_by(RealmConfig.slug.asc())
         .all()
-    ):
+    )
+    # Default first, then other enabled realms (stable chooser order).
+    ordered: list[RealmConfig] = []
+    if default is not None:
+        ordered.append(default)
+    for row in enabled_rows:
         if default is None or row.id != default.id:
-            candidates.append(row)
-    for row in candidates:
-        if is_oidc_native_session_enabled_for_realm(db, row.slug, settings):
-            native_realm = row
-            break
+            ordered.append(row)
+
+    native_realms: list[RealmConfig] = [
+        row
+        for row in ordered
+        if is_oidc_native_session_enabled_for_realm(db, row.slug, settings)
+    ]
+
+    want = (preferred_realm or request.query_params.get("realm") or "").strip().lower()
+    native_realm: RealmConfig | None = None
+    if want:
+        for row in native_realms:
+            if (row.slug or "").lower() == want:
+                native_realm = row
+                break
+    if native_realm is None and native_realms:
+        native_realm = native_realms[0]
 
     show_native = native_realm is not None
     # Keep Keycloak redirect for the default realm while a non-default pilot is active.
@@ -293,10 +319,23 @@ def _login_surface_flags(
     from app.rbac.access_request_service import realms_accepting_access_requests
 
     access_realms = realms_accepting_access_requests(db)
+    native_realm_options = [
+        {
+            "slug": row.slug,
+            "name": row.name,
+            "label": _login_audience_label(row),
+        }
+        for row in native_realms
+    ]
     return {
         "show_native_login": show_native,
         "native_realm_slug": native_realm.slug if native_realm else None,
         "native_realm_name": native_realm.name if native_realm else None,
+        "native_realm_label": (
+            _login_audience_label(native_realm) if native_realm else None
+        ),
+        "native_realm_options": native_realm_options,
+        "show_realm_chooser": len(native_realm_options) > 1,
         "oauth2_url": oauth2_url,
         "show_breakglass": _show_breakglass_form(request, db, settings),
         "show_access_request": bool(access_realms),
