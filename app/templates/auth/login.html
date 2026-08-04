@@ -87,11 +87,8 @@
           data-login-realm="{{ opt.slug }}"
           data-login-realm-label="{{ opt.label }}"
           data-login-realm-native="{{ '1' if opt.native else '0' }}"
-          title="{{ opt.name }} ({{ opt.slug }}){% if opt.native %} · formulaire natif{% else %} · SSO redirect{% endif %}"
-        >
-          <span class="login-audience-label">{{ opt.label }}</span>
-          <span class="login-audience-slug mono">{{ opt.slug }}</span>
-        </button>
+          title="{{ opt.label }}{% if opt.native %} · formulaire natif{% else %} · SSO redirect{% endif %}"
+        >{{ opt.label }}</button>
         {% endfor %}
       </div>
       {% endif %}
