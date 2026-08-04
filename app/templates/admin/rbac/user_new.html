@@ -83,17 +83,26 @@
           </p>
         </div>
         <div class="alert alert-info" style="margin:0;">
-          Mot de passe initial généré automatiquement — jamais affiché ici.
-          L’utilisateur devra le changer à la première connexion
-          (<span class="mono">UPDATE_PASSWORD</span>).
-          Cochez « Envoyer par email » (ou activez l’option sur le realm) pour
-          le transmettre via le SMTP du realm.
+          Mot de passe initial généré automatiquement (temporaire —
+          <span class="mono">UPDATE_PASSWORD</span> à la 1<sup>re</sup> connexion).
+          Choisissez l’envoi email et/ou l’affichage unique après création.
         </div>
         <label class="form-check" style="margin-top:var(--sp-3);">
-          <input type="checkbox" name="send_credentials" value="on"
+          <input type="checkbox" name="send_credentials" value="on" id="send_credentials"
+                 data-send-credentials
                  {% if form_values.send_credentials %}checked{% endif %}>
           <span>Envoyer les identifiants par email (SMTP du realm)</span>
         </label>
+        <label class="form-check" style="margin-top:var(--sp-2);">
+          <input type="checkbox" name="reveal_password" value="on" id="reveal_password"
+                 data-reveal-password
+                 {% if form_values.reveal_password or not form_values.send_credentials %}checked{% endif %}>
+          <span>Afficher le mot de passe après création (une seule fois sur la fiche)</span>
+        </label>
+        <p class="form-help">
+          Si l’email n’est pas envoyé, le mot de passe est affiché une fois sur la fiche compte
+          (même sans cette case). Jamais renvoyé ensuite — utilisez « Reset password ».
+        </p>
       </div>
     </div>
 
@@ -108,15 +117,22 @@
       </div>
       <div class="form-body">
         {% if provision_groups %}
-        <div class="stack" style="gap:var(--sp-3);" data-groups-list>
+        <div class="form-group" style="margin-bottom:var(--sp-3);">
+          <label class="form-label" for="group_filter">Rechercher un groupe</label>
+          <input type="search" id="group_filter" class="form-input" data-group-filter
+                 placeholder="Nom ou chemin…" autocomplete="off">
+        </div>
+        <div class="stack" style="gap:var(--sp-3); max-height:22rem; overflow:auto; padding-right:var(--sp-2);" data-groups-list>
           {% for g in provision_groups %}
-          <label class="form-check" data-group-row data-realm-id="{{ g.realm_id }}" hidden>
+          <label class="form-check" data-group-row data-realm-id="{{ g.realm_id }}"
+                 data-group-label="{{ (g.name ~ ' ' ~ (g.path or ''))|lower }}" hidden>
             <input type="checkbox" name="group_ids" value="{{ g.id }}" data-group-checkbox disabled{% if g.id in selected_groups %} checked{% endif %}>
             <span>{{ g.name }}</span>
             {% if g.path %}<span class="mono" style="color:var(--text-3); font-size:var(--fs-xs);">{{ g.path }}</span>{% endif %}
           </label>
           {% endfor %}
         </div>
+        <p class="form-help" data-groups-filter-empty hidden>Aucun groupe ne correspond au filtre.</p>
         <p class="form-help" data-groups-empty hidden>Aucun groupe importé pour ce realm — lancez la sync des groupes sur la fiche realm.</p>
         {% else %}
         <p class="form-help">Aucun groupe importé — lancez la sync des groupes sur la fiche realm.</p>
@@ -191,23 +207,52 @@
     var rows = document.querySelectorAll("[data-group-row]");
     var summary = document.querySelector("[data-groups-summary]");
     var emptyHint = document.querySelector("[data-groups-empty]");
+    var filterEmpty = document.querySelector("[data-groups-filter-empty]");
+    var filterInput = document.querySelector("[data-group-filter]");
+    var sendCred = document.querySelector("[data-send-credentials]");
+    var revealPw = document.querySelector("[data-reveal-password]");
+
+    function syncRevealDefault() {
+      if (!sendCred || !revealPw) return;
+      // When email is off, keep reveal checked by default (admin must see the password).
+      if (!sendCred.checked && !revealPw.dataset.userTouched) {
+        revealPw.checked = true;
+      }
+    }
+    if (revealPw) {
+      revealPw.addEventListener("change", function () {
+        revealPw.dataset.userTouched = "1";
+      });
+    }
+    if (sendCred) {
+      sendCred.addEventListener("change", syncRevealDefault);
+    }
 
     function syncGroups() {
       var realmId = String(select.value || "");
+      var q = (filterInput && filterInput.value || "").trim().toLowerCase();
       var visible = 0;
       var selected = 0;
+      var matchedFilter = 0;
       rows.forEach(function (row) {
-        var match = String(row.getAttribute("data-realm-id") || "") === realmId;
+        var matchRealm = String(row.getAttribute("data-realm-id") || "") === realmId;
+        var label = String(row.getAttribute("data-group-label") || "");
+        var matchFilter = !q || label.indexOf(q) !== -1;
         var cb = row.querySelector("[data-group-checkbox]");
-        row.hidden = !match;
+        var show = matchRealm && matchFilter;
+        row.hidden = !show;
         if (cb) {
-          cb.disabled = !match;
-          if (!match) cb.checked = false;
+          cb.disabled = !matchRealm;
+          if (!matchRealm) cb.checked = false;
           else if (cb.checked) selected += 1;
         }
-        if (match) visible += 1;
+        if (matchRealm) visible += 1;
+        if (show) matchedFilter += 1;
       });
       if (emptyHint) emptyHint.hidden = visible > 0 || rows.length === 0;
+      if (filterEmpty) {
+        filterEmpty.hidden = !(visible > 0 && matchedFilter === 0 && q);
+      }
       if (summary) {
         summary.classList.toggle("is-off", visible === 0);
         if (selected > 0) summary.textContent = selected + " sélectionné(s) · " + visible + " pour ce realm";
@@ -217,6 +262,8 @@
     }
 
     select.addEventListener("change", syncGroups);
+    if (filterInput) filterInput.addEventListener("input", syncGroups);
+    syncRevealDefault();
     syncGroups();
   })();
   </script>

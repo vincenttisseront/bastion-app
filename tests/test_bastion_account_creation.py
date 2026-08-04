@@ -414,8 +414,49 @@ def test_users_new_form_groups_tagged_by_realm(client, db_session):
     resp = client.get("/admin/rbac/users/new", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert f'data-realm-id="{group.realm_id}"' in resp.text
-    assert 'data-realm-select' in resp.text
+    assert "data-realm-select" in resp.text
+    assert "data-group-filter" in resp.text
+    assert "data-group-label=" in resp.text
+    assert "reveal_password" in resp.text
     assert "groupes du realm cible" in resp.text.lower() or "Groupes du realm cible" in resp.text
+
+
+@respx.mock
+def test_create_account_reveals_password_once_when_not_emailed(client, db_session):
+    """HTML create without email → one-shot password on account detail, then gone."""
+    realm = _realm(db_session)
+    _group(db_session, realm)
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    _mock_no_duplicate()
+    create_route = respx.post(f"{KC_ADMIN}/users").respond(
+        201, headers={"Location": f"{KC_ADMIN}/users/kc-reveal-1"}
+    )
+    respx.put(f"{KC_ADMIN}/users/kc-reveal-1/groups/g1").respond(204)
+
+    resp = client.post(
+        "/admin/rbac/users/new",
+        headers=ADMIN_HEADERS,
+        data=_create_payload(realm.id, reveal_password="on"),
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302, resp.text
+    assert "/admin/rbac/accounts/" in resp.headers["location"]
+    assert "portal_temp_cred" in resp.headers.get("set-cookie", "")
+
+    import json as _json
+
+    generated = _json.loads(create_route.calls[0].request.content)["credentials"][0][
+        "value"
+    ]
+    detail = client.get(resp.headers["location"], headers=ADMIN_HEADERS)
+    assert detail.status_code == 200
+    assert generated in detail.text
+    assert "affichage unique" in detail.text.lower()
+
+    again = client.get(resp.headers["location"], headers=ADMIN_HEADERS)
+    assert again.status_code == 200
+    assert generated not in again.text
 
 
 @respx.mock
