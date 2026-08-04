@@ -108,6 +108,65 @@ def _otp_html() -> str:
     """
 
 
+def _totp_setup_html() -> str:
+    action = (
+        f"{KC}/realms/{REALM}/login-actions/required-action"
+        "?session_code=abc&execution=CONFIGURE_TOTP&client_id=bastion-bff&tab_id=tab1"
+    )
+    return f"""
+    <html><body>
+      <span id="kc-totp-secret-key">ABCD EFGH IJKL MNOP</span>
+      <img id="kc-totp-secret-qr-code" src="data:image/png;base64,aaaa" alt="QR">
+      <form id="kc-totp-settings-form" action="{action}" method="post">
+        <input type="hidden" name="totpSecret" value="ABCDEFGHIJKLMNOP">
+        <input type="hidden" name="mode" value="qr">
+        <input type="text" name="totp" value="">
+        <input type="text" name="userLabel" value="">
+      </form>
+    </body></html>
+    """
+
+
+def test_extract_totp_setup_parses_secret_and_qr():
+    from app.oidc_bff_client import _extract_totp_setup
+
+    parsed = _extract_totp_setup(_totp_setup_html())
+    assert parsed is not None
+    assert parsed.totp_secret == "ABCDEFGHIJKLMNOP"
+    assert "ABCD" in parsed.secret_display
+    assert parsed.qr_data_url and parsed.qr_data_url.startswith("data:image/png")
+    assert "required-action" in parsed.action
+    assert parsed.fields.get("totpSecret") == "ABCDEFGHIJKLMNOP"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_interpret_follows_configure_totp_required_action():
+    import httpx
+    from app.oidc_bff_client import _interpret_post_password_response
+
+    setup_url = (
+        f"{KC}/realms/{REALM}/login-actions/required-action"
+        "?execution=CONFIGURE_TOTP&client_id=bastion-bff"
+    )
+    respx.get(setup_url).mock(
+        return_value=Response(
+            200, text=_totp_setup_html(), headers={"content-type": "text/html"}
+        )
+    )
+    post_resp = Response(
+        302,
+        headers={"Location": setup_url},
+        request=httpx.Request("POST", LOGIN_ACTION),
+    )
+    async with httpx.AsyncClient() as client:
+        outcome = await _interpret_post_password_response(
+            client, post_resp, expected_state="st", base=KC
+        )
+    assert outcome[0] == "totp_setup"
+    assert "kc-totp-settings-form" in outcome[1]
+
+
 def _id_token(*, sub: str = "kc-sub-1", preferred: str = "alice", groups=None) -> str:
     now = int(time.time())
     payload = {
