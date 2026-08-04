@@ -100,9 +100,9 @@
                     </span>
                     <form method="post"
                           action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/exclusions/{{ e.keycloak_user_id }}/delete"
-                          style="display:inline;"
-                          onsubmit="return confirm('Retirer cette exclusion ?');">
-                      <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+                          style="display:inline;">
+                      <button type="submit" class="btn btn-ghost btn-sm"
+                              data-confirm="Retirer cette exclusion ?">Retirer</button>
                     </form>
                   </li>
                   {% endfor %}
@@ -126,9 +126,9 @@
               </td>
               <td style="text-align:right; white-space:nowrap;">
                 <form method="post"
-                      action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete"
-                      onsubmit="return confirm('Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?');">
-                  <button type="submit" class="btn btn-danger btn-sm">Supprimer</button>
+                      action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete">
+                  <button type="submit" class="btn btn-danger btn-sm"
+                          data-confirm="Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?">Supprimer</button>
                 </form>
               </td>
             </tr>

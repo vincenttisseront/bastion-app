@@ -92,20 +92,20 @@
       {% else %}
       <form method="post" action="/admin/rbac/accounts/{{ account.id }}/reset-password"
             onclick="event.stopPropagation();"
-            onsubmit="return confirm('Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?');"
             style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
         <label class="form-check" style="margin:0;">
           <input type="checkbox" name="send_email" value="1"
                  {% if realm and realm.send_credentials_email and realm.smtp_enabled %}checked{% endif %}>
           <span>Envoyer par email</span>
         </label>
-        <button type="submit" class="btn btn-ghost btn-sm">Reset password</button>
+        <button type="submit" class="btn btn-ghost btn-sm"
+                data-confirm="Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?">Reset password</button>
       </form>
       <form method="post" action="/admin/rbac/accounts/{{ account.id }}/verify-email"
             onclick="event.stopPropagation();"
-            onsubmit="return confirm('Marquer l’email de « {{ account.username }} » comme vérifié dans Keycloak ?');"
             style="display:inline;">
-        <button type="submit" class="btn btn-ghost btn-sm">Vérifier email</button>
+        <button type="submit" class="btn btn-ghost btn-sm"
+                data-confirm="Marquer l’email de « {{ account.username }} » comme vérifié dans Keycloak ?">Vérifier email</button>
       </form>
       {% endif %}
     </div>
@@ -399,8 +399,7 @@
       </div>
     </div>
     <div class="form-body">
-      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/delete"
-            onsubmit="return confirm('Supprimer définitivement « {{ account.username }} » partout ?');">
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/delete">
         <div class="form-group">
           <label class="form-label" for="confirm_username">
             Saisissez l'identifiant « <strong>{{ account.username }}</strong> » pour confirmer
@@ -414,7 +413,8 @@
             <span style="color:var(--text-3);">(laisse des comptes orphelins côté applications/Keycloak)</span>
           </span>
         </label>
-        <button type="submit" class="btn btn-danger">Supprimer partout</button>
+        <button type="submit" class="btn btn-danger"
+                data-confirm="Supprimer définitivement « {{ account.username }} » partout ?">Supprimer partout</button>
       </form>
     </div>
   </div>
