@@ -559,14 +559,20 @@ async def _exchange_code_for_tokens(
     )
 
 
-def _absolute_action_url(action: str, base: str) -> str:
-    """Pin Keycloak URLs (form actions / redirects) onto the BFF base host.
+def _origin_of(url: str) -> str:
+    parsed = urlparse((url or "").strip())
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
 
-    Keycloak often embeds the public frontend hostname in ``Location`` headers
-    and form ``action`` attributes. Following those leaves AUTH_SESSION_ID
-    cookies on the public host while the BFF continues on the internal base →
-    HTTP 400 (``cookie_not_found`` / « We are sorry… »). Always keep
-    ``/realms/...`` traffic on ``base``.
+
+def _absolute_action_url(action: str, base: str) -> str:
+    """Resolve a form/redirect URL onto ``base`` (the host that holds AUTH cookies).
+
+    Keycloak may embed a different hostname in form ``action`` / ``Location``.
+    Cookie jars are host-scoped: always POST/GET on the same origin that served
+    the login HTML (``session_base``), not necessarily the configured internal
+    ``oidc_keycloak_base_url``.
     """
     base = (base or "").strip().rstrip("/")
     action = (action or "").strip()
@@ -608,25 +614,26 @@ def _keycloak_http_error_hint(html: str) -> str | None:
         return "cookie session Keycloak manquant (URL frontend vs base BFF)"
     if "expired" in lower and ("code" in lower or "session" in lower):
         return "session_code Keycloak expiré"
-    # Prefer a short page title when Keycloak serves the generic error page.
+    if "we are sorry" in lower or "nous sommes désolés" in lower:
+        return (
+            "page d'erreur Keycloak "
+            "(souvent cookie AUTH_SESSION_ID / hostname frontend vs interne)"
+        )
+    if "kc-form-login" in lower:
+        return "session Keycloak invalide (formulaire renvoyé en erreur)"
     try:
         soup = BeautifulSoup(html or "", "html.parser")
         title = soup.find("title")
         if title:
             title_text = " ".join(title.get_text(" ", strip=True).split())
-            if title_text and title_text.casefold() not in {
-                "sign in",
+            folded = title_text.casefold()
+            if title_text and not folded.startswith("sign in") and folded not in {
                 "connexion",
                 "log in",
             }:
                 return f"page d'erreur Keycloak ({title_text[:80]})"
     except Exception:
         pass
-    if "we are sorry" in lower or "nous sommes désolés" in lower:
-        return (
-            "page d'erreur Keycloak "
-            "(souvent cookie AUTH_SESSION_ID / hostname frontend vs interne)"
-        )
     return None
 
 
@@ -688,7 +695,9 @@ async def start_headless_login(
         follow_redirects=False,
         headers={"User-Agent": "bastion-oidc-bff/1.0"},
     ) as client:
-        login_html = await _fetch_login_html(client, auth_url, auth_params, base=base)
+        login_html, session_base = await _fetch_login_html(
+            client, auth_url, auth_params, base=base
+        )
         unsupported = _html_indicates_unsupported_flow(login_html)
         if unsupported:
             raise UnsupportedAuthFlowError(
@@ -696,7 +705,8 @@ async def start_headless_login(
             )
 
         action, form_fields = _extract_login_form(login_html)
-        action_url = _absolute_action_url(action, base)
+        # Post on the origin that set AUTH_SESSION_ID (may be public frontend).
+        action_url = _absolute_action_url(action, session_base)
         form_fields["username"] = username
         form_fields["password"] = password
 
@@ -711,7 +721,7 @@ async def start_headless_login(
             raise OidcBffError("Impossible de joindre Keycloak (login)") from exc
 
         outcome = await _interpret_post_password_response(
-            client, post_resp, expected_state=state, base=base
+            client, post_resp, expected_state=state, base=session_base
         )
         if outcome[0] == "code":
             tokens = await _exchange_code_for_tokens(
@@ -750,7 +760,8 @@ async def start_headless_login(
             otp_form_encrypted=encrypt_secret(form_json, settings),
             code_verifier=code_verifier,
             state=state,
-            keycloak_base_url=base,
+            # Keep session_base so OTP POSTs hit the same host as AUTH cookies.
+            keycloak_base_url=session_base,
             keycloak_realm=keycloak_realm,
             client_id=client_id,
             redirect_uri=redirect_uri,
@@ -1010,7 +1021,9 @@ async def _perform_headless_login_no_db(
         follow_redirects=False,
         headers={"User-Agent": "bastion-oidc-bff/1.0"},
     ) as client:
-        login_html = await _fetch_login_html(client, auth_url, auth_params, base=base)
+        login_html, session_base = await _fetch_login_html(
+            client, auth_url, auth_params, base=base
+        )
         unsupported = _html_indicates_unsupported_flow(login_html)
         if unsupported:
             raise UnsupportedAuthFlowError(
@@ -1022,7 +1035,7 @@ async def _perform_headless_login_no_db(
                 f"détectée ({_OTP_FORM_ID})"
             )
         action, form_fields = _extract_login_form(login_html)
-        action_url = _absolute_action_url(action, base)
+        action_url = _absolute_action_url(action, session_base)
         form_fields["username"] = username
         form_fields["password"] = password
         try:
@@ -1034,7 +1047,7 @@ async def _perform_headless_login_no_db(
         except httpx.HTTPError as exc:
             raise OidcBffError("Impossible de joindre Keycloak (login)") from exc
         outcome = await _interpret_post_password_response(
-            client, post_resp, expected_state=state, base=base
+            client, post_resp, expected_state=state, base=session_base
         )
         if outcome[0] != "code":
             raise UnsupportedAuthFlowError(
@@ -1061,8 +1074,14 @@ async def _fetch_login_html(
     auth_params: dict[str, str],
     *,
     base: str,
-) -> str:
-    """GET /auth and follow Keycloak redirects until the login HTML is returned."""
+) -> tuple[str, str]:
+    """GET /auth, follow Keycloak redirects, return ``(html, session_base)``.
+
+    ``session_base`` is the origin of the final login HTML (where AUTH cookies
+    live). Do **not** force redirects back onto the configured internal base —
+    Keycloak hostname-strict often creates the auth session on the public
+    frontend URL.
+    """
     url: str | httpx.URL = auth_url
     params: dict[str, str] | None = auth_params
     for _ in range(8):
@@ -1084,16 +1103,16 @@ async def _fetch_login_html(
                 raise UnsupportedAuthFlowError(
                     "Flux Keycloak non supporté en headless: required action"
                 )
-            # Stay on the BFF Keycloak base even if Location points at frontend URL.
-            url = _absolute_action_url(urljoin(str(resp.url), location), base)
+            url = urljoin(str(resp.url), location)
             continue
         if resp.status_code != 200:
             raise OidcBffError(
                 f"Keycloak auth HTTP {resp.status_code} inattendu"
             )
         text = resp.text
+        session_base = _origin_of(str(resp.url)) or base
         if "kc-form-login" in text:
-            return text
+            return text, session_base
         unsupported = _html_indicates_unsupported_flow(text)
         if unsupported:
             raise UnsupportedAuthFlowError(
@@ -1110,7 +1129,10 @@ async def _interpret_post_password_response(
     expected_state: str,
     base: str,
 ) -> tuple[Literal["code", "otp"], str]:
-    """Return ``('code', auth_code)`` or ``('otp', html)``."""
+    """Return ``('code', auth_code)`` or ``('otp', html)``.
+
+    ``base`` is the session origin (cookie host), used when following OTP redirects.
+    """
     if resp.status_code in {301, 302, 303, 307, 308}:
         location = resp.headers.get("location") or ""
         if not location:
@@ -1125,7 +1147,7 @@ async def _interpret_post_password_response(
             if returned_state is not None and returned_state != expected_state:
                 raise OidcBffError("State OIDC mismatch après login Keycloak")
             return ("code", code)
-        # Interactive step redirect — follow GET to inspect HTML (OTP vs other).
+        # Interactive step redirect — follow on the same host as the auth cookies.
         if "login-actions/" in location:
             next_url = _absolute_action_url(urljoin(str(resp.url), location), base)
             try:
@@ -1162,6 +1184,13 @@ async def _interpret_post_password_response(
         raise OidcBffError(
             "Réponse login Keycloak inattendue (HTTP 200, pas de code)"
         )
+
+    # Keycloak often returns HTTP 400 with the login theme when the auth session
+    # cookie is missing / mismatched (hostname frontend vs internal).
+    if resp.status_code == 400:
+        html = resp.text or ""
+        if "kc-form-login" in html and _html_indicates_invalid_credentials(html):
+            raise InvalidCredentialsError("Identifiants Keycloak invalides")
 
     hint = _keycloak_http_error_hint(resp.text or "")
     logger.warning(
