@@ -7,6 +7,7 @@
 {% set subdomain_apps = subdomain_apps | default([]) %}
 {% set vault_key = vault_key | default(none) %}
 {% set db_encryption = db_encryption | default(none) %}
+{% set hot_store = hot_store | default(none) %}
 {% set breakglass_secret = breakglass_secret | default({}) %}
 <div class="page" id="security-page">
   <div class="page-header">
@@ -40,6 +41,16 @@
       <span class="badge badge-warn tab-badge">!</span>
       {% elif db_encryption and db_encryption.status_badge == 'ok' %}
       <span class="badge badge-ok tab-badge">OK</span>
+      {% endif %}
+    </a>
+    <a href="#hot-store" class="tab" role="tab" data-tab="hot-store" id="tab-hot-store">
+      Stockage chaud
+      {% if hot_store and hot_store.status_badge == 'error' %}
+      <span class="badge badge-err tab-badge">!</span>
+      {% elif hot_store and hot_store.status_badge == 'ok' %}
+      <span class="badge badge-ok tab-badge">OK</span>
+      {% elif hot_store and hot_store.status_badge == 'warn' %}
+      <span class="badge badge-warn tab-badge">!</span>
       {% endif %}
     </a>
     <a href="#misc" class="tab" role="tab" data-tab="misc" id="tab-misc">Misc</a>
@@ -498,6 +509,139 @@
       {% else %}
       <p class="form-prose">Statut de chiffrement indisponible.</p>
       {% endif %}
+    </div>
+  </div>
+
+  <div class="form-section security-panel" id="hot-store" role="tabpanel" aria-labelledby="tab-hot-store" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">Stockage chaud (PostgreSQL)</div>
+      <div class="form-section-sub">
+        Sessions, audit, rate-limit — optionnel —
+        {% if hot_store %}
+          {% if hot_store.status_badge == 'ok' %}
+          <span class="badge badge-ok">{{ hot_store.status_label }}</span>
+          {% elif hot_store.status_badge == 'warn' %}
+          <span class="badge badge-warn">{{ hot_store.status_label }}</span>
+          {% elif hot_store.status_badge == 'error' %}
+          <span class="badge badge-err">{{ hot_store.status_label }}</span>
+          {% else %}
+          <span class="badge badge-muted">{{ hot_store.status_label }}</span>
+          {% endif %}
+        {% else %}
+        <span class="badge badge-muted">Indisponible</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="form-body">
+      <p class="form-prose form-prose-spaced">
+        La configuration (realms, RBAC, coffre Fernet, policies) reste dans
+        <span class="mono">portal.db</span> (SQLite / SQLCipher). PostgreSQL n’accueille
+        que les tables à fort volume : sessions OIDC, sessions actives, audit,
+        événements anti-bruteforce, outbox SIEM.
+      </p>
+
+      {% if hot_store %}
+      <div class="table-wrap mb-4">
+        <table class="data-table">
+          <tbody>
+            <tr><th>État</th><td>{{ hot_store.status_label }}</td></tr>
+            <tr><th>Activé</th>
+              <td>{% if hot_store.enabled %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-muted">Non</span>{% endif %}</td>
+            </tr>
+            <tr><th>Ping</th>
+              <td>{% if hot_store.ping_ms is not none %}<span class="mono">{{ hot_store.ping_ms }} ms</span>{% elif hot_store.ping_error %}<span class="badge badge-err">{{ hot_store.ping_error }}</span>{% else %}—{% endif %}</td>
+            </tr>
+            <tr><th>Dernière migration</th>
+              <td class="mono">{{ hot_store.last_migrate_at or '—' }}</td>
+            </tr>
+            {% if hot_store.last_migrate_summary %}
+            <tr><th>Résumé migration</th><td class="mono" style="font-size:var(--fs-xs);">{{ hot_store.last_migrate_summary }}</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      <form method="post" action="/admin/security/hot-store/config" class="stack mb-4">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="hot_store_host">Hôte</label>
+            <input type="text" id="hot_store_host" name="host" class="form-input" required
+                   value="{{ hot_store.host if hot_store and hot_store.host else 'postgres' }}"
+                   placeholder="postgres">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="hot_store_port">Port</label>
+            <input type="number" id="hot_store_port" name="port" class="form-input" required
+                   value="{{ hot_store.port if hot_store and hot_store.port else 5432 }}">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="hot_store_database">Base</label>
+            <input type="text" id="hot_store_database" name="database" class="form-input" required
+                   value="{{ hot_store.database if hot_store and hot_store.database else 'bastion_hot' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="hot_store_user">Utilisateur</label>
+            <input type="text" id="hot_store_user" name="user" class="form-input" required
+                   value="{{ hot_store.user if hot_store and hot_store.user else 'bastion_hot' }}">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="hot_store_password">Mot de passe</label>
+            <input type="password" id="hot_store_password" name="password" class="form-input"
+                   value="" autocomplete="new-password"
+                   placeholder="{% if hot_store and hot_store.password_set %}•••••••• (laisser vide pour conserver){% else %}Mot de passe PostgreSQL{% endif %}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="hot_store_sslmode">TLS (sslmode)</label>
+            <select id="hot_store_sslmode" name="sslmode" class="form-select">
+              {% set ssl = (hot_store.sslmode if hot_store and hot_store.sslmode else 'prefer') %}
+              <option value="disable"{% if ssl == 'disable' %} selected{% endif %}>disable (réseau Docker interne)</option>
+              <option value="prefer"{% if ssl == 'prefer' %} selected{% endif %}>prefer</option>
+              <option value="require"{% if ssl == 'require' %} selected{% endif %}>require</option>
+              <option value="verify-full"{% if ssl == 'verify-full' %} selected{% endif %}>verify-full</option>
+            </select>
+          </div>
+        </div>
+        <p class="form-help">
+          Mot de passe stocké chiffré Fernet dans SQLite (jamais dans
+          <span class="mono">DATABASE_URL</span>). Sur le compose interne, utilisez
+          l’hôte <span class="mono">postgres</span> et <span class="mono">sslmode=disable</span>.
+        </p>
+        <div class="form-footer form-footer-flush">
+          <button type="submit" class="btn btn-primary">Enregistrer la connexion</button>
+        </div>
+      </form>
+
+      <div class="stack" style="gap:var(--sp-2);">
+        <form method="post" action="/admin/security/hot-store/test" style="display:inline;">
+          <button type="submit" class="btn btn-ghost">Tester la connexion</button>
+        </form>
+        <form method="post" action="/admin/security/hot-store/prepare" style="display:inline;"
+              onsubmit="return confirm('Créer le schéma des tables chaudes sur PostgreSQL ?');">
+          <button type="submit" class="btn btn-ghost">Préparer le schéma</button>
+        </form>
+        <form method="post" action="/admin/security/hot-store/migrate" style="display:inline;"
+              onsubmit="return confirm('Copier les tables chaudes SQLite → PostgreSQL ? Le hot store doit être désactivé. Les tables cibles seront remplacées.');">
+          <button type="submit" class="btn btn-ghost">Migrer les données</button>
+        </form>
+        {% if hot_store and hot_store.enabled %}
+        <form method="post" action="/admin/security/hot-store/enable" style="display:inline;"
+              onsubmit="return confirm('Désactiver le hot store ? Les lectures/écritures repassent sur SQLite.');">
+          <input type="hidden" name="enabled" value="0">
+          <button type="submit" class="btn btn-ghost">Désactiver (rollback)</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/security/hot-store/enable" style="display:inline;"
+              onsubmit="return confirm('Activer le hot store ? Les tables chaudes seront lues/écrites sur PostgreSQL.');">
+          <input type="hidden" name="enabled" value="1">
+          <button type="submit" class="btn btn-primary">Activer le hot store</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   </div>
 
@@ -1284,7 +1428,7 @@
 {% block scripts %}
 <script>
 (function () {
-  var VALID = ['api', 'tls', 'subdomain-sso', 'breakglass-jwt', 'vault', 'db-encryption', 'misc', 'banning', 'container-logs', 'siem'];
+  var VALID = ['api', 'tls', 'subdomain-sso', 'breakglass-jwt', 'vault', 'db-encryption', 'hot-store', 'misc', 'banning', 'container-logs', 'siem'];
   var DEFAULT = 'api';
 
   function currentTab() {

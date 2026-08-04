@@ -161,39 +161,48 @@ def _register_key_on_connect(engine: Engine, key_hex: str) -> None:
         apply_pragma_key(dbapi_connection, key_hex)
 
 
+def _is_sqlite_url(database_url: str) -> bool:
+    return (database_url or "").strip().lower().startswith("sqlite")
+
+
 def create_portal_engine(database_url: str, settings: Settings | None = None, **kwargs) -> Engine:
     """
-    Create SQLAlchemy engine; inject SQLCipher key when configured.
+    Create SQLAlchemy engine for the **config** database (SQLite / SQLCipher).
+
     Extra kwargs are forwarded to create_engine (e.g. poolclass for tests).
+    Non-sqlite URLs skip SQLCipher / check_same_thread / busy_timeout — prefer
+    ``app.db.hot_store.create_hot_engine`` for the Postgres hot store.
     """
     from sqlalchemy.pool import NullPool
 
     from app.sso_settings import get_settings
 
     cfg = settings or get_settings()
-    key_hex = resolve_db_encryption_key(cfg)
+    is_sqlite = _is_sqlite_url(database_url)
+    key_hex = resolve_db_encryption_key(cfg) if is_sqlite else None
     connect_args = dict(kwargs.pop("connect_args", {}) or {})
-    connect_args.setdefault("check_same_thread", False)
+    if is_sqlite:
+        connect_args.setdefault("check_same_thread", False)
 
-    engine_kwargs: dict = {
-        "connect_args": connect_args,
-        **kwargs,
-    }
+    engine_kwargs: dict = {**kwargs}
+    if connect_args:
+        engine_kwargs["connect_args"] = connect_args
 
     # SQLAlchemy 2.0 defaults sqlite to QueuePool(5+10); under concurrent
     # auth_request that exhausts instantly. File sqlite must use NullPool.
     # Tests may pass StaticPool / QueuePool explicitly — respect that.
     if "poolclass" not in engine_kwargs and "pool" not in engine_kwargs:
-        if (database_url or "").strip().lower().startswith("sqlite"):
+        if is_sqlite:
             engine_kwargs["poolclass"] = NullPool
         else:
             engine_kwargs.setdefault("pool_size", 20)
             engine_kwargs.setdefault("max_overflow", 40)
             engine_kwargs.setdefault("pool_pre_ping", True)
 
-    assert_db_cipher_state(database_url, key_hex)
+    if is_sqlite:
+        assert_db_cipher_state(database_url, key_hex)
 
-    if key_hex is not None:
+    if is_sqlite and key_hex is not None:
         sqlcipher3 = _import_sqlcipher()
         engine_kwargs["module"] = sqlcipher3
         engine = create_engine(database_url, **engine_kwargs)
@@ -204,7 +213,7 @@ def create_portal_engine(database_url: str, settings: Settings | None = None, **
     else:
         engine = create_engine(database_url, **engine_kwargs)
 
-    if (database_url or "").strip().lower().startswith("sqlite"):
+    if is_sqlite:
 
         @event.listens_for(engine, "connect")
         def _sqlite_busy_timeout(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
@@ -247,7 +256,10 @@ def assert_db_cipher_state(database_url: str, key_hex: str | None) -> None:
     """
     Guard against mismatch: encrypted file without key, or plaintext file with key.
     Skip for in-memory / missing / empty files (greenfield).
+    No-op for non-sqlite URLs (Postgres hot store).
     """
+    if not _is_sqlite_url(database_url):
+        return
     if is_memory_database_url(database_url):
         return
     db_path = sqlite_path_from_url(database_url)
