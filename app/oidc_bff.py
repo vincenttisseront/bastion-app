@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -462,7 +463,10 @@ def _html_login_error(
     username: str,
     login_error: str,
     otp_required: bool = False,
+    totp_setup_required: bool = False,
     attempt_id: str | None = None,
+    totp_secret_display: str | None = None,
+    qr_data_url: str | None = None,
     realm: str | None = None,
 ):
     """Re-render the public login page with a generic error (HTML form posts)."""
@@ -481,7 +485,10 @@ def _html_login_error(
             login_panel="sso",
             form_username=username,
             otp_required=otp_required,
+            totp_setup_required=totp_setup_required,
             attempt_id=attempt_id or "",
+            totp_secret_display=totp_secret_display or "",
+            qr_data_url=qr_data_url or "",
             **_login_surface_flags(
                 request, db, settings, rd=rd, preferred_realm=realm
             ),
@@ -518,6 +525,62 @@ def _html_otp_challenge(
             ),
         ),
     )
+
+
+def _html_totp_setup_challenge(
+    request: Request,
+    settings: Settings,
+    db: Session,
+    *,
+    rd: str,
+    username: str,
+    attempt_id: str,
+    totp_secret_display: str | None,
+    qr_data_url: str | None,
+    realm: str | None = None,
+    login_error: str | None = None,
+):
+    from app.web.constants import APP_VERSION
+    from app.web.flash import base_template_context
+    from app.web.pages import _login_surface_flags
+
+    return render(
+        "auth/login.html",
+        **base_template_context(
+            request,
+            settings,
+            APP_VERSION,
+            hide_chrome=True,
+            form_username=username,
+            totp_setup_required=True,
+            attempt_id=attempt_id,
+            totp_secret_display=totp_secret_display or "",
+            qr_data_url=qr_data_url or "",
+            login_error=login_error,
+            **_login_surface_flags(
+                request, db, settings, rd=rd, preferred_realm=realm
+            ),
+        ),
+    )
+
+
+def _totp_setup_display_from_attempt(db: Session, attempt_id: str | None, settings: Settings):
+    """Recover QR/secret display from a stored attempt (for error re-render)."""
+    from app.models import OidcLoginAttempt
+    from app.secret_crypto import decrypt_secret
+
+    if not attempt_id:
+        return "", ""
+    row = db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).first()
+    if row is None:
+        return "", ""
+    try:
+        blob = json.loads(decrypt_secret(row.otp_form_encrypted, settings))
+    except Exception:
+        return "", ""
+    if not isinstance(blob, dict) or blob.get("kind") != "totp_setup":
+        return "", ""
+    return str(blob.get("secret_display") or ""), str(blob.get("qr_data_url") or "")
 
 
 def _record_failed_attempt(
@@ -666,12 +729,29 @@ async def oidc_login(
                 reason="invalid_otp",
                 action="oidc_login_otp_failed",
             )
-            # Keep OTP form if attempt still exists.
+            # Keep OTP / TOTP-setup form if attempt still exists.
             still = (
                 db.query(OidcLoginAttempt).filter_by(attempt_id=attempt_id).first()
                 if attempt_id
                 else None
             )
+            if still is not None:
+                secret_disp, qr = _totp_setup_display_from_attempt(
+                    db, attempt_id, settings
+                )
+                if secret_disp or qr:
+                    return _html_totp_setup_challenge(
+                        request,
+                        settings,
+                        db,
+                        rd=safe_rd,
+                        username=username,
+                        attempt_id=attempt_id or "",
+                        totp_secret_display=secret_disp,
+                        qr_data_url=qr,
+                        realm=realm_slug,
+                        login_error=_GENERIC_AUTH_FAILURE,
+                    )
             return _html_login_error(
                 request,
                 settings,
@@ -810,6 +890,35 @@ async def oidc_login(
                 realm=realm_slug,
             )
         return {"status": "otp_required", "attempt_id": aid}
+
+    if step.status == "totp_setup_required":
+        aid = step.attempt_id or ""
+        db.commit()
+        log_action(
+            db,
+            actor=username or "unknown",
+            action="oidc_login_totp_setup_required",
+            details={"realm": realm_slug, "attempt_id": aid},
+            ip_address=client_ip or None,
+        )
+        if html_mode:
+            return _html_totp_setup_challenge(
+                request,
+                settings,
+                db,
+                rd=safe_rd,
+                username=username,
+                attempt_id=aid,
+                totp_secret_display=step.totp_secret_display,
+                qr_data_url=step.qr_data_url,
+                realm=realm_slug,
+            )
+        return {
+            "status": "totp_setup_required",
+            "attempt_id": aid,
+            "totp_secret_display": step.totp_secret_display or "",
+            "qr_data_url": step.qr_data_url or "",
+        }
 
     tokens = step.tokens
     if tokens is None:
