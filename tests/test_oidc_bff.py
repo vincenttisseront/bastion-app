@@ -190,6 +190,44 @@ def test_html_unsupported_flow_shows_action_message(
     assert "Keycloak" in response.text
 
 
+def test_html_bff_error_shows_oidc_message_and_audit_detail(
+    client: TestClient, db_session: Session, oidc_settings: Settings
+):
+    from app.oidc_bff_client import OidcBffError
+
+    with patch(
+        "app.oidc_bff.start_headless_login",
+        new=AsyncMock(
+            side_effect=OidcBffError("JWT Keycloak invalide (signature/claims)")
+        ),
+    ):
+        response = client.post(
+            "/auth/login",
+            data={
+                "username": "alice",
+                "password": "secret",
+                "rd": "/apps",
+                "realm": "ar-systems",
+            },
+            headers={"X-Real-IP": "10.0.0.24"},
+        )
+
+    assert response.status_code == 200
+    assert "Identifiants invalides" not in response.text
+    assert "Keycloak" in response.text
+    assert "configuration" in response.text.lower()
+    audit = (
+        db_session.query(AuditLog)
+        .filter_by(action="oidc_login_failed")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert audit is not None
+    assert audit.details.get("realm") == "ar-systems"
+    assert audit.details.get("reason") == "bff_error"
+    assert "JWT" in (audit.details.get("detail") or "")
+
+
 def test_oidc_login_otp_required_json(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):
