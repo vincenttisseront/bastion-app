@@ -115,6 +115,11 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "set $bastion_pass_session $cookie_bastion_session;" not in before_main
     assert "set $bastion_auth_cookie" not in before_main
     assert "proxy_intercept_errors off;" in main
+    # Upload limit + streaming — nginx defaults are 1m / buffering on: large
+    # POST bodies would 413 or spool to client_body_temp before the upstream.
+    assert "client_max_body_size 64m;" in block
+    assert "proxy_buffering off;" in main
+    assert "proxy_request_buffering off;" in main
 
 
 def test_generate_crushftp_block_filters_portal_cookies():
@@ -148,7 +153,13 @@ def test_generate_crushftp_block_filters_portal_cookies():
     # "session invalidated due to IP change" → 302 login.html + cookie wipe.
     # Empty value makes nginx drop the header so CrushFTP always sees the
     # TCP source IP, identical for both paths.
+    # 2G uploads (legacy hand-written transfer vhost) + streaming both ways —
+    # without them the transfer stalls: CrushFTP.log only shows the
+    # getSessionTimeout keepalives while nginx 413s / spools the upload.
+    assert "client_max_body_size 2G;" in block
     named_block = block.split("location @app_upstream_transfer {", 1)[1]
+    assert "proxy_buffering off;" in named_block
+    assert "proxy_request_buffering off;" in named_block
     assert 'proxy_set_header X-Real-IP "";' in named_block
     assert 'proxy_set_header X-Forwarded-For "";' in named_block
     assert "proxy_set_header X-Real-IP $remote_addr" not in named_block
