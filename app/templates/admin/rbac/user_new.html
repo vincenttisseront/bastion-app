@@ -83,10 +83,17 @@
           </p>
         </div>
         <div class="alert alert-info" style="margin:0;">
-          Mot de passe initial généré automatiquement — jamais affiché.
+          Mot de passe initial généré automatiquement — jamais affiché ici.
           L’utilisateur devra le changer à la première connexion
           (<span class="mono">UPDATE_PASSWORD</span>).
+          Cochez « Envoyer par email » (ou activez l’option sur le realm) pour
+          le transmettre via le SMTP du realm.
         </div>
+        <label class="form-check" style="margin-top:var(--sp-3);">
+          <input type="checkbox" name="send_credentials" value="on"
+                 {% if form_values.send_credentials %}checked{% endif %}>
+          <span>Envoyer les identifiants par email (SMTP du realm)</span>
+        </label>
       </div>
     </div>
 

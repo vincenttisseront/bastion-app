@@ -111,6 +111,7 @@ _SENSITIVE_PREFIXES = (
     "/auth/setup",
     "/auth/sso-start",
     "/auth/sso-failed",
+    "/auth/access-request",
     "/admin",
     "/api/admin",
 )
@@ -121,6 +122,7 @@ _LOGIN_PATHS = {
     "/auth/breakglass",
     "/auth/sso-start",
     "/auth/sso-failed",
+    "/auth/access-request",
     "/api/admin/breakglass/login",
 }
 

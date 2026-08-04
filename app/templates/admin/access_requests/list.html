@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Demandes d'accès{% endblock %}
+{% block breadcrumb %}Admin / Demandes d'accès{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Demandes d'accès</h1>
+      <p class="page-sub">Formulaire public de la page de login — approbation = création bastion + Keycloak dans le realm choisi</p>
+    </div>
+  </div>
+
+  <div class="stack" style="gap:var(--sp-3); margin-bottom:var(--sp-4);">
+    <div style="display:flex; gap:var(--sp-2); flex-wrap:wrap;">
+      <a class="btn btn-sm {% if status_filter == 'pending' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=pending">En attente</a>
+      <a class="btn btn-sm {% if status_filter == 'approved' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=approved">Approuvées</a>
+      <a class="btn btn-sm {% if status_filter == 'rejected' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=rejected">Rejetées</a>
+      <a class="btn btn-sm {% if status_filter == 'all' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=all">Toutes</a>
+    </div>
+  </div>
+
+  {% if rows %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Identifiant</th>
+          <th>Email</th>
+          <th>Société</th>
+          <th>Realm</th>
+          <th>Créée</th>
+          <th>Statut</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="mono">{{ r.username }}</td>
+          <td>{{ r.email }}</td>
+          <td>{{ r.organization or '—' }}</td>
+          <td class="mono">{{ r.realm.slug if r.realm else '?' }}</td>
+          <td class="mono">{{ r.created_at }}</td>
+          <td>
+            {% if r.status == 'pending' %}<span class="badge badge-warn">En attente</span>
+            {% elif r.status == 'approved' %}<span class="badge badge-ok">Approuvée</span>
+            {% else %}<span class="badge badge-err">Rejetée</span>{% endif %}
+          </td>
+          <td style="white-space:nowrap;">
+            {% if r.status == 'pending' %}
+            <form method="post" action="/admin/access-requests/{{ r.id }}/approve" style="display:inline;">
+              <label class="form-check" style="display:inline-flex; margin-right:var(--sp-2);">
+                <input type="checkbox" name="send_credentials" value="1"
+                       {% if r.realm and r.realm.send_credentials_email %}checked{% endif %}>
+                <span>Email</span>
+              </label>
+              <button type="submit" class="btn btn-primary btn-sm">Approuver</button>
+            </form>
+            <form method="post" action="/admin/access-requests/{{ r.id }}/reject" style="display:inline;">
+              <button type="submit" class="btn btn-ghost btn-sm">Rejeter</button>
+            </form>
+            {% elif r.bastion_account_id %}
+            <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ r.bastion_account_id }}">Fiche compte</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% if r.message %}
+        <tr>
+          <td colspan="7" style="color:var(--text-3); font-size:var(--fs-sm);">{{ r.message }}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="form-help">Aucune demande pour ce filtre.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -27,6 +27,17 @@ class RealmConfigBase(BaseModel):
     provisioning_enabled: bool = False
     # Optional allowlist of Keycloak group names/paths (newline-separated).
     groups_sync_include: str | None = None
+    # SMTP + access requests (per-realm).
+    smtp_enabled: bool = False
+    smtp_host: str | None = None
+    smtp_port: int | None = 587
+    smtp_use_tls: bool = True
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_from_name: str | None = None
+    access_request_enabled: bool = False
+    send_credentials_email: bool = False
 
     @field_validator("keycloak_provision_client_id", "keycloak_provision_client_secret")
     @classmethod
