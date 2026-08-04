@@ -167,7 +167,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
     ctx_out["is_admin"] = is_admin
     ctx_out["is_portal_admin"] = bool(extra.get("is_portal_admin", is_admin))
 
-    # Sidebar badge: pending users queue (admin chrome only).
+    # Sidebar badges: pending first-SSO users + public access requests.
     if "pending_users_nav_count" not in ctx_out:
         pending_count = 0
         if is_admin and db is not None and not ctx_out.get("hide_chrome"):
@@ -182,5 +182,16 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
             except Exception:
                 pending_count = 0
         ctx_out["pending_users_nav_count"] = pending_count
+
+    if "access_requests_nav_count" not in ctx_out:
+        ar_count = 0
+        if is_admin and db is not None and not ctx_out.get("hide_chrome"):
+            try:
+                from app.rbac.access_request_service import count_pending_access_requests
+
+                ar_count = count_pending_access_requests(db)
+            except Exception:
+                ar_count = 0
+        ctx_out["access_requests_nav_count"] = ar_count
 
     return ctx_out

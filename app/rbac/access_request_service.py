@@ -1,0 +1,304 @@
+"""Public access-request queue — self-registration awaiting admin approval."""
+
+from __future__ import annotations
+
+import logging
+import re
+
+from sqlalchemy.orm import Session, joinedload
+
+from app.audit import log_action
+from app.mail.smtp_service import SmtpError, send_email, smtp_configured
+from app.models import AccessRequest, BastionAccount, RealmConfig, utcnow
+from app.rbac.account_service import (
+    AccountCreationError,
+    create_bastion_account,
+    normalize_organization_name,
+    realm_provisioning_ready,
+    send_account_credentials_email,
+)
+from app.sso_settings import Settings
+
+logger = logging.getLogger(__name__)
+
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{2,64}$")
+
+
+class AccessRequestError(ValueError):
+    """Validation / state error for public or admin access-request flows."""
+
+
+def realms_accepting_access_requests(db: Session) -> list[RealmConfig]:
+    """Realms that expose the public form (enabled + opt-in + provisioning ready)."""
+    realms = (
+        db.query(RealmConfig)
+        .filter_by(enabled=True, access_request_enabled=True)
+        .order_by(RealmConfig.slug)
+        .all()
+    )
+    return [r for r in realms if realm_provisioning_ready(r)]
+
+
+def count_pending_access_requests(db: Session) -> int:
+    return (
+        db.query(AccessRequest).filter_by(status="pending").count()
+    )
+
+
+def list_access_requests(
+    db: Session, *, status: str = "pending", limit: int = 500
+) -> list[AccessRequest]:
+    q = db.query(AccessRequest).options(joinedload(AccessRequest.realm))
+    status_n = (status or "pending").strip().lower()
+    if status_n != "all":
+        q = q.filter_by(status=status_n)
+    return q.order_by(AccessRequest.created_at.desc()).limit(limit).all()
+
+
+def submit_access_request(
+    db: Session,
+    settings: Settings,
+    *,
+    realm: RealmConfig,
+    username: str,
+    email: str,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    organization: str | None = None,
+    message: str | None = None,
+    client_ip: str | None = None,
+) -> AccessRequest:
+    """Public form submit — creates a pending row; does not touch Keycloak yet."""
+    if not getattr(realm, "access_request_enabled", False) or not realm.enabled:
+        raise AccessRequestError(
+            "Les demandes d'accès ne sont pas ouvertes pour ce realm."
+        )
+    if not realm_provisioning_ready(realm):
+        raise AccessRequestError(
+            "Ce realm n'accepte pas encore de nouveaux comptes "
+            "(provisioning Keycloak non configuré)."
+        )
+
+    username = (username or "").strip()
+    email = (email or "").strip().lower()
+    first_name = (first_name or "").strip() or None
+    last_name = (last_name or "").strip() or None
+    organization = normalize_organization_name(organization) or None
+    message = (message or "").strip() or None
+
+    if not username or not _USERNAME_RE.match(username):
+        raise AccessRequestError(
+            "Identifiant invalide (2–64 caractères : lettres, chiffres, . _ -)."
+        )
+    if not email or "@" not in email:
+        raise AccessRequestError("Email invalide")
+    if not organization:
+        raise AccessRequestError("Société / organisation requise")
+
+    existing_account = (
+        db.query(BastionAccount)
+        .filter_by(realm_id=realm.id, username=username)
+        .first()
+    )
+    if existing_account:
+        raise AccessRequestError(
+            "Un compte existe déjà pour cet identifiant dans ce realm."
+        )
+    pending_dup = (
+        db.query(AccessRequest)
+        .filter_by(realm_id=realm.id, status="pending")
+        .filter(
+            (AccessRequest.username == username) | (AccessRequest.email == email)
+        )
+        .first()
+    )
+    if pending_dup:
+        raise AccessRequestError(
+            "Une demande est déjà en attente pour cet identifiant ou cet email."
+        )
+
+    row = AccessRequest(
+        realm_id=realm.id,
+        username=username,
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        organization=organization,
+        message=message,
+        client_ip=client_ip,
+        status="pending",
+        created_at=utcnow(),
+    )
+    db.add(row)
+    db.flush()
+    log_action(
+        db,
+        actor=email,
+        action="access_request.submitted",
+        target=f"realm:{realm.slug}/access_request:{row.id}",
+        details={
+            "username": username,
+            "email": email,
+            "organization": organization,
+            "realm_slug": realm.slug,
+        },
+        ip_address=client_ip,
+    )
+    db.commit()
+    db.refresh(row)
+
+    # Best-effort admin ping on the realm's SMTP from-address (inbox as notify).
+    if smtp_configured(realm) and realm.smtp_from_email:
+        try:
+            send_email(
+                realm,
+                settings,
+                to_email=realm.smtp_from_email,
+                subject=f"[{realm.name or realm.slug}] Nouvelle demande d'accès — {username}",
+                body_text=(
+                    f"Nouvelle demande d'accès en attente.\n\n"
+                    f"Realm : {realm.slug}\n"
+                    f"Identifiant : {username}\n"
+                    f"Email : {email}\n"
+                    f"Société : {organization}\n"
+                    f"Message : {message or '—'}\n\n"
+                    f"Admin : https://{(settings.portal_domain or '').strip()}/admin/access-requests\n"
+                ),
+            )
+        except SmtpError:
+            logger.info(
+                "access_request admin notify skipped (smtp) realm=%s id=%s",
+                realm.slug,
+                row.id,
+            )
+
+    return row
+
+
+async def approve_access_request(
+    db: Session,
+    settings: Settings,
+    *,
+    request_id: int,
+    actor: str,
+    ip_address: str | None = None,
+    application_ids: list[int] | None = None,
+    send_credentials: bool | None = None,
+) -> tuple[AccessRequest, BastionAccount, list[str]]:
+    """Approve → create_bastion_account. Returns (row, account, step_errors)."""
+    row = (
+        db.query(AccessRequest)
+        .options(joinedload(AccessRequest.realm))
+        .filter_by(id=request_id)
+        .first()
+    )
+    if row is None:
+        raise AccessRequestError("Demande introuvable")
+    if row.status != "pending":
+        raise AccessRequestError(f"Demande déjà {row.status}")
+
+    realm = row.realm or db.query(RealmConfig).filter_by(id=row.realm_id).first()
+    if realm is None:
+        raise AccessRequestError("Realm introuvable")
+
+    try:
+        account, step_errors, temp_password = await create_bastion_account(
+            db,
+            settings,
+            realm=realm,
+            username=row.username,
+            email=row.email,
+            first_name=row.first_name,
+            last_name=row.last_name,
+            organization=row.organization,
+            application_ids=application_ids or [],
+            actor=actor,
+            ip_address=ip_address,
+        )
+    except AccountCreationError as exc:
+        raise AccessRequestError(str(exc)) from exc
+
+    want_email = (
+        bool(send_credentials)
+        if send_credentials is not None
+        else bool(getattr(realm, "send_credentials_email", False))
+    )
+    if want_email and temp_password and account.keycloak_user_id:
+        try:
+            send_account_credentials_email(
+                settings,
+                realm=realm,
+                account=account,
+                temporary_password=temp_password,
+                kind="created",
+            )
+            log_action(
+                db,
+                actor=actor,
+                action="account.credentials_emailed",
+                target=f"realm:{realm.slug}/account:{account.username}",
+                details={"kind": "created", "to": account.email, "via": "access_request"},
+                ip_address=ip_address,
+            )
+        except Exception as exc:
+            step_errors.append(f"Email credentials : {exc}")
+            log_action(
+                db,
+                actor=actor,
+                action="account.credentials_email_failed",
+                target=f"realm:{realm.slug}/account:{account.username}",
+                details={"kind": "created", "error": str(exc)},
+                ip_address=ip_address,
+            )
+    temp_password = None  # noqa: F841
+
+    row.status = "approved"
+    row.bastion_account_id = account.id
+    row.reviewed_by = actor
+    row.reviewed_at = utcnow()
+    log_action(
+        db,
+        actor=actor,
+        action="access_request.approved",
+        target=f"realm:{realm.slug}/access_request:{row.id}",
+        details={
+            "bastion_account_id": account.id,
+            "username": account.username,
+            "account_status": account.status,
+            "errors": step_errors,
+        },
+        ip_address=ip_address,
+    )
+    db.commit()
+    db.refresh(row)
+    return row, account, step_errors
+
+
+def reject_access_request(
+    db: Session,
+    *,
+    request_id: int,
+    actor: str,
+    notes: str | None = None,
+    ip_address: str | None = None,
+) -> AccessRequest:
+    row = db.query(AccessRequest).filter_by(id=request_id).first()
+    if row is None:
+        raise AccessRequestError("Demande introuvable")
+    if row.status != "pending":
+        raise AccessRequestError(f"Demande déjà {row.status}")
+    row.status = "rejected"
+    row.reviewed_by = actor
+    row.reviewed_at = utcnow()
+    row.review_notes = (notes or "").strip() or None
+    log_action(
+        db,
+        actor=actor,
+        action="access_request.rejected",
+        target=f"access_request:{row.id}",
+        details={"username": row.username, "email": row.email, "notes": row.review_notes},
+        ip_address=ip_address,
+    )
+    db.commit()
+    db.refresh(row)
+    return row

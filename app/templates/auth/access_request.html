@@ -1,0 +1,74 @@
+{% extends "base_public.html" %}
+{% block title %}Demander un accès{% endblock %}
+{% block body_class %}page-login{% endblock %}
+
+{% block content %}
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-header">
+      <h1 class="login-title">Demander un accès</h1>
+      <p class="login-sub">Votre demande sera examinée par un administrateur. Choisissez le realm (organisation) qui accueillera votre compte.</p>
+    </div>
+
+    {% if form_error %}
+    <div class="alert alert-err" role="alert">{{ form_error }}</div>
+    {% endif %}
+    {% if form_success %}
+    <div class="alert alert-ok" role="alert">{{ form_success }}</div>
+    {% endif %}
+
+    {% if access_realms %}
+    <form method="post" action="/auth/access-request" class="form-body login-form" autocomplete="on">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-group">
+        <label class="form-label" for="realm_id">Realm / organisation <span class="req">*</span></label>
+        <select id="realm_id" name="realm_id" class="form-input" required>
+          <option value="">— Choisir —</option>
+          {% for r in access_realms %}
+          <option value="{{ r.id }}" {% if form_values.realm_id == r.id|string %}selected{% endif %}>{{ r.name }} ({{ r.slug }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="username">Identifiant souhaité <span class="req">*</span></label>
+        <input type="text" id="username" name="username" class="form-input" required
+               value="{{ form_values.username or '' }}" pattern="[a-zA-Z0-9._\-]{2,64}" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="email">Email <span class="req">*</span></label>
+        <input type="email" id="email" name="email" class="form-input" required
+               value="{{ form_values.email or '' }}" autocomplete="email">
+      </div>
+      <div class="form-row" style="display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-3);">
+        <div class="form-group">
+          <label class="form-label" for="first_name">Prénom</label>
+          <input type="text" id="first_name" name="first_name" class="form-input"
+                 value="{{ form_values.first_name or '' }}" autocomplete="given-name">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="last_name">Nom</label>
+          <input type="text" id="last_name" name="last_name" class="form-input"
+                 value="{{ form_values.last_name or '' }}" autocomplete="family-name">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="organization">Société / organisation <span class="req">*</span></label>
+        <input type="text" id="organization" name="organization" class="form-input" required
+               value="{{ form_values.organization or '' }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="message">Motif (optionnel)</label>
+        <textarea id="message" name="message" class="form-input" rows="3">{{ form_values.message or '' }}</textarea>
+      </div>
+      <button type="submit" class="btn btn-primary btn-full">Envoyer la demande</button>
+    </form>
+    {% else %}
+    <p class="login-sub">Aucune organisation n'accepte actuellement de demandes d'accès.</p>
+    {% endif %}
+
+    <p class="login-sub login-restart" style="margin-top:var(--sp-4);">
+      <a href="/login">← Retour à la connexion</a>
+    </p>
+  </div>
+</div>
+{% endblock %}

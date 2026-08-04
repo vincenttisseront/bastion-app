@@ -58,6 +58,18 @@
       <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak" onclick="event.stopPropagation();">
         <button type="submit" class="btn btn-primary btn-sm">Relancer Keycloak</button>
       </form>
+      {% else %}
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/reset-password"
+            onclick="event.stopPropagation();"
+            onsubmit="return confirm('Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?');"
+            style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
+        <label class="form-check" style="margin:0;">
+          <input type="checkbox" name="send_email" value="1"
+                 {% if realm and realm.send_credentials_email and realm.smtp_enabled %}checked{% endif %}>
+          <span>Envoyer par email</span>
+        </label>
+        <button type="submit" class="btn btn-ghost btn-sm">Reset password</button>
+      </form>
       {% endif %}
     </div>
     <div class="form-body">

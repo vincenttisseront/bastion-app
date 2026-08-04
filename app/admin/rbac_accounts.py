@@ -26,7 +26,9 @@ from app.rbac.account_service import (
     delete_bastion_account,
     provision_account_app,
     realm_provisioning_ready,
+    reset_bastion_account_password,
     retry_bastion_account_keycloak,
+    send_account_credentials_email,
     update_bastion_account_identity,
 )
 from app.rbac.grants_service import (
@@ -297,6 +299,12 @@ async def admin_rbac_users_new_submit(
     organization = str(form.get("organization") or "")
     group_ids = _parse_int_list([str(v) for v in form.getlist("group_ids")])
     application_ids = _parse_int_list([str(v) for v in form.getlist("application_ids")])
+    send_credentials = str(form.get("send_credentials") or "").strip().lower() in (
+        "on",
+        "1",
+        "true",
+        "yes",
+    )
 
     form_values = {
         "realm_id": realm_id_raw,
@@ -307,6 +315,7 @@ async def admin_rbac_users_new_submit(
         "organization": organization,
         "group_ids": group_ids,
         "application_ids": application_ids,
+        "send_credentials": send_credentials,
     }
 
     def _form_error(message: str, status_code: int = 400):
@@ -353,7 +362,7 @@ async def admin_rbac_users_new_submit(
         form_values["group_ids"] = group_ids
 
     try:
-        account, step_errors = await create_bastion_account(
+        account, step_errors, temp_password = await create_bastion_account(
             db,
             settings,
             realm=realm,
@@ -369,6 +378,33 @@ async def admin_rbac_users_new_submit(
         )
     except AccountCreationError as exc:
         return _form_error(str(exc))
+
+    want_email = send_credentials or bool(
+        getattr(realm, "send_credentials_email", False)
+    )
+    if want_email and temp_password and account.keycloak_user_id:
+        try:
+            send_account_credentials_email(
+                settings,
+                realm=realm,
+                account=account,
+                temporary_password=temp_password,
+                kind="created",
+            )
+            from app.audit import log_action
+
+            log_action(
+                db,
+                actor=user.email,
+                action="account.credentials_emailed",
+                target=f"realm:{realm.slug}/account:{account.username}",
+                details={"kind": "created", "to": account.email},
+                ip_address=_client_ip(request),
+            )
+            db.commit()
+        except Exception as exc:
+            step_errors.append(f"Email credentials : {exc}")
+    temp_password = None  # noqa: F841
 
     if _wants_json(request):
         return JSONResponse(
@@ -607,6 +643,80 @@ async def admin_rbac_account_update_identity(
     return response
 
 
+@router.post("/admin/rbac/accounts/{account_id}/reset-password")
+async def admin_rbac_account_reset_password(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    send_email: str = Form(""),
+    redirect_url: str = Form(""),
+):
+    """Réinitialise le mot de passe Keycloak (temporaire) — optionnellement email SMTP."""
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/accounts/{account.id}"
+    want_email = send_email.strip().lower() in ("1", "true", "on", "yes")
+    email_error: str | None = None
+    try:
+        password, email_error = await reset_bastion_account_password(
+            db,
+            settings,
+            account=account,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            send_email=want_email,
+        )
+        password = None  # noqa: F841 — never flash / return the plaintext
+    except AccountCreationError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": email_error is None,
+                "emailed": want_email and email_error is None,
+                "email_error": email_error,
+            }
+        )
+
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    if want_email and email_error:
+        flash_redirect(
+            response,
+            f"Mot de passe réinitialisé, mais l'email a échoué : {email_error}",
+            "warning",
+            secret,
+        )
+    elif want_email:
+        flash_redirect(
+            response,
+            f"Mot de passe temporaire réinitialisé et envoyé à {account.email}.",
+            "success",
+            secret,
+        )
+    else:
+        flash_redirect(
+            response,
+            "Mot de passe temporaire réinitialisé (UPDATE_PASSWORD au prochain login). "
+            "Cochez « Envoyer par email » pour le transmettre à l'utilisateur.",
+            "success",
+            secret,
+        )
+    return response
+
+
 @router.post("/admin/rbac/accounts/{account_id}/retry-keycloak")
 async def admin_rbac_account_retry_keycloak(
     account_id: int,
@@ -619,7 +729,7 @@ async def admin_rbac_account_retry_keycloak(
     account = _account_or_404(db, account_id)
     secret = settings.vault_portal_internal_token or "dev"
     try:
-        step_errors = await retry_bastion_account_keycloak(
+        step_errors, temp_password = await retry_bastion_account_keycloak(
             db,
             settings,
             account=account,
@@ -636,6 +746,25 @@ async def admin_rbac_account_retry_keycloak(
         )
         flash_redirect(response, str(exc), "error", secret)
         return response
+
+    realm = account.realm
+    if (
+        temp_password
+        and account.keycloak_user_id
+        and realm
+        and getattr(realm, "send_credentials_email", False)
+    ):
+        try:
+            send_account_credentials_email(
+                settings,
+                realm=realm,
+                account=account,
+                temporary_password=temp_password,
+                kind="created",
+            )
+        except Exception as exc:
+            step_errors.append(f"Email credentials : {exc}")
+    temp_password = None  # noqa: F841
 
     if _wants_json(request):
         return JSONResponse(

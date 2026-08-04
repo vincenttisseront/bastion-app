@@ -483,6 +483,44 @@ async def update_keycloak_user(
         raise ValueError(f"Échec mise à jour Keycloak (HTTP {resp.status_code})")
 
 
+async def reset_keycloak_password(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    keycloak_user_id: str,
+    new_password: str,
+    temporary: bool = True,
+    token: str | None = None,
+) -> None:
+    """PUT /users/{id}/reset-password — temporary forces UPDATE_PASSWORD at next login."""
+    uid = (keycloak_user_id or "").strip()
+    if not uid:
+        raise ValueError("Identifiant utilisateur Keycloak manquant")
+    if not (new_password or "").strip():
+        raise ValueError("Mot de passe requis")
+    token = token or await get_provision_token(realm, settings)
+    payload = {
+        "type": "password",
+        "value": new_password,
+        "temporary": bool(temporary),
+    }
+    resp = await _admin_put(
+        realm,
+        settings,
+        f"/users/{uid}/reset-password",
+        json=payload,
+        token=token,
+    )
+    if resp.status_code == 403:
+        raise ValueError(_provision_manage_users_error())
+    if resp.status_code == 404:
+        raise ValueError("Utilisateur Keycloak introuvable")
+    if resp.status_code >= 400:
+        raise ValueError(
+            f"Échec reset mot de passe Keycloak (HTTP {resp.status_code})"
+        )
+
+
 async def delete_keycloak_user(
     realm: RealmConfig,
     settings: Settings,

@@ -1,5 +1,6 @@
 """HTML page routes for Bastion Pro portal."""
 
+import hmac
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
@@ -289,12 +290,16 @@ def _login_surface_flags(
         and not is_oidc_native_session_enabled_for_realm(db, default.slug, settings)
     )
     oauth2_url = oauth2_start_url(default.slug, rd) if show_oauth2 and default else None
+    from app.rbac.access_request_service import realms_accepting_access_requests
+
+    access_realms = realms_accepting_access_requests(db)
     return {
         "show_native_login": show_native,
         "native_realm_slug": native_realm.slug if native_realm else None,
         "native_realm_name": native_realm.name if native_realm else None,
         "oauth2_url": oauth2_url,
         "show_breakglass": _show_breakglass_form(request, db, settings),
+        "show_access_request": bool(access_realms),
         "rd": rd,
     }
 
@@ -840,6 +845,138 @@ def logout(request: Request, settings: Settings = Depends(get_settings)):
     return response
 
 
+def _access_request_page(
+    request: Request,
+    settings: Settings,
+    db: Session,
+    *,
+    form_error: str | None = None,
+    form_success: str | None = None,
+    form_values: dict | None = None,
+):
+    from app.rbac.access_request_service import realms_accepting_access_requests
+
+    return render(
+        "auth/access_request.html",
+        **_ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            access_realms=realms_accepting_access_requests(db),
+            form_error=form_error,
+            form_success=form_success,
+            form_values=form_values or {},
+        ),
+    )
+
+
+@router.get("/auth/access-request")
+def access_request_get(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Public self-registration form — realm chosen by the requester."""
+    return _access_request_page(request, settings, db)
+
+
+@router.post("/auth/access-request")
+def access_request_post(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    csrf_token: str = Form(""),
+    realm_id: str = Form(""),
+    username: str = Form(""),
+    email: str = Form(""),
+    first_name: str = Form(""),
+    last_name: str = Form(""),
+    organization: str = Form(""),
+    message: str = Form(""),
+):
+    from app.rbac.access_request_service import (
+        AccessRequestError,
+        submit_access_request,
+    )
+    from app.web.flash import make_csrf_token
+
+    form_values = {
+        "realm_id": (realm_id or "").strip(),
+        "username": (username or "").strip(),
+        "email": (email or "").strip(),
+        "first_name": (first_name or "").strip(),
+        "last_name": (last_name or "").strip(),
+        "organization": (organization or "").strip(),
+        "message": (message or "").strip(),
+    }
+    secret = settings.vault_portal_internal_token or "dev-insecure"
+    expected = make_csrf_token(request, secret)
+    if not csrf_token or not hmac.compare_digest(csrf_token, expected):
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error="Session expirée — rechargez la page et réessayez.",
+            form_values=form_values,
+        )
+
+    try:
+        rid = int((realm_id or "").strip())
+    except ValueError:
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error="Realm invalide.",
+            form_values=form_values,
+        )
+    realm = db.query(RealmConfig).filter_by(id=rid).first()
+    if realm is None:
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error="Realm introuvable.",
+            form_values=form_values,
+        )
+
+    client_ip = request.headers.get("X-Real-IP") or (
+        request.client.host if request.client else None
+    )
+    try:
+        submit_access_request(
+            db,
+            settings,
+            realm=realm,
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            organization=organization,
+            message=message,
+            client_ip=client_ip,
+        )
+    except AccessRequestError as exc:
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error=str(exc),
+            form_values=form_values,
+        )
+
+    return _access_request_page(
+        request,
+        settings,
+        db,
+        form_success=(
+            "Demande envoyée. Un administrateur l'examinera ; "
+            "vous serez contacté à l'adresse indiquée."
+        ),
+        form_values={},
+    )
+
+
 @router.get("/health")
 def health_page():
     return {"status": "ok"}
@@ -1124,6 +1261,119 @@ def admin_pending_user_reject_post(
         "(session Keycloak non révoquée automatiquement — utilisez Sessions si besoin).",
         "success",
         settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@admin_router.get("/admin/access-requests")
+def admin_access_requests_list(
+    request: Request,
+    status: str = Query("pending"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    from app.rbac.access_request_service import list_access_requests
+
+    status_filter = (status or "pending").strip().lower()
+    rows = list_access_requests(db, status=status_filter)
+    return render(
+        "admin/access_requests/list.html",
+        **_ctx(
+            request,
+            settings,
+            rows=rows,
+            status_filter=status_filter,
+        ),
+    )
+
+
+@admin_router.post("/admin/access-requests/{request_id}/approve")
+async def admin_access_request_approve_post(
+    request_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    send_credentials: str = Form(""),
+):
+    from app.rbac.access_request_service import (
+        AccessRequestError,
+        approve_access_request,
+    )
+
+    want_email = send_credentials.strip().lower() in ("1", "true", "on", "yes")
+    secret = settings.vault_portal_internal_token or "dev"
+    try:
+        row, account, step_errors = await approve_access_request(
+            db,
+            settings,
+            request_id=request_id,
+            actor=user.email,
+            ip_address=request.headers.get("X-Real-IP")
+            or (request.client.host if request.client else None),
+            send_credentials=want_email,
+        )
+    except AccessRequestError as exc:
+        response = RedirectResponse(
+            url="/admin/access-requests?status=pending", status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    msg = (
+        f"Demande « {row.username} » approuvée — compte {account.username} "
+        f"({account.status})."
+    )
+    category = "success"
+    if step_errors:
+        msg = f"{msg} Avertissements : {'; '.join(step_errors)}"
+        category = "warning"
+    response = RedirectResponse(
+        url="/admin/access-requests?status=approved", status_code=302
+    )
+    flash_redirect(response, msg, category, secret)
+    return response
+
+
+@admin_router.post("/admin/access-requests/{request_id}/reject")
+def admin_access_request_reject_post(
+    request_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    notes: str = Form(""),
+):
+    from app.rbac.access_request_service import (
+        AccessRequestError,
+        reject_access_request,
+    )
+
+    secret = settings.vault_portal_internal_token or "dev"
+    try:
+        row = reject_access_request(
+            db,
+            request_id=request_id,
+            actor=user.email,
+            notes=notes,
+            ip_address=request.headers.get("X-Real-IP")
+            or (request.client.host if request.client else None),
+        )
+    except AccessRequestError as exc:
+        response = RedirectResponse(
+            url="/admin/access-requests?status=pending", status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    response = RedirectResponse(
+        url="/admin/access-requests?status=rejected", status_code=302
+    )
+    flash_redirect(
+        response,
+        f"Demande « {row.username} » rejetée.",
+        "success",
+        secret,
     )
     return response
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import derive_severity, log_action
 from app.models import (
+    AccessRequest,
     AdminNotificationDismissal,
     AuditLog,
     PendingHost,
@@ -286,6 +287,46 @@ def build_notification_feed(
                 "href": "/admin/pending-users?status=pending",
                 "time": _fmt_time(latest_u.last_seen_at) if latest_u else None,
                 "count": pending_user_count,
+                "counts_for_badge": True,
+                "dismissible": True,
+            }
+        )
+
+    access_rows = (
+        db.query(AccessRequest)
+        .filter(AccessRequest.status == "pending")
+        .order_by(AccessRequest.created_at.desc())
+        .limit(200)
+        .all()
+    )
+    access_count = len(access_rows)
+    if access_count:
+        latest_ar = access_rows[0]
+        fp_ar = [
+            str(access_count),
+            latest_ar.username or "",
+            latest_ar.email or "",
+        ]
+        if latest_ar.created_at:
+            fp_ar.append(latest_ar.created_at.isoformat())
+        items.append(
+            {
+                "id": "access-requests",
+                "fingerprint": "|".join(fp_ar),
+                "severity": "info",
+                "category": "identity",
+                "title": (
+                    f"{access_count} demande"
+                    f"{'s' if access_count > 1 else ''} d'accès"
+                ),
+                "body": (
+                    f"Dernier : {latest_ar.username} ({latest_ar.email})"
+                    if latest_ar.username
+                    else "Demandes publiques à approuver"
+                ),
+                "href": "/admin/access-requests?status=pending",
+                "time": _fmt_time(latest_ar.created_at) if latest_ar else None,
+                "count": access_count,
                 "counts_for_badge": True,
                 "dismissible": True,
             }

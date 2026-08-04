@@ -51,6 +51,7 @@ from app.rbac.keycloak_admin import (
     find_keycloak_user_exact,
     get_provision_token,
     provisioning_configured,
+    reset_keycloak_password,
     update_keycloak_user,
 )
 from app.sso_settings import Settings
@@ -410,10 +411,13 @@ async def push_keycloak_user_and_continue(
     actor: str,
     ip_address: str | None = None,
     is_retry: bool = False,
-) -> list[str]:
+) -> tuple[list[str], str | None]:
     """Create Keycloak user for a pending BastionAccount, then groups + apps.
 
     Used by initial create and by explicit « Relancer Keycloak » — never automatic.
+    Returns ``(step_errors, temporary_password_or_none)``. The password is only
+    set when Keycloak creation succeeded in this call — caller may email it then
+    MUST drop the reference (never persisted / logged).
     """
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     if realm is None:
@@ -443,13 +447,13 @@ async def push_keycloak_user_and_continue(
             db, account, realm, str(exc), actor=actor, ip_address=ip_address
         )
         db.commit()
-        return [str(exc)]
+        return [str(exc)], None
     if duplicate:
         _record_keycloak_failure(
             db, account, realm, USER_CONFLICT_MESSAGE, actor=actor, ip_address=ip_address
         )
         db.commit()
-        return [USER_CONFLICT_MESSAGE]
+        return [USER_CONFLICT_MESSAGE], None
 
     initial_password = generate_initial_password()
     try:
@@ -464,13 +468,12 @@ async def push_keycloak_user_and_continue(
             temporary_password=True,
         )
     except ValueError as exc:
+        initial_password = ""  # noqa: F841
         _record_keycloak_failure(
             db, account, realm, str(exc), actor=actor, ip_address=ip_address
         )
         db.commit()
-        return [str(exc)]
-    finally:
-        initial_password = ""  # noqa: F841
+        return [str(exc)], None
 
     account.keycloak_user_id = keycloak_user_id
     account.status = "keycloak_created"
@@ -504,7 +507,7 @@ async def push_keycloak_user_and_continue(
     )
     update_aggregate_status(account)
     db.commit()
-    return errors
+    return errors, initial_password
 
 
 async def retry_bastion_account_keycloak(
@@ -514,7 +517,7 @@ async def retry_bastion_account_keycloak(
     account: BastionAccount,
     actor: str,
     ip_address: str | None = None,
-) -> list[str]:
+) -> tuple[list[str], str | None]:
     """Explicit admin retry of the Keycloak step (+ pending groups/apps)."""
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     log_action(
@@ -555,11 +558,13 @@ async def create_bastion_account(
     application_ids: list[int] | None = None,
     actor: str,
     ip_address: str | None = None,
-) -> tuple[BastionAccount, list[str]]:
-    """Run the full creation pipeline. Returns (account, step_errors).
+) -> tuple[BastionAccount, list[str], str | None]:
+    """Run the full creation pipeline. Returns (account, step_errors, temp_password).
 
     ``step_errors`` are non-silent per-step messages (already persisted/audited);
     the account row always reflects the exact stage reached.
+    ``temp_password`` is set only when Keycloak creation succeeded in this call —
+    never logged; caller may email it then must drop the reference.
     """
     username = (username or "").strip()
     email = (email or "").strip()
@@ -635,14 +640,132 @@ async def create_bastion_account(
         ip_address=ip_address,
     )
 
-    errors = await push_keycloak_user_and_continue(
+    errors, temp_password = await push_keycloak_user_and_continue(
         db,
         settings,
         account=account,
         actor=actor,
         ip_address=ip_address,
     )
-    return account, errors
+    return account, errors, temp_password
+
+
+def send_account_credentials_email(
+    settings: Settings,
+    *,
+    realm: RealmConfig,
+    account: BastionAccount,
+    temporary_password: str,
+    kind: str = "created",
+) -> None:
+    """Email the temporary Keycloak password via the realm's SMTP. Raises SmtpError."""
+    from app.mail.smtp_service import credentials_email_bodies, send_email
+
+    portal = (settings.portal_domain or "portal.ar-systems.fr").strip()
+    portal_url = f"https://{portal}" if not portal.startswith("http") else portal
+    subject, text, html = credentials_email_bodies(
+        portal_url=portal_url,
+        username=account.username,
+        temporary_password=temporary_password,
+        realm_name=realm.name or realm.slug,
+        kind=kind,
+    )
+    send_email(
+        realm,
+        settings,
+        to_email=account.email,
+        subject=subject,
+        body_text=text,
+        body_html=html,
+    )
+
+
+async def reset_bastion_account_password(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    actor: str,
+    ip_address: str | None = None,
+    send_email: bool = False,
+) -> tuple[str, str | None]:
+    """Generate a new temporary Keycloak password. Returns (password, email_error).
+
+    Password is temporary (UPDATE_PASSWORD). Never logged. ``email_error`` is set
+    when the caller asked to email and SMTP failed — the reset itself still succeeded.
+    """
+    realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
+    if realm is None:
+        raise AccountCreationError("Realm introuvable pour ce compte")
+    if not account.keycloak_user_id:
+        raise AccountCreationError(
+            "Compte Keycloak non créé — impossible de réinitialiser le mot de passe."
+        )
+    if not realm_provisioning_ready(realm):
+        raise AccountCreationError(
+            "Provisioning non activé pour ce realm — requis pour reset Keycloak."
+        )
+
+    new_password = generate_initial_password()
+    try:
+        await reset_keycloak_password(
+            realm,
+            settings,
+            keycloak_user_id=account.keycloak_user_id,
+            new_password=new_password,
+            temporary=True,
+        )
+    except ValueError as exc:
+        new_password = ""  # noqa: F841
+        raise AccountCreationError(str(exc)) from exc
+
+    log_action(
+        db,
+        actor=actor,
+        action="account.password_reset",
+        target=_account_target(realm, account.username),
+        details={
+            "bastion_account_id": account.id,
+            "keycloak_user_id": account.keycloak_user_id,
+            "temporary": True,
+            "email_requested": bool(send_email),
+        },
+        ip_address=ip_address,
+    )
+    db.commit()
+
+    email_error: str | None = None
+    if send_email:
+        try:
+            send_account_credentials_email(
+                settings,
+                realm=realm,
+                account=account,
+                temporary_password=new_password,
+                kind="reset",
+            )
+            log_action(
+                db,
+                actor=actor,
+                action="account.credentials_emailed",
+                target=_account_target(realm, account.username),
+                details={"kind": "reset", "to": account.email},
+                ip_address=ip_address,
+            )
+            db.commit()
+        except Exception as exc:
+            email_error = str(exc)
+            log_action(
+                db,
+                actor=actor,
+                action="account.credentials_email_failed",
+                target=_account_target(realm, account.username),
+                details={"kind": "reset", "error": email_error},
+                ip_address=ip_address,
+            )
+            db.commit()
+
+    return new_password, email_error
 
 
 async def provision_account_app(

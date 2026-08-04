@@ -45,7 +45,9 @@
     {% from 'partials/_accordion_menu_group.html' import accordion_menu_group %}
     {% set path = request.url.path %}
     {% set pending_users_count = pending_users_nav_count | default(0) %}
-    {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') %}
+    {% set access_requests_count = access_requests_nav_count | default(0) %}
+    {% set pending_total = (pending_users_count | int) + (access_requests_count | int) %}
+    {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') or path.startswith('/admin/access-requests') %}
     {% set general_open = path == '/admin/dashboard' or path == '/admin' or path.startswith('/admin/branding') %}
     {% set access_open = path.startswith('/admin/realms') or path.startswith('/admin/rbac') or path == '/admin/security' or path.startswith('/admin/acme') %}
     {% set content_open = path.startswith('/admin/apps') or path.startswith('/admin/files') or path.startswith('/files') or pending_nav_open %}
@@ -88,8 +90,8 @@
       'content',
       'Contenu & apps',
       open=content_open,
-      badge_count=pending_users_count,
-      badge_aria=(pending_users_count ~ ' nouveaux utilisateurs en attente') if pending_users_count else ''
+      badge_count=pending_total,
+      badge_aria=(pending_total ~ ' éléments en attente') if pending_total else ''
     ) %}
     <a href="/admin/apps" class="nav-item{% if path.startswith('/admin/apps') %} active{% endif %}" data-nav-label="Apps">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
@@ -103,8 +105,8 @@
       <summary class="nav-item nav-group-toggle{% if pending_nav_open %} is-parent-active{% endif %}" data-nav-label="En attente">
         <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span class="nav-group-label">En attente</span>
-        {% if pending_users_count and pending_users_count > 0 %}
-        <span class="nav-badge" aria-label="{{ pending_users_count }} nouveaux utilisateurs">{{ pending_users_count }}</span>
+        {% if pending_total and pending_total > 0 %}
+        <span class="nav-badge" aria-label="{{ pending_total }} éléments en attente">{{ pending_total }}</span>
         {% endif %}
         <svg class="nav-group-chevron" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </summary>
@@ -116,6 +118,12 @@
           Nouveaux users
           {% if pending_users_count and pending_users_count > 0 %}
           <span class="nav-badge">{{ pending_users_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/admin/access-requests" class="nav-item nav-item--sub{% if path.startswith('/admin/access-requests') %} active{% endif %}" data-nav-label="Demandes d'accès">
+          Demandes d'accès
+          {% if access_requests_count and access_requests_count > 0 %}
+          <span class="nav-badge">{{ access_requests_count }}</span>
           {% endif %}
         </a>
       </div>

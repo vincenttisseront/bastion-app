@@ -488,6 +488,21 @@ class RealmConfig(Base):
     keycloak_provision_client_secret_encrypted = Column(String, nullable=True)
     provisioning_enabled = Column(Boolean, default=False, nullable=False)
 
+    # Per-realm SMTP — used to email Keycloak credentials (create / reset) and
+    # notify admins of access requests. Password Fernet-encrypted like other secrets.
+    smtp_enabled = Column(Boolean, default=False, nullable=False)
+    smtp_host = Column(String, nullable=True)
+    smtp_port = Column(Integer, nullable=True)  # default 587 when unset
+    smtp_use_tls = Column(Boolean, default=True, nullable=False)  # STARTTLS
+    smtp_username = Column(String, nullable=True)
+    smtp_password_encrypted = Column(Text, nullable=True)
+    smtp_from_email = Column(String, nullable=True)
+    smtp_from_name = Column(String, nullable=True)
+    # Public « Demander un accès » form on the login page → AccessRequest queue.
+    access_request_enabled = Column(Boolean, default=False, nullable=False)
+    # Auto-email the temporary Keycloak password after create / reset (needs SMTP).
+    send_credentials_email = Column(Boolean, default=False, nullable=False)
+
     @property
     def oauth2_proxy_url(self) -> str:
         return f"http://127.0.0.1:{self.oauth2_proxy_port}"
@@ -1041,6 +1056,45 @@ class PendingHost(Base):
     approved_app_slug = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+ACCESS_REQUEST_STATUSES: tuple[str, ...] = ("pending", "approved", "rejected")
+
+
+class AccessRequest(Base):
+    """Public self-registration request from the login page — awaits admin approval.
+
+    Distinct from PendingUser (first SSO sighting of an already-existing IdP
+    account). Approving an AccessRequest runs the bastion account creation
+    pipeline into the chosen realm.
+    """
+
+    __tablename__ = "access_requests"
+
+    id = Column(Integer, primary_key=True)
+    realm_id = Column(
+        Integer, ForeignKey("realm_configs.id"), nullable=False, index=True
+    )
+    username = Column(String, nullable=False)
+    email = Column(String, nullable=False, index=True)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    organization = Column(String, nullable=True)
+    message = Column(Text, nullable=True)
+    client_ip = Column(String, nullable=True)
+    # pending | approved | rejected
+    status = Column(String, nullable=False, default="pending", index=True)
+    bastion_account_id = Column(
+        Integer, ForeignKey("bastion_accounts.id"), nullable=True
+    )
+    reviewed_by = Column(String, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    review_notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    realm = relationship("RealmConfig", foreign_keys=[realm_id])
+    bastion_account = relationship("BastionAccount", foreign_keys=[bastion_account_id])
 
 
 class PendingUser(Base):

@@ -37,6 +37,9 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/auth/setup": "initial break-glass setup before any session exists",
     "/auth/sso-start": "OIDC start redirect — unauthenticated by design",
     "/auth/sso-failed": "OIDC failure landing — unauthenticated by design",
+    "/auth/access-request": (
+        "public access-request form — self-registration awaiting admin approval"
+    ),
     "/breakglass": "break-glass login page (same family as /auth/login)",
     "/logout": "clears break-glass cookie; safe without session",
     "/health": "liveness probe, non-sensitive",

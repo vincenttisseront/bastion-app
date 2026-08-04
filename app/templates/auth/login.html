@@ -221,6 +221,9 @@
     {% if branding.support_contact %}
       · {{ branding.support_contact }}
     {% endif %}
+    {% if show_access_request | default(false) %}
+      · <a href="/auth/access-request">Demander un accès</a>
+    {% endif %}
   </p>
 </div>
 {% endblock %}
