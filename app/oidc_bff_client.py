@@ -560,12 +560,13 @@ async def _exchange_code_for_tokens(
 
 
 def _absolute_action_url(action: str, base: str) -> str:
-    """Resolve form action against Keycloak base, rewriting public frontend hosts.
+    """Pin Keycloak URLs (form actions / redirects) onto the BFF base host.
 
-    Keycloak often embeds the public hostname in ``form action`` while the BFF
-    talked to an internal base (docker DNS). Posting to the public host without
-    the AUTH_SESSION_ID cookies set on the internal host yields HTTP 400
-    (``cookie_not_found``). Always keep realm login-actions on ``base``.
+    Keycloak often embeds the public frontend hostname in ``Location`` headers
+    and form ``action`` attributes. Following those leaves AUTH_SESSION_ID
+    cookies on the public host while the BFF continues on the internal base →
+    HTTP 400 (``cookie_not_found`` / « We are sorry… »). Always keep
+    ``/realms/...`` traffic on ``base``.
     """
     base = (base or "").strip().rstrip("/")
     action = (action or "").strip()
@@ -605,10 +606,27 @@ def _keycloak_http_error_hint(html: str) -> str | None:
         "not found" in lower or "introuvable" in lower or "cookie_not_found" in lower
     ):
         return "cookie session Keycloak manquant (URL frontend vs base BFF)"
-    if "expired" in lower and "code" in lower:
+    if "expired" in lower and ("code" in lower or "session" in lower):
         return "session_code Keycloak expiré"
+    # Prefer a short page title when Keycloak serves the generic error page.
+    try:
+        soup = BeautifulSoup(html or "", "html.parser")
+        title = soup.find("title")
+        if title:
+            title_text = " ".join(title.get_text(" ", strip=True).split())
+            if title_text and title_text.casefold() not in {
+                "sign in",
+                "connexion",
+                "log in",
+            }:
+                return f"page d'erreur Keycloak ({title_text[:80]})"
+    except Exception:
+        pass
     if "we are sorry" in lower or "nous sommes désolés" in lower:
-        return "page d'erreur Keycloak"
+        return (
+            "page d'erreur Keycloak "
+            "(souvent cookie AUTH_SESSION_ID / hostname frontend vs interne)"
+        )
     return None
 
 
@@ -670,7 +688,7 @@ async def start_headless_login(
         follow_redirects=False,
         headers={"User-Agent": "bastion-oidc-bff/1.0"},
     ) as client:
-        login_html = await _fetch_login_html(client, auth_url, auth_params)
+        login_html = await _fetch_login_html(client, auth_url, auth_params, base=base)
         unsupported = _html_indicates_unsupported_flow(login_html)
         if unsupported:
             raise UnsupportedAuthFlowError(
@@ -992,7 +1010,7 @@ async def _perform_headless_login_no_db(
         follow_redirects=False,
         headers={"User-Agent": "bastion-oidc-bff/1.0"},
     ) as client:
-        login_html = await _fetch_login_html(client, auth_url, auth_params)
+        login_html = await _fetch_login_html(client, auth_url, auth_params, base=base)
         unsupported = _html_indicates_unsupported_flow(login_html)
         if unsupported:
             raise UnsupportedAuthFlowError(
@@ -1041,6 +1059,8 @@ async def _fetch_login_html(
     client: httpx.AsyncClient,
     auth_url: str,
     auth_params: dict[str, str],
+    *,
+    base: str,
 ) -> str:
     """GET /auth and follow Keycloak redirects until the login HTML is returned."""
     url: str | httpx.URL = auth_url
@@ -1064,7 +1084,8 @@ async def _fetch_login_html(
                 raise UnsupportedAuthFlowError(
                     "Flux Keycloak non supporté en headless: required action"
                 )
-            url = urljoin(str(resp.url), location)
+            # Stay on the BFF Keycloak base even if Location points at frontend URL.
+            url = _absolute_action_url(urljoin(str(resp.url), location), base)
             continue
         if resp.status_code != 200:
             raise OidcBffError(
@@ -1106,7 +1127,7 @@ async def _interpret_post_password_response(
             return ("code", code)
         # Interactive step redirect — follow GET to inspect HTML (OTP vs other).
         if "login-actions/" in location:
-            next_url = urljoin(str(resp.url), location)
+            next_url = _absolute_action_url(urljoin(str(resp.url), location), base)
             try:
                 follow = await client.get(next_url)
             except httpx.HTTPError as exc:

@@ -392,3 +392,69 @@ async def test_headless_login_posts_to_internal_when_form_action_is_public():
     assert result.sub == "kc-sub-1"
     assert internal_post.called
     assert not public_post.called
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_headless_login_keeps_auth_redirects_on_internal_base():
+    """Auth 302 to public frontend must be followed on the internal BFF base."""
+    settings = _settings()
+    _mock_oidc_discovery()
+    public_login = (
+        f"https://sso.public.example/realms/{REALM}/login-actions/authenticate"
+        "?session_code=abc&execution=exec1&client_id=bastion-bff&tab_id=tab1"
+    )
+    html = f"""
+    <html><body>
+      <form id="kc-form-login" action="{public_login}" method="post">
+        <input type="text" name="username" value="">
+        <input type="password" name="password" value="">
+      </form>
+    </body></html>
+    """
+    public_get = respx.get(url__startswith="https://sso.public.example/").mock(
+        return_value=Response(200, text="should not hit public")
+    )
+    respx.get(AUTH).mock(
+        return_value=Response(302, headers={"Location": public_login})
+    )
+    internal_login_get = respx.get(
+        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
+    ).mock(
+        return_value=Response(200, text=html, headers={"content-type": "text/html"})
+    )
+
+    def _login_with_state(request):
+        assert str(request.url).startswith(KC)
+        # First call is GET auth; find state from that request.
+        auth_calls = [
+            c for c in respx.calls if str(c.request.url).startswith(AUTH)
+        ]
+        state = parse_qs(urlparse(str(auth_calls[0].request.url)).query)["state"][0]
+        return Response(
+            302,
+            headers={"Location": f"{REDIRECT_URI}?code=auth-code-1&state={state}"},
+        )
+
+    internal_post = respx.post(
+        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
+    ).mock(side_effect=_login_with_state)
+    respx.post(TOKEN).mock(
+        return_value=Response(
+            200,
+            json={
+                "access_token": "access-xyz",
+                "id_token": _id_token(),
+                "expires_in": 300,
+                "token_type": "Bearer",
+            },
+        )
+    )
+
+    result = await perform_headless_login(
+        REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
+    )
+    assert result.sub == "kc-sub-1"
+    assert internal_login_get.called
+    assert internal_post.called
+    assert not public_get.called
