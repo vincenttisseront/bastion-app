@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.breakglass_store import set_breakglass_password
-from app.models import Base
+from app.models import AuditLog, Base
 
 
 def test_log_action_swallows_db_errors(db_session: Session):
@@ -52,6 +52,46 @@ def test_login_failed_with_legacy_audit_schema(client: TestClient, db_session: S
     assert response.status_code == 200
     assert "Identifiants invalides" in response.text
     assert "Service temporairement indisponible" not in response.text
+
+
+def test_login_failed_audit_details_enriched(client: TestClient, db_session: Session):
+    """breakglass.login_failed rows must never be empty {} — reason + via + UA.
+
+    unknown_username + python-httpx UA = scan/probe (e.g. the active staging
+    security tests); bad_password on a real account = typo or real attempt.
+    """
+    set_breakglass_password(db_session, "admin", "correct-password-12")
+
+    resp = client.post(
+        "/auth/breakglass",
+        data={"username": "audit-probe-nonexistent", "password": "wrong"},
+        headers={"X-Real-IP": "10.0.0.8", "User-Agent": "python-httpx/0.27"},
+    )
+    assert resp.status_code == 200
+    row = (
+        db_session.query(AuditLog)
+        .filter_by(action="breakglass.login_failed")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert row is not None
+    assert row.details["via"] == "form"
+    assert row.details["reason"] == "unknown_username"
+    assert "httpx" in row.details["user_agent"]
+
+    resp = client.post(
+        "/auth/breakglass",
+        data={"username": "admin", "password": "wrong-password"},
+        headers={"X-Real-IP": "10.0.0.8"},
+    )
+    assert resp.status_code == 200
+    row = (
+        db_session.query(AuditLog)
+        .filter_by(action="breakglass.login_failed")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert row.details["reason"] == "bad_password"
 
 
 def test_login_success_with_valid_breakglass(client: TestClient, db_session: Session):
