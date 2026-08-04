@@ -22,7 +22,12 @@ server {
     access_log /var/log/nginx/bastion_edge_catchall.access.log;
     error_log  /var/log/nginx/bastion_edge_catchall.error.log warn;
 
-    client_max_body_size 64M;
+    # 2G aligned with bastion-nginx CrushFTP vhost (transfer uploads) —
+    # 64M here would 413 large files at the edge even when bastion allows them.
+    client_max_body_size 2G;
+    # Stream request bodies straight through — never spool a 2G upload to
+    # the edge disk before forwarding.
+    proxy_request_buffering off;
     large_client_header_buffers 8 32k;
     # oauth2-proxy session cookies (id_token+refresh) need larger response buffers
     proxy_buffer_size 128k;
