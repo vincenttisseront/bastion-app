@@ -665,10 +665,24 @@ async def breakglass_login_post(
         evaluate_login_attempt(
             db, ip=client_ip, username=username, success=False
         )
+        from app.breakglass_store import breakglass_account_exists
+
+        # Empty details {} made these rows unreadable in Admin → Logs —
+        # unknown_username + a python-httpx UA is a scan/probe, bad_password
+        # on a real account is a compromise attempt or a typo.
         log_action(
             db,
             actor=username,
             action="breakglass.login_failed",
+            details={
+                "via": "form",
+                "reason": (
+                    "bad_password"
+                    if breakglass_account_exists(db, username)
+                    else "unknown_username"
+                ),
+                "user_agent": (request.headers.get("user-agent") or "")[:160] or None,
+            },
             ip_address=client_ip or None,
         )
         ctx = _ctx(

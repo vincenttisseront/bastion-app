@@ -928,10 +928,23 @@ async def breakglass_login(
         evaluate_login_attempt(
             db, ip=client_ip, username=body.username, success=False
         )
+        from app.breakglass_store import breakglass_account_exists
+
+        # Same enriched details as the HTML form path — empty {} rows in
+        # Admin → Logs were impossible to triage (probe vs real attempt).
         log_action(
             db,
             actor=body.username,
             action="breakglass.login_failed",
+            details={
+                "via": "api",
+                "reason": (
+                    "bad_password"
+                    if breakglass_account_exists(db, body.username)
+                    else "unknown_username"
+                ),
+                "user_agent": (request.headers.get("user-agent") or "")[:160] or None,
+            },
             ip_address=client_ip or None,
         )
         raise HTTPException(status_code=401, detail="Invalid credentials")

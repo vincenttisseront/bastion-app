@@ -15,6 +15,25 @@ STAGING_BASE_URL = os.environ.get(
 
 EXPECTED_STAGING_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP", "172.24.0.108")
 
+# Active probes hit the LIVE portal (network calls + audit noise: every full
+# pytest run used to leave breakglass.login_failed 'audit-probe-nonexistent'
+# rows and ALERTE entries in Admin → Logs). Opt-in only.
+RUN_ACTIVE_PROBES = os.environ.get("BASTION_SECURITY_ACTIVE", "") in ("1", "true", "yes")
+
+
+def pytest_collection_modifyitems(config, items):
+    if RUN_ACTIVE_PROBES:
+        return
+    skip = pytest.mark.skip(
+        reason=(
+            "sonde active contre le portail live — lancez avec "
+            "BASTION_SECURITY_ACTIVE=1 pour l'exécuter"
+        )
+    )
+    for item in items:
+        if item.get_closest_marker("security_active"):
+            item.add_marker(skip)
+
 
 @pytest.fixture(scope="session")
 def staging_base_url() -> str:

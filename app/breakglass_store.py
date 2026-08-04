@@ -123,6 +123,20 @@ def set_breakglass_password(db: Session, username: str, plain_password: str) -> 
     return account
 
 
+def breakglass_account_exists(db: Session, username: str) -> bool:
+    """Active break-glass account with this username — audit detail only.
+
+    Lets breakglass.login_failed distinguish an unknown username (scan/probe)
+    from a bad password on a real account (compromise attempt / typo).
+    """
+    return (
+        db.query(BreakGlassAccount)
+        .filter_by(username=username, is_active=True)
+        .first()
+        is not None
+    )
+
+
 def verify_breakglass_password(db: Session, username: str, plain_password: str) -> bool:
     """Verify a break-glass password (new table, with legacy settings fallback)."""
     migrate_legacy_breakglass_account(db)
