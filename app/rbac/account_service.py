@@ -49,12 +49,17 @@ from app.rbac.keycloak_admin import (
     create_keycloak_group,
     create_keycloak_user,
     delete_keycloak_user,
+    find_keycloak_group_by_match_key,
     find_keycloak_user_exact,
     get_provision_token,
     provisioning_configured,
     remove_user_from_keycloak_group,
     reset_keycloak_password,
     update_keycloak_user,
+)
+from app.rbac.organization_names import (
+    normalize_organization_name,
+    organization_match_key,
 )
 from app.sso_settings import Settings
 from app.vault.user_app_credential_service import (
@@ -141,9 +146,43 @@ def _record_keycloak_failure(
     )
 
 
-def normalize_organization_name(raw: str | None) -> str:
-    """Trim + collapse whitespace — display name used as Keycloak/RBAC group name."""
-    return " ".join((raw or "").split()).strip()
+def find_rbac_company_group(
+    db: Session,
+    *,
+    realm_id: int,
+    organization: str,
+) -> RBACGroup | None:
+    """Find an existing RBAC/Keycloak-linked group matching the organization key."""
+    key = organization_match_key(organization)
+    if not key:
+        return None
+    candidates = (
+        db.query(RBACGroup)
+        .filter(
+            RBACGroup.realm_id == realm_id,
+            RBACGroup.keycloak_group_id.is_not(None),
+        )
+        .all()
+    )
+    matches: list[RBACGroup] = []
+    for row in candidates:
+        if organization_match_key(row.name) == key:
+            matches.append(row)
+            continue
+        if organization_match_key(row.path or "") == key:
+            matches.append(row)
+    if not matches:
+        return None
+
+    def _score(row: RBACGroup) -> tuple[int, int]:
+        tag = (row.group_tag or "").strip().lower()
+        is_company = 1 if tag in {"société", "societe", "company", "organisation", "organization"} else 0
+        # Prefer exact display-name match after normalize, then société tag.
+        exact = 1 if normalize_organization_name(row.name) == normalize_organization_name(organization) else 0
+        return (exact, is_company)
+
+    matches.sort(key=_score, reverse=True)
+    return matches[0]
 
 
 async def ensure_company_group(
@@ -156,24 +195,66 @@ async def ensure_company_group(
     ip_address: str | None = None,
     token: str | None = None,
 ) -> RBACGroup:
-    """Find or create the société group (RBAC + Keycloak). Idempotent per realm+name."""
+    """Find or create the société group (RBAC + Keycloak). Idempotent per realm+match-key."""
     name = normalize_organization_name(organization)
     if not name:
         raise AccountCreationError("Société / organisation requise")
 
-    existing = (
-        db.query(RBACGroup)
-        .filter(
-            RBACGroup.realm_id == realm.id,
-            RBACGroup.name == name,
-            RBACGroup.keycloak_group_id.is_not(None),
-        )
-        .first()
-    )
+    existing = find_rbac_company_group(db, realm_id=realm.id, organization=name)
     if existing is not None:
         return existing
 
     provision_token = token or await get_provision_token(realm, settings)
+
+    try:
+        kc_match = await find_keycloak_group_by_match_key(
+            realm,
+            settings,
+            organization=name,
+            token=provision_token,
+        )
+    except ValueError as exc:
+        raise AccountCreationError(f"Groupe société Keycloak : {exc}") from exc
+
+    if kc_match is not None:
+        kc_id = str(kc_match.get("id") or "")
+        kc_name = normalize_organization_name(kc_match.get("name") or name) or name
+        if not kc_id:
+            raise AccountCreationError("Groupe Keycloak trouvé sans identifiant")
+        by_kc = (
+            db.query(RBACGroup)
+            .filter_by(realm_id=realm.id, keycloak_group_id=kc_id)
+            .first()
+        )
+        if by_kc is not None:
+            return by_kc
+        group = RBACGroup(
+            name=kc_name,
+            realm_id=realm.id,
+            realm_slug=realm.slug,
+            keycloak_group_id=kc_id,
+            path=kc_match.get("path") or f"/{kc_name}",
+            description=f"Groupe société (lié Keycloak) — {kc_name}",
+            group_tag="Société",
+        )
+        db.add(group)
+        db.flush()
+        log_action(
+            db,
+            actor=actor,
+            action="account.company_group_ensured",
+            target=f"realm:{realm.slug}/group:{kc_name}",
+            details={
+                "organization": kc_name,
+                "organization_requested": name,
+                "rbac_group_id": group.id,
+                "keycloak_group_id": kc_id,
+                "matched_existing_keycloak": True,
+            },
+            ip_address=ip_address,
+        )
+        return group
+
     try:
         kc_id = await create_keycloak_group(
             realm, settings, name=name, token=provision_token
@@ -865,6 +946,8 @@ async def create_bastion_account(
         actor=actor,
         ip_address=ip_address,
     )
+    # Persist the canonical group name (avoids SDIS 81 vs SDIS81 drift on the account).
+    organization = company.name or organization
     if company.id not in group_ids:
         group_ids = [company.id, *group_ids]
 
@@ -1385,6 +1468,7 @@ async def update_bastion_account_identity(
             actor=actor,
             ip_address=ip_address,
         )
+        new_org = company.name or new_org
 
     account.email = new_email
     account.first_name = new_first

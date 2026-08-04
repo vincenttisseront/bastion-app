@@ -261,6 +261,7 @@ def test_bastion_account_creates_company_group_when_missing(client, db_session):
 
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
     _mock_no_duplicate()
+    respx.get(f"{KC_ADMIN}/groups").respond(200, json=[])
     group_create = respx.post(f"{KC_ADMIN}/groups").respond(
         201, headers={"Location": f"{KC_ADMIN}/groups/g-sdis"}
     )
