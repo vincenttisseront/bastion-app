@@ -839,9 +839,33 @@ def sso_failed(
 
 
 @router.get("/logout")
-def logout(request: Request, settings: Settings = Depends(get_settings)):
+def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Portal UI logout — clear break-glass + native OIDC session.
+
+    The user-menu link is ``GET /logout``. Previously only ``bg_session`` was
+    cleared, so ``bastion_session`` survived and ``/auth/login`` bounced back
+    to ``/apps``.
+    """
+    from app.oidc_bff import (
+        clear_oidc_session_cookie,
+        revoke_oidc_session_from_request,
+    )
+
     response = RedirectResponse(url="/auth/login", status_code=302)
-    response.delete_cookie(key=COOKIE_NAME)
+    actor = revoke_oidc_session_from_request(request, db, settings)
+    clear_oidc_session_cookie(response, settings)
+    response.delete_cookie(key=COOKIE_NAME, path="/", samesite="lax")
+    if actor and actor != "unknown":
+        log_action(
+            db,
+            actor=actor,
+            action="portal_logout",
+            ip_address=client_ip_from_request(request) or None,
+        )
     return response
 
 
