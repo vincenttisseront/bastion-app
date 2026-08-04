@@ -142,7 +142,13 @@ def needs_individual_credential_setup(
     *,
     group_names: Sequence[str] | None = None,
 ) -> bool:
-    """True when the user cannot open the app without a per-user override."""
+    """True when the user cannot open the app without a per-user override.
+
+    Aligns with ``get_effective_credential``: a group shared account (or
+    user override / app shared) satisfies setup. Exclusion without override
+    still blocks. ``individual_required`` only requires setup when no
+    effective credential resolves.
+    """
     from app.bastion.bastion_fields import normalize_credential_mode, vault_enabled_for_app
 
     if not keycloak_user_id:
@@ -152,15 +158,15 @@ def needs_individual_credential_setup(
         getattr(app, "robotic_driver", None),
     ):
         return False
-    if has_user_override(db, app.slug, keycloak_user_id):
-        return False
-    mode = normalize_credential_mode(getattr(app, "credential_mode", None))
-    if mode == "individual_required":
-        return True
     _row, source = get_effective_credential(
         db, app.slug, keycloak_user_id, group_names=group_names
     )
-    return source == "group_excluded"
+    if source in ("user_override", "group_shared", "shared"):
+        return False
+    if source == "group_excluded":
+        return True
+    mode = normalize_credential_mode(getattr(app, "credential_mode", None))
+    return mode == "individual_required"
 
 
 def resolve_credential(
