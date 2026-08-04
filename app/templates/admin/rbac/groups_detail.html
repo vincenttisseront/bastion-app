@@ -50,6 +50,126 @@
     </div>
   </div>
 
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Comptes applicatifs partagés</span>
+      <span class="badge badge-muted">{{ group_credentials | length }}</span>
+    </div>
+    <div style="padding:var(--sp-4); padding-top:0;">
+      <p class="form-hint" style="margin:0 0 var(--sp-4);">
+        Compte Crush / robotic utilisé par tous les membres de ce groupe à l’ouverture de l’app.
+        Priorité explicite si un utilisateur appartient à plusieurs groupes.
+        Les exclus n’utilisent pas ce compte — sans compte individuel, l’ouverture est bloquée.
+      </p>
+
+      {% if group_credentials %}
+      <div class="table-wrap" style="margin-bottom:var(--sp-4);">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Application</th>
+              <th>Compte</th>
+              <th>Priorité</th>
+              <th>Exclusions</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cred in group_credentials %}
+            <tr>
+              <td class="mono">{{ cred.app_slug }}</td>
+              <td class="mono">{{ cred.robotic_username }}</td>
+              <td>{{ cred.priority }}</td>
+              <td>
+                {% set excl = cred.exclusions or [] %}
+                {% if excl %}
+                <ul style="margin:0; padding-left:1.1rem;">
+                  {% for e in excl %}
+                  <li style="display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
+                    <span class="mono">
+                      {% for m in members if m.id == e.keycloak_user_id %}
+                        {{ m.username or m.email or e.keycloak_user_id }}
+                      {% else %}
+                        {{ e.keycloak_user_id }}
+                      {% endfor %}
+                    </span>
+                    <form method="post"
+                          action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/exclusions/{{ e.keycloak_user_id }}/delete"
+                          style="display:inline;"
+                          onsubmit="return confirm('Retirer cette exclusion ?');">
+                      <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+                    </form>
+                  </li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <span class="form-hint">Aucune</span>
+                {% endif %}
+                {% if members %}
+                <form method="post"
+                      action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/exclusions"
+                      style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; margin-top:var(--sp-2);">
+                  <select name="keycloak_user_id" class="form-select" required style="min-width:12rem;">
+                    <option value="">Exclure un membre…</option>
+                    {% for m in members if m.id %}
+                    <option value="{{ m.id }}">{{ m.username or m.email or m.id }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" class="btn btn-ghost btn-sm">Exclure</button>
+                </form>
+                {% endif %}
+              </td>
+              <td style="text-align:right;">
+                <form method="post"
+                      action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete"
+                      onsubmit="return confirm('Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?');">
+                  <button type="submit" class="btn btn-danger btn-sm">Supprimer</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="empty-desc" style="padding:var(--sp-3) 0 var(--sp-4);">
+        Aucun compte partagé pour ce groupe.
+      </div>
+      {% endif %}
+
+      {% if vault_apps %}
+      <form method="post" action="/admin/rbac/groups/{{ group.id }}/credentials" class="form-row" style="gap:var(--sp-3); align-items:flex-end; flex-wrap:wrap;">
+        <div class="form-group" style="margin:0;">
+          <label class="form-label" for="group-cred-app">Application</label>
+          <select id="group-cred-app" name="app_slug" class="form-select" required>
+            <option value="">Choisir…</option>
+            {% for a in vault_apps %}
+            <option value="{{ a.slug }}">{{ a.label }} ({{ a.slug }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label" for="group-cred-user">Compte robotic</label>
+          <input id="group-cred-user" type="text" name="robotic_username" class="form-input" required autocomplete="off">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label" for="group-cred-pass">Mot de passe</label>
+          <input id="group-cred-pass" type="password" name="password" class="form-input" required autocomplete="new-password">
+        </div>
+        <div class="form-group" style="margin:0; max-width:7rem;">
+          <label class="form-label" for="group-cred-prio">Priorité</label>
+          <input id="group-cred-prio" type="number" name="priority" class="form-input" value="100" step="1">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
+      </form>
+      {% else %}
+      <div class="alert alert-warn" style="margin:0;">
+        Aucune application vault (Crush / robotic) disponible.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
   <div class="card" style="padding:0;">
     <div class="card-header" style="padding:var(--sp-4);">
       <span class="card-title">Droits accordés au groupe</span>

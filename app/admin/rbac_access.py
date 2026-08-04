@@ -38,6 +38,14 @@ from app.rbac.keycloak_admin import (
     search_keycloak_users_fuzzy,
 )
 from app.sso_settings import Settings, get_settings
+from app.vault.app_credential_service import VaultError
+from app.vault.group_app_credential_service import (
+    add_group_credential_exclusion,
+    delete_group_credential,
+    list_group_credentials,
+    remove_group_credential_exclusion,
+    set_group_credential,
+)
 from app.vault.user_app_credential_service import get_user_credential, has_user_override
 from app.web.flash import flash_redirect
 from app.web.templates import render
@@ -254,6 +262,12 @@ async def admin_rbac_group_detail(
         )
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
+    vault_apps = [
+        a
+        for a in apps
+        if vault_enabled_for_app(a.auth_mode, a.robotic_driver)
+    ]
+    group_credentials = list_group_credentials(db, group.id)
     from app.files.service import file_grant_select_options, folder_grant_select_options
 
     file_options = file_grant_select_options(db)
@@ -270,12 +284,184 @@ async def admin_rbac_group_detail(
             grants=grants,
             grant_rows=[serialize_grant(g, db) for g in grants],
             apps=apps,
+            vault_apps=vault_apps,
+            group_credentials=group_credentials,
             file_options=file_options,
             folder_options=folder_options,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
         ),
     )
+
+
+@router.post("/admin/rbac/groups/{group_id}/credentials")
+async def admin_rbac_group_credential_set(
+    group_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    app_slug: str = Form(...),
+    robotic_username: str = Form(...),
+    password: str = Form(...),
+    priority: int = Form(100),
+):
+    group, _realm = _realm_for_group(db, group_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/groups/{group.id}"
+    try:
+        cred = set_group_credential(
+            db,
+            rbac_group_id=group.id,
+            app_slug=app_slug,
+            robotic_username=robotic_username,
+            plain_password=password,
+            settings=settings,
+            priority=priority,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except VaultError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(url=fallback, status_code=302)
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": True,
+                "credential_id": cred.id,
+                "app_slug": cred.app_slug,
+                "robotic_username": cred.robotic_username,
+                "priority": cred.priority,
+            }
+        )
+    response = RedirectResponse(url=fallback, status_code=302)
+    flash_redirect(
+        response,
+        f"Compte partagé enregistré pour {cred.app_slug} ({cred.robotic_username}).",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/admin/rbac/groups/{group_id}/credentials/{credential_id}/delete")
+async def admin_rbac_group_credential_delete(
+    group_id: int,
+    credential_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    group, _realm = _realm_for_group(db, group_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/groups/{group.id}"
+    cred = next(
+        (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
+        None,
+    )
+    if cred is None:
+        raise HTTPException(status_code=404, detail="Compte groupe introuvable")
+    delete_group_credential(
+        db,
+        credential_id,
+        actor=user.email,
+        ip_address=_client_ip(request),
+    )
+    if _wants_json(request):
+        return JSONResponse({"ok": True})
+    response = RedirectResponse(url=fallback, status_code=302)
+    flash_redirect(response, "Compte partagé du groupe supprimé.", "success", secret)
+    return response
+
+
+@router.post("/admin/rbac/groups/{group_id}/credentials/{credential_id}/exclusions")
+async def admin_rbac_group_credential_exclusion_add(
+    group_id: int,
+    credential_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    keycloak_user_id: str = Form(...),
+):
+    group, _realm = _realm_for_group(db, group_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/groups/{group.id}"
+    cred = next(
+        (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
+        None,
+    )
+    if cred is None:
+        raise HTTPException(status_code=404, detail="Compte groupe introuvable")
+    try:
+        add_group_credential_exclusion(
+            db,
+            credential_id,
+            keycloak_user_id,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except VaultError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(url=fallback, status_code=302)
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse({"ok": True})
+    response = RedirectResponse(url=fallback, status_code=302)
+    flash_redirect(
+        response,
+        "Utilisateur exclu du compte partagé — configurez un compte individuel.",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post(
+    "/admin/rbac/groups/{group_id}/credentials/{credential_id}/exclusions/{keycloak_user_id}/delete"
+)
+async def admin_rbac_group_credential_exclusion_remove(
+    group_id: int,
+    credential_id: int,
+    keycloak_user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    group, _realm = _realm_for_group(db, group_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/groups/{group.id}"
+    cred = next(
+        (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
+        None,
+    )
+    if cred is None:
+        raise HTTPException(status_code=404, detail="Compte groupe introuvable")
+    remove_group_credential_exclusion(
+        db,
+        credential_id,
+        keycloak_user_id,
+        actor=user.email,
+        ip_address=_client_ip(request),
+    )
+    if _wants_json(request):
+        return JSONResponse({"ok": True})
+    response = RedirectResponse(url=fallback, status_code=302)
+    flash_redirect(response, "Exclusion retirée.", "success", secret)
+    return response
 
 
 @router.get("/admin/rbac/groups/{group_id}/members")

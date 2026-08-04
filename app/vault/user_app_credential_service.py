@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.models import AppCredential, UserAppCredential, utcnow
+from app.models import AppCredential, GroupAppCredential, UserAppCredential, utcnow
 from app.secret_crypto import (
     decrypt_secret,
     encrypt_secret,
@@ -24,10 +25,19 @@ from app.vault.app_credential_service import (
     VaultError,
     get_app_credential,
 )
+from app.vault.group_app_credential_service import resolve_group_credential_for_user
 
 logger = logging.getLogger(__name__)
 
-CredentialSource = Literal["shared", "user_override", "user_identity"]
+CredentialSource = Literal[
+    "shared",
+    "user_override",
+    "user_identity",
+    "group_shared",
+    "group_excluded",
+]
+
+VaultCredentialRow = AppCredential | UserAppCredential | GroupAppCredential
 
 
 @dataclass(frozen=True)
@@ -37,6 +47,15 @@ class ResolvedCredential:
     robotic_username: str
     app_slug: str
     source: CredentialSource
+
+
+class GroupCredentialExcludedError(VaultError):
+    """User is excluded from group shared credential(s) and has no override."""
+
+    user_message = (
+        "Vous êtes exclu du compte partagé de votre groupe pour cette application. "
+        "Un compte individuel doit être configuré par un administrateur."
+    )
 
 
 def _require_encryption(settings: Settings) -> None:
@@ -69,12 +88,17 @@ def get_effective_credential(
     db: Session,
     app_slug: str,
     keycloak_user_id: str | None,
-) -> tuple[AppCredential | UserAppCredential | None, CredentialSource | None]:
+    *,
+    group_names: Sequence[str] | None = None,
+) -> tuple[VaultCredentialRow | None, CredentialSource | None]:
     """
-    Resolve vault credential: user override first, then shared AppCredential.
+    Resolve vault credential:
 
-    When app.credential_mode == "individual_required", never fall back to shared.
-    Returns (credential_row_or_None, source_or_None).
+    1. per-user override
+    2. group shared (highest explicit priority among non-excluded memberships)
+    3. if member of a group credential but excluded from all → ``group_excluded``
+       (blocks app-wide shared fallback)
+    4. app-wide shared (unless ``individual_required``)
     """
     from app.bastion.bastion_fields import normalize_credential_mode
     from app.models import App
@@ -91,6 +115,17 @@ def get_effective_credential(
         if user_cred is not None and user_cred.is_active:
             return user_cred, "user_override"
 
+        group_cred, excluded = resolve_group_credential_for_user(
+            db,
+            app_slug=app_slug,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
+        )
+        if group_cred is not None:
+            return group_cred, "group_shared"
+        if excluded:
+            return None, "group_excluded"
+
     if mode == "individual_required":
         return None, None
 
@@ -104,8 +139,10 @@ def needs_individual_credential_setup(
     db: Session,
     app: object,
     keycloak_user_id: str | None,
+    *,
+    group_names: Sequence[str] | None = None,
 ) -> bool:
-    """True when app requires a per-user override and the user has none."""
+    """True when the user cannot open the app without a per-user override."""
     from app.bastion.bastion_fields import normalize_credential_mode, vault_enabled_for_app
 
     if not keycloak_user_id:
@@ -115,9 +152,15 @@ def needs_individual_credential_setup(
         getattr(app, "robotic_driver", None),
     ):
         return False
-    if normalize_credential_mode(getattr(app, "credential_mode", None)) != "individual_required":
+    if has_user_override(db, app.slug, keycloak_user_id):
         return False
-    return not has_user_override(db, app.slug, keycloak_user_id)
+    mode = normalize_credential_mode(getattr(app, "credential_mode", None))
+    if mode == "individual_required":
+        return True
+    _row, source = get_effective_credential(
+        db, app.slug, keycloak_user_id, group_names=group_names
+    )
+    return source == "group_excluded"
 
 
 def resolve_credential(
@@ -125,6 +168,8 @@ def resolve_credential(
     app_slug: str,
     settings: Settings,
     keycloak_user_id: str | None = None,
+    *,
+    group_names: Sequence[str] | None = None,
 ) -> tuple[ResolvedCredential, str]:
     """
     Return (ResolvedCredential, plaintext_password).
@@ -132,7 +177,13 @@ def resolve_credential(
     Never log or return the password outside this call site's short-lived use.
     """
     _require_encryption(settings)
-    row, source = get_effective_credential(db, app_slug, keycloak_user_id)
+    row, source = get_effective_credential(
+        db, app_slug, keycloak_user_id, group_names=group_names
+    )
+    if source == "group_excluded":
+        raise GroupCredentialExcludedError(
+            GroupCredentialExcludedError.user_message
+        )
     if row is None or source is None:
         raise CredentialNotFoundError(f"No active credential for app '{app_slug}'")
     try:
@@ -208,7 +259,7 @@ def delete_user_credential(
     actor: str = "system",
     ip_address: str | None = None,
 ) -> bool:
-    """Remove user override (return to shared credential). Returns True if deleted."""
+    """Remove user override (return to shared/group credential). Returns True if deleted."""
     cred = get_user_credential(db, app_slug, keycloak_user_id)
     if cred is None:
         return False
@@ -232,6 +283,7 @@ __all__ = [
     "EncryptionNotConfiguredError",
     "CredentialNotFoundError",
     "CredentialDecryptError",
+    "GroupCredentialExcludedError",
     "get_user_credential",
     "has_user_override",
     "get_effective_credential",

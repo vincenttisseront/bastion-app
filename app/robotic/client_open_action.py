@@ -24,6 +24,7 @@ from app.request_client_ip import client_ip_from_request
 from app.robotic.impersonate_service import (
     ImpersonationCredentialRequiredError,
     ImpersonationError,
+    ImpersonationGroupCredentialExcludedError,
     ImpersonationIdentityAuthError,
     ImpersonationPasswordRequiredError,
     ImpersonationTechnicalError,
@@ -150,6 +151,14 @@ def _impersonation_error_payload(exc: ImpersonationError) -> tuple[dict, int]:
             {
                 "error": ImpersonationCredentialRequiredError.error_code,
                 "message": ImpersonationCredentialRequiredError.user_message,
+            },
+            409,
+        )
+    if isinstance(exc, ImpersonationGroupCredentialExcludedError):
+        return (
+            {
+                "error": ImpersonationGroupCredentialExcludedError.error_code,
+                "message": ImpersonationGroupCredentialExcludedError.user_message,
             },
             409,
         )
@@ -409,6 +418,7 @@ async def client_impersonate(
             actor=user.email or user.username,
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
+            group_names=user.groups,
             client_headers=_browser_fingerprint_headers(request),
         )
     except ImpersonationError as exc:
@@ -527,6 +537,7 @@ async def open_with_identity(
             actor=user.email or user.username,
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
+            group_names=user.groups,
             ephemeral_username=username,
             ephemeral_password=password,
             client_headers=_browser_fingerprint_headers(request),
@@ -601,8 +612,11 @@ async def basic_auth_header(
             actor=user.email or user.username,
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
+            group_names=user.groups,
         )
     except ImpersonationCredentialRequiredError:
+        return Response(status_code=409)
+    except ImpersonationGroupCredentialExcludedError:
         return Response(status_code=409)
     except ImpersonationError:
         return Response(status_code=403)
@@ -644,8 +658,11 @@ async def wsse_header(
             actor=user.email or user.username,
             ip_address=_client_ip(request),
             keycloak_user_id=user.keycloak_user_id,
+            group_names=user.groups,
         )
     except ImpersonationCredentialRequiredError:
+        return Response(status_code=409)
+    except ImpersonationGroupCredentialExcludedError:
         return Response(status_code=409)
     except ImpersonationError:
         return Response(status_code=403)
