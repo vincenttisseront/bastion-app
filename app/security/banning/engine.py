@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.models import (
+    AuditLog,
     SecurityAllowlistEntry,
     SecurityBan,
     SecurityBanRule,
@@ -552,6 +553,29 @@ def record_sensitive_request(
     return ban
 
 
+def _recent_rate_limit_audit(
+    db: Session, *, ip: str, rule_type: str, window: int
+) -> bool:
+    """True if we already wrote security.rate_limited for this IP/rule in the window."""
+    cutoff = utcnow() - timedelta(seconds=max(1, int(window or 1)))
+    target = f"ip:{ip}"
+    rows = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == "security.rate_limited",
+            AuditLog.target == target,
+            AuditLog.created_at >= cutoff,
+        )
+        .limit(20)
+        .all()
+    )
+    for row in rows:
+        details = row.details if isinstance(row.details, dict) else {}
+        if details.get("rule_type") == rule_type:
+            return True
+    return False
+
+
 def record_rate_limited_request(
     db: Session,
     *,
@@ -589,7 +613,24 @@ def record_rate_limited_request(
             continue
         limited = True
         retry_after = max(retry_after, window)
-        if count == threshold + 1:
+        # Audit on the first rejection of the burst (count == threshold+1). If
+        # concurrent workers skip that exact count, still audit once when we
+        # first observe a limited window (count just above threshold).
+        should_audit = count == threshold + 1 or (
+            count > threshold + 1
+            and count <= threshold + 3
+            and not _recent_rate_limit_audit(db, ip=ip, rule_type=rule_type, window=window)
+        )
+        if should_audit:
+            logger.warning(
+                "security.rate_limited ip=%s rule=%s count=%s/%s window=%ss path=%s",
+                ip,
+                rule_type,
+                count,
+                threshold,
+                window,
+                (path or "")[:120],
+            )
             log_action(
                 db,
                 actor="system",
@@ -601,6 +642,7 @@ def record_rate_limited_request(
                     "threshold": threshold,
                     "window_seconds": window,
                     "path": (path or "")[:120],
+                    "method": (method or "")[:16],
                 },
                 ip_address=ip,
             )

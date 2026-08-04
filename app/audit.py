@@ -116,9 +116,11 @@ def derive_severity(action: str) -> str:
             "unknown_host",
             "no_app",
             "unregistered",
+            "rate_limited",
+            "ban.applied",
         )
     ):
-        if "warn" in action_lower:
+        if "warn" in action_lower or "rate_limited" in action_lower:
             return "warn"
         return "error"
     if any(x in action_lower for x in ("warn", "warning")):
