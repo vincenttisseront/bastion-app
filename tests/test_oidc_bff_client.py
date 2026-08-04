@@ -229,6 +229,31 @@ async def test_headless_login_invalid_password():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_headless_login_http_400_with_login_form_is_invalid_credentials():
+    """Keycloak often returns 400 + login theme (not a distinct error page)."""
+    settings = _settings()
+    respx.get(AUTH).mock(
+        return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
+    )
+    html_400 = (
+        "<html><head><title>Sign in to CLIENTS</title></head><body>"
+        f'<form id="kc-form-login" action="{LOGIN_ACTION}" method="post">'
+        '<input type="text" name="username" value="">'
+        '<input type="password" name="password" value="">'
+        "</form></body></html>"
+    )
+    respx.post(url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate").mock(
+        return_value=Response(400, text=html_400, headers={"content-type": "text/html"})
+    )
+
+    with pytest.raises(InvalidCredentialsError):
+        await perform_headless_login(
+            REALM, "alice", "wrong", settings=settings, **_bff_kwargs()
+        )
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_headless_login_mfa_required():
     settings = _settings()
     respx.get(AUTH).mock(

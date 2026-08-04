@@ -566,6 +566,86 @@ def _origin_of(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+def _safe_url_for_log(url: str) -> str:
+    """Origin + path only (no query — may contain code / session_code)."""
+    raw = (url or "").strip()
+    if not raw:
+        return "-"
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"[:240]
+    return (parsed.path or raw.split("?", 1)[0])[:240]
+
+
+def _set_cookie_names(resp: httpx.Response) -> str:
+    names: list[str] = []
+    get_list = getattr(resp.headers, "get_list", None)
+    values = get_list("set-cookie") if callable(get_list) else None
+    if not values:
+        single = resp.headers.get("set-cookie")
+        values = [single] if single else []
+    for raw in values:
+        name = (raw or "").split("=", 1)[0].strip()
+        if name and name not in names:
+            names.append(name)
+    return ",".join(names) if names else "-"
+
+
+def _html_diag_flags(html: str) -> str:
+    """Compact HTML signals for logs (never includes secrets)."""
+    text = html or ""
+    flags: list[str] = []
+    if "kc-form-login" in text:
+        flags.append("kc-form-login")
+    if _OTP_FORM_ID in text:
+        flags.append("kc-otp")
+    if any(fid in text for fid in _UNSUPPORTED_FORM_IDS):
+        flags.append("unsupported-form")
+    if _html_indicates_invalid_credentials(text):
+        flags.append("invalid_creds")
+    unsupported = _html_indicates_unsupported_flow(text)
+    if unsupported:
+        flags.append(f"flow:{unsupported}")
+    hint = _keycloak_http_error_hint(text)
+    if hint:
+        flags.append(f"hint={hint}")
+    try:
+        soup = BeautifulSoup(text, "html.parser")
+        title = soup.find("title")
+        if title:
+            title_text = " ".join(title.get_text(" ", strip=True).split())[:80]
+            if title_text:
+                flags.append(f"title={title_text}")
+    except Exception:
+        pass
+    return "|".join(flags) if flags else "-"
+
+
+def _log_keycloak_http(phase: str, resp: httpx.Response, **extra: Any) -> None:
+    """INFO-level Keycloak hop diagnostics (status / URL / Location / cookies / HTML)."""
+    location = resp.headers.get("location") or ""
+    extra_s = " ".join(f"{k}={v}" for k, v in extra.items() if v is not None)
+    body_flags = "-"
+    ctype = (resp.headers.get("content-type") or "").lower()
+    if "text/html" in ctype or "application/xhtml" in ctype or (
+        resp.status_code == 200 and not location
+    ):
+        try:
+            body_flags = _html_diag_flags(resp.text or "")
+        except Exception:
+            body_flags = "html_read_error"
+    logger.info(
+        "oidc_bff kc_http phase=%s status=%s url=%s location=%s set_cookie=%s html=%s%s",
+        phase,
+        resp.status_code,
+        _safe_url_for_log(str(resp.url)),
+        _safe_url_for_log(location) if location else "-",
+        _set_cookie_names(resp),
+        body_flags,
+        f" {extra_s}" if extra_s else "",
+    )
+
+
 def _absolute_action_url(action: str, base: str) -> str:
     """Resolve a form/redirect URL onto ``base`` (the host that holds AUTH cookies).
 
@@ -619,19 +699,23 @@ def _keycloak_http_error_hint(html: str) -> str | None:
             "page d'erreur Keycloak "
             "(souvent cookie AUTH_SESSION_ID / hostname frontend vs interne)"
         )
-    if "kc-form-login" in lower:
-        return "session Keycloak invalide (formulaire renvoyé en erreur)"
+    # Login theme redisplays (title "Sign in to …") are not error pages — skip
+    # them here; callers classify kc-form-login via InvalidCredentialsError.
     try:
         soup = BeautifulSoup(html or "", "html.parser")
         title = soup.find("title")
         if title:
             title_text = " ".join(title.get_text(" ", strip=True).split())
             folded = title_text.casefold()
-            if title_text and not folded.startswith("sign in") and folded not in {
-                "connexion",
-                "log in",
-            }:
-                return f"page d'erreur Keycloak ({title_text[:80]})"
+            if not title_text:
+                return None
+            if (
+                folded.startswith("sign in")
+                or folded in {"connexion", "log in"}
+                or "kc-form-login" in lower
+            ):
+                return None
+            return f"page d'erreur Keycloak ({title_text[:80]})"
     except Exception:
         pass
     return None
@@ -685,9 +769,13 @@ async def start_headless_login(
     }
 
     logger.info(
-        "oidc_bff headless_login start realm=%s username=%s",
+        "oidc_bff headless_login start realm=%s kc_realm=%s username=%s "
+        "auth_base=%s redirect_uri=%s",
         realm,
+        keycloak_realm,
         username,
+        _safe_url_for_log(base),
+        _safe_url_for_log(redirect_uri),
     )
 
     async with httpx.AsyncClient(
@@ -697,6 +785,12 @@ async def start_headless_login(
     ) as client:
         login_html, session_base = await _fetch_login_html(
             client, auth_url, auth_params, base=base
+        )
+        logger.info(
+            "oidc_bff headless_login form_ready realm=%s session_base=%s html=%s",
+            realm,
+            session_base,
+            _html_diag_flags(login_html),
         )
         unsupported = _html_indicates_unsupported_flow(login_html)
         if unsupported:
@@ -710,6 +804,12 @@ async def start_headless_login(
         form_fields["username"] = username
         form_fields["password"] = password
 
+        logger.info(
+            "oidc_bff headless_login post_password realm=%s action=%s field_names=%s",
+            realm,
+            _safe_url_for_log(action_url),
+            ",".join(sorted(form_fields.keys())),
+        )
         try:
             post_resp = await client.post(
                 action_url,
@@ -720,10 +820,28 @@ async def start_headless_login(
             logger.warning("oidc_bff login POST failed realm=%s err=%s", realm, type(exc).__name__)
             raise OidcBffError("Impossible de joindre Keycloak (login)") from exc
 
-        outcome = await _interpret_post_password_response(
-            client, post_resp, expected_state=state, base=session_base
-        )
+        _log_keycloak_http("login_post", post_resp, realm=realm, username=username)
+        try:
+            outcome = await _interpret_post_password_response(
+                client, post_resp, expected_state=state, base=session_base
+            )
+        except InvalidCredentialsError:
+            logger.warning(
+                "oidc_bff headless_login invalid_credentials realm=%s username=%s "
+                "status=%s location=%s html=%s",
+                realm,
+                username,
+                post_resp.status_code,
+                _safe_url_for_log(post_resp.headers.get("location") or ""),
+                _html_diag_flags(post_resp.text or ""),
+            )
+            raise
         if outcome[0] == "code":
+            logger.info(
+                "oidc_bff headless_login got_code realm=%s username=%s",
+                realm,
+                username,
+            )
             tokens = await _exchange_code_for_tokens(
                 client,
                 token_url=token_url,
@@ -771,6 +889,12 @@ async def start_headless_login(
         )
         db.add(row)
         db.flush()
+        logger.info(
+            "oidc_bff headless_login otp_required realm=%s username=%s attempt_id=%s",
+            realm,
+            username,
+            attempt_id,
+        )
         return LoginStepResult(status="otp_required", attempt_id=attempt_id)
 
 
@@ -861,6 +985,12 @@ async def submit_headless_otp(
             )
             raise OidcBffError("Impossible de joindre Keycloak (otp)") from exc
 
+        _log_keycloak_http(
+            "otp_post",
+            post_resp,
+            realm=row.realm,
+            attempt_id=row.attempt_id,
+        )
         try:
             outcome = await _interpret_post_password_response(
                 client, post_resp, expected_state=row.state, base=row.keycloak_base_url
@@ -1084,13 +1214,14 @@ async def _fetch_login_html(
     """
     url: str | httpx.URL = auth_url
     params: dict[str, str] | None = auth_params
-    for _ in range(8):
+    for hop in range(8):
         try:
             resp = await client.get(url, params=params)
         except httpx.HTTPError as exc:
             logger.warning("oidc_bff auth GET failed err=%s", type(exc).__name__)
             raise OidcBffError("Impossible de joindre Keycloak (auth)") from exc
         params = None
+        _log_keycloak_http("auth_get", resp, hop=hop)
         if resp.status_code in {301, 302, 303, 307, 308}:
             location = resp.headers.get("location") or ""
             if not location:
@@ -1112,6 +1243,11 @@ async def _fetch_login_html(
         text = resp.text
         session_base = _origin_of(str(resp.url)) or base
         if "kc-form-login" in text:
+            logger.info(
+                "oidc_bff auth_get login_form session_base=%s html=%s",
+                session_base,
+                _html_diag_flags(text),
+            )
             return text, session_base
         unsupported = _html_indicates_unsupported_flow(text)
         if unsupported:
@@ -1138,6 +1274,11 @@ async def _interpret_post_password_response(
         if not location:
             raise OidcBffError("Redirect post-login sans Location")
         if "login-actions/required-action" in location:
+            logger.warning(
+                "oidc_bff post_password required_action status=%s location=%s",
+                resp.status_code,
+                _safe_url_for_log(location),
+            )
             raise UnsupportedAuthFlowError(
                 "Flux Keycloak non supporté en headless: required action après login"
             )
@@ -1146,17 +1287,29 @@ async def _interpret_post_password_response(
             returned_state = _location_state(location)
             if returned_state is not None and returned_state != expected_state:
                 raise OidcBffError("State OIDC mismatch après login Keycloak")
+            logger.info(
+                "oidc_bff post_password outcome=code status=%s location=%s",
+                resp.status_code,
+                _safe_url_for_log(location),
+            )
             return ("code", code)
         # Interactive step redirect — follow on the same host as the auth cookies.
         if "login-actions/" in location:
             next_url = _absolute_action_url(urljoin(str(resp.url), location), base)
+            logger.info(
+                "oidc_bff post_password follow_login_action status=%s next=%s",
+                resp.status_code,
+                _safe_url_for_log(next_url),
+            )
             try:
                 follow = await client.get(next_url)
             except httpx.HTTPError as exc:
                 raise OidcBffError("Impossible de joindre Keycloak (follow)") from exc
+            _log_keycloak_http("login_follow", follow)
             if follow.status_code == 200:
                 html = follow.text
                 if _extract_otp_form(html) is not None:
+                    logger.info("oidc_bff post_password outcome=otp via=follow")
                     return ("otp", html)
                 unsupported = _html_indicates_unsupported_flow(html)
                 if unsupported:
@@ -1166,36 +1319,76 @@ async def _interpret_post_password_response(
             raise UnsupportedAuthFlowError(
                 "Flux Keycloak non supporté en headless: étape interactive après login"
             )
+        logger.warning(
+            "oidc_bff post_password redirect_without_code status=%s location=%s",
+            resp.status_code,
+            _safe_url_for_log(location),
+        )
         raise OidcBffError("Redirect post-login sans code OIDC dans Location")
 
     if resp.status_code == 200:
         html = resp.text
         if _extract_otp_form(html) is not None:
+            logger.info(
+                "oidc_bff post_password outcome=otp status=200 html=%s",
+                _html_diag_flags(html),
+            )
             return ("otp", html)
         unsupported = _html_indicates_unsupported_flow(html)
         if unsupported:
+            logger.warning(
+                "oidc_bff post_password unsupported status=200 flow=%s html=%s",
+                unsupported,
+                _html_diag_flags(html),
+            )
             raise UnsupportedAuthFlowError(
                 f"Flux Keycloak non supporté en headless: {unsupported}"
             )
         if "kc-form-login" in html:
+            logger.warning(
+                "oidc_bff post_password invalid_credentials status=200 html=%s",
+                _html_diag_flags(html),
+            )
             raise InvalidCredentialsError("Identifiants Keycloak invalides")
         if _html_indicates_invalid_credentials(html):
+            logger.warning(
+                "oidc_bff post_password invalid_credentials status=200 html=%s",
+                _html_diag_flags(html),
+            )
             raise InvalidCredentialsError("Identifiants Keycloak invalides")
+        logger.warning(
+            "oidc_bff post_password unexpected_200 html=%s",
+            _html_diag_flags(html),
+        )
         raise OidcBffError(
             "Réponse login Keycloak inattendue (HTTP 200, pas de code)"
         )
 
-    # Keycloak often returns HTTP 400 with the login theme when the auth session
-    # cookie is missing / mismatched (hostname frontend vs internal).
+    # Keycloak often returns HTTP 400 with the login theme when credentials are
+    # wrong, or when the AUTH session cookie is missing / mismatched. Prefer
+    # invalid_credentials over a generic bff_error when the login form is back.
     if resp.status_code == 400:
         html = resp.text or ""
-        if "kc-form-login" in html and _html_indicates_invalid_credentials(html):
+        if "kc-form-login" in html:
+            logger.warning(
+                "oidc_bff post_password invalid_credentials status=400 html=%s",
+                _html_diag_flags(html),
+            )
+            raise InvalidCredentialsError("Identifiants Keycloak invalides")
+        if _html_indicates_invalid_credentials(html):
+            logger.warning(
+                "oidc_bff post_password invalid_credentials status=400 html=%s",
+                _html_diag_flags(html),
+            )
             raise InvalidCredentialsError("Identifiants Keycloak invalides")
 
     hint = _keycloak_http_error_hint(resp.text or "")
     logger.warning(
-        "oidc_bff login unexpected status=%s hint=%s",
+        "oidc_bff login unexpected status=%s location=%s set_cookie=%s html=%s hint=%s",
         resp.status_code,
+        _safe_url_for_log(resp.headers.get("location") or ""),
+        _set_cookie_names(resp),
+        _html_diag_flags(resp.text or ""),
         hint or "-",
     )
     detail = f"Login Keycloak HTTP {resp.status_code} inattendu"

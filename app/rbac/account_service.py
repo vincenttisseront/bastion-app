@@ -973,6 +973,17 @@ async def reset_bastion_account_password(
 
     temporary = not is_oidc_native_session_enabled_for_realm(db, realm.slug, settings)
     new_password = generate_initial_password()
+    logger.info(
+        "account_password_reset start realm=%s username=%s account_id=%s "
+        "keycloak_user_id=%s temporary=%s send_email=%s actor=%s",
+        realm.slug,
+        account.username,
+        account.id,
+        account.keycloak_user_id,
+        temporary,
+        bool(send_email),
+        actor,
+    )
     try:
         await reset_keycloak_password(
             realm,
@@ -982,9 +993,27 @@ async def reset_bastion_account_password(
             temporary=temporary,
         )
     except ValueError as exc:
+        logger.warning(
+            "account_password_reset keycloak_failed realm=%s username=%s "
+            "account_id=%s keycloak_user_id=%s err=%s",
+            realm.slug,
+            account.username,
+            account.id,
+            account.keycloak_user_id,
+            str(exc)[:200],
+        )
         new_password = ""  # noqa: F841
         raise AccountCreationError(str(exc)) from exc
 
+    logger.info(
+        "account_password_reset keycloak_ok realm=%s username=%s account_id=%s "
+        "keycloak_user_id=%s temporary=%s",
+        realm.slug,
+        account.username,
+        account.id,
+        account.keycloak_user_id,
+        temporary,
+    )
     log_action(
         db,
         actor=actor,

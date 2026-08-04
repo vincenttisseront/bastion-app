@@ -206,23 +206,42 @@ def connection_anomalies(db: Session, *, limit: int = 12) -> list[dict[str, Any]
     return out
 
 
-def group_distribution(db: Session) -> list[dict[str, Any]]:
-    """Bars: member_count / sum(member_count) for synced groups."""
+def group_distribution(db: Session) -> dict[str, Any]:
+    """Membership snapshot for the Users page widget.
+
+    Rows are sorted by ``member_count`` desc (then name). Percentages are the
+    share of total memberships; ``bar_percent`` is relative to the largest
+    group so the top bar fills the track.
+    """
     groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
-    total = sum(int(g.member_count or 0) for g in groups) or 0
+    total = sum(int(g.member_count or 0) for g in groups)
     rows: list[dict[str, Any]] = []
     for g in groups:
         count = int(g.member_count or 0)
-        pct = int(round(100.0 * count / total)) if total else 0
+        share = int(round(100.0 * count / total)) if total else 0
         rows.append(
             {
                 "id": g.id,
                 "name": g.name,
                 "member_count": count,
-                "percent": pct,
+                "percent": share,
+                "bar_percent": 0,
             }
         )
-    return rows
+    rows.sort(key=lambda r: (-int(r["member_count"]), str(r["name"]).casefold()))
+    max_count = max((int(r["member_count"]) for r in rows), default=0)
+    for r in rows:
+        r["bar_percent"] = (
+            int(round(100.0 * int(r["member_count"]) / max_count)) if max_count else 0
+        )
+    with_members = sum(1 for r in rows if int(r["member_count"]) > 0)
+    return {
+        "rows": rows,
+        "total_groups": len(rows),
+        "with_members": with_members,
+        "empty_groups": len(rows) - with_members,
+        "total_memberships": total,
+    }
 
 
 def last_seen_for_users(
