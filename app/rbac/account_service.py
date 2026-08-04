@@ -400,6 +400,8 @@ async def ensure_identity_in_realm(
         else:
             initial_password = generate_initial_password()
             try:
+                # Permanent password: headless native login cannot complete
+                # Keycloak UPDATE_PASSWORD required-action pages.
                 uid = await create_keycloak_user(
                     target_realm,
                     settings,
@@ -408,7 +410,7 @@ async def ensure_identity_in_realm(
                     first_name=source_account.first_name,
                     last_name=source_account.last_name,
                     initial_password=initial_password,
-                    temporary_password=True,
+                    temporary_password=False,
                 )
             except ValueError as exc:
                 initial_password = ""  # noqa: F841
@@ -429,7 +431,8 @@ async def ensure_identity_in_realm(
                     "keycloak_user_id": uid,
                     "bastion_account_id": existing.id,
                     "linked_from_account_id": source_account.id,
-                    "required_actions": ["UPDATE_PASSWORD"],
+                    "required_actions": [],
+                    "temporary_password": False,
                 },
                 ip_address=ip_address,
             )
@@ -707,6 +710,12 @@ async def push_keycloak_user_and_continue(
 
     initial_password = generate_initial_password()
     try:
+        from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+
+        # Native headless login cannot complete Keycloak UPDATE_PASSWORD pages.
+        use_temporary = not is_oidc_native_session_enabled_for_realm(
+            db, realm.slug, settings
+        )
         keycloak_user_id = await create_keycloak_user(
             realm,
             settings,
@@ -715,7 +724,7 @@ async def push_keycloak_user_and_continue(
             first_name=account.first_name,
             last_name=account.last_name,
             initial_password=initial_password,
-            temporary_password=True,
+            temporary_password=use_temporary,
         )
     except ValueError as exc:
         initial_password = ""  # noqa: F841
@@ -738,7 +747,8 @@ async def push_keycloak_user_and_continue(
             "username": username,
             "keycloak_user_id": keycloak_user_id,
             "bastion_account_id": account.id,
-            "required_actions": ["UPDATE_PASSWORD"],
+            "required_actions": ["UPDATE_PASSWORD"] if use_temporary else [],
+            "temporary_password": use_temporary,
             **({"retry": True} if is_retry else {}),
         },
         ip_address=ip_address,
@@ -939,10 +949,13 @@ async def reset_bastion_account_password(
     ip_address: str | None = None,
     send_email: bool = False,
 ) -> tuple[str, str | None]:
-    """Generate a new temporary Keycloak password. Returns (password, email_error).
+    """Generate a new Keycloak password. Returns (password, email_error).
 
-    Password is temporary (UPDATE_PASSWORD). Never logged. ``email_error`` is set
-    when the caller asked to email and SMTP failed — the reset itself still succeeded.
+    On realms with native headless login, the password is **permanent** (no
+    UPDATE_PASSWORD required action) so the revealed/emailed value works on
+    ``/auth/login``. Other realms keep a temporary password + UPDATE_PASSWORD.
+    ``email_error`` is set when the caller asked to email and SMTP failed —
+    the reset itself still succeeded.
     """
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     if realm is None:
@@ -956,6 +969,9 @@ async def reset_bastion_account_password(
             "Provisioning non activé pour ce realm — requis pour reset Keycloak."
         )
 
+    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+
+    temporary = not is_oidc_native_session_enabled_for_realm(db, realm.slug, settings)
     new_password = generate_initial_password()
     try:
         await reset_keycloak_password(
@@ -963,7 +979,7 @@ async def reset_bastion_account_password(
             settings,
             keycloak_user_id=account.keycloak_user_id,
             new_password=new_password,
-            temporary=True,
+            temporary=temporary,
         )
     except ValueError as exc:
         new_password = ""  # noqa: F841
@@ -977,7 +993,7 @@ async def reset_bastion_account_password(
         details={
             "bastion_account_id": account.id,
             "keycloak_user_id": account.keycloak_user_id,
-            "temporary": True,
+            "temporary": temporary,
             "email_requested": bool(send_email),
         },
         ip_address=ip_address,
