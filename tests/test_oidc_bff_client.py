@@ -396,12 +396,13 @@ async def test_headless_login_posts_to_internal_when_form_action_is_public():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_headless_login_keeps_auth_redirects_on_internal_base():
-    """Auth 302 to public frontend must be followed on the internal BFF base."""
+async def test_headless_login_follows_frontend_redirect_host():
+    """Auth 302 to public frontend: keep cookies on that host (do not pin internal)."""
     settings = _settings()
     _mock_oidc_discovery()
+    public_origin = "https://sso.public.example"
     public_login = (
-        f"https://sso.public.example/realms/{REALM}/login-actions/authenticate"
+        f"{public_origin}/realms/{REALM}/login-actions/authenticate"
         "?session_code=abc&execution=exec1&client_id=bastion-bff&tab_id=tab1"
     )
     html = f"""
@@ -412,21 +413,19 @@ async def test_headless_login_keeps_auth_redirects_on_internal_base():
       </form>
     </body></html>
     """
-    public_get = respx.get(url__startswith="https://sso.public.example/").mock(
-        return_value=Response(200, text="should not hit public")
-    )
     respx.get(AUTH).mock(
         return_value=Response(302, headers={"Location": public_login})
     )
-    internal_login_get = respx.get(
-        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
-    ).mock(
+    public_get = respx.get(url__startswith=f"{public_origin}/realms/").mock(
         return_value=Response(200, text=html, headers={"content-type": "text/html"})
     )
+    # Must NOT re-hit internal login-actions for the HTML (would drop public cookies).
+    internal_login_get = respx.get(
+        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
+    ).mock(return_value=Response(400, text="should not get HTML here"))
 
     def _login_with_state(request):
-        assert str(request.url).startswith(KC)
-        # First call is GET auth; find state from that request.
+        assert str(request.url).startswith(public_origin)
         auth_calls = [
             c for c in respx.calls if str(c.request.url).startswith(AUTH)
         ]
@@ -436,8 +435,8 @@ async def test_headless_login_keeps_auth_redirects_on_internal_base():
             headers={"Location": f"{REDIRECT_URI}?code=auth-code-1&state={state}"},
         )
 
-    internal_post = respx.post(
-        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
+    public_post = respx.post(
+        url__startswith=f"{public_origin}/realms/{REALM}/login-actions/authenticate"
     ).mock(side_effect=_login_with_state)
     respx.post(TOKEN).mock(
         return_value=Response(
@@ -455,6 +454,6 @@ async def test_headless_login_keeps_auth_redirects_on_internal_base():
         REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
     )
     assert result.sub == "kc-sub-1"
-    assert internal_login_get.called
-    assert internal_post.called
-    assert not public_get.called
+    assert public_get.called
+    assert public_post.called
+    assert not internal_login_get.called
