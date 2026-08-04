@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
+from collections.abc import Sequence
 from typing import Literal
 
 from sqlalchemy.orm import Session
@@ -33,6 +34,7 @@ from app.vault.app_credential_service import (
 )
 from app.vault.user_app_credential_service import (
     CredentialSource,
+    GroupCredentialExcludedError,
     ResolvedCredential,
     resolve_credential,
 )
@@ -55,6 +57,16 @@ class ImpersonationCredentialRequiredError(ImpersonationError):
     user_message = (
         "Cette application nécessite un credential individuel. "
         "Contactez votre administrateur."
+    )
+
+
+class ImpersonationGroupCredentialExcludedError(ImpersonationError):
+    """User excluded from group shared credential without an individual override."""
+
+    error_code = "group_credential_excluded"
+    user_message = (
+        "Vous êtes exclu du compte partagé de votre groupe pour cette application. "
+        "Un compte individuel doit être configuré par un administrateur."
     )
 
 
@@ -319,6 +331,7 @@ def _load_app_and_credential(
     ip_address: str | None,
     driver: str,
     keycloak_user_id: str | None,
+    group_names: Sequence[str] | None = None,
 ) -> tuple[App, ResolvedCredential, str]:
     """Return (app, ResolvedCredential, password). Raises ImpersonationError on failure."""
     app = db.query(App).filter_by(slug=app_slug).first()
@@ -336,7 +349,11 @@ def _load_app_and_credential(
 
     try:
         resolved, password = resolve_credential(
-            db, app_slug, settings, keycloak_user_id=keycloak_user_id
+            db,
+            app_slug,
+            settings,
+            keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
         )
     except EncryptionNotConfiguredError as exc:
         _audit_impersonate(
@@ -349,6 +366,24 @@ def _load_app_and_credential(
             error="encryption_not_configured",
         )
         raise ImpersonationError(str(exc)) from exc
+    except GroupCredentialExcludedError as exc:
+        log_action(
+            db,
+            actor=actor,
+            action="robotic.impersonate.blocked_group_excluded",
+            target=f"app:{app_slug}",
+            details={
+                "app_slug": app_slug,
+                "success": False,
+                "error": "group_credential_excluded",
+                "driver": driver,
+                "keycloak_user_id": keycloak_user_id,
+            },
+            ip_address=ip_address,
+        )
+        raise ImpersonationGroupCredentialExcludedError(
+            ImpersonationGroupCredentialExcludedError.user_message
+        ) from exc
     except CredentialNotFoundError as exc:
         if normalize_credential_mode(app.credential_mode) == "individual_required":
             log_action(
@@ -638,6 +673,7 @@ async def impersonate(
     actor: str = "system",
     ip_address: str | None = None,
     keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
     ephemeral_username: str | None = None,
     ephemeral_password: str | None = None,
     client_headers: dict[str, str] | None = None,
@@ -646,7 +682,8 @@ async def impersonate(
     Vault decrypt + driver login + session cookies for cookie-based robotic SSO.
 
     Supports crushftp and generic_form drivers only.
-    Uses per-user override when keycloak_user_id has an active UserAppCredential.
+    Uses per-user override when keycloak_user_id has an active UserAppCredential;
+    otherwise group shared credential (OIDC group_names), then app-wide shared.
 
     For credential_mode=identite_utilisateur, pass ephemeral_username/password
     from the OIDC session + user-typed password (never from vault, never stored).
@@ -739,6 +776,7 @@ async def impersonate(
             ip_address=ip_address,
             driver=driver_name,
             keycloak_user_id=keycloak_user_id,
+            group_names=group_names,
         )
 
     handler = _COOKIE_SSO_HANDLERS[driver_name]
@@ -775,6 +813,7 @@ async def get_basic_auth_header(
     actor: str = "system",
     ip_address: str | None = None,
     keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
 ) -> BasicAuthHeaderResult:
     """
     Return Authorization header for Nginx auth_request (generic_basic_auth).
@@ -831,6 +870,7 @@ async def get_basic_auth_header(
         ip_address=ip_address,
         driver="generic_basic_auth",
         keycloak_user_id=keycloak_user_id,
+        group_names=group_names,
     )
     try:
         auth_header = generic_basic_auth_header(resolved, password)
@@ -863,6 +903,7 @@ async def get_wsse_header(
     actor: str = "system",
     ip_address: str | None = None,
     keycloak_user_id: str | None = None,
+    group_names: Sequence[str] | None = None,
 ) -> WsseHeaderResult:
     """
     Return a fresh X-WSSE UsernameToken for Nginx auth_request (generic_wsse).
@@ -920,6 +961,7 @@ async def get_wsse_header(
         ip_address=ip_address,
         driver="generic_wsse",
         keycloak_user_id=keycloak_user_id,
+        group_names=group_names,
     )
     try:
         wsse_header = generic_wsse_header(resolved.robotic_username, password)

@@ -439,6 +439,84 @@ class UserAppCredential(Base):
     app = relationship("App", foreign_keys=[app_slug])
 
 
+class GroupAppCredential(Base):
+    """Vault credential shared by all members of an RBAC group for one app.
+
+    Priority is explicit: when a user belongs to several groups with a credential
+    for the same app, the highest ``priority`` wins (then lowest id).
+    """
+
+    __tablename__ = "group_app_credentials"
+
+    id = Column(Integer, primary_key=True)
+    rbac_group_id = Column(
+        Integer,
+        ForeignKey("rbac_groups.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    app_slug = Column(
+        String,
+        ForeignKey("apps.slug"),
+        nullable=False,
+        index=True,
+    )
+    robotic_username = Column(String, nullable=False)
+    encrypted_password = Column(Text, nullable=False)
+    priority = Column(Integer, nullable=False, default=100)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    rotated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "rbac_group_id",
+            "app_slug",
+            name="uq_group_app_credential",
+        ),
+    )
+
+    rbac_group = relationship("RBACGroup", foreign_keys=[rbac_group_id])
+    app = relationship("App", foreign_keys=[app_slug])
+    exclusions = relationship(
+        "GroupAppCredentialExclusion",
+        back_populates="group_credential",
+        cascade="all, delete-orphan",
+        foreign_keys="GroupAppCredentialExclusion.group_app_credential_id",
+    )
+
+
+class GroupAppCredentialExclusion(Base):
+    """User excluded from a group shared credential — must use individual override."""
+
+    __tablename__ = "group_app_credential_exclusions"
+
+    id = Column(Integer, primary_key=True)
+    group_app_credential_id = Column(
+        Integer,
+        ForeignKey("group_app_credentials.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    keycloak_user_id = Column(String, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "group_app_credential_id",
+            "keycloak_user_id",
+            name="uq_group_app_credential_exclusion",
+        ),
+    )
+
+    group_credential = relationship(
+        "GroupAppCredential",
+        back_populates="exclusions",
+        foreign_keys=[group_app_credential_id],
+    )
+
+
 class RealmConfig(Base):
     """OIDC realm configuration for multi-realm oauth2-proxy."""
 
