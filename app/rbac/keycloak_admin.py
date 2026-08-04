@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from urllib.parse import quote
 
@@ -11,6 +12,8 @@ from sqlalchemy.orm import Session
 from app.models import RBACGroup, RealmConfig, utcnow
 from app.secret_crypto import decrypt_secret
 from app.sso_settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 def _issuer_parts(issuer_url: str) -> tuple[str, str]:
@@ -516,12 +519,30 @@ async def reset_keycloak_password(
         "value": new_password,
         "temporary": bool(temporary),
     }
+    logger.info(
+        "keycloak_admin reset_password start realm_slug=%s user_id=%s temporary=%s",
+        getattr(realm, "slug", None) or "-",
+        uid,
+        bool(temporary),
+    )
     resp = await _admin_put(
         realm,
         settings,
         f"/users/{uid}/reset-password",
         json=payload,
         token=token,
+    )
+    body_snip = ""
+    if resp.status_code >= 400:
+        body_snip = " ".join((resp.text or "").split())[:180]
+    logger.info(
+        "keycloak_admin reset_password done realm_slug=%s user_id=%s "
+        "status=%s temporary=%s body=%s",
+        getattr(realm, "slug", None) or "-",
+        uid,
+        resp.status_code,
+        bool(temporary),
+        body_snip or "-",
     )
     if resp.status_code == 403:
         raise ValueError(_provision_manage_users_error())

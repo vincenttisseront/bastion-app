@@ -898,6 +898,15 @@ async def admin_rbac_account_reset_password(
     want_email = send_email.strip().lower() in ("1", "true", "on", "yes")
     email_error: str | None = None
     reveal_pw: str | None = None
+    logger.info(
+        "admin_rbac reset_password request account_id=%s username=%s "
+        "realm_id=%s send_email=%s actor=%s",
+        account.id,
+        account.username,
+        account.realm_id,
+        want_email,
+        getattr(user, "email", None) or "-",
+    )
     try:
         password, email_error = await reset_bastion_account_password(
             db,
@@ -912,6 +921,12 @@ async def admin_rbac_account_reset_password(
             reveal_pw = password
         password = None  # noqa: F841 — never log / JSON the plaintext
     except AccountCreationError as exc:
+        logger.warning(
+            "admin_rbac reset_password failed account_id=%s username=%s err=%s",
+            account.id,
+            account.username,
+            str(exc)[:200],
+        )
         if _wants_json(request):
             return JSONResponse(
                 {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
@@ -922,6 +937,14 @@ async def admin_rbac_account_reset_password(
         flash_redirect(response, str(exc), "error", secret)
         return response
 
+    logger.info(
+        "admin_rbac reset_password ok account_id=%s username=%s "
+        "emailed=%s email_error=%s",
+        account.id,
+        account.username,
+        want_email and email_error is None,
+        (email_error or "-")[:120],
+    )
     if _wants_json(request):
         return JSONResponse(
             {

@@ -349,30 +349,100 @@
   </div>
   {% endif %}
 
-  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <div class="card-title" style="margin-bottom:var(--sp-3);">Répartition des groupes</div>
-    <div style="display:grid; gap:var(--sp-3); grid-template-columns:repeat(auto-fill,minmax(12rem,1fr));">
-      {% for g in group_distribution %}
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);" data-group-dist>
+    {% set dist = group_distribution %}
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-start; justify-content:space-between; margin-bottom:var(--sp-3);">
       <div>
-        <div style="display:flex; justify-content:space-between; gap:var(--sp-2); font-size:var(--fs-sm);">
-          <span>{{ g.name }}</span>
-          <span class="mono">{{ g.percent }}%</span>
-        </div>
-        <div style="height:6px; background:var(--bg-tertiary); border-radius:var(--r-full); margin-top:var(--sp-1); overflow:hidden;">
-          <div style="height:100%; width:{{ g.percent }}%; background:var(--accent); border-radius:var(--r-full);"></div>
-        </div>
+        <div class="card-title" style="margin:0 0 var(--sp-1);">Répartition des groupes</div>
+        <p class="form-hint" style="margin:0;">
+          {{ dist.with_members }} groupe(s) avec membres · {{ dist.empty_groups }} vide(s) · {{ dist.total_groups }} synchronisé(s)
+          {% if dist.total_memberships %} · {{ dist.total_memberships }} appartenance(s){% endif %}
+        </p>
       </div>
-      {% else %}
-      <p class="empty-desc">Aucun groupe synchronisé</p>
-      {% endfor %}
+      <a href="/admin/rbac" class="btn btn-ghost btn-sm">Gérer les groupes</a>
     </div>
-    <a href="/admin/rbac" class="btn btn-ghost btn-sm" style="margin-top:var(--sp-3);">Gérer les groupes</a>
+
+    {% if dist.rows %}
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end; margin-bottom:var(--sp-3);">
+      <div class="form-group" style="flex:1; min-width:12rem; margin:0;">
+        <label class="form-label" for="group-dist-search">Filtrer</label>
+        <input type="search" id="group-dist-search" class="form-input" data-group-dist-q
+               placeholder="Nom du groupe…" autocomplete="off">
+      </div>
+      <label class="form-hint" style="display:flex; align-items:center; gap:var(--sp-2); margin:0 0 var(--sp-1); cursor:pointer; user-select:none;">
+        <input type="checkbox" data-group-dist-empty>
+        Afficher les groupes vides ({{ dist.empty_groups }})
+      </label>
+    </div>
+
+    <div class="table-wrap" style="border:1px solid var(--border); border-radius:var(--r-md); max-height:22rem; overflow:auto;">
+      <table class="data-table" data-group-dist-table>
+        <thead>
+          <tr>
+            <th>Groupe</th>
+            <th style="width:6rem; text-align:right;">Membres</th>
+            <th style="min-width:8rem;">Répartition</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in dist.rows %}
+          <tr data-group-dist-row data-name="{{ g.name }}" data-members="{{ g.member_count }}">
+            <td>
+              <a href="/admin/rbac/groups/{{ g.id }}"><strong>{{ g.name }}</strong></a>
+            </td>
+            <td class="mono" style="text-align:right;">{{ g.member_count }}</td>
+            <td>
+              <div style="display:flex; align-items:center; gap:var(--sp-2);">
+                <div style="flex:1; height:6px; background:var(--bg-tertiary); border-radius:var(--r-full); overflow:hidden;">
+                  <div style="height:100%; width:{{ g.bar_percent }}%; background:var(--accent); border-radius:var(--r-full);"></div>
+                </div>
+                <span class="mono form-hint" style="min-width:2.5rem; text-align:right;">{{ g.percent }}%</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="form-hint" data-group-dist-empty-msg style="display:none; margin:var(--sp-3) 0 0;">Aucun groupe ne correspond au filtre.</p>
+    {% else %}
+    <p class="empty-desc">Aucun groupe synchronisé. Synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.</p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+(function () {
+  var root = document.querySelector('[data-group-dist]');
+  if (root) {
+    var qInput = root.querySelector('[data-group-dist-q]');
+    var emptyCb = root.querySelector('[data-group-dist-empty]');
+    var rows = Array.prototype.slice.call(root.querySelectorAll('[data-group-dist-row]'));
+    var emptyMsg = root.querySelector('[data-group-dist-empty-msg]');
+
+    function applyGroupDistFilter() {
+      var q = ((qInput && qInput.value) || '').trim().toLowerCase();
+      var showEmpty = !!(emptyCb && emptyCb.checked);
+      var visible = 0;
+      rows.forEach(function (row) {
+        var name = (row.getAttribute('data-name') || '').toLowerCase();
+        var members = parseInt(row.getAttribute('data-members') || '0', 10) || 0;
+        var matchQ = !q || name.indexOf(q) !== -1;
+        var matchEmpty = showEmpty || members > 0;
+        var on = matchQ && matchEmpty;
+        row.hidden = !on;
+        if (on) visible += 1;
+      });
+      if (emptyMsg) emptyMsg.style.display = visible ? 'none' : 'block';
+    }
+
+    if (qInput) qInput.addEventListener('input', applyGroupDistFilter);
+    if (emptyCb) emptyCb.addEventListener('change', applyGroupDistFilter);
+    applyGroupDistFilter();
+  }
+})();
 (function () {
   var searchInput = document.querySelector('[data-user-search]');
   var hiddenId = document.getElementById('keycloak_user_id');

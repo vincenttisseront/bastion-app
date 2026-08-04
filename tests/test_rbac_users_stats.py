@@ -113,6 +113,33 @@ def test_rbac_users_stats_privileged_and_anomalies(db_session):
     assert anomalies[0]["severity"] == "CRITIQUE"
 
 
+def test_group_distribution_sorts_and_hides_noise(db_session):
+    from app.models import RBACGroup
+    from app.rbac.users_stats_service import group_distribution
+
+    db_session.add_all(
+        [
+            RBACGroup(name="zzz-empty", member_count=0),
+            RBACGroup(name="alpha-small", member_count=2),
+            RBACGroup(name="ARSYSTEMS-Users", member_count=10),
+        ]
+    )
+    db_session.commit()
+
+    dist = group_distribution(db_session)
+    assert dist["total_groups"] == 3
+    assert dist["with_members"] == 2
+    assert dist["empty_groups"] == 1
+    assert dist["total_memberships"] == 12
+    names = [r["name"] for r in dist["rows"]]
+    assert names[0] == "ARSYSTEMS-Users"
+    assert names[1] == "alpha-small"
+    assert names[2] == "zzz-empty"
+    assert dist["rows"][0]["bar_percent"] == 100
+    assert dist["rows"][0]["percent"] == 83  # 10/12
+    assert dist["rows"][1]["bar_percent"] == 20  # 2/10
+
+
 def test_rbac_users_stats_page_graceful(client, monkeypatch):
     async def boom(*args, **kwargs):
         raise ValueError("Keycloak offline")

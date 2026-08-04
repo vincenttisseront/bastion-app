@@ -693,6 +693,11 @@ async def oidc_login(
         )
         raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
     except InvalidCredentialsError:
+        logger.warning(
+            "oidc_login invalid_credentials realm=%s user=%s",
+            realm_slug,
+            username,
+        )
         if html_mode:
             _record_failed_attempt(
                 db,
