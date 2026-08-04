@@ -272,9 +272,6 @@ def test_get_login_shows_interne_clients_chooser(
     assert ">Clients<" in response.text
     assert 'name="realm" id="login-realm" value="ar-systems"' in response.text
     assert "Connexion — Interne" in response.text
-    assert "login-audience-slug" in response.text
-    assert ">ar-systems<" in response.text
-    assert ">clients<" in response.text
 
 
 def test_get_login_realm_query_selects_clients(

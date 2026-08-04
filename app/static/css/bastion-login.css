@@ -64,24 +64,10 @@ body.page-login .main-content{
   font-weight:650;
   letter-spacing:.01em;
   line-height:1.2;
-  padding:0.55rem 0.75rem;
+  padding:0.65rem 0.75rem;
   cursor:pointer;
   transition:color var(--t-fast),background var(--t-fast),box-shadow var(--t-fast);
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-  gap:0.15rem;
 }
-.login-audience-label{display:block}
-.login-audience-slug{
-  display:block;
-  font-size:var(--fs-xs);
-  font-weight:500;
-  color:var(--text-3);
-  letter-spacing:0;
-  text-transform:none;
-}
-.login-audience-btn.is-active .login-audience-slug{color:var(--text-2)}
 .login-audience-btn:hover{color:var(--text);background:var(--hover-bg)}
 .login-audience-btn:focus-visible{
   outline:2px solid var(--accent);outline-offset:2px;z-index:1;

@@ -244,6 +244,26 @@
 .form-section.is-accordion .form-section-summary{font-size:var(--fs-xs);color:var(--text-2);margin-top:4px}
 .form-section.is-accordion .form-section-summary.is-off{color:var(--text-3)}
 .form-section.form-section-gap{margin-top:var(--sp-4)}
+
+/* Realm edit — tabbed wide form */
+.realm-form-tabs{margin-bottom:var(--sp-4);flex-wrap:wrap}
+.realm-form{display:flex;flex-direction:column;gap:var(--sp-4)}
+.realm-form-panel{display:flex;flex-direction:column;gap:var(--sp-4)}
+.realm-form-panel[hidden]{display:none!important}
+.realm-form-card{padding:var(--sp-5);margin:0}
+.realm-form-card-head{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:flex-start;justify-content:space-between}
+.realm-form-inline-actions{display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center}
+.realm-form-divider{border:0;border-top:1px solid var(--border);margin:var(--sp-2) 0}
+.realm-form-actions{
+  display:flex;flex-wrap:wrap;gap:var(--sp-3);align-items:center;
+  padding:var(--sp-4) var(--sp-5);margin:0;
+  position:sticky;bottom:var(--sp-3);z-index:2;
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-xl);
+  box-shadow:var(--sh-card);
+}
+@media(max-width:720px){
+  .page-form--wide .form-row{grid-template-columns:1fr}
+}
 .alert-spaced{margin-top:var(--sp-3)}
 .input-wrap-actions{gap:var(--sp-2);align-items:center}
 .hint-spaced{margin-top:var(--sp-2)}
