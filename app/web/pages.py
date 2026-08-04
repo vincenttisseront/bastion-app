@@ -267,6 +267,15 @@ def _login_audience_label(realm: RealmConfig) -> str:
     return (realm.name or realm.slug or "Realm").strip()
 
 
+def _realm_is_login_ready(realm: RealmConfig) -> bool:
+    """Enabled realm with enough OIDC config to offer a login path."""
+    return bool(
+        realm.enabled
+        and (realm.issuer_url or "").strip()
+        and (realm.client_id or "").strip()
+    )
+
+
 def _login_surface_flags(
     request: Request,
     db: Session,
@@ -293,29 +302,32 @@ def _login_surface_flags(
         if default is None or row.id != default.id:
             ordered.append(row)
 
-    native_realms: list[RealmConfig] = [
-        row
-        for row in ordered
-        if is_oidc_native_session_enabled_for_realm(db, row.slug, settings)
+    # Chooser lists every login-ready realm (native form and/or oauth2-proxy).
+    login_realms: list[RealmConfig] = [
+        row for row in ordered if _realm_is_login_ready(row)
     ]
 
     want = (preferred_realm or request.query_params.get("realm") or "").strip().lower()
-    native_realm: RealmConfig | None = None
+    selected: RealmConfig | None = None
     if want:
-        for row in native_realms:
+        for row in login_realms:
             if (row.slug or "").lower() == want:
-                native_realm = row
+                selected = row
                 break
-    if native_realm is None and native_realms:
-        native_realm = native_realms[0]
+    if selected is None and login_realms:
+        selected = login_realms[0]
 
-    show_native = native_realm is not None
-    # Keep Keycloak redirect for the default realm while a non-default pilot is active.
-    show_oauth2 = bool(
-        default
-        and not is_oidc_native_session_enabled_for_realm(db, default.slug, settings)
+    selected_native = bool(
+        selected
+        and is_oidc_native_session_enabled_for_realm(db, selected.slug, settings)
     )
-    oauth2_url = oauth2_start_url(default.slug, rd) if show_oauth2 and default else None
+    show_native = selected_native
+    # oauth2-proxy CTA for the selected realm when it is not on the native pilot.
+    oauth2_url = (
+        oauth2_start_url(selected.slug, rd)
+        if selected is not None and not selected_native
+        else None
+    )
     from app.rbac.access_request_service import realms_accepting_access_requests
 
     access_realms = realms_accepting_access_requests(db)
@@ -324,15 +336,18 @@ def _login_surface_flags(
             "slug": row.slug,
             "name": row.name,
             "label": _login_audience_label(row),
+            "native": is_oidc_native_session_enabled_for_realm(
+                db, row.slug, settings
+            ),
         }
-        for row in native_realms
+        for row in login_realms
     ]
     return {
         "show_native_login": show_native,
-        "native_realm_slug": native_realm.slug if native_realm else None,
-        "native_realm_name": native_realm.name if native_realm else None,
+        "native_realm_slug": selected.slug if selected else None,
+        "native_realm_name": selected.name if selected else None,
         "native_realm_label": (
-            _login_audience_label(native_realm) if native_realm else None
+            _login_audience_label(selected) if selected else None
         ),
         "native_realm_options": native_realm_options,
         "show_realm_chooser": len(native_realm_options) > 1,
