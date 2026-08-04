@@ -34,6 +34,37 @@
 
   {% include "admin/rbac/_rbac_tabs.html" %}
 
+  {% if initial_temporary_password %}
+  <div class="alert alert-warn" role="status" data-temp-password-box>
+    <strong>Mot de passe temporaire (affichage unique)</strong>
+    <p class="form-help" style="margin:var(--sp-2) 0;">
+      À communiquer à l’utilisateur pour sa 1<sup>re</sup> connexion — Keycloak forcera
+      <span class="mono">UPDATE_PASSWORD</span>. Cette valeur ne sera plus réaffichée.
+    </p>
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
+      <code class="mono" id="temp-password-value" style="font-size:var(--fs-md); user-select:all;">{{ initial_temporary_password }}</code>
+      <button type="button" class="btn btn-ghost btn-sm" data-copy-temp-password>Copier</button>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var btn = document.querySelector("[data-copy-temp-password]");
+    var el = document.getElementById("temp-password-value");
+    if (!btn || !el) return;
+    btn.addEventListener("click", function () {
+      var text = el.textContent || "";
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = "Copié";
+        }).catch(function () {
+          btn.textContent = "Échec copie";
+        });
+      }
+    });
+  })();
+  </script>
+  {% endif %}
+
   {% if account.last_error %}
   <div class="alert alert-err">Dernière erreur bloquante : {{ account.last_error }}</div>
   {% endif %}

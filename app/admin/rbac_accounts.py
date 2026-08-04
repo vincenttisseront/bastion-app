@@ -7,10 +7,14 @@ otherwise capture ``/admin/rbac/users/new`` (route order matters in FastAPI).
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import logging
+import time
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.orm import Session, joinedload
 
 from app.admin.rbac_access import build_vault_apps_for_user
@@ -48,6 +52,88 @@ from app.web.user_context import require_admin
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-rbac-accounts"], dependencies=[Depends(require_admin)])
+
+# One-shot temporary Keycloak password after create/reset — httponly cookie, never logged.
+_REVEAL_PW_COOKIE = "portal_temp_cred"
+_REVEAL_PW_MAX_AGE = 120
+
+
+def _sign_reveal_payload(payload: str, secret: str) -> str:
+    sig = hmac.new(
+        (secret or "dev").encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+    return f"{payload}.{sig}"
+
+
+def _unsign_reveal_payload(signed: str, secret: str) -> str | None:
+    if "." not in signed:
+        return None
+    payload, sig = signed.rsplit(".", 1)
+    expected = hmac.new(
+        (secret or "dev").encode(), payload.encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    return payload
+
+
+def set_temporary_password_reveal(
+    response: Response,
+    *,
+    account_id: int,
+    password: str,
+    secret: str,
+) -> None:
+    """Store a one-time temporary password for the next account-detail view."""
+    payload = json.dumps(
+        {
+            "aid": int(account_id),
+            "pw": password,
+            "exp": int(time.time()) + _REVEAL_PW_MAX_AGE,
+        },
+        separators=(",", ":"),
+    )
+    response.set_cookie(
+        key=_REVEAL_PW_COOKIE,
+        value=_sign_reveal_payload(payload, secret),
+        max_age=_REVEAL_PW_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+
+
+def pop_temporary_password_reveal(
+    request: Request,
+    *,
+    account_id: int,
+    secret: str,
+) -> str | None:
+    """Read the one-time password cookie if it matches this account (caller clears cookie)."""
+    raw = request.cookies.get(_REVEAL_PW_COOKIE)
+    if not raw:
+        return None
+    payload = _unsign_reveal_payload(raw, secret)
+    if not payload:
+        return None
+    try:
+        data = json.loads(payload)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    if int(data.get("aid") or 0) != int(account_id):
+        return None
+    if int(data.get("exp") or 0) < int(time.time()):
+        return None
+    password = data.get("pw")
+    if not isinstance(password, str) or not password:
+        return None
+    return password
+
+
+def clear_temporary_password_reveal(response: Response) -> None:
+    response.delete_cookie(key=_REVEAL_PW_COOKIE, path="/", samesite="lax")
 
 
 def _ctx(request: Request, settings: Settings, **extra):
@@ -305,6 +391,12 @@ async def admin_rbac_users_new_submit(
         "true",
         "yes",
     )
+    reveal_password = str(form.get("reveal_password") or "").strip().lower() in (
+        "on",
+        "1",
+        "true",
+        "yes",
+    )
 
     form_values = {
         "realm_id": realm_id_raw,
@@ -316,6 +408,7 @@ async def admin_rbac_users_new_submit(
         "group_ids": group_ids,
         "application_ids": application_ids,
         "send_credentials": send_credentials,
+        "reveal_password": reveal_password,
     }
 
     def _form_error(message: str, status_code: int = 400):
@@ -382,6 +475,7 @@ async def admin_rbac_users_new_submit(
     want_email = send_credentials or bool(
         getattr(realm, "send_credentials_email", False)
     )
+    emailed = False
     if want_email and temp_password and account.keycloak_user_id:
         try:
             send_account_credentials_email(
@@ -402,9 +496,16 @@ async def admin_rbac_users_new_submit(
                 ip_address=_client_ip(request),
             )
             db.commit()
+            emailed = True
         except Exception as exc:
             step_errors.append(f"Email credentials : {exc}")
-    temp_password = None  # noqa: F841
+
+    # Show password once on the account page when asked, or when email was not sent.
+    show_reveal = bool(temp_password) and (
+        reveal_password or not emailed
+    )
+    reveal_pw = temp_password if show_reveal else None
+    temp_password = None  # noqa: F841 — never keep beyond this handler
 
     if _wants_json(request):
         return JSONResponse(
@@ -414,12 +515,22 @@ async def admin_rbac_users_new_submit(
                 "status": account.status,
                 "keycloak_user_id": account.keycloak_user_id,
                 "errors": step_errors,
+                "emailed": emailed,
+                # Never return the password over JSON APIs.
             },
             status_code=200 if account.status != "pending" else 502,
         )
 
     response = RedirectResponse(url=f"/admin/rbac/accounts/{account.id}", status_code=302)
     secret = settings.vault_portal_internal_token or "dev"
+    if reveal_pw:
+        set_temporary_password_reveal(
+            response,
+            account_id=account.id,
+            password=reveal_pw,
+            secret=secret,
+        )
+        reveal_pw = None  # noqa: F841
     if account.status == "pending":
         flash_redirect(
             response,
@@ -557,7 +668,12 @@ def admin_rbac_account_detail(
         extra_app_slugs=extra_vault_slugs or None,
     )
 
-    return render(
+    secret = settings.vault_portal_internal_token or "dev"
+    initial_temporary_password = pop_temporary_password_reveal(
+        request, account_id=account.id, secret=secret
+    )
+
+    response = render(
         "admin/rbac/account_detail.html",
         **_ctx(
             request,
@@ -573,8 +689,13 @@ def admin_rbac_account_detail(
             keycloak_console_url=keycloak_console_url,
             vault_apps=vault_apps,
             active_tab="users",
+            initial_temporary_password=initial_temporary_password,
         ),
     )
+    # Always clear: one-shot even if account_id mismatched / expired.
+    if request.cookies.get(_REVEAL_PW_COOKIE):
+        clear_temporary_password_reveal(response)
+    return response
 
 
 @router.post("/admin/rbac/accounts/{account_id}/identity")
@@ -659,6 +780,7 @@ async def admin_rbac_account_reset_password(
     fallback = f"/admin/rbac/accounts/{account.id}"
     want_email = send_email.strip().lower() in ("1", "true", "on", "yes")
     email_error: str | None = None
+    reveal_pw: str | None = None
     try:
         password, email_error = await reset_bastion_account_password(
             db,
@@ -668,7 +790,10 @@ async def admin_rbac_account_reset_password(
             ip_address=_client_ip(request),
             send_email=want_email,
         )
-        password = None  # noqa: F841 — never flash / return the plaintext
+        emailed_ok = want_email and email_error is None
+        if password and not emailed_ok:
+            reveal_pw = password
+        password = None  # noqa: F841 — never log / JSON the plaintext
     except AccountCreationError as exc:
         if _wants_json(request):
             return JSONResponse(
@@ -692,6 +817,14 @@ async def admin_rbac_account_reset_password(
     response = RedirectResponse(
         url=_safe_redirect_url(redirect_url, fallback), status_code=302
     )
+    if reveal_pw:
+        set_temporary_password_reveal(
+            response,
+            account_id=account.id,
+            password=reveal_pw,
+            secret=secret,
+        )
+        reveal_pw = None  # noqa: F841
     if want_email and email_error:
         flash_redirect(
             response,
@@ -710,7 +843,7 @@ async def admin_rbac_account_reset_password(
         flash_redirect(
             response,
             "Mot de passe temporaire réinitialisé (UPDATE_PASSWORD au prochain login). "
-            "Cochez « Envoyer par email » pour le transmettre à l'utilisateur.",
+            "Il est affiché une seule fois ci-dessous.",
             "success",
             secret,
         )
