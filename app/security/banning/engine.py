@@ -29,6 +29,8 @@ RULE_FAILED_LOGIN = "failed_login"
 RULE_SUCCESSFUL_LOGIN = "successful_login"
 RULE_HACK_USERNAME = "hack_username"
 RULE_CONCURRENT = "concurrent_connections"
+RULE_RATE_LIMIT = "rate_limit"
+RULE_RATE_LIMIT_LOGIN = "rate_limit_login"
 
 TARGET_IP = "ip"
 TARGET_USERNAME = "username"
@@ -76,6 +78,26 @@ DEFAULT_RULES: dict[str, dict] = {
     RULE_CONCURRENT: {
         "threshold": 0,  # 0 = disabled
         "window_seconds": 0,
+        "ban_minutes": 0,
+        "ban_permanent": False,
+        "config_json": None,
+    },
+    # Rate limiting — graduated response BEFORE the hammering ban: requests
+    # beyond the budget get HTTP 429 for the rest of the window, no ban row.
+    # 429'd clients keep feeding the hammering counters, so a client that
+    # ignores 429 still ends up banned. Shipped disabled (explicit opt-in).
+    RULE_RATE_LIMIT: {
+        "enabled": False,
+        "threshold": 120,
+        "window_seconds": 60,
+        "ban_minutes": 0,
+        "ban_permanent": False,
+        "config_json": None,
+    },
+    RULE_RATE_LIMIT_LOGIN: {
+        "enabled": False,
+        "threshold": 20,
+        "window_seconds": 60,
         "ban_minutes": 0,
         "ban_permanent": False,
         "config_json": None,
@@ -148,7 +170,7 @@ def ensure_security_defaults(db: Session) -> SecurityPolicy:
         db.add(
             SecurityBanRule(
                 rule_type=rule_type,
-                enabled=True,
+                enabled=bool(defaults.get("enabled", True)),
                 threshold=int(defaults["threshold"]),
                 window_seconds=int(defaults["window_seconds"]),
                 ban_minutes=int(defaults["ban_minutes"]),
@@ -528,6 +550,79 @@ def record_sensitive_request(
     return ban
 
 
+def record_rate_limited_request(
+    db: Session,
+    *,
+    ip: str,
+    path: str,
+    method: str = "GET",
+) -> tuple[bool, int]:
+    """Sliding-window rate limit (HTTP 429) — throttle, never a ban row.
+
+    Complements the hammering rules: the throttle rejects softly at a lower
+    threshold, the hammering ban stays the hard stop above it (429'd requests
+    still feed the hammering counters via record_sensitive_request).
+    Audit `security.rate_limited` only on the FIRST rejection of a burst so
+    a hammering client cannot flood the audit log.
+    Returns (limited, retry_after_seconds).
+    """
+    policy = get_policy(db)
+    if not policy.enabled or not ip or is_allowlisted(db, ip=ip):
+        return False, 0
+
+    checks: list[tuple[str, str]] = [(RULE_RATE_LIMIT, "rate")]
+    if is_login_path(path, method):
+        checks.append((RULE_RATE_LIMIT_LOGIN, "rate_login"))
+
+    limited = False
+    retry_after = 0
+    for rule_type, kind in checks:
+        rule = get_rule(db, rule_type)
+        if not rule or not rule.enabled or int(rule.threshold or 0) <= 0:
+            continue
+        window = int(rule.window_seconds or 1)
+        threshold = int(rule.threshold)
+        count = _prune_and_count(db, kind, ip, window)
+        if count <= threshold:
+            continue
+        limited = True
+        retry_after = max(retry_after, window)
+        if count == threshold + 1:
+            log_action(
+                db,
+                actor="system",
+                action="security.rate_limited",
+                target=f"ip:{ip}",
+                details={
+                    "rule_type": rule_type,
+                    "count": count,
+                    "threshold": threshold,
+                    "window_seconds": window,
+                    "path": (path or "")[:120],
+                },
+                ip_address=ip,
+            )
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+    return limited, retry_after
+
+
+def rate_limit_retry_after(db: Session, path: str, method: str = "GET") -> int:
+    """Retry-After (seconds) for a 429 — largest enabled applicable window."""
+    windows = []
+    rule = get_rule(db, RULE_RATE_LIMIT)
+    if rule and rule.enabled:
+        windows.append(int(rule.window_seconds or 60))
+    if is_login_path(path, method):
+        rule = get_rule(db, RULE_RATE_LIMIT_LOGIN)
+        if rule and rule.enabled:
+            windows.append(int(rule.window_seconds or 60))
+    return max(windows) if windows else 60
+
+
 def record_successful_login(
     db: Session,
     *,
@@ -786,5 +881,11 @@ def check_request_allowed(
     ban = find_active_ban(db, ip=ip, username=uname or None)
     if ban is not None:
         return False, "banned", ban
+
+    # Throttle AFTER the hammering counters: a client that keeps pushing
+    # through 429s still accumulates toward the hammering ban.
+    limited, _retry = record_rate_limited_request(db, ip=ip, path=path, method=method)
+    if limited:
+        return False, "rate_limited", None
 
     return True, "", None

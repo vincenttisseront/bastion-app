@@ -511,6 +511,8 @@
   {% set success_login = security_ban_rules.get('successful_login') if security_ban_rules else none %}
   {% set hack = security_ban_rules.get('hack_username') if security_ban_rules else none %}
   {% set concurrent = security_ban_rules.get('concurrent_connections') if security_ban_rules else none %}
+  {% set rate_limit = security_ban_rules.get('rate_limit') if security_ban_rules else none %}
+  {% set rate_limit_login = security_ban_rules.get('rate_limit_login') if security_ban_rules else none %}
 
   <div class="form-section security-panel" id="misc" role="tabpanel" aria-labelledby="tab-misc" hidden>
     {% set allow_raw = (security_policy.breakglass_allow_cidrs if security_policy else '') or '' %}
@@ -575,6 +577,8 @@
       {% set success_login_on = not success_login or success_login.enabled %}
       {% set hack_on = not hack or hack.enabled %}
       {% set concurrent_on = concurrent and concurrent.enabled and concurrent.threshold %}
+      {% set rate_limit_on = rate_limit and rate_limit.enabled %}
+      {% set rate_limit_login_on = rate_limit_login and rate_limit_login.enabled %}
       {% set bans_count = security_bans | length if security_bans else 0 %}
       {% set allow_count = security_allowlist | length if security_allowlist else 0 %}
 
@@ -782,6 +786,73 @@
                       <input class="form-input" type="number" min="0" id="concurrent_threshold" name="concurrent_threshold" data-banning-field="threshold" value="{{ concurrent.threshold if concurrent else 0 }}">
                     </div>
                     <p class="form-help">Refuse les nouvelles requêtes au-delà du seuil (pas de ban).</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="banning-rule" data-banning-rule data-summary-kind="rate_limit">
+                <div class="banning-rule-head" data-banning-rule-toggle>
+                  <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-rate-limit" tabindex="-1">▸</button>
+                  <span class="banning-rule-title">Rate limit (429)</span>
+                  <label class="check-row banning-rule-enable" data-banning-enable-stop>
+                    <input type="checkbox" name="rate_limit_enabled" data-banning-enabled {% if rate_limit_on %}checked{% endif %}> Activé
+                  </label>
+                  <span class="banning-rule-summary{% if not rate_limit_on %} is-off{% endif %}" data-banning-summary>
+                    {% if rate_limit_on %}
+                    Actif · {{ rate_limit.threshold if rate_limit else 120 }} requêtes / IP / {{ rate_limit.window_seconds if rate_limit else 60 }}s · 429 (pas de ban)
+                    {% else %}Désactivé{% endif %}
+                  </span>
+                </div>
+                <div class="banning-rule-panel" id="banning-panel-rate-limit" hidden>
+                  <div class="stack">
+                    <p class="form-help">
+                      Au-delà du budget, HTTP <strong>429 Too Many Requests</strong> (+ Retry-After) jusqu'à la fin de la fenêtre —
+                      réponse graduée <em>avant</em> le ban anti-hammering. Les requêtes rejetées comptent toujours pour
+                      l'anti-hammering : un client qui insiste finit banni. Chemins sensibles uniquement (login, /admin/*, /api/admin/*).
+                    </p>
+                    <div class="form-grid">
+                      <div>
+                        <label class="form-label" for="rate_limit_threshold">Budget (requêtes)</label>
+                        <input class="form-input" type="number" min="1" id="rate_limit_threshold" name="rate_limit_threshold" data-banning-field="threshold" value="{{ rate_limit.threshold if rate_limit else 120 }}">
+                      </div>
+                      <div>
+                        <label class="form-label" for="rate_limit_window_seconds">Fenêtre (s)</label>
+                        <input class="form-input" type="number" min="1" id="rate_limit_window_seconds" name="rate_limit_window_seconds" data-banning-field="window" value="{{ rate_limit.window_seconds if rate_limit else 60 }}">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="banning-rule" data-banning-rule data-summary-kind="rate_limit_login">
+                <div class="banning-rule-head" data-banning-rule-toggle>
+                  <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-rate-limit-login" tabindex="-1">▸</button>
+                  <span class="banning-rule-title">Rate limit login (429)</span>
+                  <label class="check-row banning-rule-enable" data-banning-enable-stop>
+                    <input type="checkbox" name="rate_limit_login_enabled" data-banning-enabled {% if rate_limit_login_on %}checked{% endif %}> Activé
+                  </label>
+                  <span class="banning-rule-summary{% if not rate_limit_login_on %} is-off{% endif %}" data-banning-summary>
+                    {% if rate_limit_login_on %}
+                    Actif · {{ rate_limit_login.threshold if rate_limit_login else 20 }} logins / IP / {{ rate_limit_login.window_seconds if rate_limit_login else 60 }}s · 429 (pas de ban)
+                    {% else %}Désactivé{% endif %}
+                  </span>
+                </div>
+                <div class="banning-rule-panel" id="banning-panel-rate-limit-login" hidden>
+                  <div class="stack">
+                    <p class="form-help">
+                      Budget distinct sur /auth/login, /auth/breakglass, /auth/sso-start, /auth/sso-failed et login break-glass API —
+                      throttle plus serré que le rate limit global, sous le seuil de ban « Anti-hammering (login uniquement) ».
+                    </p>
+                    <div class="form-grid">
+                      <div>
+                        <label class="form-label" for="rate_limit_login_threshold">Budget (requêtes login)</label>
+                        <input class="form-input" type="number" min="1" id="rate_limit_login_threshold" name="rate_limit_login_threshold" data-banning-field="threshold" value="{{ rate_limit_login.threshold if rate_limit_login else 20 }}">
+                      </div>
+                      <div>
+                        <label class="form-label" for="rate_limit_login_window_seconds">Fenêtre (s)</label>
+                        <input class="form-input" type="number" min="1" id="rate_limit_login_window_seconds" name="rate_limit_login_window_seconds" data-banning-field="window" value="{{ rate_limit_login.window_seconds if rate_limit_login else 60 }}">
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1282,6 +1353,10 @@
           : ('Actif · ban immédiat (' + min + ' min)');
       } else if (kind === 'concurrent') {
         summary.textContent = 'Actif · max ' + thr + ' connexions / IP (refus, pas de ban)';
+      } else if (kind === 'rate_limit') {
+        summary.textContent = 'Actif · ' + thr + ' requêtes / IP / ' + win + 's · 429 (pas de ban)';
+      } else if (kind === 'rate_limit_login') {
+        summary.textContent = 'Actif · ' + thr + ' logins / IP / ' + win + 's · 429 (pas de ban)';
       }
     }
 
