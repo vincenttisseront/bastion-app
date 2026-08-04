@@ -33,6 +33,23 @@ def test_logs_rbac_forbidden_for_non_admin(client: TestClient):
         assert "/apps" in (resp.headers.get("location") or "")
 
 
+def test_logs_shows_integrity_and_exports(client: TestClient):
+    resp = client.get("/admin/logs", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert "Intégrité des logs" in resp.text
+    assert "export=csv" in resp.text
+    assert "export=pdf" in resp.text
+    assert "Anomalies de Connexion" not in resp.text
+
+    csv_resp = client.get("/admin/logs?export=csv", headers=ADMIN_HEADERS)
+    assert csv_resp.status_code == 200
+    assert "text/csv" in (csv_resp.headers.get("content-type") or "")
+
+    audit_redirect = client.get("/audit", headers=ADMIN_HEADERS, follow_redirects=False)
+    assert audit_redirect.status_code == 302
+    assert "/admin/logs" in (audit_redirect.headers.get("location") or "")
+
+
 def test_logs_filter_by_action_and_actor(client: TestClient, db_session: Session):
     log_action(db_session, actor="alice@ex.com", action="realm.test", target="r1", details={"status": "ok"})
     log_action(db_session, actor="bob@ex.com", action="health.probe", target="app", details={"status": "warn"})

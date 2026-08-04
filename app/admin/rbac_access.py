@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 
+from urllib.parse import urlencode
+
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 
 from app.audit import log_action
 from app.bastion.bastion_fields import vault_enabled_for_app
@@ -519,12 +521,21 @@ async def admin_rbac_users_page(
     group: str | None = None,
     status: str | None = None,
     list_tab: str | None = None,
+    q: str | None = None,
+    page: int = 1,
+    page_size: int | None = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    from app.rbac.users_list_service import (
+        DEFAULT_PAGE_SIZE,
+        clamp_page_size,
+        filter_import_users,
+        paginate_list,
+        query_bastion_accounts,
+    )
     from app.rbac.users_stats_service import (
-        connection_anomalies,
         enrich_granted_users,
         fetch_user_directory_stats,
         group_distribution,
@@ -558,30 +569,16 @@ async def admin_rbac_users_page(
             status_code=302,
         )
 
+    page_size = clamp_page_size(page_size if page_size is not None else DEFAULT_PAGE_SIZE)
+    search_q = (q or "").strip()
+
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     granted_users = list_users_with_direct_grants(db)
     enriched_users = enrich_granted_users(
         db, granted_users, group_filter=group, status_filter=status
     )
 
-    # Local bastion-created accounts must stay visible even without AccessGrant and
-    # even when the Keycloak picker realm differs (clients vs ar-systems).
-    bastion_accounts = (
-        db.query(BastionAccount)
-        .options(
-            joinedload(BastionAccount.realm),
-            joinedload(BastionAccount.provisionings).joinedload(
-                BastionAccountProvisioning.application
-            ),
-        )
-        .order_by(BastionAccount.created_at.desc())
-        .limit(100)
-        .all()
-    )
     bastion_by_kc: dict[str, BastionAccount] = {}
-    for row in bastion_accounts:
-        if row.keycloak_user_id:
-            bastion_by_kc[row.keycloak_user_id] = row
     for row in (
         db.query(BastionAccount)
         .options(
@@ -592,7 +589,7 @@ async def admin_rbac_users_page(
         .filter(BastionAccount.keycloak_user_id.is_not(None))
         .all()
     ):
-        if row.keycloak_user_id and row.keycloak_user_id not in bastion_by_kc:
+        if row.keycloak_user_id:
             bastion_by_kc[row.keycloak_user_id] = row
 
     for u in enriched_users:
@@ -618,18 +615,47 @@ async def admin_rbac_users_page(
             u["provision_ok"] = u["provision_failed"] = u["provision_total"] = 0
             u["provision_pending"] = 0
 
-    import_users = [u for u in enriched_users if u.get("account_source") != "bastion"]
+    import_users_all = [
+        u for u in enriched_users if u.get("account_source") != "bastion"
+    ]
+    import_users_filtered = filter_import_users(import_users_all, q=search_q)
+
+    bastion_count = db.query(func.count(BastionAccount.id)).scalar() or 0
     tab = (list_tab or "").strip().lower()
     if tab not in {"bastion", "keycloak", "open"}:
-        if bastion_accounts:
+        if bastion_count:
             tab = "bastion"
-        elif import_users:
+        elif import_users_all:
             tab = "keycloak"
         else:
             tab = "open"
 
+    # Bastion tab lists all realms (cross-realm create). realm_id only drives
+    # Keycloak stats / Recherche Keycloak picker.
+    bastion_accounts: list[BastionAccount] = []
+    import_users: list[dict] = []
+    list_meta: dict = {
+        "total": 0,
+        "page": 1,
+        "page_size": page_size,
+        "total_pages": 1,
+    }
+    if tab == "bastion":
+        bastion_accounts, list_meta = query_bastion_accounts(
+            db,
+            q=search_q,
+            realm_id=None,
+            group_name=group,
+            status_filter=status,
+            page=page,
+            page_size=page_size,
+        )
+    elif tab == "keycloak":
+        import_users, list_meta = paginate_list(
+            import_users_filtered, page=page, page_size=page_size
+        )
+
     user_stats = await fetch_user_directory_stats(db, selected_realm, settings)
-    anomalies = connection_anomalies(db)
     distribution = group_distribution(db)
     all_groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
 
@@ -638,61 +664,24 @@ async def admin_rbac_users_page(
     file_options = file_grant_select_options(db)
     folder_options = folder_grant_select_options(db)
 
-    directory_users: list[dict] = []
-    directory_source: str | None = None
-    directory_error: str | None = None
-    if tab == "open" and selected_realm is not None:
-        from app.rbac.keycloak_admin import (
-            fetch_group_members,
-            group_matches_sync_include,
-            parse_groups_sync_include,
-        )
-
-        include = parse_groups_sync_include(
-            getattr(selected_realm, "groups_sync_include", None)
-        )
-        realm_groups = [
-            g
-            for g in all_groups
-            if g.realm_id == selected_realm.id and g.keycloak_group_id
-        ]
-        if include:
-            candidate_groups = [
-                g
-                for g in realm_groups
-                if group_matches_sync_include(g.name or "", g.path or "", include)
-            ][:5]
-        else:
-            preferred = [
-                g
-                for g in realm_groups
-                if "users" in (g.name or "").lower()
-                or "users" in (g.path or "").lower()
-            ]
-            candidate_groups = preferred[:3] if preferred else realm_groups[:1]
-
-        seen_ids: set[str] = set()
-        source_names: list[str] = []
-        for g in candidate_groups:
-            try:
-                raw = await fetch_group_members(
-                    selected_realm, g.keycloak_group_id, settings
-                )
-            except ValueError as exc:
-                directory_error = str(exc)
-                break
-            except Exception:
-                continue
-            source_names.append(g.name or g.path or str(g.id))
-            for m in raw:
-                ser = serialize_user_search_result(m)
-                uid = str(ser.get("id") or "")
-                if not uid or uid in seen_ids:
-                    continue
-                seen_ids.add(uid)
-                directory_users.append(ser)
-        if source_names:
-            directory_source = ", ".join(source_names)
+    def _users_qs(**overrides: object) -> str:
+        params: dict[str, object] = {}
+        if selected_realm is not None:
+            params["realm_id"] = selected_realm.id
+        if search_q:
+            params["q"] = search_q
+        if group:
+            params["group"] = group
+        if status and status != "tous":
+            params["status"] = status
+        if page_size != DEFAULT_PAGE_SIZE:
+            params["page_size"] = page_size
+        params["list_tab"] = tab
+        params["page"] = list_meta.get("page", 1)
+        params.update(overrides)
+        # Drop empty / None
+        clean = {k: v for k, v in params.items() if v is not None and v != ""}
+        return urlencode(clean)
 
     return render(
         "admin/rbac/users.html",
@@ -714,23 +703,27 @@ async def admin_rbac_users_page(
             vault_apps=[],
             granted_users=enriched_users,
             import_users=import_users,
+            import_users_total=len(import_users_all),
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
             active_tab="users",
             list_tab=tab,
             user_stats=user_stats.as_dict(),
-            anomalies=anomalies,
             group_distribution=distribution,
             filter_groups=all_groups,
             filter_group=group or "",
             filter_status=status or "tous",
+            filter_q=search_q,
+            list_meta=list_meta,
+            users_qs=_users_qs,
             bastion_accounts=bastion_accounts,
+            bastion_accounts_total=int(bastion_count),
             bastion_account_for_user=None,
             user_provisionings=[],
             user_pending_apps=[],
-            directory_users=directory_users,
-            directory_source=directory_source,
-            directory_error=directory_error,
+            directory_users=[],
+            directory_source=None,
+            directory_error=None,
         ),
     )
 

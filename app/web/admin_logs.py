@@ -14,7 +14,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.audit import log_action
+from app.audit import compute_integrity, log_action
 from app.database import SessionLocal, get_db
 from app.models import AdminLogsUserPrefs, AuditLog, SavedLogView, utcnow
 from app.sso_settings import Settings, get_settings
@@ -26,6 +26,7 @@ from app.web.admin_logs_query import (
     parse_status_list,
     serialize_audit_row,
 )
+from app.web.audit_export import build_audit_csv_export, build_audit_pdf_export
 from app.web.constants import APP_VERSION
 from app.web.container_logs_settings import get_container_logs_config
 from app.web.docker_logs import (
@@ -149,10 +150,16 @@ def admin_logs_page(
     columns: str | None = None,
     view: int | None = None,
     page: int = Query(1, ge=1),
+    export: str | None = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    if export == "csv":
+        return build_audit_csv_export(db, date_from=date_from, date_to=date_to)
+    if export == "pdf":
+        return build_audit_pdf_export(db, date_from=date_from, date_to=date_to)
+
     user_key = _user_key(user)
     if view:
         saved = (
@@ -207,6 +214,7 @@ def admin_logs_page(
         status=statuses,
     )
     docker_cfg = get_container_logs_config(db)
+    integrity = compute_integrity(db)
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/logs.html",
@@ -226,6 +234,7 @@ def admin_logs_page(
         docker_containers=docker_logs_whitelist(docker_cfg),
         docker_logs_tail_lines=docker_cfg.tail_lines,
         admin_logs_sse_timeout_seconds=settings.admin_logs_sse_timeout_seconds,
+        integrity=integrity,
     )
 
 

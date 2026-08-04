@@ -5,11 +5,18 @@
 {% block content %}
 {% set list_tab = list_tab | default('bastion') %}
 {% set import_users = import_users | default([]) %}
+{% set list_meta = list_meta | default({'total': 0, 'page': 1, 'page_size': 25, 'total_pages': 1}) %}
+{% set filter_q = filter_q | default('') %}
+{% set bastion_accounts_total = bastion_accounts_total | default(0) %}
+{% set import_users_total = import_users_total | default(0) %}
 <div class="page">
   <div class="page-header">
     <div>
       <h1 class="page-title">Gestion des Utilisateurs</h1>
-      <p class="page-sub">Droits Bastion, stats Keycloak live — pas d'annuaire dupliqué en base</p>
+      <p class="page-sub">
+        Recherche et filtres — pas d'annuaire dupliqué en base.
+        <a href="/admin/logs?q=session_hijack#audit">Alertes connexion → Logs</a>
+      </p>
     </div>
     <div>
       <a href="/admin/rbac/users/new" class="btn btn-primary">Nouvel utilisateur</a>
@@ -70,318 +77,296 @@
     </div>
   </div>
 
-  <div class="dash-grid" style="grid-template-columns:minmax(0,1fr) 280px; gap:var(--sp-4); margin-bottom:var(--sp-4); align-items:start;">
-    <div>
-      <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-        <form method="get" action="/admin/rbac/users" id="user-filters-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
-          {% if selected_realm %}
-          <input type="hidden" name="realm_id" value="{{ selected_realm.id }}">
-          {% endif %}
-          <input type="hidden" name="list_tab" value="{{ list_tab }}">
-          <div class="form-group">
-            <label class="form-label" for="filter_group">Groupe</label>
-            <select id="filter_group" name="group" class="form-select">
-              <option value="">Tous</option>
-              {% for g in filter_groups %}
-              <option value="{{ g.name }}"{% if filter_group == g.name %} selected{% endif %}>{{ g.name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="filter_status">Statut</label>
-            <select id="filter_status" name="status" class="form-select">
-              <option value="tous"{% if filter_status == 'tous' %} selected{% endif %}>Tous</option>
-              <option value="actifs"{% if filter_status == 'actifs' %} selected{% endif %}>Actif</option>
-              <option value="privilegies"{% if filter_status == 'privilegies' %} selected{% endif %}>Privilégié</option>
-            </select>
-          </div>
-          <button type="submit" class="btn btn-ghost btn-sm">Filtrer</button>
-        </form>
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+    <form method="get" action="/admin/rbac/users" id="user-filters-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+      <input type="hidden" name="list_tab" value="{{ list_tab }}">
+      <div class="form-group" style="flex:1; min-width:14rem;">
+        <label class="form-label" for="filter_q">Recherche</label>
+        <input type="search" id="filter_q" name="q" class="form-input" value="{{ filter_q }}"
+               placeholder="Identifiant, email, société…" autocomplete="off">
       </div>
-
-      <div class="tabs" role="tablist" aria-label="Listes utilisateurs" style="margin-bottom:var(--sp-4);">
-        <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=bastion" class="tab{% if list_tab == 'bastion' %} active{% endif %}" role="tab"{% if list_tab == 'bastion' %} aria-current="page"{% endif %}>
-          Créés bastion{% if bastion_accounts %} <span class="badge badge-muted">{{ bastion_accounts | length }}</span>{% endif %}
-        </a>
-        <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=keycloak" class="tab{% if list_tab == 'keycloak' %} active{% endif %}" role="tab"{% if list_tab == 'keycloak' %} aria-current="page"{% endif %}>
-          Avec droits Bastion{% if import_users %} <span class="badge badge-muted">{{ import_users | length }}</span>{% endif %}
-        </a>
-        <a href="/admin/rbac/users?{% if selected_realm %}realm_id={{ selected_realm.id }}&amp;{% endif %}list_tab=open" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
-          Recherche Keycloak
-        </a>
+      <div class="form-group">
+        <label class="form-label" for="filter_realm">Realm</label>
+        <select id="filter_realm" name="realm_id" class="form-select">
+          {% for realm in realms %}
+          <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
+          {% else %}
+          <option value="">Aucun realm</option>
+          {% endfor %}
+        </select>
       </div>
-
-      {% if list_tab == 'bastion' %}
-      {% if bastion_accounts %}
-      <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
-        <div class="card-header" style="padding:var(--sp-4);">
-          <span class="card-title">Comptes créés via le bastion</span>
-          <span class="badge badge-muted">{{ bastion_accounts | length }}</span>
-        </div>
-        <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
-          Tous les comptes issus de « Nouvel utilisateur », tous realms.
-        </p>
-        <div class="table-wrap" style="border:none;border-radius:0;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Identifiant</th>
-                <th>Société</th>
-                <th>Realm</th>
-                <th>Statut</th>
-                <th>Apps</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for a in bastion_accounts %}
-              {% set prov_rows = a.provisionings or [] %}
-              {% set prov_fail = prov_rows | selectattr('status', 'equalto', 'failed') | list %}
-              {% set prov_ok = prov_rows | selectattr('status', 'equalto', 'success') | list %}
-              <tr>
-                <td>
-                  <div>{{ a.username }}</div>
-                  <div class="mono form-hint">{{ a.email }}</div>
-                </td>
-                <td>{{ a.organization or '—' }}</td>
-                <td class="mono">{{ a.realm.slug if a.realm else a.realm_id }}</td>
-                <td>
-                  {% if a.status == 'provisioned' %}
-                  <span class="badge badge-ok">Provisionné</span>
-                  {% elif a.status == 'keycloak_created' %}
-                  <span class="badge badge-ok">Keycloak OK</span>
-                  {% elif a.status == 'partial_failure' %}
-                  <span class="badge badge-warn">Échec partiel</span>
-                  {% else %}
-                  <span class="badge badge-err">Échec Keycloak</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if prov_fail %}
-                  <span class="badge badge-err">{{ prov_fail | length }} échec</span>
-                  {% elif prov_rows %}
-                  <span class="badge badge-ok">{{ prov_ok | length }}/{{ prov_rows | length }}</span>
-                  {% elif a.pending_application_ids %}
-                  <span class="badge badge-warn">En attente</span>
-                  {% else %}
-                  <span class="form-hint">Aucune app</span>
-                  {% endif %}
-                  {% if a.last_error %}
-                  <div class="form-hint" style="margin-top:var(--sp-1);">{{ a.last_error }}</div>
-                  {% endif %}
-                </td>
-                <td>
-                  <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}">Fiche</a>
-                  <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Provisioning</a>
-                  <a class="btn btn-danger btn-sm" href="/admin/rbac/accounts/{{ a.id }}#danger"
-                     title="Suppression complète (apps + Keycloak + fiche)">Supprimer</a>
-                  {% if not a.keycloak_user_id %}
-                  <form method="post" action="/admin/rbac/accounts/{{ a.id }}/retry-keycloak" style="display:inline;">
-                    <button type="submit" class="btn btn-ghost btn-sm">Relancer KC</button>
-                  </form>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
+      <div class="form-group">
+        <label class="form-label" for="filter_group">Groupe / société</label>
+        <select id="filter_group" name="group" class="form-select">
+          <option value="">Tous</option>
+          {% for g in filter_groups %}
+          <option value="{{ g.name }}"{% if filter_group == g.name %} selected{% endif %}>{{ g.name }}</option>
+          {% endfor %}
+        </select>
       </div>
-      {% else %}
-      <div class="alert alert-info">Aucun compte créé via le bastion pour l’instant.</div>
-      {% endif %}
-
-      {% elif list_tab == 'keycloak' %}
-      {% if import_users %}
-      <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
-        <div class="card-header" style="padding:var(--sp-4);">
-          <span class="card-title">Utilisateurs Keycloak avec droits Bastion</span>
-          <span class="badge badge-muted">{{ import_users | length }}</span>
-        </div>
-        <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
-          Pas un annuaire Keycloak : uniquement les comptes qui ont déjà au moins un droit individuel dans Bastion.
-          Pour un user seulement dans Keycloak → onglet <strong>Recherche Keycloak</strong>.
-        </p>
-        <div class="table-wrap" style="border:none;border-radius:0;">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th></th>
-                <th>Utilisateur</th>
-                <th>Droits</th>
-                <th>Statut</th>
-                <th>Dernière connexion</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for u in import_users %}
-              <tr>
-                <td>
-                  <div class="avatar-initials" style="background:{{ u.avatar_color }};">{{ u.initials }}</div>
-                </td>
-                <td>
-                  <div>{{ u.display }}</div>
-                  <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
-                </td>
-                <td>
-                  {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
-                  {% if droits_realm %}
-                  <a class="badge badge-muted" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}#droits">{{ u.grant_count }}</a>
-                  {% else %}
-                  <span class="badge badge-muted">{{ u.grant_count }}</span>
-                  {% endif %}
-                </td>
-                <td>
-                  {% if u.has_portal_admin %}
-                    <span class="badge badge-ok">Privilégié</span>
-                  {% else %}
-                    <span class="badge badge-ok">Actif</span>
-                  {% endif %}
-                </td>
-                <td class="mono form-hint">
-                  {% if u.last_seen_at %}
-                    {{ u.last_seen_at }}{% if u.last_ip %} · {{ u.last_ip }}{% endif %}
-                  {% else %}
-                    —
-                  {% endif %}
-                </td>
-                <td>
-                  {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
-                  {% if droits_realm %}
-                  <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Fiche</a>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
+      <div class="form-group">
+        <label class="form-label" for="filter_status">Statut</label>
+        <select id="filter_status" name="status" class="form-select">
+          <option value="tous"{% if filter_status == 'tous' %} selected{% endif %}>Tous</option>
+          <option value="actifs"{% if filter_status == 'actifs' %} selected{% endif %}>Actif</option>
+          <option value="privilegies"{% if filter_status == 'privilegies' %} selected{% endif %}>Privilégié</option>
+        </select>
       </div>
-      {% else %}
-      <div class="alert alert-info">Aucun utilisateur Keycloak avec droits Bastion pour l’instant. Utilisez l’onglet Recherche Keycloak.</div>
-      {% endif %}
+      <div class="form-group">
+        <label class="form-label" for="filter_page_size">Par page</label>
+        <select id="filter_page_size" name="page_size" class="form-select">
+          {% for n in [25, 50, 100] %}
+          <option value="{{ n }}"{% if list_meta.page_size == n %} selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Rechercher</button>
+    </form>
+  </div>
 
-      {% else %}
-      {% set directory_users = directory_users | default([]) %}
-      <div class="card rbac-user-picker-card" style="padding:0; margin-bottom:var(--sp-4); overflow:visible;">
-        <div class="card-header" style="padding:var(--sp-4);">
-          <span class="card-title">Recherche Keycloak</span>
-          <span class="form-hint" style="margin:0;">Annuaire live du realm — tapez un nom/email ou parcourez les membres des groupes synchronisés</span>
-        </div>
-        <div class="card-body" style="padding:var(--sp-4); overflow:visible;">
-          <form method="get" action="/admin/rbac/users/view" id="user-search-form" class="rbac-user-picker">
-            <div class="form-group rbac-user-picker-realm">
-              <label class="form-label" for="realm_id">Realm</label>
-              <select id="realm_id" name="realm_id" class="form-select" required>
-                {% for realm in realms %}
-                <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
-                {% else %}
-                <option value="">Aucun realm sync/provisioning</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="form-group rbac-user-picker-search">
-              <label class="form-label" for="user-query">Filtrer (min. 2 caractères)</label>
-              <div class="rbac-user-picker-search-wrap">
-                <input type="search" id="user-query" class="form-input" placeholder="ex. brigitte, @ar-systems.fr…" autocomplete="off" data-user-search>
-                <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="">
-              </div>
-            </div>
-            <div class="rbac-user-picker-actions">
-              <button type="submit" class="btn btn-primary" id="user-search-submit" disabled>Voir la fiche</button>
-            </div>
-          </form>
-          {% if directory_error %}
-          <div class="alert alert-warn" style="margin-top:var(--sp-4);">{{ directory_error }}</div>
-          {% endif %}
-        </div>
-        <div class="table-wrap" style="border:none;border-radius:0;border-top:1px solid var(--border-muted);">
-          <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
-            <span class="card-title" id="user-results-title" style="font-size:var(--fs-sm);">
-              {% if directory_source %}Membres · {{ directory_source }}{% else %}Résultats{% endif %}
-            </span>
-            <span class="badge badge-muted" id="user-results-count">{{ directory_users | length }}</span>
-          </div>
-          <table class="data-table" id="user-results-table">
-            <thead>
-              <tr>
-                <th>Utilisateur</th>
-                <th>Email</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="user-results-body">
-              {% for u in directory_users %}
-              <tr>
-                <td>
-                  <div>{{ u.display or u.username or u.id }}</div>
-                  {% if u.username and u.username != u.display %}
-                  <div class="mono form-hint">{{ u.username }}</div>
-                  {% endif %}
-                </td>
-                <td class="mono">{{ u.email or '—' }}</td>
-                <td style="text-align:right;white-space:nowrap;">
-                  {% if selected_realm and u.id %}
-                  <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ u.id }}">Fiche</a>
-                  {% endif %}
-                </td>
-              </tr>
+  <div class="tabs" role="tablist" aria-label="Listes utilisateurs" style="margin-bottom:var(--sp-4);">
+    <a href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=1) }}" class="tab{% if list_tab == 'bastion' %} active{% endif %}" role="tab"{% if list_tab == 'bastion' %} aria-current="page"{% endif %}>
+      Créés bastion{% if bastion_accounts_total %} <span class="badge badge-muted">{{ bastion_accounts_total }}</span>{% endif %}
+    </a>
+    <a href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=1) }}" class="tab{% if list_tab == 'keycloak' %} active{% endif %}" role="tab"{% if list_tab == 'keycloak' %} aria-current="page"{% endif %}>
+      Avec droits Bastion{% if import_users_total %} <span class="badge badge-muted">{{ import_users_total }}</span>{% endif %}
+    </a>
+    <a href="/admin/rbac/users?{{ users_qs(list_tab='open', page=1) }}" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
+      Recherche Keycloak
+    </a>
+  </div>
+
+  {% if list_tab == 'bastion' %}
+  {% if bastion_accounts %}
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Comptes créés via le bastion</span>
+      <span class="badge badge-muted">{{ list_meta.total }} résultat{% if list_meta.total != 1 %}s{% endif %} — page {{ list_meta.page }}/{{ list_meta.total_pages }}</span>
+    </div>
+    <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
+      Comptes issus de « Nouvel utilisateur ». Filtrez ou passez à <strong>Recherche Keycloak</strong> pour l’annuaire large.
+    </p>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Identité</th>
+            <th>Société</th>
+            <th>Realm</th>
+            <th>Statut</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in bastion_accounts %}
+          {% set prov_rows = a.provisionings or [] %}
+          {% set prov_fail = prov_rows | selectattr('status', 'equalto', 'failed') | list %}
+          {% set prov_ok = prov_rows | selectattr('status', 'equalto', 'success') | list %}
+          <tr>
+            <td>
+              <div>{{ a.username }}</div>
+              <div class="mono form-hint">{{ a.email }}</div>
+            </td>
+            <td>{{ a.organization or '—' }}</td>
+            <td class="mono">{{ a.realm.slug if a.realm else a.realm_id }}</td>
+            <td>
+              {% if a.status == 'provisioned' %}
+              <span class="badge badge-ok">Provisionné</span>
+              {% elif a.status == 'keycloak_created' %}
+              <span class="badge badge-ok">Keycloak OK</span>
+              {% elif a.status == 'partial_failure' %}
+              <span class="badge badge-warn">Échec partiel</span>
               {% else %}
-              <tr class="user-results-empty">
-                <td colspan="3">
-                  <div class="empty-state" style="padding:var(--sp-5);">
-                    <div class="empty-title">Aucun utilisateur listé</div>
-                    <div class="empty-desc">Tapez au moins 2 caractères pour rechercher dans Keycloak, ou configurez le filtre de sync groupes sur la fiche realm.</div>
-                  </div>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              <span class="badge badge-err">Échec Keycloak</span>
+              {% endif %}
+              {% if prov_fail %}
+              <span class="badge badge-err">{{ prov_fail | length }} app</span>
+              {% elif prov_rows %}
+              <span class="badge badge-muted">{{ prov_ok | length }}/{{ prov_rows | length }} apps</span>
+              {% endif %}
+            </td>
+            <td style="text-align:right; white-space:nowrap;">
+              <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}">Fiche</a>
+              <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Provisioning</a>
+              <a class="btn btn-danger btn-sm" href="/admin/rbac/accounts/{{ a.id }}#danger"
+                 title="Suppression complète">Supprimer</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if list_meta.total_pages > 1 %}
+    <div style="display:flex; gap:var(--sp-2); justify-content:flex-end; padding:var(--sp-3) var(--sp-4); border-top:1px solid var(--border);">
+      {% if list_meta.page > 1 %}
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page - 1) }}">← Précédent</a>
+      {% endif %}
+      {% if list_meta.page < list_meta.total_pages %}
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page + 1) }}">Suivant →</a>
       {% endif %}
     </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="alert alert-info">Aucun compte bastion pour ces filtres. Élargissez la recherche ou créez un utilisateur.</div>
+  {% endif %}
 
-    <aside style="display:flex; flex-direction:column; gap:var(--sp-4);">
-      <div class="card" style="padding:var(--sp-4);">
-        <div class="card-title" style="margin-bottom:var(--sp-3);">Anomalies de Connexion</div>
-        <p class="form-hint" style="margin:0 0 var(--sp-3);">Sources audit existantes (hijack / break-glass) — pas de nouveau moteur.</p>
-        <ul style="list-style:none; margin:0; padding:0; display:grid; gap:var(--sp-3);">
-          {% for a in anomalies %}
-          <li style="border-bottom:1px solid var(--border); padding-bottom:var(--sp-2);">
-            {% if a.severity == 'CRITIQUE' %}
-              <span class="badge badge-err">CRITIQUE</span>
-            {% else %}
-              <span class="badge badge-warn">ALERTE</span>
-            {% endif %}
-            <div class="mono form-hint" style="margin-top:var(--sp-1);">{{ a.action }}</div>
-            <div class="form-hint">{{ a.actor or '—' }}{% if a.ip %} · {{ a.ip }}{% endif %}</div>
-          </li>
-          {% else %}
-          <li class="empty-desc">Aucune anomalie récente</li>
+  {% elif list_tab == 'keycloak' %}
+  {% if import_users %}
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Utilisateurs Keycloak avec droits Bastion</span>
+      <span class="badge badge-muted">{{ list_meta.total }} résultat{% if list_meta.total != 1 %}s{% endif %} — page {{ list_meta.page }}/{{ list_meta.total_pages }}</span>
+    </div>
+    <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
+      Uniquement les comptes avec au moins un droit individuel. Sinon → <strong>Recherche Keycloak</strong>.
+    </p>
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Identité</th>
+            <th>Droits</th>
+            <th>Statut</th>
+            <th>Dernière connexion</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in import_users %}
+          <tr>
+            <td>
+              <div class="avatar-initials" style="background:{{ u.avatar_color }};">{{ u.initials }}</div>
+            </td>
+            <td>
+              <div>{{ u.display }}</div>
+              <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
+            </td>
+            <td>
+              {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
+              {% if droits_realm %}
+              <a class="badge badge-muted" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}#droits">{{ u.grant_count }}</a>
+              {% else %}
+              <span class="badge badge-muted">{{ u.grant_count }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if u.has_portal_admin %}
+                <span class="badge badge-ok">Privilégié</span>
+              {% else %}
+                <span class="badge badge-ok">Actif</span>
+              {% endif %}
+            </td>
+            <td class="mono form-hint">
+              {% if u.last_seen_at %}
+                {{ u.last_seen_at }}{% if u.last_ip %} · {{ u.last_ip }}{% endif %}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td style="text-align:right;">
+              {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
+              {% if droits_realm %}
+              <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Fiche</a>
+              {% endif %}
+            </td>
+          </tr>
           {% endfor %}
-        </ul>
-      </div>
-      <div class="card" style="padding:var(--sp-4);">
-        <div class="card-title" style="margin-bottom:var(--sp-3);">Répartition des Groupes</div>
-        {% for g in group_distribution %}
-        <div style="margin-bottom:var(--sp-3);">
-          <div style="display:flex; justify-content:space-between; gap:var(--sp-2); font-size:var(--fs-sm);">
-            <span>{{ g.name }}</span>
-            <span class="mono">{{ g.percent }}%</span>
-          </div>
-          <div style="height:6px; background:var(--bg-tertiary); border-radius:var(--r-full); margin-top:var(--sp-1); overflow:hidden;">
-            <div style="height:100%; width:{{ g.percent }}%; background:var(--accent); border-radius:var(--r-full);"></div>
+        </tbody>
+      </table>
+    </div>
+    {% if list_meta.total_pages > 1 %}
+    <div style="display:flex; gap:var(--sp-2); justify-content:flex-end; padding:var(--sp-3) var(--sp-4); border-top:1px solid var(--border);">
+      {% if list_meta.page > 1 %}
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page - 1) }}">← Précédent</a>
+      {% endif %}
+      {% if list_meta.page < list_meta.total_pages %}
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page + 1) }}">Suivant →</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="alert alert-info">Aucun utilisateur avec droits individuels pour ces filtres. Utilisez Recherche Keycloak.</div>
+  {% endif %}
+
+  {% else %}
+  <div class="card rbac-user-picker-card" style="padding:0; margin-bottom:var(--sp-4); overflow:visible;">
+    <div class="card-header" style="padding:var(--sp-4);">
+      <span class="card-title">Recherche Keycloak</span>
+      <span class="form-hint" style="margin:0;">Annuaire live — tapez au moins 2 caractères (nom / email)</span>
+    </div>
+    <div class="card-body" style="padding:var(--sp-4); overflow:visible;">
+      <form method="get" action="/admin/rbac/users/view" id="user-search-form" class="rbac-user-picker">
+        <div class="form-group rbac-user-picker-realm">
+          <label class="form-label" for="realm_id">Realm</label>
+          <select id="realm_id" name="realm_id" class="form-select" required>
+            {% for realm in realms %}
+            <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
+            {% else %}
+            <option value="">Aucun realm sync/provisioning</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group rbac-user-picker-search">
+          <label class="form-label" for="user-query">Filtrer (min. 2 caractères)</label>
+          <div class="rbac-user-picker-search-wrap">
+            <input type="search" id="user-query" class="form-input" placeholder="ex. brigitte, @ar-systems.fr…" autocomplete="off" data-user-search value="{{ filter_q }}">
+            <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="">
           </div>
         </div>
-        {% else %}
-        <p class="empty-desc">Aucun groupe synchronisé</p>
-        {% endfor %}
-        <a href="/admin/rbac" class="btn btn-ghost btn-sm" style="margin-top:var(--sp-2);">Gérer les groupes</a>
+        <div class="rbac-user-picker-actions">
+          <button type="submit" class="btn btn-primary" id="user-search-submit" disabled>Voir la fiche</button>
+        </div>
+      </form>
+    </div>
+    <div class="table-wrap" style="border:none;border-radius:0;border-top:1px solid var(--border-muted);">
+      <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
+        <span class="card-title" id="user-results-title" style="font-size:var(--fs-sm);">Résultats</span>
+        <span class="badge badge-muted" id="user-results-count">0</span>
       </div>
-    </aside>
+      <table class="data-table" id="user-results-table">
+        <thead>
+          <tr>
+            <th>Utilisateur</th>
+            <th>Email</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="user-results-body">
+          <tr class="user-results-empty">
+            <td colspan="3">
+              <div class="empty-state" style="padding:var(--sp-5);">
+                <div class="empty-title">Recherchez un utilisateur</div>
+                <div class="empty-desc">Tapez au moins 2 caractères pour interroger Keycloak sur le realm sélectionné.</div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
+    <div class="card-title" style="margin-bottom:var(--sp-3);">Répartition des groupes</div>
+    <div style="display:grid; gap:var(--sp-3); grid-template-columns:repeat(auto-fill,minmax(12rem,1fr));">
+      {% for g in group_distribution %}
+      <div>
+        <div style="display:flex; justify-content:space-between; gap:var(--sp-2); font-size:var(--fs-sm);">
+          <span>{{ g.name }}</span>
+          <span class="mono">{{ g.percent }}%</span>
+        </div>
+        <div style="height:6px; background:var(--bg-tertiary); border-radius:var(--r-full); margin-top:var(--sp-1); overflow:hidden;">
+          <div style="height:100%; width:{{ g.percent }}%; background:var(--accent); border-radius:var(--r-full);"></div>
+        </div>
+      </div>
+      {% else %}
+      <p class="empty-desc">Aucun groupe synchronisé</p>
+      {% endfor %}
+    </div>
+    <a href="/admin/rbac" class="btn btn-ghost btn-sm" style="margin-top:var(--sp-3);">Gérer les groupes</a>
   </div>
 </div>
 {% endblock %}
@@ -398,9 +383,7 @@
   var submitBtn = document.getElementById('user-search-submit');
   if (!(searchInput && hiddenId && realmSelect && tbody)) return;
 
-  var initialHtml = tbody.innerHTML;
-  var initialCount = countEl ? countEl.textContent : '0';
-  var initialTitle = titleEl ? titleEl.textContent : 'Résultats';
+  var emptyHtml = tbody.innerHTML;
   var timer;
 
   function escapeHtml(s) {
@@ -450,15 +433,11 @@
     });
   }
 
-  searchInput.addEventListener('input', function () {
-    clearTimeout(timer);
-    hiddenId.value = '';
-    setSubmitEnabled(false);
-    var q = searchInput.value.trim();
+  function runSearch(q) {
     if (q.length < 2) {
-      tbody.innerHTML = initialHtml;
-      if (countEl) countEl.textContent = initialCount;
-      if (titleEl) titleEl.textContent = initialTitle;
+      tbody.innerHTML = emptyHtml;
+      if (countEl) countEl.textContent = '0';
+      if (titleEl) titleEl.textContent = 'Résultats';
       return;
     }
     timer = setTimeout(async function () {
@@ -481,6 +460,13 @@
           '<tr><td colspan="3"><div class="alert alert-warn" style="margin:var(--sp-3);">Erreur réseau</div></td></tr>';
       }
     }, 280);
+  }
+
+  searchInput.addEventListener('input', function () {
+    clearTimeout(timer);
+    hiddenId.value = '';
+    setSubmitEnabled(false);
+    runSearch(searchInput.value.trim());
   });
 
   realmSelect.addEventListener('change', function () {
@@ -495,6 +481,10 @@
       e.preventDefault();
     }
   });
+
+  if (searchInput.value.trim().length >= 2) {
+    runSearch(searchInput.value.trim());
+  }
 })();
 </script>
 {% endblock %}

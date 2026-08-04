@@ -69,7 +69,8 @@ def test_audit_requires_admin(client: TestClient):
     if user.status_code == 302:
         assert "/apps" in (user.headers.get("location") or "")
     admin = client.get("/audit", headers=ADMIN_HEADERS, follow_redirects=False)
-    assert admin.status_code == 200
+    assert admin.status_code == 302
+    assert "/admin/logs" in (admin.headers.get("location") or "")
 
 
 def test_api_metrics_requires_admin(client: TestClient):

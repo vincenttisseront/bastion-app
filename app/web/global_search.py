@@ -182,7 +182,7 @@ def _search_audit(db: Session, q: str) -> list[dict[str, str]]:
         scored.append(
             (
                 score,
-                _hit(str(label), "/audit", sublabel=" — ".join(sub_parts) or None),
+                _hit(str(label), "/admin/logs#audit", sublabel=" — ".join(sub_parts) or None),
             )
         )
     scored.sort(key=lambda pair: (-pair[0], pair[1]["label"].casefold()))
