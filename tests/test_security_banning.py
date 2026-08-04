@@ -600,6 +600,13 @@ def test_rate_limit_middleware_returns_429_with_retry_after(
     assert resp.headers.get("Retry-After") == "45"
     # No ban row — throttle only.
     assert find_active_ban(db_session, ip="203.0.113.93") is None
+    audits = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "security.rate_limited")
+        .all()
+    )
+    assert len(audits) >= 1
+    assert audits[0].target == "ip:203.0.113.93"
 
 
 def test_security_banning_page_accordion_and_modals(client: TestClient, db_session: Session):

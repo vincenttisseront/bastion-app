@@ -809,6 +809,7 @@
                       Au-delà du budget, HTTP <strong>429 Too Many Requests</strong> (+ Retry-After) jusqu'à la fin de la fenêtre —
                       réponse graduée <em>avant</em> le ban anti-hammering. Les requêtes rejetées comptent toujours pour
                       l'anti-hammering : un client qui insiste finit banni. Chemins sensibles uniquement (login, /admin/*, /api/admin/*).
+                      Chaque 429 est journalisé (logs conteneur) ; l'audit <code>security.rate_limited</code> une fois par rafale.
                     </p>
                     <div class="form-grid">
                       <div>

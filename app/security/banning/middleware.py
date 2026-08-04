@@ -54,6 +54,15 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
                 if reason == "rate_limited":
                     # Throttle (429 + Retry-After) — softer than a ban.
                     retry = rate_limit_retry_after(db, path, request.method)
+                    logger.warning(
+                        "security.rate_limited ip=%s path=%s method=%s "
+                        "retry_after=%ss username=%s",
+                        ip or "-",
+                        path,
+                        request.method,
+                        max(1, retry),
+                        username or "-",
+                    )
                     return JSONResponse(
                         {"detail": "Too many requests"},
                         status_code=429,
@@ -65,6 +74,16 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
                     else "Access temporarily blocked"
                 )
                 status = 429 if reason == "concurrent_limit" else 403
+                logger.warning(
+                    "security.request_denied reason=%s ip=%s path=%s method=%s "
+                    "status=%s username=%s",
+                    reason,
+                    ip or "-",
+                    path,
+                    request.method,
+                    status,
+                    username or "-",
+                )
                 return JSONResponse({"detail": detail}, status_code=status)
 
             begin_concurrent(ip)
