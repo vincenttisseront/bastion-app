@@ -45,6 +45,11 @@ _UNSUPPORTED_FLOW_LOGIN_ERROR = (
     "ou une configuration MFA). Demandez à un administrateur de lever "
     "l’action requise ou de réinitialiser le mot de passe en mode permanent."
 )
+_BFF_ERROR_LOGIN_ERROR = (
+    "Échec d’authentification OIDC (configuration ou échange avec Keycloak). "
+    "Réessayez, ou demandez à un administrateur de vérifier le realm "
+    "(Test OIDC, client secret, redirect URI)."
+)
 # Sliding-window brute-force protection (process-local; no Redis).
 OIDC_LOGIN_MAX_FAILURES = 5
 OIDC_LOGIN_FAILURE_WINDOW_SECONDS = 60.0
@@ -382,16 +387,16 @@ def _auth_failure_response(
     username: str,
     realm: str,
     reason: str,
+    detail: str | None = None,
 ) -> None:
     """Record failure + audit, then raise generic 401 (no credential enumeration)."""
-    ip = _client_ip(request)
-    _record_login_failure(ip, username)
-    log_action(
+    _record_failed_attempt(
         db,
-        actor=username or "unknown",
-        action="oidc_login_failed",
-        details={"realm": realm, "reason": reason},
-        ip_address=ip or None,
+        request=request,
+        username=username,
+        realm=realm,
+        reason=reason,
+        detail=detail,
     )
     raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE)
 
@@ -523,14 +528,18 @@ def _record_failed_attempt(
     realm: str,
     reason: str,
     action: str = "oidc_login_failed",
+    detail: str | None = None,
 ) -> None:
     ip = _client_ip(request)
     _record_login_failure(ip, username)
+    payload: dict[str, Any] = {"realm": realm, "reason": reason}
+    if detail:
+        payload["detail"] = (detail or "")[:300]
     log_action(
         db,
         actor=username or "unknown",
         action=action,
-        details={"realm": realm, "reason": reason},
+        details=payload,
         ip_address=ip or None,
     )
 
@@ -740,8 +749,14 @@ async def oidc_login(
                 realm=realm_slug,
             )
         raise HTTPException(status_code=503, detail=detail) from None
-    except OidcBffError:
-        logger.warning("oidc_login BFF error realm=%s user=%s", realm_slug, username)
+    except OidcBffError as exc:
+        detail = str(exc) or "bff_error"
+        logger.warning(
+            "oidc_login BFF error realm=%s user=%s detail=%s",
+            realm_slug,
+            username,
+            detail[:200],
+        )
         if html_mode:
             _record_failed_attempt(
                 db,
@@ -749,6 +764,7 @@ async def oidc_login(
                 username=username,
                 realm=realm_slug,
                 reason="bff_error",
+                detail=detail,
             )
             return _html_login_error(
                 request,
@@ -756,11 +772,16 @@ async def oidc_login(
                 db,
                 rd=safe_rd,
                 username=username,
-                login_error=_GENERIC_AUTH_FAILURE,
+                login_error=_BFF_ERROR_LOGIN_ERROR,
                 realm=realm_slug,
             )
         _auth_failure_response(
-            db, request=request, username=username, realm=realm_slug, reason="bff_error"
+            db,
+            request=request,
+            username=username,
+            realm=realm_slug,
+            reason="bff_error",
+            detail=detail,
         )
 
     if step.status == "otp_required":
