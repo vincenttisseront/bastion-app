@@ -94,9 +94,6 @@
       {% endif %}
 
       {% if oauth2_url and not mfa_step %}
-      {% if show_realm_chooser and native_realm_label %}
-      <p class="login-sub login-panel-lead" data-login-lead>Connexion — {{ native_realm_label }}</p>
-      {% endif %}
       <a href="{{ oauth2_url }}" class="btn btn-primary btn-lg btn-full login-sso-cta" data-login-oauth2>
         <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>
@@ -107,7 +104,7 @@
 
       {% if show_native_login %}
       {% if totp_setup_required | default(false) %}
-      <p class="login-sub login-panel-lead">Configurer l'authenticator (OTP){% if native_realm_label %} — {{ native_realm_label }}{% endif %}</p>
+      <p class="login-sub login-panel-lead">Configurer l'authenticator (OTP)</p>
       <div class="login-totp-setup" style="margin-bottom:var(--sp-4);">
         {% if qr_data_url %}
         <p class="form-hint" style="margin:0 0 var(--sp-2);">Scannez ce QR code avec Google Authenticator, Microsoft Authenticator ou FreeOTP :</p>
@@ -141,7 +138,7 @@
         <a href="/login?rd={{ rd | default('/apps') }}{% if native_realm_slug %}&amp;realm={{ native_realm_slug }}{% endif %}">Recommencer</a>
       </p>
       {% elif otp_required %}
-      <p class="login-sub login-panel-lead">Code à usage unique (OTP){% if native_realm_label %} — {{ native_realm_label }}{% endif %}</p>
+      <p class="login-sub login-panel-lead">Code à usage unique (OTP)</p>
       <form method="post" action="/auth/login" class="form-body login-form" autocomplete="one-time-code">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="rd" value="{{ rd | default('/apps') }}">
@@ -166,15 +163,6 @@
       {% if oauth2_url %}
       <div class="login-divider" role="separator">ou</div>
       {% endif %}
-      <p class="login-sub login-panel-lead" data-login-lead>
-        {% if show_realm_chooser and native_realm_label %}
-        Connexion — {{ native_realm_label }}
-        {% elif oauth2_url %}
-        Identifiant unique{% if native_realm_name %} — {{ native_realm_name }}{% endif %}
-        {% elif native_realm_name %}
-        Connexion SSO — {{ native_realm_name }}
-        {% endif %}
-      </p>
       <form method="post" action="/auth/login" class="form-body login-form" autocomplete="on">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="rd" value="{{ rd | default('/apps') }}">
