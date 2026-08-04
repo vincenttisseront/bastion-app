@@ -163,3 +163,136 @@ def test_html_post_login_invalid_shows_generic_error(
     assert "utilisateur inconnu" not in response.text.lower()
     assert "mauvais mot de passe" not in response.text.lower()
     assert COOKIE not in response.cookies
+
+
+def _add_client_realm(db: Session) -> None:
+    settings = Settings(
+        vault_portal_internal_token="test-secret",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        database_url="sqlite://",
+    )
+    db.add(
+        RealmConfig(
+            slug="clients",
+            name="Clients externes",
+            issuer_url="https://keycloak.example/realms/clients",
+            client_id="portal-clients",
+            client_secret_encrypted=encrypt_secret("secret", settings),
+            redirect_uri="https://portal.example/oauth2/clients/callback",
+            oauth2_proxy_port=4181,
+            is_default=False,
+            enabled=True,
+            last_test_status="ok",
+        )
+    )
+    db.commit()
+
+
+@pytest.fixture()
+def multi_native_settings(monkeypatch):
+    settings = Settings(
+        environment="test",
+        vault_portal_internal_token="test-secret",
+        breakglass_jwt_secret="test-bg-jwt-secret-different",
+        breakglass_jwt_secret_fallback_enabled=True,
+        session_hop_secret="test-session-hop-secret-for-pytest",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        database_url="sqlite://",
+        oidc_native_session_enabled_realms="ar-systems,clients",
+        oidc_session_jwt_secret=OIDC_SECRET,
+        oidc_session_cookie_name=COOKIE,
+        oidc_session_max_age=3600,
+        sso_portal_default_realm_slug="ar-systems",
+    )
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.oidc_bff.get_settings", lambda: settings)
+    from app.main import app
+
+    app.dependency_overrides[get_settings] = lambda: settings
+    yield settings
+    app.dependency_overrides.pop(get_settings, None)
+    get_settings.cache_clear()
+
+
+def test_login_audience_labels():
+    from app.web.pages import _login_audience_label
+
+    assert (
+        _login_audience_label(
+            RealmConfig(slug="ar-systems", name="AR-SYSTEMS")
+        )
+        == "Interne"
+    )
+    assert (
+        _login_audience_label(RealmConfig(slug="clients", name="Clients externes"))
+        == "Clients"
+    )
+    assert (
+        _login_audience_label(RealmConfig(slug="partners", name="Partenaires"))
+        == "Partenaires"
+    )
+
+
+def test_get_login_shows_interne_clients_chooser(
+    client: TestClient, db_session: Session, multi_native_settings: Settings
+):
+    _add_realm(db_session)
+    _add_client_realm(db_session)
+
+    response = client.get("/login", headers={"X-Real-IP": "203.0.113.10"})
+
+    assert response.status_code == 200
+    assert 'class="login-audience"' in response.text
+    assert 'data-login-realm="ar-systems"' in response.text
+    assert 'data-login-realm="clients"' in response.text
+    assert ">Interne<" in response.text
+    assert ">Clients<" in response.text
+    assert 'name="realm" id="login-realm" value="ar-systems"' in response.text
+    assert "Connexion — Interne" in response.text
+
+
+def test_get_login_realm_query_selects_clients(
+    client: TestClient, db_session: Session, multi_native_settings: Settings
+):
+    _add_realm(db_session)
+    _add_client_realm(db_session)
+
+    response = client.get(
+        "/login?realm=clients", headers={"X-Real-IP": "203.0.113.10"}
+    )
+
+    assert response.status_code == 200
+    assert 'id="login-realm" value="clients"' in response.text
+    assert 'id="login-realm" value="ar-systems"' not in response.text
+    assert 'data-login-realm="clients"' in response.text
+    assert "Connexion — Clients" in response.text
+    assert (
+        'id="login-audience-clients"' in response.text
+        and 'aria-selected="true"' in response.text
+    )
+
+
+def test_html_post_keeps_selected_realm_on_error(
+    client: TestClient, db_session: Session, multi_native_settings: Settings
+):
+    _add_realm(db_session)
+    _add_client_realm(db_session)
+    with patch(
+        "app.oidc_bff.start_headless_login",
+        new=AsyncMock(side_effect=InvalidCredentialsError("bad")),
+    ):
+        response = client.post(
+            "/auth/login",
+            data={
+                "username": "bob",
+                "password": "wrong",
+                "rd": "/apps",
+                "realm": "clients",
+            },
+            headers={"X-Real-IP": "203.0.113.11"},
+        )
+
+    assert response.status_code == 200
+    assert 'name="realm" id="login-realm" value="clients"' in response.text
+    assert "Connexion — Clients" in response.text
+    assert 'data-login-realm="clients"' in response.text

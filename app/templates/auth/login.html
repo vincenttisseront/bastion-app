@@ -6,6 +6,8 @@
 {% set show_breakglass = show_breakglass | default(false) %}
 {% set show_native_login = show_native_login | default(false) %}
 {% set otp_required = otp_required | default(false) %}
+{% set show_realm_chooser = show_realm_chooser | default(false) %}
+{% set native_realm_options = native_realm_options | default([]) %}
 {% set has_sso = (oauth2_url and not otp_required) or show_native_login %}
 {% set panel_hint = login_panel | default('') %}
 {% set ns = namespace(panel='sso') %}
@@ -81,13 +83,28 @@
       {% endif %}
 
       {% if show_native_login %}
+      {% if show_realm_chooser and not otp_required %}
+      <div class="login-audience" role="tablist" aria-label="Choisir le type d'accès">
+        {% for opt in native_realm_options %}
+        <button
+          type="button"
+          class="login-audience-btn{% if opt.slug == native_realm_slug %} is-active{% endif %}"
+          role="tab"
+          id="login-audience-{{ opt.slug }}"
+          aria-selected="{{ 'true' if opt.slug == native_realm_slug else 'false' }}"
+          data-login-realm="{{ opt.slug }}"
+          data-login-realm-label="{{ opt.label }}"
+        >{{ opt.label }}</button>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% if otp_required %}
-      <p class="login-sub login-panel-lead">Code à usage unique (OTP)</p>
+      <p class="login-sub login-panel-lead">Code à usage unique (OTP){% if native_realm_label %} — {{ native_realm_label }}{% endif %}</p>
       <form method="post" action="/auth/login" class="form-body login-form" autocomplete="one-time-code">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="rd" value="{{ rd | default('/apps') }}">
         {% if native_realm_slug %}
-        <input type="hidden" name="realm" value="{{ native_realm_slug }}">
+        <input type="hidden" name="realm" id="login-realm" value="{{ native_realm_slug }}">
         {% endif %}
         <input type="hidden" name="attempt_id" value="{{ attempt_id }}">
         <input type="hidden" name="username" value="{{ form_username | default('') }}">
@@ -101,20 +118,28 @@
         <button type="submit" class="btn btn-primary btn-full">Valider</button>
       </form>
       <p class="login-sub login-restart">
-        <a href="/login?rd={{ rd | default('/apps') }}">Recommencer</a>
+        <a href="/login?rd={{ rd | default('/apps') }}{% if native_realm_slug %}&amp;realm={{ native_realm_slug }}{% endif %}">Recommencer</a>
       </p>
       {% else %}
       {% if oauth2_url %}
       <div class="login-divider" role="separator">ou</div>
-      <p class="login-sub login-panel-lead">Identifiant unique{% if native_realm_name %} — {{ native_realm_name }}{% endif %}</p>
-      {% elif native_realm_name %}
-      <p class="login-sub login-panel-lead">Connexion SSO — {{ native_realm_name }}</p>
       {% endif %}
+      <p class="login-sub login-panel-lead" data-login-lead>
+        {% if show_realm_chooser and native_realm_label %}
+        Connexion — {{ native_realm_label }}
+        {% elif oauth2_url %}
+        Identifiant unique{% if native_realm_name %} — {{ native_realm_name }}{% endif %}
+        {% elif native_realm_label %}
+        Connexion — {{ native_realm_label }}
+        {% elif native_realm_name %}
+        Connexion SSO — {{ native_realm_name }}
+        {% endif %}
+      </p>
       <form method="post" action="/auth/login" class="form-body login-form" autocomplete="on">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="rd" value="{{ rd | default('/apps') }}">
         {% if native_realm_slug %}
-        <input type="hidden" name="realm" value="{{ native_realm_slug }}">
+        <input type="hidden" name="realm" id="login-realm" value="{{ native_realm_slug }}">
         {% endif %}
         <div class="form-group">
           <label class="form-label" for="oidc-username">Identifiant</label>
@@ -229,5 +254,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/portal-login.js?v=20260802-login-ui" defer></script>
+<script src="/static/portal-login.js?v=20260804-realm-chooser" defer></script>
 {% endblock %}

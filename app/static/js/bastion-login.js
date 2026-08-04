@@ -72,6 +72,75 @@
     }
   }
 
+  function syncRealmUrl(slug) {
+    if (!slug || !window.history || !window.history.replaceState) return;
+    try {
+      var url = new URL(window.location.href);
+      url.searchParams.set('realm', slug);
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function selectRealm(root, btn) {
+    var slug = btn.getAttribute('data-login-realm') || '';
+    var label = btn.getAttribute('data-login-realm-label') || '';
+    if (!slug) return;
+
+    var buttons = root.querySelectorAll('[data-login-realm]');
+    for (var i = 0; i < buttons.length; i++) {
+      var active = buttons[i] === btn;
+      buttons[i].classList.toggle('is-active', active);
+      buttons[i].setAttribute('aria-selected', active ? 'true' : 'false');
+    }
+
+    var realmInput = document.getElementById('login-realm');
+    if (realmInput) realmInput.value = slug;
+
+    var lead = root.querySelector('[data-login-lead]');
+    if (lead && label) {
+      lead.textContent = 'Connexion — ' + label;
+    }
+
+    syncRealmUrl(slug);
+  }
+
+  function bindRealmChooser(root) {
+    var chooser = root.querySelector('.login-audience');
+    if (!chooser) return;
+    chooser.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-login-realm]');
+      if (!btn || !chooser.contains(btn)) return;
+      event.preventDefault();
+      if (btn.classList.contains('is-active')) return;
+      selectRealm(root, btn);
+    });
+    chooser.addEventListener('keydown', function (event) {
+      var tabs = Array.prototype.slice.call(
+        chooser.querySelectorAll('[data-login-realm]')
+      );
+      if (!tabs.length) return;
+      var current = document.activeElement;
+      var idx = tabs.indexOf(current);
+      if (idx < 0) return;
+      var next = -1;
+      if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+        next = (idx + 1) % tabs.length;
+      } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        next = (idx - 1 + tabs.length) % tabs.length;
+      } else if (event.key === 'Home') {
+        next = 0;
+      } else if (event.key === 'End') {
+        next = tabs.length - 1;
+      }
+      if (next < 0) return;
+      event.preventDefault();
+      tabs[next].focus();
+      selectRealm(root, tabs[next]);
+    });
+  }
+
   function init() {
     var root = document.querySelector('[data-login-root]');
     if (!root) return;
@@ -79,6 +148,7 @@
     showPanel(root, initial);
     bindPanelSwitch(root);
     bindPasswordToggles(root);
+    bindRealmChooser(root);
     enhanceForms(root);
   }
 

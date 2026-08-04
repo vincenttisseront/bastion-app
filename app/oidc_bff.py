@@ -452,6 +452,7 @@ def _html_login_error(
     login_error: str,
     otp_required: bool = False,
     attempt_id: str | None = None,
+    realm: str | None = None,
 ):
     """Re-render the public login page with a generic error (HTML form posts)."""
     from app.web.constants import APP_VERSION
@@ -470,7 +471,9 @@ def _html_login_error(
             form_username=username,
             otp_required=otp_required,
             attempt_id=attempt_id or "",
-            **_login_surface_flags(request, db, settings, rd=rd),
+            **_login_surface_flags(
+                request, db, settings, rd=rd, preferred_realm=realm
+            ),
         ),
     )
 
@@ -483,6 +486,7 @@ def _html_otp_challenge(
     rd: str,
     username: str,
     attempt_id: str,
+    realm: str | None = None,
 ):
     from app.web.constants import APP_VERSION
     from app.web.flash import base_template_context
@@ -498,7 +502,9 @@ def _html_otp_challenge(
             form_username=username,
             otp_required=True,
             attempt_id=attempt_id,
-            **_login_surface_flags(request, db, settings, rd=rd),
+            **_login_surface_flags(
+                request, db, settings, rd=rd, preferred_realm=realm
+            ),
         ),
     )
 
@@ -595,6 +601,7 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 login_error="Authentification native non activée pour ce realm.",
+                realm=realm_slug,
             )
         raise HTTPException(
             status_code=403,
@@ -613,6 +620,7 @@ async def oidc_login(
                 login_error=_GENERIC_AUTH_FAILURE,
                 otp_required=otp_step,
                 attempt_id=attempt_id,
+                realm=realm_slug,
             )
         raise HTTPException(
             status_code=429,
@@ -658,6 +666,7 @@ async def oidc_login(
                 login_error=_GENERIC_AUTH_FAILURE,
                 otp_required=still is not None,
                 attempt_id=attempt_id if still is not None else None,
+                realm=realm_slug,
             )
         _record_failed_attempt(
             db,
@@ -684,6 +693,7 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 login_error=_GENERIC_AUTH_FAILURE,
+                realm=realm_slug,
             )
         _auth_failure_response(
             db, request=request, username=username, realm=realm_slug, reason="invalid_credentials"
@@ -705,6 +715,7 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 login_error=_GENERIC_AUTH_FAILURE,
+                realm=realm_slug,
             )
         raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
     except OidcBffConfigError as exc:
@@ -720,6 +731,7 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 login_error=detail,
+                realm=realm_slug,
             )
         raise HTTPException(status_code=503, detail=detail) from None
     except OidcBffError:
@@ -739,6 +751,7 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 login_error=_GENERIC_AUTH_FAILURE,
+                realm=realm_slug,
             )
         _auth_failure_response(
             db, request=request, username=username, realm=realm_slug, reason="bff_error"
@@ -762,6 +775,7 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 attempt_id=aid,
+                realm=realm_slug,
             )
         return {"status": "otp_required", "attempt_id": aid}
 
@@ -775,6 +789,7 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 login_error=_GENERIC_AUTH_FAILURE,
+                realm=realm_slug,
             )
         raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE)
 
@@ -791,6 +806,7 @@ async def oidc_login(
                 rd=safe_rd,
                 username=username,
                 login_error="Authentification temporairement indisponible.",
+                realm=realm_slug,
             )
         raise HTTPException(
             status_code=503,

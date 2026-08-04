@@ -42,6 +42,41 @@ body.page-login .main-content{
 .login-title span,.login-brand-title span{color:var(--accent)}
 .login-sub,.login-brand-sub{font-size:var(--fs-sm);color:var(--text-2);margin-top:var(--sp-1)}
 .login-panel-lead{margin:0 0 var(--sp-1);text-align:center}
+.login-audience{
+  display:grid;
+  grid-auto-flow:column;
+  grid-auto-columns:1fr;
+  gap:var(--sp-1);
+  padding:var(--sp-1);
+  background:var(--bg-tertiary);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+}
+.login-audience-btn{
+  appearance:none;
+  margin:0;
+  border:0;
+  border-radius:calc(var(--r-md) - 2px);
+  background:transparent;
+  color:var(--text-2);
+  font:inherit;
+  font-size:var(--fs-sm);
+  font-weight:650;
+  letter-spacing:.01em;
+  line-height:1.2;
+  padding:0.65rem 0.75rem;
+  cursor:pointer;
+  transition:color var(--t-fast),background var(--t-fast),box-shadow var(--t-fast);
+}
+.login-audience-btn:hover{color:var(--text);background:var(--hover-bg)}
+.login-audience-btn:focus-visible{
+  outline:2px solid var(--accent);outline-offset:2px;z-index:1;
+}
+.login-audience-btn.is-active{
+  color:var(--text);
+  background:var(--bg-card);
+  box-shadow:var(--sh-sm, 0 1px 2px color-mix(in srgb,var(--text) 12%,transparent));
+}
 .login-restart{margin-top:var(--sp-4);text-align:center}
 .login-divider{display:flex;align-items:center;gap:var(--sp-3);color:var(--text-3);font-size:var(--fs-xs);font-weight:600;letter-spacing:.05em;text-transform:lowercase}
 .login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:var(--border-muted)}
