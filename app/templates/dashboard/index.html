@@ -64,7 +64,7 @@
     <div class="card">
       <div class="card-header">
         <span class="card-title">Flux d'audit en direct</span>
-        <a href="/audit" class="btn btn-ghost btn-sm">Voir tout →</a>
+        <a href="/admin/logs#audit" class="btn btn-ghost btn-sm">Voir tout →</a>
       </div>
       <div class="audit-stream">
         {% for entry in recent_audit %}
@@ -105,7 +105,7 @@
             <div class="quick-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/></svg></div>
             <span>Catalogue</span>
           </a>
-          <a href="/audit?export=pdf" class="quick-item">
+          <a href="/admin/logs?export=pdf" class="quick-item">
             <div class="quick-icon"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
             <span>Export PDF</span>
           </a>

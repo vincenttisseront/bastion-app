@@ -52,7 +52,6 @@ ADMIN_ROUTES = [
     "/admin/security",
     "/admin/logs",
     "/admin/health",
-    "/audit",
     "/sessions",
     "/catalogue",
 ]

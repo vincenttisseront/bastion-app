@@ -3,6 +3,7 @@
 {% block breadcrumb %}Admin / Logs{% endblock %}
 
 {% block content %}
+{% set integrity = integrity | default(none) %}
 {% set docker_logs_enabled = docker_logs_enabled | default(false) %}
 {% set docker_containers = docker_containers | default([]) %}
 {% set docker_logs_tail_lines = docker_logs_tail_lines | default(200) %}
@@ -44,6 +45,15 @@
   </div>
 
   <div class="logs-panel" id="audit" role="tabpanel" aria-labelledby="tab-audit">
+    {% if integrity %}
+    <div class="integrity-bar" style="margin-bottom:var(--sp-3);">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span class="integrity-score">{{ integrity.score }}%</span>
+      <span class="integrity-label">Intégrité des logs</span>
+      <span class="badge badge-{{ 'ok' if integrity.ok else 'err' }}">{{ 'VALIDÉ' if integrity.ok else 'ALTÉRÉ' }}</span>
+      <span class="integrity-hash font-mono">SHA256: {{ integrity.hash[:32] }}…</span>
+    </div>
+    {% endif %}
     <div class="logs-views">
       <a class="btn btn-secondary btn-sm" href="/admin/logs#audit">Tout</a>
       {% for v in saved_views %}
@@ -52,6 +62,9 @@
         <button type="submit" class="btn btn-ghost btn-sm" title="Supprimer la vue">×</button>
       </form>
       {% endfor %}
+      <span style="flex:1;"></span>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">↓ CSV</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">↓ PDF</a>
     </div>
 
     <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters">
