@@ -72,38 +72,20 @@
     }
   }
 
-  function syncRealmUrl(slug) {
-    if (!slug || !window.history || !window.history.replaceState) return;
+  function selectRealm(root, btn) {
+    var slug = btn.getAttribute('data-login-realm') || '';
+    if (!slug || btn.classList.contains('is-active')) return;
+    // Full navigation: native form vs oauth2 CTA differ per realm.
     try {
       var url = new URL(window.location.href);
       url.searchParams.set('realm', slug);
-      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+      window.location.assign(url.pathname + url.search + url.hash);
     } catch (e) {
-      /* ignore */
+      window.location.href =
+        window.location.pathname +
+        '?realm=' +
+        encodeURIComponent(slug);
     }
-  }
-
-  function selectRealm(root, btn) {
-    var slug = btn.getAttribute('data-login-realm') || '';
-    var label = btn.getAttribute('data-login-realm-label') || '';
-    if (!slug) return;
-
-    var buttons = root.querySelectorAll('[data-login-realm]');
-    for (var i = 0; i < buttons.length; i++) {
-      var active = buttons[i] === btn;
-      buttons[i].classList.toggle('is-active', active);
-      buttons[i].setAttribute('aria-selected', active ? 'true' : 'false');
-    }
-
-    var realmInput = document.getElementById('login-realm');
-    if (realmInput) realmInput.value = slug;
-
-    var lead = root.querySelector('[data-login-lead]');
-    if (lead && label) {
-      lead.textContent = 'Connexion — ' + label;
-    }
-
-    syncRealmUrl(slug);
   }
 
   function bindRealmChooser(root) {
@@ -113,7 +95,6 @@
       var btn = event.target.closest('[data-login-realm]');
       if (!btn || !chooser.contains(btn)) return;
       event.preventDefault();
-      if (btn.classList.contains('is-active')) return;
       selectRealm(root, btn);
     });
     chooser.addEventListener('keydown', function (event) {

@@ -296,3 +296,52 @@ def test_html_post_keeps_selected_realm_on_error(
     assert 'name="realm" id="login-realm" value="clients"' in response.text
     assert "Connexion — Clients" in response.text
     assert 'data-login-realm="clients"' in response.text
+
+
+def test_get_login_chooser_includes_proxy_only_realm(
+    client: TestClient, db_session: Session, native_settings: Settings
+):
+    """Chooser appears when a second realm exists even without native pilot."""
+    _add_realm(db_session)
+    _add_client_realm(db_session)
+
+    response = client.get("/login", headers={"X-Real-IP": "203.0.113.10"})
+
+    assert response.status_code == 200
+    assert 'class="login-audience"' in response.text
+    assert 'data-login-realm="ar-systems"' in response.text
+    assert 'data-login-realm="clients"' in response.text
+    assert ">Interne<" in response.text
+    assert ">Clients<" in response.text
+    assert 'id="oidc-username"' in response.text
+    assert "Connexion — Interne" in response.text
+
+
+def test_get_login_clients_tab_uses_oauth2_when_not_native(
+    client: TestClient, db_session: Session, native_settings: Settings
+):
+    _add_realm(db_session)
+    _add_client_realm(db_session)
+
+    response = client.get(
+        "/login?realm=clients", headers={"X-Real-IP": "203.0.113.10"}
+    )
+
+    assert response.status_code == 200
+    assert 'class="login-audience"' in response.text
+    assert "/oauth2/clients/start" in response.text
+    assert 'id="oidc-username"' not in response.text
+    assert "Connexion — Clients" in response.text
+
+
+def test_get_login_single_realm_hides_chooser_and_interne_label(
+    client: TestClient, db_session: Session, native_settings: Settings
+):
+    _add_realm(db_session)
+
+    response = client.get("/login", headers={"X-Real-IP": "203.0.113.10"})
+
+    assert response.status_code == 200
+    assert 'class="login-audience"' not in response.text
+    assert "Connexion — Interne" not in response.text
+    assert "Connexion SSO — AR-SYSTEMS" in response.text
