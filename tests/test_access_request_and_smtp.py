@@ -96,8 +96,34 @@ def test_login_shows_access_request_link_when_realm_open(client, db_session):
     assert "Pas encore de compte" in resp.text
 
 
+def test_login_shows_access_request_even_without_provisioning(client, db_session):
+    """CTA visibility must not depend on Keycloak provisioning readiness."""
+    set_breakglass_password(db_session, "admin", "super-secret-password")
+    s = _settings()
+    realm = RealmConfig(
+        slug="clients",
+        name="CLIENTS",
+        issuer_url=f"{KC_BASE}/realms/CLIENTS",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("secret", s),
+        redirect_uri="https://portal.test/oauth2/clients/callback",
+        oauth2_proxy_port=4182,
+        enabled=True,
+        provisioning_enabled=False,
+        access_request_enabled=True,
+        show_on_login=True,
+        login_label="Clients/Partenaires",
+    )
+    db_session.add(realm)
+    db_session.commit()
+    resp = client.get("/login", headers={"X-Real-IP": "10.0.0.50"})
+    assert resp.status_code == 200
+    assert "Demander un accès" in resp.text
+    assert 'href="/auth/access-request"' in resp.text
+
+
 def test_access_request_honeypot_skips_persist(client, db_session):
-    realm = _realm(db_session)
+    _realm(db_session)
     get_resp = client.get("/auth/access-request")
     m = re.search(r'name="csrf_token" value="([^"]+)"', get_resp.text)
     assert m, "csrf_token missing"
@@ -106,7 +132,6 @@ def test_access_request_honeypot_skips_persist(client, db_session):
         "/auth/access-request",
         data={
             "csrf_token": csrf,
-            "realm_id": str(realm.id),
             "website": "https://spam.example",
             "username": "botuser",
             "email": "bot@example.com",
@@ -127,17 +152,18 @@ def test_login_hides_access_request_link_when_closed(client, db_session):
     assert 'href="/auth/access-request"' not in resp.text
 
 
-def test_access_request_get_lists_open_realms(client, db_session):
+def test_access_request_get_has_no_realm_choice(client, db_session):
     realm = _realm(db_session, access_request_enabled=True)
     resp = client.get("/auth/access-request")
     assert resp.status_code == 200
     assert "Demander un accès" in resp.text
-    assert str(realm.id) in resp.text
-    assert realm.slug in resp.text
+    assert 'name="realm_id"' not in resp.text
+    assert "Realm / organisation" not in resp.text
+    assert realm.slug not in resp.text
 
 
 def test_access_request_submit_creates_pending(client, db_session):
-    realm = _realm(db_session)
+    _realm(db_session)
     get_resp = client.get("/auth/access-request")
     m = re.search(r'name="csrf_token" value="([^"]+)"', get_resp.text)
     assert m, "csrf_token missing from access-request form"
@@ -148,7 +174,6 @@ def test_access_request_submit_creates_pending(client, db_session):
             "/auth/access-request",
             data={
                 "csrf_token": csrf,
-                "realm_id": str(realm.id),
                 "username": "newuser",
                 "email": "newuser@example.com",
                 "first_name": "New",
@@ -166,15 +191,15 @@ def test_access_request_submit_creates_pending(client, db_session):
     )
     assert row is not None
     assert row.email == "newuser@example.com"
-    assert row.realm_id == realm.id
+    assert row.realm_id is None
     assert row.organization == "ACME Corp"
     assert mock_send.called
 
 
 def test_access_request_reject(client, db_session):
-    realm = _realm(db_session)
+    _realm(db_session)
     row = AccessRequest(
-        realm_id=realm.id,
+        realm_id=None,
         username="pending1",
         email="p1@example.com",
         organization="Org",
@@ -201,7 +226,7 @@ def test_access_request_approve_creates_account(client, db_session):
     realm = _realm(db_session)
     _company_group(db_session, realm, name="OrgCo")
     row = AccessRequest(
-        realm_id=realm.id,
+        realm_id=None,
         username="approve1",
         email="a1@example.com",
         organization="OrgCo",
@@ -231,16 +256,41 @@ def test_access_request_approve_creates_account(client, db_session):
         resp = client.post(
             f"/admin/access-requests/{row.id}/approve",
             headers=ADMIN_HEADERS,
-            data={"send_credentials": ""},
+            data={"realm_id": str(realm.id), "send_credentials": ""},
             follow_redirects=False,
         )
     assert resp.status_code == 302, resp.text
     db_session.refresh(row)
     assert row.status == "approved"
+    assert row.realm_id == realm.id
     assert row.bastion_account_id is not None
     account = db_session.query(BastionAccount).filter_by(id=row.bastion_account_id).one()
     assert account.username == "approve1"
     assert account.keycloak_user_id == "kc-ar-1"
+
+
+def test_access_request_approve_requires_realm(client, db_session):
+    _realm(db_session)
+    row = AccessRequest(
+        realm_id=None,
+        username="norealm",
+        email="nr@example.com",
+        organization="Org",
+        status="pending",
+    )
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+
+    resp = client.post(
+        f"/admin/access-requests/{row.id}/approve",
+        headers=ADMIN_HEADERS,
+        data={"send_credentials": ""},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    db_session.refresh(row)
+    assert row.status == "pending"
 
 
 def test_smtp_send_email_builds_message():

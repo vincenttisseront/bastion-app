@@ -334,9 +334,9 @@ def _login_surface_flags(
         if selected is not None and not selected_native
         else None
     )
-    from app.rbac.access_request_service import realms_accepting_access_requests
+    from app.rbac.access_request_service import realms_advertising_access_requests
 
-    access_realms = realms_accepting_access_requests(db)
+    access_realms = realms_advertising_access_requests(db)
     native_realm_options = [
         {
             "slug": row.slug,
@@ -941,15 +941,16 @@ def _access_request_page(
     form_success: str | None = None,
     form_values: dict | None = None,
 ):
-    from app.rbac.access_request_service import realms_accepting_access_requests
+    from app.rbac.access_request_service import realms_advertising_access_requests
 
+    advertising = realms_advertising_access_requests(db)
     return render(
         "auth/access_request.html",
         **_ctx(
             request,
             settings,
             hide_chrome=True,
-            access_realms=realms_accepting_access_requests(db),
+            access_form_open=bool(advertising),
             form_error=form_error,
             form_success=form_success,
             form_values=form_values or {},
@@ -963,7 +964,7 @@ def access_request_get(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    """Public self-registration form — realm chosen by the requester."""
+    """Public self-registration form — realm assigned later by an admin."""
     return _access_request_page(request, settings, db)
 
 
@@ -973,7 +974,6 @@ def access_request_post(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     csrf_token: str = Form(""),
-    realm_id: str = Form(""),
     username: str = Form(""),
     email: str = Form(""),
     first_name: str = Form(""),
@@ -984,13 +984,12 @@ def access_request_post(
 ):
     from app.rbac.access_request_service import (
         AccessRequestError,
-        realms_accepting_access_requests,
+        realms_advertising_access_requests,
         submit_access_request,
     )
     from app.web.flash import make_csrf_token
 
     form_values = {
-        "realm_id": (realm_id or "").strip(),
         "username": (username or "").strip(),
         "email": (email or "").strip(),
         "first_name": (first_name or "").strip(),
@@ -1019,7 +1018,7 @@ def access_request_post(
             form_values={},
         )
 
-    if not realms_accepting_access_requests(db):
+    if not realms_advertising_access_requests(db):
         return _access_request_page(
             request,
             settings,
@@ -1039,32 +1038,11 @@ def access_request_post(
             form_values=form_values,
         )
 
-    try:
-        rid = int((realm_id or "").strip())
-    except ValueError:
-        return _access_request_page(
-            request,
-            settings,
-            db,
-            form_error="Realm invalide.",
-            form_values=form_values,
-        )
-    realm = db.query(RealmConfig).filter_by(id=rid).first()
-    if realm is None:
-        return _access_request_page(
-            request,
-            settings,
-            db,
-            form_error="Realm introuvable.",
-            form_values=form_values,
-        )
-
     client_ip = client_ip_from_request(request) or None
     try:
         submit_access_request(
             db,
             settings,
-            realm=realm,
             username=username,
             email=email,
             first_name=first_name,
@@ -1389,7 +1367,10 @@ def admin_access_requests_list(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    from app.rbac.access_request_service import list_access_requests
+    from app.rbac.access_request_service import (
+        list_access_requests,
+        realms_for_access_request_approve,
+    )
 
     status_filter = (status or "pending").strip().lower()
     rows = list_access_requests(db, status=status_filter)
@@ -1400,6 +1381,7 @@ def admin_access_requests_list(
             settings,
             rows=rows,
             status_filter=status_filter,
+            approve_realms=realms_for_access_request_approve(db),
         ),
     )
 
@@ -1411,6 +1393,7 @@ async def admin_access_request_approve_post(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
+    realm_id: str = Form(""),
     send_credentials: str = Form(""),
 ):
     from app.rbac.access_request_service import (
@@ -1421,11 +1404,20 @@ async def admin_access_request_approve_post(
     want_email = send_credentials.strip().lower() in ("1", "true", "on", "yes")
     secret = settings.vault_portal_internal_token or "dev"
     try:
+        rid = int((realm_id or "").strip())
+    except ValueError:
+        response = RedirectResponse(
+            url="/admin/access-requests?status=pending", status_code=302
+        )
+        flash_redirect(response, "Choisissez un realm cible.", "error", secret)
+        return response
+    try:
         row, account, step_errors = await approve_access_request(
             db,
             settings,
             request_id=request_id,
             actor=user.email,
+            realm_id=rid,
             ip_address=request.headers.get("X-Real-IP")
             or (request.client.host if request.client else None),
             send_credentials=want_email,
