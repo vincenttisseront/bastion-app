@@ -114,6 +114,16 @@
           <span class="badge badge-ok">true</span>
         {% elif kc_email_diag.email_verified is sameas false %}
           <span class="badge badge-warn">false</span>
+          {% if keycloak_user_id and realm %}
+          <form method="post" action="/admin/rbac/users/verify-email"
+                onsubmit="return confirm('Marquer cet email comme vérifié dans Keycloak ?');"
+                style="display:inline; margin-left:var(--sp-2);">
+            <input type="hidden" name="realm_id" value="{{ realm.id }}">
+            <input type="hidden" name="keycloak_user_id" value="{{ keycloak_user_id }}">
+            <input type="hidden" name="redirect_url" value="{{ view_url }}">
+            <button type="submit" class="btn btn-ghost btn-sm">Marquer comme vérifié</button>
+          </form>
+          {% endif %}
         {% else %}
           <span class="badge badge-muted">—</span>
         {% endif %}

@@ -768,6 +768,51 @@ async def reset_bastion_account_password(
     return new_password, email_error
 
 
+async def mark_keycloak_email_verified(
+    db: Session,
+    settings: Settings,
+    *,
+    realm: RealmConfig,
+    keycloak_user_id: str,
+    actor: str,
+    ip_address: str | None = None,
+    username: str | None = None,
+    bastion_account_id: int | None = None,
+) -> None:
+    """Set Keycloak ``emailVerified=true`` and drop ``VERIFY_EMAIL`` required action."""
+    uid = (keycloak_user_id or "").strip()
+    if not uid:
+        raise AccountCreationError("Identifiant utilisateur Keycloak manquant")
+    if not realm_provisioning_ready(realm):
+        raise AccountCreationError(
+            "Provisioning non activé pour ce realm — requis pour modifier Keycloak."
+        )
+    try:
+        await update_keycloak_user(
+            realm,
+            settings,
+            keycloak_user_id=uid,
+            email_verified=True,
+        )
+    except ValueError as exc:
+        raise AccountCreationError(str(exc)) from exc
+
+    label = (username or "").strip() or uid
+    log_action(
+        db,
+        actor=actor,
+        action="account.email_verified",
+        target=_account_target(realm, label),
+        details={
+            "keycloak_user_id": uid,
+            "bastion_account_id": bastion_account_id,
+            "email_verified": True,
+        },
+        ip_address=ip_address,
+    )
+    db.commit()
+
+
 async def provision_account_app(
     db: Session,
     settings: Settings,
