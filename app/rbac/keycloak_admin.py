@@ -588,6 +588,33 @@ async def add_user_to_keycloak_group(
         )
 
 
+async def remove_user_from_keycloak_group(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    keycloak_user_id: str,
+    keycloak_group_id: str,
+    token: str | None = None,
+) -> None:
+    """DELETE /users/{id}/groups/{group_id} with the WRITE (provision) account."""
+    token = token or await get_provision_token(realm, settings)
+    resp = await _admin_send(
+        realm,
+        settings,
+        "DELETE",
+        f"/users/{keycloak_user_id}/groups/{keycloak_group_id}",
+        token=token,
+    )
+    if resp.status_code == 404:
+        return
+    if resp.status_code == 403:
+        raise ValueError(_provision_manage_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(
+            f"Échec retrait du groupe Keycloak (HTTP {resp.status_code})"
+        )
+
+
 async def create_keycloak_group(
     realm: RealmConfig,
     settings: Settings,
