@@ -75,14 +75,37 @@
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label" for="organization">Société / organisation <span class="req">*</span></label>
-          <input type="text" id="organization" name="organization" class="form-input"
-                 value="{{ form_values.organization or '' }}" required autocomplete="off"
-                 placeholder="SDIS 999">
-          <p class="form-help">
-            Crée (ou réutilise) un groupe Keycloak/RBAC du même nom, y rattache l’utilisateur,
-            et synchronise ce groupe vers les apps de provisioning (ex. CrushFTP).
-            Les droits AccessGrant sur ce groupe sont hérités par tous les membres.
+          <label class="form-label" for="organization_pick">Société / organisation <span class="req">*</span></label>
+          {% set org_pick = form_values.organization_pick|default('__new__') %}
+          <select id="organization_pick" name="organization_pick" class="form-select" required data-org-pick>
+            <option value="__new__"{% if org_pick == '__new__' or not org_pick %} selected{% endif %}>
+              Créer une nouvelle société…
+            </option>
+            {% for g in company_groups %}
+            <option value="{{ g.id }}"
+                    data-realm-id="{{ g.realm_id }}"
+                    data-org-name="{{ g.name }}"
+                    {% if org_pick == g.id|string %} selected{% endif %}>
+              {{ g.name }}{% if g.path %} — {{ g.path }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          <div data-org-new-wrap style="margin-top:var(--sp-3);"{% if org_pick and org_pick != '__new__' %} hidden{% endif %}>
+            <label class="form-label" for="organization">Nom de la nouvelle société <span class="req">*</span></label>
+            <input type="text" id="organization" name="organization" class="form-input"
+                   value="{{ form_values.organization or '' }}" autocomplete="off"
+                   placeholder="SDIS 999" data-org-new-input
+                   {% if not org_pick or org_pick == '__new__' %}required{% endif %}>
+            <p class="form-help">
+              Les variantes (espace, underscore, tiret — ex. <span class="mono">SDIS 81</span> /
+              <span class="mono">SDIS81</span> / <span class="mono">SDIS_81</span>) sont
+              rapprochées d’un groupe existant du même realm ; aucun doublon n’est créé.
+            </p>
+          </div>
+          <p class="form-help" data-org-existing-help{% if not org_pick or org_pick == '__new__' %} hidden{% endif %}>
+            Rattache l’utilisateur au groupe société sélectionné (Keycloak/RBAC) et synchronise
+            vers les apps de provisioning (ex. CrushFTP). Les droits AccessGrant sont hérités
+            par tous les membres.
           </p>
         </div>
         <div class="alert alert-info" style="margin:0;">
@@ -215,6 +238,10 @@
     var filterInput = document.querySelector("[data-group-filter]");
     var sendCred = document.querySelector("[data-send-credentials]");
     var revealPw = document.querySelector("[data-reveal-password]");
+    var orgPick = document.querySelector("[data-org-pick]");
+    var orgNewWrap = document.querySelector("[data-org-new-wrap]");
+    var orgNewInput = document.querySelector("[data-org-new-input]");
+    var orgExistingHelp = document.querySelector("[data-org-existing-help]");
 
     function syncRevealDefault() {
       if (!sendCred || !revealPw) return;
@@ -230,6 +257,35 @@
     }
     if (sendCred) {
       sendCred.addEventListener("change", syncRevealDefault);
+    }
+
+    function syncOrgPicker() {
+      if (!orgPick) return;
+      var realmId = String(select.value || "");
+      var selectedValue = orgPick.value;
+      var stillValid = selectedValue === "__new__";
+      Array.prototype.forEach.call(orgPick.options, function (opt) {
+        if (opt.value === "__new__") {
+          opt.hidden = false;
+          opt.disabled = false;
+          return;
+        }
+        var match = String(opt.getAttribute("data-realm-id") || "") === realmId;
+        opt.hidden = !match;
+        opt.disabled = !match;
+        if (match && opt.value === selectedValue) stillValid = true;
+      });
+      if (!stillValid) {
+        orgPick.value = "__new__";
+      }
+      var isNew = orgPick.value === "__new__";
+      if (orgNewWrap) orgNewWrap.hidden = !isNew;
+      if (orgExistingHelp) orgExistingHelp.hidden = isNew;
+      if (orgNewInput) {
+        orgNewInput.required = isNew;
+        if (!isNew) orgNewInput.removeAttribute("required");
+        else orgNewInput.setAttribute("required", "required");
+      }
     }
 
     function syncGroups() {
@@ -262,9 +318,14 @@
       }
     }
 
-    select.addEventListener("change", syncGroups);
+    select.addEventListener("change", function () {
+      syncOrgPicker();
+      syncGroups();
+    });
+    if (orgPick) orgPick.addEventListener("change", syncOrgPicker);
     if (filterInput) filterInput.addEventListener("input", syncGroups);
     syncRevealDefault();
+    syncOrgPicker();
     syncGroups();
   })();
   </script>

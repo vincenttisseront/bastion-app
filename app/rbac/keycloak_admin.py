@@ -657,21 +657,11 @@ async def create_keycloak_group(
         raise ValueError("Nom de groupe Keycloak requis")
     token = token or await get_provision_token(realm, settings)
 
-    async def _find_id() -> str:
-        resp = await _admin_get(
-            realm,
-            settings,
-            "/groups?briefRepresentation=false",
-            token=token,
-        )
-        if resp.status_code >= 400:
-            return ""
-        data = resp.json()
-        groups = data if isinstance(data, list) else []
-        for g in _flatten_groups(groups):
-            if (g.get("name") or "").strip().lower() == name.lower():
-                return str(g.get("id") or "")
-        return ""
+    existing = await find_keycloak_group_by_match_key(
+        realm, settings, organization=name, token=token
+    )
+    if existing and existing.get("id"):
+        return str(existing["id"])
 
     resp = await _admin_post(
         realm, settings, "/groups", json={"name": name}, token=token
@@ -679,21 +669,79 @@ async def create_keycloak_group(
     if resp.status_code == 403:
         raise ValueError(_provision_manage_users_error())
     if resp.status_code == 409:
-        gid = await _find_id()
-        if gid:
-            return gid
+        again = await find_keycloak_group_by_match_key(
+            realm, settings, organization=name, token=token
+        )
+        if again and again.get("id"):
+            return str(again["id"])
         raise ValueError(f"Groupe Keycloak « {name} » en conflit (409) sans id résolu")
     if resp.status_code >= 400:
         raise ValueError(f"Échec création groupe Keycloak (HTTP {resp.status_code})")
     location = resp.headers.get("location", "")
     group_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
     if not group_id:
-        group_id = await _find_id()
+        again = await find_keycloak_group_by_match_key(
+            realm, settings, organization=name, token=token
+        )
+        group_id = str((again or {}).get("id") or "")
     if not group_id:
         raise ValueError(
             f"Groupe « {name} » créé mais identifiant Keycloak introuvable"
         )
     return group_id
+
+
+async def find_keycloak_group_by_match_key(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    organization: str,
+    token: str | None = None,
+) -> dict | None:
+    """Locate a Keycloak group whose name matches the organization key (spaces/_/-)."""
+    from app.rbac.organization_names import organization_match_key
+
+    key = organization_match_key(organization)
+    if not key:
+        return None
+    token = token or await get_provision_token(realm, settings)
+    resp = await _admin_get(
+        realm,
+        settings,
+        "/groups?briefRepresentation=false",
+        token=token,
+    )
+    if resp.status_code == 403:
+        # Fall back to sync account (query-groups) when provision lacks it.
+        raw = await fetch_keycloak_groups(realm, settings)
+        groups = raw if isinstance(raw, list) else []
+    elif resp.status_code >= 400:
+        raise ValueError(f"Échec lecture groupes Keycloak (HTTP {resp.status_code})")
+    else:
+        data = resp.json()
+        groups = data if isinstance(data, list) else []
+
+    matches: list[dict] = []
+    for g in _flatten_groups(groups):
+        if not isinstance(g, dict):
+            continue
+        gname = (g.get("name") or "").strip()
+        gpath = (g.get("path") or "").strip()
+        if organization_match_key(gname) == key or organization_match_key(gpath) == key:
+            matches.append(g)
+    if not matches:
+        return None
+    # Prefer exact case-insensitive name, then top-level path.
+    want = (organization or "").strip().lower()
+
+    def _score(g: dict) -> tuple[int, int]:
+        exact = 1 if (g.get("name") or "").strip().lower() == want else 0
+        path = (g.get("path") or "").strip()
+        depth = path.count("/") if path else 99
+        return (exact, -depth)
+
+    matches.sort(key=_score, reverse=True)
+    return matches[0]
 
 
 async def fetch_user_groups(

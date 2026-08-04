@@ -159,6 +159,63 @@ def _provisioning_realms(db: Session) -> list[RealmConfig]:
     return [r for r in realms if realm_provisioning_ready(r)]
 
 
+_COMPANY_GROUP_TAGS = frozenset(
+    {"société", "societe", "company", "organisation", "organization"}
+)
+
+
+def _is_company_group_tag(tag: str | None) -> bool:
+    return (tag or "").strip().lower() in _COMPANY_GROUP_TAGS
+
+
+def _company_groups_for_picker(groups: list[RBACGroup]) -> list[RBACGroup]:
+    """Société-tagged groups first; fall back to top-level KC groups if none tagged."""
+    tagged = [g for g in groups if _is_company_group_tag(g.group_tag)]
+    if tagged:
+        return tagged
+    return [
+        g
+        for g in groups
+        if (g.path or "").strip().count("/") == 1
+        or not (g.path or "").strip()
+    ]
+
+
+def _resolve_organization_from_form(
+    db: Session,
+    *,
+    realm_id: int,
+    organization_pick: str,
+    organization: str,
+) -> str:
+    """Map the société picker to a canonical organization name.
+
+    ``organization_pick`` is either ``__new__`` (free text) or an RBAC group id.
+    """
+    pick = (organization_pick or "").strip()
+    if pick and pick != "__new__":
+        try:
+            group_id = int(pick)
+        except ValueError as exc:
+            raise AccountCreationError("Groupe société invalide") from exc
+        group = (
+            db.query(RBACGroup)
+            .filter(
+                RBACGroup.id == group_id,
+                RBACGroup.realm_id == realm_id,
+                RBACGroup.keycloak_group_id.is_not(None),
+            )
+            .first()
+        )
+        if group is None:
+            raise AccountCreationError(
+                "Groupe société introuvable pour ce realm — resynchronisez les groupes "
+                "ou créez une nouvelle société."
+            )
+        return (group.name or "").strip()
+    return (organization or "").strip()
+
+
 def _form_context(db: Session) -> dict:
     realms = _provisioning_realms(db)
     groups = (
@@ -171,6 +228,7 @@ def _form_context(db: Session) -> dict:
     return {
         "provision_realms": realms,
         "provision_groups": groups,
+        "company_groups": _company_groups_for_picker(groups),
         "provision_apps": apps,
         "provisioning_driver_labels": PROVISIONING_DRIVER_LABELS,
     }
@@ -508,7 +566,8 @@ async def admin_rbac_users_new_submit(
     email = str(form.get("email") or "")
     first_name = str(form.get("first_name") or "")
     last_name = str(form.get("last_name") or "")
-    organization = str(form.get("organization") or "")
+    organization_raw = str(form.get("organization") or "")
+    organization_pick = str(form.get("organization_pick") or "__new__").strip() or "__new__"
     group_ids = _parse_int_list([str(v) for v in form.getlist("group_ids")])
     application_ids = _parse_int_list([str(v) for v in form.getlist("application_ids")])
     send_credentials = str(form.get("send_credentials") or "").strip().lower() in (
@@ -530,7 +589,8 @@ async def admin_rbac_users_new_submit(
         "email": email,
         "first_name": first_name,
         "last_name": last_name,
-        "organization": organization,
+        "organization": organization_raw,
+        "organization_pick": organization_pick,
         "group_ids": group_ids,
         "application_ids": application_ids,
         "send_credentials": send_credentials,
@@ -584,6 +644,13 @@ async def admin_rbac_users_new_submit(
         form_values["group_ids"] = group_ids
 
     try:
+        organization = _resolve_organization_from_form(
+            db,
+            realm_id=realm.id,
+            organization_pick=organization_pick,
+            organization=organization_raw,
+        )
+        form_values["organization"] = organization
         account, step_errors, temp_password = await create_bastion_account(
             db,
             settings,
