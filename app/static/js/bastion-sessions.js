@@ -364,6 +364,17 @@
         '">' +
         escapeHtml(s.user_agent_label || '—') +
         '</dd></div>' +
+        (family === 'app'
+          ? '<div><dt>User applicatif</dt><dd class="mono" title="' +
+            escapeHtml(
+              s.credential_source
+                ? 'Source vault : ' + String(s.credential_source)
+                : 'Compte utilisé pour ouvrir la session robotic/vault'
+            ) +
+            '">' +
+            escapeHtml(s.robotic_username || '—') +
+            '</dd></div>'
+          : '') +
         '<div><dt>Cookies</dt><dd><span class="session-cookies badge badge-' +
         cookieClass +
         '" title="' +

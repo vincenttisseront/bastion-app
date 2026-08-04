@@ -231,6 +231,29 @@ def test_login_audience_labels():
         _login_audience_label(RealmConfig(slug="partners", name="Partenaires"))
         == "Partenaires"
     )
+    assert (
+        _login_audience_label(
+            RealmConfig(slug="foo", name="Foo", login_label="Société A")
+        )
+        == "Société A"
+    )
+
+
+def test_get_login_hides_realm_when_show_on_login_false(
+    client: TestClient, db_session: Session, multi_native_settings: Settings
+):
+    _add_realm(db_session)
+    _add_client_realm(db_session)
+    clients = db_session.query(RealmConfig).filter_by(slug="clients").one()
+    clients.show_on_login = False
+    db_session.commit()
+
+    response = client.get("/login", headers={"X-Real-IP": "203.0.113.10"})
+
+    assert response.status_code == 200
+    assert 'id="login-realm" value="ar-systems"' in response.text
+    assert 'data-login-realm="clients"' not in response.text
+    assert 'class="login-audience"' not in response.text
 
 
 def test_get_login_shows_interne_clients_chooser(
@@ -249,6 +272,9 @@ def test_get_login_shows_interne_clients_chooser(
     assert ">Clients<" in response.text
     assert 'name="realm" id="login-realm" value="ar-systems"' in response.text
     assert "Connexion — Interne" in response.text
+    assert "login-audience-slug" in response.text
+    assert ">ar-systems<" in response.text
+    assert ">clients<" in response.text
 
 
 def test_get_login_realm_query_selects_clients(

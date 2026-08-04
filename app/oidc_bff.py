@@ -892,6 +892,25 @@ async def oidc_login(
         return {"status": "otp_required", "attempt_id": aid}
 
     if step.status == "totp_setup_required":
+        from app.oidc_native_session import is_oidc_mfa_enabled_for_realm
+
+        if not is_oidc_mfa_enabled_for_realm(db, realm_slug):
+            msg = (
+                "Configuration OTP demandée par l'IdP, mais le MFA est désactivé "
+                "pour ce realm dans Bastion. Activez le MFA (Admin → Realms) "
+                "ou retirez l'action CONFIGURE_TOTP côté Keycloak."
+            )
+            if html_mode:
+                return _html_login_error(
+                    request,
+                    settings,
+                    db,
+                    rd=safe_rd,
+                    username=username,
+                    login_error=msg,
+                    realm=realm_slug,
+                )
+            raise HTTPException(status_code=403, detail=msg)
         aid = step.attempt_id or ""
         db.commit()
         log_action(

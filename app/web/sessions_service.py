@@ -911,7 +911,11 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
             auth_family = "oidc"
     else:
         resource_title = diag.get("app_label") or row.target
-        resource_subtitle = f"slug · {row.target}"
+        app_user = (diag.get("robotic_username") or "").strip() or None
+        if app_user:
+            resource_subtitle = f"user · {app_user} · slug · {row.target}"
+        else:
+            resource_subtitle = f"slug · {row.target}"
         type_label = "Application"
         auth_family = "app"
     raw_ip = (row.source_ip or "").strip()
@@ -1014,6 +1018,8 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
         "jti": (details or {}).get("jti") if is_breakglass else None,
         "resource_title": resource_title,
         "resource_subtitle": resource_subtitle,
+        "robotic_username": (diag.get("robotic_username") or "").strip() or None,
+        "credential_source": (diag.get("credential_source") or "").strip() or None,
         "source_ip": raw_ip or "—",
         "client_ip": client_ip_display,
         "client_ip_raw": raw_ip or None,

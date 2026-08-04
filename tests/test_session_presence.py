@@ -174,3 +174,38 @@ def test_touch_app_presence_preserves_session_cookies(db_session: Session):
     assert payload["presence_only"] is False
     assert payload["verifiable"] is True
     assert payload["live_status_label"] == "NON VÉRIFIÉ"
+
+
+def test_row_to_dict_exposes_robotic_username(db_session: Session):
+    app = _app(db_session, slug="transfer")
+    now = utcnow()
+    row = ActiveSession(
+        id="app:alice@example.com:transfer",
+        kind="app",
+        user_email="alice@example.com",
+        username="alice",
+        realm="ar-systems",
+        protocol="HTTPS",
+        target="transfer",
+        source_ip="203.0.113.9",
+        status="active",
+        started_at=now,
+        last_seen_at=now,
+        details={
+            "app_label": "Transfer",
+            "robotic_username": "alice-ftp",
+            "credential_source": "user_override",
+            "driver": "crushftp",
+            "verifiable": True,
+            "cookies_present": ["CrushAuth"],
+            "cookies_ok": True,
+        },
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    payload = _row_to_dict(row)
+    assert payload["robotic_username"] == "alice-ftp"
+    assert payload["credential_source"] == "user_override"
+    assert "alice-ftp" in payload["resource_subtitle"]
+    assert "transfer" in payload["resource_subtitle"]

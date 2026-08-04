@@ -1127,6 +1127,13 @@ async def require_keycloak_configure_otp(
         raise AccountCreationError(
             "Provisioning non activé pour ce realm — requis pour modifier Keycloak."
         )
+    from app.oidc_native_session import is_oidc_mfa_enabled_for_realm
+
+    if not is_oidc_mfa_enabled_for_realm(db, realm.slug, realm=realm):
+        raise AccountCreationError(
+            "MFA désactivé pour ce realm (Admin → Realms). "
+            "Réactivez « MFA / OTP (session native) » avant d'exiger CONFIGURE_TOTP."
+        )
     try:
         await update_keycloak_user(
             realm,

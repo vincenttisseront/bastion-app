@@ -327,6 +327,9 @@ def _realm_form_values(
             "oidc_native_session_enabled": bool(
                 getattr(realm, "oidc_native_session_enabled", False)
             ),
+            "oidc_mfa_enabled": bool(getattr(realm, "oidc_mfa_enabled", True)),
+            "show_on_login": bool(getattr(realm, "show_on_login", True)),
+            "login_label": (getattr(realm, "login_label", None) or ""),
             **_smtp_access_form_values(realm),
             **_oidc_bff_form_values(realm),
         }
@@ -349,6 +352,9 @@ def _realm_form_values(
         "provisioning_configured": False,
         "provisioning_enabled": False,
         "oidc_native_session_enabled": False,
+        "oidc_mfa_enabled": True,
+        "show_on_login": True,
+        "login_label": "",
         **_smtp_access_form_values(None),
         **_oidc_bff_form_values(None),
     }
@@ -534,6 +540,9 @@ async def admin_realms_create(
     oauth2_proxy_port: int = Form(4180),
     scopes: str = Form("openid profile email"),
     is_default: str | None = Form(None),
+    oidc_mfa_enabled: str | None = Form(None),
+    show_on_login: str | None = Form(None),
+    login_label: str = Form(""),
     activate: str | None = Form(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -564,6 +573,9 @@ async def admin_realms_create(
     form_values["oidc_keycloak_base_url"] = oidc_keycloak_base_url
     form_values["oidc_bff_client_id"] = oidc_bff_client_id
     form_values["oidc_bff_redirect_uri"] = oidc_bff_redirect_uri
+    form_values["oidc_mfa_enabled"] = _form_bool(oidc_mfa_enabled)
+    form_values["show_on_login"] = _form_bool(show_on_login)
+    form_values["login_label"] = (login_label or "").strip()
     enabled = _form_bool(activate)
 
     try:
@@ -701,6 +713,9 @@ async def admin_realms_create(
         provisioning_enabled=bool(
             provisioning_opt_in and provision_client_id and provision_secret_encrypted
         ),
+        oidc_mfa_enabled=_form_bool(oidc_mfa_enabled),
+        show_on_login=_form_bool(show_on_login),
+        login_label=(login_label or "").strip() or None,
     )
     db.add(realm)
     try:
@@ -872,6 +887,9 @@ async def admin_realms_update(
     oauth2_proxy_port: int = Form(4180),
     scopes: str = Form("openid profile email"),
     is_default: str | None = Form(None),
+    oidc_mfa_enabled: str | None = Form(None),
+    show_on_login: str | None = Form(None),
+    login_label: str = Form(""),
     activate: str | None = Form(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
@@ -905,6 +923,9 @@ async def admin_realms_update(
             "oidc_keycloak_base_url": oidc_keycloak_base_url,
             "oidc_bff_client_id": oidc_bff_client_id,
             "oidc_bff_redirect_uri": oidc_bff_redirect_uri,
+            "oidc_mfa_enabled": _form_bool(oidc_mfa_enabled),
+            "show_on_login": _form_bool(show_on_login),
+            "login_label": (login_label or "").strip(),
         }
     )
     enabled_requested = _form_bool(activate)
@@ -1178,6 +1199,10 @@ async def admin_realms_update(
             ),
             status_code=400,
         )
+
+    realm.oidc_mfa_enabled = _form_bool(oidc_mfa_enabled)
+    realm.show_on_login = _form_bool(show_on_login)
+    realm.login_label = (login_label or "").strip() or None
 
     db.commit()
     log_action(

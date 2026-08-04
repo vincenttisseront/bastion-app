@@ -256,6 +256,9 @@ def _show_breakglass_form(request: Request, db: Session, settings: Settings) -> 
 
 def _login_audience_label(realm: RealmConfig) -> str:
     """Short audience label for the login chooser (Interne / Clients / name)."""
+    custom = (getattr(realm, "login_label", None) or "").strip()
+    if custom:
+        return custom
     blob = f"{realm.slug or ''} {realm.name or ''}".lower()
     if any(token in blob for token in ("client", "externe", "customer")):
         return "Clients"
@@ -271,6 +274,7 @@ def _realm_is_login_ready(realm: RealmConfig) -> bool:
     """Enabled realm with enough OIDC config to offer a login path."""
     return bool(
         realm.enabled
+        and getattr(realm, "show_on_login", True)
         and (realm.issuer_url or "").strip()
         and (realm.client_id or "").strip()
     )
@@ -339,6 +343,7 @@ def _login_surface_flags(
             "native": is_oidc_native_session_enabled_for_realm(
                 db, row.slug, settings
             ),
+            "mfa": bool(getattr(row, "oidc_mfa_enabled", True)),
         }
         for row in login_realms
     ]
