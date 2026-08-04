@@ -166,6 +166,30 @@ def test_oidc_login_mfa_also_generic_401(
     assert "MFA" in (audit.details.get("detail") or "")
 
 
+def test_html_unsupported_flow_shows_action_message(
+    client: TestClient, db_session: Session, oidc_settings: Settings
+):
+    """HTML login must not masquerade required-action as invalid credentials."""
+    with patch(
+        "app.oidc_bff.start_headless_login",
+        new=AsyncMock(
+            side_effect=UnsupportedAuthFlowError(
+                "Flux Keycloak non supporté en headless: required action après login"
+            )
+        ),
+    ):
+        response = client.post(
+            "/auth/login",
+            data={"username": "alice", "password": "secret", "rd": "/apps"},
+            headers={"X-Real-IP": "10.0.0.23"},
+        )
+
+    assert response.status_code == 200
+    assert "Identifiants invalides" not in response.text
+    assert "action" in response.text.lower()
+    assert "Keycloak" in response.text
+
+
 def test_oidc_login_otp_required_json(
     client: TestClient, db_session: Session, oidc_settings: Settings
 ):

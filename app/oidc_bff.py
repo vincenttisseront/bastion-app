@@ -39,6 +39,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["oidc-bff"])
 
 _GENERIC_AUTH_FAILURE = "Identifiants invalides."
+_UNSUPPORTED_FLOW_LOGIN_ERROR = (
+    "Keycloak exige une action avant de finaliser la connexion "
+    "(souvent un mot de passe temporaire à changer, une vérification e-mail "
+    "ou une configuration MFA). Demandez à un administrateur de lever "
+    "l’action requise ou de réinitialiser le mot de passe en mode permanent."
+)
 # Sliding-window brute-force protection (process-local; no Redis).
 OIDC_LOGIN_MAX_FAILURES = 5
 OIDC_LOGIN_FAILURE_WINDOW_SECONDS = 60.0
@@ -714,7 +720,7 @@ async def oidc_login(
                 db,
                 rd=safe_rd,
                 username=username,
-                login_error=_GENERIC_AUTH_FAILURE,
+                login_error=_UNSUPPORTED_FLOW_LOGIN_ERROR,
                 realm=realm_slug,
             )
         raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
