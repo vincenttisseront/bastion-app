@@ -69,6 +69,14 @@ server {
     absolute_redirect off;
     port_in_redirect off;
 
+    # CrushFTP (and large portal uploads) hit THIS :443 layer first — without an
+    # explicit limit nginx defaults to 1m and returns 413 before :8080 (where
+    # transfer already has client_max_body_size 2G). Symptom: POST /U/…~1M fails
+    # with "client intended to send too large body" while keepalives still 200.
+    client_max_body_size 2G;
+    proxy_request_buffering off;
+    proxy_buffering off;
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_http_version 1.1;
@@ -140,6 +148,11 @@ server {
 
     access_log /var/log/nginx/apps/${slug}.access.log app;
     error_log  /var/log/nginx/apps/${slug}.error.log warn;
+
+    # See default_server block — same body limit / streaming on every FQDN.
+    client_max_body_size 2G;
+    proxy_request_buffering off;
+    proxy_buffering off;
 
     location / {
         proxy_pass http://127.0.0.1:8080;
