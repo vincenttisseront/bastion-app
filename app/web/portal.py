@@ -85,7 +85,10 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
     tiles: list[dict] = []
     for entry in entries:
         needs_credential_setup = needs_individual_credential_setup(
-            db, entry.app, user.keycloak_user_id
+            db,
+            entry.app,
+            user.keycloak_user_id,
+            group_names=user.groups,
         )
         can_launch = entry.can_launch and not needs_credential_setup
         cred_mode = normalize_credential_mode(entry.app.credential_mode)

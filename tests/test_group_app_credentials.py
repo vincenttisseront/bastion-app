@@ -15,6 +15,7 @@ from app.vault.group_app_credential_service import (
 from app.vault.user_app_credential_service import (
     GroupCredentialExcludedError,
     get_effective_credential,
+    needs_individual_credential_setup,
     resolve_credential,
     set_user_credential,
 )
@@ -228,3 +229,57 @@ def test_no_group_names_falls_back_to_app_shared(db_session: Session):
     )
     assert resolved.source == "shared"
     assert password == SECRET_SHARED
+
+
+def test_individual_required_satisfied_by_group_shared(db_session: Session):
+    """Portal 'Configuration requise' must not ignore group vault accounts."""
+    app = _make_app(db_session)
+    app.credential_mode = "individual_required"
+    db_session.commit()
+    group = _make_group(db_session)
+    settings = _settings()
+    set_group_credential(
+        db_session,
+        rbac_group_id=group.id,
+        app_slug="transfer",
+        robotic_username="sdis81-generic",
+        plain_password=SECRET_GROUP,
+        settings=settings,
+    )
+
+    row, source = get_effective_credential(
+        db_session, "transfer", KC_USER, group_names=[GROUP_NAME]
+    )
+    assert source == "group_shared"
+    assert row is not None
+    assert (
+        needs_individual_credential_setup(
+            db_session, app, KC_USER, group_names=[GROUP_NAME]
+        )
+        is False
+    )
+    assert needs_individual_credential_setup(db_session, app, KC_USER) is True
+
+
+def test_individual_required_exclusion_still_needs_setup(db_session: Session):
+    app = _make_app(db_session)
+    app.credential_mode = "individual_required"
+    db_session.commit()
+    group = _make_group(db_session)
+    settings = _settings()
+    cred = set_group_credential(
+        db_session,
+        rbac_group_id=group.id,
+        app_slug="transfer",
+        robotic_username="sdis81-generic",
+        plain_password=SECRET_GROUP,
+        settings=settings,
+    )
+    add_group_credential_exclusion(db_session, cred.id, KC_USER_EXCL)
+
+    assert (
+        needs_individual_credential_setup(
+            db_session, app, KC_USER_EXCL, group_names=[GROUP_NAME]
+        )
+        is True
+    )
