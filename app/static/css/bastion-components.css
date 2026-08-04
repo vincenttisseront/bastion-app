@@ -68,6 +68,19 @@
 .form-group[hidden]{display:none!important}
 .form-label{font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3)}
 .form-label .req{color:var(--err);margin-left:2px}
+
+/* RBAC user fiche — Identité */
+.user-fiche-identite{display:flex;flex-direction:column;gap:var(--sp-4)}
+.user-fiche-identite-grid{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(14rem,.85fr);gap:var(--sp-4);align-items:start}
+.user-fiche-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:var(--sp-4);align-items:stretch}
+.user-fiche-card{padding:var(--sp-4);margin:0;height:100%}
+.user-fiche-meta{display:flex;flex-direction:column;gap:var(--sp-4)}
+.user-fiche-meta-row{display:flex;flex-direction:column;gap:var(--sp-2)}
+.user-fiche-meta-row .mono{font-size:var(--fs-xs);word-break:break-all;line-height:1.45}
+.user-fiche-badges{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+@media(max-width:960px){
+  .user-fiche-identite-grid,.user-fiche-actions{grid-template-columns:1fr}
+}
 .form-input,.form-select,.form-textarea{
   width:100%;padding:var(--sp-3) var(--sp-4);
   background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--r-md);

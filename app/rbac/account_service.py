@@ -1108,6 +1108,51 @@ async def mark_keycloak_email_verified(
     db.commit()
 
 
+async def require_keycloak_configure_otp(
+    db: Session,
+    settings: Settings,
+    *,
+    realm: RealmConfig,
+    keycloak_user_id: str,
+    actor: str,
+    ip_address: str | None = None,
+    username: str | None = None,
+    bastion_account_id: int | None = None,
+) -> None:
+    """Queue Keycloak required action CONFIGURE_TOTP for next login (Bastion QR)."""
+    uid = (keycloak_user_id or "").strip()
+    if not uid:
+        raise AccountCreationError("Identifiant utilisateur Keycloak manquant")
+    if not realm_provisioning_ready(realm):
+        raise AccountCreationError(
+            "Provisioning non activé pour ce realm — requis pour modifier Keycloak."
+        )
+    try:
+        await update_keycloak_user(
+            realm,
+            settings,
+            keycloak_user_id=uid,
+            add_required_actions=["CONFIGURE_TOTP"],
+        )
+    except ValueError as exc:
+        raise AccountCreationError(str(exc)) from exc
+
+    label = (username or "").strip() or uid
+    log_action(
+        db,
+        actor=actor,
+        action="account.require_configure_otp",
+        target=_account_target(realm, label),
+        details={
+            "keycloak_user_id": uid,
+            "bastion_account_id": bastion_account_id,
+            "required_action": "CONFIGURE_TOTP",
+        },
+        ip_address=ip_address,
+    )
+    db.commit()
+
+
 async def provision_account_app(
     db: Session,
     settings: Settings,

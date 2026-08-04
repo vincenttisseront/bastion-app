@@ -337,3 +337,46 @@ def test_verify_email_endpoint(client, db_session):
     assert body["emailVerified"] is True
     assert "VERIFY_EMAIL" not in body.get("requiredActions", [])
     assert "UPDATE_PASSWORD" in body.get("requiredActions", [])
+
+
+@respx.mock
+def test_require_otp_endpoint(client, db_session):
+    realm = _realm(db_session)
+    account = BastionAccount(
+        realm_id=realm.id,
+        username="jdoe",
+        email="jdoe@example.com",
+        keycloak_user_id="kc-user-1",
+        status="keycloak_created",
+        origin="bastion",
+        created_by="admin@example.com",
+    )
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    get_route = respx.get(f"{KC_ADMIN}/users/kc-user-1").respond(
+        200,
+        json={
+            "id": "kc-user-1",
+            "username": "jdoe",
+            "email": "jdoe@example.com",
+            "emailVerified": True,
+            "requiredActions": ["UPDATE_PASSWORD"],
+            "enabled": True,
+        },
+    )
+    put_route = respx.put(f"{KC_ADMIN}/users/kc-user-1").respond(204)
+
+    resp = client.post(
+        f"/admin/rbac/accounts/{account.id}/require-otp",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"ok": True, "required_action": "CONFIGURE_TOTP"}
+    assert get_route.called
+    assert put_route.called
+    body = json.loads(put_route.calls.last.request.content)
+    assert "CONFIGURE_TOTP" in body.get("requiredActions", [])
+    assert "UPDATE_PASSWORD" in body.get("requiredActions", [])
