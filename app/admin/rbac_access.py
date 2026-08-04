@@ -187,6 +187,14 @@ def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
 
 
+def _safe_redirect_url(raw: str | None, fallback: str) -> str:
+    """Only allow same-origin relative admin paths (open-redirect guard)."""
+    value = (raw or "").strip()
+    if value.startswith("/admin/") and "://" not in value and "\\" not in value:
+        return value
+    return fallback
+
+
 def _ctx(request: Request, settings: Settings, **extra):
     from app.web.constants import APP_VERSION
     from app.web.flash import base_template_context
@@ -524,6 +532,9 @@ async def admin_rbac_users_page(
     q: str | None = None,
     page: int = 1,
     page_size: int | None = None,
+    groups_q: str | None = None,
+    groups_page: int = 1,
+    groups_include_empty: str | None = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -656,8 +667,38 @@ async def admin_rbac_users_page(
         )
 
     user_stats = await fetch_user_directory_stats(db, selected_realm, settings)
-    distribution = group_distribution(db)
-    all_groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
+    include_empty = (groups_include_empty or "").strip().lower() in (
+        "1",
+        "true",
+        "on",
+        "yes",
+    )
+    distribution = group_distribution(
+        db,
+        q=groups_q,
+        include_empty=include_empty,
+        page=groups_page,
+        page_size=25,
+    )
+    # Facet filter: only non-empty groups (+ keep current selection visible).
+    filter_groups_q = (
+        db.query(RBACGroup)
+        .filter(func.coalesce(RBACGroup.member_count, 0) > 0)
+        .order_by(RBACGroup.name)
+    )
+    filter_groups = filter_groups_q.all()
+    if group:
+        selected_g = db.query(RBACGroup).filter_by(name=group).first()
+        if selected_g and all(g.id != selected_g.id for g in filter_groups):
+            filter_groups = [selected_g, *filter_groups]
+
+    bulk_groups = (
+        db.query(RBACGroup)
+        .filter(RBACGroup.keycloak_group_id.is_not(None))
+        .order_by(RBACGroup.name)
+        .limit(500)
+        .all()
+    )
 
     from app.files.service import file_grant_select_options, folder_grant_select_options
 
@@ -678,6 +719,14 @@ async def admin_rbac_users_page(
             params["page_size"] = page_size
         params["list_tab"] = tab
         params["page"] = list_meta.get("page", 1)
+        gq = (groups_q or "").strip()
+        if gq:
+            params["groups_q"] = gq
+        if include_empty:
+            params["groups_include_empty"] = "1"
+        gp = distribution.get("list_meta", {}).get("page", 1)
+        if gp and int(gp) > 1:
+            params["groups_page"] = gp
         params.update(overrides)
         # Drop empty / None
         clean = {k: v for k, v in params.items() if v is not None and v != ""}
@@ -710,7 +759,8 @@ async def admin_rbac_users_page(
             list_tab=tab,
             user_stats=user_stats.as_dict(),
             group_distribution=distribution,
-            filter_groups=all_groups,
+            filter_groups=filter_groups,
+            bulk_groups=bulk_groups,
             filter_group=group or "",
             filter_status=status or "tous",
             filter_q=search_q,
@@ -728,6 +778,144 @@ async def admin_rbac_users_page(
     )
 
 
+@router.post("/admin/rbac/users/bulk/groups")
+async def admin_rbac_users_bulk_groups(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    action: str = Form(...),
+    group_id: int = Form(...),
+    account_ids: list[int] | None = Form(None),
+    select_all_matching: str = Form(""),
+    q: str = Form(""),
+    realm_id: int | None = Form(None),
+    group: str = Form(""),
+    status: str = Form("tous"),
+    redirect_url: str = Form("/admin/rbac/users?list_tab=bastion"),
+):
+    """Bulk add/remove bastion accounts to/from one Keycloak-synced group."""
+    from app.rbac.account_service import AccountCreationError
+    from app.rbac.users_bulk_service import (
+        bulk_assign_or_remove_groups,
+        resolve_bastion_account_ids,
+    )
+
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = "/admin/rbac/users?list_tab=bastion"
+    act = (action or "").strip().lower()
+    if act not in {"add", "remove"}:
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, "Action bulk invalide.", "error", secret)
+        return response
+
+    ids = resolve_bastion_account_ids(
+        db,
+        account_ids=account_ids or [],
+        select_all_matching=(select_all_matching or "").lower()
+        in ("1", "true", "on", "yes"),
+        q=q,
+        realm_id=realm_id,
+        group_name=group or None,
+        status_filter=status,
+    )
+    try:
+        result = await bulk_assign_or_remove_groups(
+            db,
+            settings,
+            account_ids=ids,
+            group_id=group_id,
+            action=act,  # type: ignore[arg-type]
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except AccountCreationError as exc:
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    verb = "ajoutés à" if act == "add" else "retirés de"
+    msg = (
+        f"{result['ok_count']} utilisateur(s) {verb} « {result['group']} »."
+    )
+    if result["error_count"]:
+        msg += f" {result['error_count']} échec(s)."
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    flash_redirect(
+        response,
+        msg,
+        "warning" if result["error_count"] else "success",
+        secret,
+    )
+    return response
+
+
+@router.get("/admin/rbac/users/export.csv")
+async def admin_rbac_users_export_csv(
+    request: Request,
+    q: str | None = None,
+    realm_id: int | None = None,
+    group: str | None = None,
+    status: str | None = None,
+    ids: str | None = None,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """CSV export of bastion accounts (filter or comma-separated ids)."""
+    from fastapi.responses import Response as FastAPIResponse
+
+    from app.rbac.users_bulk_service import bastion_accounts_csv
+
+    account_ids: list[int] | None = None
+    if ids:
+        account_ids = []
+        for part in ids.split(","):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                account_ids.append(int(part))
+            except ValueError:
+                continue
+
+    csv_body = bastion_accounts_csv(
+        db,
+        q=q,
+        realm_id=realm_id,
+        group_name=group,
+        status_filter=status,
+        account_ids=account_ids,
+    )
+    log_action(
+        db,
+        actor=user.email,
+        action="users.export_csv",
+        details={
+            "q": q or "",
+            "realm_id": realm_id,
+            "group": group or "",
+            "status": status or "",
+            "ids_count": len(account_ids or []),
+        },
+        ip_address=_client_ip(request),
+    )
+    db.commit()
+    return FastAPIResponse(
+        content=csv_body,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="bastion-users.csv"',
+        },
+    )
+
+
 @router.get("/admin/rbac/users/{keycloak_user_id}")
 async def admin_rbac_user_detail(
     keycloak_user_id: str,
@@ -739,7 +927,7 @@ async def admin_rbac_user_detail(
 ):
     # Reserved path segments must never be treated as Keycloak user ids
     # (defence if router registration order regresses).
-    if keycloak_user_id in {"new", "search", "accounts", "view"}:
+    if keycloak_user_id in {"new", "search", "accounts", "view", "bulk", "export.csv"}:
         raise HTTPException(status_code=404, detail="Not Found")
     realm = _realm_or_404(db, realm_id)
     try:

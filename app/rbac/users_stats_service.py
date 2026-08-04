@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.models import AccessGrant, ActiveSession, AuditLog, RBACGroup, RealmConfig, utcnow
@@ -206,41 +206,93 @@ def connection_anomalies(db: Session, *, limit: int = 12) -> list[dict[str, Any]
     return out
 
 
-def group_distribution(db: Session) -> dict[str, Any]:
-    """Membership snapshot for the Users page widget.
+def group_distribution(
+    db: Session,
+    *,
+    q: str | None = None,
+    include_empty: bool = False,
+    page: int = 1,
+    page_size: int = 25,
+) -> dict[str, Any]:
+    """Paginated membership snapshot for the Users page widget.
 
-    Rows are sorted by ``member_count`` desc (then name). Percentages are the
-    share of total memberships; ``bar_percent`` is relative to the largest
-    group so the top bar fills the track.
+    Empty groups are excluded by default. Sort: member_count desc, then name.
     """
-    groups = db.query(RBACGroup).order_by(RBACGroup.name).all()
-    total = sum(int(g.member_count or 0) for g in groups)
+    from app.rbac.users_list_service import (
+        clamp_page_size,
+        pagination_meta,
+    )
+
+    page_size = clamp_page_size(page_size)
+    total_groups = db.query(func.count(RBACGroup.id)).scalar() or 0
+    with_members = (
+        db.query(func.count(RBACGroup.id))
+        .filter(func.coalesce(RBACGroup.member_count, 0) > 0)
+        .scalar()
+        or 0
+    )
+    empty_groups = int(total_groups) - int(with_members)
+    memberships = (
+        db.query(func.coalesce(func.sum(RBACGroup.member_count), 0)).scalar() or 0
+    )
+    memberships = int(memberships)
+
+    query = db.query(RBACGroup)
+    needle = (q or "").strip()
+    if needle:
+        query = query.filter(RBACGroup.name.ilike(f"%{needle}%"))
+    if not include_empty:
+        query = query.filter(func.coalesce(RBACGroup.member_count, 0) > 0)
+
+    filtered_total = query.with_entities(func.count(RBACGroup.id)).scalar() or 0
+    meta = pagination_meta(
+        total=int(filtered_total), page=page, page_size=page_size
+    )
+    rows_orm = (
+        query.order_by(
+            func.coalesce(RBACGroup.member_count, 0).desc(),
+            RBACGroup.name.asc(),
+        )
+        .offset(meta["offset"])
+        .limit(page_size)
+        .all()
+    )
+
+    max_count = max((int(g.member_count or 0) for g in rows_orm), default=0)
+    # For bar scale prefer global max among filtered (not just page).
+    max_row = (
+        query.order_by(func.coalesce(RBACGroup.member_count, 0).desc())
+        .limit(1)
+        .first()
+    )
+    if max_row is not None:
+        max_count = max(max_count, int(max_row.member_count or 0))
+
     rows: list[dict[str, Any]] = []
-    for g in groups:
+    for g in rows_orm:
         count = int(g.member_count or 0)
-        share = int(round(100.0 * count / total)) if total else 0
+        share = int(round(100.0 * count / memberships)) if memberships else 0
         rows.append(
             {
                 "id": g.id,
                 "name": g.name,
                 "member_count": count,
                 "percent": share,
-                "bar_percent": 0,
+                "bar_percent": (
+                    int(round(100.0 * count / max_count)) if max_count else 0
+                ),
             }
         )
-    rows.sort(key=lambda r: (-int(r["member_count"]), str(r["name"]).casefold()))
-    max_count = max((int(r["member_count"]) for r in rows), default=0)
-    for r in rows:
-        r["bar_percent"] = (
-            int(round(100.0 * int(r["member_count"]) / max_count)) if max_count else 0
-        )
-    with_members = sum(1 for r in rows if int(r["member_count"]) > 0)
+
     return {
         "rows": rows,
-        "total_groups": len(rows),
-        "with_members": with_members,
-        "empty_groups": len(rows) - with_members,
-        "total_memberships": total,
+        "total_groups": int(total_groups),
+        "with_members": int(with_members),
+        "empty_groups": int(empty_groups),
+        "total_memberships": memberships,
+        "include_empty": bool(include_empty),
+        "q": needle,
+        "list_meta": meta,
     }
 
 
