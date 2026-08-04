@@ -38,6 +38,8 @@
               <th>Test</th>
               <th>Statut</th>
               <th>OIDC natif</th>
+              <th>MFA</th>
+              <th>Login</th>
               <th></th>
             </tr>
           </thead>
@@ -65,6 +67,20 @@
                   <span class="badge badge-ok" title="Session native OIDC (pilote)">Pilote ON</span>
                 {% else %}
                   <span class="badge badge-muted">OFF</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if realm.oidc_mfa_enabled %}
+                  <span class="badge badge-ok">ON</span>
+                {% else %}
+                  <span class="badge badge-muted">OFF</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if realm.show_on_login %}
+                  <span class="badge badge-info" title="{{ realm.login_label or realm.name }}">Visible</span>
+                {% else %}
+                  <span class="badge badge-muted">Masqué</span>
                 {% endif %}
               </td>
               <td>
@@ -101,7 +117,7 @@
             </tr>
             {% else %}
             <tr>
-              <td colspan="7">
+              <td colspan="10">
                 <div class="empty-state">
                   <div class="empty-icon">
                     <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">

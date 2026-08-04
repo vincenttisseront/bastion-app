@@ -536,6 +536,13 @@ class RealmConfig(Base):
     enabled = Column(Boolean, default=False)
     # Pilot rollout: accept/issue bastion_session for this realm (Admin toggle).
     oidc_native_session_enabled = Column(Boolean, nullable=False, default=False)
+    # Bastion-side MFA for native OIDC: enrollment UI + admin « Configurer OTP ».
+    # When false, CONFIGURE_TOTP is refused; login OTP challenge still honored if IdP asks.
+    oidc_mfa_enabled = Column(Boolean, nullable=False, default=True)
+    # Public login chooser: show this realm among Interne / Clients / … options.
+    show_on_login = Column(Boolean, nullable=False, default=True)
+    # Optional short label for the login audience tabs (overrides heuristic).
+    login_label = Column(String, nullable=True)
     # Native OIDC BFF client (per-realm) — secrets Fernet, never returned in clear by API/UI.
     oidc_keycloak_base_url = Column(String, nullable=True)
     oidc_bff_client_id = Column(String, nullable=True)

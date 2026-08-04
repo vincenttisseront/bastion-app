@@ -232,7 +232,7 @@
         </div>
         {% endif %}
 
-        {% if keycloak_user_id and realm %}
+        {% if keycloak_user_id and realm and oidc_mfa_enabled | default(true) %}
         <div class="card user-fiche-card">
           <h3 class="card-title" style="margin-top:0;">Authenticator OTP</h3>
           <p class="form-hint" style="margin:0 0 var(--sp-3);">
@@ -253,6 +253,14 @@
               {% if otp_configure_pending %}Réimposer la configuration OTP{% else %}Configurer OTP{% endif %}
             </button>
           </form>
+        </div>
+        {% elif keycloak_user_id and realm %}
+        <div class="card user-fiche-card">
+          <h3 class="card-title" style="margin-top:0;">Authenticator OTP</h3>
+          <p class="form-hint" style="margin:0;">
+            MFA désactivé pour le realm <span class="mono">{{ realm.slug }}</span>
+            (Admin → Realms → MFA / OTP).
+          </p>
         </div>
         {% endif %}
 

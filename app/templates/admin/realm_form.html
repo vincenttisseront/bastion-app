@@ -94,6 +94,34 @@
           </p>
         </div>
         {% endif %}
+        <div class="form-group">
+          <label class="form-check">
+            <input type="checkbox" name="oidc_mfa_enabled" value="1" {% if form_values.oidc_mfa_enabled %}checked{% endif %}>
+            MFA / OTP (session native)
+          </label>
+          <p class="form-help">
+            Autorise l'enrôlement OTP Bastion (QR) et le bouton admin « Configurer OTP ».
+            Désactiver si ce realm ne doit pas forcer le MFA côté Bastion — alignez aussi les flows Keycloak.
+            Un challenge OTP déjà configuré côté IdP reste honoré à la connexion.
+          </p>
+        </div>
+        <div class="form-group">
+          <label class="form-check">
+            <input type="checkbox" name="show_on_login" value="1" {% if form_values.show_on_login %}checked{% endif %}>
+            Afficher sur la page de login
+          </label>
+          <p class="form-help">
+            Inclure ce realm dans le sélecteur Interne / Clients (ou libellé ci-dessous).
+            Décochez pour un realm utilisé uniquement en RBAC / apps, sans entrée sur le login public.
+          </p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="login_label">Libellé login (optionnel)</label>
+          <input type="text" id="login_label" name="login_label" class="form-input"
+                 value="{{ form_values.login_label }}" maxlength="40"
+                 placeholder="ex. Clients, Interne, Partenaires" autocomplete="off">
+          <p class="form-hint">Court libellé du sélecteur multi-realm. Vide = détection automatique (Clients / Interne / nom).</p>
+        </div>
         <div class="form-group form-section-gap">
           <div class="form-section-title" style="font-size:1rem;margin-bottom:.5rem">Client OIDC BFF (session native)</div>
           <p class="form-help">

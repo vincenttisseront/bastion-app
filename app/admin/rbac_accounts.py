@@ -445,6 +445,7 @@ async def admin_rbac_user_view(
             str(a) for a in (kc_user.get("requiredActions") or []) if a
         ]
     otp_configure_pending = "CONFIGURE_TOTP" in kc_required_actions
+    oidc_mfa_enabled = bool(getattr(realm, "oidc_mfa_enabled", True))
 
     from app.files.service import file_grant_select_options, folder_grant_select_options
 
@@ -468,6 +469,7 @@ async def admin_rbac_user_view(
             kc_email_diag=kc_email_diag,
             kc_required_actions=kc_required_actions,
             otp_configure_pending=otp_configure_pending,
+            oidc_mfa_enabled=oidc_mfa_enabled,
             kc_groups=kc_groups,
             membership_rows=membership_rows,
             assignable_groups=assignable_groups,

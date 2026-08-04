@@ -380,3 +380,29 @@ def test_require_otp_endpoint(client, db_session):
     body = json.loads(put_route.calls.last.request.content)
     assert "CONFIGURE_TOTP" in body.get("requiredActions", [])
     assert "UPDATE_PASSWORD" in body.get("requiredActions", [])
+
+
+@respx.mock
+def test_require_otp_blocked_when_mfa_disabled(client, db_session):
+    realm = _realm(db_session)
+    realm.oidc_mfa_enabled = False
+    db_session.commit()
+    account = BastionAccount(
+        realm_id=realm.id,
+        username="jdoe",
+        email="jdoe@example.com",
+        keycloak_user_id="kc-user-1",
+        status="keycloak_created",
+        origin="bastion",
+        created_by="admin@example.com",
+    )
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+
+    resp = client.post(
+        f"/admin/rbac/accounts/{account.id}/require-otp",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 400, resp.text
+    assert "MFA" in resp.json()["errors"]["_form"]
