@@ -49,7 +49,10 @@
             <option value="{{ r.id }}"{% if initial_realm_id == r.id|string %} selected{% endif %}>{{ r.name }} ({{ r.slug }})</option>
             {% endfor %}
           </select>
-          <p class="form-help">Seuls les realms avec provisioning activé sont listés. Les groupes RBAC sont filtrés sur ce realm.</p>
+          <p class="form-help">
+          Realm principal du compte. Les groupes d’autres realms créent un compte
+          Keycloak jumeau (même identifiant) dans ces realms.
+        </p>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -111,8 +114,8 @@
         <button type="button" class="ds-accordion-expand" aria-expanded="{{ 'true' if selected_groups else 'false' }}" tabindex="-1">▸</button>
         <div>
           <div class="form-section-title">Groupes RBAC</div>
-          <div class="form-section-sub">Optionnel — groupes du realm cible uniquement</div>
-          <div class="form-section-summary is-off" data-groups-summary>Filtrage par realm…</div>
+          <div class="form-section-sub">Optionnel — tous realms (un compte Keycloak jumeau est créé si besoin)</div>
+          <div class="form-section-summary is-off" data-groups-summary>Filtrage…</div>
         </div>
       </div>
       <div class="form-body">
@@ -125,8 +128,9 @@
         <div class="stack" style="gap:var(--sp-3); max-height:22rem; overflow:auto; padding-right:var(--sp-2);" data-groups-list>
           {% for g in provision_groups %}
           <label class="form-check" data-group-row data-realm-id="{{ g.realm_id }}"
-                 data-group-label="{{ (g.name ~ ' ' ~ (g.path or ''))|lower }}" hidden>
-            <input type="checkbox" name="group_ids" value="{{ g.id }}" data-group-checkbox disabled{% if g.id in selected_groups %} checked{% endif %}>
+                 data-group-label="{{ ((g.realm_slug or '') ~ ' ' ~ g.name ~ ' ' ~ (g.path or ''))|lower }}">
+            <input type="checkbox" name="group_ids" value="{{ g.id }}" data-group-checkbox{% if g.id in selected_groups %} checked{% endif %}>
+            <span class="badge badge-muted">{{ g.realm_slug or '?' }}</span>
             <span>{{ g.name }}</span>
             {% if g.path %}<span class="mono" style="color:var(--text-3); font-size:var(--fs-xs);">{{ g.path }}</span>{% endif %}
           </label>
@@ -229,28 +233,22 @@
     }
 
     function syncGroups() {
-      var realmId = String(select.value || "");
       var q = (filterInput && filterInput.value || "").trim().toLowerCase();
       var visible = 0;
       var selected = 0;
       var matchedFilter = 0;
       rows.forEach(function (row) {
-        var matchRealm = String(row.getAttribute("data-realm-id") || "") === realmId;
         var label = String(row.getAttribute("data-group-label") || "");
         var matchFilter = !q || label.indexOf(q) !== -1;
         var cb = row.querySelector("[data-group-checkbox]");
-        var show = matchRealm && matchFilter;
-        row.hidden = !show;
-        // Belt-and-suspenders: .form-check { display:flex } can beat UA [hidden]
-        // until CSS .form-check[hidden]{display:none!important} is loaded.
-        row.style.display = show ? "" : "none";
+        row.hidden = !matchFilter;
+        row.style.display = matchFilter ? "" : "none";
         if (cb) {
-          cb.disabled = !matchRealm;
-          if (!matchRealm) cb.checked = false;
-          else if (cb.checked) selected += 1;
+          cb.disabled = false;
+          if (cb.checked) selected += 1;
         }
-        if (matchRealm) visible += 1;
-        if (show) matchedFilter += 1;
+        visible += 1;
+        if (matchFilter) matchedFilter += 1;
       });
       if (emptyHint) emptyHint.hidden = visible > 0 || rows.length === 0;
       if (filterEmpty) {
@@ -258,9 +256,9 @@
       }
       if (summary) {
         summary.classList.toggle("is-off", visible === 0);
-        if (selected > 0) summary.textContent = selected + " sélectionné(s) · " + visible + " pour ce realm";
-        else if (visible > 0) summary.textContent = visible + " groupe(s) pour ce realm";
-        else summary.textContent = "Aucun groupe pour ce realm";
+        if (selected > 0) summary.textContent = selected + " sélectionné(s) · " + visible + " groupe(s)";
+        else if (visible > 0) summary.textContent = visible + " groupe(s) (tous realms)";
+        else summary.textContent = "Aucun groupe";
       }
     }
 

@@ -362,8 +362,8 @@ def test_users_page_lists_bastion_accounts_without_grants(client, db_session):
 
 
 @respx.mock
-def test_bastion_account_creation_ignores_foreign_realm_group(client, db_session):
-    """A group from another realm must never be assigned (UI + crafted POST)."""
+def test_bastion_account_creation_assigns_foreign_realm_group(client, db_session):
+    """Groups from another realm create a linked Keycloak identity there."""
     target = _realm(db_session)
     other = RealmConfig(
         slug="other",
@@ -375,7 +375,9 @@ def test_bastion_account_creation_ignores_foreign_realm_group(client, db_session
         oauth2_proxy_port=4181,
         enabled=True,
         keycloak_provision_client_id="bastion-admin-provision",
-        keycloak_provision_client_secret_encrypted=encrypt_secret("prov-secret", _settings()),
+        keycloak_provision_client_secret_encrypted=encrypt_secret(
+            "prov-secret", _settings()
+        ),
         provisioning_enabled=True,
     )
     db_session.add(other)
@@ -384,13 +386,28 @@ def test_bastion_account_creation_ignores_foreign_realm_group(client, db_session
     foreign = _group(db_session, other)  # group belongs to OTHER, not target
     company = _group(db_session, target, name=ORG, kc_id="g-company")
 
+    other_admin = f"{KC_BASE}/admin/realms/OTHER"
+    other_token = f"{KC_BASE}/realms/OTHER/protocol/openid-connect/token"
+
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    respx.post(other_token).respond(200, json={"access_token": "other-token"})
     _mock_no_duplicate()
+    respx.get(
+        f"{other_admin}/users",
+        params={"username": "jdoe", "exact": "true", "max": "2"},
+    ).respond(200, json=[])
+    respx.get(
+        f"{other_admin}/users",
+        params={"email": "jdoe@example.com", "exact": "true", "max": "2"},
+    ).respond(200, json=[])
     respx.post(f"{KC_ADMIN}/users").respond(
         201, headers={"Location": f"{KC_ADMIN}/users/kc-new-1"}
     )
+    respx.post(f"{other_admin}/users").respond(
+        201, headers={"Location": f"{other_admin}/users/kc-other-1"}
+    )
     foreign_group_route = respx.put(
-        f"{KC_ADMIN}/users/kc-new-1/groups/{foreign.keycloak_group_id}"
+        f"{other_admin}/users/kc-other-1/groups/{foreign.keycloak_group_id}"
     ).respond(204)
     company_group_route = respx.put(
         f"{KC_ADMIN}/users/kc-new-1/groups/{company.keycloak_group_id}"
@@ -403,12 +420,19 @@ def test_bastion_account_creation_ignores_foreign_realm_group(client, db_session
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["ok"] is True
-    assert not foreign_group_route.called
+    assert foreign_group_route.called
     assert company_group_route.called
+    linked = (
+        db_session.query(BastionAccount)
+        .filter_by(realm_id=other.id, username="jdoe")
+        .first()
+    )
+    assert linked is not None
+    assert linked.keycloak_user_id == "kc-other-1"
 
 
 def test_users_new_form_groups_tagged_by_realm(client, db_session):
-    """Each group checkbox carries data-realm-id for client-side filtering."""
+    """Each group checkbox carries data-realm-id for multi-realm selection."""
     realm = _realm(db_session)
     group = _group(db_session, realm)
     resp = client.get("/admin/rbac/users/new", headers=ADMIN_HEADERS)
@@ -418,7 +442,7 @@ def test_users_new_form_groups_tagged_by_realm(client, db_session):
     assert "data-group-filter" in resp.text
     assert "data-group-label=" in resp.text
     assert "reveal_password" in resp.text
-    assert "groupes du realm cible" in resp.text.lower() or "Groupes du realm cible" in resp.text
+    assert "tous realms" in resp.text.lower()
 
 
 @respx.mock

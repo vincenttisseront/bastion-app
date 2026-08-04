@@ -37,6 +37,7 @@ from app.models import (
     BastionAccount,
     BastionAccountProvisioning,
     BASTION_ACCOUNT_ORIGIN_BASTION,
+    BASTION_ACCOUNT_ORIGIN_KEYCLOAK,
     RBACGroup,
     RealmConfig,
     UserAppCredential,
@@ -51,6 +52,7 @@ from app.rbac.keycloak_admin import (
     find_keycloak_user_exact,
     get_provision_token,
     provisioning_configured,
+    remove_user_from_keycloak_group,
     reset_keycloak_password,
     update_keycloak_user,
 )
@@ -307,6 +309,255 @@ async def sync_company_groups_from_crushftp(
     }
 
 
+def linked_bastion_accounts(
+    db: Session,
+    *,
+    account: BastionAccount,
+) -> list[BastionAccount]:
+    """Sibling BastionAccounts for the same person (username or email)."""
+    from sqlalchemy import or_
+
+    username = (account.username or "").strip()
+    email = (account.email or "").strip()
+    clauses = [BastionAccount.id == account.id]
+    if username:
+        clauses.append(BastionAccount.username == username)
+    if email:
+        clauses.append(BastionAccount.email == email)
+    rows = (
+        db.query(BastionAccount)
+        .filter(or_(*clauses))
+        .order_by(BastionAccount.realm_id.asc(), BastionAccount.id.asc())
+        .all()
+    )
+    seen: set[int] = set()
+    linked: list[BastionAccount] = []
+    for row in rows:
+        if row.id in seen:
+            continue
+        seen.add(row.id)
+        linked.append(row)
+    return linked
+
+
+async def ensure_identity_in_realm(
+    db: Session,
+    settings: Settings,
+    *,
+    source_account: BastionAccount,
+    target_realm: RealmConfig,
+    actor: str,
+    ip_address: str | None = None,
+) -> BastionAccount:
+    """Find or create BastionAccount + Keycloak user in ``target_realm`` for source identity."""
+    if target_realm.id == source_account.realm_id and source_account.keycloak_user_id:
+        return source_account
+
+    existing = (
+        db.query(BastionAccount)
+        .filter_by(realm_id=target_realm.id, username=source_account.username)
+        .first()
+    )
+    if existing is not None and existing.keycloak_user_id:
+        return existing
+
+    if not realm_provisioning_ready(target_realm):
+        raise AccountCreationError(
+            f"Provisioning non activé pour le realm « {target_realm.slug} » "
+            "(requis pour y rattacher des groupes Keycloak)."
+        )
+
+    token = await get_provision_token(target_realm, settings)
+    found = await find_keycloak_user_exact(
+        target_realm,
+        settings,
+        username=source_account.username,
+        email=source_account.email,
+        token=token,
+    )
+
+    if existing is None:
+        existing = BastionAccount(
+            realm_id=target_realm.id,
+            username=source_account.username,
+            email=source_account.email,
+            first_name=source_account.first_name,
+            last_name=source_account.last_name,
+            organization=source_account.organization,
+            status="pending",
+            origin=BASTION_ACCOUNT_ORIGIN_BASTION,
+            created_by=actor or source_account.created_by or "system",
+        )
+        db.add(existing)
+        db.flush()
+
+    if not existing.keycloak_user_id:
+        if found:
+            existing.keycloak_user_id = str(found.get("id") or "")
+            existing.origin = BASTION_ACCOUNT_ORIGIN_KEYCLOAK
+            existing.status = "keycloak_created"
+            existing.last_error = None
+        else:
+            initial_password = generate_initial_password()
+            try:
+                uid = await create_keycloak_user(
+                    target_realm,
+                    settings,
+                    username=source_account.username,
+                    email=source_account.email,
+                    first_name=source_account.first_name,
+                    last_name=source_account.last_name,
+                    initial_password=initial_password,
+                    temporary_password=True,
+                )
+            except ValueError as exc:
+                initial_password = ""  # noqa: F841
+                raise AccountCreationError(str(exc)) from exc
+            initial_password = ""  # noqa: F841
+            existing.keycloak_user_id = uid
+            existing.origin = BASTION_ACCOUNT_ORIGIN_BASTION
+            existing.status = "keycloak_created"
+            existing.last_error = None
+            log_action(
+                db,
+                actor=actor,
+                action="account.keycloak_created",
+                target=_account_target(target_realm, existing.username),
+                details={
+                    "realm_slug": target_realm.slug,
+                    "username": existing.username,
+                    "keycloak_user_id": uid,
+                    "bastion_account_id": existing.id,
+                    "linked_from_account_id": source_account.id,
+                    "required_actions": ["UPDATE_PASSWORD"],
+                },
+                ip_address=ip_address,
+            )
+
+    db.commit()
+    return existing
+
+
+async def assign_account_to_rbac_group(
+    db: Session,
+    settings: Settings,
+    *,
+    source_account: BastionAccount,
+    group: RBACGroup,
+    actor: str,
+    ip_address: str | None = None,
+) -> BastionAccount:
+    """Add identity to a Keycloak group (any realm) — creates linked account if needed."""
+    if not group.keycloak_group_id or group.realm_id is None:
+        raise AccountCreationError("Groupe non synchronisé Keycloak")
+    target_realm = (
+        db.query(RealmConfig).filter_by(id=group.realm_id).first()
+    )
+    if target_realm is None:
+        raise AccountCreationError("Realm du groupe introuvable")
+
+    target_account = await ensure_identity_in_realm(
+        db,
+        settings,
+        source_account=source_account,
+        target_realm=target_realm,
+        actor=actor,
+        ip_address=ip_address,
+    )
+    assert target_account.keycloak_user_id
+    token = await get_provision_token(target_realm, settings)
+    try:
+        await add_user_to_keycloak_group(
+            target_realm,
+            settings,
+            keycloak_user_id=target_account.keycloak_user_id,
+            keycloak_group_id=group.keycloak_group_id,
+            token=token,
+        )
+    except ValueError as exc:
+        raise AccountCreationError(str(exc)) from exc
+
+    log_action(
+        db,
+        actor=actor,
+        action="account.group_assigned",
+        target=_account_target(target_realm, target_account.username),
+        details={
+            "group": group.name,
+            "keycloak_group_id": group.keycloak_group_id,
+            "rbac_group_id": group.id,
+            "bastion_account_id": target_account.id,
+            "source_account_id": source_account.id,
+        },
+        ip_address=ip_address,
+    )
+    db.commit()
+    return target_account
+
+
+async def remove_account_from_rbac_group(
+    db: Session,
+    settings: Settings,
+    *,
+    source_account: BastionAccount,
+    group: RBACGroup,
+    actor: str,
+    ip_address: str | None = None,
+) -> BastionAccount | None:
+    """Remove identity from a Keycloak group in the group's realm."""
+    if not group.keycloak_group_id or group.realm_id is None:
+        raise AccountCreationError("Groupe non synchronisé Keycloak")
+    target_realm = db.query(RealmConfig).filter_by(id=group.realm_id).first()
+    if target_realm is None:
+        raise AccountCreationError("Realm du groupe introuvable")
+
+    target_account = (
+        db.query(BastionAccount)
+        .filter_by(realm_id=target_realm.id, username=source_account.username)
+        .first()
+    )
+    if target_account is None or not target_account.keycloak_user_id:
+        # Fallback: same email in that realm
+        email = (source_account.email or "").strip().lower()
+        if email:
+            for row in db.query(BastionAccount).filter_by(realm_id=target_realm.id).all():
+                if (row.email or "").strip().lower() == email and row.keycloak_user_id:
+                    target_account = row
+                    break
+    if target_account is None or not target_account.keycloak_user_id:
+        raise AccountCreationError(
+            f"Aucun compte Keycloak lié dans le realm « {target_realm.slug} »"
+        )
+
+    token = await get_provision_token(target_realm, settings)
+    try:
+        await remove_user_from_keycloak_group(
+            target_realm,
+            settings,
+            keycloak_user_id=target_account.keycloak_user_id,
+            keycloak_group_id=group.keycloak_group_id,
+            token=token,
+        )
+    except ValueError as exc:
+        raise AccountCreationError(str(exc)) from exc
+
+    log_action(
+        db,
+        actor=actor,
+        action="account.group_removed",
+        target=_account_target(target_realm, target_account.username),
+        details={
+            "group": group.name,
+            "keycloak_group_id": group.keycloak_group_id,
+            "rbac_group_id": group.id,
+            "bastion_account_id": target_account.id,
+        },
+        ip_address=ip_address,
+    )
+    db.commit()
+    return target_account
+
+
 async def _assign_groups_and_provision_apps(
     db: Session,
     settings: Settings,
@@ -319,20 +570,21 @@ async def _assign_groups_and_provision_apps(
     actor: str,
     ip_address: str | None,
 ) -> list[str]:
-    """After Keycloak user exists — assign groups then provision apps."""
+    """After Keycloak user exists — assign groups then provision apps.
+
+    Groups from other realms create/link a sibling BastionAccount then assign
+    via that realm's Keycloak Admin API.
+    """
     errors: list[str] = []
     keycloak_user_id = account.keycloak_user_id
     assert keycloak_user_id  # caller guarantees
+    _ = provision_token  # kept for call-site compatibility
 
     selected_group_names: list[str] = []
     for group_id in group_ids:
-        group = (
-            db.query(RBACGroup)
-            .filter_by(id=group_id, realm_id=realm.id)
-            .first()
-        )
-        if group is None or not group.keycloak_group_id:
-            msg = f"Groupe RBAC #{group_id} introuvable pour ce realm"
+        group = db.query(RBACGroup).filter_by(id=group_id).first()
+        if group is None or not group.keycloak_group_id or group.realm_id is None:
+            msg = f"Groupe RBAC #{group_id} introuvable ou non synchronisé Keycloak"
             errors.append(msg)
             log_action(
                 db,
@@ -345,22 +597,15 @@ async def _assign_groups_and_provision_apps(
             continue
         selected_group_names.append(group.name)
         try:
-            await add_user_to_keycloak_group(
-                realm,
-                settings,
-                keycloak_user_id=keycloak_user_id,
-                keycloak_group_id=group.keycloak_group_id,
-                token=provision_token,
-            )
-            log_action(
+            await assign_account_to_rbac_group(
                 db,
+                settings,
+                source_account=account,
+                group=group,
                 actor=actor,
-                action="account.group_assigned",
-                target=_account_target(realm, account.username),
-                details={"group": group.name, "keycloak_group_id": group.keycloak_group_id},
                 ip_address=ip_address,
             )
-        except ValueError as exc:
+        except AccountCreationError as exc:
             msg = f"Groupe {group.name} : {exc}"
             errors.append(msg)
             log_action(
@@ -368,7 +613,12 @@ async def _assign_groups_and_provision_apps(
                 actor=actor,
                 action="account.group_assign_failed",
                 target=_account_target(realm, account.username),
-                details={"group": group.name, "error": str(exc)},
+                details={
+                    "group": group.name,
+                    "group_id": group.id,
+                    "realm_id": group.realm_id,
+                    "error": str(exc),
+                },
                 ip_address=ip_address,
             )
     if errors:

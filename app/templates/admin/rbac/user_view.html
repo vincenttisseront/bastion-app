@@ -5,6 +5,8 @@
 {% block content %}
 {% set failed_rows = provisionings | selectattr('status', 'equalto', 'failed') | list %}
 {% set ok_rows = provisionings | selectattr('status', 'equalto', 'success') | list %}
+{% set membership_rows = membership_rows | default([]) %}
+{% set assignable_groups = assignable_groups | default([]) %}
 <div class="page">
   <div class="page-header">
     <div>
@@ -34,6 +36,37 @@
 
   {% if user_error %}
   <div class="alert alert-err">{{ user_error }}</div>
+  {% endif %}
+
+  {% if initial_temporary_password %}
+  <div class="alert alert-warn" role="status" data-temp-password-box>
+    <strong>Mot de passe temporaire (affichage unique)</strong>
+    <p class="form-help" style="margin:var(--sp-2) 0;">
+      À communiquer à l’utilisateur — Keycloak forcera
+      <span class="mono">UPDATE_PASSWORD</span>. Cette valeur ne sera plus réaffichée.
+    </p>
+    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
+      <code class="mono" id="temp-password-value" style="font-size:var(--fs-md); user-select:all;">{{ initial_temporary_password }}</code>
+      <button type="button" class="btn btn-ghost btn-sm" data-copy-temp-password>Copier</button>
+    </div>
+  </div>
+  <script>
+  (function () {
+    var btn = document.querySelector("[data-copy-temp-password]");
+    var el = document.getElementById("temp-password-value");
+    if (!btn || !el) return;
+    btn.addEventListener("click", function () {
+      var text = el.textContent || "";
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = "Copié";
+        }).catch(function () {
+          btn.textContent = "Échec copie";
+        });
+      }
+    });
+  })();
+  </script>
   {% endif %}
 
   <div class="user-fiche-panel" id="panel-identite" data-panel="identite">
@@ -135,6 +168,26 @@
       {% if account and account.last_error %}
       <div class="alert alert-err" style="margin-top:var(--sp-3);">{{ account.last_error }}</div>
       {% endif %}
+      {% if account and account.keycloak_user_id %}
+      <div style="margin-top:var(--sp-4); padding-top:var(--sp-4); border-top:1px solid var(--border);">
+        <span class="form-label">Mot de passe Keycloak</span>
+        <p class="form-hint" style="margin:var(--sp-2) 0 var(--sp-3);">
+          Réinitialise le mot de passe dans Keycloak (temporaire —
+          <span class="mono">UPDATE_PASSWORD</span> au prochain login).
+        </p>
+        <form method="post" action="/admin/rbac/accounts/{{ account.id }}/reset-password"
+              onsubmit="return confirm('Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?');"
+              style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
+          <input type="hidden" name="redirect_url" value="{{ view_url }}#identite">
+          <label class="form-check" style="margin:0;">
+            <input type="checkbox" name="send_email" value="1"
+                   {% if realm and realm.send_credentials_email and realm.smtp_enabled %}checked{% endif %}>
+            <span>Envoyer par email</span>
+          </label>
+          <button type="submit" class="btn btn-ghost btn-sm">Reset password</button>
+        </form>
+      </div>
+      {% endif %}
       {% if keycloak_user_id %}
       <div style="margin-top:var(--sp-4); padding-top:var(--sp-4); border-top:1px solid var(--border);">
         <span class="form-label">Sessions</span>
@@ -155,14 +208,48 @@
   <div class="user-fiche-panel" id="panel-groupes" data-panel="groupes" hidden>
     <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
       <h2 class="card-title" style="margin-top:0;">Groupes Keycloak</h2>
-      <p class="form-hint">Les droits AccessGrant sur un groupe société s’appliquent à tous les membres.</p>
-      <ul style="margin:var(--sp-2) 0 0; padding-left:var(--sp-4);">
-        {% for g in kc_groups %}
-        <li class="mono">{{ g.path or g.name }}</li>
+      <p class="form-hint">
+        Les droits AccessGrant sur un groupe société s’appliquent à tous les membres.
+        Les groupes d’un autre realm créent (ou lient) un compte Keycloak jumeau
+        (même identifiant / email) dans ce realm.
+      </p>
+      <ul style="margin:var(--sp-2) 0 0; padding-left:0; list-style:none;">
+        {% for row in membership_rows %}
+        <li style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; margin-bottom:var(--sp-2);">
+          <span class="badge badge-muted">{{ row.realm_slug }}</span>
+          <span class="mono">{{ row.path or row.name }}</span>
+          {% if account and row.rbac_group_id %}
+          <form method="post" action="/admin/rbac/accounts/{{ account.id }}/groups/remove"
+                onsubmit="return confirm('Retirer ce groupe Keycloak ?');"
+                style="display:inline; margin-left:auto;">
+            <input type="hidden" name="group_id" value="{{ row.rbac_group_id }}">
+            <input type="hidden" name="redirect_url" value="{{ view_url }}#groupes">
+            <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+          </form>
+          {% endif %}
+        </li>
         {% else %}
         <li class="empty-desc">Aucun groupe{% if not keycloak_user_id %} (Keycloak non lié){% endif %}</li>
         {% endfor %}
       </ul>
+      {% if account and account.keycloak_user_id and assignable_groups %}
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/groups/add"
+            style="margin-top:var(--sp-4); display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:flex-end;">
+        <input type="hidden" name="redirect_url" value="{{ view_url }}#groupes">
+        <div class="form-group" style="flex:1; min-width:16rem; margin:0;">
+          <label class="form-label" for="add-group-id">Ajouter un groupe (tous realms)</label>
+          <select id="add-group-id" name="group_id" class="form-select" required>
+            <option value="">Choisir…</option>
+            {% for g in assignable_groups %}
+            <option value="{{ g.id }}">{{ g.realm_slug or '?' }} — {{ g.name }}{% if g.path %} ({{ g.path }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+      </form>
+      {% elif account and not assignable_groups %}
+      <p class="form-hint" style="margin-top:var(--sp-3);">Tous les groupes synchronisés sont déjà associés, ou aucun groupe n’est importé.</p>
+      {% endif %}
     </div>
   </div>
 

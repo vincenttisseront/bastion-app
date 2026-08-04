@@ -26,11 +26,14 @@ from app.database import get_db
 from app.models import App, BastionAccount, BastionAccountProvisioning, RBACGroup, RealmConfig
 from app.rbac.account_service import (
     AccountCreationError,
+    assign_account_to_rbac_group,
     create_bastion_account,
     delete_bastion_account,
+    linked_bastion_accounts,
     mark_keycloak_email_verified,
     provision_account_app,
     realm_provisioning_ready,
+    remove_account_from_rbac_group,
     reset_bastion_account_password,
     retry_bastion_account_keycloak,
     send_account_credentials_email,
@@ -267,6 +270,7 @@ async def admin_rbac_user_view(
 
     kc_user = None
     kc_groups: list[dict] = []
+    membership_rows: list[dict] = []
     kc_email_diag: dict | None = None
     user_error: str | None = None
     direct_grants: list = []
@@ -291,6 +295,102 @@ async def admin_rbac_user_view(
         except Exception:
             logger.exception("Failed to load user fiche")
             user_error = "Erreur serveur lors du chargement de l'utilisateur"
+
+    # Memberships across linked BastionAccounts (same username/email, any realm).
+    accounts_for_groups: list[BastionAccount] = []
+    if account is not None:
+        accounts_for_groups = linked_bastion_accounts(db, account=account)
+    elif keycloak_user_id:
+        accounts_for_groups = [
+            a
+            for a in [
+                db.query(BastionAccount)
+                .filter_by(keycloak_user_id=keycloak_user_id, realm_id=realm.id)
+                .first()
+            ]
+            if a is not None
+        ]
+    if not accounts_for_groups and keycloak_user_id:
+        # Fall back to primary realm groups only.
+        for g in kc_groups:
+            membership_rows.append(
+                {
+                    "path": g.get("path") or g.get("name") or "",
+                    "name": g.get("name") or "",
+                    "realm_slug": realm.slug,
+                    "realm_id": realm.id,
+                    "keycloak_group_id": g.get("id"),
+                    "rbac_group_id": None,
+                    "account_id": account.id if account else None,
+                }
+            )
+    else:
+        seen_keys: set[tuple[int, str]] = set()
+        for linked in accounts_for_groups:
+            linked_realm = linked.realm or db.query(RealmConfig).filter_by(
+                id=linked.realm_id
+            ).first()
+            if linked_realm is None or not linked.keycloak_user_id:
+                continue
+            try:
+                groups = await fetch_user_groups(
+                    linked_realm, linked.keycloak_user_id, settings
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to load groups for linked account %s realm %s",
+                    linked.id,
+                    linked.realm_id,
+                )
+                continue
+            kc_ids = [str(g.get("id") or "") for g in groups if g.get("id")]
+            rbac_by_kc = {
+                str(r.keycloak_group_id): r
+                for r in db.query(RBACGroup)
+                .filter(
+                    RBACGroup.realm_id == linked_realm.id,
+                    RBACGroup.keycloak_group_id.in_(kc_ids),
+                )
+                .all()
+                if r.keycloak_group_id
+            }
+            for g in groups:
+                kc_gid = str(g.get("id") or "")
+                key = (linked_realm.id, kc_gid)
+                if kc_gid and key in seen_keys:
+                    continue
+                if kc_gid:
+                    seen_keys.add(key)
+                rbac = rbac_by_kc.get(kc_gid)
+                membership_rows.append(
+                    {
+                        "path": g.get("path") or g.get("name") or "",
+                        "name": g.get("name") or "",
+                        "realm_slug": linked_realm.slug,
+                        "realm_id": linked_realm.id,
+                        "keycloak_group_id": kc_gid or None,
+                        "rbac_group_id": rbac.id if rbac else None,
+                        "account_id": linked.id,
+                    }
+                )
+
+    assignable_groups = (
+        db.query(RBACGroup)
+        .filter(
+            RBACGroup.realm_id.is_not(None),
+            RBACGroup.keycloak_group_id.is_not(None),
+        )
+        .order_by(RBACGroup.realm_slug.asc(), RBACGroup.name.asc())
+        .all()
+    )
+    member_rbac_ids = {
+        row["rbac_group_id"] for row in membership_rows if row.get("rbac_group_id")
+    }
+    assignable_groups = [g for g in assignable_groups if g.id not in member_rbac_ids]
+    realms_by_id = {r.id: r for r in db.query(RealmConfig).all()}
+    for g in assignable_groups:
+        if not g.realm_slug and g.realm_id in realms_by_id:
+            g.realm_slug = realms_by_id[g.realm_id].slug
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
     provisionings = []
@@ -340,7 +440,14 @@ async def admin_rbac_user_view(
 
     from app.files.service import file_grant_select_options, folder_grant_select_options
 
-    return render(
+    secret = settings.vault_portal_internal_token or "dev"
+    initial_temporary_password = None
+    if account is not None:
+        initial_temporary_password = pop_temporary_password_reveal(
+            request, account_id=account.id, secret=secret
+        )
+
+    response = render(
         "admin/rbac/user_view.html",
         **_ctx(
             request,
@@ -352,6 +459,8 @@ async def admin_rbac_user_view(
             kc_user=kc_user,
             kc_email_diag=kc_email_diag,
             kc_groups=kc_groups,
+            membership_rows=membership_rows,
+            assignable_groups=assignable_groups,
             user_error=user_error,
             direct_grants=[serialize_grant(g, db) for g in direct_grants],
             effective_grants=effective_grants,
@@ -366,8 +475,12 @@ async def admin_rbac_user_view(
             display_name=display_name,
             view_url=view_url,
             provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
+            initial_temporary_password=initial_temporary_password,
         ),
     )
+    if request.cookies.get(_REVEAL_PW_COOKIE):
+        clear_temporary_password_reveal(response)
+    return response
 
 
 @router.post("/admin/rbac/users/new")
@@ -449,7 +562,10 @@ async def admin_rbac_users_new_submit(
         allowed = {
             g.id
             for g in db.query(RBACGroup)
-            .filter(RBACGroup.id.in_(group_ids), RBACGroup.realm_id == realm.id)
+            .filter(
+                RBACGroup.id.in_(group_ids),
+                RBACGroup.keycloak_group_id.is_not(None),
+            )
             .all()
         }
         group_ids = [gid for gid in group_ids if gid in allowed]
@@ -848,6 +964,104 @@ async def admin_rbac_account_reset_password(
             "success",
             secret,
         )
+    return response
+
+
+@router.post("/admin/rbac/accounts/{account_id}/groups/add")
+async def admin_rbac_account_group_add(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    group_id: int = Form(...),
+    redirect_url: str = Form(""),
+):
+    """Attach account identity to an RBAC/Keycloak group (any realm)."""
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/users/view?account_id={account.id}#groupes"
+    group = db.query(RBACGroup).filter_by(id=group_id).first()
+    if group is None:
+        msg = "Groupe introuvable"
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, msg, "error", secret)
+        return response
+    try:
+        await assign_account_to_rbac_group(
+            db,
+            settings,
+            source_account=account,
+            group=group,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except AccountCreationError as exc:
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    flash_redirect(
+        response,
+        f"Groupe « {group.name} » ajouté (realm synchronisé Keycloak).",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/admin/rbac/accounts/{account_id}/groups/remove")
+async def admin_rbac_account_group_remove(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    group_id: int = Form(...),
+    redirect_url: str = Form(""),
+):
+    """Detach account identity from an RBAC/Keycloak group."""
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/users/view?account_id={account.id}#groupes"
+    group = db.query(RBACGroup).filter_by(id=group_id).first()
+    if group is None:
+        msg = "Groupe introuvable"
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, msg, "error", secret)
+        return response
+    try:
+        await remove_account_from_rbac_group(
+            db,
+            settings,
+            source_account=account,
+            group=group,
+            actor=user.email,
+            ip_address=_client_ip(request),
+        )
+    except AccountCreationError as exc:
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    flash_redirect(
+        response,
+        f"Groupe « {group.name} » retiré de Keycloak.",
+        "success",
+        secret,
+    )
     return response
 
 
