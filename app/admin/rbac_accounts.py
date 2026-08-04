@@ -23,6 +23,7 @@ from app.models import App, BastionAccount, BastionAccountProvisioning, RBACGrou
 from app.rbac.account_service import (
     AccountCreationError,
     create_bastion_account,
+    delete_bastion_account,
     provision_account_app,
     realm_provisioning_ready,
     retry_bastion_account_keycloak,
@@ -807,6 +808,85 @@ async def admin_rbac_account_provision_retry(
     else:
         flash_redirect(
             response, f"Provisioning {app.label} : échec — {row.detail}", "error", secret
+        )
+    return response
+
+
+@router.post("/admin/rbac/accounts/{account_id}/delete")
+async def admin_rbac_account_delete(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    confirm_username: str = Form(""),
+    force: str = Form(""),
+):
+    """Suppression complète — apps provisionnées + Keycloak + vault/grants + fiche.
+
+    Confirmation explicite : l'identifiant exact doit être resaisi. Sans
+    ``force``, la fiche bastion est conservée si une étape distante échoue
+    (retry possible) — jamais de suppression silencieusement partielle.
+    """
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    detail_url = f"/admin/rbac/accounts/{account.id}"
+
+    if (confirm_username or "").strip() != account.username:
+        message = (
+            "Confirmation invalide — saisissez exactement l'identifiant "
+            f"« {account.username} » pour supprimer le compte."
+        )
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"confirm_username": message}}, status_code=400
+            )
+        response = RedirectResponse(url=detail_url, status_code=302)
+        flash_redirect(response, message, "error", secret)
+        return response
+
+    username = account.username
+    deleted, errors = await delete_bastion_account(
+        db,
+        settings,
+        account=account,
+        actor=user.email,
+        ip_address=_client_ip(request),
+        force=force.strip().lower() in ("1", "true", "on", "yes"),
+    )
+
+    if _wants_json(request):
+        return JSONResponse(
+            {"ok": deleted, "deleted": deleted, "errors": errors},
+            status_code=200 if deleted else 502,
+        )
+
+    if not deleted:
+        response = RedirectResponse(url=detail_url, status_code=302)
+        flash_redirect(
+            response,
+            "Suppression incomplète — fiche conservée : " + " ; ".join(errors),
+            "error",
+            secret,
+        )
+        return response
+
+    response = RedirectResponse(url="/admin/rbac/users", status_code=302)
+    if errors:
+        flash_redirect(
+            response,
+            f"Compte « {username} » supprimé (forcé) malgré des erreurs : "
+            + " ; ".join(errors),
+            "warning",
+            secret,
+        )
+    else:
+        flash_redirect(
+            response,
+            f"Compte « {username} » supprimé partout (applications, Keycloak, "
+            "vault, droits, fiche bastion).",
+            "success",
+            secret,
         )
     return response
 

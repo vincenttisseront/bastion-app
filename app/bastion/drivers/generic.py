@@ -474,6 +474,12 @@ class GenericNoOpProvisioningDriver:
             detail=_NOT_APPLICABLE_DETAIL,
         )
 
+    async def delete_account(self, *, db, settings, app, account) -> ProvisioningResult:
+        return ProvisioningResult(
+            status=PROVISIONING_NOT_APPLICABLE,
+            detail=_NOT_APPLICABLE_DETAIL,
+        )
+
 
 async def generic_wsse_probe(
     app: App,

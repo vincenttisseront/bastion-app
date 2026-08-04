@@ -39,6 +39,7 @@ from app.models import (
     BASTION_ACCOUNT_ORIGIN_BASTION,
     RBACGroup,
     RealmConfig,
+    UserAppCredential,
     utcnow,
 )
 from app.rbac.keycloak_admin import (
@@ -46,6 +47,7 @@ from app.rbac.keycloak_admin import (
     add_user_to_keycloak_group,
     create_keycloak_group,
     create_keycloak_user,
+    delete_keycloak_user,
     find_keycloak_user_exact,
     get_provision_token,
     provisioning_configured,
@@ -1036,3 +1038,177 @@ async def sync_account_credentials_to_apps(
         if result.status == PROVISIONING_FAILED:
             errors.append(f"{app.label or app.slug} : {result.detail}")
     return errors
+
+
+async def delete_bastion_account(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    actor: str,
+    ip_address: str | None = None,
+    force: bool = False,
+) -> tuple[bool, list[str]]:
+    """Full user cleanup — apps provisionnées → Keycloak → vault/grants → fiche.
+
+    Order matters: application-local accounts first (CrushFTP…), then the
+    Keycloak user, then local rows (vault credentials, RBAC user grants, and
+    finally the BastionAccount itself, cascade provisionings).
+
+    Returns ``(deleted, errors)``. Without ``force`` the bastion row is KEPT
+    whenever a remote deletion failed — the fiche stays visible with
+    ``last_error`` so the admin can fix and retry; never a silent partial
+    delete. With ``force`` the local rows are removed anyway (orphans upstream
+    are the admin's explicit choice, audited as such).
+    """
+    realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
+    target = (
+        _account_target(realm, account.username)
+        if realm
+        else f"account:{account.username}"
+    )
+    errors: list[str] = []
+    app_results: list[dict] = []
+
+    # 1) Application-local accounts. Attempt for every row that reached a
+    # driver (success OR failed — a failed create may still have left an
+    # account upstream; drivers are idempotent and report "déjà absent").
+    for row in list(account.provisionings or []):
+        app = row.application or db.query(App).filter_by(id=row.application_id).first()
+        if app is None:
+            continue
+        driver = get_provisioning_driver(
+            normalize_provisioning_driver(app.provisioning_driver)
+        )
+        if driver is None or not hasattr(driver, "delete_account"):
+            continue
+        if row.status == PROVISIONING_NOT_APPLICABLE:
+            continue
+        try:
+            result = await driver.delete_account(
+                db=db, settings=settings, app=app, account=account
+            )
+        except Exception:
+            logger.exception(
+                "delete_account driver crashed app=%s account_id=%s",
+                app.slug,
+                account.id,
+            )
+            result = ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail="Erreur interne du driver (voir logs serveur)",
+            )
+        app_results.append(
+            {"app_slug": app.slug, "status": result.status, "detail": result.detail}
+        )
+        if result.status == PROVISIONING_FAILED:
+            errors.append(f"{app.label or app.slug} : {result.detail}")
+        log_action(
+            db,
+            actor=actor,
+            action=(
+                "account.app_deleted"
+                if result.status != PROVISIONING_FAILED
+                else "account.app_delete_failed"
+            ),
+            target=target,
+            details={
+                "app_slug": app.slug,
+                "bastion_account_id": account.id,
+                "status": result.status,
+                "detail": result.detail,
+            },
+            ip_address=ip_address,
+        )
+
+    # 2) Keycloak user.
+    keycloak_deleted: bool | None = None
+    if account.keycloak_user_id:
+        if realm is None:
+            errors.append("Keycloak : realm introuvable pour ce compte")
+        else:
+            try:
+                keycloak_deleted = await delete_keycloak_user(
+                    realm, settings, keycloak_user_id=account.keycloak_user_id
+                )
+                log_action(
+                    db,
+                    actor=actor,
+                    action="account.keycloak_deleted",
+                    target=target,
+                    details={
+                        "bastion_account_id": account.id,
+                        "keycloak_user_id": account.keycloak_user_id,
+                        "already_absent": keycloak_deleted is False,
+                    },
+                    ip_address=ip_address,
+                )
+            except ValueError as exc:
+                errors.append(f"Keycloak : {exc}")
+                log_action(
+                    db,
+                    actor=actor,
+                    action="account.keycloak_delete_failed",
+                    target=target,
+                    details={
+                        "bastion_account_id": account.id,
+                        "keycloak_user_id": account.keycloak_user_id,
+                        "error": str(exc),
+                    },
+                    ip_address=ip_address,
+                )
+
+    if errors and not force:
+        account.last_error = "Suppression incomplète : " + " ; ".join(errors)
+        log_action(
+            db,
+            actor=actor,
+            action="account.delete_incomplete",
+            target=target,
+            details={
+                "bastion_account_id": account.id,
+                "errors": errors,
+                "app_results": app_results,
+            },
+            ip_address=ip_address,
+        )
+        db.commit()
+        return False, errors
+
+    # 3) Local rows — vault credentials + user grants + fiche bastion.
+    vault_deleted = 0
+    grants_deleted = 0
+    if account.keycloak_user_id:
+        vault_deleted = (
+            db.query(UserAppCredential)
+            .filter_by(keycloak_user_id=account.keycloak_user_id)
+            .delete(synchronize_session=False)
+        )
+        grants_deleted = (
+            db.query(AccessGrant)
+            .filter_by(subject_type="user", keycloak_user_id=account.keycloak_user_id)
+            .delete(synchronize_session=False)
+        )
+
+    log_action(
+        db,
+        actor=actor,
+        action="account.deleted",
+        target=target,
+        details={
+            "bastion_account_id": account.id,
+            "username": account.username,
+            "email": account.email,
+            "keycloak_user_id": account.keycloak_user_id,
+            "keycloak_deleted": keycloak_deleted,
+            "vault_credentials_deleted": vault_deleted,
+            "grants_deleted": grants_deleted,
+            "app_results": app_results,
+            "forced": bool(force and errors),
+            "errors": errors,
+        },
+        ip_address=ip_address,
+    )
+    db.delete(account)  # cascade: BastionAccountProvisioning rows
+    db.commit()
+    return True, errors

@@ -483,6 +483,35 @@ async def update_keycloak_user(
         raise ValueError(f"Échec mise à jour Keycloak (HTTP {resp.status_code})")
 
 
+async def delete_keycloak_user(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    keycloak_user_id: str,
+    token: str | None = None,
+) -> bool:
+    """DELETE /users/{id} with the WRITE (provision) service account.
+
+    Returns True when the user was deleted, False when already absent (404 —
+    idempotent cleanup). Raises ValueError on any other failure so the caller
+    never records a silent partial delete.
+    """
+    uid = (keycloak_user_id or "").strip()
+    if not uid:
+        raise ValueError("Identifiant utilisateur Keycloak manquant")
+    token = token or await get_provision_token(realm, settings)
+    resp = await _admin_send(realm, settings, "DELETE", f"/users/{uid}", token=token)
+    if resp.status_code == 404:
+        return False
+    if resp.status_code == 403:
+        raise ValueError(_provision_manage_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(
+            f"Échec suppression utilisateur Keycloak (HTTP {resp.status_code})"
+        )
+    return True
+
+
 async def add_user_to_keycloak_group(
     realm: RealmConfig,
     settings: Settings,
