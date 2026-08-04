@@ -287,6 +287,8 @@
 }
 .form-check,.form-checkbox{display:flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-sm);color:var(--text-2);cursor:pointer}
 .form-check input,.form-checkbox input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+/* Author display:flex beats the UA [hidden] rule — RBAC group filter relies on hidden. */
+.form-check[hidden],.form-checkbox[hidden]{display:none!important}
 
 .table-wrap,.data-table-wrapper{border:1px solid var(--border);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh-card)}
 .table-toolbar{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--bg-card);border-bottom:1px solid var(--border-muted);flex-wrap:wrap}

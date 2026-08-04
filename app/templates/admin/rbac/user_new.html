@@ -241,6 +241,9 @@
         var cb = row.querySelector("[data-group-checkbox]");
         var show = matchRealm && matchFilter;
         row.hidden = !show;
+        // Belt-and-suspenders: .form-check { display:flex } can beat UA [hidden]
+        // until CSS .form-check[hidden]{display:none!important} is loaded.
+        row.style.display = show ? "" : "none";
         if (cb) {
           cb.disabled = !matchRealm;
           if (!matchRealm) cb.checked = false;
