@@ -6,13 +6,17 @@ handlers — covers the real BFF client, session minting, and auth_request path.
 
 from __future__ import annotations
 
+import json
+import time
 from urllib.parse import parse_qs, urlparse
 
 import jwt
 import pytest
 import respx
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from httpx import Response
+from jwt.algorithms import RSAAlgorithm
 from sqlalchemy.orm import Session
 
 from app.models import OidcSession, RealmConfig
@@ -26,6 +30,8 @@ KC = "http://keycloak.internal:8080"
 REALM = "ar-systems"
 AUTH = f"{KC}/realms/{REALM}/protocol/openid-connect/auth"
 TOKEN = f"{KC}/realms/{REALM}/protocol/openid-connect/token"
+DISCOVERY = f"{KC}/realms/{REALM}/.well-known/openid-configuration"
+CERTS = f"{KC}/realms/{REALM}/protocol/openid-connect/certs"
 LOGIN_ACTION = (
     f"{KC}/realms/{REALM}/login-actions/authenticate"
     "?session_code=abc&execution=exec1&client_id=bastion-bff&tab_id=tab1"
@@ -33,6 +39,11 @@ LOGIN_ACTION = (
 REDIRECT_URI = "https://portal.example/.bastion/oidc/callback"
 OIDC_SECRET = "oidc-e2e-session-hmac-key-32bytes!!"
 COOKIE = "bastion_session"
+CLIENT_ID = "bastion-bff"
+
+_RSA_PRIVATE = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_JWK = json.loads(RSAAlgorithm.to_jwk(_RSA_PRIVATE.public_key()))
+_JWK.update({"kid": "e2e-key", "alg": "RS256", "use": "sig"})
 
 
 @pytest.fixture(autouse=True)
@@ -132,10 +143,14 @@ def _id_token(
     groups: list[str] | None = None,
     email: str | None = None,
 ) -> str:
+    now = int(time.time())
     payload: dict = {
         "sub": sub,
         "preferred_username": preferred,
         "iss": f"{KC}/realms/{REALM}",
+        "aud": CLIENT_ID,
+        "exp": now + 300,
+        "iat": now,
     }
     if groups is not None:
         payload["groups"] = groups
@@ -143,8 +158,9 @@ def _id_token(
         payload["email"] = email
     return jwt.encode(
         payload,
-        key="unit-test-hmac-key-32bytes-min!!",
-        algorithm="HS256",
+        key=_RSA_PRIVATE,
+        algorithm="RS256",
+        headers={"kid": "e2e-key"},
     )
 
 
@@ -155,6 +171,13 @@ def _mock_keycloak_success(
     email: str | None = None,
 ) -> tuple:
     """Wire respx Keycloak: auth HTML → 302 code → token. Reject wrong password."""
+    respx.get(DISCOVERY).mock(
+        return_value=Response(
+            200,
+            json={"issuer": f"{KC}/realms/{REALM}", "jwks_uri": CERTS},
+        )
+    )
+    respx.get(CERTS).mock(return_value=Response(200, json={"keys": [_JWK]}))
     auth_route = respx.get(AUTH).mock(
         return_value=Response(
             200, text=_login_html(), headers={"content-type": "text/html"}
@@ -366,6 +389,13 @@ def test_e2e_otp_flow_success(
     from app.models import AuditLog, OidcLoginAttempt
 
     _add_realm(db_session, e2e_settings)
+    respx.get(DISCOVERY).mock(
+        return_value=Response(
+            200,
+            json={"issuer": f"{KC}/realms/{REALM}", "jwks_uri": CERTS},
+        )
+    )
+    respx.get(CERTS).mock(return_value=Response(200, json={"keys": [_JWK]}))
     auth_route = respx.get(AUTH).mock(
         return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
     )

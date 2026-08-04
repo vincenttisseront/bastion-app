@@ -564,7 +564,8 @@ async def oidc_login(
 
     try:
         if otp_step:
-            assert attempt_id is not None and otp_code is not None
+            if attempt_id is None or otp_code is None:
+                raise InvalidCredentialsError("Identifiants incomplets")
             step = await submit_headless_otp(
                 attempt_id, otp_code, settings=settings, db=db
             )

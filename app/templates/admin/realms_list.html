@@ -71,23 +71,28 @@
                 <div class="table-actions">
                   <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Modifier</a>
                   <form method="post" action="/admin/realms/{{ realm.id }}/export">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button class="btn btn-ghost btn-sm" {% if realm.last_test_status != 'ok' %}disabled{% endif %}>Exporter</button>
                   </form>
                   {% if realm.enabled %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/disable">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <button class="btn btn-ghost btn-sm">Désactiver</button>
                     </form>
                   {% else %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/enable">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <button class="btn btn-ghost btn-sm" {% if realm.last_test_status != 'ok' %}disabled{% endif %}>Activer</button>
                     </form>
                   {% endif %}
                   {% if realm.oidc_native_session_enabled %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/oidc-native-session/disable">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <button class="btn btn-ghost btn-sm" title="Désactiver le formulaire natif + bastion_session pour ce realm">OIDC natif OFF</button>
                     </form>
                   {% else %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/oidc-native-session/enable">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                       <button class="btn btn-ghost btn-sm" title="Activer le pilote session native OIDC pour ce realm">OIDC natif ON</button>
                     </form>
                   {% endif %}

@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 _HTTP_TIMEOUT = httpx.Timeout(5.0, connect=5.0)
 _AUTH_PATH = "/realms/{realm}/protocol/openid-connect/auth"
 _TOKEN_PATH = "/realms/{realm}/protocol/openid-connect/token"
+_DISCOVERY_PATH = "/realms/{realm}/.well-known/openid-configuration"
+_ALLOWED_JWT_ALGS = frozenset({"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"})
 
 ATTEMPT_TTL_SECONDS = 180
 MAX_OTP_FAILURES = 3
@@ -201,34 +203,123 @@ def _location_state(location: str) -> str | None:
     return (parse_qs(parsed.query).get("state") or [None])[0]
 
 
-def _decode_id_token_claims(id_token: str) -> dict[str, Any]:
-    return jwt.decode(
-        id_token,
-        options={
-            "verify_signature": False,
-            "verify_aud": False,
-            "verify_exp": False,
-        },
+async def _load_oidc_verification_material(
+    client: httpx.AsyncClient,
+    *,
+    base: str,
+    keycloak_realm: str,
+) -> tuple[str, dict[str, Any]]:
+    """Return ``(issuer, jwks)`` from Keycloak discovery + JWKS endpoints."""
+    discovery_url = (
+        f"{base.rstrip('/')}{_DISCOVERY_PATH.format(realm=keycloak_realm)}"
     )
+    try:
+        disc_resp = await client.get(discovery_url)
+    except httpx.HTTPError as exc:
+        raise OidcBffError("Impossible de joindre Keycloak (discovery)") from exc
+    if disc_resp.status_code != 200:
+        raise OidcBffError(f"Discovery Keycloak HTTP {disc_resp.status_code}")
+    try:
+        disc = disc_resp.json()
+    except ValueError as exc:
+        raise OidcBffError("Discovery Keycloak non JSON") from exc
+    if not isinstance(disc, dict):
+        raise OidcBffError("Discovery Keycloak invalide")
+    issuer = str(disc.get("issuer") or "").strip().rstrip("/")
+    jwks_uri = str(disc.get("jwks_uri") or "").strip()
+    if not issuer or not jwks_uri:
+        raise OidcBffError("Discovery Keycloak incomplète (issuer/jwks_uri)")
+    try:
+        jwks_resp = await client.get(jwks_uri)
+    except httpx.HTTPError as exc:
+        raise OidcBffError("Impossible de joindre Keycloak (jwks)") from exc
+    if jwks_resp.status_code != 200:
+        raise OidcBffError(f"JWKS Keycloak HTTP {jwks_resp.status_code}")
+    try:
+        jwks = jwks_resp.json()
+    except ValueError as exc:
+        raise OidcBffError("JWKS Keycloak non JSON") from exc
+    if not isinstance(jwks, dict) or not isinstance(jwks.get("keys"), list):
+        raise OidcBffError("JWKS Keycloak invalide")
+    return issuer, jwks
 
 
-def _try_decode_jwt_claims(token: str | None) -> dict[str, Any]:
-    """Best-effort decode (no verify) — access tokens may carry the groups claim."""
+def _jwk_to_key(jwk: dict[str, Any]) -> Any:
+    """Build a PyJWT verification key from a JWK dict (RSA or EC)."""
+    raw = json.dumps(jwk)
+    kty = str(jwk.get("kty") or "").upper()
+    if kty == "EC":
+        return jwt.algorithms.ECAlgorithm.from_jwk(raw)
+    # Default / RSA
+    return jwt.algorithms.RSAAlgorithm.from_jwk(raw)
+
+
+def _verify_oidc_jwt(
+    token: str,
+    *,
+    jwks: dict[str, Any],
+    issuer: str,
+    audience: str | None = None,
+) -> dict[str, Any]:
+    """Verify JWT signature + standard claims against Keycloak JWKS."""
+    raw = (token or "").strip()
+    if not raw or raw.count(".") != 2:
+        raise OidcBffError("JWT OIDC illisible")
+    try:
+        header = jwt.get_unverified_header(raw)
+    except jwt.PyJWTError as exc:
+        raise OidcBffError("JWT OIDC illisible") from exc
+    alg = str(header.get("alg") or "")
+    if alg not in _ALLOWED_JWT_ALGS:
+        raise OidcBffError(f"Algorithme JWT refusé ({alg or 'missing'})")
+    kid = header.get("kid")
+    keys = [k for k in (jwks.get("keys") or []) if isinstance(k, dict)]
+    jwk: dict[str, Any] | None = None
+    if kid:
+        jwk = next((k for k in keys if k.get("kid") == kid), None)
+    if jwk is None and len(keys) == 1:
+        jwk = keys[0]
+    if jwk is None:
+        raise OidcBffError("Clé de signature JWT introuvable dans JWKS")
+    try:
+        key = _jwk_to_key(jwk)
+    except (ValueError, TypeError, jwt.PyJWTError) as exc:
+        raise OidcBffError("JWK Keycloak non supportée") from exc
+
+    decode_kwargs: dict[str, Any] = {
+        "algorithms": [alg],
+        "issuer": issuer,
+        "options": {
+            "require": ["exp", "iss", "sub"],
+            "verify_aud": audience is not None,
+        },
+    }
+    if audience is not None:
+        decode_kwargs["audience"] = audience
+    try:
+        payload = jwt.decode(raw, key, **decode_kwargs)
+    except jwt.PyJWTError as exc:
+        raise OidcBffError("JWT Keycloak invalide (signature/claims)") from exc
+    if not isinstance(payload, dict):
+        raise OidcBffError("JWT Keycloak invalide")
+    return payload
+
+
+def _try_verify_jwt_claims(
+    token: str | None,
+    *,
+    jwks: dict[str, Any],
+    issuer: str,
+) -> dict[str, Any]:
+    """Best-effort verified decode — access tokens may carry the groups claim."""
     raw = (token or "").strip()
     if not raw or raw.count(".") != 2:
         return {}
     try:
-        payload = jwt.decode(
-            raw,
-            options={
-                "verify_signature": False,
-                "verify_aud": False,
-                "verify_exp": False,
-            },
-        )
-    except jwt.PyJWTError:
+        # Access tokens often use a different ``aud`` than the BFF client_id.
+        return _verify_oidc_jwt(raw, jwks=jwks, issuer=issuer, audience=None)
+    except OidcBffError:
         return {}
-    return payload if isinstance(payload, dict) else {}
 
 
 def _leaf_group_name(raw: str) -> str:
@@ -376,6 +467,8 @@ async def _exchange_code_for_tokens(
     client_id: str,
     client_secret: str,
     realm: str,
+    keycloak_base_url: str,
+    keycloak_realm: str,
 ) -> OidcTokenResult:
     token_data = {
         "grant_type": "authorization_code",
@@ -392,12 +485,16 @@ async def _exchange_code_for_tokens(
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
     except httpx.HTTPError as exc:
-        logger.warning("oidc_bff token POST failed realm=%s err=%s", realm, type(exc).__name__)
+        logger.warning(
+            "oidc_bff code exchange transport failed realm=%s err=%s",
+            realm,
+            type(exc).__name__,
+        )
         raise OidcBffError("Impossible de joindre Keycloak (token)") from exc
 
     if token_resp.status_code != 200:
         logger.warning(
-            "oidc_bff token exchange rejected realm=%s status=%s",
+            "oidc_bff code exchange rejected realm=%s status=%s",
             realm,
             token_resp.status_code,
         )
@@ -415,7 +512,15 @@ async def _exchange_code_for_tokens(
     if not access_token or not id_token:
         raise OidcBffError("Réponse token Keycloak incomplète (access_token/id_token)")
 
-    claims = _decode_id_token_claims(id_token)
+    issuer, jwks = await _load_oidc_verification_material(
+        client, base=keycloak_base_url, keycloak_realm=keycloak_realm
+    )
+    claims = _verify_oidc_jwt(
+        str(id_token),
+        jwks=jwks,
+        issuer=issuer,
+        audience=client_id,
+    )
     sub = str(claims.get("sub") or "").strip()
     if not sub:
         raise OidcBffError("id_token sans claim sub")
@@ -424,7 +529,9 @@ async def _exchange_code_for_tokens(
     if preferred is not None:
         preferred = str(preferred).strip() or None
 
-    access_claims = _try_decode_jwt_claims(str(access_token))
+    access_claims = _try_verify_jwt_claims(
+        str(access_token), jwks=jwks, issuer=issuer
+    )
     groups = extract_groups_from_oidc_claims(claims, access_claims)
     email = _email_from_claims(claims) or _email_from_claims(access_claims)
 
@@ -551,6 +658,8 @@ async def start_headless_login(
                 client_id=client_id,
                 client_secret=client_secret,
                 realm=realm,
+                keycloak_base_url=base,
+                keycloak_realm=keycloak_realm,
             )
             return LoginStepResult(status="success", tokens=tokens)
 
@@ -687,19 +796,21 @@ async def submit_headless_otp(
                 db.flush()
             else:
                 # Refresh OTP form if Keycloak redisplayed it.
-                if post_resp.status_code == 200 and _extract_otp_form(post_resp.text):
+                if post_resp.status_code == 200:
                     otp_parsed = _extract_otp_form(post_resp.text)
-                    assert otp_parsed is not None
-                    new_action, new_fields = otp_parsed
-                    form_json = json.dumps(
-                        {"action": new_action, "fields": new_fields},
-                        separators=(",", ":"),
-                    )
-                    row.otp_form_encrypted = encrypt_secret(form_json, settings)
-                    row.keycloak_cookies_encrypted = encrypt_secret(
-                        json.dumps(_serialize_cookies(client), separators=(",", ":")),
-                        settings,
-                    )
+                    if otp_parsed is not None:
+                        new_action, new_fields = otp_parsed
+                        form_json = json.dumps(
+                            {"action": new_action, "fields": new_fields},
+                            separators=(",", ":"),
+                        )
+                        row.otp_form_encrypted = encrypt_secret(form_json, settings)
+                        row.keycloak_cookies_encrypted = encrypt_secret(
+                            json.dumps(
+                                _serialize_cookies(client), separators=(",", ":")
+                            ),
+                            settings,
+                        )
                 db.flush()
             raise InvalidOtpError("OTP invalide") from None
         except UnsupportedAuthFlowError:
@@ -739,6 +850,8 @@ async def submit_headless_otp(
             client_id=cfg.client_id,
             client_secret=cfg.client_secret,
             realm=row.realm,
+            keycloak_base_url=row.keycloak_base_url,
+            keycloak_realm=row.keycloak_realm,
         )
 
     db.delete(row)
@@ -872,6 +985,8 @@ async def _perform_headless_login_no_db(
             client_id=client_id,
             client_secret=client_secret,
             realm=realm,
+            keycloak_base_url=base,
+            keycloak_realm=keycloak_realm,
         )
 
 

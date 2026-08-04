@@ -87,7 +87,7 @@ def get_oidc_bff_config(
     try:
         client_secret = decrypt_secret(enc, settings).strip()
     except ValueError:
-        logger.warning("failed to decrypt oidc_bff client secret realm=%s", slug)
+        logger.warning("failed to decrypt oidc_bff client credentials realm=%s", slug)
         return None
     if not client_secret:
         return None

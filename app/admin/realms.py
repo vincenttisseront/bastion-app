@@ -33,11 +33,17 @@ from app.models import RealmConfig
 from app.secret_crypto import decrypt_secret, encrypt_secret, encryption_config_error, encryption_configured
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context, flash_redirect
+from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
 from app.web.templates import render
 from app.web.user_context import require_admin
 
 logger = logging.getLogger(__name__)
+
+
+def _require_csrf(request: Request, settings: Settings, csrf_token: str = "") -> None:
+    secret = settings.vault_portal_internal_token or "dev-insecure"
+    if not verify_csrf_token(request, secret, csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF token invalide")
 
 router = APIRouter(tags=["admin-realms"], dependencies=[Depends(require_admin)])
 
@@ -1311,7 +1317,9 @@ def admin_realms_enable(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
+    csrf_token: str = Form(""),
 ):
+    _require_csrf(request, settings, csrf_token)
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
         raise HTTPException(status_code=404)
@@ -1354,7 +1362,9 @@ def admin_realms_disable(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
+    csrf_token: str = Form(""),
 ):
+    _require_csrf(request, settings, csrf_token)
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
         raise HTTPException(status_code=404)
@@ -1386,7 +1396,9 @@ def admin_realms_oidc_native_enable(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
+    csrf_token: str = Form(""),
 ):
+    _require_csrf(request, settings, csrf_token)
     from app.oidc_native_session import set_oidc_native_session_enabled
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
@@ -1424,7 +1436,9 @@ def admin_realms_oidc_native_disable(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
+    csrf_token: str = Form(""),
 ):
+    _require_csrf(request, settings, csrf_token)
     from app.oidc_native_session import set_oidc_native_session_enabled
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
@@ -1509,7 +1523,9 @@ def admin_realms_export(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
+    csrf_token: str = Form(""),
 ):
+    _require_csrf(request, settings, csrf_token)
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
         raise HTTPException(status_code=404)

@@ -78,7 +78,32 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+      .replace(/`/g, '&#96;');
+  }
+
+  function bindSessionActionClicks(root) {
+    if (!root || root.getAttribute('data-session-actions-bound') === '1') return;
+    root.setAttribute('data-session-actions-bound', '1');
+    root.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-session-action]');
+      if (!btn || !root.contains(btn)) return;
+      var action = btn.getAttribute('data-session-action');
+      var sessionId = btn.getAttribute('data-session-id') || '';
+      if (action === 'revoke' && sessionId) {
+        event.preventDefault();
+        window.revokeSession(sessionId);
+      } else if (action === 'rotate' && sessionId) {
+        event.preventDefault();
+        window.rotateKeys(sessionId);
+      } else if (action === 'disconnect-user') {
+        event.preventDefault();
+        var email = btn.getAttribute('data-user-email') || '';
+        var realm = btn.getAttribute('data-realm') || '';
+        if (email) window.disconnectUser(email, realm);
+      }
+    });
   }
 
   function findGroup(email) {
@@ -360,21 +385,26 @@
         els.actions.hidden = true;
       } else {
         var titles = s.action_titles || {};
-        var buttons =
-          '<button type="button" class="btn btn-danger btn-sm btn-revoke" title="' +
-          escapeHtml(titles.revoke || TITLE_REVOKE) +
-          '" onclick="revokeSession(\'' +
-          escapeHtml(s.id) +
-          '\')">Révoquer cette session</button>';
+        els.actions.textContent = '';
+        var revokeBtn = document.createElement('button');
+        revokeBtn.type = 'button';
+        revokeBtn.className = 'btn btn-danger btn-sm btn-revoke';
+        revokeBtn.title = titles.revoke || TITLE_REVOKE;
+        revokeBtn.setAttribute('data-session-action', 'revoke');
+        revokeBtn.setAttribute('data-session-id', String(s.id || ''));
+        revokeBtn.textContent = 'Révoquer cette session';
+        els.actions.appendChild(revokeBtn);
         if (s.can_rotate !== false && s.kind === 'app') {
-          buttons +=
-            '<button type="button" class="btn btn-secondary btn-sm btn-rotate" title="' +
-            escapeHtml(titles.rotate || TITLE_ROTATE) +
-            '" onclick="rotateKeys(\'' +
-            escapeHtml(s.id) +
-            '\')">Rotation</button>';
+          var rotateBtn = document.createElement('button');
+          rotateBtn.type = 'button';
+          rotateBtn.className = 'btn btn-secondary btn-sm btn-rotate';
+          rotateBtn.title = titles.rotate || TITLE_ROTATE;
+          rotateBtn.setAttribute('data-session-action', 'rotate');
+          rotateBtn.setAttribute('data-session-id', String(s.id || ''));
+          rotateBtn.textContent = 'Rotation';
+          els.actions.appendChild(rotateBtn);
         }
-        els.actions.innerHTML = buttons;
+        bindSessionActionClicks(els.actions);
         els.actions.hidden = false;
       }
     }
@@ -625,11 +655,11 @@
       disconnectBtn =
         '<button type="button" class="btn btn-danger btn-sm" ' +
         'title="Révoque sessions robotic/vault + logout Keycloak. Hors break-glass. Délai résiduel cookie ~1h possible." ' +
-        'onclick="disconnectUser(' +
-        JSON.stringify(g.user_email) +
-        ', ' +
-        JSON.stringify(g.realm) +
-        ')">Déconnecter cet utilisateur</button>';
+        'data-session-action="disconnect-user" data-user-email="' +
+        escapeHtml(g.user_email) +
+        '" data-realm="' +
+        escapeHtml(g.realm) +
+        '">Déconnecter cet utilisateur</button>';
     } else if (isAdmin && g.has_breakglass && !g.has_oidc && !g.has_app) {
       disconnectBtn =
         '<span class="form-hint" title="Break-glass n’a pas de session Keycloak">Utiliser « Révoquer » sur la session break-glass</span>';
@@ -643,32 +673,62 @@
         escapeHtml(g.sso_logout.label) +
         '</div>';
     }
-    detail.innerHTML =
-      '<div class="sessions-detail-head">' +
-      '<div><h2 class="sessions-detail-title">' +
-      escapeHtml(g.user) +
-      '</h2><p class="sessions-detail-sub mono">' +
-      escapeHtml(g.user_email) +
-      ' · ' +
-      escapeHtml(g.realm) +
-      '</p>' +
-      '<div class="sessions-user-families" style="margin-top:6px;">' +
-      familyChips(g) +
-      '</div></div>' +
-      '<div class="session-actions-group">' +
-      '<span class="badge badge-' +
-      statusClass +
-      '">' +
-      escapeHtml(String(g.session_count)) +
-      ' session(s)</span>' +
-      disconnectBtn +
-      '</div></div>' +
-      logoutBanner +
-      '<div id="disconnect-user-result" class="session-detail-spacer"></div>' +
-      '<ul class="sessions-row-list" id="sessions-card-grid" role="list">' +
-      (g.sessions || []).map(renderSessionRow).join('') +
-      '</ul>';
-  }
+    // Build via DOM so user-controlled strings never go through innerHTML assignment.
+    var head = document.createElement('div');
+    head.className = 'sessions-detail-head';
+    var headLeft = document.createElement('div');
+    var title = document.createElement('h2');
+    title.className = 'sessions-detail-title';
+    title.textContent = g.user || '';
+    var sub = document.createElement('p');
+    sub.className = 'sessions-detail-sub mono';
+    sub.textContent = (g.user_email || '') + ' · ' + (g.realm || '');
+    var families = document.createElement('div');
+    families.className = 'sessions-user-families';
+    families.style.marginTop = '6px';
+    families.insertAdjacentHTML('afterbegin', familyChips(g));
+    headLeft.appendChild(title);
+    headLeft.appendChild(sub);
+    headLeft.appendChild(families);
+    var actions = document.createElement('div');
+    actions.className = 'session-actions-group';
+    var countBadge = document.createElement('span');
+    countBadge.className = 'badge badge-' + statusClass;
+    countBadge.textContent = String(g.session_count) + ' session(s)';
+    actions.appendChild(countBadge);
+    if (disconnectBtn) {
+      var disconnectWrap = document.createElement('div');
+      disconnectWrap.insertAdjacentHTML('afterbegin', disconnectBtn);
+      while (disconnectWrap.firstChild) {
+        actions.appendChild(disconnectWrap.firstChild);
+      }
+    }
+    head.appendChild(headLeft);
+    head.appendChild(actions);
+
+    detail.textContent = '';
+    detail.appendChild(head);
+    if (logoutBanner) {
+      var bannerWrap = document.createElement('div');
+      bannerWrap.insertAdjacentHTML('afterbegin', logoutBanner);
+      while (bannerWrap.firstChild) {
+        detail.appendChild(bannerWrap.firstChild);
+      }
+    }
+    var resultSlot = document.createElement('div');
+    resultSlot.id = 'disconnect-user-result';
+    resultSlot.className = 'session-detail-spacer';
+    detail.appendChild(resultSlot);
+    var list = document.createElement('ul');
+    list.className = 'sessions-row-list';
+    list.id = 'sessions-card-grid';
+    list.setAttribute('role', 'list');
+    list.insertAdjacentHTML(
+      'afterbegin',
+      (g.sessions || []).map(renderSessionRow).join('')
+    );
+    detail.appendChild(list);
+    bindSessionActionClicks(detail);
 
   window.disconnectUser = async function (userEmail, realmSlug) {
     var ok = window.bastionConfirm
