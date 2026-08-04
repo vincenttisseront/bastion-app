@@ -95,6 +95,18 @@ def make_csrf_token(request: Request, secret: str) -> str:
     return hmac.new(secret.encode() or b"dev", raw.encode(), hashlib.sha256).hexdigest()[:32]
 
 
+def verify_csrf_token(request: Request, secret: str, csrf_token: str = "") -> bool:
+    """Validate form ``csrf_token`` or ``X-CSRF-Token`` header against ``make_csrf_token``."""
+    expected = make_csrf_token(request, secret)
+    candidates = [
+        (csrf_token or "").strip(),
+        (request.headers.get("X-CSRF-Token") or "").strip(),
+    ]
+    return any(
+        candidate and hmac.compare_digest(candidate, expected) for candidate in candidates
+    )
+
+
 def base_template_context(request: Request, settings: Any, app_version: str, **extra: Any) -> dict[str, Any]:
     from datetime import datetime, timezone
 

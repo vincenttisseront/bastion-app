@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 
 import httpx
@@ -23,6 +25,16 @@ ADMIN_HEADERS = {
     "X-Email": "admin@example.com",
     "X-Groups": "portal-admins",
 }
+
+
+def _csrf_headers(extra: dict | None = None) -> dict:
+    token = hmac.new(
+        b"test-secret", b"csrf:admin@example.com", hashlib.sha256
+    ).hexdigest()[:32]
+    headers = {**ADMIN_HEADERS, "X-CSRF-Token": token}
+    if extra:
+        headers.update(extra)
+    return headers
 
 ISSUER = "https://keycloak.example/realms/test"
 DISCOVERY_URL = f"{ISSUER}/.well-known/openid-configuration"
@@ -220,7 +232,7 @@ def test_enable_blocked_without_successful_test(client: TestClient, db_session: 
 
     response = client.post(
         f"/admin/realms/{realm.id}/enable",
-        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        headers=_csrf_headers({"Accept": "application/json"}),
     )
 
     assert response.status_code == 400
@@ -270,7 +282,7 @@ def test_export_blocked_without_ok_test(client: TestClient, db_session: Session,
 
     response = client.post(
         f"/admin/realms/{realm.id}/export",
-        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        headers=_csrf_headers({"Accept": "application/json"}),
     )
 
     assert response.status_code == 409
@@ -288,7 +300,7 @@ def test_export_generates_expected_files(client: TestClient, db_session: Session
 
     response = client.post(
         f"/admin/realms/{realm.id}/export",
-        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        headers=_csrf_headers({"Accept": "application/json"}),
     )
 
     assert response.status_code == 200

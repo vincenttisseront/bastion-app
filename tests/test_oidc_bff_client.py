@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
+import time
 from urllib.parse import parse_qs, urlparse
 
 import jwt
 import pytest
 import respx
+from cryptography.hazmat.primitives.asymmetric import rsa
 from httpx import Response
+from jwt.algorithms import RSAAlgorithm
 
 from app.oidc_bff_client import (
     InvalidCredentialsError,
     OidcBffConfigError,
     UnsupportedAuthFlowError,
+    extract_groups_from_oidc_claims,
     perform_headless_login,
 )
 from app.sso_settings import Settings
@@ -23,11 +28,19 @@ KC = "http://keycloak.internal:8080"
 REALM = "ar-systems"
 AUTH = f"{KC}/realms/{REALM}/protocol/openid-connect/auth"
 TOKEN = f"{KC}/realms/{REALM}/protocol/openid-connect/token"
+DISCOVERY = f"{KC}/realms/{REALM}/.well-known/openid-configuration"
+CERTS = f"{KC}/realms/{REALM}/protocol/openid-connect/certs"
 LOGIN_ACTION = (
     f"{KC}/realms/{REALM}/login-actions/authenticate"
     "?session_code=abc&execution=exec1&client_id=bastion-bff&tab_id=tab1"
 )
 REDIRECT_URI = "https://portal.example/.bastion/oidc/callback"
+CLIENT_ID = "bastion-bff"
+
+_RSA_PRIVATE = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_RSA_PUBLIC = _RSA_PRIVATE.public_key()
+_JWK = json.loads(RSAAlgorithm.to_jwk(_RSA_PUBLIC))
+_JWK.update({"kid": "test-key", "alg": "RS256", "use": "sig"})
 
 
 def _settings() -> Settings:
@@ -44,10 +57,23 @@ def _settings() -> Settings:
 def _bff_kwargs() -> dict:
     return {
         "keycloak_base_url": KC,
-        "client_id": "bastion-bff",
+        "client_id": CLIENT_ID,
         "client_secret": "bff-secret",
         "redirect_uri": REDIRECT_URI,
     }
+
+
+def _mock_oidc_discovery() -> None:
+    respx.get(DISCOVERY).mock(
+        return_value=Response(
+            200,
+            json={
+                "issuer": f"{KC}/realms/{REALM}",
+                "jwks_uri": CERTS,
+            },
+        )
+    )
+    respx.get(CERTS).mock(return_value=Response(200, json={"keys": [_JWK]}))
 
 
 def _login_html(*, error: bool = False) -> str:
@@ -82,13 +108,22 @@ def _otp_html() -> str:
 
 
 def _id_token(*, sub: str = "kc-sub-1", preferred: str = "alice", groups=None) -> str:
-    payload = {"sub": sub, "preferred_username": preferred, "iss": f"{KC}/realms/{REALM}"}
+    now = int(time.time())
+    payload = {
+        "sub": sub,
+        "preferred_username": preferred,
+        "iss": f"{KC}/realms/{REALM}",
+        "aud": CLIENT_ID,
+        "exp": now + 300,
+        "iat": now,
+    }
     if groups is not None:
         payload["groups"] = groups
     return jwt.encode(
         payload,
-        key="unit-test-hmac-key-32bytes-min!!",
-        algorithm="HS256",
+        key=_RSA_PRIVATE,
+        algorithm="RS256",
+        headers={"kid": "test-key"},
     )
 
 
@@ -96,6 +131,7 @@ def _id_token(*, sub: str = "kc-sub-1", preferred: str = "alice", groups=None) -
 @respx.mock
 async def test_headless_login_success():
     settings = _settings()
+    _mock_oidc_discovery()
     auth_route = respx.get(AUTH).mock(
         return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
     )
@@ -255,6 +291,7 @@ def test_extract_groups_from_oidc_claims_paths_and_csv():
 @respx.mock
 async def test_headless_login_extracts_groups_from_id_token():
     settings = _settings()
+    _mock_oidc_discovery()
     respx.get(AUTH).mock(
         return_value=Response(200, text=_login_html(), headers={"content-type": "text/html"})
     )

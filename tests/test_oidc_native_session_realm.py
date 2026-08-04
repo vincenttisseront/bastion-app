@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -25,6 +27,18 @@ ADMIN = {
     "X-Preferred-Username": "admin",
     "X-Groups": "portal-admins",
 }
+
+
+def _csrf_headers(extra: dict | None = None) -> dict:
+    secret = "test-secret"
+    email = "admin@example.com"
+    token = hmac.new(
+        secret.encode(), f"csrf:{email}".encode(), hashlib.sha256
+    ).hexdigest()[:32]
+    headers = {**ADMIN, "X-CSRF-Token": token}
+    if extra:
+        headers.update(extra)
+    return headers
 
 
 def _settings(**extra) -> Settings:
@@ -162,7 +176,7 @@ def test_admin_toggle_audits_enable_disable(
 
     on = client.post(
         f"/admin/realms/{realm.id}/oidc-native-session/enable",
-        headers=ADMIN,
+        headers=_csrf_headers(),
         follow_redirects=False,
     )
     assert on.status_code in (200, 302)
@@ -177,7 +191,7 @@ def test_admin_toggle_audits_enable_disable(
 
     off = client.post(
         f"/admin/realms/{realm.id}/oidc-native-session/disable",
-        headers=ADMIN,
+        headers=_csrf_headers(),
         follow_redirects=False,
     )
     assert off.status_code in (200, 302)
