@@ -385,7 +385,9 @@ async def create_keycloak_user(
         "username": username,
         "email": email,
         "enabled": True,
-        "emailVerified": False,
+        # Admin-entered email is trusted — avoids oauth2-proxy rejecting
+        # email_verified=false for newly provisioned users.
+        "emailVerified": True,
         "requiredActions": ["UPDATE_PASSWORD"] if temporary_password else [],
         "credentials": [
             {
@@ -435,6 +437,7 @@ async def update_keycloak_user(
     first_name: str | None = None,
     last_name: str | None = None,
     enabled: bool | None = None,
+    email_verified: bool | None = None,
     token: str | None = None,
 ) -> None:
     """GET + PUT /users/{id} — merge identity fields (WRITE provision account)."""
@@ -467,6 +470,15 @@ async def update_keycloak_user(
         payload["lastName"] = (last_name or "").strip()
     if enabled is not None:
         payload["enabled"] = bool(enabled)
+    if email_verified is not None:
+        payload["emailVerified"] = bool(email_verified)
+        if email_verified:
+            actions = [
+                a
+                for a in (payload.get("requiredActions") or [])
+                if a != "VERIFY_EMAIL"
+            ]
+            payload["requiredActions"] = actions
     # Never re-send credentials blob from a GET (may be incomplete / empty).
     payload.pop("credentials", None)
 

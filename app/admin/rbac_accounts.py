@@ -28,6 +28,7 @@ from app.rbac.account_service import (
     AccountCreationError,
     create_bastion_account,
     delete_bastion_account,
+    mark_keycloak_email_verified,
     provision_account_app,
     realm_provisioning_ready,
     reset_bastion_account_password,
@@ -847,6 +848,131 @@ async def admin_rbac_account_reset_password(
             "success",
             secret,
         )
+    return response
+
+
+@router.post("/admin/rbac/accounts/{account_id}/verify-email")
+async def admin_rbac_account_verify_email(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    redirect_url: str = Form(""),
+):
+    """Force Keycloak emailVerified=true for a bastion-linked account."""
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/accounts/{account.id}"
+    realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
+    if realm is None or not account.keycloak_user_id:
+        msg = "Compte Keycloak manquant — impossible de vérifier l'email."
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=400)
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, msg, "error", secret)
+        return response
+    try:
+        await mark_keycloak_email_verified(
+            db,
+            settings,
+            realm=realm,
+            keycloak_user_id=account.keycloak_user_id,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            username=account.username,
+            bastion_account_id=account.id,
+        )
+    except AccountCreationError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "email_verified": True})
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    flash_redirect(
+        response,
+        f"Email marqué comme vérifié dans Keycloak pour {account.username}.",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/admin/rbac/users/verify-email")
+async def admin_rbac_user_verify_email(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    realm_id: int = Form(...),
+    keycloak_user_id: str = Form(...),
+    redirect_url: str = Form(""),
+):
+    """Force Keycloak emailVerified=true from the user fiche (with or without bastion row)."""
+    secret = settings.vault_portal_internal_token or "dev"
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if realm is None:
+        raise HTTPException(status_code=404, detail="Realm introuvable")
+    uid = (keycloak_user_id or "").strip()
+    fallback = (
+        f"/admin/rbac/users/view?realm_id={realm.id}&keycloak_user_id={uid}"
+        if uid
+        else "/admin/rbac/users"
+    )
+    account = (
+        db.query(BastionAccount)
+        .filter_by(keycloak_user_id=uid, realm_id=realm.id)
+        .first()
+        if uid
+        else None
+    )
+    if account is not None:
+        fallback = f"/admin/rbac/users/view?account_id={account.id}"
+    try:
+        await mark_keycloak_email_verified(
+            db,
+            settings,
+            realm=realm,
+            keycloak_user_id=uid,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            username=(account.username if account else None),
+            bastion_account_id=(account.id if account else None),
+        )
+    except AccountCreationError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "email_verified": True})
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    flash_redirect(
+        response,
+        "Email marqué comme vérifié dans Keycloak.",
+        "success",
+        secret,
+    )
     return response
 
 

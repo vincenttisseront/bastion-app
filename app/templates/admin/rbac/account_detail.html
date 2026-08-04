@@ -101,6 +101,12 @@
         </label>
         <button type="submit" class="btn btn-ghost btn-sm">Reset password</button>
       </form>
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/verify-email"
+            onclick="event.stopPropagation();"
+            onsubmit="return confirm('Marquer l’email de « {{ account.username }} » comme vérifié dans Keycloak ?');"
+            style="display:inline;">
+        <button type="submit" class="btn btn-ghost btn-sm">Vérifier email</button>
+      </form>
       {% endif %}
     </div>
     <div class="form-body">

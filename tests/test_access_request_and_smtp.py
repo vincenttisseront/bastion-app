@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from unittest.mock import MagicMock, patch
 
@@ -292,3 +293,47 @@ def test_reset_password_endpoint(client, db_session):
     mock_mail.assert_called_once()
     assert "temporaryPassword" not in body
     assert "password" not in body
+
+
+@respx.mock
+def test_verify_email_endpoint(client, db_session):
+    realm = _realm(db_session)
+    account = BastionAccount(
+        realm_id=realm.id,
+        username="jdoe",
+        email="jdoe@example.com",
+        keycloak_user_id="kc-user-1",
+        status="keycloak_created",
+        origin="bastion",
+        created_by="admin@example.com",
+    )
+    db_session.add(account)
+    db_session.commit()
+    db_session.refresh(account)
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    get_route = respx.get(f"{KC_ADMIN}/users/kc-user-1").respond(
+        200,
+        json={
+            "id": "kc-user-1",
+            "username": "jdoe",
+            "email": "jdoe@example.com",
+            "emailVerified": False,
+            "requiredActions": ["VERIFY_EMAIL", "UPDATE_PASSWORD"],
+            "enabled": True,
+        },
+    )
+    put_route = respx.put(f"{KC_ADMIN}/users/kc-user-1").respond(204)
+
+    resp = client.post(
+        f"/admin/rbac/accounts/{account.id}/verify-email",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"ok": True, "email_verified": True}
+    assert get_route.called
+    assert put_route.called
+    body = json.loads(put_route.calls.last.request.content)
+    assert body["emailVerified"] is True
+    assert "VERIFY_EMAIL" not in body.get("requiredActions", [])
+    assert "UPDATE_PASSWORD" in body.get("requiredActions", [])
