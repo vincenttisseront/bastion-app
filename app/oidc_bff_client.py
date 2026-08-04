@@ -14,7 +14,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
 from uuid import uuid4
 
 import httpx
@@ -560,9 +560,56 @@ async def _exchange_code_for_tokens(
 
 
 def _absolute_action_url(action: str, base: str) -> str:
-    if action.startswith("http://") or action.startswith("https://"):
+    """Resolve form action against Keycloak base, rewriting public frontend hosts.
+
+    Keycloak often embeds the public hostname in ``form action`` while the BFF
+    talked to an internal base (docker DNS). Posting to the public host without
+    the AUTH_SESSION_ID cookies set on the internal host yields HTTP 400
+    (``cookie_not_found``). Always keep realm login-actions on ``base``.
+    """
+    base = (base or "").strip().rstrip("/")
+    action = (action or "").strip()
+    if not action:
         return action
-    return urljoin(base.rstrip("/") + "/", action)
+    if not (action.startswith("http://") or action.startswith("https://")):
+        abs_action = urljoin(base + "/", action.lstrip("/"))
+    else:
+        abs_action = action
+    if not base:
+        return abs_action
+    parsed = urlparse(abs_action)
+    base_parsed = urlparse(base)
+    if not base_parsed.netloc or "/realms/" not in (parsed.path or ""):
+        return abs_action
+    if (
+        parsed.scheme == base_parsed.scheme
+        and parsed.netloc == base_parsed.netloc
+    ):
+        return abs_action
+    return urlunparse(
+        (
+            base_parsed.scheme,
+            base_parsed.netloc,
+            parsed.path,
+            "",
+            parsed.query,
+            "",
+        )
+    )
+
+
+def _keycloak_http_error_hint(html: str) -> str | None:
+    """Best-effort hint from Keycloak error HTML (never log secrets)."""
+    lower = (html or "").lower()
+    if "cookie" in lower and (
+        "not found" in lower or "introuvable" in lower or "cookie_not_found" in lower
+    ):
+        return "cookie session Keycloak manquant (URL frontend vs base BFF)"
+    if "expired" in lower and "code" in lower:
+        return "session_code Keycloak expiré"
+    if "we are sorry" in lower or "nous sommes désolés" in lower:
+        return "page d'erreur Keycloak"
+    return None
 
 
 async def start_headless_login(
@@ -1095,4 +1142,13 @@ async def _interpret_post_password_response(
             "Réponse login Keycloak inattendue (HTTP 200, pas de code)"
         )
 
-    raise OidcBffError(f"Login Keycloak HTTP {resp.status_code} inattendu")
+    hint = _keycloak_http_error_hint(resp.text or "")
+    logger.warning(
+        "oidc_bff login unexpected status=%s hint=%s",
+        resp.status_code,
+        hint or "-",
+    )
+    detail = f"Login Keycloak HTTP {resp.status_code} inattendu"
+    if hint:
+        detail = f"{detail}: {hint}"
+    raise OidcBffError(detail)

@@ -149,12 +149,12 @@
           <span class="badge badge-warn">false</span>
           {% if keycloak_user_id and realm %}
           <form method="post" action="/admin/rbac/users/verify-email"
-                onsubmit="return confirm('Marquer cet email comme vérifié dans Keycloak ?');"
                 style="display:inline; margin-left:var(--sp-2);">
             <input type="hidden" name="realm_id" value="{{ realm.id }}">
             <input type="hidden" name="keycloak_user_id" value="{{ keycloak_user_id }}">
             <input type="hidden" name="redirect_url" value="{{ view_url }}">
-            <button type="submit" class="btn btn-ghost btn-sm">Marquer comme vérifié</button>
+            <button type="submit" class="btn btn-ghost btn-sm"
+                    data-confirm="Marquer cet email comme vérifié dans Keycloak ?">Marquer comme vérifié</button>
           </form>
           {% endif %}
         {% else %}
@@ -176,7 +176,6 @@
           <span class="mono">UPDATE_PASSWORD</span> au prochain login).
         </p>
         <form method="post" action="/admin/rbac/accounts/{{ account.id }}/reset-password"
-              onsubmit="return confirm('Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?');"
               style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
           <input type="hidden" name="redirect_url" value="{{ view_url }}#identite">
           <label class="form-check" style="margin:0;">
@@ -184,7 +183,8 @@
                    {% if realm and realm.send_credentials_email and realm.smtp_enabled %}checked{% endif %}>
             <span>Envoyer par email</span>
           </label>
-          <button type="submit" class="btn btn-ghost btn-sm">Reset password</button>
+          <button type="submit" class="btn btn-ghost btn-sm"
+                  data-confirm="Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?">Reset password</button>
         </form>
       </div>
       {% endif %}
@@ -220,11 +220,11 @@
           <span class="mono">{{ row.path or row.name }}</span>
           {% if account and row.rbac_group_id %}
           <form method="post" action="/admin/rbac/accounts/{{ account.id }}/groups/remove"
-                onsubmit="return confirm('Retirer ce groupe Keycloak ?');"
                 style="display:inline; margin-left:auto;">
             <input type="hidden" name="group_id" value="{{ row.rbac_group_id }}">
             <input type="hidden" name="redirect_url" value="{{ view_url }}#groupes">
-            <button type="submit" class="btn btn-ghost btn-sm">Retirer</button>
+            <button type="submit" class="btn btn-ghost btn-sm"
+                    data-confirm="Retirer ce groupe Keycloak ?">Retirer</button>
           </form>
           {% endif %}
         </li>
@@ -480,7 +480,15 @@
   var resultEl = document.getElementById('disconnect-user-result');
   if (disconnectBtn) {
     disconnectBtn.addEventListener('click', async function () {
-      if (!confirm('Déconnecter cet utilisateur (sessions robotic + SSO Keycloak) ?')) return;
+      var confirmed = window.bastionConfirm
+        ? await window.bastionConfirm({
+            title: 'Déconnexion',
+            message: 'Déconnecter cet utilisateur (sessions robotic + SSO Keycloak) ?',
+            danger: true,
+            confirmLabel: 'Déconnecter',
+          })
+        : false;
+      if (!confirmed) return;
       disconnectBtn.disabled = true;
       try {
         var url =
@@ -585,7 +593,15 @@
   document.querySelectorAll('[data-vault-clear]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var slug = btn.getAttribute('data-vault-clear');
-      if (!confirm('Supprimer le credential individuel ?')) return;
+      var confirmed = window.bastionConfirm
+        ? await window.bastionConfirm({
+            title: 'Supprimer le credential',
+            message: 'Supprimer le credential individuel ?',
+            danger: true,
+            confirmLabel: 'Supprimer',
+          })
+        : false;
+      if (!confirmed) return;
       btn.disabled = true;
       try {
         var resp = await fetch('/admin/apps/' + encodeURIComponent(slug) + '/users/' + encodeURIComponent(kcUserId) + '/credential', {

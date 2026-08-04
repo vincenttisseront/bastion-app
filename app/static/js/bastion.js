@@ -25,18 +25,14 @@ document.addEventListener('DOMContentLoaded', function () {
       e.preventDefault();
       e.stopPropagation();
       var msg = el.dataset.confirm || 'Confirmer cette action ?';
-      var run = function (ok) {
+      if (!window.bastionConfirm) return;
+      window.bastionConfirm({ message: msg, danger: true }).then(function (ok) {
         if (!ok) return;
         el.dataset.bastionConfirmOk = '1';
         if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.type === 'submit') {
           el.click();
         }
-      };
-      if (window.bastionConfirm) {
-        window.bastionConfirm({ message: msg, danger: true }).then(run);
-      } else if (confirm(msg)) {
-        run(true);
-      }
+      });
     });
   });
 

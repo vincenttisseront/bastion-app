@@ -19,6 +19,7 @@ from app.oidc_bff_client import (
     InvalidCredentialsError,
     OidcBffConfigError,
     UnsupportedAuthFlowError,
+    _absolute_action_url,
     extract_groups_from_oidc_claims,
     perform_headless_login,
 )
@@ -323,3 +324,71 @@ async def test_headless_login_extracts_groups_from_id_token():
         REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
     )
     assert result.groups == ("ARSYSTEMS-Users",)
+
+
+def test_absolute_action_url_rewrites_public_frontend_to_internal_base():
+    public = (
+        "https://sso.example/realms/clients/login-actions/authenticate"
+        "?session_code=abc&execution=e1&client_id=bff&tab_id=t1"
+    )
+    rewritten = _absolute_action_url(public, KC)
+    assert rewritten.startswith(f"{KC}/realms/clients/login-actions/authenticate")
+    assert "session_code=abc" in rewritten
+    assert "sso.example" not in rewritten
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_headless_login_posts_to_internal_when_form_action_is_public():
+    """Keycloak embeds frontend URL in form action — BFF must POST to internal base."""
+    settings = _settings()
+    _mock_oidc_discovery()
+    public_action = (
+        "https://sso.public.example/realms/ar-systems/login-actions/authenticate"
+        "?session_code=abc&execution=exec1&client_id=bastion-bff&tab_id=tab1"
+    )
+    html = f"""
+    <html><body>
+      <form id="kc-form-login" action="{public_action}" method="post">
+        <input type="text" name="username" value="">
+        <input type="password" name="password" value="">
+      </form>
+    </body></html>
+    """
+    respx.get(AUTH).mock(
+        return_value=Response(200, text=html, headers={"content-type": "text/html"})
+    )
+    public_post = respx.post(url__startswith="https://sso.public.example/").mock(
+        return_value=Response(400, text="Cookie not found")
+    )
+
+    def _login_with_state(request):
+        assert str(request.url).startswith(KC)
+        auth_req = respx.calls[0].request
+        state = parse_qs(urlparse(str(auth_req.url)).query)["state"][0]
+        return Response(
+            302,
+            headers={"Location": f"{REDIRECT_URI}?code=auth-code-1&state={state}"},
+        )
+
+    internal_post = respx.post(
+        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
+    ).mock(side_effect=_login_with_state)
+    respx.post(TOKEN).mock(
+        return_value=Response(
+            200,
+            json={
+                "access_token": "access-xyz",
+                "id_token": _id_token(),
+                "expires_in": 300,
+                "token_type": "Bearer",
+            },
+        )
+    )
+
+    result = await perform_headless_login(
+        REALM, "alice", "s3cret", settings=settings, **_bff_kwargs()
+    )
+    assert result.sub == "kc-sub-1"
+    assert internal_post.called
+    assert not public_post.called
