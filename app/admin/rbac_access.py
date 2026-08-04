@@ -308,7 +308,7 @@ async def admin_rbac_group_credential_set(
 ):
     group, _realm = _realm_for_group(db, group_id)
     secret = settings.vault_portal_internal_token or "dev"
-    fallback = f"/admin/rbac/groups/{group.id}"
+    fallback = f"/admin/rbac/groups/{group.id}#comptes"
     try:
         cred = set_group_credential(
             db,
@@ -361,7 +361,7 @@ async def admin_rbac_group_credential_delete(
 ):
     group, _realm = _realm_for_group(db, group_id)
     secret = settings.vault_portal_internal_token or "dev"
-    fallback = f"/admin/rbac/groups/{group.id}"
+    fallback = f"/admin/rbac/groups/{group.id}#comptes"
     cred = next(
         (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
         None,
@@ -393,7 +393,7 @@ async def admin_rbac_group_credential_exclusion_add(
 ):
     group, _realm = _realm_for_group(db, group_id)
     secret = settings.vault_portal_internal_token or "dev"
-    fallback = f"/admin/rbac/groups/{group.id}"
+    fallback = f"/admin/rbac/groups/{group.id}#comptes"
     cred = next(
         (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
         None,
@@ -443,7 +443,7 @@ async def admin_rbac_group_credential_exclusion_remove(
 ):
     group, _realm = _realm_for_group(db, group_id)
     secret = settings.vault_portal_internal_token or "dev"
-    fallback = f"/admin/rbac/groups/{group.id}"
+    fallback = f"/admin/rbac/groups/{group.id}#comptes"
     cred = next(
         (c for c in list_group_credentials(db, group.id) if c.id == credential_id),
         None,
