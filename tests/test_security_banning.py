@@ -469,6 +469,139 @@ def test_security_shared_counters(db_session: Session):
     assert n == 2
 
 
+def test_rate_limit_throttles_429_without_ban(db_session: Session):
+    """Beyond the budget → rate_limited (429), NO ban row, audit once per burst."""
+    from app.security.banning.engine import RULE_RATE_LIMIT
+
+    update_ban_rules(
+        db_session,
+        rules={RULE_RATE_LIMIT: {"enabled": True, "threshold": 3, "window_seconds": 60}},
+        actor="test",
+    )
+    ip = "203.0.113.90"
+    for _ in range(3):
+        allowed, reason, _ = check_request_allowed(
+            db_session, ip=ip, path="/admin/security", method="GET"
+        )
+        assert allowed is True, reason
+
+    for _ in range(2):
+        allowed, reason, ban = check_request_allowed(
+            db_session, ip=ip, path="/admin/security", method="GET"
+        )
+        assert allowed is False
+        assert reason == "rate_limited"
+        assert ban is None
+
+    # Throttle, not ban — nothing in SecurityBan.
+    assert find_active_ban(db_session, ip=ip) is None
+    # Audit only on the FIRST rejection of the burst (no audit flood).
+    audits = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "security.rate_limited")
+        .all()
+    )
+    assert len(audits) == 1
+    assert audits[0].details["rule_type"] == RULE_RATE_LIMIT
+    assert audits[0].details["threshold"] == 3
+
+
+def test_rate_limit_login_scope_only(db_session: Session):
+    """Login budget throttles login paths but not other sensitive paths."""
+    from app.security.banning.engine import RULE_RATE_LIMIT, RULE_RATE_LIMIT_LOGIN
+
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_RATE_LIMIT: {"enabled": False},
+            RULE_RATE_LIMIT_LOGIN: {
+                "enabled": True,
+                "threshold": 2,
+                "window_seconds": 60,
+            },
+        },
+        actor="test",
+    )
+    ip = "203.0.113.91"
+    for _ in range(2):
+        allowed, reason, _ = check_request_allowed(
+            db_session, ip=ip, path="/auth/login", method="POST"
+        )
+        assert allowed is True, reason
+
+    allowed, reason, _ = check_request_allowed(
+        db_session, ip=ip, path="/auth/login", method="POST"
+    )
+    assert allowed is False
+    assert reason == "rate_limited"
+
+    # Non-login sensitive path stays allowed (global rate limit disabled).
+    allowed, reason, _ = check_request_allowed(
+        db_session, ip=ip, path="/admin/security", method="GET"
+    )
+    assert allowed is True, reason
+    assert find_active_ban(db_session, ip=ip) is None
+
+
+def test_rate_limit_allowlisted_ip_never_throttled(db_session: Session):
+    from app.security.banning.engine import RULE_RATE_LIMIT
+
+    update_ban_rules(
+        db_session,
+        rules={RULE_RATE_LIMIT: {"enabled": True, "threshold": 1, "window_seconds": 60}},
+        actor="test",
+    )
+    ip = "203.0.113.92"
+    add_allowlist_entry(
+        db_session, entry_type="ip", value=ip, comment="test", actor="test"
+    )
+    for _ in range(5):
+        allowed, reason, _ = check_request_allowed(
+            db_session, ip=ip, path="/admin/security", method="GET"
+        )
+        assert allowed is True, reason
+
+
+def test_rate_limit_rules_ship_disabled_by_default(db_session: Session):
+    from app.security.banning.engine import RULE_RATE_LIMIT, RULE_RATE_LIMIT_LOGIN
+
+    rule = get_rule(db_session, RULE_RATE_LIMIT)
+    assert rule is not None
+    assert rule.enabled is False
+    assert rule.threshold == 120
+    login_rule = get_rule(db_session, RULE_RATE_LIMIT_LOGIN)
+    assert login_rule is not None
+    assert login_rule.enabled is False
+    assert login_rule.threshold == 20
+
+
+def test_rate_limit_middleware_returns_429_with_retry_after(
+    client: TestClient, db_session: Session
+):
+    from app.security.banning.engine import RULE_RATE_LIMIT
+
+    update_ban_rules(
+        db_session,
+        rules={RULE_RATE_LIMIT: {"enabled": True, "threshold": 2, "window_seconds": 45}},
+        actor="test",
+    )
+    headers = {
+        "X-Email": "admin@example.com",
+        "X-Groups": "portal-admins",
+        "X-Real-IP": "203.0.113.93",
+    }
+    for _ in range(2):
+        resp = client.get("/admin/security", headers=headers)
+        assert resp.status_code == 200
+
+    resp = client.get("/admin/security", headers=headers)
+    assert resp.status_code == 429
+    assert resp.json()["detail"] == "Too many requests"
+    assert resp.headers.get("Retry-After") == "45"
+    # No ban row — throttle only.
+    assert find_active_ban(db_session, ip="203.0.113.93") is None
+
+
 def test_security_banning_page_accordion_and_modals(client: TestClient, db_session: Session):
     resp = client.get(
         "/admin/security",
@@ -487,5 +620,8 @@ def test_security_banning_page_accordion_and_modals(client: TestClient, db_sessi
     assert "Enregistrer les règles" in body
     assert "hammering_login_enabled" in body
     assert "successful_login_enabled" in body
+    assert "rate_limit_enabled" in body
+    assert "rate_limit_login_enabled" in body
+    assert "Rate limit (429)" in body
     assert body.count('action="/admin/security/banning/add"') == 1
     assert body.count('action="/admin/security/allowlist/add"') == 1

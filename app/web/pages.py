@@ -2392,6 +2392,14 @@ def admin_security_banning_rules(
     # concurrent
     concurrent_enabled: str | None = Form(None),
     concurrent_threshold: int = Form(0),
+    # rate limit (throttle 429, no ban)
+    rate_limit_enabled: str | None = Form(None),
+    rate_limit_threshold: int = Form(120),
+    rate_limit_window_seconds: int = Form(60),
+    # rate limit login-only
+    rate_limit_login_enabled: str | None = Form(None),
+    rate_limit_login_threshold: int = Form(20),
+    rate_limit_login_window_seconds: int = Form(60),
 ):
     from app.security.banning.service import update_ban_rules
 
@@ -2441,6 +2449,16 @@ def admin_security_banning_rules(
             "concurrent_connections": {
                 "enabled": concurrent_enabled == "on",
                 "threshold": concurrent_threshold,
+            },
+            "rate_limit": {
+                "enabled": rate_limit_enabled == "on",
+                "threshold": rate_limit_threshold,
+                "window_seconds": rate_limit_window_seconds,
+            },
+            "rate_limit_login": {
+                "enabled": rate_limit_login_enabled == "on",
+                "threshold": rate_limit_login_threshold,
+                "window_seconds": rate_limit_login_window_seconds,
             },
         },
         actor=user.email or user.username or "admin",

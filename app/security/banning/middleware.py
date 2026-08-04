@@ -16,6 +16,7 @@ from app.security.banning.engine import (
     end_concurrent,
     identity_username_from_headers,
     is_sensitive_path,
+    rate_limit_retry_after,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,14 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
                 username=username or None,
             )
             if not allowed:
+                if reason == "rate_limited":
+                    # Throttle (429 + Retry-After) — softer than a ban.
+                    retry = rate_limit_retry_after(db, path, request.method)
+                    return JSONResponse(
+                        {"detail": "Too many requests"},
+                        status_code=429,
+                        headers={"Retry-After": str(max(1, retry))},
+                    )
                 detail = (
                     "Too many concurrent connections"
                     if reason == "concurrent_limit"
