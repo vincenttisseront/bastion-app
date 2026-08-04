@@ -319,3 +319,37 @@ def test_oidc_logout_revokes_and_clears_cookie(
         validate_oidc_session_cookie(cookie, db=db_session, settings=oidc_settings)
         is None
     )
+
+
+def test_portal_get_logout_clears_bastion_session(
+    client: TestClient, db_session: Session, oidc_settings: Settings
+):
+    """User-menu link is GET /logout — must clear bastion_session (not only bg_session)."""
+    with patch(
+        "app.oidc_bff.start_headless_login",
+        new=AsyncMock(return_value=_ok_step()),
+    ):
+        login = client.post(
+            "/auth/login",
+            data={"username": "alice", "password": "secret"},
+            headers={"X-Real-IP": "10.0.0.40"},
+        )
+    assert login.status_code == 200
+    cookie = login.cookies[COOKIE]
+    client.cookies.set(COOKIE, cookie)
+    row = db_session.query(OidcSession).one()
+    assert row.revoked is False
+
+    logout = client.get("/logout", follow_redirects=False)
+    assert logout.status_code == 302
+    assert logout.headers.get("location") == "/auth/login"
+    set_cookie = " ".join(logout.headers.get_list("set-cookie")).lower()
+    assert "bastion_session=" in set_cookie
+    assert "max-age=0" in set_cookie or "expires=" in set_cookie
+
+    db_session.refresh(row)
+    assert row.revoked is True
+    assert (
+        validate_oidc_session_cookie(cookie, db=db_session, settings=oidc_settings)
+        is None
+    )

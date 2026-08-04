@@ -41,7 +41,7 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
         "public access-request form — self-registration awaiting admin approval"
     ),
     "/breakglass": "break-glass login page (same family as /auth/login)",
-    "/logout": "clears break-glass cookie; safe without session",
+    "/logout": "clears break-glass + native OIDC bastion_session; safe without session",
     "/health": "liveness probe, non-sensitive",
     "/api/health": "monitoring probe, non-sensitive",
     "/errors/403": "static error page",

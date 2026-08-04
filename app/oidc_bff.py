@@ -238,10 +238,68 @@ def clear_oidc_session_cookie(response: Response, settings: Settings) -> None:
 
     name = settings.oidc_session_cookie_name
     domain = portal_sso_cookie_domain(settings.portal_domain or "")
+    clear_kwargs: dict = {
+        "key": name,
+        "path": "/",
+        "httponly": True,
+        "secure": True,
+        "samesite": "lax",
+    }
     if domain:
-        response.delete_cookie(key=name, path="/", domain=domain)
+        response.delete_cookie(**clear_kwargs, domain=domain)
     # Pre-cutover cookies were host-only on the portal FQDN.
-    response.delete_cookie(key=name, path="/")
+    response.delete_cookie(**clear_kwargs)
+
+
+def revoke_oidc_session_from_request(
+    request: Request,
+    db: Session,
+    settings: Settings,
+) -> str:
+    """Revoke the ``bastion_session`` jti from the request cookie if present.
+
+    Returns the actor string for audit (username/sub or ``unknown``).
+    Does not clear the cookie — call ``clear_oidc_session_cookie`` separately.
+    """
+    actor = "unknown"
+    cookie_name = settings.oidc_session_cookie_name
+    raw = request.cookies.get(cookie_name)
+    if not raw:
+        return actor
+
+    claims = validate_oidc_session_cookie(raw, db=db, settings=settings)
+    jti: str | None = None
+    if claims is not None:
+        actor = claims.username or claims.sub
+        jti = claims.jti
+    else:
+        from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
+
+        secret = resolve_oidc_session_jwt_secret(db, settings)
+        if secret:
+            try:
+                payload: dict[str, Any] = jwt.decode(
+                    raw,
+                    secret,
+                    algorithms=["HS256"],
+                    options={"verify_exp": False},
+                )
+                if payload.get("type") == "oidc":
+                    actor = str(
+                        payload.get("username") or payload.get("sub") or "unknown"
+                    )
+                    jti_val = payload.get("jti")
+                    if isinstance(jti_val, str):
+                        jti = jti_val
+            except jwt.PyJWTError:
+                pass
+    if jti:
+        try:
+            revoke_oidc_jti(db, jti, revoked_by=str(actor), reason="logout")
+            db.commit()
+        except LookupError:
+            pass
+    return actor
 
 
 def validate_oidc_session_cookie(
@@ -790,42 +848,7 @@ async def oidc_logout(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    actor = "unknown"
-    cookie_name = settings.oidc_session_cookie_name
-    raw = request.cookies.get(cookie_name)
-    if raw:
-        # Prefer full validation; fall back to decode without exp for logout revoke.
-        claims = validate_oidc_session_cookie(raw, db=db, settings=settings)
-        jti: str | None = None
-        if claims is not None:
-            actor = claims.username or claims.sub
-            jti = claims.jti
-        else:
-            from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
-
-            secret = resolve_oidc_session_jwt_secret(db, settings)
-            if secret:
-                try:
-                    payload: dict[str, Any] = jwt.decode(
-                        raw,
-                        secret,
-                        algorithms=["HS256"],
-                        options={"verify_exp": False},
-                    )
-                    if payload.get("type") == "oidc":
-                        actor = str(payload.get("username") or payload.get("sub") or "unknown")
-                        jti_val = payload.get("jti")
-                        if isinstance(jti_val, str):
-                            jti = jti_val
-                except jwt.PyJWTError:
-                    pass
-        if jti:
-            try:
-                revoke_oidc_jti(db, jti, revoked_by=str(actor), reason="logout")
-                db.commit()
-            except LookupError:
-                pass
-
+    actor = revoke_oidc_session_from_request(request, db, settings)
     clear_oidc_session_cookie(response, settings)
     log_action(
         db,
