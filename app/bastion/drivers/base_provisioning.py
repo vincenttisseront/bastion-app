@@ -89,3 +89,16 @@ class AccountProvisioningDriver(Protocol):
         """Disable the application-local account (hors périmètre V1 — action
         manuelle uniquement, cf. spec §5.3/§9.3)."""
         ...
+
+    async def delete_account(
+        self,
+        *,
+        db: "Session",
+        settings: "Settings",
+        app: "App",
+        account: "BastionAccount",
+    ) -> ProvisioningResult:
+        """Delete the application-local account (full user cleanup). Must be
+        idempotent — an already-absent account is a success, and expected
+        failures return status="failed" with a secret-free detail."""
+        ...

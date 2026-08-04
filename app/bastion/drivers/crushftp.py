@@ -1082,3 +1082,79 @@ class CrushFTPProvisioningDriver:
                 "dans CrushFTP (cf. spec §5.3)."
             ),
         )
+
+    async def delete_account(self, *, db, settings, app, account) -> ProvisioningResult:
+        """Delete the CrushFTP local user (setUserItem data_action=delete).
+
+        Idempotent: an already-absent user is a success ("déjà absent"), so the
+        bastion-side cleanup can be retried safely. The outcome is always
+        verified with getUser — never trust the setUserItem response alone.
+        """
+        admin = self._resolve_admin(app, settings)
+        if isinstance(admin, ProvisioningResult):
+            return admin
+        admin_username, admin_password, base_url, server_group, tls_verify = admin
+        target = (account.username or "").strip()
+        if not target:
+            return ProvisioningResult(
+                status=PROVISIONING_FAILED,
+                detail="Username bastion manquant — suppression CrushFTP impossible",
+            )
+        try:
+            exists = await self._verify_user_exists(
+                base_url=base_url,
+                admin_username=admin_username,
+                admin_password=admin_password,
+                server_group=server_group,
+                tls_verify=tls_verify,
+                username=target,
+            )
+            if not exists:
+                return ProvisioningResult(
+                    status=PROVISIONING_SUCCESS,
+                    detail=(
+                        f"Compte CrushFTP « {target} » déjà absent "
+                        f"(serverGroup={server_group})"
+                    ),
+                )
+
+            ok, msg, _status = await self._admin_post(
+                base_url=base_url,
+                admin_username=admin_username,
+                admin_password=admin_password,
+                tls_verify=tls_verify,
+                data={
+                    "command": "setUserItem",
+                    "data_action": "delete",
+                    "xmlItem": "user",
+                    "serverGroup": server_group,
+                    "username": target,
+                },
+            )
+
+            still_there = await self._verify_user_exists(
+                base_url=base_url,
+                admin_username=admin_username,
+                admin_password=admin_password,
+                server_group=server_group,
+                tls_verify=tls_verify,
+                username=target,
+            )
+            if not still_there:
+                return ProvisioningResult(
+                    status=PROVISIONING_SUCCESS,
+                    detail=(
+                        f"Compte CrushFTP « {target} » supprimé "
+                        f"(serverGroup={server_group})"
+                    ),
+                )
+            if ok:
+                detail = (
+                    f"CrushFTP a répondu succès à la suppression mais getUser "
+                    f"trouve toujours « {target} » dans {server_group}"
+                )
+            else:
+                detail = f"Suppression compte CrushFTP échouée : {msg}"
+            return ProvisioningResult(status=PROVISIONING_FAILED, detail=detail)
+        finally:
+            admin_password = ""  # noqa: F841

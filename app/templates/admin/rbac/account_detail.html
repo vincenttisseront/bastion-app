@@ -337,5 +337,37 @@
       {% endif %}
     </div>
   </div>
+
+  <div class="form-section" id="danger" style="border-color:rgba(239,68,68,.45);">
+    <div class="form-section-header">
+      <div>
+        <div class="form-section-title" style="color:var(--err);">Zone dangereuse — supprimer partout</div>
+        <div class="form-section-sub">
+          Supprime le compte de toutes les applications provisionnées (CrushFTP…),
+          l'utilisateur Keycloak, les credentials vault, les droits RBAC individuels,
+          puis la fiche bastion. Action irréversible et auditée.
+        </div>
+      </div>
+    </div>
+    <div class="form-body">
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/delete"
+            onsubmit="return confirm('Supprimer définitivement « {{ account.username }} » partout ?');">
+        <div class="form-group">
+          <label class="form-label" for="confirm_username">
+            Saisissez l'identifiant « <strong>{{ account.username }}</strong> » pour confirmer
+          </label>
+          <input class="form-input" id="confirm_username" name="confirm_username"
+                 autocomplete="off" placeholder="{{ account.username }}" style="max-width:320px;">
+        </div>
+        <label class="form-check" style="margin:var(--sp-3) 0;">
+          <input type="checkbox" name="force" value="1">
+          <span>Forcer la suppression de la fiche bastion même si une étape distante échoue
+            <span style="color:var(--text-3);">(laisse des comptes orphelins côté applications/Keycloak)</span>
+          </span>
+        </label>
+        <button type="submit" class="btn btn-danger">Supprimer partout</button>
+      </form>
+    </div>
+  </div>
 </div>
 {% endblock %}

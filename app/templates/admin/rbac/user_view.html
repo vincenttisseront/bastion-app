@@ -277,6 +277,8 @@
           </form>
           {% endif %}
           <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ account.id }}">Fiche compte détaillée</a>
+          <a class="btn btn-danger btn-sm" href="/admin/rbac/accounts/{{ account.id }}#danger"
+             title="Suppression complète (apps + Keycloak + fiche)">Supprimer</a>
         </div>
       </div>
       {% if provisionings or pending_apps %}
