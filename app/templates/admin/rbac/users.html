@@ -83,7 +83,7 @@
       <div class="form-group" style="flex:1; min-width:14rem;">
         <label class="form-label" for="filter_q">Recherche</label>
         <input type="search" id="filter_q" name="q" class="form-input" value="{{ filter_q }}"
-               placeholder="Identifiant, email, société…" autocomplete="off">
+               placeholder="Identifiant, email, société…" autocomplete="off" data-users-filter-q>
       </div>
       <div class="form-group">
         <label class="form-label" for="filter_realm">Realm</label>
@@ -138,18 +138,57 @@
 
   {% if list_tab == 'bastion' %}
   {% if bastion_accounts %}
-  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+  <div class="card" style="padding:0; margin-bottom:var(--sp-4);" data-users-bulk>
     <div class="card-header" style="padding:var(--sp-4);">
       <span class="card-title">Comptes créés via le bastion</span>
       <span class="badge badge-muted">{{ list_meta.total }} résultat{% if list_meta.total != 1 %}s{% endif %} — page {{ list_meta.page }}/{{ list_meta.total_pages }}</span>
     </div>
     <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
-      Comptes issus de « Nouvel utilisateur ». Filtrez ou passez à <strong>Recherche Keycloak</strong> pour l’annuaire large.
+      Sélectionnez des lignes pour des actions en masse (groupes, export). Max 200 comptes par opération.
     </p>
+
+    <form method="post" action="/admin/rbac/users/bulk/groups" id="users-bulk-form" style="padding:0 var(--sp-4) var(--sp-3);">
+      <input type="hidden" name="redirect_url" value="/admin/rbac/users?{{ users_qs(list_tab='bastion') }}">
+      <input type="hidden" name="q" value="{{ filter_q }}">
+      <input type="hidden" name="realm_id" value="{{ selected_realm.id if selected_realm else '' }}">
+      <input type="hidden" name="group" value="{{ filter_group }}">
+      <input type="hidden" name="status" value="{{ filter_status }}">
+      <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:flex-end;">
+        <div class="form-group" style="margin:0; min-width:14rem; flex:1;">
+          <label class="form-label" for="bulk-group-id">Groupe Keycloak</label>
+          <input type="search" list="bulk-groups-datalist" id="bulk-group-search" class="form-input" placeholder="Filtrer le groupe…" autocomplete="off" data-bulk-group-filter>
+          <select id="bulk-group-id" name="group_id" class="form-select" required data-bulk-group-select style="margin-top:var(--sp-1);">
+            <option value="">Choisir…</option>
+            {% for g in bulk_groups | default([]) %}
+            <option value="{{ g.id }}" data-name="{{ g.name }}">{{ g.name }}{% if g.member_count is not none %} ({{ g.member_count }}){% endif %}</option>
+            {% endfor %}
+          </select>
+          <datalist id="bulk-groups-datalist">
+            {% for g in bulk_groups | default([]) %}
+            <option value="{{ g.name }}"></option>
+            {% endfor %}
+          </datalist>
+        </div>
+        <button type="submit" name="action" value="add" class="btn btn-primary btn-sm" data-bulk-submit
+                data-confirm-tpl="Ajouter {n} utilisateur(s) au groupe sélectionné ?">Ajouter au groupe</button>
+        <button type="submit" name="action" value="remove" class="btn btn-ghost btn-sm" data-bulk-submit
+                data-confirm-tpl="Retirer {n} utilisateur(s) du groupe sélectionné ?">Retirer du groupe</button>
+        <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/export.csv?{{ users_qs(list_tab='bastion') }}" data-bulk-export>Export CSV (filtre)</a>
+        <label class="form-hint" style="display:flex; align-items:center; gap:var(--sp-2); margin:0 0 var(--sp-1); cursor:pointer;">
+          <input type="checkbox" name="select_all_matching" value="1" data-bulk-all-matching>
+          Tous les résultats du filtre (max 200)
+        </label>
+        <span class="form-hint" data-bulk-count style="margin:0 0 var(--sp-1);">0 sélectionné(s)</span>
+      </div>
+    </form>
+
     <div class="table-wrap" style="border:none;border-radius:0;">
-      <table class="data-table">
+      <table class="data-table" data-users-table>
         <thead>
           <tr>
+            <th style="width:2.5rem;">
+              <input type="checkbox" data-bulk-select-page title="Sélectionner la page">
+            </th>
             <th>Identité</th>
             <th>Société</th>
             <th>Realm</th>
@@ -163,6 +202,9 @@
           {% set prov_fail = prov_rows | selectattr('status', 'equalto', 'failed') | list %}
           {% set prov_ok = prov_rows | selectattr('status', 'equalto', 'success') | list %}
           <tr>
+            <td>
+              <input type="checkbox" form="users-bulk-form" name="account_ids" value="{{ a.id }}" data-bulk-row>
+            </td>
             <td>
               <div>{{ a.username }}</div>
               <div class="mono form-hint">{{ a.email }}</div>
@@ -351,32 +393,47 @@
 
   <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);" data-group-dist>
     {% set dist = group_distribution %}
+    {% set gmeta = dist.list_meta | default({'page': 1, 'total_pages': 1, 'total': 0}) %}
     <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-start; justify-content:space-between; margin-bottom:var(--sp-3);">
       <div>
         <div class="card-title" style="margin:0 0 var(--sp-1);">Répartition des groupes</div>
         <p class="form-hint" style="margin:0;">
-          {{ dist.with_members }} groupe(s) avec membres · {{ dist.empty_groups }} vide(s) · {{ dist.total_groups }} synchronisé(s)
+          {{ dist.with_members }} avec membres ·
+          {% if not dist.include_empty and dist.empty_groups %}
+          <strong>{{ dist.empty_groups }} vides masqués</strong> ·
+          {% else %}
+          {{ dist.empty_groups }} vide(s) ·
+          {% endif %}
+          {{ dist.total_groups }} synchronisé(s)
           {% if dist.total_memberships %} · {{ dist.total_memberships }} appartenance(s){% endif %}
         </p>
       </div>
       <a href="/admin/rbac" class="btn btn-ghost btn-sm">Gérer les groupes</a>
     </div>
 
-    {% if dist.rows %}
-    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end; margin-bottom:var(--sp-3);">
+    <form method="get" action="/admin/rbac/users" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end; margin-bottom:var(--sp-3);">
+      <input type="hidden" name="list_tab" value="{{ list_tab }}">
+      {% if selected_realm %}<input type="hidden" name="realm_id" value="{{ selected_realm.id }}">{% endif %}
+      {% if filter_q %}<input type="hidden" name="q" value="{{ filter_q }}">{% endif %}
+      {% if filter_group %}<input type="hidden" name="group" value="{{ filter_group }}">{% endif %}
+      {% if filter_status and filter_status != 'tous' %}<input type="hidden" name="status" value="{{ filter_status }}">{% endif %}
+      <input type="hidden" name="page" value="{{ list_meta.page }}">
+      <input type="hidden" name="page_size" value="{{ list_meta.page_size }}">
       <div class="form-group" style="flex:1; min-width:12rem; margin:0;">
-        <label class="form-label" for="group-dist-search">Filtrer</label>
-        <input type="search" id="group-dist-search" class="form-input" data-group-dist-q
-               placeholder="Nom du groupe…" autocomplete="off">
+        <label class="form-label" for="groups_q">Rechercher un groupe</label>
+        <input type="search" id="groups_q" name="groups_q" class="form-input"
+               value="{{ dist.q | default('') }}" placeholder="Nom…" autocomplete="off">
       </div>
-      <label class="form-hint" style="display:flex; align-items:center; gap:var(--sp-2); margin:0 0 var(--sp-1); cursor:pointer; user-select:none;">
-        <input type="checkbox" data-group-dist-empty>
-        Afficher les groupes vides ({{ dist.empty_groups }})
+      <label class="form-hint" style="display:flex; align-items:center; gap:var(--sp-2); margin:0 0 var(--sp-1); cursor:pointer;">
+        <input type="checkbox" name="groups_include_empty" value="1"{% if dist.include_empty %} checked{% endif %}>
+        Afficher les vides ({{ dist.empty_groups }})
       </label>
-    </div>
+      <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+    </form>
 
-    <div class="table-wrap" style="border:1px solid var(--border); border-radius:var(--r-md); max-height:22rem; overflow:auto;">
-      <table class="data-table" data-group-dist-table>
+    {% if dist.rows %}
+    <div class="table-wrap" style="border:1px solid var(--border); border-radius:var(--r-md);">
+      <table class="data-table">
         <thead>
           <tr>
             <th>Groupe</th>
@@ -386,7 +443,7 @@
         </thead>
         <tbody>
           {% for g in dist.rows %}
-          <tr data-group-dist-row data-name="{{ g.name }}" data-members="{{ g.member_count }}">
+          <tr>
             <td>
               <a href="/admin/rbac/groups/{{ g.id }}"><strong>{{ g.name }}</strong></a>
             </td>
@@ -404,9 +461,23 @@
         </tbody>
       </table>
     </div>
-    <p class="form-hint" data-group-dist-empty-msg style="display:none; margin:var(--sp-3) 0 0;">Aucun groupe ne correspond au filtre.</p>
+    {% if gmeta.total_pages > 1 %}
+    <div style="display:flex; gap:var(--sp-2); justify-content:flex-end; margin-top:var(--sp-3);">
+      {% if gmeta.page > 1 %}
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(groups_page=gmeta.page - 1) }}">← Précédent</a>
+      {% endif %}
+      <span class="form-hint" style="align-self:center;">page {{ gmeta.page }}/{{ gmeta.total_pages }} ({{ gmeta.total }})</span>
+      {% if gmeta.page < gmeta.total_pages %}
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(groups_page=gmeta.page + 1) }}">Suivant →</a>
+      {% endif %}
+    </div>
+    {% endif %}
     {% else %}
-    <p class="empty-desc">Aucun groupe synchronisé. Synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.</p>
+    <p class="empty-desc">
+      {% if dist.q %}Aucun groupe pour « {{ dist.q }} ».{% elif not dist.include_empty and dist.empty_groups %}
+      Aucun groupe avec membres. Cochez « Afficher les vides » ou synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.
+      {% else %}Aucun groupe synchronisé. Synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.{% endif %}
+    </p>
     {% endif %}
   </div>
 </div>
@@ -415,33 +486,97 @@
 {% block scripts %}
 <script>
 (function () {
-  var root = document.querySelector('[data-group-dist]');
-  if (root) {
-    var qInput = root.querySelector('[data-group-dist-q]');
-    var emptyCb = root.querySelector('[data-group-dist-empty]');
-    var rows = Array.prototype.slice.call(root.querySelectorAll('[data-group-dist-row]'));
-    var emptyMsg = root.querySelector('[data-group-dist-empty-msg]');
-
-    function applyGroupDistFilter() {
-      var q = ((qInput && qInput.value) || '').trim().toLowerCase();
-      var showEmpty = !!(emptyCb && emptyCb.checked);
-      var visible = 0;
-      rows.forEach(function (row) {
-        var name = (row.getAttribute('data-name') || '').toLowerCase();
-        var members = parseInt(row.getAttribute('data-members') || '0', 10) || 0;
-        var matchQ = !q || name.indexOf(q) !== -1;
-        var matchEmpty = showEmpty || members > 0;
-        var on = matchQ && matchEmpty;
-        row.hidden = !on;
-        if (on) visible += 1;
-      });
-      if (emptyMsg) emptyMsg.style.display = visible ? 'none' : 'block';
-    }
-
-    if (qInput) qInput.addEventListener('input', applyGroupDistFilter);
-    if (emptyCb) emptyCb.addEventListener('change', applyGroupDistFilter);
-    applyGroupDistFilter();
+  var form = document.getElementById('user-filters-form');
+  var q = document.querySelector('[data-users-filter-q]');
+  if (form && q) {
+    var t;
+    q.addEventListener('input', function () {
+      clearTimeout(t);
+      t = setTimeout(function () { form.requestSubmit ? form.requestSubmit() : form.submit(); }, 400);
+    });
   }
+})();
+(function () {
+  var root = document.querySelector('[data-users-bulk]');
+  if (!root) return;
+  var form = document.getElementById('users-bulk-form');
+  var pageCb = root.querySelector('[data-bulk-select-page]');
+  var rows = Array.prototype.slice.call(root.querySelectorAll('[data-bulk-row]'));
+  var countEl = root.querySelector('[data-bulk-count]');
+  var allMatching = root.querySelector('[data-bulk-all-matching]');
+  var groupFilter = root.querySelector('[data-bulk-group-filter]');
+  var groupSelect = root.querySelector('[data-bulk-group-select]');
+  var exportLink = root.querySelector('[data-bulk-export]');
+
+  function selectedCount() {
+    if (allMatching && allMatching.checked) return {{ list_meta.total | default(0) }};
+    return rows.filter(function (r) { return r.checked; }).length;
+  }
+
+  function refreshCount() {
+    var n = selectedCount();
+    if (countEl) countEl.textContent = n + ' sélectionné(s)';
+    if (exportLink) {
+      var base = exportLink.getAttribute('href').split('&ids=')[0];
+      var ids = rows.filter(function (r) { return r.checked; }).map(function (r) { return r.value; });
+      exportLink.href = ids.length ? (base + (base.indexOf('?') >= 0 ? '&' : '?') + 'ids=' + ids.join(',')) : base;
+    }
+  }
+
+  if (pageCb) {
+    pageCb.addEventListener('change', function () {
+      rows.forEach(function (r) { r.checked = pageCb.checked; });
+      if (allMatching) allMatching.checked = false;
+      refreshCount();
+    });
+  }
+  rows.forEach(function (r) {
+    r.addEventListener('change', function () {
+      if (allMatching) allMatching.checked = false;
+      refreshCount();
+    });
+  });
+  if (allMatching) {
+    allMatching.addEventListener('change', function () {
+      if (allMatching.checked) {
+        rows.forEach(function (r) { r.checked = false; });
+        if (pageCb) pageCb.checked = false;
+      }
+      refreshCount();
+    });
+  }
+  if (groupFilter && groupSelect) {
+    groupFilter.addEventListener('input', function () {
+      var q = (groupFilter.value || '').trim().toLowerCase();
+      Array.prototype.forEach.call(groupSelect.options, function (opt, i) {
+        if (i === 0) return;
+        var name = (opt.getAttribute('data-name') || opt.textContent || '').toLowerCase();
+        opt.hidden = !!(q && name.indexOf(q) === -1);
+      });
+    });
+  }
+  if (form) {
+    form.querySelectorAll('[data-bulk-submit]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        var n = selectedCount();
+        if (!n) {
+          ev.preventDefault();
+          alert('Sélectionnez au moins un utilisateur (ou « Tous les résultats du filtre »).');
+          return;
+        }
+        if (!groupSelect || !groupSelect.value) {
+          ev.preventDefault();
+          alert('Choisissez un groupe.');
+          return;
+        }
+        var tpl = btn.getAttribute('data-confirm-tpl') || 'Confirmer pour {n} utilisateur(s) ?';
+        if (!window.confirm(tpl.replace('{n}', String(Math.min(n, 200))))) {
+          ev.preventDefault();
+        }
+      });
+    });
+  }
+  refreshCount();
 })();
 (function () {
   var searchInput = document.querySelector('[data-user-search]');

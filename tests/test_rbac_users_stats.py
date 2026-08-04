@@ -131,13 +131,16 @@ def test_group_distribution_sorts_and_hides_noise(db_session):
     assert dist["with_members"] == 2
     assert dist["empty_groups"] == 1
     assert dist["total_memberships"] == 12
+    assert dist["include_empty"] is False
     names = [r["name"] for r in dist["rows"]]
     assert names[0] == "ARSYSTEMS-Users"
     assert names[1] == "alpha-small"
-    assert names[2] == "zzz-empty"
+    assert "zzz-empty" not in names
     assert dist["rows"][0]["bar_percent"] == 100
-    assert dist["rows"][0]["percent"] == 83  # 10/12
-    assert dist["rows"][1]["bar_percent"] == 20  # 2/10
+
+    with_empty = group_distribution(db_session, include_empty=True)
+    assert len(with_empty["rows"]) == 3
+    assert with_empty["rows"][-1]["name"] == "zzz-empty"
 
 
 def test_rbac_users_stats_page_graceful(client, monkeypatch):
