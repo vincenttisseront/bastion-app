@@ -83,3 +83,17 @@ sudo -u sso-portal venv/bin/python3 scripts/reset_breakglass_password.py --usern
 
 Legacy portal v1 stored break-glass in `settings.breakglass_password_hash` (user
 `admin` only). bastion-app migrates that hash automatically on first login attempt.
+
+## Optional PostgreSQL hot store
+
+`DATABASE_URL` stays SQLite (config + SQLCipher). High-volume tables can be
+offloaded to the compose `postgres` service:
+
+1. Start `postgres` (no host ports; data under `{PORTAL_DATA_DIR}/pgdata`).
+2. Admin → Sécurité → **Stockage chaud** — save DSN (password Fernet-encrypted
+   in `portal_settings`), test, prepare schema, migrate, enable.
+3. Disable to roll back reads/writes to SQLite (data already migrated stays on PG
+   until the next migrate).
+
+Alembic continues to evolve the **SQLite** schema only. Hot tables on Postgres are
+created via `HotBase`/`create_all` from the ORM models (see `app/db/hot_store.py`).

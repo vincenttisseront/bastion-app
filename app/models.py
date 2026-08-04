@@ -888,6 +888,16 @@ class PortalSettings(Base):
     oidc_session_jwt_secret_encrypted = Column(Text, nullable=True)
     # Session-cookie hop HMAC (Fernet) — DB source of truth; env only for pytest override.
     session_hop_secret_encrypted = Column(Text, nullable=True)
+    # Optional Postgres hot store (sessions / audit / rate) — config stays on SQLite.
+    hot_store_enabled = Column(Boolean, nullable=False, default=False)
+    hot_store_host = Column(String, nullable=True)
+    hot_store_port = Column(Integer, nullable=True)
+    hot_store_database = Column(String, nullable=True)
+    hot_store_user = Column(String, nullable=True)
+    hot_store_password_encrypted = Column(Text, nullable=True)
+    hot_store_sslmode = Column(String, nullable=True)  # prefer | require | disable
+    hot_store_last_migrate_at = Column(DateTime(timezone=True), nullable=True)
+    hot_store_last_migrate_summary = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 

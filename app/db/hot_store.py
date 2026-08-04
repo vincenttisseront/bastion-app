@@ -1,0 +1,524 @@
+"""Optional PostgreSQL hot store for high-volume tables.
+
+SQLite (SQLCipher) remains the configuration database. When enabled via Admin →
+Sécurité, selected hot tables are read/written on a separate Postgres engine.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+import time
+from dataclasses import dataclass
+from typing import Any, Iterable, Sequence
+from urllib.parse import quote_plus
+
+from sqlalchemy import create_engine, event, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
+
+from app.models import (
+    ActiveSession,
+    AuditLog,
+    Base,
+    BreakGlassSession,
+    OidcLoginAttempt,
+    OidcSession,
+    SecurityRateEvent,
+    SiemOutboxEntry,
+    SsoSessionAnchor,
+)
+
+logger = logging.getLogger(__name__)
+
+HOT_MODELS: tuple[type, ...] = (
+    OidcSession,
+    OidcLoginAttempt,
+    ActiveSession,
+    SsoSessionAnchor,
+    BreakGlassSession,
+    SecurityRateEvent,
+    AuditLog,
+    SiemOutboxEntry,
+)
+
+HOT_TABLE_NAMES: tuple[str, ...] = tuple(m.__tablename__ for m in HOT_MODELS)
+
+_HOT_MODEL_SET = frozenset(HOT_MODELS)
+
+# Process-wide hot engine cache (rebuilt when DSN fingerprint changes).
+_lock = threading.RLock()
+_hot_engine: Engine | None = None
+_hot_engine_dsn: str | None = None
+_hot_enabled_cache: bool = False
+_hot_enabled_checked_at: float = 0.0
+_HOT_ENABLED_TTL_SEC = 5.0
+
+HOT_SCHEMA_VERSION = 1
+
+
+class HotStoreError(RuntimeError):
+    """Configuration or migration error for the hot store."""
+
+
+def is_hot_model(model: type | None) -> bool:
+    return model is not None and model in _HOT_MODEL_SET
+
+
+def build_hot_dsn(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    sslmode: str = "prefer",
+) -> str:
+    """Assemble a postgresql+psycopg DSN (password never logged by callers)."""
+    host = (host or "").strip()
+    database = (database or "").strip()
+    user = (user or "").strip()
+    if not host or not database or not user:
+        raise HotStoreError("Hôte, base et utilisateur PostgreSQL sont requis")
+    port = int(port or 5432)
+    ssl = (sslmode or "prefer").strip() or "prefer"
+    user_q = quote_plus(user)
+    pass_q = quote_plus(password or "")
+    return (
+        f"postgresql+psycopg://{user_q}:{pass_q}@{host}:{port}/{database}"
+        f"?sslmode={quote_plus(ssl)}"
+    )
+
+
+def create_hot_engine(dsn: str, **kwargs: Any) -> Engine:
+    """Create a pooled Postgres engine (never SQLCipher / sqlite connect_args)."""
+    dsn = (dsn or "").strip()
+    if not dsn:
+        raise HotStoreError("DSN hot store vide")
+    if dsn.lower().startswith("sqlite"):
+        raise HotStoreError("Le hot store doit être PostgreSQL, pas SQLite")
+
+    connect_args = dict(kwargs.pop("connect_args", None) or {})
+    engine_kwargs: dict[str, Any] = {**kwargs}
+    if "poolclass" not in engine_kwargs and "pool" not in engine_kwargs:
+        engine_kwargs.setdefault("pool_size", 20)
+        engine_kwargs.setdefault("max_overflow", 40)
+        engine_kwargs.setdefault("pool_pre_ping", True)
+
+    if connect_args:
+        engine_kwargs["connect_args"] = connect_args
+
+    engine = create_engine(dsn, **engine_kwargs)
+
+    @event.listens_for(engine, "connect")
+    def _pg_timeouts(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("SET statement_timeout = '30s'")
+            cursor.execute("SET lock_timeout = '5s'")
+        except Exception:
+            logger.debug("hot store: could not set PG timeouts", exc_info=True)
+        finally:
+            cursor.close()
+
+    return engine
+
+
+def dispose_hot_engine() -> None:
+    global _hot_engine, _hot_engine_dsn
+    with _lock:
+        if _hot_engine is not None:
+            try:
+                _hot_engine.dispose()
+            except Exception:
+                logger.exception("hot store: dispose failed")
+        _hot_engine = None
+        _hot_engine_dsn = None
+
+
+def get_cached_hot_engine() -> Engine | None:
+    with _lock:
+        return _hot_engine
+
+
+def ensure_hot_engine(dsn: str) -> Engine:
+    """Return a live hot engine for ``dsn``, recreating if the DSN changed."""
+    global _hot_engine, _hot_engine_dsn
+    dsn = (dsn or "").strip()
+    if not dsn:
+        raise HotStoreError("DSN hot store vide")
+    with _lock:
+        if _hot_engine is not None and _hot_engine_dsn == dsn:
+            return _hot_engine
+        if _hot_engine is not None:
+            try:
+                _hot_engine.dispose()
+            except Exception:
+                logger.exception("hot store: dispose before recreate failed")
+        _hot_engine = create_hot_engine(dsn)
+        _hot_engine_dsn = dsn
+        return _hot_engine
+
+
+def set_hot_enabled_cache(enabled: bool) -> None:
+    global _hot_enabled_cache, _hot_enabled_checked_at
+    with _lock:
+        _hot_enabled_cache = bool(enabled)
+        _hot_enabled_checked_at = time.monotonic()
+
+
+def invalidate_hot_enabled_cache() -> None:
+    global _hot_enabled_checked_at
+    with _lock:
+        _hot_enabled_checked_at = 0.0
+
+
+def _read_hot_enabled_from_config_session(db: Session) -> bool:
+    from app.models import PortalSettings
+    from app.portal_settings_service import PORTAL_SETTINGS_ID
+
+    row = db.query(PortalSettings).filter_by(id=PORTAL_SETTINGS_ID).first()
+    return bool(row and getattr(row, "hot_store_enabled", False))
+
+
+def hot_store_runtime_enabled(config_db: Session | None = None) -> bool:
+    """Fast path: cached flag. Optional config_db refreshes cache when stale."""
+    global _hot_enabled_cache, _hot_enabled_checked_at
+    now = time.monotonic()
+    with _lock:
+        fresh = (now - _hot_enabled_checked_at) < _HOT_ENABLED_TTL_SEC
+        if fresh:
+            return _hot_enabled_cache
+    if config_db is None:
+        with _lock:
+            return _hot_enabled_cache
+    enabled = _read_hot_enabled_from_config_session(config_db)
+    set_hot_enabled_cache(enabled)
+    return enabled
+
+
+def resolve_hot_dsn_from_settings_row(row: Any, *, decrypt_password) -> str | None:
+    """Build DSN from PortalSettings row; ``decrypt_password`` decrypts Fernet blob."""
+    host = (getattr(row, "hot_store_host", None) or "").strip()
+    if not host:
+        return None
+    port = int(getattr(row, "hot_store_port", None) or 5432)
+    database = (getattr(row, "hot_store_database", None) or "").strip() or "bastion_hot"
+    user = (getattr(row, "hot_store_user", None) or "").strip() or "bastion_hot"
+    sslmode = (getattr(row, "hot_store_sslmode", None) or "prefer").strip() or "prefer"
+    enc = getattr(row, "hot_store_password_encrypted", None)
+    password = ""
+    if enc:
+        password = decrypt_password(enc) or ""
+    return build_hot_dsn(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        sslmode=sslmode,
+    )
+
+
+def sync_hot_engine_from_config(config_db: Session, settings) -> Engine | None:
+    """Load DSN from portal_settings; return engine if configured (enabled or not)."""
+    from app.portal_settings_service import get_portal_settings_row
+    from app.secret_crypto import decrypt_secret
+
+    row = get_portal_settings_row(config_db)
+    if row is None:
+        set_hot_enabled_cache(False)
+        dispose_hot_engine()
+        return None
+    enabled = bool(getattr(row, "hot_store_enabled", False))
+    set_hot_enabled_cache(enabled)
+    try:
+        dsn = resolve_hot_dsn_from_settings_row(
+            row,
+            decrypt_password=lambda enc: decrypt_secret(enc, settings),
+        )
+    except Exception:
+        logger.exception("hot store: cannot resolve DSN")
+        return None
+    if not dsn:
+        dispose_hot_engine()
+        return None
+    try:
+        return ensure_hot_engine(dsn)
+    except Exception:
+        logger.exception("hot store: cannot create engine")
+        return None
+
+
+def prepare_hot_schema(engine: Engine) -> None:
+    """Create hot tables on the hot engine (idempotent)."""
+    tables = [Base.metadata.tables[name] for name in HOT_TABLE_NAMES if name in Base.metadata.tables]
+    Base.metadata.create_all(bind=engine, tables=tables, checkfirst=True)
+    dialect = engine.dialect.name
+    with engine.begin() as conn:
+        if dialect == "postgresql":
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS hot_schema_version (
+                        id INTEGER PRIMARY KEY,
+                        version INTEGER NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO hot_schema_version (id, version)
+                    VALUES (1, :v)
+                    ON CONFLICT (id) DO UPDATE SET
+                        version = EXCLUDED.version,
+                        updated_at = NOW()
+                    """
+                ),
+                {"v": HOT_SCHEMA_VERSION},
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS hot_schema_version (
+                        id INTEGER PRIMARY KEY,
+                        version INTEGER NOT NULL,
+                        updated_at TEXT
+                    )
+                    """
+                )
+            )
+            conn.execute(
+                text(
+                    "INSERT OR REPLACE INTO hot_schema_version (id, version, updated_at) "
+                    "VALUES (1, :v, CURRENT_TIMESTAMP)"
+                ),
+                {"v": HOT_SCHEMA_VERSION},
+            )
+
+
+def test_hot_connection(dsn: str) -> dict[str, Any]:
+    """Ping Postgres and return version / create capability."""
+    engine = create_hot_engine(dsn, poolclass=NullPool)
+    try:
+        with engine.connect() as conn:
+            ver = conn.execute(text("SELECT version()")).scalar()
+            can_create = conn.execute(
+                text(
+                    "SELECT has_database_privilege(current_user, current_database(), 'CREATE')"
+                )
+            ).scalar()
+            return {
+                "ok": True,
+                "version": str(ver or "")[:200],
+                "can_create": bool(can_create),
+            }
+    finally:
+        engine.dispose()
+
+
+@dataclass
+class HotStoreStatus:
+    configured: bool
+    enabled: bool
+    host: str | None
+    port: int | None
+    database: str | None
+    user: str | None
+    sslmode: str | None
+    password_set: bool
+    engine_ready: bool
+    ping_ms: float | None
+    ping_error: str | None
+    table_counts: dict[str, int]
+    status_badge: str
+    status_label: str
+    last_migrate_at: str | None
+    last_migrate_summary: str | None
+
+
+def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
+    from app.portal_settings_service import get_portal_settings_row
+    from app.secret_crypto import decrypt_secret
+
+    row = get_portal_settings_row(config_db)
+    if row is None:
+        return HotStoreStatus(
+            configured=False,
+            enabled=False,
+            host=None,
+            port=None,
+            database=None,
+            user=None,
+            sslmode=None,
+            password_set=False,
+            engine_ready=False,
+            ping_ms=None,
+            ping_error=None,
+            table_counts={},
+            status_badge="muted",
+            status_label="Non configuré",
+            last_migrate_at=None,
+            last_migrate_summary=None,
+        )
+
+    host = (getattr(row, "hot_store_host", None) or "").strip() or None
+    configured = bool(host)
+    enabled = bool(getattr(row, "hot_store_enabled", False))
+    password_set = bool(getattr(row, "hot_store_password_encrypted", None))
+    last_at = getattr(row, "hot_store_last_migrate_at", None)
+    last_summary = getattr(row, "hot_store_last_migrate_summary", None)
+
+    ping_ms: float | None = None
+    ping_error: str | None = None
+    engine_ready = False
+    counts: dict[str, int] = {}
+
+    if configured:
+        try:
+            eng = sync_hot_engine_from_config(config_db, settings)
+            if eng is not None:
+                t0 = time.perf_counter()
+                with eng.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                ping_ms = round((time.perf_counter() - t0) * 1000, 1)
+                engine_ready = True
+                if enabled:
+                    for name in HOT_TABLE_NAMES:
+                        try:
+                            with eng.connect() as conn:
+                                counts[name] = int(
+                                    conn.execute(
+                                        text(f'SELECT count(*) FROM "{name}"')
+                                    ).scalar()
+                                    or 0
+                                )
+                        except Exception:
+                            counts[name] = -1
+        except Exception as exc:
+            ping_error = str(exc)[:300]
+            engine_ready = False
+
+    if not configured:
+        badge, label = "muted", "Non configuré"
+    elif ping_error:
+        badge, label = "error", "Connexion en échec"
+    elif enabled and engine_ready:
+        badge, label = "ok", "Actif (Postgres)"
+    elif engine_ready:
+        badge, label = "warn", "Configuré (inactif)"
+    else:
+        badge, label = "warn", "Configuré"
+
+    return HotStoreStatus(
+        configured=configured,
+        enabled=enabled,
+        host=host,
+        port=int(getattr(row, "hot_store_port", None) or 5432) if configured else None,
+        database=(getattr(row, "hot_store_database", None) or None) if configured else None,
+        user=(getattr(row, "hot_store_user", None) or None) if configured else None,
+        sslmode=(getattr(row, "hot_store_sslmode", None) or "prefer") if configured else None,
+        password_set=password_set,
+        engine_ready=engine_ready,
+        ping_ms=ping_ms,
+        ping_error=ping_error,
+        table_counts=counts,
+        status_badge=badge,
+        status_label=label,
+        last_migrate_at=last_at.isoformat() if last_at else None,
+        last_migrate_summary=last_summary,
+    )
+
+
+class RoutingSession(Session):
+    """Session that routes hot-model operations to Postgres when enabled."""
+
+    def get_bind(self, mapper=None, clause=None, bind=None, **kw):  # noqa: ANN001
+        if mapper is not None:
+            cls = getattr(mapper, "class_", None)
+            if is_hot_model(cls) and hot_store_runtime_enabled():
+                eng = get_cached_hot_engine()
+                if eng is not None:
+                    return eng
+        return super().get_bind(mapper=mapper, clause=clause, bind=bind, **kw)
+
+
+def make_session_factory(bind: Engine, **kwargs: Any):
+    """sessionmaker using RoutingSession (hot routing when enabled)."""
+    return sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        bind=bind,
+        class_=RoutingSession,
+        **kwargs,
+    )
+
+
+def hot_table_columns(model: type) -> Sequence[str]:
+    return tuple(c.name for c in model.__table__.columns)
+
+
+def copy_table_rows(
+    source: Session,
+    dest_engine: Engine,
+    model: type,
+    *,
+    batch_size: int = 500,
+) -> int:
+    """Copy all rows of ``model`` from source session into dest engine. Returns count."""
+    from sqlalchemy.orm import sessionmaker as _sm
+
+    DestSession = _sm(bind=dest_engine, autoflush=False, autocommit=False)
+    dest = DestSession()
+    copied = 0
+    try:
+        # Clear destination table first (full replace semantics for migrate).
+        dest.query(model).delete()
+        dest.commit()
+
+        rows = source.query(model).yield_per(batch_size)
+        batch: list[dict] = []
+        cols = hot_table_columns(model)
+
+        def _flush(items: list[dict]) -> None:
+            nonlocal copied
+            if not items:
+                return
+            dest.bulk_insert_mappings(model, items)
+            dest.commit()
+            copied += len(items)
+
+        for row in rows:
+            batch.append({name: getattr(row, name) for name in cols})
+            if len(batch) >= batch_size:
+                _flush(batch)
+                batch = []
+        _flush(batch)
+        return copied
+    except Exception:
+        dest.rollback()
+        raise
+    finally:
+        dest.close()
+
+
+def migrate_all_hot_tables(
+    config_db: Session,
+    dest_engine: Engine,
+    *,
+    tables: Iterable[str] | None = None,
+) -> dict[str, int]:
+    """Copy hot tables from the config DB (SQLite) into Postgres."""
+    wanted = set(tables) if tables is not None else set(HOT_TABLE_NAMES)
+    results: dict[str, int] = {}
+    prepare_hot_schema(dest_engine)
+    for model in HOT_MODELS:
+        if model.__tablename__ not in wanted:
+            continue
+        results[model.__tablename__] = copy_table_rows(config_db, dest_engine, model)
+    return results

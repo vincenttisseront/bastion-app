@@ -29,6 +29,8 @@ dependencies = [
     "alembic>=1.14.0",
     "apscheduler>=3.10.4",
     "packaging>=24.0",
+    # Postgres driver for optional hot store (sessions/audit).
+    "psycopg[binary]>=3.2.0",
     # Linux wheels only (Docker/prod). Windows/macOS stay on stdlib sqlite for tests.
     "sqlcipher3-binary>=0.6.0; sys_platform == 'linux'",
 ]

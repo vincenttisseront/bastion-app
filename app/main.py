@@ -70,6 +70,7 @@ async def lifespan(app: FastAPI):
 
     Base.metadata.create_all(bind=engine)
     from app.database import SessionLocal
+    from app.db.hot_store import sync_hot_engine_from_config
     from app.runtime_secrets_service import (
         ensure_portal_runtime_secrets,
         resolve_session_hop_secret,
@@ -100,6 +101,10 @@ async def lifespan(app: FastAPI):
             from app.security.banning.engine import ensure_security_defaults
 
             ensure_security_defaults(db)
+        try:
+            sync_hot_engine_from_config(db, settings)
+        except Exception:
+            logger.exception("hot store: failed to sync engine at startup (non-fatal)")
         if (
             not settings.is_production
             and not settings.is_test
