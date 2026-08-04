@@ -22,6 +22,13 @@ from app.sso_settings import Settings
 logger = logging.getLogger(__name__)
 
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{2,64}$")
+_MAX_PENDING_PER_IP = 5
+_MAX_MESSAGE_LEN = 1000
+# Generic copy — do not reveal whether username/email already exists (enumeration).
+_GENERIC_DUP_MSG = (
+    "Impossible d'enregistrer cette demande. Vérifiez vos informations "
+    "ou contactez un administrateur si vous avez déjà un compte."
+)
 
 
 class AccessRequestError(ValueError):
@@ -42,6 +49,17 @@ def realms_accepting_access_requests(db: Session) -> list[RealmConfig]:
 def count_pending_access_requests(db: Session) -> int:
     return (
         db.query(AccessRequest).filter_by(status="pending").count()
+    )
+
+
+def count_pending_access_requests_for_ip(db: Session, client_ip: str | None) -> int:
+    ip = (client_ip or "").strip()
+    if not ip:
+        return 0
+    return (
+        db.query(AccessRequest)
+        .filter_by(status="pending", client_ip=ip)
+        .count()
     )
 
 
@@ -85,15 +103,28 @@ def submit_access_request(
     last_name = (last_name or "").strip() or None
     organization = normalize_organization_name(organization) or None
     message = (message or "").strip() or None
+    if message and len(message) > _MAX_MESSAGE_LEN:
+        raise AccessRequestError(
+            f"Motif trop long (max {_MAX_MESSAGE_LEN} caractères)."
+        )
 
     if not username or not _USERNAME_RE.match(username):
         raise AccessRequestError(
             "Identifiant invalide (2–64 caractères : lettres, chiffres, . _ -)."
         )
-    if not email or "@" not in email:
+    if not email or "@" not in email or len(email) > 254:
         raise AccessRequestError("Email invalide")
     if not organization:
         raise AccessRequestError("Société / organisation requise")
+    if len(organization) > 200:
+        raise AccessRequestError("Société / organisation trop longue")
+
+    # Anti-spam: cap open requests from the same client IP.
+    if count_pending_access_requests_for_ip(db, client_ip) >= _MAX_PENDING_PER_IP:
+        raise AccessRequestError(
+            "Trop de demandes en attente depuis cette adresse — réessayez plus tard "
+            "ou contactez un administrateur."
+        )
 
     existing_account = (
         db.query(BastionAccount)
@@ -101,9 +132,7 @@ def submit_access_request(
         .first()
     )
     if existing_account:
-        raise AccessRequestError(
-            "Un compte existe déjà pour cet identifiant dans ce realm."
-        )
+        raise AccessRequestError(_GENERIC_DUP_MSG)
     pending_dup = (
         db.query(AccessRequest)
         .filter_by(realm_id=realm.id, status="pending")
@@ -113,9 +142,7 @@ def submit_access_request(
         .first()
     )
     if pending_dup:
-        raise AccessRequestError(
-            "Une demande est déjà en attente pour cet identifiant ou cet email."
-        )
+        raise AccessRequestError(_GENERIC_DUP_MSG)
 
     row = AccessRequest(
         realm_id=realm.id,

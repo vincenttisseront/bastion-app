@@ -92,6 +92,31 @@ def test_login_shows_access_request_link_when_realm_open(client, db_session):
     resp = client.get("/login", headers={"X-Real-IP": "10.0.0.50"})
     assert resp.status_code == 200
     assert 'href="/auth/access-request"' in resp.text
+    assert "Demander un accès" in resp.text
+    assert "Pas encore de compte" in resp.text
+
+
+def test_access_request_honeypot_skips_persist(client, db_session):
+    realm = _realm(db_session)
+    get_resp = client.get("/auth/access-request")
+    m = re.search(r'name="csrf_token" value="([^"]+)"', get_resp.text)
+    assert m, "csrf_token missing"
+    csrf = m.group(1)
+    resp = client.post(
+        "/auth/access-request",
+        data={
+            "csrf_token": csrf,
+            "realm_id": str(realm.id),
+            "website": "https://spam.example",
+            "username": "botuser",
+            "email": "bot@example.com",
+            "organization": "SpamCo",
+        },
+        headers={"X-Real-IP": "10.0.0.88"},
+    )
+    assert resp.status_code == 200
+    assert "Demande enregistrée" in resp.text
+    assert db_session.query(AccessRequest).count() == 0
 
 
 def test_login_hides_access_request_link_when_closed(client, db_session):

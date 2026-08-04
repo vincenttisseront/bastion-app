@@ -30,9 +30,11 @@ from app.health_probe import compute_health_score, compute_status_counts, probe_
 from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
 from app.breakglass import (
     COOKIE_NAME,
+    clear_breakglass_cookie,
     issue_breakglass_token,
     process_breakglass_auth_request,
     resolve_breakglass_signing_secret,
+    revoke_breakglass_session_from_request,
     set_breakglass_cookie,
 )
 from app.breakglass_store import (
@@ -558,7 +560,7 @@ def login_page(
                         **_login_surface_flags(request, db, settings, rd=rd),
                     ),
                 )
-                response.delete_cookie(COOKIE_NAME, path="/")
+                clear_breakglass_cookie(response)
                 return response
     # Absolute subdomain rd= (from @portal_redirect) must never bounce back unless
     # subdomain-auth would accept this session for that Host — otherwise the
@@ -905,9 +907,9 @@ def logout(
 ):
     """Portal UI logout — clear break-glass + native OIDC session.
 
-    The user-menu link is ``GET /logout``. Previously only ``bg_session`` was
-    cleared, so ``bastion_session`` survived and ``/auth/login`` bounced back
-    to ``/apps``.
+    The user-menu link is ``GET /logout``. Must revoke break-glass jti and clear
+    ``bg_session`` with the same Secure/HttpOnly flags used at set time, otherwise
+    the browser keeps the cookie and ``/auth/login`` redirects back to ``/apps``.
     """
     from app.oidc_bff import (
         clear_oidc_session_cookie,
@@ -915,9 +917,11 @@ def logout(
     )
 
     response = RedirectResponse(url="/auth/login", status_code=302)
-    actor = revoke_oidc_session_from_request(request, db, settings)
+    oidc_actor = revoke_oidc_session_from_request(request, db, settings)
     clear_oidc_session_cookie(response, settings)
-    response.delete_cookie(key=COOKIE_NAME, path="/", samesite="lax")
+    bg_actor = revoke_breakglass_session_from_request(request, db, settings)
+    clear_breakglass_cookie(response)
+    actor = oidc_actor if oidc_actor and oidc_actor != "unknown" else bg_actor
     if actor and actor != "unknown":
         log_action(
             db,
@@ -976,9 +980,11 @@ def access_request_post(
     last_name: str = Form(""),
     organization: str = Form(""),
     message: str = Form(""),
+    website: str = Form(""),  # honeypot — must stay empty
 ):
     from app.rbac.access_request_service import (
         AccessRequestError,
+        realms_accepting_access_requests,
         submit_access_request,
     )
     from app.web.flash import make_csrf_token
@@ -992,6 +998,36 @@ def access_request_post(
         "organization": (organization or "").strip(),
         "message": (message or "").strip(),
     }
+
+    # Honeypot: bots that fill hidden fields get a fake success (no DB write).
+    if (website or "").strip():
+        log_action(
+            db,
+            actor=(email or "").strip() or "honeypot",
+            action="access_request.honeypot",
+            details={"path": "/auth/access-request"},
+            ip_address=client_ip_from_request(request) or None,
+        )
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_success=(
+                "Demande enregistrée. Un administrateur vous contactera si elle "
+                "est acceptée."
+            ),
+            form_values={},
+        )
+
+    if not realms_accepting_access_requests(db):
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error="Les demandes d'accès ne sont pas ouvertes actuellement.",
+            form_values=form_values,
+        )
+
     secret = settings.vault_portal_internal_token or "dev-insecure"
     expected = make_csrf_token(request, secret)
     if not csrf_token or not hmac.compare_digest(csrf_token, expected):
@@ -1023,9 +1059,7 @@ def access_request_post(
             form_values=form_values,
         )
 
-    client_ip = request.headers.get("X-Real-IP") or (
-        request.client.host if request.client else None
-    )
+    client_ip = client_ip_from_request(request) or None
     try:
         submit_access_request(
             db,

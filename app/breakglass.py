@@ -844,7 +844,98 @@ def set_breakglass_cookie(
         httponly=True,
         secure=True,
         samesite="lax",
+        path="/",
     )
+
+
+def clear_breakglass_cookie(response: Response) -> None:
+    """Clear ``bg_session`` with the same flags used at set time (Secure/HttpOnly).
+
+    Browsers ignore a delete_cookie that omits ``Secure`` when the cookie was
+    set with ``Secure`` — that left break-glass sessions alive after GET /logout
+    and bounced users from /auth/login back to /apps.
+    """
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
+
+
+def revoke_breakglass_session_from_request(
+    request: Request,
+    db: Session,
+    settings: Settings,
+) -> str:
+    """Revoke the current break-glass jti if present. Returns actor for audit."""
+    username = "unknown"
+    bg_cookie = request.cookies.get(COOKIE_NAME)
+    if not bg_cookie:
+        return username
+
+    payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
+    if payload:
+        username = str(payload.get("sub") or "unknown")
+        jti = payload.get("jti")
+        if jti:
+            try:
+                revoke_breakglass_jti(
+                    db,
+                    str(jti),
+                    revoked_by=str(username),
+                    reason="logout",
+                )
+                db.commit()
+            except LookupError:
+                pass
+        return username
+
+    # Logout even if idle-expired: try decode without idle via transition secrets
+    from app.breakglass_secret_service import (
+        get_ui_breakglass_previous_secret,
+        get_ui_breakglass_secret,
+    )
+
+    candidates = [
+        resolve_breakglass_signing_secret(settings, db=db),
+        get_ui_breakglass_secret(db, settings) or "",
+        get_ui_breakglass_previous_secret(db, settings) or "",
+        _legacy_breakglass_hmac_secret(settings),
+    ]
+    seen: set[str] = set()
+    for sec in candidates:
+        if not sec or sec in seen:
+            continue
+        seen.add(sec)
+        try:
+            raw = jwt.decode(
+                bg_cookie,
+                sec,
+                algorithms=["HS256"],
+                options={"verify_exp": False},
+            )
+            if raw.get("type") != "bg":
+                continue
+            username = str(raw.get("sub") or "unknown")
+            jti = raw.get("jti")
+            if jti:
+                try:
+                    revoke_breakglass_jti(
+                        db,
+                        str(jti),
+                        revoked_by=str(username),
+                        reason="logout",
+                    )
+                    db.commit()
+                except LookupError:
+                    pass
+            break
+        except jwt.PyJWTError:
+            continue
+    return username
+
 
 
 def _client_ip(request: Request) -> str:
@@ -983,67 +1074,8 @@ async def breakglass_logout(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    username = "unknown"
-    bg_cookie = request.cookies.get(COOKIE_NAME)
-    if bg_cookie:
-        payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
-        if payload:
-            username = payload.get("sub", "unknown")
-            jti = payload.get("jti")
-            if jti:
-                try:
-                    revoke_breakglass_jti(
-                        db,
-                        str(jti),
-                        revoked_by=str(username),
-                        reason="logout",
-                    )
-                    db.commit()
-                except LookupError:
-                    pass
-        else:
-            # Logout even if idle-expired: try decode without idle via transition secrets
-            from app.breakglass_secret_service import get_ui_breakglass_previous_secret
-            from app.breakglass_secret_service import get_ui_breakglass_secret
-
-            candidates = [
-                resolve_breakglass_signing_secret(settings, db=db),
-                get_ui_breakglass_secret(db, settings) or "",
-                get_ui_breakglass_previous_secret(db, settings) or "",
-                _legacy_breakglass_hmac_secret(settings),
-            ]
-            seen: set[str] = set()
-            for sec in candidates:
-                if not sec or sec in seen:
-                    continue
-                seen.add(sec)
-                try:
-                    raw = jwt.decode(
-                        bg_cookie,
-                        sec,
-                        algorithms=["HS256"],
-                        options={"verify_exp": False},
-                    )
-                    if raw.get("type") != "bg":
-                        continue
-                    username = raw.get("sub", "unknown")
-                    jti = raw.get("jti")
-                    if jti:
-                        try:
-                            revoke_breakglass_jti(
-                                db,
-                                str(jti),
-                                revoked_by=str(username),
-                                reason="logout",
-                            )
-                            db.commit()
-                        except LookupError:
-                            pass
-                    break
-                except jwt.PyJWTError:
-                    continue
-
-    response.delete_cookie(key=COOKIE_NAME)
+    username = revoke_breakglass_session_from_request(request, db, settings)
+    clear_breakglass_cookie(response)
     log_action(
         db,
         actor=username,
