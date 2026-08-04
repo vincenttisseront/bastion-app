@@ -1,12 +1,8 @@
 """Public access-request queue — self-registration awaiting admin approval."""
-
 from __future__ import annotations
-
 import logging
 import re
-
 from sqlalchemy.orm import Session, joinedload
-
 from app.audit import log_action
 from app.mail.smtp_service import SmtpError, send_email, smtp_configured
 from app.models import AccessRequest, BastionAccount, RealmConfig, utcnow
@@ -18,9 +14,7 @@ from app.rbac.account_service import (
     send_account_credentials_email,
 )
 from app.sso_settings import Settings
-
 logger = logging.getLogger(__name__)
-
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{2,64}$")
 _MAX_PENDING_PER_IP = 5
 _MAX_MESSAGE_LEN = 1000
@@ -35,15 +29,33 @@ class AccessRequestError(ValueError):
     """Validation / state error for public or admin access-request flows."""
 
 
-def realms_accepting_access_requests(db: Session) -> list[RealmConfig]:
-    """Realms that expose the public form (enabled + opt-in + provisioning ready)."""
-    realms = (
+def realms_advertising_access_requests(db: Session) -> list[RealmConfig]:
+    """Realms that opted into the public form (login CTA). Provisioning optional.
+    The login link / public form are shown when this list is non-empty.
+    Account creation still requires a provisioning-ready realm at approve time.
+    """
+    return (
         db.query(RealmConfig)
         .filter_by(enabled=True, access_request_enabled=True)
         .order_by(RealmConfig.slug)
         .all()
     )
-    return [r for r in realms if realm_provisioning_ready(r)]
+
+
+def realms_accepting_access_requests(db: Session) -> list[RealmConfig]:
+    """Realms an admin can target on approve (opt-in + provisioning ready)."""
+    return [r for r in realms_advertising_access_requests(db) if realm_provisioning_ready(r)]
+
+
+def realms_for_access_request_approve(db: Session) -> list[RealmConfig]:
+    """Enabled realms with provisioning ready — admin assigns one on approve."""
+    rows = (
+        db.query(RealmConfig)
+        .filter_by(enabled=True)
+        .order_by(RealmConfig.slug)
+        .all()
+    )
+    return [r for r in rows if realm_provisioning_ready(r)]
 
 
 def count_pending_access_requests(db: Session) -> int:
@@ -77,7 +89,6 @@ def submit_access_request(
     db: Session,
     settings: Settings,
     *,
-    realm: RealmConfig,
     username: str,
     email: str,
     first_name: str | None = None,
@@ -86,17 +97,11 @@ def submit_access_request(
     message: str | None = None,
     client_ip: str | None = None,
 ) -> AccessRequest:
-    """Public form submit — creates a pending row; does not touch Keycloak yet."""
-    if not getattr(realm, "access_request_enabled", False) or not realm.enabled:
+    """Public form submit — pending row without realm; admin assigns on approve."""
+    if not realms_advertising_access_requests(db):
         raise AccessRequestError(
-            "Les demandes d'accès ne sont pas ouvertes pour ce realm."
+            "Les demandes d'accès ne sont pas ouvertes actuellement."
         )
-    if not realm_provisioning_ready(realm):
-        raise AccessRequestError(
-            "Ce realm n'accepte pas encore de nouveaux comptes "
-            "(provisioning Keycloak non configuré)."
-        )
-
     username = (username or "").strip()
     email = (email or "").strip().lower()
     first_name = (first_name or "").strip() or None
@@ -107,7 +112,6 @@ def submit_access_request(
         raise AccessRequestError(
             f"Motif trop long (max {_MAX_MESSAGE_LEN} caractères)."
         )
-
     if not username or not _USERNAME_RE.match(username):
         raise AccessRequestError(
             "Identifiant invalide (2–64 caractères : lettres, chiffres, . _ -)."
@@ -118,24 +122,24 @@ def submit_access_request(
         raise AccessRequestError("Société / organisation requise")
     if len(organization) > 200:
         raise AccessRequestError("Société / organisation trop longue")
-
     # Anti-spam: cap open requests from the same client IP.
     if count_pending_access_requests_for_ip(db, client_ip) >= _MAX_PENDING_PER_IP:
         raise AccessRequestError(
             "Trop de demandes en attente depuis cette adresse — réessayez plus tard "
             "ou contactez un administrateur."
         )
-
     existing_account = (
         db.query(BastionAccount)
-        .filter_by(realm_id=realm.id, username=username)
+        .filter(
+            (BastionAccount.username == username) | (BastionAccount.email == email)
+        )
         .first()
     )
     if existing_account:
         raise AccessRequestError(_GENERIC_DUP_MSG)
     pending_dup = (
         db.query(AccessRequest)
-        .filter_by(realm_id=realm.id, status="pending")
+        .filter_by(status="pending")
         .filter(
             (AccessRequest.username == username) | (AccessRequest.email == email)
         )
@@ -143,9 +147,8 @@ def submit_access_request(
     )
     if pending_dup:
         raise AccessRequestError(_GENERIC_DUP_MSG)
-
     row = AccessRequest(
-        realm_id=realm.id,
+        realm_id=None,
         username=username,
         email=email,
         first_name=first_name,
@@ -162,43 +165,44 @@ def submit_access_request(
         db,
         actor=email,
         action="access_request.submitted",
-        target=f"realm:{realm.slug}/access_request:{row.id}",
+        target=f"access_request:{row.id}",
         details={
             "username": username,
             "email": email,
             "organization": organization,
-            "realm_slug": realm.slug,
         },
         ip_address=client_ip,
     )
     db.commit()
     db.refresh(row)
-
-    # Best-effort admin ping on the realm's SMTP from-address (inbox as notify).
-    if smtp_configured(realm) and realm.smtp_from_email:
+    # Best-effort admin ping via first advertising realm that has SMTP.
+    notify_realm = next(
+        (r for r in realms_advertising_access_requests(db) if smtp_configured(r) and r.smtp_from_email),
+        None,
+    )
+    if notify_realm is not None:
         try:
             send_email(
-                realm,
+                notify_realm,
                 settings,
-                to_email=realm.smtp_from_email,
-                subject=f"[{realm.name or realm.slug}] Nouvelle demande d'accès — {username}",
+                to_email=notify_realm.smtp_from_email,
+                subject=f"[{notify_realm.name or notify_realm.slug}] Nouvelle demande d'accès — {username}",
                 body_text=(
                     f"Nouvelle demande d'accès en attente.\n\n"
-                    f"Realm : {realm.slug}\n"
                     f"Identifiant : {username}\n"
                     f"Email : {email}\n"
                     f"Société : {organization}\n"
                     f"Message : {message or '—'}\n\n"
-                    f"Admin : https://{(settings.portal_domain or '').strip()}/admin/access-requests\n"
+                    f"Assigner le realm à l'approbation : "
+                    f"https://{(settings.portal_domain or '').strip()}/admin/access-requests\n"
                 ),
             )
         except SmtpError:
             logger.info(
                 "access_request admin notify skipped (smtp) realm=%s id=%s",
-                realm.slug,
+                notify_realm.slug,
                 row.id,
             )
-
     return row
 
 
@@ -208,11 +212,12 @@ async def approve_access_request(
     *,
     request_id: int,
     actor: str,
+    realm_id: int,
     ip_address: str | None = None,
     application_ids: list[int] | None = None,
     send_credentials: bool | None = None,
 ) -> tuple[AccessRequest, BastionAccount, list[str]]:
-    """Approve → create_bastion_account. Returns (row, account, step_errors)."""
+    """Approve → create_bastion_account in the admin-chosen realm."""
     row = (
         db.query(AccessRequest)
         .options(joinedload(AccessRequest.realm))
@@ -223,11 +228,13 @@ async def approve_access_request(
         raise AccessRequestError("Demande introuvable")
     if row.status != "pending":
         raise AccessRequestError(f"Demande déjà {row.status}")
-
-    realm = row.realm or db.query(RealmConfig).filter_by(id=row.realm_id).first()
-    if realm is None:
-        raise AccessRequestError("Realm introuvable")
-
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if realm is None or not realm.enabled:
+        raise AccessRequestError("Realm introuvable ou désactivé")
+    if not realm_provisioning_ready(realm):
+        raise AccessRequestError(
+            f"Le realm « {realm.slug} » n'a pas le provisioning Keycloak prêt."
+        )
     try:
         account, step_errors, temp_password = await create_bastion_account(
             db,
@@ -244,7 +251,6 @@ async def approve_access_request(
         )
     except AccountCreationError as exc:
         raise AccessRequestError(str(exc)) from exc
-
     want_email = (
         bool(send_credentials)
         if send_credentials is not None
@@ -278,7 +284,7 @@ async def approve_access_request(
                 ip_address=ip_address,
             )
     temp_password = None  # noqa: F841
-
+    row.realm_id = realm.id
     row.status = "approved"
     row.bastion_account_id = account.id
     row.reviewed_by = actor

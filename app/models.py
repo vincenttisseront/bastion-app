@@ -1161,14 +1161,15 @@ class AccessRequest(Base):
 
     Distinct from PendingUser (first SSO sighting of an already-existing IdP
     account). Approving an AccessRequest runs the bastion account creation
-    pipeline into the chosen realm.
+    pipeline into the realm chosen by the admin (not by the requester).
     """
 
     __tablename__ = "access_requests"
 
     id = Column(Integer, primary_key=True)
+    # Null until admin approval assigns the target realm.
     realm_id = Column(
-        Integer, ForeignKey("realm_configs.id"), nullable=False, index=True
+        Integer, ForeignKey("realm_configs.id"), nullable=True, index=True
     )
     username = Column(String, nullable=False)
     email = Column(String, nullable=False, index=True)

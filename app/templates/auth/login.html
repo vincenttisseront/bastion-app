@@ -263,9 +263,9 @@
     {% endif %}
 
     {% if show_access_request | default(false) and not mfa_step %}
-    <div class="login-access-request" style="margin-top:var(--sp-5); padding-top:var(--sp-4); border-top:1px solid var(--border, rgba(255,255,255,0.08)); text-align:center;">
-      <p class="login-sub" style="margin:0 0 var(--sp-2);">Pas encore de compte ?</p>
-      <a href="/auth/access-request" class="btn btn-ghost btn-full">Demander un accès</a>
+    <div class="login-access-request" style="margin-top:var(--sp-5); padding-top:var(--sp-4); border-top:1px solid var(--border, rgba(255,255,255,0.12)); text-align:center;">
+      <p class="login-sub" style="margin:0 0 var(--sp-3);">Pas encore de compte ?</p>
+      <a href="/auth/access-request" class="btn btn-secondary btn-full">Demander un accès</a>
       <p class="form-help" style="margin-top:var(--sp-2);">
         Demande examinée par un administrateur — aucun compte n’est créé automatiquement.
       </p>

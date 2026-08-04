@@ -7,7 +7,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Demandes d'accès</h1>
-      <p class="page-sub">Formulaire public de la page de login — approbation = création bastion + Keycloak dans le realm choisi</p>
+      <p class="page-sub">Formulaire public de la page de login — à l'approbation, choisissez le realm cible (création bastion + Keycloak)</p>
     </div>
   </div>
 
@@ -40,7 +40,7 @@
           <td class="mono">{{ r.username }}</td>
           <td>{{ r.email }}</td>
           <td>{{ r.organization or '—' }}</td>
-          <td class="mono">{{ r.realm.slug if r.realm else '?' }}</td>
+          <td class="mono">{% if r.realm %}{{ r.realm.slug }}{% else %}—{% endif %}</td>
           <td class="mono">{{ r.created_at }}</td>
           <td>
             {% if r.status == 'pending' %}<span class="badge badge-warn">En attente</span>
@@ -49,13 +49,18 @@
           </td>
           <td style="white-space:nowrap;">
             {% if r.status == 'pending' %}
-            <form method="post" action="/admin/access-requests/{{ r.id }}/approve" style="display:inline;">
-              <label class="form-check" style="display:inline-flex; margin-right:var(--sp-2);">
-                <input type="checkbox" name="send_credentials" value="1"
-                       {% if r.realm and r.realm.send_credentials_email %}checked{% endif %}>
+            <form method="post" action="/admin/access-requests/{{ r.id }}/approve" style="display:inline-flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap;">
+              <select name="realm_id" class="form-input" required style="min-width:10rem; width:auto; display:inline-block;" title="Realm cible">
+                <option value="">— Realm —</option>
+                {% for realm in approve_realms %}
+                <option value="{{ realm.id }}">{{ realm.name }} ({{ realm.slug }})</option>
+                {% endfor %}
+              </select>
+              <label class="form-check" style="display:inline-flex;">
+                <input type="checkbox" name="send_credentials" value="1">
                 <span>Email</span>
               </label>
-              <button type="submit" class="btn btn-primary btn-sm">Approuver</button>
+              <button type="submit" class="btn btn-primary btn-sm"{% if not approve_realms %} disabled title="Aucun realm avec provisioning prêt"{% endif %}>Approuver</button>
             </form>
             <form method="post" action="/admin/access-requests/{{ r.id }}/reject" style="display:inline;">
               <button type="submit" class="btn btn-ghost btn-sm">Rejeter</button>
