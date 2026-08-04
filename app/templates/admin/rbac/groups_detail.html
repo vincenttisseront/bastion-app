@@ -12,54 +12,59 @@
     <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
   </div>
 
-  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
-    <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Membres Keycloak</span>
-      <span class="badge badge-muted">{{ members | length }}</span>
-    </div>
+  <div class="tabs" role="tablist" aria-label="Fiche groupe" id="group-fiche-tabs" style="margin-bottom:var(--sp-4);">
+    <a href="#membres" class="tab active" role="tab" data-tab="membres" aria-selected="true">
+      Membres <span class="badge badge-muted tab-badge">{{ members | length }}</span>
+    </a>
+    <a href="#comptes" class="tab" role="tab" data-tab="comptes" aria-selected="false">
+      Comptes <span class="badge badge-muted tab-badge">{{ group_credentials | length }}</span>
+    </a>
+    <a href="#droits" class="tab" role="tab" data-tab="droits" aria-selected="false">
+      Droits <span class="badge badge-muted tab-badge">{{ grant_rows | length }}</span>
+    </a>
+  </div>
+
+  <div class="group-fiche-panel" id="panel-membres" data-panel="membres">
     {% if members_error %}
-    <div class="alert alert-err" style="margin:var(--sp-4);">{{ members_error }}</div>
+    <div class="alert alert-err" style="margin-bottom:var(--sp-3);">{{ members_error }}</div>
     {% endif %}
-    <div class="table-wrap" style="border:none;border-radius:0;">
-      <table class="data-table">
-        <thead><tr><th>Utilisateur</th><th>Email</th><th>Statut</th></tr></thead>
-        <tbody>
-          {% for m in members %}
-          <tr>
-            <td class="mono">
-              {% if m.id %}
-              <a href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ m.id }}">{{ m.username or m.id }}</a>
-              {% else %}
-              {{ m.username or '—' }}
-              {% endif %}
-            </td>
-            <td>{{ m.email or '—' }}</td>
-            <td>
-              {% if m.enabled %}
-                <span class="badge badge-ok">Actif</span>
-              {% else %}
-                <span class="badge badge-muted">Désactivé</span>
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">Aucun membre ou lecture Keycloak indisponible.</div></td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div class="card" style="padding:0;">
+      <div class="table-wrap" style="border:none;border-radius:0;">
+        <table class="data-table">
+          <thead><tr><th>Utilisateur</th><th>Email</th><th>Statut</th></tr></thead>
+          <tbody>
+            {% for m in members %}
+            <tr>
+              <td class="mono">
+                {% if m.id %}
+                <a href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ m.id }}">{{ m.username or m.id }}</a>
+                {% else %}
+                {{ m.username or '—' }}
+                {% endif %}
+              </td>
+              <td>{{ m.email or '—' }}</td>
+              <td>
+                {% if m.enabled %}
+                  <span class="badge badge-ok">Actif</span>
+                {% else %}
+                  <span class="badge badge-muted">Désactivé</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">Aucun membre ou lecture Keycloak indisponible.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
-    <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Comptes applicatifs partagés</span>
-      <span class="badge badge-muted">{{ group_credentials | length }}</span>
-    </div>
-    <div style="padding:var(--sp-4); padding-top:0;">
-      <p class="form-hint" style="margin:0 0 var(--sp-4);">
-        Compte Crush / robotic utilisé par tous les membres de ce groupe à l’ouverture de l’app.
-        Priorité explicite si un utilisateur appartient à plusieurs groupes.
-        Les exclus n’utilisent pas ce compte — sans compte individuel, l’ouverture est bloquée.
+  <div class="group-fiche-panel" id="panel-comptes" data-panel="comptes" hidden>
+    <div class="card" style="padding:var(--sp-4);">
+      <p class="form-hint" style="margin:0 0 var(--sp-3);">
+        Compte Crush / robotic pour tous les membres. Priorité = choix multi-groupes.
+        Exclu sans compte individuel → ouverture bloquée.
       </p>
 
       {% if group_credentials %}
@@ -67,9 +72,9 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>Application</th>
+              <th>App</th>
               <th>Compte</th>
-              <th>Priorité</th>
+              <th>Prio</th>
               <th>Exclusions</th>
               <th></th>
             </tr>
@@ -85,7 +90,7 @@
                 {% if excl %}
                 <ul style="margin:0; padding-left:1.1rem;">
                   {% for e in excl %}
-                  <li style="display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap;">
+                  <li style="display:flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap; margin-bottom:var(--sp-1);">
                     <span class="mono">
                       {% for m in members if m.id == e.keycloak_user_id %}
                         {{ m.username or m.email or e.keycloak_user_id }}
@@ -109,17 +114,17 @@
                 <form method="post"
                       action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/exclusions"
                       style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; margin-top:var(--sp-2);">
-                  <select name="keycloak_user_id" class="form-select" required style="min-width:12rem;">
-                    <option value="">Exclure un membre…</option>
+                  <select name="keycloak_user_id" class="form-select" required style="min-width:10rem; max-width:16rem;">
+                    <option value="">Exclure…</option>
                     {% for m in members if m.id %}
                     <option value="{{ m.id }}">{{ m.username or m.email or m.id }}</option>
                     {% endfor %}
                   </select>
-                  <button type="submit" class="btn btn-ghost btn-sm">Exclure</button>
+                  <button type="submit" class="btn btn-ghost btn-sm">OK</button>
                 </form>
                 {% endif %}
               </td>
-              <td style="text-align:right;">
+              <td style="text-align:right; white-space:nowrap;">
                 <form method="post"
                       action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete"
                       onsubmit="return confirm('Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?');">
@@ -132,63 +137,86 @@
         </table>
       </div>
       {% else %}
-      <div class="empty-desc" style="padding:var(--sp-3) 0 var(--sp-4);">
-        Aucun compte partagé pour ce groupe.
-      </div>
+      <div class="empty-desc" style="padding:0 0 var(--sp-3);">Aucun compte partagé.</div>
       {% endif %}
 
       {% if vault_apps %}
-      <form method="post" action="/admin/rbac/groups/{{ group.id }}/credentials" class="form-row" style="gap:var(--sp-3); align-items:flex-end; flex-wrap:wrap;">
-        <div class="form-group" style="margin:0;">
+      <form method="post" action="/admin/rbac/groups/{{ group.id }}/credentials"
+            style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:flex-end;">
+        <div class="form-group" style="margin:0; min-width:10rem; flex:1 1 10rem;">
           <label class="form-label" for="group-cred-app">Application</label>
           <select id="group-cred-app" name="app_slug" class="form-select" required>
             <option value="">Choisir…</option>
             {% for a in vault_apps %}
-            <option value="{{ a.slug }}">{{ a.label }} ({{ a.slug }})</option>
+            <option value="{{ a.slug }}">{{ a.label }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="form-group" style="margin:0;">
-          <label class="form-label" for="group-cred-user">Compte robotic</label>
+        <div class="form-group" style="margin:0; min-width:8rem; flex:1 1 8rem;">
+          <label class="form-label" for="group-cred-user">Compte</label>
           <input id="group-cred-user" type="text" name="robotic_username" class="form-input" required autocomplete="off">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group" style="margin:0; min-width:8rem; flex:1 1 8rem;">
           <label class="form-label" for="group-cred-pass">Mot de passe</label>
           <input id="group-cred-pass" type="password" name="password" class="form-input" required autocomplete="new-password">
         </div>
-        <div class="form-group" style="margin:0; max-width:7rem;">
-          <label class="form-label" for="group-cred-prio">Priorité</label>
+        <div class="form-group" style="margin:0; width:5.5rem; flex:0 0 5.5rem;">
+          <label class="form-label" for="group-cred-prio">Prio</label>
           <input id="group-cred-prio" type="number" name="priority" class="form-input" value="100" step="1">
         </div>
         <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
       </form>
       {% else %}
-      <div class="alert alert-warn" style="margin:0;">
-        Aucune application vault (Crush / robotic) disponible.
-      </div>
+      <div class="alert alert-warn" style="margin:0;">Aucune application vault disponible.</div>
       {% endif %}
     </div>
   </div>
 
-  <div class="card" style="padding:0;">
-    <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Droits accordés au groupe</span>
-      <div style="display:flex;align-items:center;gap:var(--sp-3);">
-        <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>+ Ajouter un droit</button>
-        <span class="badge badge-muted">{{ grant_rows | length }}</span>
+  <div class="group-fiche-panel" id="panel-droits" data-panel="droits" hidden>
+    <div class="card" style="padding:0;">
+      <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
+        <span class="card-title" style="font-size:var(--fs-sm);">Droits du groupe</span>
+        <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>+ Ajouter</button>
       </div>
+      {% with grant_rows=grant_rows, redirect_url='/admin/rbac/groups/' ~ group.id ~ '#droits', show_granted_by=true, empty_message='Aucun droit accordé à ce groupe.' %}
+      {% include "admin/rbac/_grants_by_category.html" %}
+      {% endwith %}
     </div>
-    {% with grant_rows=grant_rows, redirect_url='/admin/rbac/groups/' ~ group.id, show_granted_by=true, empty_message='Aucun droit accordé à ce groupe.' %}
-    {% include "admin/rbac/_grants_by_category.html" %}
-    {% endwith %}
   </div>
 </div>
 
-{% with subject_type='group', rbac_group_id=group.id, redirect_url='/admin/rbac/groups/' ~ group.id, id_prefix='grant-', modal_title='Ajouter un droit' %}
+{% with subject_type='group', rbac_group_id=group.id, redirect_url='/admin/rbac/groups/' ~ group.id ~ '#droits', id_prefix='grant-', modal_title='Ajouter un droit' %}
 {% include "admin/rbac/_grant_add_modal.html" %}
 {% endwith %}
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/js/bastion-grant-form.js?v=20260731-grant-json"></script>
+<script>
+(function () {
+  var tabs = document.querySelectorAll('#group-fiche-tabs [data-tab]');
+  var panels = document.querySelectorAll('.group-fiche-panel[data-panel]');
+  function activate(name) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute('data-tab') === name;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    panels.forEach(function (p) {
+      p.hidden = p.getAttribute('data-panel') !== name;
+    });
+  }
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function (e) {
+      e.preventDefault();
+      var name = t.getAttribute('data-tab');
+      activate(name);
+      if (history.replaceState) history.replaceState(null, '', '#' + name);
+    });
+  });
+  var hash = (location.hash || '#membres').replace(/^#/, '');
+  if (!document.querySelector('[data-panel="' + hash + '"]')) hash = 'membres';
+  activate(hash);
+})();
+</script>
 {% endblock %}
