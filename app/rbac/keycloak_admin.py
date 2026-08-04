@@ -441,6 +441,7 @@ async def update_keycloak_user(
     last_name: str | None = None,
     enabled: bool | None = None,
     email_verified: bool | None = None,
+    add_required_actions: list[str] | None = None,
     token: str | None = None,
 ) -> None:
     """GET + PUT /users/{id} — merge identity fields (WRITE provision account)."""
@@ -482,6 +483,13 @@ async def update_keycloak_user(
                 if a != "VERIFY_EMAIL"
             ]
             payload["requiredActions"] = actions
+    if add_required_actions:
+        actions = [str(a) for a in (payload.get("requiredActions") or []) if a]
+        for action in add_required_actions:
+            name = (action or "").strip()
+            if name and name not in actions:
+                actions.append(name)
+        payload["requiredActions"] = actions
     # Never re-send credentials blob from a GET (may be incomplete / empty).
     payload.pop("credentials", None)
 

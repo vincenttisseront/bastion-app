@@ -34,6 +34,7 @@ from app.rbac.account_service import (
     provision_account_app,
     realm_provisioning_ready,
     remove_account_from_rbac_group,
+    require_keycloak_configure_otp,
     reset_bastion_account_password,
     retry_bastion_account_keycloak,
     send_account_credentials_email,
@@ -438,6 +439,13 @@ async def admin_rbac_user_view(
     else:
         view_url += f"realm_id={realm.id}&keycloak_user_id={keycloak_user_id}"
 
+    kc_required_actions: list[str] = []
+    if isinstance(kc_user, dict):
+        kc_required_actions = [
+            str(a) for a in (kc_user.get("requiredActions") or []) if a
+        ]
+    otp_configure_pending = "CONFIGURE_TOTP" in kc_required_actions
+
     from app.files.service import file_grant_select_options, folder_grant_select_options
 
     secret = settings.vault_portal_internal_token or "dev"
@@ -458,6 +466,8 @@ async def admin_rbac_user_view(
             keycloak_user_id=keycloak_user_id,
             kc_user=kc_user,
             kc_email_diag=kc_email_diag,
+            kc_required_actions=kc_required_actions,
+            otp_configure_pending=otp_configure_pending,
             kc_groups=kc_groups,
             membership_rows=membership_rows,
             assignable_groups=assignable_groups,
@@ -1207,6 +1217,131 @@ async def admin_rbac_user_verify_email(
     flash_redirect(
         response,
         "Email marqué comme vérifié dans Keycloak.",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/admin/rbac/accounts/{account_id}/require-otp")
+async def admin_rbac_account_require_otp(
+    account_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    redirect_url: str = Form(""),
+):
+    """Queue CONFIGURE_TOTP so the next portal login shows Bastion OTP enrollment."""
+    account = _account_or_404(db, account_id)
+    secret = settings.vault_portal_internal_token or "dev"
+    fallback = f"/admin/rbac/users/view?account_id={account.id}#identite"
+    realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
+    if realm is None or not account.keycloak_user_id:
+        msg = "Compte Keycloak manquant — impossible de forcer la configuration OTP."
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=400)
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, msg, "error", secret)
+        return response
+    try:
+        await require_keycloak_configure_otp(
+            db,
+            settings,
+            realm=realm,
+            keycloak_user_id=account.keycloak_user_id,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            username=account.username,
+            bastion_account_id=account.id,
+        )
+    except AccountCreationError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "required_action": "CONFIGURE_TOTP"})
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    flash_redirect(
+        response,
+        f"Configuration OTP exigée au prochain login pour {account.username}.",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/admin/rbac/users/require-otp")
+async def admin_rbac_user_require_otp(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    realm_id: int = Form(...),
+    keycloak_user_id: str = Form(...),
+    redirect_url: str = Form(""),
+):
+    """Queue CONFIGURE_TOTP from the user fiche (with or without bastion row)."""
+    secret = settings.vault_portal_internal_token or "dev"
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if realm is None:
+        raise HTTPException(status_code=404, detail="Realm introuvable")
+    uid = (keycloak_user_id or "").strip()
+    fallback = (
+        f"/admin/rbac/users/view?realm_id={realm.id}&keycloak_user_id={uid}#identite"
+        if uid
+        else "/admin/rbac/users"
+    )
+    account = (
+        db.query(BastionAccount)
+        .filter_by(keycloak_user_id=uid, realm_id=realm.id)
+        .first()
+        if uid
+        else None
+    )
+    if account is not None:
+        fallback = f"/admin/rbac/users/view?account_id={account.id}#identite"
+    try:
+        await require_keycloak_configure_otp(
+            db,
+            settings,
+            realm=realm,
+            keycloak_user_id=uid,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            username=(account.username if account else None),
+            bastion_account_id=(account.id if account else None),
+        )
+    except AccountCreationError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse({"ok": True, "required_action": "CONFIGURE_TOTP"})
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    flash_redirect(
+        response,
+        "Configuration OTP exigée au prochain login portail.",
         "success",
         secret,
     )
