@@ -36,7 +36,6 @@ def _realm(
     db,
     *,
     access_request_enabled: bool = True,
-    smtp_enabled: bool = True,
     send_credentials_email: bool = False,
 ) -> RealmConfig:
     s = _settings()
@@ -57,19 +56,31 @@ def _realm(
         provisioning_enabled=True,
         access_request_enabled=access_request_enabled,
         send_credentials_email=send_credentials_email,
-        smtp_enabled=smtp_enabled,
-        smtp_host="smtp.example.com",
-        smtp_port=587,
-        smtp_use_tls=True,
-        smtp_username="mailer",
-        smtp_password_encrypted=encrypt_secret("smtp-pass", s),
-        smtp_from_email="noreply@example.com",
-        smtp_from_name="Bastion",
     )
     db.add(realm)
     db.commit()
     db.refresh(realm)
     return realm
+
+
+def _portal_smtp(db, *, enabled: bool = True):
+    from app.models import PortalSettings
+    from app.portal_settings_service import PORTAL_SETTINGS_ID, ensure_portal_settings
+
+    s = _settings()
+    row = ensure_portal_settings(db, s)
+    assert row.id == PORTAL_SETTINGS_ID
+    row.smtp_enabled = enabled
+    row.smtp_host = "smtp.example.com"
+    row.smtp_port = 587
+    row.smtp_use_tls = True
+    row.smtp_username = "mailer"
+    row.smtp_password_encrypted = encrypt_secret("smtp-pass", s)
+    row.smtp_from_email = "noreply@example.com"
+    row.smtp_from_name = "Bastion"
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 def _company_group(db, realm: RealmConfig, name: str = "OrgCo") -> RBACGroup:
@@ -213,6 +224,7 @@ def test_access_request_captcha_rejects_wrong_answer(client, db_session):
 
 def test_access_request_submit_creates_pending(client, db_session):
     _realm(db_session)
+    _portal_smtp(db_session)
     get_resp = client.get("/auth/access-request")
     tokens = _form_tokens(client, get_resp.text)
 
@@ -379,15 +391,11 @@ def test_access_request_approve_requires_realm(client, db_session):
 
 def test_smtp_send_email_builds_message():
     from app.mail.smtp_service import send_email
+    from app.models import PortalSettings
 
     s = _settings()
-    realm = RealmConfig(
-        slug="x",
-        name="X",
-        issuer_url="https://kc/realms/x",
-        client_id="c",
-        redirect_uri="https://p/cb",
-        oauth2_proxy_port=4180,
+    cfg = PortalSettings(
+        id=1,
         smtp_enabled=True,
         smtp_host="smtp.example.com",
         smtp_port=587,
@@ -402,7 +410,7 @@ def test_smtp_send_email_builds_message():
     fake_smtp.__exit__ = MagicMock(return_value=False)
     with patch("app.mail.smtp_service.smtplib.SMTP", return_value=fake_smtp) as smtp_cls:
         send_email(
-            realm,
+            cfg,
             s,
             to_email="user@example.com",
             subject="Hello",

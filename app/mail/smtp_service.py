@@ -1,6 +1,7 @@
-"""Per-realm SMTP mailer — stdlib smtplib, no new dependency.
+"""Global SMTP mailer — stdlib smtplib, no new dependency.
 
-Secrets stay Fernet-encrypted on RealmConfig; plaintext password never logged.
+Config lives on PortalSettings (Admin → Général → Configuration).
+Secrets stay Fernet-encrypted; plaintext password never logged.
 """
 
 from __future__ import annotations
@@ -9,8 +10,11 @@ import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
+from typing import Any, Protocol
 
-from app.models import RealmConfig
+from sqlalchemy.orm import Session
+
+from app.portal_settings_service import ensure_portal_settings
 from app.secret_crypto import decrypt_secret
 from app.sso_settings import Settings
 
@@ -21,24 +25,43 @@ class SmtpError(ValueError):
     """SMTP misconfiguration or delivery failure — never includes the password."""
 
 
-def smtp_configured(realm: RealmConfig) -> bool:
+class SmtpConfigLike(Protocol):
+    smtp_enabled: bool
+    smtp_host: str | None
+    smtp_port: int | None
+    smtp_use_tls: bool
+    smtp_username: str | None
+    smtp_password_encrypted: str | None
+    smtp_from_email: str | None
+    smtp_from_name: str | None
+
+
+def smtp_configured(cfg: Any) -> bool:
     return bool(
-        getattr(realm, "smtp_enabled", False)
-        and (getattr(realm, "smtp_host", None) or "").strip()
-        and (getattr(realm, "smtp_from_email", None) or "").strip()
+        getattr(cfg, "smtp_enabled", False)
+        and (getattr(cfg, "smtp_host", None) or "").strip()
+        and (getattr(cfg, "smtp_from_email", None) or "").strip()
     )
 
 
-def _from_header(realm: RealmConfig) -> str:
-    email = (realm.smtp_from_email or "").strip()
-    name = (realm.smtp_from_name or "").strip()
+def get_smtp_config(db: Session, settings: Settings) -> Any | None:
+    """Return portal SMTP row when fully configured, else None."""
+    row = ensure_portal_settings(db, settings)
+    if smtp_configured(row):
+        return row
+    return None
+
+
+def _from_header(cfg: SmtpConfigLike) -> str:
+    email = (cfg.smtp_from_email or "").strip()
+    name = (cfg.smtp_from_name or "").strip()
     if name:
         return f"{name} <{email}>"
     return email
 
 
 def send_email(
-    realm: RealmConfig,
+    cfg: SmtpConfigLike,
     settings: Settings,
     *,
     to_email: str,
@@ -46,30 +69,30 @@ def send_email(
     body_text: str,
     body_html: str | None = None,
 ) -> None:
-    """Send one email via the realm's SMTP settings. Raises SmtpError on failure."""
-    if not smtp_configured(realm):
+    """Send one email via global SMTP settings. Raises SmtpError on failure."""
+    if not smtp_configured(cfg):
         raise SmtpError(
-            f"SMTP non configuré pour le realm « {realm.slug} » — "
-            "activez-le et renseignez hôte + expéditeur dans la fiche realm."
+            "SMTP non configuré — activez-le et renseignez hôte + expéditeur "
+            "dans Admin → Général → Configuration."
         )
     to_addr = (to_email or "").strip()
     if not to_addr or "@" not in to_addr:
         raise SmtpError("Adresse destinataire invalide")
 
-    host = (realm.smtp_host or "").strip()
-    port = int(realm.smtp_port or 587)
-    use_tls = bool(getattr(realm, "smtp_use_tls", True))
-    username = (realm.smtp_username or "").strip() or None
+    host = (cfg.smtp_host or "").strip()
+    port = int(cfg.smtp_port or 587)
+    use_tls = bool(getattr(cfg, "smtp_use_tls", True))
+    username = (cfg.smtp_username or "").strip() or None
     password = ""
-    if realm.smtp_password_encrypted:
+    if cfg.smtp_password_encrypted:
         try:
-            password = decrypt_secret(realm.smtp_password_encrypted, settings)
+            password = decrypt_secret(cfg.smtp_password_encrypted, settings)
         except ValueError as exc:
             raise SmtpError("Déchiffrement du mot de passe SMTP impossible") from exc
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = _from_header(realm)
+    msg["From"] = _from_header(cfg)
     msg["To"] = to_addr
     msg.set_content(body_text or "")
     if body_html:
@@ -100,8 +123,7 @@ def send_email(
         password = ""  # noqa: F841
 
     logger.info(
-        "smtp sent realm=%s to=%s subject=%s",
-        realm.slug,
+        "smtp sent to=%s subject=%s",
         to_addr,
         (subject or "")[:80],
     )

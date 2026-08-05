@@ -249,6 +249,7 @@ def test_security_page_shows_hot_store_tab(client, db_session):
     assert 'id="hot-store"' in resp.text
     assert "Stockage chaud" in resp.text
     assert 'action="/admin/security/hot-store/config"' in resp.text
-    assert "hot-store-stepper" in resp.text
+    assert "wizard-stepper" in resp.text
+    assert "data-wizard" in resp.text
     assert "Passer cette étape" in resp.text
     assert "facultatif" in resp.text

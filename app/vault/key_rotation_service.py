@@ -46,6 +46,7 @@ class RotationReport:
     portal_breakglass_jwt_secrets: int = 0
     portal_session_hop_secrets: int = 0
     portal_oidc_session_jwt_secrets: int = 0
+    portal_smtp_passwords: int = 0
     duration_ms: float = 0.0
     error: str | None = None
 
@@ -112,6 +113,7 @@ def rotate_fernet_key(
         "portal_breakglass_jwt_secrets": 0,
         "portal_session_hop_secrets": 0,
         "portal_oidc_session_jwt_secrets": 0,
+        "portal_smtp_passwords": 0,
     }
 
     try:
@@ -203,6 +205,16 @@ def rotate_fernet_key(
                     new_material,
                 )
                 counts["portal_oidc_session_jwt_secrets"] += 1
+            if (
+                getattr(portal, "smtp_password_encrypted", None)
+                and str(portal.smtp_password_encrypted).strip()
+            ):
+                portal.smtp_password_encrypted = _reencrypt_field(
+                    portal.smtp_password_encrypted,
+                    old_material,
+                    new_material,
+                )
+                counts["portal_smtp_passwords"] += 1
 
         db.commit()
     except Exception as exc:

@@ -58,7 +58,7 @@ SHORTCUTS: list[dict[str, str]] = [
         "id": "security",
         "label": "Sécurité",
         "href": "/admin/security",
-        "hint": "SIEM, bans, break-glass",
+        "hint": "bans, break-glass",
     },
     {
         "id": "health",

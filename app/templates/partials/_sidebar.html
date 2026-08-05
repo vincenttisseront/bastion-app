@@ -54,7 +54,7 @@
       + (bastion_accounts_count | int)
     )) | int %}
     {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') or path.startswith('/admin/access-requests') %}
-    {% set general_open = path == '/admin/dashboard' or path == '/admin' or path.startswith('/admin/branding') %}
+    {% set general_open = path == '/admin/dashboard' or path == '/admin' or path.startswith('/admin/branding') or path.startswith('/admin/configuration') %}
     {% set access_open = path.startswith('/admin/realms') or path.startswith('/admin/rbac') or path == '/admin/security' or path.startswith('/admin/acme') %}
     {% set content_open = path.startswith('/admin/apps') or path.startswith('/admin/files') or path.startswith('/files') or pending_nav_open %}
     {% set infra_open = path.startswith('/admin/infrastructure') or path.startswith('/admin/dependencies') or path.startswith('/admin/logs') or path == '/admin/health' %}
@@ -70,6 +70,10 @@
     <a href="/admin/branding" class="nav-item{% if path.startswith('/admin/branding') %} active{% endif %}" data-nav-label="Branding">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       Branding
+    </a>
+    <a href="/admin/configuration" class="nav-item{% if path.startswith('/admin/configuration') %} active{% endif %}" data-nav-label="Configuration">
+      <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Configuration
     </a>
     {% endcall %}
 

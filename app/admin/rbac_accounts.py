@@ -754,6 +754,7 @@ async def admin_rbac_users_new_submit(
     if want_email and temp_password and account.keycloak_user_id:
         try:
             send_account_credentials_email(
+                db,
                 settings,
                 realm=realm,
                 account=account,
@@ -1646,6 +1647,7 @@ async def admin_rbac_account_retry_keycloak(
     ):
         try:
             send_account_credentials_email(
+                db,
                 settings,
                 realm=realm,
                 account=account,

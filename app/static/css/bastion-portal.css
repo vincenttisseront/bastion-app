@@ -383,8 +383,12 @@ body.page-portal > .main-content {
 }
 
 .portal-apps-section {
-  margin-bottom: var(--sp-7);
+  margin-bottom: var(--sp-12);
   scroll-margin-top: 88px;
+}
+
+.portal-apps-section:last-of-type {
+  margin-bottom: var(--sp-6);
 }
 
 .portal-apps-section-head {

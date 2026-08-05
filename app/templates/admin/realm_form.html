@@ -6,7 +6,6 @@
 {% set oidc_ready = form_values.issuer_url and form_values.client_id %}
 {% set sync_ready = form_values.keycloak_admin_client_id or form_values.groups_sync_enabled %}
 {% set provision_ready = form_values.keycloak_provision_client_id or form_values.provisioning_enabled %}
-{% set smtp_ready = form_values.smtp_enabled or form_values.smtp_host %}
 {% set err_keys = errors.keys() | list %}
 {% set ns = namespace(initial='general') %}
 {% for key in err_keys %}
@@ -16,7 +15,7 @@
     {% set ns.initial = 'sync' %}
   {% elif key in ['keycloak_provision_client_id','keycloak_provision_client_secret','provisioning_enabled'] %}
     {% set ns.initial = 'provision' %}
-  {% elif key in ['smtp_enabled','smtp_host','smtp_port','smtp_username','smtp_password','smtp_from_email','access_request_enabled','send_credentials_email'] %}
+  {% elif key in ['access_request_enabled','send_credentials_email'] %}
     {% set ns.initial = 'smtp' %}
   {% endif %}
 {% endfor %}
@@ -52,8 +51,8 @@
       {% if form_values.provisioning_enabled %}<span class="tab-badge badge badge-ok">ON</span>{% endif %}
     </a>
     <a href="#smtp" class="tab{% if ns.initial == 'smtp' %} active{% endif %}" role="tab" data-tab="smtp" aria-selected="{{ 'true' if ns.initial == 'smtp' else 'false' }}">
-      SMTP &amp; accès
-      {% if form_values.smtp_enabled %}<span class="tab-badge badge badge-ok">SMTP</span>{% endif %}
+      Accès
+      {% if form_values.access_request_enabled %}<span class="tab-badge badge badge-ok">ON</span>{% endif %}
     </a>
   </div>
 
@@ -389,24 +388,18 @@
       </div>
     </div>
 
-    {# ── SMTP ── #}
+    {# ── Accès (demandes + email credentials ; SMTP global) ── #}
     <div class="realm-form-panel" id="panel-smtp" data-panel="smtp"{% if ns.initial != 'smtp' %} hidden{% endif %}>
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
           <div>
-            <h2 class="card-title" style="margin:0;">SMTP &amp; demandes d'accès</h2>
+            <h2 class="card-title" style="margin:0;">Demandes d'accès &amp; emails</h2>
             <p class="form-hint" style="margin:var(--sp-2) 0 0;">
-              Envoi des identifiants et formulaire public « Demander un accès ».
+              Politique par realm. Le serveur SMTP est global —
+              <a href="/admin/configuration">Admin → Général → Configuration</a>.
             </p>
           </div>
           <div class="user-fiche-badges">
-            {% if form_values.smtp_enabled %}
-            <span class="badge badge-ok">SMTP actif</span>
-            {% elif form_values.smtp_host %}
-            <span class="badge badge-warn">SMTP off</span>
-            {% else %}
-            <span class="badge badge-muted">SMTP —</span>
-            {% endif %}
             {% if form_values.access_request_enabled %}
             <span class="badge badge-info">Demandes ouvertes</span>
             {% else %}
@@ -417,61 +410,10 @@
         <div class="stack" style="gap:var(--sp-4); margin-top:var(--sp-4);">
           <div class="form-group">
             <label class="form-check">
-              <input type="checkbox" name="smtp_enabled" value="on"{% if form_values.smtp_enabled %} checked{% endif %}>
-              Activer l'envoi d'emails via SMTP pour ce realm
-            </label>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="smtp_host">Hôte SMTP</label>
-              <input type="text" id="smtp_host" name="smtp_host" class="form-input"
-                     value="{{ form_values.smtp_host or '' }}" placeholder="smtp.example.com" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="smtp_port">Port</label>
-              <input type="number" id="smtp_port" name="smtp_port" class="form-input"
-                     value="{{ form_values.smtp_port or 587 }}" min="1" max="65535">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-check">
-              <input type="checkbox" name="smtp_use_tls" value="on"{% if form_values.smtp_use_tls is not defined or form_values.smtp_use_tls %} checked{% endif %}>
-              STARTTLS (recommandé sur le port 587)
-            </label>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="smtp_username">Utilisateur SMTP</label>
-              <input type="text" id="smtp_username" name="smtp_username" class="form-input"
-                     value="{{ form_values.smtp_username or '' }}" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="smtp_password">Mot de passe SMTP</label>
-              <input type="password" id="smtp_password" name="smtp_password" class="form-input"
-                     value="" placeholder="{% if realm and form_values.smtp_password_configured %}••••••••{% else %}Secret SMTP{% endif %}"
-                     autocomplete="new-password">
-              <p class="form-hint">{% if realm %}Laissez vide pour conserver le secret actuel.{% endif %}</p>
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="smtp_from_email">Expéditeur (From)</label>
-              <input type="email" id="smtp_from_email" name="smtp_from_email" class="form-input"
-                     value="{{ form_values.smtp_from_email or '' }}" placeholder="noreply@example.com">
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="smtp_from_name">Nom affiché</label>
-              <input type="text" id="smtp_from_name" name="smtp_from_name" class="form-input"
-                     value="{{ form_values.smtp_from_name or '' }}" placeholder="Portail Bastion">
-            </div>
-          </div>
-          <hr class="realm-form-divider">
-          <div class="form-group">
-            <label class="form-check">
               <input type="checkbox" name="send_credentials_email" value="on"{% if form_values.send_credentials_email %} checked{% endif %}>
               Envoyer automatiquement le mot de passe temporaire à la création / reset
             </label>
-            <p class="form-help">Requiert SMTP actif.</p>
+            <p class="form-help">Requiert SMTP global actif (Général → Configuration).</p>
           </div>
           <div class="form-group">
             <label class="form-check">
