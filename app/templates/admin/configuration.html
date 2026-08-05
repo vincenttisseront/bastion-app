@@ -30,18 +30,34 @@
     </div>
   </div>
 
-  <form method="post" action="/admin/configuration" id="configuration-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="tabs" role="tablist" aria-label="Sections configuration" id="configuration-tabs">
+    <a href="#smtp" class="tab active" role="tab" data-tab="smtp" id="tab-smtp" aria-selected="true">
+      SMTP
+      {% if s.ready %}
+      <span class="badge badge-ok tab-badge">OK</span>
+      {% elif s.enabled %}
+      <span class="badge badge-warn tab-badge">!</span>
+      {% endif %}
+    </a>
+    <a href="#siem" class="tab" role="tab" data-tab="siem" id="tab-siem" aria-selected="false">
+      SIEM
+      {% if siem_on %}
+      <span class="badge badge-ok tab-badge">ON</span>
+      {% endif %}
+    </a>
+  </div>
 
-    <div class="form-section" id="smtp">
-      <div class="form-section-header">
-        <div class="form-section-title">SMTP sortant</div>
-        <div class="form-section-sub">
-          Envoi des identifiants Keycloak et notifications de demandes d'accès.
-          Une seule configuration pour tout le portail (pas par realm).
-        </div>
+  <div class="form-section config-panel" id="smtp" role="tabpanel" aria-labelledby="tab-smtp">
+    <div class="form-section-header">
+      <div class="form-section-title">SMTP sortant</div>
+      <div class="form-section-sub">
+        Envoi des identifiants Keycloak et notifications de demandes d'accès.
+        Une seule configuration pour tout le portail (pas par realm).
       </div>
-      <div class="form-body">
+    </div>
+    <div class="form-body">
+      <form method="post" action="/admin/configuration" id="configuration-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="form-group">
           <label class="form-label form-check-row">
             <input type="checkbox" name="smtp_enabled" value="on"
@@ -95,13 +111,18 @@
           </div>
         </div>
         <div class="form-actions" style="margin-top:var(--sp-3);">
-          <button type="submit" class="btn btn-primary">Enregistrer SMTP</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
+          <button type="submit" form="smtp-test-form" class="btn btn-secondary">Tester la connexion</button>
         </div>
-      </div>
+        <p class="form-help">Le test utilise la configuration <strong>déjà enregistrée</strong> (connect + auth, sans envoi d'email).</p>
+      </form>
+      <form method="post" action="/admin/configuration/smtp/test" id="smtp-test-form" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      </form>
     </div>
-  </form>
+  </div>
 
-  <div class="form-section form-section-gap" id="siem">
+  <div class="form-section config-panel" id="siem" role="tabpanel" aria-labelledby="tab-siem" hidden>
     <div class="form-section-header">
       <div class="form-section-title">Forwarding SIEM</div>
       <div class="form-section-sub">
@@ -208,10 +229,10 @@
           </div>
         </div>
         <div class="form-actions" style="margin-top:var(--sp-3);">
-          <button type="submit" class="btn btn-primary">Enregistrer SIEM</button>
+          <button type="submit" class="btn btn-primary">Enregistrer</button>
           <button type="submit" form="siem-test-form" class="btn btn-secondary">Tester la connexion</button>
         </div>
-        <p class="form-help">Le test envoie un événement <span class="mono">siem.connectivity.test</span> sans attendre un log métier.</p>
+        <p class="form-help">Le test envoie un événement <span class="mono">siem.connectivity.test</span> avec la configuration enregistrée.</p>
       </form>
       <form method="post" action="/admin/configuration/siem/test" id="siem-test-form" hidden>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -219,4 +240,36 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var VALID = ['smtp', 'siem'];
+  var DEFAULT = 'smtp';
+
+  function currentTab() {
+    var h = (location.hash || '').replace(/^#/, '');
+    return VALID.indexOf(h) >= 0 ? h : DEFAULT;
+  }
+
+  function activate(id) {
+    document.querySelectorAll('.config-panel').forEach(function (panel) {
+      var on = panel.id === id;
+      panel.hidden = !on;
+      panel.setAttribute('aria-hidden', on ? 'false' : 'true');
+    });
+    document.querySelectorAll('#configuration-tabs .tab').forEach(function (tab) {
+      var on = tab.getAttribute('data-tab') === id;
+      tab.classList.toggle('active', on);
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+
+  activate(currentTab());
+  window.addEventListener('hashchange', function () {
+    activate(currentTab());
+  });
+})();
+</script>
 {% endblock %}

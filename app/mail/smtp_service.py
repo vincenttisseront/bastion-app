@@ -99,26 +99,14 @@ def send_email(
         msg.add_alternative(body_html, subtype="html")
 
     try:
-        if use_tls:
-            with smtplib.SMTP(host, port, timeout=20) as client:
-                client.ehlo()
-                context = ssl.create_default_context()
-                client.starttls(context=context)
-                client.ehlo()
-                if username and password:
-                    client.login(username, password)
-                client.send_message(msg)
-        else:
-            with smtplib.SMTP(host, port, timeout=20) as client:
-                if username and password:
-                    client.login(username, password)
-                client.send_message(msg)
-    except smtplib.SMTPAuthenticationError as exc:
-        raise SmtpError("Authentification SMTP refusée (identifiant / mot de passe)") from exc
-    except smtplib.SMTPException as exc:
-        raise SmtpError(f"Échec envoi SMTP : {exc.__class__.__name__}") from exc
-    except OSError as exc:
-        raise SmtpError(f"SMTP injoignable ({host}:{port})") from exc
+        _smtp_session(
+            host,
+            port,
+            use_tls=use_tls,
+            username=username,
+            password=password,
+            send_msg=msg,
+        )
     finally:
         password = ""  # noqa: F841
 
@@ -127,6 +115,107 @@ def send_email(
         to_addr,
         (subject or "")[:80],
     )
+
+
+def _smtp_session(
+    host: str,
+    port: int,
+    *,
+    use_tls: bool,
+    username: str | None,
+    password: str,
+    send_msg: EmailMessage | None = None,
+) -> None:
+    """Connect (and optionally STARTTLS / login / send). Raises SmtpError."""
+    try:
+        if use_tls:
+            with smtplib.SMTP(host, port, timeout=20) as client:
+                client.ehlo()
+                context = ssl.create_default_context()
+                client.starttls(context=context)
+                client.ehlo()
+                if username and password:
+                    client.login(username, password)
+                if send_msg is not None:
+                    client.send_message(send_msg)
+                else:
+                    client.noop()
+        else:
+            with smtplib.SMTP(host, port, timeout=20) as client:
+                if username and password:
+                    client.login(username, password)
+                if send_msg is not None:
+                    client.send_message(send_msg)
+                else:
+                    client.noop()
+    except smtplib.SMTPAuthenticationError as exc:
+        raise SmtpError("Authentification SMTP refusée (identifiant / mot de passe)") from exc
+    except smtplib.SMTPException as exc:
+        raise SmtpError(f"Échec SMTP : {exc.__class__.__name__}") from exc
+    except OSError as exc:
+        raise SmtpError(f"SMTP injoignable ({host}:{port})") from exc
+
+
+def test_smtp_connection(
+    db: Session,
+    settings: Settings,
+    *,
+    actor: str,
+) -> tuple[bool, str]:
+    """Verify saved SMTP settings (connect + auth). Does not send a message."""
+    from app.audit import log_action
+
+    row = ensure_portal_settings(db, settings)
+    host = (row.smtp_host or "").strip()
+    from_email = (row.smtp_from_email or "").strip()
+    if not host:
+        return False, "Hôte SMTP manquant — enregistrez la configuration d'abord"
+    if not from_email:
+        return False, "Expéditeur manquant — enregistrez la configuration d'abord"
+
+    port = int(row.smtp_port or 587)
+    use_tls = bool(getattr(row, "smtp_use_tls", True))
+    username = (row.smtp_username or "").strip() or None
+    password = ""
+    if row.smtp_password_encrypted:
+        try:
+            password = decrypt_secret(row.smtp_password_encrypted, settings)
+        except ValueError:
+            return False, "Déchiffrement du mot de passe SMTP impossible"
+
+    try:
+        _smtp_session(
+            host,
+            port,
+            use_tls=use_tls,
+            username=username,
+            password=password,
+            send_msg=None,
+        )
+    except SmtpError as exc:
+        log_action(
+            db,
+            actor=actor,
+            action="smtp.connectivity.test",
+            target="portal_settings",
+            details={"ok": False, "host": host, "port": port, "error": str(exc)},
+            forward_to_siem=False,
+        )
+        return False, str(exc)
+    finally:
+        password = ""  # noqa: F841
+
+    log_action(
+        db,
+        actor=actor,
+        action="smtp.connectivity.test",
+        target="portal_settings",
+        details={"ok": True, "host": host, "port": port, "use_tls": use_tls},
+        forward_to_siem=False,
+    )
+    auth = "avec authentification" if username else "sans authentification"
+    tls = "STARTTLS" if use_tls else "clair"
+    return True, f"Connexion OK — {host}:{port} ({tls}, {auth})"
 
 
 def credentials_email_bodies(
