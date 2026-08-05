@@ -18,6 +18,8 @@ class CaptchaChallenge:
 
     question: str
     token: str
+    left: int
+    right: int
 
 
 def issue_math_captcha(secret: str) -> CaptchaChallenge:
@@ -29,6 +31,8 @@ def issue_math_captcha(secret: str) -> CaptchaChallenge:
     return CaptchaChallenge(
         question=f"Combien font {a} + {b} ?",
         token=token,
+        left=a,
+        right=b,
     )
 
 
