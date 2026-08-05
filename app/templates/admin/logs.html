@@ -31,7 +31,8 @@
      data-sse-timeout="{{ admin_logs_sse_timeout_seconds }}"
      data-docker-enabled="{{ '1' if docker_logs_enabled else '0' }}"
      data-tail-lines="{{ docker_logs_tail_lines }}"
-     data-columns="{{ visible_columns | join(',') }}">
+     data-columns="{{ visible_columns | join(',') }}"
+     data-focus-audit-id="{{ focus_audit_id or '' }}">
   <div class="page-header">
     <div>
       <h1 class="page-title">Journaux d'administration</h1>
@@ -499,6 +500,20 @@
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape' && drawer && drawer.classList.contains('is-open')) closeDrawer();
   });
+
+  /* Deep-link from dashboard (or ?id=): select row + open detail drawer */
+  (function focusAuditFromQuery() {
+    var focusId = (page.getAttribute('data-focus-audit-id') || '').trim();
+    if (!focusId) {
+      var qp = new URLSearchParams(location.search).get('id');
+      if (qp) focusId = String(qp);
+    }
+    if (!focusId) return;
+    var tr = document.querySelector('#audit-tbody tr[data-audit-id="' + focusId + '"]');
+    if (!tr) return;
+    tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    openDrawer(parseRowEntry(tr));
+  })();
 
   function statusHtml(e) {
     var r = e.result || e.status || e.severity || '';

@@ -99,6 +99,7 @@ def _filter_dict(
     q: str | None,
     detail: str | None,
     status: list[str],
+    audit_id: int | None = None,
 ) -> dict[str, Any]:
     return {
         "action": action or "",
@@ -109,11 +110,14 @@ def _filter_dict(
         "q": q or "",
         "detail": detail or "",
         "status": status,
+        "id": audit_id or "",
     }
 
 
 def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:
     chips: list[dict[str, str]] = []
+    if filters.get("id"):
+        chips.append({"key": "id", "label": f"Entrée #{filters['id']}"})
     if filters.get("action"):
         chips.append({"key": "action", "label": f"Action: {filters['action']}"})
     if filters.get("actor"):
@@ -151,6 +155,7 @@ def admin_logs_page(
     view: int | None = None,
     page: int = Query(1, ge=1),
     export: str | None = None,
+    audit_id: int | None = Query(None, alias="id", ge=1),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -195,6 +200,7 @@ def admin_logs_page(
         q=q or None,
         detail_kw=detail or None,
         status=statuses,
+        audit_id=audit_id,
         limit=_PAGE_SIZE,
         offset=offset,
     )
@@ -212,6 +218,7 @@ def admin_logs_page(
         q=q,
         detail=detail,
         status=statuses,
+        audit_id=audit_id,
     )
     docker_cfg = get_container_logs_config(db)
     integrity = compute_integrity(db)
@@ -226,6 +233,7 @@ def admin_logs_page(
         action_choices=action_choices,
         filters=filters,
         active_chips=_active_chips(filters),
+        focus_audit_id=audit_id,
         visible_columns=col_list,
         all_columns=DEFAULT_COLUMNS
         + ["reason", "x_real_ip", "x_forwarded_for", "peer", "resolved", "target"],

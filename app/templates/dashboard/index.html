@@ -68,7 +68,9 @@
       </div>
       <div class="audit-stream">
         {% for entry in recent_audit %}
-        <div class="audit-entry" data-searchable>
+        <a class="audit-entry audit-entry-link" data-searchable
+           href="/admin/logs?id={{ entry.id }}#audit"
+           title="Ouvrir dans les journaux">
           <span class="audit-dot {{ entry.severity }}"></span>
           <div>
             <div class="audit-action">{{ entry.action }}</div>
@@ -76,7 +78,7 @@
           </div>
           <span class="audit-user">{{ entry.user }}</span>
           <span class="audit-time">{{ entry.time }}</span>
-        </div>
+        </a>
         {% else %}
         <div class="empty-state">
           <div class="empty-icon">

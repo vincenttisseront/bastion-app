@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -13,6 +12,7 @@ from app.admin.throttling import check_sync_rate_limit
 from app.audit import log_action
 from app.database import get_db
 from app.models import RBACGroup, RealmConfig
+from app.rbac.groups_service import GroupNotEmptyError, delete_empty_rbac_group
 from app.rbac.keycloak_admin import sync_keycloak_groups
 from app.sso_settings import Settings, get_settings
 from app.web.flash import flash_redirect
@@ -30,6 +30,13 @@ def _wants_json(request: Request) -> bool:
 
 def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
+
+
+def _safe_redirect_url(raw: str | None, fallback: str) -> str:
+    value = (raw or "").strip()
+    if value.startswith("/admin/") and "://" not in value and "\\" not in value:
+        return value
+    return fallback
 
 
 @router.get("/admin/rbac/groups")
@@ -159,6 +166,99 @@ async def admin_rbac_groups_sync(
     flash_redirect(
         response,
         f"Synchronisation groupes OK ({', '.join(parts)}){members_bit}.",
+        "success",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@router.post("/admin/rbac/groups/{group_id}/delete")
+async def admin_rbac_group_delete(
+    group_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    redirect_url: str | None = Form(None),
+    force_local: str | None = Form(None),
+):
+    """Delete an empty group in Keycloak + Bastion (members must be zero)."""
+    group = db.query(RBACGroup).filter_by(id=group_id).first()
+    if not group or not group.realm_id:
+        raise HTTPException(status_code=404, detail="Groupe introuvable")
+    realm = db.query(RealmConfig).filter_by(id=group.realm_id).first()
+    if not realm:
+        raise HTTPException(status_code=404, detail="Realm introuvable pour ce groupe")
+
+    fallback = "/admin/rbac"
+    dest = _safe_redirect_url(redirect_url, fallback)
+    force = (force_local or "").strip().lower() in ("1", "true", "on", "yes")
+    group_name = group.name
+
+    try:
+        result = await delete_empty_rbac_group(
+            db,
+            settings,
+            group=group,
+            realm=realm,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            force_local=force,
+        )
+        db.commit()
+    except GroupNotEmptyError as exc:
+        db.rollback()
+        msg = str(exc)
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=409)
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, f"/admin/rbac/groups/{group_id}"),
+            status_code=302,
+        )
+        flash_redirect(
+            response, msg, "error", settings.vault_portal_internal_token or "dev"
+        )
+        return response
+    except ValueError as exc:
+        db.rollback()
+        msg = str(exc) or "Échec de la suppression du groupe"
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=400)
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, f"/admin/rbac/groups/{group_id}"),
+            status_code=302,
+        )
+        flash_redirect(
+            response, msg, "error", settings.vault_portal_internal_token or "dev"
+        )
+        return response
+    except Exception:
+        db.rollback()
+        logger.exception("RBAC group delete failed group_id=%s", group_id)
+        msg = "Erreur serveur pendant la suppression du groupe"
+        if _wants_json(request):
+            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=500)
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, f"/admin/rbac/groups/{group_id}"),
+            status_code=302,
+        )
+        flash_redirect(
+            response, msg, "error", settings.vault_portal_internal_token or "dev"
+        )
+        return response
+
+    if _wants_json(request):
+        return JSONResponse({"ok": True, **result})
+
+    if dest.rstrip("/").endswith(f"/groups/{group_id}"):
+        dest = fallback
+    bits = ["Bastion"]
+    if result.get("keycloak_group_id"):
+        bits.insert(0, "Keycloak")
+    response = RedirectResponse(url=dest, status_code=302)
+    flash_redirect(
+        response,
+        f"Groupe « {group_name} » supprimé ({' + '.join(bits)}).",
         "success",
         settings.vault_portal_internal_token or "dev",
     )

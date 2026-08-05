@@ -648,6 +648,34 @@ async def remove_user_from_keycloak_group(
         )
 
 
+async def delete_keycloak_group(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    keycloak_group_id: str,
+    token: str | None = None,
+) -> bool:
+    """DELETE /groups/{id} with the WRITE (provision) service account.
+
+    Returns True when the group was deleted, False when already absent (404 —
+    idempotent cleanup). Raises ValueError on any other failure.
+    """
+    gid = (keycloak_group_id or "").strip()
+    if not gid:
+        raise ValueError("Identifiant groupe Keycloak manquant")
+    token = token or await get_provision_token(realm, settings)
+    resp = await _admin_send(realm, settings, "DELETE", f"/groups/{gid}", token=token)
+    if resp.status_code == 404:
+        return False
+    if resp.status_code == 403:
+        raise ValueError(_provision_manage_users_error())
+    if resp.status_code >= 400:
+        raise ValueError(
+            f"Échec suppression groupe Keycloak (HTTP {resp.status_code})"
+        )
+    return True
+
+
 async def create_keycloak_group(
     realm: RealmConfig,
     settings: Settings,

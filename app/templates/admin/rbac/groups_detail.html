@@ -16,6 +16,15 @@
     <div class="users-row-actions">
       <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
       <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Groupes</a>
+      {% if can_delete_group %}
+      <form method="post" action="/admin/rbac/groups/{{ group.id }}/delete" style="display:inline;margin:0;">
+        <input type="hidden" name="redirect_url" value="/admin/rbac">
+        <button type="submit" class="btn btn-danger btn-sm"
+                data-confirm="Supprimer le groupe vide « {{ group.name }} » dans Keycloak et Bastion ? Les droits et comptes partagés liés seront retirés.">
+          Supprimer
+        </button>
+      </form>
+      {% endif %}
     </div>
   </div>
 

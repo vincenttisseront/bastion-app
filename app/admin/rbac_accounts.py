@@ -36,6 +36,7 @@ from app.rbac.account_service import (
     remove_account_from_rbac_group,
     require_keycloak_configure_otp,
     reset_bastion_account_password,
+    reset_keycloak_user_password,
     retry_bastion_account_keycloak,
     send_account_credentials_email,
     update_bastion_account_identity,
@@ -85,19 +86,25 @@ def _unsign_reveal_payload(signed: str, secret: str) -> str | None:
 def set_temporary_password_reveal(
     response: Response,
     *,
-    account_id: int,
     password: str,
     secret: str,
+    account_id: int | None = None,
+    keycloak_user_id: str | None = None,
+    realm_id: int | None = None,
 ) -> None:
-    """Store a one-time temporary password for the next account-detail view."""
-    payload = json.dumps(
-        {
-            "aid": int(account_id),
-            "pw": password,
-            "exp": int(time.time()) + _REVEAL_PW_MAX_AGE,
-        },
-        separators=(",", ":"),
-    )
+    """Store a one-time temporary password for the next user/account view."""
+    data: dict = {
+        "pw": password,
+        "exp": int(time.time()) + _REVEAL_PW_MAX_AGE,
+    }
+    if account_id is not None:
+        data["aid"] = int(account_id)
+    kid = (keycloak_user_id or "").strip()
+    if kid:
+        data["kid"] = kid
+        if realm_id is not None:
+            data["rid"] = int(realm_id)
+    payload = json.dumps(data, separators=(",", ":"))
     response.set_cookie(
         key=_REVEAL_PW_COOKIE,
         value=_sign_reveal_payload(payload, secret),
@@ -111,10 +118,12 @@ def set_temporary_password_reveal(
 def pop_temporary_password_reveal(
     request: Request,
     *,
-    account_id: int,
     secret: str,
+    account_id: int | None = None,
+    keycloak_user_id: str | None = None,
+    realm_id: int | None = None,
 ) -> str | None:
-    """Read the one-time password cookie if it matches this account (caller clears cookie)."""
+    """Read the one-time password cookie if it matches this account or KC user."""
     raw = request.cookies.get(_REVEAL_PW_COOKIE)
     if not raw:
         return None
@@ -127,9 +136,23 @@ def pop_temporary_password_reveal(
         return None
     if not isinstance(data, dict):
         return None
-    if int(data.get("aid") or 0) != int(account_id):
-        return None
     if int(data.get("exp") or 0) < int(time.time()):
+        return None
+    matched = False
+    if account_id is not None and int(data.get("aid") or 0) == int(account_id):
+        matched = True
+    kid = (keycloak_user_id or "").strip()
+    if (
+        not matched
+        and kid
+        and data.get("kid") == kid
+        and (
+            realm_id is None
+            or int(data.get("rid") or 0) == int(realm_id)
+        )
+    ):
+        matched = True
+    if not matched:
         return None
     password = data.get("pw")
     if not isinstance(password, str) or not password:
@@ -561,11 +584,13 @@ async def admin_rbac_user_view(
     from app.files.service import file_grant_select_options, folder_grant_select_options
 
     secret = settings.vault_portal_internal_token or "dev"
-    initial_temporary_password = None
-    if account is not None:
-        initial_temporary_password = pop_temporary_password_reveal(
-            request, account_id=account.id, secret=secret
-        )
+    initial_temporary_password = pop_temporary_password_reveal(
+        request,
+        secret=secret,
+        account_id=(account.id if account else None),
+        keycloak_user_id=keycloak_user_id,
+        realm_id=(realm.id if realm else None),
+    )
 
     response = render(
         "admin/rbac/user_view.html",
@@ -1116,6 +1141,117 @@ async def admin_rbac_account_reset_password(
         flash_redirect(
             response,
             "Mot de passe temporaire réinitialisé (UPDATE_PASSWORD au prochain login). "
+            "Il est affiché une seule fois ci-dessous.",
+            "success",
+            secret,
+        )
+    return response
+
+
+@router.post("/admin/rbac/users/reset-password")
+async def admin_rbac_user_reset_password(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    realm_id: int = Form(...),
+    keycloak_user_id: str = Form(...),
+    send_email: str = Form(""),
+    redirect_url: str = Form(""),
+):
+    """Reset Keycloak password from the user fiche (SSO-only or bastion-linked)."""
+    secret = settings.vault_portal_internal_token or "dev"
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if realm is None:
+        raise HTTPException(status_code=404, detail="Realm introuvable")
+    uid = (keycloak_user_id or "").strip()
+    fallback = (
+        f"/admin/rbac/users/view?realm_id={realm.id}&keycloak_user_id={uid}#identite"
+        if uid
+        else "/admin/rbac/users"
+    )
+    account = (
+        db.query(BastionAccount)
+        .filter_by(keycloak_user_id=uid, realm_id=realm.id)
+        .first()
+        if uid
+        else None
+    )
+    if account is not None:
+        fallback = f"/admin/rbac/users/view?account_id={account.id}#identite"
+
+    want_email = send_email.strip().lower() in ("1", "true", "on", "yes")
+    email_error: str | None = None
+    reveal_pw: str | None = None
+    try:
+        password, email_error = await reset_keycloak_user_password(
+            db,
+            settings,
+            realm=realm,
+            keycloak_user_id=uid,
+            actor=user.email,
+            ip_address=_client_ip(request),
+            username=(account.username if account else None),
+            email=(account.email if account else None),
+            bastion_account_id=(account.id if account else None),
+            send_email=want_email,
+        )
+        emailed_ok = want_email and email_error is None
+        if password and not emailed_ok:
+            reveal_pw = password
+        password = None  # noqa: F841
+    except AccountCreationError as exc:
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+            )
+        response = RedirectResponse(
+            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        )
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+
+    if _wants_json(request):
+        return JSONResponse(
+            {
+                "ok": email_error is None,
+                "emailed": want_email and email_error is None,
+                "email_error": email_error,
+            }
+        )
+
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    if reveal_pw:
+        set_temporary_password_reveal(
+            response,
+            password=reveal_pw,
+            secret=secret,
+            account_id=(account.id if account else None),
+            keycloak_user_id=uid,
+            realm_id=realm.id,
+        )
+        reveal_pw = None  # noqa: F841
+    to_label = (account.email if account else None) or "l'utilisateur"
+    if want_email and email_error:
+        flash_redirect(
+            response,
+            f"Mot de passe réinitialisé, mais l'email a échoué : {email_error}",
+            "warning",
+            secret,
+        )
+    elif want_email:
+        flash_redirect(
+            response,
+            f"Mot de passe réinitialisé et envoyé à {to_label}.",
+            "success",
+            secret,
+        )
+    else:
+        flash_redirect(
+            response,
+            "Mot de passe Keycloak réinitialisé. "
             "Il est affiché une seule fois ci-dessous.",
             "success",
             secret,

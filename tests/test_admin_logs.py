@@ -76,6 +76,35 @@ def test_logs_filter_by_action_and_actor(client: TestClient, db_session: Session
     assert resp2.text.count("bob@ex.com") == 0
 
 
+def test_logs_filter_by_id_deep_link(client: TestClient, db_session: Session):
+    a = log_action(
+        db_session, actor="admin@example.com", action="breakglass.login", target="admin"
+    )
+    b = log_action(
+        db_session, actor="admin@example.com", action="portal_logout", target="admin"
+    )
+    assert a.id != b.id
+
+    resp = client.get(f"/admin/logs?id={a.id}", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert f'data-focus-audit-id="{a.id}"' in resp.text
+    assert f'data-audit-id="{a.id}"' in resp.text
+    assert f'data-audit-id="{b.id}"' not in resp.text
+    assert "Entrée #" in resp.text
+
+
+def test_dashboard_audit_feed_links_to_log(client: TestClient, db_session: Session):
+    row = log_action(
+        db_session,
+        actor="admin@example.com",
+        action="breakglass.login",
+        target="admin",
+    )
+    resp = client.get("/dashboard", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert f'href="/admin/logs?id={row.id}#audit"' in resp.text
+
+
 def test_logs_masks_sensitive_details(client: TestClient, db_session: Session):
     log_action(
         db_session,
