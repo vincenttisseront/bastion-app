@@ -35,7 +35,8 @@ def test_app_access_logs_tab_lists_apps(client, db_session, tmp_path, monkeypatc
     logs_dir.mkdir()
     (logs_dir / "overseerr.access.log").write_text(
         '1.2.3.4 - - [05/Aug/2026:14:00:00 +0000] host=overseerr.example.test '
-        '"GET / HTTP/1.1" 200 42 "-" "curl/8" rt=0.01\n',
+        '"GET / HTTP/1.1" 200 42 "-" "curl/8" '
+        "rt=0.01 upstream=172.24.0.109:443 us=200 ut=0.01 auth_err=-\n",
         encoding="utf-8",
     )
     db_session.add(
@@ -60,6 +61,7 @@ def test_app_access_logs_tab_lists_apps(client, db_session, tmp_path, monkeypatc
         assert 'id="tab-app-access"' in page.text
         assert "Accès apps" in page.text
         assert "overseerr" in page.text
+        assert 'id="app-access-table"' in page.text
 
         resp = client.get(
             "/admin/logs/apps/overseerr/access",
@@ -72,6 +74,11 @@ def test_app_access_logs_tab_lists_apps(client, db_session, tmp_path, monkeypatc
         assert "1.2.3.4" in body["text"]
         assert body["meta"]["exists"] is True
         assert body["meta"]["size_bytes"] > 0
+        assert isinstance(body["entries"], list)
+        assert body["entries"]
+        assert body["entries"][0]["ecosystem"] == "nginx_access"
+        assert body["entries"][0]["method"] == "GET"
+        assert body.get("message") in (None, "")
     finally:
         # Restore client fixture override shape
         fastapi_app.dependency_overrides[get_settings] = lambda: Settings(
@@ -124,3 +131,36 @@ def test_empty_access_log_message_diagnostics(tmp_path):
     assert "chemin:" in msg
     assert "other.access.log" in msg
     assert "astuce:" in msg
+
+
+def test_parse_app_access_line_nominal():
+    from app.web.nginx_app_logs import parse_app_access_line, parse_app_access_text
+
+    line = (
+        "92.184.121.16 - - [05/Aug/2026:15:20:07 +0000] host=overseerr.ar-systems.fr "
+        '"GET /api/v1/status?checkUpdateAvailable=true HTTP/1.1" 200 140 '
+        '"https://overseerr.ar-systems.fr/" '
+        '"Mozilla/5.0 (iPhone)" '
+        "rt=0.023 upstream=172.24.0.109:443 us=200 ut=0.023 auth_err=-"
+    )
+    e = parse_app_access_line(line, index=3)
+    assert e is not None
+    assert e["parse_ok"] is True
+    assert e["ecosystem"] == "nginx_access"
+    assert e["remote_addr"] == "92.184.121.16"
+    assert e["host"] == "overseerr.ar-systems.fr"
+    assert e["method"] == "GET"
+    assert e["path"].startswith("/api/v1/status")
+    assert e["status"] == "200"
+    assert e["status_class"] == "ok"
+    assert e["upstream_addr"] == "172.24.0.109:443"
+    assert e["is_internal_hop"] is False
+
+    internal = parse_app_access_line(
+        line.replace("upstream=172.24.0.109:443", "upstream=127.0.0.1:8080")
+    )
+    assert internal["is_internal_hop"] is True
+
+    text = line + "\n" + line.replace("172.24.0.109:443", "127.0.0.1:8080") + "\n"
+    entries = parse_app_access_text(text)
+    assert len(entries) == 2
