@@ -280,7 +280,9 @@ def test_user_portal_admin_link_hidden_for_non_admin(
     assert 'href="/dashboard"' not in resp.text
     assert "mode-badge" not in resp.text
     assert "Gérée" not in resp.text
-    assert "Ouvrir →" in resp.text
+    assert "Ouvrir" in resp.text
+    assert "app-tile--okta" in resp.text
+    assert "data-tile-more" in resp.text
 
 
 def test_user_portal_manage_badge_only(client: TestClient, db_session: Session):
@@ -329,8 +331,9 @@ def test_user_portal_shows_description_when_set(client: TestClient, db_session: 
     resp = client.get("/apps", headers=USER_HEADERS)
     assert resp.status_code == 200
     assert "Base de connaissances métier" in resp.text
-    assert 'title="Base de connaissances métier"' in resp.text
-    assert "admin-desc" in resp.text
+    assert "app-tile-menu-desc" in resp.text
+    assert "admin-desc" not in resp.text
+    assert "app-tile--okta" in resp.text
 
 
 def test_user_portal_admin_link_visible_in_dropdown(client: TestClient):

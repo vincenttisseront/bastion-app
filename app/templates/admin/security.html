@@ -533,6 +533,11 @@
       </div>
     </div>
     <div class="form-body">
+      <div class="alert alert-info mb-4" role="note">
+        Le stockage chaud PostgreSQL est facultatif. Sans configuration, Bastion Pro continue
+        de fonctionner normalement avec SQLite.
+      </div>
+
       <p class="form-prose form-prose-spaced">
         La configuration (realms, RBAC, coffre Fernet, policies) reste dans
         <span class="mono">portal.db</span> (SQLite / SQLCipher). PostgreSQL n’accueille
@@ -540,108 +545,240 @@
         événements anti-bruteforce, outbox SIEM.
       </p>
 
-      {% if hot_store %}
-      <div class="table-wrap mb-4">
-        <table class="data-table">
-          <tbody>
-            <tr><th>État</th><td>{{ hot_store.status_label }}</td></tr>
-            <tr><th>Activé</th>
-              <td>{% if hot_store.enabled %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-muted">Non</span>{% endif %}</td>
-            </tr>
-            <tr><th>Ping</th>
-              <td>{% if hot_store.ping_ms is not none %}<span class="mono">{{ hot_store.ping_ms }} ms</span>{% elif hot_store.ping_error %}<span class="badge badge-err">{{ hot_store.ping_error }}</span>{% else %}—{% endif %}</td>
-            </tr>
-            <tr><th>Dernière migration</th>
-              <td class="mono">{{ hot_store.last_migrate_at or '—' }}</td>
-            </tr>
-            {% if hot_store.last_migrate_summary %}
-            <tr><th>Résumé migration</th><td class="mono" style="font-size:var(--fs-xs);">{{ hot_store.last_migrate_summary }}</td></tr>
-            {% endif %}
-          </tbody>
-        </table>
-      </div>
+      {% set hs = hot_store %}
+      {% set can_test = hs and hs.configured %}
+      {% set test_ok = hs and hs.last_test_ok %}
+      {% set schema_done = hs and (hs.schema_prepared_at or hs.last_migrate_at) %}
+      {% set migrate_done = hs and hs.last_migrate_at %}
+      {% set migrate_skipped = hs and hs.migrate_skipped_at %}
+      {% set migrate_ready = migrate_done or migrate_skipped %}
+      {% set can_prepare = test_ok and not schema_done %}
+      {% set can_migrate = schema_done and hs and not hs.enabled %}
+      {% set can_enable = schema_done and migrate_ready and hs and not hs.enabled %}
+
+      {% if hs and hs.wizard_steps %}
+      <ol class="hot-store-stepper" aria-label="Parcours stockage chaud">
+        {% for step in hs.wizard_steps %}
+        <li class="hot-store-step hot-store-step--{{ step.status }}{% if step.locked %} hot-store-step--locked{% endif %}">
+          <span class="hot-store-step-index" aria-hidden="true">{{ loop.index }}</span>
+          <span class="hot-store-step-label">
+            {{ step.label }}{% if step.optional %} <span class="hot-store-step-opt">(opt.)</span>{% endif %}
+          </span>
+          <span class="hot-store-step-state">
+            {% if step.status == 'done' %}Fait
+            {% elif step.status == 'skipped' %}Passé
+            {% elif step.status == 'failed' %}Échec
+            {% elif step.status == 'locked' %}Verrouillé
+            {% else %}À faire{% endif %}
+          </span>
+        </li>
+        {% endfor %}
+      </ol>
       {% endif %}
 
-      <form method="post" action="/admin/security/hot-store/config" class="stack mb-4">
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="hot_store_host">Hôte</label>
-            <input type="text" id="hot_store_host" name="host" class="form-input" required
-                   value="{{ hot_store.host if hot_store and hot_store.host else 'postgres' }}"
-                   placeholder="postgres">
+      {# —— 1. Connexion —— #}
+      <section class="hot-store-card" id="hot-store-step-config" aria-labelledby="hot-store-step-config-title">
+        <header class="hot-store-card-head">
+          <h3 class="hot-store-card-title" id="hot-store-step-config-title">1. Configuration de la connexion</h3>
+          {% if hs and hs.configured %}
+          <span class="badge badge-ok">Configuré</span>
+          {% else %}
+          <span class="badge badge-muted">Non configuré</span>
+          {% endif %}
+        </header>
+        <form method="post" action="/admin/security/hot-store/config" class="stack">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="hot_store_host">Hôte</label>
+              <input type="text" id="hot_store_host" name="host" class="form-input" required
+                     value="{{ hs.host if hs and hs.host else 'postgres' }}"
+                     placeholder="postgres">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="hot_store_port">Port</label>
+              <input type="number" id="hot_store_port" name="port" class="form-input" required
+                     value="{{ hs.port if hs and hs.port else 5432 }}">
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label" for="hot_store_port">Port</label>
-            <input type="number" id="hot_store_port" name="port" class="form-input" required
-                   value="{{ hot_store.port if hot_store and hot_store.port else 5432 }}">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="hot_store_database">Base</label>
+              <input type="text" id="hot_store_database" name="database" class="form-input" required
+                     value="{{ hs.database if hs and hs.database else 'bastion_hot' }}">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="hot_store_user">Utilisateur</label>
+              <input type="text" id="hot_store_user" name="user" class="form-input" required
+                     value="{{ hs.user if hs and hs.user else 'bastion_hot' }}">
+            </div>
           </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="hot_store_database">Base</label>
-            <input type="text" id="hot_store_database" name="database" class="form-input" required
-                   value="{{ hot_store.database if hot_store and hot_store.database else 'bastion_hot' }}">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="hot_store_password">Mot de passe</label>
+              <input type="password" id="hot_store_password" name="password" class="form-input"
+                     value="" autocomplete="new-password"
+                     placeholder="{% if hs and hs.password_set %}•••••••• (laisser vide pour conserver){% else %}Mot de passe PostgreSQL{% endif %}">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="hot_store_sslmode">TLS (sslmode)</label>
+              <select id="hot_store_sslmode" name="sslmode" class="form-select">
+                {% set ssl = (hs.sslmode if hs and hs.sslmode else 'prefer') %}
+                <option value="disable"{% if ssl == 'disable' %} selected{% endif %}>disable (réseau Docker interne)</option>
+                <option value="prefer"{% if ssl == 'prefer' %} selected{% endif %}>prefer</option>
+                <option value="require"{% if ssl == 'require' %} selected{% endif %}>require</option>
+                <option value="verify-full"{% if ssl == 'verify-full' %} selected{% endif %}>verify-full</option>
+              </select>
+            </div>
           </div>
-          <div class="form-group">
-            <label class="form-label" for="hot_store_user">Utilisateur</label>
-            <input type="text" id="hot_store_user" name="user" class="form-input" required
-                   value="{{ hot_store.user if hot_store and hot_store.user else 'bastion_hot' }}">
+          <p class="form-help">
+            Mot de passe stocké chiffré Fernet dans SQLite (jamais dans
+            <span class="mono">DATABASE_URL</span>). Sur le compose interne, utilisez
+            l’hôte <span class="mono">postgres</span> et <span class="mono">sslmode=disable</span>.
+            Un changement d’hôte / base / utilisateur réinitialise les étapes suivantes.
+          </p>
+          <div class="form-footer form-footer-flush">
+            <button type="submit" class="btn btn-primary">Enregistrer la connexion</button>
           </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="hot_store_password">Mot de passe</label>
-            <input type="password" id="hot_store_password" name="password" class="form-input"
-                   value="" autocomplete="new-password"
-                   placeholder="{% if hot_store and hot_store.password_set %}•••••••• (laisser vide pour conserver){% else %}Mot de passe PostgreSQL{% endif %}">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="hot_store_sslmode">TLS (sslmode)</label>
-            <select id="hot_store_sslmode" name="sslmode" class="form-select">
-              {% set ssl = (hot_store.sslmode if hot_store and hot_store.sslmode else 'prefer') %}
-              <option value="disable"{% if ssl == 'disable' %} selected{% endif %}>disable (réseau Docker interne)</option>
-              <option value="prefer"{% if ssl == 'prefer' %} selected{% endif %}>prefer</option>
-              <option value="require"{% if ssl == 'require' %} selected{% endif %}>require</option>
-              <option value="verify-full"{% if ssl == 'verify-full' %} selected{% endif %}>verify-full</option>
-            </select>
-          </div>
-        </div>
-        <p class="form-help">
-          Mot de passe stocké chiffré Fernet dans SQLite (jamais dans
-          <span class="mono">DATABASE_URL</span>). Sur le compose interne, utilisez
-          l’hôte <span class="mono">postgres</span> et <span class="mono">sslmode=disable</span>.
-        </p>
-        <div class="form-footer form-footer-flush">
-          <button type="submit" class="btn btn-primary">Enregistrer la connexion</button>
-        </div>
-      </form>
+        </form>
+      </section>
 
-      <div class="stack" style="gap:var(--sp-2);">
-        <form method="post" action="/admin/security/hot-store/test" style="display:inline;">
-          <button type="submit" class="btn btn-ghost">Tester la connexion</button>
+      {# —— 2. Test —— #}
+      <section class="hot-store-card{% if not can_test %} is-locked{% endif %}" id="hot-store-step-test" aria-labelledby="hot-store-step-test-title">
+        <header class="hot-store-card-head">
+          <h3 class="hot-store-card-title" id="hot-store-step-test-title">2. Test de connexion</h3>
+          {% if test_ok %}
+          <span class="badge badge-ok">Succès{% if hs.last_test_ms is not none %} · {{ hs.last_test_ms }} ms{% endif %}</span>
+          {% elif hs and hs.last_test_ok is sameas false %}
+          <span class="badge badge-err">Échec</span>
+          {% else %}
+          <span class="badge badge-muted">Non testé</span>
+          {% endif %}
+        </header>
+        <p class="form-help mb-3">Étape sans risque — peut être relancée à volonté après chaque enregistrement.</p>
+        {% if hs and hs.last_test_error %}
+        <div class="alert alert-error mb-3">{{ hs.last_test_error }}</div>
+        {% elif test_ok and hs.last_test_at %}
+        <p class="form-help mb-3">Dernier test réussi : <span class="mono">{{ hs.last_test_at }}</span>
+          {% if hs.ping_ms is not none %} · ping actuel <span class="mono">{{ hs.ping_ms }} ms</span>{% endif %}
+        </p>
+        {% endif %}
+        <form method="post" action="/admin/security/hot-store/test" class="hot-store-actions">
+          <button type="submit" class="btn btn-ghost"
+                  {% if not can_test %}disabled title="Enregistrez d’abord la connexion PostgreSQL"{% endif %}>
+            Tester la connexion
+          </button>
         </form>
-        <form method="post" action="/admin/security/hot-store/prepare" style="display:inline;"
-              onsubmit="return confirm('Créer le schéma des tables chaudes sur PostgreSQL ?');">
-          <button type="submit" class="btn btn-ghost">Préparer le schéma</button>
-        </form>
-        <form method="post" action="/admin/security/hot-store/migrate" style="display:inline;"
-              onsubmit="return confirm('Copier les tables chaudes SQLite → PostgreSQL ? Le hot store doit être désactivé. Les tables cibles seront remplacées.');">
-          <button type="submit" class="btn btn-ghost">Migrer les données</button>
-        </form>
-        {% if hot_store and hot_store.enabled %}
-        <form method="post" action="/admin/security/hot-store/enable" style="display:inline;"
-              onsubmit="return confirm('Désactiver le hot store ? Les lectures/écritures repassent sur SQLite.');">
-          <input type="hidden" name="enabled" value="0">
-          <button type="submit" class="btn btn-ghost">Désactiver (rollback)</button>
-        </form>
+      </section>
+
+      {# —— 3. Schéma —— #}
+      <section class="hot-store-card{% if not test_ok and not schema_done %} is-locked{% endif %}" id="hot-store-step-schema" aria-labelledby="hot-store-step-schema-title">
+        <header class="hot-store-card-head">
+          <h3 class="hot-store-card-title" id="hot-store-step-schema-title">3. Initialisation du schéma</h3>
+          {% if schema_done %}
+          <span class="badge badge-ok">Fait</span>
+          {% else %}
+          <span class="badge badge-muted">À faire</span>
+          {% endif %}
+        </header>
+        {% if schema_done %}
+        <p class="form-help mb-3">
+          Schéma déjà initialisé le <span class="mono">{{ hs.schema_prepared_at }}</span>
+          {% if hs.schema_prepared_by %} par <span class="mono">{{ hs.schema_prepared_by }}</span>{% endif %}.
+          Pour réinitialiser, contactez le support ou utilisez une action avancée hors du parcours normal.
+        </p>
+        <button type="button" class="btn btn-ghost" disabled title="Schéma déjà initialisé — réinitialisation verrouillée">
+          Préparer le schéma
+        </button>
         {% else %}
-        <form method="post" action="/admin/security/hot-store/enable" style="display:inline;"
-              onsubmit="return confirm('Activer le hot store ? Les tables chaudes seront lues/écrites sur PostgreSQL.');">
-          <input type="hidden" name="enabled" value="1">
-          <button type="submit" class="btn btn-primary">Activer le hot store</button>
+        <p class="form-help mb-3">Crée les tables chaudes sur PostgreSQL (idempotent tant qu’elle n’a jamais réussi).</p>
+        <form method="post" action="/admin/security/hot-store/prepare" class="hot-store-actions"
+              onsubmit="return confirm('Créer le schéma des tables chaudes sur PostgreSQL ?');">
+          <button type="submit" class="btn btn-ghost"
+                  {% if not can_prepare %}disabled title="Réussissez d’abord le test de connexion"{% endif %}>
+            Préparer le schéma
+          </button>
         </form>
         {% endif %}
-      </div>
+      </section>
+
+      {# —— 4. Migration (optionnelle) —— #}
+      <section class="hot-store-card{% if not schema_done %} is-locked{% endif %}" id="hot-store-step-migrate" aria-labelledby="hot-store-step-migrate-title">
+        <header class="hot-store-card-head">
+          <h3 class="hot-store-card-title" id="hot-store-step-migrate-title">4. Migration des données <span class="hot-store-step-opt">(optionnel)</span></h3>
+          {% if migrate_done %}
+          <span class="badge badge-ok">Terminée</span>
+          {% elif migrate_skipped %}
+          <span class="badge badge-muted">Passée</span>
+          {% else %}
+          <span class="badge badge-muted">Optionnelle</span>
+          {% endif %}
+        </header>
+        <p class="form-help mb-3">
+          Copie l’historique SQLite (sessions, audit, …) vers PostgreSQL. Si vous démarrez
+          le hot store à neuf sans historique à reprendre, passez cette étape.
+        </p>
+        {% if migrate_done %}
+        <p class="form-help mb-3">
+          Dernière migration : <span class="mono">{{ hs.last_migrate_at }}</span>
+          {% if hs.last_migrate_summary %}
+          <br><span class="mono" style="font-size:var(--fs-xs);">{{ hs.last_migrate_summary }}</span>
+          {% endif %}
+        </p>
+        {% elif migrate_skipped %}
+        <p class="form-help mb-3">
+          Étape passée le <span class="mono">{{ hs.migrate_skipped_at }}</span>
+          {% if hs.migrate_skipped_by %} par <span class="mono">{{ hs.migrate_skipped_by }}</span>{% endif %}.
+        </p>
+        {% endif %}
+        <div class="hot-store-actions hot-store-actions--row">
+          <form method="post" action="/admin/security/hot-store/migrate"
+                onsubmit="return confirm('Copier les tables chaudes SQLite → PostgreSQL ? Le hot store doit être désactivé. Les tables cibles seront remplacées.');">
+            <button type="submit" class="btn btn-ghost"
+                    {% if not can_migrate %}disabled title="{% if not schema_done %}Préparez d’abord le schéma{% elif hs.enabled %}Désactivez le hot store avant de re-migrer{% else %}Indisponible{% endif %}"{% endif %}>
+              Migrer les données
+            </button>
+          </form>
+          <form method="post" action="/admin/security/hot-store/skip-migrate"
+                onsubmit="return confirm('Passer la migration ? Aucune donnée SQLite ne sera copiée.');">
+            <button type="submit" class="btn btn-ghost"
+                    {% if not can_migrate or migrate_done %}disabled title="{% if migrate_done %}Migration déjà effectuée{% elif not schema_done %}Préparez d’abord le schéma{% else %}Indisponible{% endif %}"{% endif %}>
+              Passer cette étape
+            </button>
+          </form>
+        </div>
+      </section>
+
+      {# —— 5. Activation —— #}
+      <section class="hot-store-card{% if not can_enable and not (hs and hs.enabled) %} is-locked{% endif %}" id="hot-store-step-enable" aria-labelledby="hot-store-step-enable-title">
+        <header class="hot-store-card-head">
+          <h3 class="hot-store-card-title" id="hot-store-step-enable-title">5. Activation du hot store</h3>
+          {% if hs and hs.enabled %}
+          <span class="badge badge-ok">Actif</span>
+          {% else %}
+          <span class="badge badge-muted">Inactif</span>
+          {% endif %}
+        </header>
+        <p class="form-help mb-3">
+          Active la bascule des écritures (sessions OIDC, sessions actives, audit,
+          anti-bruteforce, outbox SIEM) vers PostgreSQL. La configuration reste sur SQLite.
+        </p>
+        {% if hs and hs.enabled %}
+        <form method="post" action="/admin/security/hot-store/enable"
+              onsubmit="return confirm('Désactiver le hot store ? Les lectures/écritures repassent sur SQLite.');">
+          <input type="hidden" name="enabled" value="0">
+          <button type="submit" class="btn btn-ghost">Désactiver (retour SQLite)</button>
+        </form>
+        {% else %}
+        <form method="post" action="/admin/security/hot-store/enable"
+              onsubmit="return confirm('Activer le hot store ? Les tables chaudes seront lues/écrites sur PostgreSQL.');">
+          <input type="hidden" name="enabled" value="1">
+          <button type="submit" class="btn btn-primary"
+                  {% if not can_enable %}disabled title="Terminez le schéma puis migrez ou passez la migration"{% endif %}>
+            Activer le hot store
+          </button>
+        </form>
+        {% endif %}
+      </section>
     </div>
   </div>
 
