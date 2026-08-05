@@ -700,6 +700,7 @@ body.page-portal > .main-content {
 }
 
 .app-tile--okta {
+  position: relative;
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -763,6 +764,27 @@ button.app-tile:focus-visible {
   font-weight: 600;
   line-height: 1.25;
   color: var(--text);
+}
+
+.app-tile-pin {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--accent);
+  pointer-events: none;
+}
+
+.portal-apps-empty-fav {
+  margin: 0 0 var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-md);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  background: var(--bg-secondary);
 }
 
 .app-tile-copy {

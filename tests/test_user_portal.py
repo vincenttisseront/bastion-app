@@ -560,6 +560,44 @@ def test_user_portal_launch_ping_view_only_forbidden(
     assert resp.status_code == 403
 
 
+def test_user_portal_favorite_pin_unpin(client: TestClient, db_session: Session):
+    app = _app(db_session, slug="wiki", label="Wiki")
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id="kc-user-alice",
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+
+    page = client.get("/apps", headers=USER_HEADERS)
+    assert page.status_code == 200
+    assert "Accès rapides" in page.text
+    assert "Ajouter aux Accès rapides" in page.text
+
+    add = client.post(f"/api/apps/{app.id}/favorite", headers=USER_HEADERS)
+    assert add.status_code == 200
+    assert add.json()["favorited"] is True
+
+    page2 = client.get("/apps", headers=USER_HEADERS)
+    assert page2.status_code == 200
+    assert "Retirer des Accès rapides" in page2.text
+    assert "app-tile-pin" in page2.text
+    assert 'data-apps-section="favorites"' in page2.text
+
+    rem = client.delete(f"/api/apps/{app.id}/favorite", headers=USER_HEADERS)
+    assert rem.status_code == 200
+    assert rem.json()["favorited"] is False
+
+    deny = client.post("/api/apps/999999/favorite", headers=USER_HEADERS)
+    assert deny.status_code == 404
+
+
 def test_user_portal_root_redirects_to_apps(client: TestClient):
     resp = client.get("/", headers=USER_HEADERS, follow_redirects=False)
     assert resp.status_code == 302

@@ -147,14 +147,14 @@ async def apps_portal(
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
-    from app.web.portal_enrichment import (
-        build_apps_sections,
-        recent_sessions_for_user,
-    )
+    from app.web.portal_enrichment import build_apps_sections
+    from app.web.portal_favorites import list_favorite_app_ids
 
-    apps_by_slug = {t["slug"]: t for t in tiles}
-    recent = recent_sessions_for_user(db, user, apps_by_slug=apps_by_slug)
-    sections = build_apps_sections(tiles, recent)
+    favorite_ids = list_favorite_app_ids(db, user.keycloak_user_id)
+    fav_set = set(favorite_ids)
+    for tile in tiles:
+        tile["is_favorite"] = tile.get("id") in fav_set
+    sections = build_apps_sections(tiles, favorite_ids=favorite_ids)
     return render(
         "portal/apps.html",
         **_portal_page_ctx(
@@ -164,7 +164,6 @@ async def apps_portal(
             portal_admin=portal_admin,
             apps=tiles,
             greeting_name=user.first_name,
-            recent_sessions=recent,
             apps_sections=sections,
         ),
     )
@@ -231,3 +230,64 @@ async def app_launch_ping(
     )
     touch_app_session(db, user, match.app, _client_ip(request), request=request)
     return {"ok": True}
+
+
+def _accessible_app_or_error(db: Session, user: UserContext, app_id: int):
+    entries = get_effective_apps_for_user(
+        db,
+        keycloak_user_id=user.keycloak_user_id,
+        group_names=user.groups,
+    )
+    return next((e for e in entries if e.app.id == app_id), None)
+
+
+@router.post("/api/apps/{app_id}/favorite")
+async def app_favorite_add(
+    app_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_user_enriched),
+):
+    """Pin an accessible app into Accès rapides."""
+    from app.web.portal_favorites import FavoriteError, add_favorite
+
+    match = _accessible_app_or_error(db, user, app_id)
+    if match is None:
+        return JSONResponse({"ok": False, "detail": "App not accessible"}, status_code=404)
+    try:
+        created = add_favorite(
+            db,
+            keycloak_user_id=user.keycloak_user_id,
+            application_id=app_id,
+            actor=user.email or user.username or "user",
+            ip_address=_client_ip(request),
+        )
+    except FavoriteError as exc:
+        return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
+    return {"ok": True, "favorited": True, "created": created}
+
+
+@router.delete("/api/apps/{app_id}/favorite")
+async def app_favorite_remove(
+    app_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_user_enriched),
+):
+    """Unpin an app from Accès rapides."""
+    from app.web.portal_favorites import FavoriteError, remove_favorite
+
+    match = _accessible_app_or_error(db, user, app_id)
+    if match is None:
+        return JSONResponse({"ok": False, "detail": "App not accessible"}, status_code=404)
+    try:
+        removed = remove_favorite(
+            db,
+            keycloak_user_id=user.keycloak_user_id,
+            application_id=app_id,
+            actor=user.email or user.username or "user",
+            ip_address=_client_ip(request),
+        )
+    except FavoriteError as exc:
+        return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
+    return {"ok": True, "favorited": False, "removed": removed}

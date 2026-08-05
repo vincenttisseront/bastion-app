@@ -440,6 +440,32 @@ class UserAppCredential(Base):
     app = relationship("App", foreign_keys=[app_slug])
 
 
+class UserAppFavorite(Base):
+    """Per-user pinned apps for the portal « Accès rapides » section."""
+
+    __tablename__ = "user_app_favorites"
+
+    id = Column(Integer, primary_key=True)
+    keycloak_user_id = Column(String, nullable=False, index=True)
+    application_id = Column(
+        Integer,
+        ForeignKey("apps.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "keycloak_user_id",
+            "application_id",
+            name="uq_user_app_favorite",
+        ),
+    )
+
+    app = relationship("App", foreign_keys=[application_id])
+
+
 class GroupAppCredential(Base):
     """Vault credential shared by all members of an RBAC group for one app.
 

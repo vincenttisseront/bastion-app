@@ -84,35 +84,47 @@ def enrich_tile(app: App, tile: dict[str, Any]) -> dict[str, Any]:
 
 def build_apps_sections(
     tiles: list[dict[str, Any]],
+    *,
+    favorite_ids: list[int] | None = None,
+    show_empty_favorites: bool = True,
     recent_sessions: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Group portal apps for Okta-style sections.
 
-    - Accès rapides: recent launches (when any), apps may also appear in type sections.
+    - Accès rapides: user-pinned favorites (may also appear in type sections).
     - Web / Proxy / Vault: fixed sections by protocol_filter (empty sections omitted).
-    """
-    by_slug = {t["slug"]: t for t in tiles if t.get("slug")}
-    sections: list[dict[str, Any]] = []
 
-    recent_apps: list[dict[str, Any]] = []
-    seen_recent: set[str] = set()
-    for row in recent_sessions or []:
-        slug = (row.get("slug") or "").strip()
-        if not slug or slug in seen_recent:
+    ``recent_sessions`` is accepted for backward compatibility but ignored;
+    Accès rapides is driven only by favorites.
+    """
+    _ = recent_sessions  # legacy kwarg — favorites replaced auto-recent
+    sections: list[dict[str, Any]] = []
+    by_id = {t["id"]: t for t in tiles if t.get("id") is not None}
+
+    favorite_apps: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for aid in favorite_ids or []:
+        try:
+            app_id = int(aid)
+        except (TypeError, ValueError):
             continue
-        tile = by_slug.get(slug)
+        if app_id in seen:
+            continue
+        tile = by_id.get(app_id)
         if tile is None:
             continue
-        seen_recent.add(slug)
-        recent_apps.append(tile)
-    if recent_apps:
+        seen.add(app_id)
+        favorite_apps.append(tile)
+
+    if favorite_apps or (show_empty_favorites and tiles):
         sections.append(
             {
-                "id": "recent",
+                "id": "favorites",
                 "label": "Accès rapides",
-                "apps": recent_apps,
-                "is_recent": True,
+                "apps": favorite_apps,
+                "is_favorites": True,
+                "is_recent": True,  # template alias for id_prefix / nav
             }
         )
 
@@ -124,6 +136,7 @@ def build_apps_sections(
                     "id": key,
                     "label": label,
                     "apps": apps,
+                    "is_favorites": False,
                     "is_recent": False,
                 }
             )
