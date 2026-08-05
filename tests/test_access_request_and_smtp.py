@@ -179,11 +179,16 @@ def test_access_request_get_has_no_realm_choice(client, db_session):
     assert 'name="realm_id"' not in resp.text
     assert "Realm / organisation" not in resp.text
     assert realm.slug not in resp.text
-    assert "Vérification" in resp.text
+    assert "Vérification" in resp.text or "Validation de sécurité" in resp.text
     assert "altcha-widget" in resp.text
     assert "captcha-panel" in resp.text
     assert "/auth/altcha/challenge" in resp.text
     assert "Combien font" not in resp.text
+    assert "Saisie" in resp.text
+    assert "access-progress" in resp.text
+    assert "Envoyée" in resp.text
+    assert "Examen" in resp.text
+    assert "Configuré" in resp.text
 
 
 def test_access_request_captcha_rejects_wrong_answer(client, db_session):
@@ -231,8 +236,11 @@ def test_access_request_submit_creates_pending(client, db_session):
     assert "newuser" in resp.text
     assert "ACME Corp" in resp.text
     assert "Please grant access" in resp.text
+    assert "Saisie" in resp.text
     assert "Envoyée" in resp.text
     assert "Examen" in resp.text
+    assert "Configuré" in resp.text
+    assert 'aria-current="step"' in resp.text
     row = (
         db_session.query(AccessRequest)
         .filter_by(username="newuser", status="pending")

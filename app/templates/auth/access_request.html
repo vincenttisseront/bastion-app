@@ -3,8 +3,33 @@
 {% block body_class %}page-login{% endblock %}
 
 {% block content %}
-<div class="login-wrap{% if request_submitted %} login-wrap--status{% endif %}">
-  <div class="login-card{% if request_submitted %} login-card--status{% endif %}">
+{% set step = 3 if request_submitted else 1 %}
+<div class="login-wrap login-wrap--access{% if request_submitted %} login-wrap--status{% endif %}">
+  <div class="login-card login-card--access{% if request_submitted %} login-card--status{% endif %}">
+
+    {# Shared 4-step progress: Saisie → Envoyée → Examen → Configuré #}
+    <nav class="access-progress" aria-label="Progression de la demande">
+      <ol class="access-progress__list">
+        {% set steps = [
+          (1, 'Saisie'),
+          (2, 'Envoyée'),
+          (3, 'Examen'),
+          (4, 'Configuré'),
+        ] %}
+        {% for n, label in steps %}
+        <li class="access-progress__step{% if n < step %} is-done{% elif n == step %} is-current{% endif %}"{% if n == step %} aria-current="step"{% endif %}>
+          <span class="access-progress__node" aria-hidden="true">
+            {% if n < step %}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+            {% else %}
+            {{ n }}
+            {% endif %}
+          </span>
+          <span class="access-progress__label"><span class="access-progress__num">{{ n }}</span> {{ label }}</span>
+        </li>
+        {% endfor %}
+      </ol>
+    </nav>
 
     {% if request_submitted %}
     <div class="access-status" role="status" aria-live="polite">
@@ -22,24 +47,6 @@
       <p class="login-sub access-status__lead">
         Votre demande d’accès a été transmise. Un administrateur examine actuellement vos informations.
       </p>
-
-      <div class="access-stepper" role="list" aria-label="Progression de la demande">
-        <div class="access-stepper__track" aria-hidden="true"><span class="access-stepper__track-fill"></span></div>
-        <div class="access-stepper__step is-done" role="listitem">
-          <span class="access-stepper__node" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-          </span>
-          <span class="access-stepper__label">Envoyée</span>
-        </div>
-        <div class="access-stepper__step is-current" role="listitem" aria-current="step">
-          <span class="access-stepper__node" aria-hidden="true"><span class="access-stepper__dot"></span></span>
-          <span class="access-stepper__label">Examen</span>
-        </div>
-        <div class="access-stepper__step" role="listitem">
-          <span class="access-stepper__node" aria-hidden="true"></span>
-          <span class="access-stepper__label">Configuré</span>
-        </div>
-      </div>
 
       <div class="access-eta">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -89,9 +96,16 @@
     </div>
 
     {% else %}
-    <div class="login-header">
-      <h1 class="login-title">Demander un accès</h1>
-      <p class="login-sub">Votre demande sera examinée par un administrateur, qui placera votre compte dans la bonne organisation.</p>
+    <div class="access-form-head">
+      <span class="access-form-head__icon" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </span>
+      <div>
+        <h1 class="login-title access-form-head__title">Demander un accès</h1>
+        <p class="login-sub">Votre demande sera examinée par un administrateur, qui placera votre compte dans la bonne organisation.</p>
+      </div>
     </div>
 
     {% if form_error %}
@@ -99,55 +113,56 @@
     {% endif %}
 
     {% if access_form_open %}
-    <form method="post" action="/auth/access-request" class="form-body login-form" autocomplete="on">
+    <form method="post" action="/auth/access-request" class="form-body login-form access-form" autocomplete="on">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {# Honeypot — leave empty (hidden from users, filled by naive bots). #}
       <div aria-hidden="true" style="position:absolute; left:-10000px; top:auto; width:1px; height:1px; overflow:hidden;">
         <label for="website">Site web</label>
         <input type="text" id="website" name="website" tabindex="-1" autocomplete="off">
       </div>
-      <div class="form-group">
-        <label class="form-label" for="username">Identifiant souhaité <span class="req">*</span></label>
-        <input type="text" id="username" name="username" class="form-input" required
-               value="{{ form_values.username or '' }}" pattern="[a-zA-Z0-9._\-]{2,64}" autocomplete="username">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="email">Email <span class="req">*</span></label>
-        <input type="email" id="email" name="email" class="form-input" required
-               value="{{ form_values.email or '' }}" autocomplete="email">
-      </div>
-      <div class="form-row" style="display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-3);">
+
+      <div class="form-row access-form__row">
         <div class="form-group">
           <label class="form-label" for="first_name">Prénom</label>
           <input type="text" id="first_name" name="first_name" class="form-input"
-                 value="{{ form_values.first_name or '' }}" autocomplete="given-name">
+                 value="{{ form_values.first_name or '' }}" placeholder="Jane" autocomplete="given-name">
         </div>
         <div class="form-group">
           <label class="form-label" for="last_name">Nom</label>
           <input type="text" id="last_name" name="last_name" class="form-input"
-                 value="{{ form_values.last_name or '' }}" autocomplete="family-name">
+                 value="{{ form_values.last_name or '' }}" placeholder="Doe" autocomplete="family-name">
         </div>
       </div>
+
       <div class="form-group">
-        <label class="form-label" for="organization">Société / organisation <span class="req">*</span></label>
-        <input type="text" id="organization" name="organization" class="form-input" required
-               value="{{ form_values.organization or '' }}">
+        <label class="form-label" for="username">Identifiant souhaité <span class="req">*</span></label>
+        <input type="text" id="username" name="username" class="form-input" required
+               value="{{ form_values.username or '' }}" placeholder="j.doe"
+               pattern="[a-zA-Z0-9._\-]{2,64}" autocomplete="username">
       </div>
+
       <div class="form-group">
-        <label class="form-label" for="message">Motif (optionnel)</label>
-        <textarea id="message" name="message" class="form-input" rows="3">{{ form_values.message or '' }}</textarea>
+        <label class="form-label" for="email">Email professionnel <span class="req">*</span></label>
+        <input type="email" id="email" name="email" class="form-input" required
+               value="{{ form_values.email or '' }}" placeholder="jane.doe@organization.com" autocomplete="email">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="organization">Société / Organisation <span class="req">*</span></label>
+        <input type="text" id="organization" name="organization" class="form-input" required
+               value="{{ form_values.organization or '' }}" placeholder="Acme Corp">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="message">Motif de la demande</label>
+        <textarea id="message" name="message" class="form-input" rows="3"
+                  placeholder="Veuillez décrire la raison de votre demande d’accès…">{{ form_values.message or '' }}</textarea>
       </div>
 
       <div class="captcha-panel" role="group" aria-labelledby="captcha_label">
         <div class="captcha-panel__head">
-          <span class="captcha-panel__icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-              <path d="M9 12l2 2 4-4"/>
-            </svg>
-          </span>
           <div class="captcha-panel__copy">
-            <p class="captcha-panel__eyebrow" id="captcha_label">Vérification</p>
+            <p class="captcha-panel__eyebrow" id="captcha_label">Validation de sécurité</p>
             <p class="captcha-panel__hint">Cochez la case pour confirmer que vous n’êtes pas un robot</p>
           </div>
         </div>
@@ -166,7 +181,10 @@
         </div>
       </div>
 
-      <button type="submit" class="btn btn-primary btn-full">Envoyer la demande</button>
+      <div class="access-form__footer">
+        <a href="/login" class="access-form__back">Retour à la connexion</a>
+        <button type="submit" class="btn btn-primary access-form__submit">Envoyer la demande</button>
+      </div>
     </form>
     {% else %}
     <p class="login-sub">Les demandes d'accès ne sont pas ouvertes actuellement.</p>
@@ -174,11 +192,10 @@
       Administrateur : ouvrez Admin → Realms → fiche realm → cocher
       « Ouvrir le formulaire Demander un accès ».
     </p>
-    {% endif %}
-
     <p class="login-sub login-restart" style="margin-top:var(--sp-4);">
       <a href="/login">← Retour à la connexion</a>
     </p>
+    {% endif %}
     {% endif %}
   </div>
 </div>
