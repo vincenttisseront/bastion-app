@@ -173,67 +173,72 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card" id="acme-config">
     <div class="card-header">
       <span class="card-title">Configuration</span>
+      <div class="users-row-actions">
+        <a href="/admin/security#tls" class="btn btn-ghost btn-sm">Sécurité → TLS</a>
+      </div>
     </div>
     <div class="card-body">
-      <form method="post" action="/admin/acme/settings" class="form">
-        <div class="form-row" style="margin-bottom:1rem">
-          <label class="checkbox-label">
-            <input type="checkbox" name="enabled" {% if cfg.enabled %}checked{% endif %}>
-            Activer ACME (émission / renouvellement DNS-01)
-          </label>
-        </div>
+      <form method="post" action="/admin/acme/settings" class="acme-config-form stack" style="gap:var(--sp-3);">
+        <label class="form-check" style="margin:0;">
+          <input type="checkbox" name="enabled" {% if cfg.enabled %}checked{% endif %}>
+          <span>Activer ACME (émission / renouvellement DNS-01)</span>
+        </label>
 
-        <div class="form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
-          <div class="form-group">
-            <label class="form-label">Challenge / plugin DNS</label>
-            <select name="dns_api" class="form-control">
+        <div class="form-row acme-config-grid">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" for="acme-dns-api">Challenge / plugin DNS</label>
+            <select id="acme-dns-api" name="dns_api" class="form-select">
               <option value="dns_cf" {% if cfg.dns_api == 'dns_cf' %}selected{% endif %}>Cloudflare (dns_cf)</option>
             </select>
           </div>
-          <div class="form-group">
-            <label class="form-label">Autorité (CA)</label>
-            <select name="acme_ca" class="form-control">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" for="acme-ca">Autorité (CA)</label>
+            <select id="acme-ca" name="acme_ca" class="form-select">
               <option value="letsencrypt" {% if cfg.acme_ca == 'letsencrypt' %}selected{% endif %}>Let's Encrypt (prod)</option>
               <option value="letsencrypt_test" {% if cfg.acme_ca == 'letsencrypt_test' %}selected{% endif %}>Let's Encrypt staging</option>
             </select>
           </div>
-          <div class="form-group">
-            <label class="form-label">CF Account ID (optionnel)</label>
-            <input type="text" name="cf_account_id" class="form-control mono" value="{{ cfg.cf_account_id }}" autocomplete="off">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" for="acme-cf-account">CF Account ID</label>
+            <input type="text" id="acme-cf-account" name="cf_account_id" class="form-input is-mono"
+                   value="{{ cfg.cf_account_id }}" placeholder="optionnel" autocomplete="off">
           </div>
-          <div class="form-group">
-            <label class="form-label">CF Zone ID (optionnel)</label>
-            <input type="text" name="cf_zone_id" class="form-control mono" value="{{ cfg.cf_zone_id }}" autocomplete="off">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label" for="acme-cf-zone">CF Zone ID</label>
+            <input type="text" id="acme-cf-zone" name="cf_zone_id" class="form-input is-mono"
+                   value="{{ cfg.cf_zone_id }}" placeholder="optionnel" autocomplete="off">
           </div>
         </div>
 
-        <div class="form-group" style="margin-top:1rem">
-          <label class="form-label">
-            Token Cloudflare (Zone.DNS Edit)
-            {% if cfg.cf_token_configured %}<span class="badge badge-ok">configuré</span>{% endif %}
-          </label>
-          <input type="password" name="cf_token" class="form-control mono" value="" placeholder="{% if cfg.cf_token_configured %}Laisser vide pour conserver{% else %}CF_Token…{% endif %}" autocomplete="new-password">
-          <p class="form-help">Stocké chiffré en SQLite (comme les secrets Realms). Exporté vers <span class="mono">exports/acme-runtime.env</span> pour le sidecar.</p>
+        <div class="form-row acme-token-row">
+          <div class="form-group" style="margin:0;flex:1;min-width:0;">
+            <label class="form-label" for="acme-cf-token">
+              Token Cloudflare (Zone.DNS Edit)
+              {% if cfg.cf_token_configured %}<span class="badge badge-ok">configuré</span>{% endif %}
+            </label>
+            <input type="password" id="acme-cf-token" name="cf_token" class="form-input is-mono" value=""
+                   placeholder="{% if cfg.cf_token_configured %}Laisser vide pour conserver{% else %}CF_Token…{% endif %}"
+                   autocomplete="new-password">
+          </div>
           {% if cfg.cf_token_configured %}
-          <label class="checkbox-label" style="margin-top:0.5rem">
+          <label class="form-check acme-clear-token" style="margin:0;align-self:flex-end;padding-bottom:0.45rem;">
             <input type="checkbox" name="clear_cf_token">
-            Effacer le token enregistré
+            <span>Effacer</span>
           </label>
           {% endif %}
         </div>
 
-          <p class="form-help">
-            « Réconcilier » met à jour les exports et signale
-            <span class="mono">acme-companion</span>. Les logs d’émission / renew
-            apparaissent en direct ci-dessus (fichier partagé
-            <span class="mono">certs/acme-reconcile.log</span>).
-          </p>
-        <div class="form-actions" style="margin-top:1.25rem;display:flex;gap:0.75rem">
-          <button type="submit" class="btn btn-primary">Enregistrer</button>
-          <a href="/admin/security#tls" class="btn btn-ghost">Voir Sécurité → TLS</a>
+        <p class="form-hint" style="margin:0;">
+          Secret chiffré SQLite → <span class="mono">exports/acme-runtime.env</span>.
+          « Réconcilier » met à jour les exports et signale <span class="mono">acme-companion</span>
+          (logs live ci-dessus).
+        </p>
+
+        <div class="users-row-actions" style="justify-content:flex-start;">
+          <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
         </div>
       </form>
     </div>

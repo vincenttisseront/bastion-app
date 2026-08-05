@@ -76,7 +76,7 @@ def test_admin_sidebar_pending_badge(client: TestClient, db_session: Session):
     )[0]
     # Badge on Contenu group header (visible even when the group is collapsed).
     assert "nav-accordion-badge" in content_block
-    assert "nouveaux utilisateurs en attente" in content_block
+    assert "éléments en attente" in content_block
     assert 'href="/admin/pending-users"' in content_block
     assert "nav-badge" in content_block.split("Nouveaux users", 1)[1][:200]
 

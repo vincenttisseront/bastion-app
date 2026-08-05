@@ -27,6 +27,9 @@
     <a href="/dashboard" class="nav-item{% if request.url.path == '/dashboard' %} active{% endif %}" data-nav-label="Dashboard">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
       Dashboard
+      {% if is_admin and (dashboard_pending_total | default(0)) > 0 %}
+      <span class="nav-badge" aria-label="{{ dashboard_pending_total }} éléments en attente">{{ dashboard_pending_total }}</span>
+      {% endif %}
     </a>
     <a href="/sessions" class="nav-item{% if request.url.path == '/sessions' %} active{% endif %}" data-nav-label="Sessions">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
@@ -42,7 +45,14 @@
     {% set path = request.url.path %}
     {% set pending_users_count = pending_users_nav_count | default(0) %}
     {% set access_requests_count = access_requests_nav_count | default(0) %}
-    {% set pending_total = (pending_users_count | int) + (access_requests_count | int) %}
+    {% set pending_hosts_count = pending_hosts_nav_count | default(0) %}
+    {% set bastion_accounts_count = bastion_accounts_nav_count | default(0) %}
+    {% set pending_total = (dashboard_pending_total | default(
+      (pending_users_count | int)
+      + (access_requests_count | int)
+      + (pending_hosts_count | int)
+      + (bastion_accounts_count | int)
+    )) | int %}
     {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') or path.startswith('/admin/access-requests') %}
     {% set general_open = path == '/admin/dashboard' or path == '/admin' or path.startswith('/admin/branding') %}
     {% set access_open = path.startswith('/admin/realms') or path.startswith('/admin/rbac') or path == '/admin/security' or path.startswith('/admin/acme') %}
@@ -109,6 +119,9 @@
       <div class="nav-group-children">
         <a href="/admin/pending-hosts" class="nav-item nav-item--sub{% if path.startswith('/admin/pending-hosts') %} active{% endif %}" data-nav-label="Domaines">
           Domaines
+          {% if pending_hosts_count and pending_hosts_count > 0 %}
+          <span class="nav-badge">{{ pending_hosts_count }}</span>
+          {% endif %}
         </a>
         <a href="/admin/pending-users" class="nav-item nav-item--sub{% if path.startswith('/admin/pending-users') %} active{% endif %}" data-nav-label="Nouveaux users">
           Nouveaux users
