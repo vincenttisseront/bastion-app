@@ -153,7 +153,7 @@ def test_access_request_honeypot_skips_persist(client, db_session):
         headers={"X-Real-IP": "10.0.0.88"},
     )
     assert resp.status_code == 200
-    assert "Demande enregistrée" in resp.text
+    assert "Demande en cours de traitement" in resp.text
     assert db_session.query(AccessRequest).count() == 0
 
 
@@ -218,7 +218,13 @@ def test_access_request_submit_creates_pending(client, db_session):
             },
         )
     assert resp.status_code == 200
-    assert "Demande envoyée" in resp.text
+    assert "Demande en cours de traitement" in resp.text
+    assert "24" in resp.text
+    assert "newuser" in resp.text
+    assert "ACME Corp" in resp.text
+    assert "Please grant access" in resp.text
+    assert "Envoyée" in resp.text
+    assert "Examen" in resp.text
     row = (
         db_session.query(AccessRequest)
         .filter_by(username="newuser", status="pending")
