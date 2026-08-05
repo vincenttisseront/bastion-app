@@ -37,6 +37,12 @@ from app.web.docker_logs import (
     iter_container_log_follow,
 )
 from app.web.flash import base_template_context, flash_redirect
+from app.web.nginx_app_logs import (
+    assert_loggable_slug,
+    iter_access_log_follow,
+    list_loggable_apps,
+    read_access_log_tail,
+)
 from app.web.templates import render
 from app.web.user_context import require_admin
 
@@ -222,6 +228,7 @@ def admin_logs_page(
     )
     docker_cfg = get_container_logs_config(db)
     integrity = compute_integrity(db)
+    app_access_apps = list_loggable_apps(db)
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/logs.html",
@@ -243,6 +250,8 @@ def admin_logs_page(
         docker_logs_tail_lines=docker_cfg.tail_lines,
         admin_logs_sse_timeout_seconds=settings.admin_logs_sse_timeout_seconds,
         integrity=integrity,
+        app_access_apps=app_access_apps,
+        app_access_tail_lines=200,
     )
 
 
@@ -483,6 +492,78 @@ async def admin_container_logs_stream(
         started = time.monotonic()
         try:
             async for chunk in iter_container_log_follow(docker_cfg, container):
+                if await request.is_disconnected():
+                    break
+                if time.monotonic() - started >= timeout:
+                    yield "event: timeout\ndata: {}\n\n"
+                    break
+                payload = json.dumps({"text": chunk}, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+        except asyncio.CancelledError:
+            raise
+        except HTTPException as exc:
+            yield f"event: error\ndata: {json.dumps({'detail': exc.detail})}\n\n"
+
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+@router.get("/admin/logs/apps/{slug}/access")
+async def admin_app_access_logs_snapshot(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    tail: int = Query(200, ge=1, le=5000),
+):
+    safe = assert_loggable_slug(db, slug)
+    text = read_access_log_tail(settings, safe, lines=tail)
+    log_action(
+        db,
+        actor=user.email or user.username or "admin",
+        action="admin.app_access_logs.viewed",
+        target=safe,
+        details={"mode": "snapshot", "tail": tail, "empty": not bool(text.strip())},
+        ip_address=_client_ip(request),
+    )
+    return {
+        "slug": safe,
+        "text": text or "(fichier d'accès vide ou pas encore de trafic)\n",
+    }
+
+
+@router.get("/admin/logs/apps/{slug}/stream")
+async def admin_app_access_logs_stream(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    tail: int = Query(200, ge=1, le=5000),
+):
+    safe = assert_loggable_slug(db, slug)
+    log_action(
+        db,
+        actor=user.email or user.username or "admin",
+        action="admin.app_access_logs.viewed",
+        target=safe,
+        details={"mode": "live", "tail": tail},
+        ip_address=_client_ip(request),
+    )
+    timeout = int(settings.admin_logs_sse_timeout_seconds or 1800)
+    timeout = max(5, min(timeout, 86400))
+
+    async def event_gen():
+        started = time.monotonic()
+        try:
+            async for chunk in iter_access_log_follow(settings, safe, lines=tail):
                 if await request.is_disconnected():
                     break
                 if time.monotonic() - started >= timeout:

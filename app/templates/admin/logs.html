@@ -42,6 +42,7 @@
 
   <div class="tabs" role="tablist" aria-label="Sections logs" id="logs-tabs">
     <a href="#audit" class="tab active" role="tab" data-tab="audit" id="tab-audit" aria-selected="true">Audit</a>
+    <a href="#app-access" class="tab" role="tab" data-tab="app-access" id="tab-app-access" aria-selected="false">Accès apps</a>
     <a href="#containers" class="tab" role="tab" data-tab="containers" id="tab-containers" aria-selected="false">Containers</a>
   </div>
 
@@ -210,6 +211,41 @@
     {% endif %}
   </div>
 
+  <div class="logs-panel" id="app-access" role="tabpanel" aria-labelledby="tab-app-access" hidden>
+    {% set app_access_apps = app_access_apps | default([]) %}
+    {% if not app_access_apps %}
+    <div class="card card-body">
+      <p class="page-sub">
+        Aucune application en proxy (public ou sous-domaine) avec FQDN.
+        Les access logs nginx apparaîtront ici après configuration d'une app
+        <span class="mono">public_proxy</span> ou <span class="mono">subdomain_proxy</span>.
+      </p>
+    </div>
+    {% else %}
+    <div class="logs-toolbar audit-toolbar">
+      <label class="form-label" for="app-access-select">Application</label>
+      <select class="form-select" id="app-access-select" aria-label="Application">
+        <option value="">— Choisir —</option>
+        {% for a in app_access_apps %}
+        <option value="{{ a.slug }}">{{ a.label }} · {{ a.public_fqdn }} ({{ a.access_mode }})</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-primary btn-sm" id="app-access-load-btn">Charger</button>
+      <button type="button" class="btn btn-secondary btn-sm live-btn" id="app-access-live-btn"
+              aria-pressed="false" disabled>● Live</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="app-access-copy-btn" disabled>Copier</button>
+      <span class="live-status" id="app-access-live-status" hidden>Live</span>
+    </div>
+    <p class="form-help mb-2">
+      Access log nginx (<span class="mono">{slug}.access.log</span>) — requêtes HTTP y compris
+      <span class="mono">public_proxy</span>. Volume partagé avec bastion-nginx.
+    </p>
+    <div class="card">
+      <pre class="container-logs-pre font-mono" id="app-access-pre" aria-live="polite">Sélectionnez une application.</pre>
+    </div>
+    {% endif %}
+  </div>
+
   <div class="logs-panel" id="containers" role="tabpanel" aria-labelledby="tab-containers" hidden>
     {% if not docker_logs_enabled %}
     <div class="card card-body">
@@ -284,7 +320,7 @@
   var page = document.getElementById('admin-logs-page');
   if (!page) return;
   var COLS = (page.getAttribute('data-columns') || 'timestamp,actor,action,ip,result,detail').split(',');
-  var VALID = ['audit', 'containers'];
+  var VALID = ['audit', 'app-access', 'containers'];
 
   function currentTab() {
     var h = (location.hash || '').replace(/^#/, '');
@@ -649,6 +685,69 @@
     if (pre) pre.textContent = 'Cliquez sur Charger pour afficher les logs.';
   });
   window.addEventListener('beforeunload', stopContainerLive);
+
+  /* Accès apps — nginx per-app access logs */
+  var appSel = document.getElementById('app-access-select');
+  var appLoadBtn = document.getElementById('app-access-load-btn');
+  var appLiveBtn = document.getElementById('app-access-live-btn');
+  var appCopyBtn = document.getElementById('app-access-copy-btn');
+  var appPre = document.getElementById('app-access-pre');
+  var appLiveStatus = document.getElementById('app-access-live-status');
+  var appEs = null;
+  function stopAppAccessLive() {
+    if (appEs) { appEs.close(); appEs = null; }
+    if (appLiveBtn) { appLiveBtn.setAttribute('aria-pressed', 'false'); appLiveBtn.textContent = '● Live'; }
+    if (appLiveStatus) appLiveStatus.hidden = true;
+  }
+  function setAppAccessButtons(enabled) {
+    if (appLiveBtn) appLiveBtn.disabled = !enabled;
+    if (appCopyBtn) appCopyBtn.disabled = !enabled;
+  }
+  async function loadAppAccessSnapshot() {
+    if (!appSel || !appSel.value || !appPre) return;
+    stopAppAccessLive();
+    appPre.textContent = 'Chargement…';
+    try {
+      var resp = await fetch('/admin/logs/apps/' + encodeURIComponent(appSel.value) + '/access', {
+        headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
+      });
+      if (!resp.ok) { appPre.textContent = 'Erreur ' + resp.status; setAppAccessButtons(false); return; }
+      var body = await resp.json();
+      appPre.textContent = body.text || '';
+      setAppAccessButtons(true);
+      appPre.scrollTop = appPre.scrollHeight;
+    } catch (err) {
+      appPre.textContent = 'Erreur réseau';
+      setAppAccessButtons(false);
+    }
+  }
+  function startAppAccessLive() {
+    if (!appSel || !appSel.value || !appPre) return;
+    stopAppAccessLive();
+    appEs = new EventSource('/admin/logs/apps/' + encodeURIComponent(appSel.value) + '/stream');
+    if (appLiveBtn) { appLiveBtn.setAttribute('aria-pressed', 'true'); appLiveBtn.textContent = '● Live ON'; }
+    if (appLiveStatus) appLiveStatus.hidden = false;
+    appEs.onmessage = function (ev) {
+      if (!ev.data) return;
+      var payload;
+      try { payload = JSON.parse(ev.data); } catch (err) { return; }
+      if (payload && payload.text) { appPre.textContent += payload.text; appPre.scrollTop = appPre.scrollHeight; }
+    };
+    appEs.addEventListener('timeout', function () { stopAppAccessLive(); });
+  }
+  if (appLoadBtn) appLoadBtn.addEventListener('click', loadAppAccessSnapshot);
+  if (appLiveBtn) appLiveBtn.addEventListener('click', function () {
+    if (appLiveBtn.getAttribute('aria-pressed') === 'true') stopAppAccessLive();
+    else startAppAccessLive();
+  });
+  if (appCopyBtn && appPre) appCopyBtn.addEventListener('click', function () {
+    if (navigator.clipboard) navigator.clipboard.writeText(appPre.textContent || '');
+  });
+  if (appSel) appSel.addEventListener('change', function () {
+    stopAppAccessLive(); setAppAccessButtons(false);
+    if (appPre) appPre.textContent = 'Cliquez sur Charger pour afficher les logs.';
+  });
+  window.addEventListener('beforeunload', stopAppAccessLive);
 })();
 </script>
 {% endblock %}
