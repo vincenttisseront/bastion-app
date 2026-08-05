@@ -6,10 +6,17 @@
 <div class="page">
   <div class="page-header">
     <div>
+      <nav class="breadcrumb-rbac" aria-label="Fil d'Ariane">
+        <a href="/admin/rbac/overview">RBAC</a><span class="breadcrumb-rbac-sep">/</span>
+        <a href="/admin/rbac">Groupes</a><span class="breadcrumb-rbac-sep">/</span>{{ group.name }}
+      </nav>
       <h1 class="page-title">{{ group.name }}</h1>
       <p class="page-sub mono">{{ group.path or '—' }} · Realm {{ realm.slug }}</p>
     </div>
-    <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
+    <div class="users-row-actions">
+      <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
+      <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Groupes</a>
+    </div>
   </div>
 
   <div class="tabs" role="tablist" aria-label="Fiche groupe" id="group-fiche-tabs" style="margin-bottom:var(--sp-4);">
@@ -61,11 +68,20 @@
   </div>
 
   <div class="group-fiche-panel" id="panel-comptes" data-panel="comptes" hidden>
-    <div class="alert alert-info group-cred-intro" role="note">
-      <strong>Compte partagé Crush / robotic</strong> — appliqué à tous les membres du groupe.
-      La <strong>priorité</strong> départage les multi-groupes (plus haute = retenue).
-      Un membre <strong>exclu</strong> sans compte individuel ne pourra pas ouvrir l’app.
-    </div>
+    <details class="rbac-help" open>
+      <summary>Comment fonctionnent les comptes partagés ?</summary>
+      <p style="margin:0 0 var(--sp-2);">
+        Un compte Crush / robotic est partagé par <strong>tous les membres</strong> du groupe
+        pour une application. Si un utilisateur appartient à plusieurs groupes ayant un compte
+        pour la même app, la <strong>priorité la plus haute</strong> gagne.
+        Un membre <strong>exclu</strong> n’utilise pas ce compte ; sans override individuel,
+        l’ouverture de l’app est bloquée.
+      </p>
+      <div class="rbac-help-example">
+        Exemple : vtisseront ∈ groupe A (prio 100, compte <code>sdis81</code>) et groupe B (prio 50, compte <code>partenaire</code>)
+        pour l’app <code>transfer</code> → il utilisera <strong>sdis81</strong> (prio 100).
+      </div>
+    </details>
 
     <section class="form-section">
       <div class="form-section-header">
@@ -73,11 +89,13 @@
           <div class="form-section-title">Comptes configurés</div>
           <div class="form-section-sub">{{ group_credentials | length }} compte{% if group_credentials | length != 1 %}s{% endif %} pour ce groupe</div>
         </div>
+        <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Voir matrice</a>
       </div>
       <div class="form-body group-cred-list">
         {% if group_credentials %}
           {% for cred in group_credentials %}
           {% set excl = cred.exclusions or [] %}
+          {% set excl_ids = excl | map(attribute='keycloak_user_id') | list %}
           <article class="group-cred-card">
             <header class="group-cred-card-head">
               <div class="group-cred-card-identity">
@@ -94,6 +112,19 @@
                 </button>
               </form>
             </header>
+
+            <div class="group-cred-exclusions">
+              <div class="group-cred-exclusions-label">Membres qui utiliseront ce compte</div>
+              <ul class="group-cred-excl-chips">
+                {% for m in members if m.id and m.id not in excl_ids %}
+                <li class="group-cred-excl-chip">
+                  <a class="mono" href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ m.id }}">{{ m.username or m.email or m.id }}</a>
+                </li>
+                {% else %}
+                <li class="group-cred-excl-empty" style="list-style:none;border:0;background:transparent;padding:0;">Personne n’utilisera ce compte (tous exclus ou aucun membre).</li>
+                {% endfor %}
+              </ul>
+            </div>
 
             <div class="group-cred-exclusions">
               <div class="group-cred-exclusions-label">Exclusions</div>
@@ -119,7 +150,7 @@
                 {% endfor %}
               </ul>
               {% else %}
-              <p class="group-cred-excl-empty">Aucun membre exclu — tous les membres utilisent ce compte.</p>
+              <p class="group-cred-excl-empty">Aucun membre exclu — tous les membres non exclus utilisent ce compte.</p>
               {% endif %}
 
               {% if members %}
@@ -201,7 +232,10 @@
     <div class="card" style="padding:0;">
       <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
         <span class="card-title" style="font-size:var(--fs-sm);">Droits du groupe</span>
-        <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>+ Ajouter</button>
+        <div class="users-row-actions">
+          <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice apps</a>
+          <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>+ Ajouter</button>
+        </div>
       </div>
       {% with grant_rows=grant_rows, redirect_url='/admin/rbac/groups/' ~ group.id ~ '#droits', show_granted_by=true, empty_message='Aucun droit accordé à ce groupe.' %}
       {% include "admin/rbac/_grants_by_category.html" %}

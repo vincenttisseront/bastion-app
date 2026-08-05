@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}RBAC — Vue d'ensemble{% endblock %}
+{% block breadcrumb %}Admin / RBAC / Vue d'ensemble{% endblock %}
+
+{% block content %}
+{% set user_stats = user_stats | default({}) %}
+{% set group_stats = group_stats | default({}) %}
+<div class="page page-rbac">
+  <nav class="breadcrumb-rbac" aria-label="Fil d'Ariane">
+    <a href="/admin/rbac/overview">RBAC</a><span class="breadcrumb-rbac-sep">/</span>Vue d'ensemble
+  </nav>
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">RBAC — Vue d'ensemble</h1>
+      <p class="page-sub">Point d'entrée unique — croiser utilisateurs, groupes, matrice et gouvernance sans perdre le fil.</p>
+    </div>
+  </div>
+
+  {% include "admin/rbac/_rbac_tabs.html" %}
+
+  <div class="users-toolbar groups-stats-toolbar">
+    <div class="users-stat">
+      <div class="users-stat-value">{% if user_stats.total is not none %}{{ user_stats.total }}{% else %}—{% endif %}</div>
+      <div class="users-stat-label">Utils KC</div>
+    </div>
+    <div class="users-stat">
+      <div class="users-stat-value">{% if user_stats.active is not none %}{{ user_stats.active }}{% else %}—{% endif %}</div>
+      <div class="users-stat-label">Actifs</div>
+    </div>
+    <div class="users-stat">
+      <div class="users-stat-value">{{ bastion_accounts_total | default(0) }}</div>
+      <div class="users-stat-label">Créés bastion</div>
+    </div>
+    <div class="users-stat">
+      <div class="users-stat-value">{{ direct_grant_users | default(0) }}</div>
+      <div class="users-stat-label">Droits indiv.</div>
+    </div>
+    <div class="users-stat">
+      <div class="users-stat-value">{{ group_stats.with_members | default(0) }}</div>
+      <div class="users-stat-label">Groupes actifs</div>
+    </div>
+    <div class="users-stat{% if group_stats.empty %} is-warn{% endif %}">
+      <div class="users-stat-value">{{ group_stats.empty | default(0) }}</div>
+      <div class="users-stat-label">Vides</div>
+    </div>
+    <div class="users-stat">
+      <div class="users-stat-value">{{ shared_credentials_total | default(0) }}</div>
+      <div class="users-stat-label">Cptes partagés</div>
+    </div>
+    <div class="users-stat{% if group_stats.alerts %} is-warn{% endif %}">
+      <div class="users-stat-value">{{ group_stats.alerts | default(0) }}</div>
+      <div class="users-stat-label">Alertes</div>
+    </div>
+  </div>
+
+  <div class="rbac-overview-grid">
+    <a class="rbac-overview-card" href="/admin/rbac/users">
+      <p class="rbac-overview-card-title">Utilisateurs</p>
+      <p class="rbac-overview-card-sub">Créés bastion, droits individuels, recherche Keycloak live. Accès effectifs sur chaque fiche.</p>
+    </a>
+    <a class="rbac-overview-card" href="/admin/rbac">
+      <p class="rbac-overview-card-title">Groupes</p>
+      <p class="rbac-overview-card-sub">Membres, comptes partagés Crush/robotic, droits de groupe. Vides masqués par défaut.</p>
+    </a>
+    <a class="rbac-overview-card" href="/admin/rbac/matrix">
+      <p class="rbac-overview-card-title">Matrice</p>
+      <p class="rbac-overview-card-sub">Applications × groupes — qui a accès à quoi via un grant de groupe.</p>
+    </a>
+    <a class="rbac-overview-card" href="/admin/rbac/governance">
+      <p class="rbac-overview-card-title">Gouvernance</p>
+      <p class="rbac-overview-card-sub">Rôles et permissions système — périmètre lecture / ops / étendu.</p>
+    </a>
+  </div>
+
+  {% if excess_alerts %}
+  <div class="card" style="padding:var(--sp-3);margin-top:var(--sp-3);">
+    <div class="groups-aside-title">Alertes de gouvernance</div>
+    <ul class="groups-alerts-list">
+      {% for alert in excess_alerts %}
+      <li>{{ alert }}</li>
+      {% endfor %}
+    </ul>
+    <p style="margin:var(--sp-2) 0 0;"><a class="btn btn-ghost btn-sm" href="/admin/rbac/governance">Ouvrir Gouvernance</a></p>
+  </div>
+  {% endif %}
+
+  <details class="rbac-help" style="margin-top:var(--sp-3);">
+    <summary>Comment lire les accès ?</summary>
+    <p style="margin:0 0 var(--sp-2);">
+      Un utilisateur peut avoir des <strong>droits individuels</strong>, des droits
+      <strong>hérités de ses groupes</strong>, et un <strong>compte partagé</strong>
+      Crush/robotic (priorité + exclusions) pour certaines apps.
+      La réponse consolidée est sur la fiche utilisateur → onglet <strong>Droits</strong> (Accès effectifs).
+    </p>
+    <div class="rbac-help-example">
+      Exemple : Brigitte est dans ARSYSTEMS-Users (pas de droit individuel) → elle n'apparaît pas
+      dans « Droits individuels », mais la recherche live Keycloak et la fiche groupe → Membres la montrent.
+    </div>
+  </details>
+</div>
+{% endblock %}

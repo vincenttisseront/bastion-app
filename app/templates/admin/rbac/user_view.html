@@ -7,7 +7,11 @@
 {% set ok_rows = provisionings | selectattr('status', 'equalto', 'success') | list %}
 {% set membership_rows = membership_rows | default([]) %}
 {% set assignable_groups = assignable_groups | default([]) %}
-<div class="page">
+<div class="page page-rbac">
+  <nav class="breadcrumb-rbac" aria-label="Fil d'Ariane">
+    <a href="/admin/rbac/overview">RBAC</a><span class="breadcrumb-rbac-sep">/</span>
+    <a href="/admin/rbac/users">Utilisateurs</a><span class="breadcrumb-rbac-sep">/</span>{{ display_name }}
+  </nav>
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ display_name }}</h1>
@@ -16,12 +20,14 @@
         {% if account and account.organization %}{% if account.email or (kc_user and kc_user.email) %} — {% endif %}société <strong>{{ account.organization }}</strong>{% endif %}
       </p>
     </div>
-    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:flex-end;">
+    <div class="users-row-actions">
       {% if account and account.origin == 'bastion' %}
       <span class="badge badge-ok">Créé bastion</span>
       {% else %}
       <span class="badge badge-muted">Import Keycloak</span>
       {% endif %}
+      <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
+      <a href="{{ view_url }}#droits" class="btn btn-ghost btn-sm">Accès effectifs</a>
       <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">← Utilisateurs</a>
     </div>
   </div>
@@ -29,7 +35,7 @@
   <div class="tabs" role="tablist" aria-label="Fiche utilisateur" id="user-fiche-tabs" style="margin-bottom:var(--sp-4);">
     <a href="#identite" class="tab active" role="tab" data-tab="identite" aria-selected="true">Identité</a>
     <a href="#groupes" class="tab" role="tab" data-tab="groupes" aria-selected="false">Groupes</a>
-    <a href="#droits" class="tab" role="tab" data-tab="droits" aria-selected="false">Droits</a>
+    <a href="#droits" class="tab" role="tab" data-tab="droits" aria-selected="false">Accès effectifs</a>
     <a href="#vault" class="tab" role="tab" data-tab="vault" aria-selected="false">Vault</a>
     <a href="#provisioning" class="tab" role="tab" data-tab="provisioning" aria-selected="false">Provisioning</a>
   </div>
@@ -336,24 +342,96 @@
 
   <div class="user-fiche-panel" id="panel-droits" data-panel="droits" hidden>
     {% if keycloak_user_id %}
+    <details class="rbac-help" open>
+      <summary>Accès effectifs — lecture consolidée</summary>
+      <p style="margin:0;">
+        Cette vue répond à « quels sont <strong>tous</strong> les accès réels de cet utilisateur, et pourquoi ».
+        Droits individuels + hérités des groupes + compte Crush/robotic retenu (priorité).
+        Voir aussi la <a href="/admin/rbac/matrix">matrice applications × groupes</a>.
+      </p>
+    </details>
+
+    <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+      <div class="card-header" style="padding:var(--sp-4);">
+        <span class="card-title">Droits effectifs (individuels + groupes)</span>
+        <span class="badge badge-muted">{{ effective_grants | length }}</span>
+      </div>
+      {% with grant_rows=effective_grants, show_granted_by=false, show_source=true, show_actions=false, empty_message='Aucun droit effectif.' %}
+      {% include "admin/rbac/_grants_by_category.html" %}
+      {% endwith %}
+    </div>
+
+    {% set shared_access_rows = shared_access_rows | default([]) %}
+    <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
+      <div class="card-header" style="padding:var(--sp-4);">
+        <span class="card-title">Comptes partagés / vault retenus</span>
+        <span class="badge badge-muted">{{ shared_access_rows | length }}</span>
+      </div>
+      <div class="table-wrap" style="border:none;border-radius:0;">
+        <table class="data-table access-effective-table">
+          <thead>
+            <tr>
+              <th>Application</th>
+              <th>Source</th>
+              <th>Compte</th>
+              <th>Détail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in shared_access_rows %}
+            <tr>
+              <td>
+                <div class="users-id-name">{{ row.app_label }}</div>
+                <div class="users-id-sub">{{ row.app_slug }}</div>
+              </td>
+              <td>
+                {% if row.source == 'user_override' %}
+                <span class="badge badge-ok source-pill">Override user</span>
+                {% elif row.source == 'group_shared' %}
+                <span class="badge badge-info source-pill">Groupe partagé</span>
+                {% elif row.source == 'shared' %}
+                <span class="badge badge-muted source-pill">App partagé</span>
+                {% elif row.source == 'group_excluded' %}
+                <span class="badge badge-err source-pill">Exclu (bloqué)</span>
+                {% else %}
+                <span class="badge badge-muted source-pill">Aucun</span>
+                {% endif %}
+              </td>
+              <td class="mono">{{ row.robotic_username or '—' }}</td>
+              <td class="form-hint" style="margin:0;">
+                {% if row.source == 'group_shared' and row.group_name %}
+                  via <a href="/admin/rbac/groups/{{ row.group_id }}#comptes">{{ row.group_name }}</a>
+                  {% if row.priority is not none %} · prio {{ row.priority }}{% endif %}
+                {% elif row.source == 'group_excluded' %}
+                  Exclu des comptes de groupe — ouverture bloquée sans override individuel
+                {% elif row.source == 'user_override' %}
+                  Credential individuel (vault)
+                {% elif not row.source %}
+                  Pas de credential vault résolu
+                {% else %}
+                  Compte applicatif partagé
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4"><div class="empty-desc" style="padding:var(--sp-3);max-width:none;">Aucune application vault liée à cet utilisateur.</div></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
       <div class="card-header" style="padding:var(--sp-4); display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:space-between;">
         <div>
-          <span class="card-title">Droits directs</span>
+          <span class="card-title">Droits directs (édition)</span>
           <span class="badge badge-muted">{{ direct_grants | length }}</span>
         </div>
         <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>Ajouter un droit</button>
       </div>
       {% with grant_rows=direct_grants, show_granted_by=true, show_source=false, show_actions=true, empty_message='Aucun droit direct.', delete_redirect=view_url ~ '#droits' %}
-      {% include "admin/rbac/_grants_by_category.html" %}
-      {% endwith %}
-    </div>
-    <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
-      <div class="card-header" style="padding:var(--sp-4);">
-        <span class="card-title">Droits effectifs</span>
-        <span class="badge badge-muted">{{ effective_grants | length }}</span>
-      </div>
-      {% with grant_rows=effective_grants, show_granted_by=false, show_source=true, show_actions=false, empty_message='Aucun droit effectif.' %}
       {% include "admin/rbac/_grants_by_category.html" %}
       {% endwith %}
     </div>
