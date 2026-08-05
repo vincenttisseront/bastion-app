@@ -294,7 +294,11 @@
         {% for row in membership_rows %}
         <li style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; margin-bottom:var(--sp-2);">
           <span class="badge badge-muted">{{ row.realm_slug }}</span>
+          {% if row.rbac_group_id %}
+          <a class="mono" href="/admin/rbac/groups/{{ row.rbac_group_id }}">{{ row.path or row.name }}</a>
+          {% else %}
           <span class="mono">{{ row.path or row.name }}</span>
+          {% endif %}
           {% if account and row.rbac_group_id %}
           <form method="post" action="/admin/rbac/accounts/{{ account.id }}/groups/remove"
                 style="display:inline; margin-left:auto;">

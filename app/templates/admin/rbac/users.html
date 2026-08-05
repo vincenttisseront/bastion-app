@@ -59,11 +59,11 @@
       </div>
     </div>
 
-    <form method="get" action="/admin/rbac/users" id="user-filters-form" class="users-filters">
+    <form method="get" action="/admin/rbac/users" id="user-filters-form" class="users-filters" data-live-search data-live-delay="320">
       <input type="hidden" name="list_tab" value="{{ list_tab }}">
       <label class="visually-hidden" for="filter_q">Recherche</label>
       <input type="search" id="filter_q" name="q" class="form-input" value="{{ filter_q }}"
-             placeholder="Recherche…" autocomplete="off" data-users-filter-q>
+             placeholder="Recherche (live)…" autocomplete="off" data-users-filter-q>
       <label class="visually-hidden" for="filter_realm">Realm</label>
       <select id="filter_realm" name="realm_id" class="form-select" title="Realm">
         {% for realm in realms %}
@@ -91,16 +91,69 @@
         <option value="{{ n }}"{% if list_meta.page_size == n %} selected{% endif %}>{{ n }}/p</option>
         {% endfor %}
       </select>
-      <button type="submit" class="btn btn-primary btn-sm" title="Rechercher">Go</button>
+      <noscript><button type="submit" class="btn btn-primary btn-sm">Go</button></noscript>
     </form>
   </div>
+
+  {% set kc_search_hits = kc_search_hits | default([]) %}
+  {% if filter_q and filter_q|length >= 2 and (kc_search_hits or kc_search_error) %}
+  <div class="card users-panel users-kc-hits">
+    <div class="users-panel-head">
+      <p class="users-panel-title">
+        Keycloak{% if selected_realm %} · {{ selected_realm.slug }}{% endif %}
+        — {{ kc_search_hits | length }} résultat{% if kc_search_hits | length != 1 %}s{% endif %} pour « {{ filter_q }} »
+      </p>
+      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Tous les comptes IdP (pas seulement créés bastion / droits directs)</span>
+    </div>
+    {% if kc_search_error %}
+    <div class="alert alert-warn" style="margin:var(--sp-2) var(--sp-3);">{{ kc_search_error }}</div>
+    {% else %}
+    <div class="table-wrap" style="border:none;border-radius:0;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Identité</th>
+            <th>Email</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in kc_search_hits %}
+          <tr>
+            <td>
+              <div class="users-id-name">{{ u.display or u.username or u.id }}</div>
+              {% if u.username and u.username != (u.display or '') %}
+              <div class="users-id-sub">{{ u.username }}</div>
+              {% endif %}
+            </td>
+            <td class="mono">{{ u.email or '—' }}</td>
+            <td style="text-align:right;">
+              <div class="users-row-actions">
+                {% if selected_realm and u.id %}
+                <a class="btn btn-primary btn-sm"
+                   href="/admin/rbac/users/view?realm_id={{ selected_realm.id }}&amp;keycloak_user_id={{ u.id }}">Fiche</a>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="3"><div class="empty-desc" style="padding:var(--sp-3);max-width:none;">Aucun utilisateur Keycloak pour cette recherche.</div></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
 
   <div class="tabs users-subtabs" role="tablist" aria-label="Listes utilisateurs">
     <a href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=1) }}" class="tab{% if list_tab == 'bastion' %} active{% endif %}" role="tab"{% if list_tab == 'bastion' %} aria-current="page"{% endif %}>
       Créés bastion{% if bastion_accounts_total %} {{ bastion_accounts_total }}{% endif %}
     </a>
     <a href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=1) }}" class="tab{% if list_tab == 'keycloak' %} active{% endif %}" role="tab"{% if list_tab == 'keycloak' %} aria-current="page"{% endif %}>
-      Avec droits Bastion{% if import_users_total %} {{ import_users_total }}{% endif %}
+      Droits individuels{% if import_users_total %} {{ import_users_total }}{% endif %}
     </a>
     <a href="/admin/rbac/users?{{ users_qs(list_tab='open', page=1) }}" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
       Recherche Keycloak
@@ -223,8 +276,8 @@
   {% if import_users %}
   <div class="card users-panel">
     <div class="users-panel-head">
-      <p class="users-panel-title">Avec droits ({{ list_meta.total }} — p. {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
-      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Droits individuels uniquement — sinon Recherche Keycloak</span>
+      <p class="users-panel-title">Droits individuels ({{ list_meta.total }} — p. {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
+      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Grants user uniquement — accès via groupe → fiche groupe ou recherche live Keycloak</span>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0;">
       <table class="data-table">
@@ -376,7 +429,7 @@
       <a href="/admin/rbac" class="btn btn-ghost btn-sm">Gérer</a>
     </div>
 
-    <form method="get" action="/admin/rbac/users" class="users-groups-filters">
+    <form method="get" action="/admin/rbac/users" class="users-groups-filters" data-live-search data-live-delay="320">
       <input type="hidden" name="list_tab" value="{{ list_tab }}">
       {% if selected_realm %}<input type="hidden" name="realm_id" value="{{ selected_realm.id }}">{% endif %}
       {% if filter_q %}<input type="hidden" name="q" value="{{ filter_q }}">{% endif %}
@@ -391,7 +444,7 @@
         <input type="checkbox" name="groups_include_empty" value="1"{% if dist.include_empty %} checked{% endif %}>
         Vides
       </label>
-      <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+      <noscript><button type="submit" class="btn btn-primary btn-sm">Filtrer</button></noscript>
     </form>
 
     {% if dist.rows %}
@@ -448,17 +501,6 @@
 
 {% block scripts %}
 <script>
-(function () {
-  var form = document.getElementById('user-filters-form');
-  var q = document.querySelector('[data-users-filter-q]');
-  if (form && q) {
-    var t;
-    q.addEventListener('input', function () {
-      clearTimeout(t);
-      t = setTimeout(function () { form.requestSubmit ? form.requestSubmit() : form.submit(); }, 400);
-    });
-  }
-})();
 (function () {
   var root = document.querySelector('[data-users-bulk]');
   if (!root) return;

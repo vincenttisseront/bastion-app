@@ -370,16 +370,33 @@ async def admin_rbac_user_view(
             if a is not None
         ]
     if not accounts_for_groups and keycloak_user_id:
-        # Fall back to primary realm groups only.
+        # Keycloak-only user (no BastionAccount): still link to synced RBAC groups.
+        kc_ids = [str(g.get("id") or "") for g in kc_groups if g.get("id")]
+        rbac_by_kc = {
+            str(r.keycloak_group_id): r
+            for r in (
+                db.query(RBACGroup)
+                .filter(
+                    RBACGroup.realm_id == realm.id,
+                    RBACGroup.keycloak_group_id.in_(kc_ids),
+                )
+                .all()
+                if kc_ids
+                else []
+            )
+            if r.keycloak_group_id
+        }
         for g in kc_groups:
+            kc_gid = str(g.get("id") or "")
+            rbac = rbac_by_kc.get(kc_gid)
             membership_rows.append(
                 {
                     "path": g.get("path") or g.get("name") or "",
                     "name": g.get("name") or "",
                     "realm_slug": realm.slug,
                     "realm_id": realm.id,
-                    "keycloak_group_id": g.get("id"),
-                    "rbac_group_id": None,
+                    "keycloak_group_id": kc_gid or None,
+                    "rbac_group_id": rbac.id if rbac else None,
                     "account_id": account.id if account else None,
                 }
             )
