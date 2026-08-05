@@ -956,6 +956,8 @@ def _access_request_page(
             access_form_open=bool(advertising),
             captcha_question=captcha.question if captcha else "",
             captcha_token=captcha.token if captcha else "",
+            captcha_left=captcha.left if captcha else None,
+            captcha_right=captcha.right if captcha else None,
             form_error=form_error,
             form_success=form_success,
             form_values=form_values or {},

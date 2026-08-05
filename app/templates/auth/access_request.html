@@ -56,14 +56,38 @@
         <label class="form-label" for="message">Motif (optionnel)</label>
         <textarea id="message" name="message" class="form-input" rows="3">{{ form_values.message or '' }}</textarea>
       </div>
-      <div class="form-group">
-        <label class="form-label" for="captcha_answer">Vérification anti-robot <span class="req">*</span></label>
-        <p class="form-help" id="captcha_question" style="margin-bottom:var(--sp-2); font-weight:600;">{{ captcha_question }}</p>
+
+      <div class="captcha-panel" role="group" aria-labelledby="captcha_label">
+        <div class="captcha-panel__head">
+          <span class="captcha-panel__icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </span>
+          <div class="captcha-panel__copy">
+            <p class="captcha-panel__eyebrow" id="captcha_label">Vérification</p>
+            <p class="captcha-panel__hint">Résolvez pour confirmer que vous n’êtes pas un robot</p>
+          </div>
+        </div>
+        <p class="visually-hidden" id="captcha_question">{{ captcha_question }}</p>
         <input type="hidden" name="captcha_token" value="{{ captcha_token }}">
-        <input type="text" id="captcha_answer" name="captcha_answer" class="form-input" required
-               inputmode="numeric" autocomplete="off" aria-describedby="captcha_question"
-               placeholder="Résultat">
+        <div class="captcha-panel__body">
+          <div class="captcha-challenge" aria-hidden="true">
+            <span class="captcha-tile">{{ captcha_left }}</span>
+            <span class="captcha-op">+</span>
+            <span class="captcha-tile">{{ captcha_right }}</span>
+            <span class="captcha-op">=</span>
+          </div>
+          <input type="text" id="captcha_answer" name="captcha_answer"
+                 class="form-input captcha-answer" required
+                 inputmode="numeric" autocomplete="off" spellcheck="false"
+                 maxlength="3" placeholder="?"
+                 aria-describedby="captcha_question"
+                 aria-label="Résultat de {{ captcha_left }} plus {{ captcha_right }}">
+        </div>
       </div>
+
       <button type="submit" class="btn btn-primary btn-full">Envoyer la demande</button>
     </form>
     {% else %}

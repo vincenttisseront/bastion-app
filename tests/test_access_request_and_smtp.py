@@ -173,8 +173,10 @@ def test_access_request_get_has_no_realm_choice(client, db_session):
     assert 'name="realm_id"' not in resp.text
     assert "Realm / organisation" not in resp.text
     assert realm.slug not in resp.text
-    assert "Vérification anti-robot" in resp.text
+    assert "Vérification" in resp.text
     assert "Combien font" in resp.text
+    assert "captcha-panel" in resp.text
+    assert "captcha-tile" in resp.text
 
 
 def test_access_request_captcha_rejects_wrong_answer(client, db_session):
@@ -193,7 +195,7 @@ def test_access_request_captcha_rejects_wrong_answer(client, db_session):
         headers={"X-Real-IP": "10.0.0.77"},
     )
     assert resp.status_code == 200
-    assert "Vérification anti-robot" in resp.text
+    assert "Vérification anti-robot incorrecte" in resp.text
     assert db_session.query(AccessRequest).count() == 0
 
 
