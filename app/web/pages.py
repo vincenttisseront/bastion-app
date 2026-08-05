@@ -2413,12 +2413,77 @@ def admin_app_logo_delete(
     return {"ok": True}
 
 
+@admin_router.get("/admin/rbac/overview")
+async def admin_rbac_overview(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """RBAC dashboard — entry point for cross-links (see docs/rbac-information-architecture.md)."""
+    from sqlalchemy import func
+
+    from app.models import AccessGrant, BastionAccount, GroupAppCredential
+    from app.rbac.governance_service import excess_permission_alerts
+    from app.rbac.users_stats_service import fetch_user_directory_stats
+
+    realms = (
+        db.query(RealmConfig)
+        .filter(RealmConfig.enabled.is_(True))
+        .order_by(RealmConfig.slug)
+        .all()
+    )
+    selected = realms[0] if realms else None
+    user_stats = await fetch_user_directory_stats(db, selected, settings)
+    groups_all = db.query(func.count(RBACGroup.id)).scalar() or 0
+    groups_empty = (
+        db.query(func.count(RBACGroup.id))
+        .filter(func.coalesce(RBACGroup.member_count, 0) == 0)
+        .scalar()
+        or 0
+    )
+    groups_with = max(0, int(groups_all) - int(groups_empty))
+    bastion_count = db.query(func.count(BastionAccount.id)).scalar() or 0
+    direct_grant_users = (
+        db.query(func.count(func.distinct(AccessGrant.keycloak_user_id)))
+        .filter(
+            AccessGrant.subject_type == "user",
+            AccessGrant.keycloak_user_id.isnot(None),
+        )
+        .scalar()
+        or 0
+    )
+    shared_creds = db.query(func.count(GroupAppCredential.id)).scalar() or 0
+    alerts = excess_permission_alerts(db)
+    return render(
+        "admin/rbac/overview.html",
+        **_ctx(
+            request,
+            settings,
+            active_tab="overview",
+            realms=realms,
+            selected_realm=selected,
+            user_stats=user_stats.as_dict(),
+            group_stats={
+                "total": int(groups_all),
+                "empty": int(groups_empty),
+                "with_members": int(groups_with),
+                "alerts": len(alerts),
+            },
+            bastion_accounts_total=int(bastion_count),
+            direct_grant_users=int(direct_grant_users),
+            shared_credentials_total=int(shared_creds),
+            excess_alerts=alerts,
+        ),
+    )
+
+
 @admin_router.get("/admin/rbac")
 async def admin_rbac(
     request: Request,
     q: str = Query(""),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=10, le=200),
+    include_empty: str | None = Query(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -2427,7 +2492,7 @@ async def admin_rbac(
         role_distribution_summary,
     )
     from app.rbac.permission_seed import seed_governance_rbac
-    from app.models import AccessGrant
+    from app.models import AccessGrant, GroupAppCredential
 
     from sqlalchemy import func
 
@@ -2460,6 +2525,7 @@ async def admin_rbac(
         or 0
     )
     excess_alerts = excess_permission_alerts(db)
+    show_empty = (include_empty or "").strip().lower() in ("1", "true", "on", "yes")
 
     query = db.query(RBACGroup)
     needle = " ".join((q or "").split()).strip()
@@ -2472,14 +2538,46 @@ async def admin_rbac(
             | (RBACGroup.realm_slug.ilike(like))
             | (RBACGroup.description.ilike(like))
         )
+    if not show_empty:
+        query = query.filter(func.coalesce(RBACGroup.member_count, 0) > 0)
     total = query.count()
     total_pages = max(1, (total + per_page - 1) // per_page)
     if page > total_pages:
         page = total_pages
     offset = (page - 1) * per_page
     groups = (
-        query.order_by(RBACGroup.name).offset(offset).limit(per_page).all()
+        query.order_by(
+            func.coalesce(RBACGroup.member_count, 0).desc(),
+            RBACGroup.name.asc(),
+        )
+        .offset(offset)
+        .limit(per_page)
+        .all()
     )
+
+    group_ids = [g.id for g in groups]
+    grant_counts: dict[int, int] = {}
+    cred_counts: dict[int, int] = {}
+    if group_ids:
+        for gid, cnt in (
+            db.query(AccessGrant.rbac_group_id, func.count(AccessGrant.id))
+            .filter(
+                AccessGrant.subject_type == "group",
+                AccessGrant.rbac_group_id.in_(group_ids),
+            )
+            .group_by(AccessGrant.rbac_group_id)
+            .all()
+        ):
+            if gid is not None:
+                grant_counts[int(gid)] = int(cnt)
+        for gid, cnt in (
+            db.query(GroupAppCredential.rbac_group_id, func.count(GroupAppCredential.id))
+            .filter(GroupAppCredential.rbac_group_id.in_(group_ids))
+            .group_by(GroupAppCredential.rbac_group_id)
+            .all()
+        ):
+            if gid is not None:
+                cred_counts[int(gid)] = int(cnt)
 
     group_rows: list[dict] = []
     for g in groups:
@@ -2503,6 +2601,8 @@ async def admin_rbac(
                 "member_count": int(g.member_count or 0),
                 "role_mode": mode,
                 "rbac_role_id": role_id,
+                "grant_count": grant_counts.get(g.id, 0),
+                "credential_count": cred_counts.get(g.id, 0),
             }
         )
 
@@ -2527,6 +2627,7 @@ async def admin_rbac(
             groups_total_pages=total_pages,
             groups_range_start=range_start,
             groups_range_end=range_end,
+            groups_include_empty=show_empty,
             group_stats={
                 "total": int(groups_all),
                 "empty": int(groups_empty),

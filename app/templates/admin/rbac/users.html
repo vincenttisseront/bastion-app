@@ -9,16 +9,21 @@
 {% set filter_q = filter_q | default('') %}
 {% set bastion_accounts_total = bastion_accounts_total | default(0) %}
 {% set import_users_total = import_users_total | default(0) %}
-<div class="page page-users-compact">
+<div class="page page-users-compact page-rbac">
+  <nav class="breadcrumb-rbac" aria-label="Fil d'Ariane">
+    <a href="/admin/rbac/overview">RBAC</a><span class="breadcrumb-rbac-sep">/</span>Utilisateurs
+  </nav>
   <div class="page-header">
     <div>
       <h1 class="page-title">Gestion des Utilisateurs</h1>
       <p class="page-sub">
-        Recherche et filtres — pas d'annuaire dupliqué en base.
-        <a href="/admin/logs?q=session_hijack#audit">Alertes connexion · Logs</a>
+        Recherche live — pas d'annuaire dupliqué.
+        Accès consolidés sur chaque <strong>Fiche → Droits</strong>.
+        <a href="/admin/logs?q=session_hijack#audit">Alertes · Logs</a>
       </p>
     </div>
-    <div>
+    <div class="users-row-actions">
+      <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
       <a href="/admin/rbac/users/new" class="btn btn-primary btn-sm">+ Nouvel utilisateur</a>
     </div>
   </div>
@@ -244,7 +249,8 @@
             </td>
             <td style="text-align:right;">
               <div class="users-row-actions">
-                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}">Fiche</a>
+                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}#droits">Accès</a>
+                <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}">Fiche</a>
                 <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}" title="Provisioning">Prov.</a>
                 <a class="btn btn-danger btn-sm" href="/admin/rbac/accounts/{{ a.id }}#danger"
                    title="Suppression complète" aria-label="Supprimer">
@@ -327,7 +333,8 @@
               {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
               {% if droits_realm %}
               <div class="users-row-actions">
-                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Fiche</a>
+                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}#droits">Accès</a>
+                <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Fiche</a>
               </div>
               {% endif %}
             </td>
@@ -409,92 +416,16 @@
   </div>
   {% endif %}
 
-  <div class="card users-groups" data-group-dist>
-    {% set dist = group_distribution %}
-    {% set gmeta = dist.list_meta | default({'page': 1, 'total_pages': 1, 'total': 0}) %}
-    <div class="users-groups-head">
-      <div>
-        <h2 class="users-groups-title">Groupes</h2>
-        <p class="users-groups-meta">
-          {{ dist.with_members }} avec membres ·
-          {% if not dist.include_empty and dist.empty_groups %}
-          <strong>{{ dist.empty_groups }} vides</strong> ·
-          {% else %}
-          {{ dist.empty_groups }} vides ·
-          {% endif %}
-          {{ dist.total_groups }} sync
-          {% if dist.total_memberships %} · {{ dist.total_memberships }} apparts{% endif %}
-        </p>
-      </div>
-      <a href="/admin/rbac" class="btn btn-ghost btn-sm">Gérer</a>
-    </div>
-
-    <form method="get" action="/admin/rbac/users" class="users-groups-filters" data-live-search data-live-delay="320">
-      <input type="hidden" name="list_tab" value="{{ list_tab }}">
-      {% if selected_realm %}<input type="hidden" name="realm_id" value="{{ selected_realm.id }}">{% endif %}
-      {% if filter_q %}<input type="hidden" name="q" value="{{ filter_q }}">{% endif %}
-      {% if filter_group %}<input type="hidden" name="group" value="{{ filter_group }}">{% endif %}
-      {% if filter_status and filter_status != 'tous' %}<input type="hidden" name="status" value="{{ filter_status }}">{% endif %}
-      <input type="hidden" name="page" value="{{ list_meta.page }}">
-      <input type="hidden" name="page_size" value="{{ list_meta.page_size }}">
-      <label class="visually-hidden" for="groups_q">Rechercher un groupe</label>
-      <input type="search" id="groups_q" name="groups_q" class="form-input"
-             value="{{ dist.q | default('') }}" placeholder="Recherche nom…" autocomplete="off">
-      <label class="users-bulk-all">
-        <input type="checkbox" name="groups_include_empty" value="1"{% if dist.include_empty %} checked{% endif %}>
-        Vides
-      </label>
-      <noscript><button type="submit" class="btn btn-primary btn-sm">Filtrer</button></noscript>
-    </form>
-
-    {% if dist.rows %}
-    <div class="table-wrap" style="border:1px solid var(--border); border-radius:var(--r-md);">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Groupe</th>
-            <th style="width:5rem; text-align:right;">Membres</th>
-            <th style="min-width:7rem;">Répartition</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for g in dist.rows %}
-          <tr>
-            <td>
-              <a href="/admin/rbac/groups/{{ g.id }}"><strong>{{ g.name }}</strong></a>
-            </td>
-            <td class="mono" style="text-align:right;">{{ g.member_count }}</td>
-            <td>
-              <div class="users-bar">
-                <div class="users-bar-track">
-                  <div class="users-bar-fill" style="width:{{ g.bar_percent }}%;"></div>
-                </div>
-                <span class="users-bar-pct">{{ g.percent }}%</span>
-              </div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% if gmeta.total_pages > 1 %}
-    <div class="users-pager" style="border:0;padding:var(--sp-2) 0 0;">
-      {% if gmeta.page > 1 %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(groups_page=gmeta.page - 1) }}">← Préc.</a>
-      {% endif %}
-      <span class="form-hint" style="margin:0;">p. {{ gmeta.page }}/{{ gmeta.total_pages }} ({{ gmeta.total }})</span>
-      {% if gmeta.page < gmeta.total_pages %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(groups_page=gmeta.page + 1) }}">Suiv. →</a>
-      {% endif %}
-    </div>
-    {% endif %}
-    {% else %}
-    <p class="empty-desc" style="max-width:none;">
-      {% if dist.q %}Aucun groupe pour « {{ dist.q }} ».{% elif not dist.include_empty and dist.empty_groups %}
-      Aucun groupe avec membres. Cochez « Vides » ou synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.
-      {% else %}Aucun groupe synchronisé. Synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.{% endif %}
-    </p>
-    {% endif %}
+  {% set dist = group_distribution | default({}) %}
+  <div class="groups-empty-banner">
+    <span>
+      Groupes Keycloak :
+      <strong>{{ dist.with_members | default(0) }}</strong> avec membres ·
+      <strong>{{ dist.empty_groups | default(0) }}</strong> vides ·
+      <strong>{{ dist.total_groups | default(0) }}</strong> sync
+    </span>
+    <a href="/admin/rbac" class="btn btn-primary btn-sm">Gérer les groupes</a>
+    <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
   </div>
 </div>
 {% endblock %}

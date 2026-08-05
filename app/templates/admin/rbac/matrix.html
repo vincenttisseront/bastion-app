@@ -3,33 +3,45 @@
 {% block breadcrumb %}Admin / RBAC / Matrice{% endblock %}
 
 {% block content %}
-<div class="page">
+<div class="page page-rbac">
+  <nav class="breadcrumb-rbac" aria-label="Fil d'Ariane">
+    <a href="/admin/rbac/overview">RBAC</a><span class="breadcrumb-rbac-sep">/</span>Matrice
+  </nav>
   <div class="page-header">
     <div>
       <h1 class="page-title">Matrice Applications × Groupes</h1>
-      <p class="page-sub">Lecture seule — droits individuels exclus (voir fiche application ou utilisateur)</p>
+      <p class="page-sub">Grants de groupe — pour un utilisateur précis, ouvrir sa fiche → Accès effectifs</p>
+    </div>
+    <div class="users-row-actions">
+      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">Utilisateurs</a>
+      <a href="/admin/rbac" class="btn btn-ghost btn-sm">Groupes</a>
     </div>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
 
   {% if matrix.apps and matrix.groups %}
+  <div class="users-toolbar" style="margin-bottom:var(--sp-3);">
+    <input type="search" class="form-input" placeholder="Filtrer par groupe…"
+           autocomplete="off" data-live-filter="#rbac-matrix-table tbody tr"
+           aria-label="Filtrer la matrice" style="flex:1;min-width:12rem;height:2rem;">
+  </div>
   <div class="card" style="padding:0; overflow:auto;">
     <div class="table-wrap" style="border:none;border-radius:0;">
-      <table class="data-table">
+      <table class="data-table" id="rbac-matrix-table">
         <thead>
           <tr>
             <th>Groupe</th>
             {% for app in matrix.apps %}
             <th class="mono" title="{{ app.slug }}">
-              <a href="/admin/rbac/applications/{{ app.id }}">{{ app.label }}</a>
+              <a href="/admin/apps/{{ app.slug }}/edit">{{ app.label }}</a>
             </th>
             {% endfor %}
           </tr>
         </thead>
         <tbody>
           {% for group in matrix.groups %}
-          <tr>
+          <tr data-live-text="{{ group.name }}">
             <td class="mono">
               <a href="/admin/rbac/groups/{{ group.id }}">{{ group.name }}</a>
             </td>

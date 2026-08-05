@@ -502,6 +502,42 @@ async def admin_rbac_user_view(
         extra_app_slugs=extra_vault_slugs or None,
     )
 
+    shared_access_rows: list[dict] = []
+    if keycloak_user_id and vault_apps:
+        from app.vault.user_app_credential_service import get_effective_credential
+
+        group_names = [
+            str(row.get("name") or "").strip()
+            for row in membership_rows
+            if row.get("name")
+        ]
+        # Also include raw KC group names if membership_rows empty of names
+        if not group_names and kc_groups:
+            group_names = [
+                str(g.get("name") or "").strip() for g in kc_groups if g.get("name")
+            ]
+        for va in vault_apps:
+            row, source = get_effective_credential(
+                db,
+                va.slug,
+                keycloak_user_id,
+                group_names=group_names or None,
+            )
+            detail = {
+                "app_slug": va.slug,
+                "app_label": va.label,
+                "source": source,
+                "robotic_username": getattr(row, "robotic_username", None) if row else None,
+                "priority": getattr(row, "priority", None) if row else None,
+                "group_id": getattr(row, "rbac_group_id", None) if row else None,
+            }
+            if source == "group_shared" and detail["group_id"]:
+                g = db.query(RBACGroup).filter_by(id=detail["group_id"]).first()
+                detail["group_name"] = g.name if g else None
+            else:
+                detail["group_name"] = None
+            shared_access_rows.append(detail)
+
     display_name = (
         (kc_user or {}).get("username")
         or (account.username if account else None)
@@ -551,6 +587,7 @@ async def admin_rbac_user_view(
             user_error=user_error,
             direct_grants=[serialize_grant(g, db) for g in direct_grants],
             effective_grants=effective_grants,
+            shared_access_rows=shared_access_rows,
             vault_apps=vault_apps,
             provisionings=provisionings,
             pending_apps=pending_apps,

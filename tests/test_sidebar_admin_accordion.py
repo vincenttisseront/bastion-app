@@ -28,7 +28,7 @@ def test_admin_sidebar_has_accordion_groups(client: TestClient):
     assert "Infra &amp; supervision" in html or "Infra & supervision" in html
     assert 'data-sidebar-admin-accordion' in html
     assert 'id="sidebar-search"' in html
-    assert 'href="/admin/rbac"' in html
+    assert 'href="/admin/rbac/overview"' in html
     assert 'href="/admin/pending-users"' in html
     assert 'data-nav-subgroup="pending"' in html
 
@@ -90,4 +90,5 @@ def test_non_admin_sidebar_hides_administration(client: TestClient):
     html = resp.text
     assert "Administration" not in html
     assert 'data-nav-accordion="general"' not in html
+    assert 'href="/admin/rbac/overview"' not in html
     assert 'href="/admin/rbac"' not in html
