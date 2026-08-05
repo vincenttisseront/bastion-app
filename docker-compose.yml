@@ -22,7 +22,7 @@ services:
       - -c
       - |
         set -eu
-        mkdir -p /var/lib/sso-portal/exports /var/lib/sso-portal/uploads/app-logos /var/lib/sso-portal/keys /var/lib/sso-portal-files/private/files
+        mkdir -p /var/lib/sso-portal/exports /var/lib/sso-portal/uploads/app-logos /var/lib/sso-portal/keys /var/lib/sso-portal/nginx-logs /var/lib/sso-portal-files/private/files
         # Encrypt plaintext portal.db before Alembic/app expect SQLCipher (idempotent).
         python /app/scripts/encrypt_portal_db.py
         alembic upgrade head
@@ -84,6 +84,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-sqlite:////var/lib/sso-portal/portal.db}
       EXPORTS_DIR: /var/lib/sso-portal/exports
       PORTAL_DATA_DIR: /var/lib/sso-portal
+      NGINX_APP_LOGS_DIR: /var/lib/sso-portal/nginx-logs
       FILES_STORAGE_DIR: /var/lib/sso-portal-files/private/files
       VAULT_KEYS_DIR: /var/lib/sso-portal/keys
       OAUTH2_PROXY_NETWORK_MODE: docker
@@ -91,6 +92,8 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
       - ${SSO_PORTAL_FILES_DATA_DIR:-./data/sso-portal-files}:/var/lib/sso-portal-files
+      # Per-app nginx access logs (Admin → Logs → Accès apps)
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/lib/sso-portal/nginx-logs:ro
     networks:
       vpcbr:
         aliases:
@@ -135,6 +138,8 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/certs:/etc/nginx/ssl:ro
+      # Shared with bastion-app (Admin → Logs → Accès apps)
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/log/nginx/apps
     networks:
       vpcbr:
         aliases:

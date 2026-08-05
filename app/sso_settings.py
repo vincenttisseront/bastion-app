@@ -188,6 +188,15 @@ class Settings(BaseSettings):
             "portal_data_dir",
         ),
     )
+    # Shared with bastion-nginx /var/log/nginx/apps (per-app access logs).
+    # Empty → {portal_data_dir}/nginx-logs
+    nginx_app_logs_dir: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "NGINX_APP_LOGS_DIR",
+            "nginx_app_logs_dir",
+        ),
+    )
     # Dedicated blob root for catalogue files (empty → {portal_data_dir}/private/files).
     files_storage_dir: str = Field(
         default="",

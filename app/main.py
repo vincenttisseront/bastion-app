@@ -232,7 +232,11 @@ async def health() -> dict[str, str]:
 
 def _admin_logs_api_path(path: str) -> bool:
     """JSON/SSE under /admin/logs — never HTML-redirect on 403."""
-    return path == "/admin/logs/stream" or path.startswith("/admin/logs/containers/")
+    return (
+        path == "/admin/logs/stream"
+        or path.startswith("/admin/logs/containers/")
+        or path.startswith("/admin/logs/apps/")
+    )
 
 
 @app.exception_handler(StarletteHTTPException)
