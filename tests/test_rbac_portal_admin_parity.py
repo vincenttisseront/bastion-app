@@ -100,7 +100,7 @@ def test_rbac_portal_admin_parity_sidebar_admin_section(
 
     for html in (group_html, grant_html):
         assert "Administration" in html
-        assert 'href="/admin/rbac"' in html
+        assert 'href="/admin/rbac/overview"' in html or 'href="/admin/rbac"' in html
         assert 'href="/admin/realms"' in html
         assert 'href="/admin/apps"' in html
         assert ">RBAC<" in html or ">RBAC</a>" in html or "\n      RBAC\n" in html

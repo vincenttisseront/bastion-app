@@ -380,9 +380,18 @@ def dashboard(
     touch_portal_session(db, user, _client_ip(request), request=request)
     metrics = get_dashboard_metrics(db)
     recent_audit, _ = list_audit_entries(db, limit=8)
+    from app.web.pending_queue_service import build_pending_action_items
+
+    pending_queue = build_pending_action_items(db)
     return render(
         "dashboard/index.html",
-        **_ctx(request, settings, metrics=metrics, recent_audit=recent_audit),
+        **_ctx(
+            request,
+            settings,
+            metrics=metrics,
+            recent_audit=recent_audit,
+            pending_queue=pending_queue,
+        ),
     )
 
 

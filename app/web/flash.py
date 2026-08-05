@@ -179,31 +179,33 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
     ctx_out["is_admin"] = is_admin
     ctx_out["is_portal_admin"] = bool(extra.get("is_portal_admin", is_admin))
 
-    # Sidebar badges: pending first-SSO users + public access requests.
-    if "pending_users_nav_count" not in ctx_out:
-        pending_count = 0
+    # Sidebar badges: pending queue (users, domains, access requests, bastion accounts).
+    _pending_keys = (
+        "pending_users_nav_count",
+        "pending_hosts_nav_count",
+        "access_requests_nav_count",
+        "bastion_accounts_nav_count",
+        "dashboard_pending_total",
+    )
+    if any(k not in ctx_out for k in _pending_keys):
+        counts = {
+            "pending_users": 0,
+            "pending_hosts": 0,
+            "access_requests": 0,
+            "bastion_accounts": 0,
+            "total": 0,
+        }
         if is_admin and db is not None and not ctx_out.get("hide_chrome"):
             try:
-                from app.models import PendingUser
+                from app.web.pending_queue_service import pending_nav_counts
 
-                pending_count = (
-                    db.query(PendingUser)
-                    .filter(PendingUser.status == "pending")
-                    .count()
-                )
+                counts = pending_nav_counts(db)
             except Exception:
-                pending_count = 0
-        ctx_out["pending_users_nav_count"] = pending_count
-
-    if "access_requests_nav_count" not in ctx_out:
-        ar_count = 0
-        if is_admin and db is not None and not ctx_out.get("hide_chrome"):
-            try:
-                from app.rbac.access_request_service import count_pending_access_requests
-
-                ar_count = count_pending_access_requests(db)
-            except Exception:
-                ar_count = 0
-        ctx_out["access_requests_nav_count"] = ar_count
+                pass
+        ctx_out.setdefault("pending_users_nav_count", counts["pending_users"])
+        ctx_out.setdefault("pending_hosts_nav_count", counts["pending_hosts"])
+        ctx_out.setdefault("access_requests_nav_count", counts["access_requests"])
+        ctx_out.setdefault("bastion_accounts_nav_count", counts["bastion_accounts"])
+        ctx_out.setdefault("dashboard_pending_total", counts["total"])
 
     return ctx_out
