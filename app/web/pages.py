@@ -2429,6 +2429,8 @@ async def admin_rbac(
     from app.rbac.permission_seed import seed_governance_rbac
     from app.models import AccessGrant
 
+    from sqlalchemy import func
+
     seed_governance_rbac(db)
     db.commit()
 
@@ -2443,6 +2445,21 @@ async def admin_rbac(
         .all()
         if g.rbac_group_id
     }
+
+    groups_all = db.query(func.count(RBACGroup.id)).scalar() or 0
+    groups_empty = (
+        db.query(func.count(RBACGroup.id))
+        .filter(func.coalesce(RBACGroup.member_count, 0) == 0)
+        .scalar()
+        or 0
+    )
+    groups_synced = (
+        db.query(func.count(RBACGroup.id))
+        .filter(RBACGroup.keycloak_group_id.isnot(None))
+        .scalar()
+        or 0
+    )
+    excess_alerts = excess_permission_alerts(db)
 
     query = db.query(RBACGroup)
     needle = " ".join((q or "").split()).strip()
@@ -2489,6 +2506,9 @@ async def admin_rbac(
             }
         )
 
+    range_start = offset + 1 if total else 0
+    range_end = min(offset + len(group_rows), total)
+
     return render(
         "admin/rbac.html",
         **_ctx(
@@ -2505,8 +2525,16 @@ async def admin_rbac(
             groups_per_page=per_page,
             groups_total=total,
             groups_total_pages=total_pages,
+            groups_range_start=range_start,
+            groups_range_end=range_end,
+            group_stats={
+                "total": int(groups_all),
+                "empty": int(groups_empty),
+                "synced": int(groups_synced),
+                "alerts": len(excess_alerts),
+            },
             role_distribution=role_distribution_summary(db),
-            excess_alerts=excess_permission_alerts(db),
+            excess_alerts=excess_alerts,
             active_tab="groups",
         ),
     )

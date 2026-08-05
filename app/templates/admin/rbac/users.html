@@ -9,127 +9,98 @@
 {% set filter_q = filter_q | default('') %}
 {% set bastion_accounts_total = bastion_accounts_total | default(0) %}
 {% set import_users_total = import_users_total | default(0) %}
-<div class="page">
+<div class="page page-users-compact">
   <div class="page-header">
     <div>
       <h1 class="page-title">Gestion des Utilisateurs</h1>
       <p class="page-sub">
         Recherche et filtres — pas d'annuaire dupliqué en base.
-        <a href="/admin/logs?q=session_hijack#audit">Alertes connexion → Logs</a>
+        <a href="/admin/logs?q=session_hijack#audit">Alertes connexion · Logs</a>
       </p>
     </div>
     <div>
-      <a href="/admin/rbac/users/new" class="btn btn-primary">Nouvel utilisateur</a>
+      <a href="/admin/rbac/users/new" class="btn btn-primary btn-sm">+ Nouvel utilisateur</a>
     </div>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
 
   {% if user_stats and user_stats.error %}
-  <div class="alert alert-warn" style="margin-bottom:var(--sp-4);">Stats Keycloak : {{ user_stats.error }}</div>
+  <div class="alert alert-warn" style="margin-bottom:var(--sp-3);">Stats Keycloak : {{ user_stats.error }}</div>
   {% endif %}
 
-  <div class="metrics-grid" style="margin-bottom:var(--sp-4);">
-    <div class="metric-card blue">
-      <div class="metric-head">
-        <div class="metric-icon">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        </div>
-      </div>
-      <div class="metric-value">{% if user_stats.total is not none %}{{ user_stats.total }}{% else %}—{% endif %}</div>
-      <div class="metric-label">Total Utilisateurs</div>
+  <div class="users-toolbar">
+    <div class="users-stat">
+      <div class="users-stat-value">{% if user_stats.total is not none %}{{ user_stats.total }}{% else %}—{% endif %}</div>
+      <div class="users-stat-label">Total utils</div>
     </div>
-    <div class="metric-card green">
-      <div class="metric-head">
-        <div class="metric-icon">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        </div>
-        <span class="metric-trend flat">Stable</span>
-      </div>
-      <div class="metric-value">{% if user_stats.active is not none %}{{ user_stats.active }}{% else %}—{% endif %}</div>
-      <div class="metric-label">Actifs</div>
+    <div class="users-stat">
+      <div class="users-stat-value">{% if user_stats.active is not none %}{{ user_stats.active }}{% else %}—{% endif %}</div>
+      <div class="users-stat-label">Actifs <span class="users-stat-tag is-ok">Stable</span></div>
     </div>
-    <div class="metric-card yellow">
-      <div class="metric-head">
-        <div class="metric-icon">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        </div>
+    <div class="users-stat{% if user_stats.privileged %} is-warn{% endif %}">
+      <div class="users-stat-value">{% if user_stats.privileged is not none %}{{ user_stats.privileged }}{% else %}—{% endif %}</div>
+      <div class="users-stat-label">
+        Privs
         {% if user_stats.privileged_new_7d %}
-        <span class="metric-trend up">{{ user_stats.privileged_new_7d }} Nouveaux</span>
+        <span class="users-stat-tag is-warn">+{{ user_stats.privileged_new_7d }}</span>
         {% endif %}
       </div>
-      <div class="metric-value">{% if user_stats.privileged is not none %}{{ user_stats.privileged }}{% else %}—{% endif %}</div>
-      <div class="metric-label">Privilégiés</div>
     </div>
-    <div class="metric-card red">
-      <div class="metric-head">
-        <div class="metric-icon">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        </div>
+    <div class="users-stat">
+      <div class="users-stat-value">{% if user_stats.suspended is not none %}{{ user_stats.suspended }}{% else %}—{% endif %}</div>
+      <div class="users-stat-label">
+        Susp
         {% if user_stats.suspended %}
-        <span class="metric-trend down">Action Requise</span>
+        <span class="users-stat-tag is-warn">Action</span>
         {% else %}
-        <span class="metric-trend flat">OK</span>
+        <span class="users-stat-tag is-ok">OK</span>
         {% endif %}
       </div>
-      <div class="metric-value">{% if user_stats.suspended is not none %}{{ user_stats.suspended }}{% else %}—{% endif %}</div>
-      <div class="metric-label">Suspendus</div>
     </div>
-  </div>
 
-  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <form method="get" action="/admin/rbac/users" id="user-filters-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
+    <form method="get" action="/admin/rbac/users" id="user-filters-form" class="users-filters">
       <input type="hidden" name="list_tab" value="{{ list_tab }}">
-      <div class="form-group" style="flex:1; min-width:14rem;">
-        <label class="form-label" for="filter_q">Recherche</label>
-        <input type="search" id="filter_q" name="q" class="form-input" value="{{ filter_q }}"
-               placeholder="Identifiant, email, société…" autocomplete="off" data-users-filter-q>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="filter_realm">Realm</label>
-        <select id="filter_realm" name="realm_id" class="form-select">
-          {% for realm in realms %}
-          <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
-          {% else %}
-          <option value="">Aucun realm</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="filter_group">Groupe / société</label>
-        <select id="filter_group" name="group" class="form-select">
-          <option value="">Tous</option>
-          {% for g in filter_groups %}
-          <option value="{{ g.name }}"{% if filter_group == g.name %} selected{% endif %}>{{ g.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="filter_status">Statut</label>
-        <select id="filter_status" name="status" class="form-select">
-          <option value="tous"{% if filter_status == 'tous' %} selected{% endif %}>Tous</option>
-          <option value="actifs"{% if filter_status == 'actifs' %} selected{% endif %}>Actif</option>
-          <option value="privilegies"{% if filter_status == 'privilegies' %} selected{% endif %}>Privilégié</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="filter_page_size">Par page</label>
-        <select id="filter_page_size" name="page_size" class="form-select">
-          {% for n in [25, 50, 100] %}
-          <option value="{{ n }}"{% if list_meta.page_size == n %} selected{% endif %}>{{ n }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <button type="submit" class="btn btn-primary btn-sm">Rechercher</button>
+      <label class="visually-hidden" for="filter_q">Recherche</label>
+      <input type="search" id="filter_q" name="q" class="form-input" value="{{ filter_q }}"
+             placeholder="Recherche…" autocomplete="off" data-users-filter-q>
+      <label class="visually-hidden" for="filter_realm">Realm</label>
+      <select id="filter_realm" name="realm_id" class="form-select" title="Realm">
+        {% for realm in realms %}
+        <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
+        {% else %}
+        <option value="">Aucun realm</option>
+        {% endfor %}
+      </select>
+      <label class="visually-hidden" for="filter_group">Groupe</label>
+      <select id="filter_group" name="group" class="form-select" title="Groupe / société">
+        <option value="">Tous groupes</option>
+        {% for g in filter_groups %}
+        <option value="{{ g.name }}"{% if filter_group == g.name %} selected{% endif %}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+      <label class="visually-hidden" for="filter_status">Statut</label>
+      <select id="filter_status" name="status" class="form-select" title="Statut">
+        <option value="tous"{% if filter_status == 'tous' %} selected{% endif %}>Tous statuts</option>
+        <option value="actifs"{% if filter_status == 'actifs' %} selected{% endif %}>Actif</option>
+        <option value="privilegies"{% if filter_status == 'privilegies' %} selected{% endif %}>Privilégié</option>
+      </select>
+      <label class="visually-hidden" for="filter_page_size">Par page</label>
+      <select id="filter_page_size" name="page_size" class="form-select users-filter-pagesize" title="Par page">
+        {% for n in [25, 50, 100] %}
+        <option value="{{ n }}"{% if list_meta.page_size == n %} selected{% endif %}>{{ n }}/p</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-primary btn-sm" title="Rechercher">Go</button>
     </form>
   </div>
 
-  <div class="tabs" role="tablist" aria-label="Listes utilisateurs" style="margin-bottom:var(--sp-4);">
+  <div class="tabs users-subtabs" role="tablist" aria-label="Listes utilisateurs">
     <a href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=1) }}" class="tab{% if list_tab == 'bastion' %} active{% endif %}" role="tab"{% if list_tab == 'bastion' %} aria-current="page"{% endif %}>
-      Créés bastion{% if bastion_accounts_total %} <span class="badge badge-muted">{{ bastion_accounts_total }}</span>{% endif %}
+      Créés bastion{% if bastion_accounts_total %} {{ bastion_accounts_total }}{% endif %}
     </a>
     <a href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=1) }}" class="tab{% if list_tab == 'keycloak' %} active{% endif %}" role="tab"{% if list_tab == 'keycloak' %} aria-current="page"{% endif %}>
-      Avec droits Bastion{% if import_users_total %} <span class="badge badge-muted">{{ import_users_total }}</span>{% endif %}
+      Avec droits Bastion{% if import_users_total %} {{ import_users_total }}{% endif %}
     </a>
     <a href="/admin/rbac/users?{{ users_qs(list_tab='open', page=1) }}" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
       Recherche Keycloak
@@ -138,62 +109,53 @@
 
   {% if list_tab == 'bastion' %}
   {% if bastion_accounts %}
-  <div class="card" style="padding:0; margin-bottom:var(--sp-4);" data-users-bulk>
-    <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Comptes créés via le bastion</span>
-      <span class="badge badge-muted">{{ list_meta.total }} résultat{% if list_meta.total != 1 %}s{% endif %} — page {{ list_meta.page }}/{{ list_meta.total_pages }}</span>
-    </div>
-    <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
-      Sélectionnez des lignes pour des actions en masse (groupes, export). Max 200 comptes par opération.
-    </p>
-
-    <form method="post" action="/admin/rbac/users/bulk/groups" id="users-bulk-form" style="padding:0 var(--sp-4) var(--sp-3);">
-      <input type="hidden" name="redirect_url" value="/admin/rbac/users?{{ users_qs(list_tab='bastion') }}">
-      <input type="hidden" name="q" value="{{ filter_q }}">
-      <input type="hidden" name="realm_id" value="{{ selected_realm.id if selected_realm else '' }}">
-      <input type="hidden" name="group" value="{{ filter_group }}">
-      <input type="hidden" name="status" value="{{ filter_status }}">
-      <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:flex-end;">
-        <div class="form-group" style="margin:0; min-width:14rem; flex:1;">
-          <label class="form-label" for="bulk-group-id">Groupe Keycloak</label>
-          <input type="search" list="bulk-groups-datalist" id="bulk-group-search" class="form-input" placeholder="Filtrer le groupe…" autocomplete="off" data-bulk-group-filter>
-          <select id="bulk-group-id" name="group_id" class="form-select" required data-bulk-group-select style="margin-top:var(--sp-1);">
-            <option value="">Choisir…</option>
-            {% for g in bulk_groups | default([]) %}
-            <option value="{{ g.id }}" data-name="{{ g.name }}">{{ g.name }}{% if g.member_count is not none %} ({{ g.member_count }}){% endif %}</option>
-            {% endfor %}
-          </select>
-          <datalist id="bulk-groups-datalist">
-            {% for g in bulk_groups | default([]) %}
-            <option value="{{ g.name }}"></option>
-            {% endfor %}
-          </datalist>
-        </div>
+  <div class="card users-panel" data-users-bulk>
+    <div class="users-panel-head">
+      <p class="users-panel-title">Résultats ({{ list_meta.total }} total — p. {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
+      <form method="post" action="/admin/rbac/users/bulk/groups" id="users-bulk-form" class="users-bulk-bar" style="padding:0;border:0;margin:0;">
+        <input type="hidden" name="redirect_url" value="/admin/rbac/users?{{ users_qs(list_tab='bastion') }}">
+        <input type="hidden" name="q" value="{{ filter_q }}">
+        <input type="hidden" name="realm_id" value="{{ selected_realm.id if selected_realm else '' }}">
+        <input type="hidden" name="group" value="{{ filter_group }}">
+        <input type="hidden" name="status" value="{{ filter_status }}">
+        <input type="search" list="bulk-groups-datalist" id="bulk-group-search" class="form-input"
+               placeholder="Filtre grp…" autocomplete="off" data-bulk-group-filter aria-label="Filtrer le groupe">
+        <select id="bulk-group-id" name="group_id" class="form-select" required data-bulk-group-select aria-label="Groupe Keycloak">
+          <option value="">Choisir grp…</option>
+          {% for g in bulk_groups | default([]) %}
+          <option value="{{ g.id }}" data-name="{{ g.name }}">{{ g.name }}{% if g.member_count is not none %} ({{ g.member_count }}){% endif %}</option>
+          {% endfor %}
+        </select>
+        <datalist id="bulk-groups-datalist">
+          {% for g in bulk_groups | default([]) %}
+          <option value="{{ g.name }}"></option>
+          {% endfor %}
+        </datalist>
         <button type="submit" name="action" value="add" class="btn btn-primary btn-sm" data-bulk-submit
-                data-confirm-tpl="Ajouter {n} utilisateur(s) au groupe sélectionné ?">Ajouter au groupe</button>
+                data-confirm-tpl="Ajouter {n} utilisateur(s) au groupe sélectionné ?">+ Grp</button>
         <button type="submit" name="action" value="remove" class="btn btn-ghost btn-sm" data-bulk-submit
-                data-confirm-tpl="Retirer {n} utilisateur(s) du groupe sélectionné ?">Retirer du groupe</button>
-        <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/export.csv?{{ users_qs(list_tab='bastion') }}" data-bulk-export>Export CSV (filtre)</a>
-        <label class="form-hint" style="display:flex; align-items:center; gap:var(--sp-2); margin:0 0 var(--sp-1); cursor:pointer;">
+                data-confirm-tpl="Retirer {n} utilisateur(s) du groupe sélectionné ?">Retirer</button>
+        <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/export.csv?{{ users_qs(list_tab='bastion') }}" data-bulk-export>CSV</a>
+        <label class="users-bulk-all">
           <input type="checkbox" name="select_all_matching" value="1" data-bulk-all-matching>
-          Tous les résultats du filtre (max 200)
+          Sél. tous
         </label>
-        <span class="form-hint" data-bulk-count style="margin:0 0 var(--sp-1);">0 sélectionné(s)</span>
-      </div>
-    </form>
+        <span class="users-bulk-count" data-bulk-count>0 sél.</span>
+      </form>
+    </div>
 
     <div class="table-wrap" style="border:none;border-radius:0;">
       <table class="data-table" data-users-table>
         <thead>
           <tr>
-            <th style="width:2.5rem;">
+            <th style="width:2rem;">
               <input type="checkbox" data-bulk-select-page title="Sélectionner la page">
             </th>
             <th>Identité</th>
             <th>Société</th>
             <th>Realm</th>
             <th>Statut</th>
-            <th></th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -206,8 +168,8 @@
               <input type="checkbox" form="users-bulk-form" name="account_ids" value="{{ a.id }}" data-bulk-row>
             </td>
             <td>
-              <div>{{ a.username }}</div>
-              <div class="mono form-hint">{{ a.email }}</div>
+              <div class="users-id-name">{{ a.username }}</div>
+              <div class="users-id-sub">{{ a.email }}</div>
             </td>
             <td>{{ a.organization or '—' }}</td>
             <td class="mono">{{ a.realm.slug if a.realm else a.realm_id }}</td>
@@ -227,11 +189,15 @@
               <span class="badge badge-muted">{{ prov_ok | length }}/{{ prov_rows | length }} apps</span>
               {% endif %}
             </td>
-            <td style="text-align:right; white-space:nowrap;">
-              <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}">Fiche</a>
-              <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}">Provisioning</a>
-              <a class="btn btn-danger btn-sm" href="/admin/rbac/accounts/{{ a.id }}#danger"
-                 title="Suppression complète">Supprimer</a>
+            <td style="text-align:right;">
+              <div class="users-row-actions">
+                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}">Fiche</a>
+                <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}" title="Provisioning">Prov.</a>
+                <a class="btn btn-danger btn-sm" href="/admin/rbac/accounts/{{ a.id }}#danger"
+                   title="Suppression complète" aria-label="Supprimer">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </a>
+              </div>
             </td>
           </tr>
           {% endfor %}
@@ -239,51 +205,48 @@
       </table>
     </div>
     {% if list_meta.total_pages > 1 %}
-    <div style="display:flex; gap:var(--sp-2); justify-content:flex-end; padding:var(--sp-3) var(--sp-4); border-top:1px solid var(--border);">
+    <div class="users-pager">
       {% if list_meta.page > 1 %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page - 1) }}">← Précédent</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page - 1) }}">← Préc.</a>
       {% endif %}
       {% if list_meta.page < list_meta.total_pages %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page + 1) }}">Suivant →</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page + 1) }}">Suiv. →</a>
       {% endif %}
     </div>
     {% endif %}
   </div>
   {% else %}
-  <div class="alert alert-info">Aucun compte bastion pour ces filtres. Élargissez la recherche ou créez un utilisateur.</div>
+  <div class="alert alert-info" style="margin-bottom:var(--sp-3);">Aucun compte bastion pour ces filtres. Élargissez la recherche ou créez un utilisateur.</div>
   {% endif %}
 
   {% elif list_tab == 'keycloak' %}
   {% if import_users %}
-  <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
-    <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Utilisateurs Keycloak avec droits Bastion</span>
-      <span class="badge badge-muted">{{ list_meta.total }} résultat{% if list_meta.total != 1 %}s{% endif %} — page {{ list_meta.page }}/{{ list_meta.total_pages }}</span>
+  <div class="card users-panel">
+    <div class="users-panel-head">
+      <p class="users-panel-title">Avec droits ({{ list_meta.total }} — p. {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
+      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Droits individuels uniquement — sinon Recherche Keycloak</span>
     </div>
-    <p class="form-hint" style="margin:0; padding:0 var(--sp-4) var(--sp-3);">
-      Uniquement les comptes avec au moins un droit individuel. Sinon → <strong>Recherche Keycloak</strong>.
-    </p>
     <div class="table-wrap" style="border:none;border-radius:0;">
       <table class="data-table">
         <thead>
           <tr>
-            <th></th>
+            <th style="width:2.5rem;"></th>
             <th>Identité</th>
             <th>Droits</th>
             <th>Statut</th>
-            <th>Dernière connexion</th>
-            <th></th>
+            <th>Dernière connex.</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {% for u in import_users %}
           <tr>
             <td>
-              <div class="avatar-initials" style="background:{{ u.avatar_color }};">{{ u.initials }}</div>
+              <div class="avatar-initials" style="background:{{ u.avatar_color }};width:1.75rem;height:1.75rem;font-size:var(--fs-xs);">{{ u.initials }}</div>
             </td>
             <td>
-              <div>{{ u.display }}</div>
-              <div class="mono form-hint">{{ u.keycloak_user_id }}</div>
+              <div class="users-id-name">{{ u.display }}</div>
+              <div class="users-id-sub">{{ u.keycloak_user_id }}</div>
             </td>
             <td>
               {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
@@ -310,7 +273,9 @@
             <td style="text-align:right;">
               {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
               {% if droits_realm %}
-              <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Fiche</a>
+              <div class="users-row-actions">
+                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Fiche</a>
+              </div>
               {% endif %}
             </td>
           </tr>
@@ -319,29 +284,29 @@
       </table>
     </div>
     {% if list_meta.total_pages > 1 %}
-    <div style="display:flex; gap:var(--sp-2); justify-content:flex-end; padding:var(--sp-3) var(--sp-4); border-top:1px solid var(--border);">
+    <div class="users-pager">
       {% if list_meta.page > 1 %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page - 1) }}">← Précédent</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page - 1) }}">← Préc.</a>
       {% endif %}
       {% if list_meta.page < list_meta.total_pages %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page + 1) }}">Suivant →</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page + 1) }}">Suiv. →</a>
       {% endif %}
     </div>
     {% endif %}
   </div>
   {% else %}
-  <div class="alert alert-info">Aucun utilisateur avec droits individuels pour ces filtres. Utilisez Recherche Keycloak.</div>
+  <div class="alert alert-info" style="margin-bottom:var(--sp-3);">Aucun utilisateur avec droits individuels pour ces filtres. Utilisez Recherche Keycloak.</div>
   {% endif %}
 
   {% else %}
-  <div class="card rbac-user-picker-card" style="padding:0; margin-bottom:var(--sp-4); overflow:visible;">
-    <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Recherche Keycloak</span>
-      <span class="form-hint" style="margin:0;">Annuaire live — tapez au moins 2 caractères (nom / email)</span>
+  <div class="card users-panel rbac-user-picker-card" style="overflow:visible;">
+    <div class="users-panel-head">
+      <p class="users-panel-title">Recherche Keycloak</p>
+      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Annuaire live — min. 2 caractères</span>
     </div>
-    <div class="card-body" style="padding:var(--sp-4); overflow:visible;">
+    <div style="padding:var(--sp-3);overflow:visible;">
       <form method="get" action="/admin/rbac/users/view" id="user-search-form" class="rbac-user-picker">
-        <div class="form-group rbac-user-picker-realm">
+        <div class="form-group rbac-user-picker-realm" style="margin:0;">
           <label class="form-label" for="realm_id">Realm</label>
           <select id="realm_id" name="realm_id" class="form-select" required>
             {% for realm in realms %}
@@ -351,21 +316,21 @@
             {% endfor %}
           </select>
         </div>
-        <div class="form-group rbac-user-picker-search">
-          <label class="form-label" for="user-query">Filtrer (min. 2 caractères)</label>
+        <div class="form-group rbac-user-picker-search" style="margin:0;">
+          <label class="form-label" for="user-query">Filtrer</label>
           <div class="rbac-user-picker-search-wrap">
             <input type="search" id="user-query" class="form-input" placeholder="ex. brigitte, @ar-systems.fr…" autocomplete="off" data-user-search value="{{ filter_q }}">
             <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="">
           </div>
         </div>
         <div class="rbac-user-picker-actions">
-          <button type="submit" class="btn btn-primary" id="user-search-submit" disabled>Voir la fiche</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="user-search-submit" disabled>Voir la fiche</button>
         </div>
       </form>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0;border-top:1px solid var(--border-muted);">
-      <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
-        <span class="card-title" id="user-results-title" style="font-size:var(--fs-sm);">Résultats</span>
+      <div class="users-panel-head">
+        <span class="users-panel-title" id="user-results-title">Résultats</span>
         <span class="badge badge-muted" id="user-results-count">0</span>
       </div>
       <table class="data-table" id="user-results-table">
@@ -379,9 +344,9 @@
         <tbody id="user-results-body">
           <tr class="user-results-empty">
             <td colspan="3">
-              <div class="empty-state" style="padding:var(--sp-5);">
+              <div class="empty-state" style="padding:var(--sp-4);">
                 <div class="empty-title">Recherchez un utilisateur</div>
-                <div class="empty-desc">Tapez au moins 2 caractères pour interroger Keycloak sur le realm sélectionné.</div>
+                <div class="empty-desc">Tapez au moins 2 caractères pour interroger Keycloak.</div>
               </div>
             </td>
           </tr>
@@ -391,27 +356,27 @@
   </div>
   {% endif %}
 
-  <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);" data-group-dist>
+  <div class="card users-groups" data-group-dist>
     {% set dist = group_distribution %}
     {% set gmeta = dist.list_meta | default({'page': 1, 'total_pages': 1, 'total': 0}) %}
-    <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3); align-items:flex-start; justify-content:space-between; margin-bottom:var(--sp-3);">
+    <div class="users-groups-head">
       <div>
-        <div class="card-title" style="margin:0 0 var(--sp-1);">Répartition des groupes</div>
-        <p class="form-hint" style="margin:0;">
+        <h2 class="users-groups-title">Groupes</h2>
+        <p class="users-groups-meta">
           {{ dist.with_members }} avec membres ·
           {% if not dist.include_empty and dist.empty_groups %}
-          <strong>{{ dist.empty_groups }} vides masqués</strong> ·
+          <strong>{{ dist.empty_groups }} vides</strong> ·
           {% else %}
-          {{ dist.empty_groups }} vide(s) ·
+          {{ dist.empty_groups }} vides ·
           {% endif %}
-          {{ dist.total_groups }} synchronisé(s)
-          {% if dist.total_memberships %} · {{ dist.total_memberships }} appartenance(s){% endif %}
+          {{ dist.total_groups }} sync
+          {% if dist.total_memberships %} · {{ dist.total_memberships }} apparts{% endif %}
         </p>
       </div>
-      <a href="/admin/rbac" class="btn btn-ghost btn-sm">Gérer les groupes</a>
+      <a href="/admin/rbac" class="btn btn-ghost btn-sm">Gérer</a>
     </div>
 
-    <form method="get" action="/admin/rbac/users" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end; margin-bottom:var(--sp-3);">
+    <form method="get" action="/admin/rbac/users" class="users-groups-filters">
       <input type="hidden" name="list_tab" value="{{ list_tab }}">
       {% if selected_realm %}<input type="hidden" name="realm_id" value="{{ selected_realm.id }}">{% endif %}
       {% if filter_q %}<input type="hidden" name="q" value="{{ filter_q }}">{% endif %}
@@ -419,14 +384,12 @@
       {% if filter_status and filter_status != 'tous' %}<input type="hidden" name="status" value="{{ filter_status }}">{% endif %}
       <input type="hidden" name="page" value="{{ list_meta.page }}">
       <input type="hidden" name="page_size" value="{{ list_meta.page_size }}">
-      <div class="form-group" style="flex:1; min-width:12rem; margin:0;">
-        <label class="form-label" for="groups_q">Rechercher un groupe</label>
-        <input type="search" id="groups_q" name="groups_q" class="form-input"
-               value="{{ dist.q | default('') }}" placeholder="Nom…" autocomplete="off">
-      </div>
-      <label class="form-hint" style="display:flex; align-items:center; gap:var(--sp-2); margin:0 0 var(--sp-1); cursor:pointer;">
+      <label class="visually-hidden" for="groups_q">Rechercher un groupe</label>
+      <input type="search" id="groups_q" name="groups_q" class="form-input"
+             value="{{ dist.q | default('') }}" placeholder="Recherche nom…" autocomplete="off">
+      <label class="users-bulk-all">
         <input type="checkbox" name="groups_include_empty" value="1"{% if dist.include_empty %} checked{% endif %}>
-        Afficher les vides ({{ dist.empty_groups }})
+        Vides
       </label>
       <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
     </form>
@@ -437,8 +400,8 @@
         <thead>
           <tr>
             <th>Groupe</th>
-            <th style="width:6rem; text-align:right;">Membres</th>
-            <th style="min-width:8rem;">Répartition</th>
+            <th style="width:5rem; text-align:right;">Membres</th>
+            <th style="min-width:7rem;">Répartition</th>
           </tr>
         </thead>
         <tbody>
@@ -449,11 +412,11 @@
             </td>
             <td class="mono" style="text-align:right;">{{ g.member_count }}</td>
             <td>
-              <div style="display:flex; align-items:center; gap:var(--sp-2);">
-                <div style="flex:1; height:6px; background:var(--bg-tertiary); border-radius:var(--r-full); overflow:hidden;">
-                  <div style="height:100%; width:{{ g.bar_percent }}%; background:var(--accent); border-radius:var(--r-full);"></div>
+              <div class="users-bar">
+                <div class="users-bar-track">
+                  <div class="users-bar-fill" style="width:{{ g.bar_percent }}%;"></div>
                 </div>
-                <span class="mono form-hint" style="min-width:2.5rem; text-align:right;">{{ g.percent }}%</span>
+                <span class="users-bar-pct">{{ g.percent }}%</span>
               </div>
             </td>
           </tr>
@@ -462,20 +425,20 @@
       </table>
     </div>
     {% if gmeta.total_pages > 1 %}
-    <div style="display:flex; gap:var(--sp-2); justify-content:flex-end; margin-top:var(--sp-3);">
+    <div class="users-pager" style="border:0;padding:var(--sp-2) 0 0;">
       {% if gmeta.page > 1 %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(groups_page=gmeta.page - 1) }}">← Précédent</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(groups_page=gmeta.page - 1) }}">← Préc.</a>
       {% endif %}
-      <span class="form-hint" style="align-self:center;">page {{ gmeta.page }}/{{ gmeta.total_pages }} ({{ gmeta.total }})</span>
+      <span class="form-hint" style="margin:0;">p. {{ gmeta.page }}/{{ gmeta.total_pages }} ({{ gmeta.total }})</span>
       {% if gmeta.page < gmeta.total_pages %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(groups_page=gmeta.page + 1) }}">Suivant →</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(groups_page=gmeta.page + 1) }}">Suiv. →</a>
       {% endif %}
     </div>
     {% endif %}
     {% else %}
-    <p class="empty-desc">
+    <p class="empty-desc" style="max-width:none;">
       {% if dist.q %}Aucun groupe pour « {{ dist.q }} ».{% elif not dist.include_empty and dist.empty_groups %}
-      Aucun groupe avec membres. Cochez « Afficher les vides » ou synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.
+      Aucun groupe avec membres. Cochez « Vides » ou synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.
       {% else %}Aucun groupe synchronisé. Synchronisez depuis <a href="/admin/rbac">Gestion des groupes</a>.{% endif %}
     </p>
     {% endif %}
@@ -515,7 +478,7 @@
 
   function refreshCount() {
     var n = selectedCount();
-    if (countEl) countEl.textContent = n + ' sélectionné(s)';
+    if (countEl) countEl.textContent = n + ' sél.';
     if (exportLink) {
       var base = exportLink.getAttribute('href').split('&ids=')[0];
       var ids = rows.filter(function (r) { return r.checked; }).map(function (r) { return r.value; });
@@ -561,7 +524,7 @@
         var n = selectedCount();
         if (!n) {
           ev.preventDefault();
-          alert('Sélectionnez au moins un utilisateur (ou « Tous les résultats du filtre »).');
+          alert('Sélectionnez au moins un utilisateur (ou « Sél. tous »).');
           return;
         }
         if (!groupSelect || !groupSelect.value) {
@@ -607,7 +570,7 @@
     if (!users.length) {
       tbody.innerHTML =
         '<tr class="user-results-empty"><td colspan="3">' +
-        '<div class="empty-state" style="padding:var(--sp-5);">' +
+        '<div class="empty-state" style="padding:var(--sp-4);">' +
         '<div class="empty-title">Aucun résultat</div>' +
         '<div class="empty-desc">Aucun utilisateur Keycloak pour cette recherche.</div>' +
         '</div></td></tr>';
@@ -620,14 +583,15 @@
       var href = '/admin/rbac/users/view?realm_id=' + encodeURIComponent(realmId) +
         '&keycloak_user_id=' + encodeURIComponent(u.id);
       return '<tr>' +
-        '<td><div>' + escapeHtml(label) + '</div>' +
-        (u.username && u.username !== label ? '<div class="mono form-hint">' + escapeHtml(u.username) + '</div>' : '') +
+        '<td><div class="users-id-name">' + escapeHtml(label) + '</div>' +
+        (u.username && u.username !== label ? '<div class="users-id-sub">' + escapeHtml(u.username) + '</div>' : '') +
         '</td>' +
         '<td class="mono">' + escapeHtml(email) + '</td>' +
         '<td style="text-align:right;white-space:nowrap;">' +
-        '<button type="button" class="btn btn-ghost btn-sm" data-pick-user="' + escapeHtml(u.id) + '" data-pick-label="' + escapeHtml(label) + '">Sélectionner</button> ' +
+        '<div class="users-row-actions">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-pick-user="' + escapeHtml(u.id) + '" data-pick-label="' + escapeHtml(label) + '">Sél.</button> ' +
         '<a class="btn btn-primary btn-sm" href="' + href + '">Fiche</a>' +
-        '</td></tr>';
+        '</div></td></tr>';
     }).join('');
     tbody.querySelectorAll('[data-pick-user]').forEach(function (btn) {
       btn.addEventListener('click', function () {
