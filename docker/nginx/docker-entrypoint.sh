@@ -21,6 +21,10 @@ fi
 
 /sync-exports-to-confd.sh
 
+if [[ ! -d /var/log/nginx/apps ]]; then
+  echo "ERROR: /var/log/nginx/apps missing — Accès apps requires shared nginx-logs volume" >&2
+fi
+
 envsubst '${PORTAL_INTERNAL_TOKEN}' \
   < /etc/nginx/templates-portal/proxy_portal_trusted_internal.conf.template \
   > /etc/nginx/snippets/proxy_portal_trusted_internal.conf

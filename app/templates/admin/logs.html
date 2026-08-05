@@ -238,7 +238,10 @@
     </div>
     <p class="form-help mb-2">
       Access log nginx (<span class="mono">{slug}.access.log</span>) — requêtes HTTP y compris
-      <span class="mono">public_proxy</span>. Volume partagé avec bastion-nginx.
+      <span class="mono">public_proxy</span>. Volume hôte partagé&nbsp;:
+      <span class="mono">…/nginx-logs</span> → nginx <span class="mono">/var/log/nginx/apps</span>
+      et bastion-app <span class="mono">NGINX_APP_LOGS_DIR</span>.
+      Après déploiement&nbsp;: <span class="mono">docker compose up -d --force-recreate nginx bastion-app</span>.
     </p>
     <div class="card">
       <pre class="container-logs-pre font-mono" id="app-access-pre" aria-live="polite">Sélectionnez une application.</pre>

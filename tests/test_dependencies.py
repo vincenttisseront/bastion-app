@@ -17,6 +17,7 @@ from app.admin.dependencies_service import (
     compute_status,
     fetch_npm_latest,
     fetch_pypi_latest,
+    normalize_version_token,
     parse_npm_dependencies,
     parse_python_dependencies,
     refresh_latest_versions,
@@ -79,10 +80,31 @@ def _dep(
         (None, "1.0.0", "unknown"),
         ("not-a-version", "1.0.0", "unknown"),
         ("v1.0.0", "v1.0.1", "outdated_patch"),
+        # Constraints / declared ranges must still compare (Nuxt-style analysis)
+        ("^1.49.0", "1.61.1", "outdated_minor"),
+        (">=0.115", "0.118.2", "outdated_minor"),
+        ("~2.9.0", "3.0.0", "outdated_major"),
+        ("0.115.0", "0.115.14", "outdated_patch"),
     ],
 )
 def test_compute_status(current, latest, expected):
     assert compute_status(current, latest) == expected
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("^1.49.0", "1.49.0"),
+        (">=0.115", "0.115"),
+        ("[standard]>=0.49", "0.49"),
+        ("1.2.3+meta", "1.2.3+meta"),
+        ("—", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_normalize_version_token(raw, expected):
+    assert normalize_version_token(raw) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -278,17 +300,58 @@ def test_parse_npm_real_package_json():
 @respx.mock
 def test_fetch_pypi_latest_ok():
     respx.get("https://pypi.org/pypi/fastapi/json").mock(
-        return_value=httpx.Response(200, json={"info": {"version": "0.118.2"}})
+        return_value=httpx.Response(200, json={"info": {"version": "0.118.2"}, "releases": {}})
     )
     assert fetch_pypi_latest("fastapi") == "0.118.2"
 
 
 @respx.mock
+def test_fetch_pypi_latest_skips_yanked_for_stable():
+    respx.get("https://pypi.org/pypi/demo/json").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "info": {"version": "2.0.0"},
+                "releases": {
+                    "1.9.0": [{"yanked": False}],
+                    "2.0.0": [{"yanked": True}],
+                },
+            },
+        )
+    )
+    assert fetch_pypi_latest("demo") == "1.9.0"
+
+
+@respx.mock
 def test_fetch_npm_latest_ok():
-    respx.get("https://registry.npmjs.org/@playwright%2Ftest/latest").mock(
-        return_value=httpx.Response(200, json={"version": "1.61.1"})
+    respx.get("https://registry.npmjs.org/@playwright%2Ftest").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "dist-tags": {"latest": "1.61.1"},
+                "versions": {"1.61.1": {}, "1.61.1-beta.1": {}},
+            },
+        )
     )
     assert fetch_npm_latest("@playwright/test") == "1.61.1"
+
+
+@respx.mock
+def test_fetch_npm_latest_falls_back_to_highest_stable():
+    respx.get("https://registry.npmjs.org/left-pad").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "dist-tags": {},
+                "versions": {
+                    "1.2.0": {},
+                    "1.3.0": {},
+                    "2.0.0-rc.1": {},
+                },
+            },
+        )
+    )
+    assert fetch_npm_latest("left-pad") == "1.3.0"
 
 
 @respx.mock
@@ -319,13 +382,18 @@ def test_refresh_latest_versions_partial_errors(db_session: Session):
         _dep("npm", "@playwright/test", "1.49.0", "dev", declared="^1.49.0"),
     ]
     respx.get("https://pypi.org/pypi/fastapi/json").mock(
-        return_value=httpx.Response(200, json={"info": {"version": "0.118.2"}})
+        return_value=httpx.Response(
+            200, json={"info": {"version": "0.118.2"}, "releases": {"0.118.2": []}}
+        )
     )
     respx.get("https://pypi.org/pypi/missing-pkg/json").mock(
         return_value=httpx.Response(404, json={"message": "Not Found"})
     )
-    respx.get("https://registry.npmjs.org/@playwright%2Ftest/latest").mock(
-        return_value=httpx.Response(200, json={"version": "1.61.1"})
+    respx.get("https://registry.npmjs.org/@playwright%2Ftest").mock(
+        return_value=httpx.Response(
+            200,
+            json={"dist-tags": {"latest": "1.61.1"}, "versions": {"1.61.1": {}}},
+        )
     )
 
     result = refresh_latest_versions(
@@ -459,10 +527,15 @@ def test_dependencies_export_and_page_after_refresh(
     client: TestClient, db_session: Session
 ):
     respx.get(url__regex=r"https://pypi\.org/pypi/.+/json").mock(
-        return_value=httpx.Response(200, json={"info": {"version": "9.9.9"}})
+        return_value=httpx.Response(
+            200, json={"info": {"version": "9.9.9"}, "releases": {"9.9.9": []}}
+        )
     )
-    respx.get(url__regex=r"https://registry\.npmjs\.org/.+/latest").mock(
-        return_value=httpx.Response(200, json={"version": "9.9.9"})
+    respx.get(url__regex=r"https://registry\.npmjs\.org/.+").mock(
+        return_value=httpx.Response(
+            200,
+            json={"dist-tags": {"latest": "9.9.9"}, "versions": {"9.9.9": {}}},
+        )
     )
 
     refresh = client.post(
