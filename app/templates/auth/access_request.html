@@ -1,10 +1,94 @@
 {% extends "base_public.html" %}
-{% block title %}Demander un accès{% endblock %}
+{% block title %}{% if request_submitted %}Demande en cours de traitement{% else %}Demander un accès{% endif %}{% endblock %}
 {% block body_class %}page-login{% endblock %}
 
 {% block content %}
-<div class="login-wrap">
-  <div class="login-card">
+<div class="login-wrap{% if request_submitted %} login-wrap--status{% endif %}">
+  <div class="login-card{% if request_submitted %} login-card--status{% endif %}">
+
+    {% if request_submitted %}
+    <div class="access-status" role="status" aria-live="polite">
+      <div class="access-status__icon" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span class="access-status__icon-badge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+          </svg>
+        </span>
+      </div>
+      <h1 class="login-title access-status__title">Demande en cours de traitement</h1>
+      <p class="login-sub access-status__lead">
+        Votre demande d’accès a été transmise. Un administrateur examine actuellement vos informations.
+      </p>
+
+      <div class="access-stepper" role="list" aria-label="Progression de la demande">
+        <div class="access-stepper__track" aria-hidden="true"><span class="access-stepper__track-fill"></span></div>
+        <div class="access-stepper__step is-done" role="listitem">
+          <span class="access-stepper__node" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          </span>
+          <span class="access-stepper__label">Envoyée</span>
+        </div>
+        <div class="access-stepper__step is-current" role="listitem" aria-current="step">
+          <span class="access-stepper__node" aria-hidden="true"><span class="access-stepper__dot"></span></span>
+          <span class="access-stepper__label">Examen</span>
+        </div>
+        <div class="access-stepper__step" role="listitem">
+          <span class="access-stepper__node" aria-hidden="true"></span>
+          <span class="access-stepper__label">Configuré</span>
+        </div>
+      </div>
+
+      <div class="access-eta">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 4h14"/><path d="M5 20h14"/><path d="M8 4c0 6 8 6 8 12"/><path d="M16 4c0 6-8 6-8 12"/><path d="M8 20c0-4 3-6 4-6s4 2 4 6"/>
+        </svg>
+        <span>Délai de traitement estimé : <strong>24&nbsp;h</strong></span>
+      </div>
+
+      <div class="access-details">
+        <div class="access-details__head">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/>
+          </svg>
+          <span>Détails de la demande</span>
+        </div>
+        <dl class="access-details__grid">
+          <div>
+            <dt>Identifiant</dt>
+            <dd class="mono">{{ submitted.username }}</dd>
+          </div>
+          <div>
+            <dt>Société / organisation</dt>
+            <dd>{{ submitted.organization }}</dd>
+          </div>
+          {% if submitted.message %}
+          <div class="access-details__full">
+            <dt>Motif</dt>
+            <dd>{{ submitted.message }}</dd>
+          </div>
+          {% endif %}
+        </dl>
+      </div>
+
+      <a href="/login" class="btn btn-secondary btn-full">Retour à la connexion</a>
+      {% if branding.support_contact %}
+      <p class="access-support">
+        {% if '@' in branding.support_contact %}
+        <a href="mailto:{{ branding.support_contact }}">
+          Contacter le support
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+        </a>
+        {% else %}
+        <span>Support : {{ branding.support_contact }}</span>
+        {% endif %}
+      </p>
+      {% endif %}
+    </div>
+
+    {% else %}
     <div class="login-header">
       <h1 class="login-title">Demander un accès</h1>
       <p class="login-sub">Votre demande sera examinée par un administrateur, qui placera votre compte dans la bonne organisation.</p>
@@ -12,9 +96,6 @@
 
     {% if form_error %}
     <div class="alert alert-err" role="alert">{{ form_error }}</div>
-    {% endif %}
-    {% if form_success %}
-    <div class="alert alert-ok" role="alert">{{ form_success }}</div>
     {% endif %}
 
     {% if access_form_open %}
@@ -101,6 +182,7 @@
     <p class="login-sub login-restart" style="margin-top:var(--sp-4);">
       <a href="/login">← Retour à la connexion</a>
     </p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

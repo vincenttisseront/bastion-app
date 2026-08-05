@@ -196,3 +196,114 @@ body.page-login .main-content{
   border-color:var(--accent);
   box-shadow:0 0 0 3px var(--accent-muted);
 }
+
+/* Access-request submitted status (processing screen) */
+.login-wrap--status{max-width:440px}
+.login-card--status{gap:0}
+.access-status{
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  gap:var(--sp-5);
+}
+.access-status__icon{
+  position:relative;width:3.5rem;height:3.5rem;border-radius:var(--r-lg);
+  display:inline-flex;align-items:center;justify-content:center;
+  color:var(--ok);
+  background:color-mix(in srgb,var(--ok) 14%,var(--bg-tertiary));
+  border:1px solid color-mix(in srgb,var(--ok) 28%,var(--border));
+  box-shadow:0 0 0 6px color-mix(in srgb,var(--ok) 8%,transparent);
+}
+.access-status__icon-badge{
+  position:absolute;right:-4px;bottom:-4px;
+  width:1.25rem;height:1.25rem;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  color:var(--ok);background:var(--bg-card);
+  border:2px solid var(--bg-card);
+  box-shadow:0 0 0 1px color-mix(in srgb,var(--ok) 40%,var(--border));
+}
+.access-status__title{margin:0;font-size:clamp(1.25rem,4vw,1.5rem);line-height:1.25}
+.access-status__lead{margin:0;max-width:28rem}
+
+.access-stepper{
+  list-style:none;margin:0;padding:0.15rem 0 0;
+  width:100%;max-width:20rem;
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  position:relative;
+}
+.access-stepper__track{
+  position:absolute;top:0.7rem;left:16.5%;right:16.5%;height:2px;
+  background:var(--border);z-index:0;pointer-events:none;
+}
+.access-stepper__track-fill{
+  display:block;height:100%;width:50%;background:var(--ok);border-radius:1px;
+}
+.access-stepper__step{
+  position:relative;z-index:1;
+  display:flex;flex-direction:column;align-items:center;gap:0.55rem;
+}
+.access-stepper__node{
+  width:1.4rem;height:1.4rem;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;
+  background:var(--bg-card);border:2px solid var(--border);color:#fff;
+  box-sizing:border-box;
+}
+.access-stepper__dot{
+  width:0.45rem;height:0.45rem;border-radius:50%;background:var(--ok);
+}
+.access-stepper__label{
+  font-size:var(--fs-xs);font-weight:600;color:var(--text-3);letter-spacing:.01em;
+}
+.access-stepper__step.is-done .access-stepper__node{
+  background:var(--ok);border-color:var(--ok);
+}
+.access-stepper__step.is-done .access-stepper__label{color:var(--text-2)}
+.access-stepper__step.is-current .access-stepper__node{
+  border-color:var(--ok);background:var(--bg-card);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 16%,transparent);
+}
+.access-stepper__step.is-current .access-stepper__label{color:var(--ok)}
+
+.access-eta{
+  display:inline-flex;align-items:center;gap:0.5rem;
+  padding:0.45rem 0.9rem;border-radius:999px;
+  font-size:var(--fs-xs);font-weight:600;color:var(--ok);
+  background:color-mix(in srgb,var(--ok) 10%,transparent);
+  border:1px solid color-mix(in srgb,var(--ok) 35%,transparent);
+}
+.access-eta strong{font-weight:700}
+
+.access-details{
+  width:100%;text-align:left;
+  padding:var(--sp-4);
+  background:var(--bg-tertiary);
+  border:1px solid var(--border);
+  border-radius:var(--r-lg);
+}
+.access-details__head{
+  display:flex;align-items:center;gap:0.45rem;
+  margin-bottom:var(--sp-3);
+  font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--text-3);
+}
+.access-details__grid{
+  margin:0;display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4) var(--sp-3);
+}
+.access-details__grid dt{
+  margin:0 0 0.25rem;font-size:10px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text-3);
+}
+.access-details__grid dd{
+  margin:0;font-size:var(--fs-sm);font-weight:600;color:var(--text);line-height:1.4;
+  word-break:break-word;
+}
+.access-details__full{grid-column:1 / -1}
+.access-support{
+  margin:0;font-size:var(--fs-xs);color:var(--text-3);
+}
+.access-support a{
+  display:inline-flex;align-items:center;gap:0.35rem;
+  color:var(--text-2);font-weight:600;text-decoration:none;
+}
+.access-support a:hover{color:var(--accent);text-decoration:underline}
+@media (max-width:380px){
+  .access-details__grid{grid-template-columns:1fr}
+}

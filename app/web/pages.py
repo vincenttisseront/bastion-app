@@ -940,13 +940,16 @@ def _access_request_page(
     form_error: str | None = None,
     form_success: str | None = None,
     form_values: dict | None = None,
+    request_submitted: bool = False,
+    submitted: dict | None = None,
 ):
     from app.rbac.access_request_service import realms_advertising_access_requests
     from app.security.captcha import issue_math_captcha
 
     advertising = realms_advertising_access_requests(db)
     secret = settings.vault_portal_internal_token or "dev-insecure"
-    captcha = issue_math_captcha(secret) if advertising else None
+    show_form = bool(advertising) and not request_submitted
+    captcha = issue_math_captcha(secret) if show_form else None
     return render(
         "auth/access_request.html",
         **_ctx(
@@ -954,6 +957,8 @@ def _access_request_page(
             settings,
             hide_chrome=True,
             access_form_open=bool(advertising),
+            request_submitted=bool(request_submitted),
+            submitted=submitted or {},
             captcha_question=captcha.question if captcha else "",
             captcha_token=captcha.token if captcha else "",
             captcha_left=captcha.left if captcha else None,
@@ -1021,11 +1026,12 @@ def access_request_post(
             request,
             settings,
             db,
-            form_success=(
-                "Demande enregistrée. Un administrateur vous contactera si elle "
-                "est acceptée."
-            ),
-            form_values={},
+            request_submitted=True,
+            submitted={
+                "username": form_values["username"] or "—",
+                "organization": form_values["organization"] or "—",
+                "message": form_values["message"],
+            },
         )
 
     if not realms_advertising_access_requests(db):
@@ -1090,11 +1096,12 @@ def access_request_post(
         request,
         settings,
         db,
-        form_success=(
-            "Demande envoyée. Un administrateur l'examinera ; "
-            "vous serez contacté à l'adresse indiquée."
-        ),
-        form_values={},
+        request_submitted=True,
+        submitted={
+            "username": form_values["username"],
+            "organization": form_values["organization"],
+            "message": form_values["message"],
+        },
     )
 
 
