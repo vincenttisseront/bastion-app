@@ -229,7 +229,7 @@
             <input type="hidden" name="redirect_url" value="{{ view_url }}#identite">
             <label class="form-check" style="margin:0;">
               <input type="checkbox" name="send_email" value="1"
-                     {% if realm and realm.send_credentials_email and realm.smtp_enabled %}checked{% endif %}>
+                     {% if realm and realm.send_credentials_email %}checked{% endif %}>
               <span>Envoyer par email{% if account and account.email %} ({{ account.email }}){% endif %}</span>
             </label>
             <div>

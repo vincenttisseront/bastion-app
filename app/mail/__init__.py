@@ -1,1 +1,1 @@
-"""Mail package — per-realm SMTP delivery."""
+"""Mail package — global SMTP delivery (PortalSettings)."""

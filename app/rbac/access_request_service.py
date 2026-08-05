@@ -4,7 +4,7 @@ import logging
 import re
 from sqlalchemy.orm import Session, joinedload
 from app.audit import log_action
-from app.mail.smtp_service import SmtpError, send_email, smtp_configured
+from app.mail.smtp_service import SmtpError, get_smtp_config, send_email
 from app.models import AccessRequest, BastionAccount, RealmConfig, utcnow
 from app.rbac.account_service import (
     AccountCreationError,
@@ -175,18 +175,20 @@ def submit_access_request(
     )
     db.commit()
     db.refresh(row)
-    # Best-effort admin ping via first advertising realm that has SMTP.
-    notify_realm = next(
-        (r for r in realms_advertising_access_requests(db) if smtp_configured(r) and r.smtp_from_email),
-        None,
-    )
-    if notify_realm is not None:
+    # Best-effort admin ping via global SMTP (notify address = From).
+    smtp = get_smtp_config(db, settings)
+    if smtp is not None and (smtp.smtp_from_email or "").strip():
+        notify_to = (smtp.smtp_from_email or "").strip()
+        realm_label = next(
+            (r.name or r.slug for r in realms_advertising_access_requests(db)),
+            "portail",
+        )
         try:
             send_email(
-                notify_realm,
+                smtp,
                 settings,
-                to_email=notify_realm.smtp_from_email,
-                subject=f"[{notify_realm.name or notify_realm.slug}] Nouvelle demande d'accès — {username}",
+                to_email=notify_to,
+                subject=f"[{realm_label}] Nouvelle demande d'accès — {username}",
                 body_text=(
                     f"Nouvelle demande d'accès en attente.\n\n"
                     f"Identifiant : {username}\n"
@@ -199,8 +201,7 @@ def submit_access_request(
             )
         except SmtpError:
             logger.info(
-                "access_request admin notify skipped (smtp) realm=%s id=%s",
-                notify_realm.slug,
+                "access_request admin notify skipped (smtp) id=%s",
                 row.id,
             )
     return row
@@ -259,6 +260,7 @@ async def approve_access_request(
     if want_email and temp_password and account.keycloak_user_id:
         try:
             send_account_credentials_email(
+                db,
                 settings,
                 realm=realm,
                 account=account,

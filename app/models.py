@@ -600,19 +600,19 @@ class RealmConfig(Base):
     keycloak_provision_client_secret_encrypted = Column(String, nullable=True)
     provisioning_enabled = Column(Boolean, default=False, nullable=False)
 
-    # Per-realm SMTP — used to email Keycloak credentials (create / reset) and
-    # notify admins of access requests. Password Fernet-encrypted like other secrets.
+    # Legacy per-realm SMTP columns (unused — config is global on PortalSettings).
+    # Kept for migration/backfill compatibility; do not write from the admin UI.
     smtp_enabled = Column(Boolean, default=False, nullable=False)
     smtp_host = Column(String, nullable=True)
-    smtp_port = Column(Integer, nullable=True)  # default 587 when unset
-    smtp_use_tls = Column(Boolean, default=True, nullable=False)  # STARTTLS
+    smtp_port = Column(Integer, nullable=True)
+    smtp_use_tls = Column(Boolean, default=True, nullable=False)
     smtp_username = Column(String, nullable=True)
     smtp_password_encrypted = Column(Text, nullable=True)
     smtp_from_email = Column(String, nullable=True)
     smtp_from_name = Column(String, nullable=True)
     # Public « Demander un accès » form on the login page → AccessRequest queue.
     access_request_enabled = Column(Boolean, default=False, nullable=False)
-    # Auto-email the temporary Keycloak password after create / reset (needs SMTP).
+    # Auto-email the temporary Keycloak password after create / reset (needs global SMTP).
     send_credentials_email = Column(Boolean, default=False, nullable=False)
 
     @property
@@ -934,6 +934,18 @@ class PortalSettings(Base):
     hot_store_last_test_error = Column(Text, nullable=True)
     hot_store_migrate_skipped_at = Column(DateTime(timezone=True), nullable=True)
     hot_store_migrate_skipped_by = Column(String, nullable=True)
+
+    # Global outbound SMTP (Admin → Général → Configuration). Used for
+    # credential emails and access-request notifications — not per-realm.
+    smtp_enabled = Column(Boolean, nullable=False, default=False)
+    smtp_host = Column(String, nullable=True)
+    smtp_port = Column(Integer, nullable=True)
+    smtp_use_tls = Column(Boolean, nullable=False, default=True)
+    smtp_username = Column(String, nullable=True)
+    smtp_password_encrypted = Column(Text, nullable=True)
+    smtp_from_email = Column(String, nullable=True)
+    smtp_from_name = Column(String, nullable=True)
+
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 

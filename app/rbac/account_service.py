@@ -994,6 +994,7 @@ async def create_bastion_account(
 
 
 def send_credentials_email(
+    db: Session,
     settings: Settings,
     *,
     realm: RealmConfig,
@@ -1002,8 +1003,16 @@ def send_credentials_email(
     temporary_password: str,
     kind: str = "created",
 ) -> None:
-    """Email a temporary Keycloak password via the realm's SMTP. Raises SmtpError."""
-    from app.mail.smtp_service import credentials_email_bodies, send_email
+    """Email a temporary Keycloak password via global SMTP. Raises SmtpError."""
+    from app.mail.smtp_service import credentials_email_bodies, get_smtp_config, send_email
+
+    smtp = get_smtp_config(db, settings)
+    if smtp is None:
+        from app.mail.smtp_service import SmtpError
+
+        raise SmtpError(
+            "SMTP non configuré — activez-le dans Admin → Général → Configuration."
+        )
 
     portal = (settings.portal_domain or "portal.ar-systems.fr").strip()
     portal_url = f"https://{portal}" if not portal.startswith("http") else portal
@@ -1015,7 +1024,7 @@ def send_credentials_email(
         kind=kind,
     )
     send_email(
-        realm,
+        smtp,
         settings,
         to_email=to_email,
         subject=subject,
@@ -1025,6 +1034,7 @@ def send_credentials_email(
 
 
 def send_account_credentials_email(
+    db: Session,
     settings: Settings,
     *,
     realm: RealmConfig,
@@ -1032,8 +1042,9 @@ def send_account_credentials_email(
     temporary_password: str,
     kind: str = "created",
 ) -> None:
-    """Email the temporary Keycloak password via the realm's SMTP. Raises SmtpError."""
+    """Email the temporary Keycloak password via global SMTP. Raises SmtpError."""
     send_credentials_email(
+        db,
         settings,
         realm=realm,
         username=account.username,
@@ -1148,6 +1159,7 @@ async def reset_keycloak_user_password(
         else:
             try:
                 send_credentials_email(
+                    db,
                     settings,
                     realm=realm,
                     username=label,

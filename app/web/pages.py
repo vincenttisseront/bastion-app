@@ -2668,7 +2668,6 @@ def admin_security(
     )
     from app.vault.encryption_key_store import get_vault_key_status
     from app.web.container_logs_settings import ensure_container_logs_settings
-    from app.siem.settings_service import ensure_siem_settings, public_status as siem_public_status
 
     subdomain_apps = (
         db.query(App)
@@ -2693,7 +2692,6 @@ def admin_security(
     policy = get_or_create_policy(db)
     rules = {r.rule_type: r for r in list_ban_rules(db)}
     container_logs = ensure_container_logs_settings(db)
-    siem_settings = ensure_siem_settings(db)
     return render(
         "admin/security.html",
         **_ctx(
@@ -2710,8 +2708,6 @@ def admin_security(
             security_bans=list_active_bans(db),
             security_allowlist=list_allowlist(db),
             container_logs_settings=container_logs,
-            siem_settings=siem_settings,
-            siem_status=siem_public_status(db),
         ),
     )
 
@@ -2995,89 +2991,14 @@ def admin_security_container_logs_remove(
 
 
 @admin_router.post("/admin/security/siem")
-def admin_security_siem(
-    request: Request,
-    enabled: str | None = Form(None),
-    protocol: str = Form("webhook_https"),
-    syslog_host: str = Form(""),
-    syslog_port: int = Form(6514),
-    syslog_tls_verify: str | None = Form(None),
-    webhook_url: str = Form(""),
-    webhook_auth_type: str = Form("none"),
-    webhook_auth_secret: str = Form(""),
-    clear_webhook_secret: str | None = Form(None),
-    filter_mode: str = Form("denylist"),
-    filter_actions: str = Form(""),
-    retry_max_queue_size: int = Form(5000),
-    retry_max_age_minutes: int = Form(1440),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    user=Depends(require_admin),
-):
-    from app.siem.settings_service import update_siem_settings
-
-    actions = [a.strip() for a in (filter_actions or "").replace(";", ",").split(",") if a.strip()]
-    try:
-        update_siem_settings(
-            db,
-            settings,
-            enabled=enabled == "on",
-            protocol=protocol,
-            syslog_host=syslog_host,
-            syslog_port=syslog_port,
-            syslog_tls_verify=syslog_tls_verify == "on",
-            webhook_url=webhook_url,
-            webhook_auth_type=webhook_auth_type,
-            webhook_auth_secret=webhook_auth_secret or None,
-            clear_webhook_secret=clear_webhook_secret == "on",
-            filter_mode=filter_mode,
-            filter_actions=actions,
-            retry_max_queue_size=retry_max_queue_size,
-            retry_max_age_minutes=retry_max_age_minutes,
-            actor=user.email or user.username or "admin",
-            ip_address=_client_ip(request),
-        )
-    except ValueError as exc:
-        response = RedirectResponse(url="/admin/security#siem", status_code=302)
-        flash_redirect(
-            response,
-            str(exc),
-            "error",
-            settings.vault_portal_internal_token or "dev",
-        )
-        return response
-    response = RedirectResponse(url="/admin/security#siem", status_code=302)
-    flash_redirect(
-        response,
-        "Paramètres SIEM enregistrés.",
-        "success",
-        settings.vault_portal_internal_token or "dev",
-    )
-    return response
+def admin_security_siem_legacy_redirect():
+    """Old URL — SIEM moved to Général → Configuration."""
+    return RedirectResponse(url="/admin/configuration#siem", status_code=302)
 
 
 @admin_router.post("/admin/security/siem/test")
-def admin_security_siem_test(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    user=Depends(require_admin),
-):
-    from app.siem.outbox import run_connectivity_test
-
-    ok, message = run_connectivity_test(
-        db,
-        settings,
-        actor=user.email or user.username or "admin",
-    )
-    response = RedirectResponse(url="/admin/security#siem", status_code=302)
-    flash_redirect(
-        response,
-        message,
-        "success" if ok else "error",
-        settings.vault_portal_internal_token or "dev",
-    )
-    return response
+def admin_security_siem_test_legacy_redirect():
+    return RedirectResponse(url="/admin/configuration#siem", status_code=302)
 
 
 @admin_router.post("/admin/security/misc")

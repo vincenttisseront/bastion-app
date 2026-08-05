@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% block title %}Configuration{% endblock %}
+{% block breadcrumb %}Admin / Configuration{% endblock %}
+
+{% block content %}
+{% set s = smtp %}
+{% set siem = siem_settings | default(none) %}
+{% set st = siem_status | default({}) %}
+{% set siem_on = siem and siem.enabled %}
+{% set siem_proto = siem.protocol if siem else 'webhook_https' %}
+<div class="page" id="configuration-page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Configuration</h1>
+      <p class="page-sub">Réglages globaux du portail — SMTP et forwarding SIEM</p>
+    </div>
+    <div class="page-header-actions">
+      {% if s.ready %}
+      <span class="badge badge-ok">SMTP prêt</span>
+      {% elif s.enabled %}
+      <span class="badge badge-warn">SMTP incomplet</span>
+      {% else %}
+      <span class="badge badge-muted">SMTP off</span>
+      {% endif %}
+      {% if siem_on %}
+      <span class="badge badge-ok">SIEM actif</span>
+      {% else %}
+      <span class="badge badge-muted">SIEM off</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <form method="post" action="/admin/configuration" id="configuration-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <div class="form-section" id="smtp">
+      <div class="form-section-header">
+        <div class="form-section-title">SMTP sortant</div>
+        <div class="form-section-sub">
+          Envoi des identifiants Keycloak et notifications de demandes d'accès.
+          Une seule configuration pour tout le portail (pas par realm).
+        </div>
+      </div>
+      <div class="form-body">
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="smtp_enabled" value="on"
+                   {% if s.enabled %}checked{% endif %}>
+            Activer l'envoi d'emails via SMTP
+          </label>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="smtp_host">Hôte SMTP</label>
+            <input type="text" id="smtp_host" name="smtp_host" class="form-input"
+                   value="{{ s.host }}" placeholder="smtp.example.com" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="smtp_port">Port</label>
+            <input type="number" id="smtp_port" name="smtp_port" class="form-input"
+                   value="{{ s.port }}" min="1" max="65535">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="smtp_use_tls" value="on"
+                   {% if s.use_tls %}checked{% endif %}>
+            STARTTLS (recommandé sur le port 587)
+          </label>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="smtp_username">Utilisateur SMTP</label>
+            <input type="text" id="smtp_username" name="smtp_username" class="form-input"
+                   value="{{ s.username }}" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="smtp_password">Mot de passe SMTP</label>
+            <input type="password" id="smtp_password" name="smtp_password" class="form-input"
+                   value="" placeholder="{% if s.password_configured %}••••••••{% else %}Secret SMTP{% endif %}"
+                   autocomplete="new-password">
+            <p class="form-help">Laissez vide pour conserver le secret actuel.</p>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="smtp_from_email">Expéditeur (From)</label>
+            <input type="email" id="smtp_from_email" name="smtp_from_email" class="form-input"
+                   value="{{ s.from_email }}" placeholder="noreply@example.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="smtp_from_name">Nom affiché</label>
+            <input type="text" id="smtp_from_name" name="smtp_from_name" class="form-input"
+                   value="{{ s.from_name }}" placeholder="Portail sécurisé">
+          </div>
+        </div>
+        <div class="form-actions" style="margin-top:var(--sp-3);">
+          <button type="submit" class="btn btn-primary">Enregistrer SMTP</button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="form-section form-section-gap" id="siem">
+    <div class="form-section-header">
+      <div class="form-section-title">Forwarding SIEM</div>
+      <div class="form-section-sub">
+        CEF via syslog TLS, ou JSON ECS-like via webhook HTTPS.
+        Désactivé par défaut — activation explicite requise.
+      </div>
+    </div>
+    <div class="form-body">
+      <p class="form-help mb-4">
+        Dernier envoi réussi :
+        <strong class="mono">{{ st.last_success_at or "—" }}</strong>
+        · File d'attente : <strong class="mono">{{ st.queue_size | default(0) }}</strong>
+        {% if st.webhook_auth_configured %}
+        · Secret webhook : <span class="badge badge-ok">configuré</span>
+        {% else %}
+        · Secret webhook : <span class="badge badge-muted">absent</span>
+        {% endif %}
+      </p>
+
+      <form method="post" action="/admin/configuration/siem" class="stack" id="siem-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="enabled" value="on" data-siem-enabled{% if siem_on %} checked{% endif %}>
+            Activer le forwarding SIEM
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="siem_protocol">Protocole</label>
+          <select class="form-select" id="siem_protocol" name="protocol" data-siem-field="protocol">
+            <option value="webhook_https"{% if siem_proto == 'webhook_https' %} selected{% endif %}>Webhook HTTPS (JSON ECS-like)</option>
+            <option value="syslog_tls"{% if siem_proto == 'syslog_tls' %} selected{% endif %}>Syslog TCP+TLS (CEF)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="siem_syslog_host">Syslog host</label>
+            <input class="form-input" id="siem_syslog_host" name="syslog_host" data-siem-field="syslog_host"
+                   value="{{ siem.syslog_host if siem else '' }}" placeholder="siem.example.internal" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siem_syslog_port">Syslog port</label>
+            <input class="form-input" id="siem_syslog_port" name="syslog_port" type="number" min="1" max="65535"
+                   data-siem-field="syslog_port" value="{{ siem.syslog_port if siem else 6514 }}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="syslog_tls_verify" value="on"{% if not siem or siem.syslog_tls_verify %} checked{% endif %}>
+            Vérifier le certificat TLS syslog (recommandé)
+          </label>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="siem_webhook_url">Webhook URL (HTTPS uniquement)</label>
+          <input class="form-input" id="siem_webhook_url" name="webhook_url" data-siem-field="webhook_url"
+                 value="{{ siem.webhook_url if siem else '' }}" placeholder="https://siem.example/hec" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="siem_webhook_auth_type">Auth webhook</label>
+            <select class="form-select" id="siem_webhook_auth_type" name="webhook_auth_type">
+              {% set at = siem.webhook_auth_type if siem else 'none' %}
+              <option value="none"{% if at == 'none' %} selected{% endif %}>Aucune</option>
+              <option value="bearer"{% if at == 'bearer' %} selected{% endif %}>Bearer</option>
+              <option value="basic"{% if at == 'basic' %} selected{% endif %}>Basic (user:pass)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siem_webhook_auth_secret">Secret / token (laissez vide pour conserver)</label>
+            <input class="form-input" id="siem_webhook_auth_secret" name="webhook_auth_secret" type="password"
+                   value="" placeholder="••••••••" autocomplete="new-password">
+            <label class="form-label form-check-row mt-2">
+              <input type="checkbox" name="clear_webhook_secret" value="on">
+              Effacer le secret configuré
+            </label>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="siem_filter_mode">Filtre d'actions</label>
+            <select class="form-select" id="siem_filter_mode" name="filter_mode">
+              {% set fm = siem.filter_mode if siem else 'denylist' %}
+              <option value="denylist"{% if fm == 'denylist' %} selected{% endif %}>Denylist (exclure)</option>
+              <option value="allowlist"{% if fm == 'allowlist' %} selected{% endif %}>Allowlist (inclure uniquement)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siem_filter_actions">Actions (séparées par des virgules)</label>
+            <input class="form-input" id="siem_filter_actions" name="filter_actions"
+                   value="{{ (siem.filter_actions or []) | join(', ') if siem else '' }}"
+                   placeholder="health.probe, admin.container_logs.viewed" autocomplete="off">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="siem_retry_max_queue_size">Taille max file d'attente</label>
+            <input class="form-input" id="siem_retry_max_queue_size" name="retry_max_queue_size" type="number"
+                   min="1" max="100000" value="{{ siem.retry_max_queue_size if siem else 5000 }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="siem_retry_max_age_minutes">Âge max (minutes)</label>
+            <input class="form-input" id="siem_retry_max_age_minutes" name="retry_max_age_minutes" type="number"
+                   min="1" value="{{ siem.retry_max_age_minutes if siem else 1440 }}">
+          </div>
+        </div>
+        <div class="form-actions" style="margin-top:var(--sp-3);">
+          <button type="submit" class="btn btn-primary">Enregistrer SIEM</button>
+          <button type="submit" form="siem-test-form" class="btn btn-secondary">Tester la connexion</button>
+        </div>
+        <p class="form-help">Le test envoie un événement <span class="mono">siem.connectivity.test</span> sans attendre un log métier.</p>
+      </form>
+      <form method="post" action="/admin/configuration/siem/test" id="siem-test-form" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

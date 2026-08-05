@@ -339,15 +339,16 @@ def test_connectivity_test_button(client: TestClient, db_session: Session, monke
         lambda *a, **k: None,
     )
     resp = client.post(
-        "/admin/security/siem/test",
+        "/admin/configuration/siem/test",
         headers=ADMIN_HEADERS,
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    page = client.get("/admin/security", headers=ADMIN_HEADERS)
+    page = client.get("/admin/configuration", headers=ADMIN_HEADERS)
     assert page.status_code == 200
     assert 'id="siem"' in page.text
     assert "Forwarding SIEM" in page.text
+    assert 'id="smtp"' in page.text
 
 
 def test_siem_disabled_by_default_no_enqueue(db_session: Session):

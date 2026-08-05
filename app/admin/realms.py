@@ -200,28 +200,10 @@ def _apply_oidc_bff_from_form(
 def _smtp_access_form_values(realm: RealmConfig | None) -> dict[str, Any]:
     if realm is None:
         return {
-            "smtp_enabled": False,
-            "smtp_host": "",
-            "smtp_port": 587,
-            "smtp_use_tls": True,
-            "smtp_username": "",
-            "smtp_password_configured": False,
-            "smtp_from_email": "",
-            "smtp_from_name": "",
             "access_request_enabled": False,
             "send_credentials_email": False,
         }
     return {
-        "smtp_enabled": bool(getattr(realm, "smtp_enabled", False)),
-        "smtp_host": getattr(realm, "smtp_host", None) or "",
-        "smtp_port": getattr(realm, "smtp_port", None) or 587,
-        "smtp_use_tls": bool(getattr(realm, "smtp_use_tls", True)),
-        "smtp_username": getattr(realm, "smtp_username", None) or "",
-        "smtp_password_configured": bool(
-            getattr(realm, "smtp_password_encrypted", None)
-        ),
-        "smtp_from_email": getattr(realm, "smtp_from_email", None) or "",
-        "smtp_from_name": getattr(realm, "smtp_from_name", None) or "",
         "access_request_enabled": bool(
             getattr(realm, "access_request_enabled", False)
         ),
@@ -235,24 +217,11 @@ def _apply_smtp_access_from_form(
     realm: RealmConfig,
     settings: Settings,
     *,
-    smtp_enabled: bool,
-    smtp_host: str,
-    smtp_port: int | None,
-    smtp_use_tls: bool,
-    smtp_username: str,
-    smtp_password: str,
-    smtp_from_email: str,
-    smtp_from_name: str,
     access_request_enabled: bool,
     send_credentials_email: bool,
 ) -> dict[str, str]:
-    """Apply SMTP / access-request fields. Returns field errors (empty = ok)."""
+    """Apply access-request / credentials-email flags. Returns field errors (empty = ok)."""
     errors: dict[str, str] = {}
-    host = (smtp_host or "").strip() or None
-    from_email = (smtp_from_email or "").strip() or None
-    username = (smtp_username or "").strip() or None
-    from_name = (smtp_from_name or "").strip() or None
-    port = int(smtp_port) if smtp_port else 587
 
     if access_request_enabled and not (
         realm.provisioning_enabled
@@ -264,33 +233,11 @@ def _apply_smtp_access_from_form(
             "les demandes d'accès dans ce realm."
         )
 
-    if smtp_enabled and not host:
-        errors["smtp_host"] = "Hôte SMTP requis lorsque SMTP est activé"
-    if smtp_enabled and not from_email:
-        errors["smtp_from_email"] = "Expéditeur requis lorsque SMTP est activé"
-    if send_credentials_email and not smtp_enabled:
-        # Soft: allow saving the flag but it won't send until SMTP is on.
-        pass
-
     if errors:
         return errors
 
-    realm.smtp_enabled = bool(smtp_enabled)
-    realm.smtp_host = host
-    realm.smtp_port = port
-    realm.smtp_use_tls = bool(smtp_use_tls)
-    realm.smtp_username = username
-    realm.smtp_from_email = from_email
-    realm.smtp_from_name = from_name
     realm.access_request_enabled = bool(access_request_enabled)
     realm.send_credentials_email = bool(send_credentials_email)
-
-    pwd = (smtp_password or "").strip()
-    if pwd:
-        encrypted, enc_err = _safe_encrypt_secret(pwd, settings)
-        if enc_err:
-            return {"_form": enc_err}
-        realm.smtp_password_encrypted = encrypted
     return {}
 
 
@@ -523,14 +470,6 @@ async def admin_realms_create(
     keycloak_provision_client_id: str = Form(""),
     keycloak_provision_client_secret: str = Form(""),
     provisioning_enabled: str | None = Form(None),
-    smtp_enabled: str | None = Form(None),
-    smtp_host: str = Form(""),
-    smtp_port: int = Form(587),
-    smtp_use_tls: str | None = Form(None),
-    smtp_username: str = Form(""),
-    smtp_password: str = Form(""),
-    smtp_from_email: str = Form(""),
-    smtp_from_name: str = Form(""),
     access_request_enabled: str | None = Form(None),
     send_credentials_email: str | None = Form(None),
     oidc_keycloak_base_url: str = Form(""),
@@ -561,13 +500,6 @@ async def admin_realms_create(
     form_values["keycloak_provision_client_id"] = keycloak_provision_client_id
     form_values["provisioning_enabled"] = _form_bool(provisioning_enabled)
     form_values["groups_sync_include"] = groups_sync_include
-    form_values["smtp_enabled"] = _form_bool(smtp_enabled)
-    form_values["smtp_host"] = smtp_host
-    form_values["smtp_port"] = smtp_port
-    form_values["smtp_use_tls"] = _form_bool(smtp_use_tls)
-    form_values["smtp_username"] = smtp_username
-    form_values["smtp_from_email"] = smtp_from_email
-    form_values["smtp_from_name"] = smtp_from_name
     form_values["access_request_enabled"] = _form_bool(access_request_enabled)
     form_values["send_credentials_email"] = _form_bool(send_credentials_email)
     form_values["oidc_keycloak_base_url"] = oidc_keycloak_base_url
@@ -785,14 +717,6 @@ async def admin_realms_create(
     smtp_errors = _apply_smtp_access_from_form(
         realm,
         settings,
-        smtp_enabled=_form_bool(smtp_enabled),
-        smtp_host=smtp_host,
-        smtp_port=smtp_port,
-        smtp_use_tls=_form_bool(smtp_use_tls),
-        smtp_username=smtp_username,
-        smtp_password=smtp_password,
-        smtp_from_email=smtp_from_email,
-        smtp_from_name=smtp_from_name,
         access_request_enabled=_form_bool(access_request_enabled),
         send_credentials_email=_form_bool(send_credentials_email),
     )
@@ -870,14 +794,6 @@ async def admin_realms_update(
     keycloak_provision_client_id: str = Form(""),
     keycloak_provision_client_secret: str = Form(""),
     provisioning_enabled: str | None = Form(None),
-    smtp_enabled: str | None = Form(None),
-    smtp_host: str = Form(""),
-    smtp_port: int = Form(587),
-    smtp_use_tls: str | None = Form(None),
-    smtp_username: str = Form(""),
-    smtp_password: str = Form(""),
-    smtp_from_email: str = Form(""),
-    smtp_from_name: str = Form(""),
     access_request_enabled: str | None = Form(None),
     send_credentials_email: str | None = Form(None),
     oidc_keycloak_base_url: str = Form(""),
@@ -911,13 +827,6 @@ async def admin_realms_update(
             "keycloak_provision_client_id": keycloak_provision_client_id,
             "provisioning_enabled": _form_bool(provisioning_enabled),
             "groups_sync_include": groups_sync_include,
-            "smtp_enabled": _form_bool(smtp_enabled),
-            "smtp_host": smtp_host,
-            "smtp_port": smtp_port,
-            "smtp_use_tls": _form_bool(smtp_use_tls),
-            "smtp_username": smtp_username,
-            "smtp_from_email": smtp_from_email,
-            "smtp_from_name": smtp_from_name,
             "access_request_enabled": _form_bool(access_request_enabled),
             "send_credentials_email": _form_bool(send_credentials_email),
             "oidc_keycloak_base_url": oidc_keycloak_base_url,
@@ -1174,14 +1083,6 @@ async def admin_realms_update(
     smtp_errors = _apply_smtp_access_from_form(
         realm,
         settings,
-        smtp_enabled=_form_bool(smtp_enabled),
-        smtp_host=smtp_host,
-        smtp_port=smtp_port,
-        smtp_use_tls=_form_bool(smtp_use_tls),
-        smtp_username=smtp_username,
-        smtp_password=smtp_password,
-        smtp_from_email=smtp_from_email,
-        smtp_from_name=smtp_from_name,
         access_request_enabled=_form_bool(access_request_enabled),
         send_credentials_email=_form_bool(send_credentials_email),
     )

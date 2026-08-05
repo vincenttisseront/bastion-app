@@ -130,6 +130,75 @@ def set_subdomain_sso_enabled(
     return row
 
 
+def update_smtp_settings(
+    db: Session,
+    settings: Settings,
+    *,
+    actor: str,
+    ip_address: str | None = None,
+    smtp_enabled: bool,
+    smtp_host: str | None,
+    smtp_port: int | None,
+    smtp_use_tls: bool,
+    smtp_username: str | None,
+    smtp_password: str | None,
+    smtp_from_email: str | None,
+    smtp_from_name: str | None,
+) -> PortalSettings:
+    """Persist global SMTP settings. Empty password keeps the existing secret."""
+    from app.secret_crypto import encrypt_secret
+
+    row = ensure_portal_settings(db, settings)
+    host = (smtp_host or "").strip() or None
+    from_email = (smtp_from_email or "").strip() or None
+    username = (smtp_username or "").strip() or None
+    from_name = (smtp_from_name or "").strip() or None
+    port = int(smtp_port) if smtp_port else 587
+    enabled = bool(smtp_enabled)
+
+    if enabled and not host:
+        raise ValueError("Hôte SMTP requis lorsque SMTP est activé")
+    if enabled and not from_email:
+        raise ValueError("Expéditeur requis lorsque SMTP est activé")
+
+    previous_enabled = bool(row.smtp_enabled)
+    row.smtp_enabled = enabled
+    row.smtp_host = host
+    row.smtp_port = port
+    row.smtp_use_tls = bool(smtp_use_tls)
+    row.smtp_username = username
+    row.smtp_from_email = from_email
+    row.smtp_from_name = from_name
+
+    pwd = (smtp_password or "").strip()
+    password_updated = False
+    if pwd:
+        row.smtp_password_encrypted = encrypt_secret(pwd, settings)
+        password_updated = True
+
+    row.updated_at = utcnow()
+    row.updated_by = actor
+    db.commit()
+    db.refresh(row)
+    log_action(
+        db,
+        actor=actor,
+        action="portal_settings.smtp_updated",
+        target="portal_settings",
+        details={
+            "smtp_enabled": enabled,
+            "previous_enabled": previous_enabled,
+            "smtp_host": host,
+            "smtp_port": port,
+            "smtp_use_tls": bool(smtp_use_tls),
+            "smtp_from_email": from_email,
+            "password_updated": password_updated,
+        },
+        ip_address=ip_address,
+    )
+    return row
+
+
 __all__ = [
     "PORTAL_SETTINGS_ID",
     "parse_subdomain_sso_env",
@@ -139,4 +208,5 @@ __all__ = [
     "set_subdomain_sso_enabled",
     "get_vault_key_rotation_days",
     "set_vault_key_rotation_days",
+    "update_smtp_settings",
 ]
