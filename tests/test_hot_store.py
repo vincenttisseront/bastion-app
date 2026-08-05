@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -11,6 +11,7 @@ from app.db.hot_store import (
     HOT_TABLE_NAMES,
     HotStoreError,
     build_hot_dsn,
+    build_hot_store_wizard_steps,
     copy_table_rows,
     dispose_hot_engine,
     ensure_hot_engine,
@@ -77,7 +78,6 @@ def test_routing_session_sends_audit_to_hot_engine():
         db.add(AuditLog(actor="admin", action="test.hot", target="x"))
         db.commit()
 
-        # Config DB must not hold the audit row
         cfg = sessionmaker(bind=config_eng)()
         assert cfg.query(AuditLog).count() == 0
         cfg.close()
@@ -125,7 +125,6 @@ def test_migrate_all_hot_tables_copies_rows():
     )
     src.commit()
 
-    # Bypass prepare_hot_schema PG DDL — call copy path directly
     counts = {}
     for model in (AuditLog,):
         counts[model.__tablename__] = copy_table_rows(src, dest_eng, model)
@@ -140,8 +139,10 @@ def test_migrate_all_hot_tables_copies_rows():
 
 def test_save_and_enable_hot_store_service(db_session, monkeypatch):
     from app.db.hot_store_service import (
+        prepare_hot_store_schema,
         save_hot_store_config,
         set_hot_store_enabled,
+        skip_hot_store_migrate,
     )
     from app.portal_settings_service import ensure_portal_settings
 
@@ -152,18 +153,26 @@ def test_save_and_enable_hot_store_service(db_session, monkeypatch):
     )
     ensure_portal_settings(db_session, settings)
 
-    # Patch connectivity so enable can succeed without real Postgres
     monkeypatch.setattr(
         "app.db.hot_store_service.test_hot_store_config",
-        lambda db, settings: {"ok": True, "version": "PostgreSQL test", "can_create": True},
+        lambda db, settings, **kwargs: {
+            "ok": True,
+            "version": "PostgreSQL test",
+            "can_create": True,
+            "ping_ms": 1.2,
+        },
     )
     monkeypatch.setattr(
-        "app.db.hot_store_service.prepare_hot_store_schema",
-        lambda db, settings: None,
+        "app.db.hot_store_service.prepare_hot_schema",
+        lambda eng: None,
     )
     monkeypatch.setattr(
         "app.db.hot_store_service.sync_hot_engine_from_config",
         lambda db, settings: object(),
+    )
+    monkeypatch.setattr(
+        "app.db.hot_store_service.ensure_hot_engine",
+        lambda dsn: object(),
     )
 
     save_hot_store_config(
@@ -182,15 +191,26 @@ def test_save_and_enable_hot_store_service(db_session, monkeypatch):
     assert row.hot_store_password_encrypted
     assert "secret" not in (row.hot_store_password_encrypted or "")
 
-    # Enable without migrate should fail
-    with pytest.raises(HotStoreError, match="Migrez"):
+    with pytest.raises(HotStoreError, match="schéma"):
         set_hot_store_enabled(
             db_session, settings, True, actor="admin@example.com"
         )
 
-    row.hot_store_last_migrate_at = utcnow()
+    row.hot_store_last_test_ok = True
     db_session.commit()
+    prepare_hot_store_schema(db_session, settings, actor="admin@example.com")
+    db_session.refresh(row)
+    assert row.hot_store_schema_prepared_at is not None
 
+    with pytest.raises(HotStoreError, match="déjà initialisé"):
+        prepare_hot_store_schema(db_session, settings, actor="admin@example.com")
+
+    with pytest.raises(HotStoreError, match="Migrez|passez"):
+        set_hot_store_enabled(
+            db_session, settings, True, actor="admin@example.com"
+        )
+
+    skip_hot_store_migrate(db_session, settings, actor="admin@example.com")
     set_hot_store_enabled(db_session, settings, True, actor="admin@example.com")
     db_session.refresh(row)
     assert row.hot_store_enabled is True
@@ -198,6 +218,21 @@ def test_save_and_enable_hot_store_service(db_session, monkeypatch):
     set_hot_store_enabled(db_session, settings, False, actor="admin@example.com")
     db_session.refresh(row)
     assert row.hot_store_enabled is False
+
+
+def test_build_hot_store_wizard_steps_order():
+    steps = build_hot_store_wizard_steps(
+        configured=True,
+        last_test_ok=True,
+        schema_prepared=True,
+        migrate_done=False,
+        migrate_skipped=True,
+        enabled=False,
+    )
+    by_id = {s["id"]: s for s in steps}
+    assert by_id["config"]["status"] == "done"
+    assert by_id["migrate"]["status"] == "skipped"
+    assert by_id["enable"]["locked"] is False
 
 
 def test_create_hot_engine_rejects_sqlite():
@@ -214,3 +249,6 @@ def test_security_page_shows_hot_store_tab(client, db_session):
     assert 'id="hot-store"' in resp.text
     assert "Stockage chaud" in resp.text
     assert 'action="/admin/security/hot-store/config"' in resp.text
+    assert "hot-store-stepper" in resp.text
+    assert "Passer cette étape" in resp.text
+    assert "facultatif" in resp.text

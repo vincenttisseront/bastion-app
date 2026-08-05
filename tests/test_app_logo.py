@@ -205,7 +205,8 @@ def test_app_logo_fallback_missing_file_on_portal(
     assert resp.status_code == 200
     assert "Wiki" in resp.text
     assert "Wiki interne de l" in resp.text
-    assert "admin-desc" in resp.text
+    assert "app-tile-menu-desc" in resp.text
+    assert "admin-desc" not in resp.text
     assert "app-tile-logo" not in resp.text
     assert "admin-icon" in resp.text
     assert "uploads/app-logos" not in resp.text
@@ -246,8 +247,9 @@ def test_app_logo_and_description_shown_when_present(
     assert resp.status_code == 200
     assert 'src="' + logo_url + '"' in resp.text or f'src="{logo_url}"' in resp.text
     assert "Transfert de fichiers sécurisé" in resp.text
-    assert 'title="Transfert de fichiers sécurisé"' in resp.text
+    assert "app-tile-menu-desc" in resp.text
     assert "app-tile-logo" in resp.text
+    assert "app-tile--okta" in resp.text
 
     profile = client.get("/profile", headers=USER_HEADERS)
     assert profile.status_code == 200

@@ -8,6 +8,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -898,6 +899,15 @@ class PortalSettings(Base):
     hot_store_sslmode = Column(String, nullable=True)  # prefer | require | disable
     hot_store_last_migrate_at = Column(DateTime(timezone=True), nullable=True)
     hot_store_last_migrate_summary = Column(Text, nullable=True)
+    # Guided wizard state (schema lock + test/migrate skip).
+    hot_store_schema_prepared_at = Column(DateTime(timezone=True), nullable=True)
+    hot_store_schema_prepared_by = Column(String, nullable=True)
+    hot_store_last_test_at = Column(DateTime(timezone=True), nullable=True)
+    hot_store_last_test_ok = Column(Boolean, nullable=True)
+    hot_store_last_test_ms = Column(Float, nullable=True)
+    hot_store_last_test_error = Column(Text, nullable=True)
+    hot_store_migrate_skipped_at = Column(DateTime(timezone=True), nullable=True)
+    hot_store_migrate_skipped_by = Column(String, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 

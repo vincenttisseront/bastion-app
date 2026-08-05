@@ -16,13 +16,22 @@ from app.web.sessions_service import (
 )
 from app.web.user_context import UserContext
 
-# Chip filters for /apps (Bastion catalogue is web-first; no fake SSH/RDP).
+# Legacy chip filters (kept for tests / callers); /apps now uses named sections.
 PORTAL_FILTERS: tuple[tuple[str, str], ...] = (
     ("all", "Tous"),
     ("web", "Web"),
     ("proxy", "Proxy"),
     ("vault", "Vault"),
 )
+
+# Fixed portal sections by access type (no user-custom sections for now).
+PORTAL_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("web", "Web"),
+    ("proxy", "Proxy"),
+    ("vault", "Vault"),
+)
+
+SECTION_LABELS: dict[str, str] = {key: label for key, label in PORTAL_SECTIONS}
 
 
 def _probe_badge(app: App) -> dict[str, str] | None:
@@ -66,9 +75,59 @@ def enrich_tile(app: App, tile: dict[str, Any]) -> dict[str, Any]:
     if probe:
         badges.append(probe)
     tile["status_badges"] = badges
-    tile["protocol_filter"] = protocol_filter_key(app)
+    key = protocol_filter_key(app)
+    tile["protocol_filter"] = key
+    tile["protocol_label"] = SECTION_LABELS.get(key, "Web")
     tile["auth_mode"] = normalize_auth_mode(getattr(app, "auth_mode", None))
     return tile
+
+
+def build_apps_sections(
+    tiles: list[dict[str, Any]],
+    recent_sessions: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Group portal apps for Okta-style sections.
+
+    - Accès rapides: recent launches (when any), apps may also appear in type sections.
+    - Web / Proxy / Vault: fixed sections by protocol_filter (empty sections omitted).
+    """
+    by_slug = {t["slug"]: t for t in tiles if t.get("slug")}
+    sections: list[dict[str, Any]] = []
+
+    recent_apps: list[dict[str, Any]] = []
+    seen_recent: set[str] = set()
+    for row in recent_sessions or []:
+        slug = (row.get("slug") or "").strip()
+        if not slug or slug in seen_recent:
+            continue
+        tile = by_slug.get(slug)
+        if tile is None:
+            continue
+        seen_recent.add(slug)
+        recent_apps.append(tile)
+    if recent_apps:
+        sections.append(
+            {
+                "id": "recent",
+                "label": "Accès rapides",
+                "apps": recent_apps,
+                "is_recent": True,
+            }
+        )
+
+    for key, label in PORTAL_SECTIONS:
+        apps = [t for t in tiles if t.get("protocol_filter") == key]
+        if apps:
+            sections.append(
+                {
+                    "id": key,
+                    "label": label,
+                    "apps": apps,
+                    "is_recent": False,
+                }
+            )
+    return sections
 
 
 def _fmt_relative(dt: datetime | None) -> str:

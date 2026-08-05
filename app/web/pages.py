@@ -2766,15 +2766,24 @@ def admin_security_hot_store_test(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
-    _admin=Depends(require_admin),
+    admin=Depends(require_admin),
 ):
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import test_hot_store_config
 
     response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    actor = admin.email or admin.username or "admin"
     try:
-        result = test_hot_store_config(db, settings)
+        result = test_hot_store_config(
+            db,
+            settings,
+            actor=actor,
+            ip_address=_client_ip(request),
+        )
+        ping = result.get("ping_ms")
         msg = f"Connexion OK — {result.get('version', '')[:80]}"
+        if ping is not None:
+            msg += f" ({ping} ms)"
         if result.get("can_create"):
             msg += " (CREATE OK)"
         return _hot_store_flash(response, msg, "success", settings)
@@ -2793,19 +2802,16 @@ def admin_security_hot_store_prepare(
 ):
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import prepare_hot_store_schema
-    from app.audit import log_action
 
     response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
     try:
-        prepare_hot_store_schema(db, settings)
-        log_action(
+        prepare_hot_store_schema(
             db,
+            settings,
             actor=admin.email or admin.username or "admin",
-            action="hot_store.schema_prepared",
-            target="portal_settings",
             ip_address=_client_ip(request),
         )
-        return _hot_store_flash(response, "Schéma hot store créé / à jour.", "success", settings)
+        return _hot_store_flash(response, "Schéma hot store initialisé.", "success", settings)
     except HotStoreError as exc:
         return _hot_store_flash(response, str(exc), "error", settings)
     except Exception as exc:
@@ -2843,6 +2849,34 @@ def admin_security_hot_store_migrate(
         return _hot_store_flash(response, f"Échec migration : {exc}", "error", settings)
 
 
+@admin_router.post("/admin/security/hot-store/skip-migrate")
+def admin_security_hot_store_skip_migrate(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import skip_hot_store_migrate
+
+    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    try:
+        skip_hot_store_migrate(
+            db,
+            settings,
+            actor=admin.email or admin.username or "admin",
+            ip_address=_client_ip(request),
+        )
+        return _hot_store_flash(
+            response,
+            "Étape migration passée — vous pouvez activer le hot store à neuf.",
+            "success",
+            settings,
+        )
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+
+
 @admin_router.post("/admin/security/hot-store/enable")
 def admin_security_hot_store_enable(
     request: Request,
@@ -2864,7 +2898,11 @@ def admin_security_hot_store_enable(
             actor=admin.email or admin.username or "admin",
             ip_address=_client_ip(request),
         )
-        msg = "Hot store activé." if want else "Hot store désactivé (retour SQLite)."
+        msg = (
+            "Hot store activé — écritures sessions/audit/anti-bruteforce sur PostgreSQL."
+            if want
+            else "Hot store désactivé — retour sur SQLite."
+        )
         return _hot_store_flash(response, msg, "success", settings)
     except HotStoreError as exc:
         return _hot_store_flash(response, str(exc), "error", settings)

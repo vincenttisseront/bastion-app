@@ -303,11 +303,13 @@ def prepare_hot_schema(engine: Engine) -> None:
 
 
 def test_hot_connection(dsn: str) -> dict[str, Any]:
-    """Ping Postgres and return version / create capability."""
+    """Ping Postgres and return version / create capability / latency."""
     engine = create_hot_engine(dsn, poolclass=NullPool)
     try:
         with engine.connect() as conn:
+            t0 = time.perf_counter()
             ver = conn.execute(text("SELECT version()")).scalar()
+            ping_ms = round((time.perf_counter() - t0) * 1000, 1)
             can_create = conn.execute(
                 text(
                     "SELECT has_database_privilege(current_user, current_database(), 'CREATE')"
@@ -317,6 +319,7 @@ def test_hot_connection(dsn: str) -> dict[str, Any]:
                 "ok": True,
                 "version": str(ver or "")[:200],
                 "can_create": bool(can_create),
+                "ping_ms": ping_ms,
             }
     finally:
         engine.dispose()
@@ -340,6 +343,110 @@ class HotStoreStatus:
     status_label: str
     last_migrate_at: str | None
     last_migrate_summary: str | None
+    schema_prepared_at: str | None = None
+    schema_prepared_by: str | None = None
+    last_test_at: str | None = None
+    last_test_ok: bool | None = None
+    last_test_ms: float | None = None
+    last_test_error: str | None = None
+    migrate_skipped_at: str | None = None
+    migrate_skipped_by: str | None = None
+    wizard_steps: tuple[dict[str, Any], ...] = ()
+
+
+def _iso(dt) -> str | None:
+    if dt is None:
+        return None
+    try:
+        return dt.isoformat()
+    except Exception:
+        return str(dt)
+
+
+def build_hot_store_wizard_steps(
+    *,
+    configured: bool,
+    last_test_ok: bool | None,
+    schema_prepared: bool,
+    migrate_done: bool,
+    migrate_skipped: bool,
+    enabled: bool,
+) -> tuple[dict[str, Any], ...]:
+    """Derive stepper states for the admin hot-store wizard."""
+    tested = last_test_ok is True
+    test_failed = last_test_ok is False
+    migrate_ready = migrate_done or migrate_skipped
+
+    def _step(
+        sid: str,
+        label: str,
+        *,
+        locked: bool,
+        status: str,
+        optional: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "id": sid,
+            "label": label,
+            "locked": locked,
+            "status": status,  # todo | done | failed | skipped | locked
+            "optional": optional,
+        }
+
+    steps = [
+        _step(
+            "config",
+            "Connexion",
+            locked=False,
+            status="done" if configured else "todo",
+        ),
+        _step(
+            "test",
+            "Test",
+            locked=not configured,
+            status=(
+                "locked"
+                if not configured
+                else ("done" if tested else ("failed" if test_failed else "todo"))
+            ),
+        ),
+        _step(
+            "schema",
+            "Schéma",
+            locked=not tested,
+            status=(
+                "locked"
+                if not tested
+                else ("done" if schema_prepared else "todo")
+            ),
+        ),
+        _step(
+            "migrate",
+            "Migration",
+            locked=not schema_prepared,
+            status=(
+                "locked"
+                if not schema_prepared
+                else (
+                    "done"
+                    if migrate_done
+                    else ("skipped" if migrate_skipped else "todo")
+                )
+            ),
+            optional=True,
+        ),
+        _step(
+            "enable",
+            "Activation",
+            locked=not (schema_prepared and migrate_ready),
+            status=(
+                "locked"
+                if not (schema_prepared and migrate_ready)
+                else ("done" if enabled else "todo")
+            ),
+        ),
+    ]
+    return tuple(steps)
 
 
 def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
@@ -365,6 +472,14 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
             status_label="Non configuré",
             last_migrate_at=None,
             last_migrate_summary=None,
+            wizard_steps=build_hot_store_wizard_steps(
+                configured=False,
+                last_test_ok=None,
+                schema_prepared=False,
+                migrate_done=False,
+                migrate_skipped=False,
+                enabled=False,
+            ),
         )
 
     host = (getattr(row, "hot_store_host", None) or "").strip() or None
@@ -373,6 +488,14 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
     password_set = bool(getattr(row, "hot_store_password_encrypted", None))
     last_at = getattr(row, "hot_store_last_migrate_at", None)
     last_summary = getattr(row, "hot_store_last_migrate_summary", None)
+    schema_at = getattr(row, "hot_store_schema_prepared_at", None)
+    schema_by = getattr(row, "hot_store_schema_prepared_by", None)
+    last_test_at = getattr(row, "hot_store_last_test_at", None)
+    last_test_ok = getattr(row, "hot_store_last_test_ok", None)
+    last_test_ms = getattr(row, "hot_store_last_test_ms", None)
+    last_test_error = getattr(row, "hot_store_last_test_error", None)
+    migrate_skipped_at = getattr(row, "hot_store_migrate_skipped_at", None)
+    migrate_skipped_by = getattr(row, "hot_store_migrate_skipped_by", None)
 
     ping_ms: float | None = None
     ping_error: str | None = None
@@ -415,6 +538,15 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
     else:
         badge, label = "warn", "Configuré"
 
+    wizard_steps = build_hot_store_wizard_steps(
+        configured=configured,
+        last_test_ok=last_test_ok if last_test_ok is None else bool(last_test_ok),
+        schema_prepared=bool(schema_at or last_at),
+        migrate_done=bool(last_at),
+        migrate_skipped=bool(migrate_skipped_at),
+        enabled=enabled,
+    )
+
     return HotStoreStatus(
         configured=configured,
         enabled=enabled,
@@ -432,6 +564,15 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
         status_label=label,
         last_migrate_at=last_at.isoformat() if last_at else None,
         last_migrate_summary=last_summary,
+        schema_prepared_at=_iso(schema_at),
+        schema_prepared_by=(schema_by or None),
+        last_test_at=_iso(last_test_at),
+        last_test_ok=bool(last_test_ok) if last_test_ok is not None else None,
+        last_test_ms=float(last_test_ms) if last_test_ms is not None else None,
+        last_test_error=(last_test_error or None),
+        migrate_skipped_at=_iso(migrate_skipped_at),
+        migrate_skipped_by=(migrate_skipped_by or None),
+        wizard_steps=wizard_steps,
     )
 
 

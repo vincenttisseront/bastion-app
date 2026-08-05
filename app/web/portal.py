@@ -147,10 +147,14 @@ async def apps_portal(
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
-    from app.web.portal_enrichment import PORTAL_FILTERS, recent_sessions_for_user
+    from app.web.portal_enrichment import (
+        build_apps_sections,
+        recent_sessions_for_user,
+    )
 
     apps_by_slug = {t["slug"]: t for t in tiles}
     recent = recent_sessions_for_user(db, user, apps_by_slug=apps_by_slug)
+    sections = build_apps_sections(tiles, recent)
     return render(
         "portal/apps.html",
         **_portal_page_ctx(
@@ -161,7 +165,7 @@ async def apps_portal(
             apps=tiles,
             greeting_name=user.first_name,
             recent_sessions=recent,
-            portal_filters=PORTAL_FILTERS,
+            apps_sections=sections,
         ),
     )
 

@@ -3,7 +3,40 @@
 {% block breadcrumb %}Admin / Realms{% endblock %}
 
 {% block content %}
-<div class="page">
+{% macro status_ico(ok, title, kind='bool') -%}
+  {%- if kind == 'tri' -%}
+    {%- if ok == 'ok' -%}
+      <span class="status-ico status-ico--ok" title="{{ title }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        <span class="visually-hidden">{{ title }}</span>
+      </span>
+    {%- elif ok == 'error' -%}
+      <span class="status-ico status-ico--err" title="{{ title }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span class="visually-hidden">{{ title }}</span>
+      </span>
+    {%- else -%}
+      <span class="status-ico status-ico--muted" title="{{ title }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span class="visually-hidden">{{ title }}</span>
+      </span>
+    {%- endif -%}
+  {%- else -%}
+    {%- if ok -%}
+      <span class="status-ico status-ico--ok" title="{{ title }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        <span class="visually-hidden">{{ title }}</span>
+      </span>
+    {%- else -%}
+      <span class="status-ico status-ico--muted" title="{{ title }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span class="visually-hidden">{{ title }}</span>
+      </span>
+    {%- endif -%}
+  {%- endif -%}
+{%- endmacro %}
+
+<div class="page page-realms-list">
   <div class="page-header">
     <div>
       <h1 class="page-title">Realms OIDC</h1>
@@ -28,18 +61,18 @@
     </div>
     <div class="card-body card-flush">
       <div class="table-wrap">
-        <table class="data-table">
+        <table class="data-table realms-table">
           <thead>
             <tr>
               <th>Slug</th>
               <th>Nom</th>
               <th>Issuer</th>
-              <th>Port</th>
-              <th>Test</th>
-              <th>Statut</th>
-              <th>OIDC natif</th>
-              <th>MFA</th>
-              <th>Login</th>
+              <th title="Port oauth2-proxy">Port</th>
+              <th class="col-ico" title="Dernier test OIDC">Test</th>
+              <th class="col-ico" title="Realm activé">Actif</th>
+              <th class="col-ico" title="Session OIDC native">Natif</th>
+              <th class="col-ico" title="MFA / OTP">MFA</th>
+              <th class="col-ico" title="Visible sur la page de login">Login</th>
               <th></th>
             </tr>
           </thead>
@@ -52,68 +85,56 @@
                 </span>
               </td>
               <td>{{ realm.name }}</td>
-              <td class="mono truncate truncate-cell-lg">{{ realm.issuer_url }}</td>
+              <td class="mono truncate truncate-cell-md" title="{{ realm.issuer_url }}">{{ realm.issuer_url }}</td>
               <td class="mono">{{ realm.oauth2_proxy_port }}</td>
-              <td>
+              <td class="col-ico">
                 {% if realm.last_test_status == 'ok' %}
-                  <span class="badge badge-ok" title="{{ realm.last_tested_at }}">Testé OK</span>
+                  {{ status_ico('ok', 'Testé OK — ' ~ (realm.last_tested_at or ''), kind='tri') }}
                 {% elif realm.last_test_status == 'error' %}
-                  <span class="badge badge-err" title="{{ realm.last_tested_at }}">Échec</span>
+                  {{ status_ico('error', 'Échec — ' ~ (realm.last_tested_at or ''), kind='tri') }}
                 {% else %}
-                  <span class="badge badge-muted">Non testé</span>
+                  {{ status_ico('none', 'Non testé', kind='tri') }}
                 {% endif %}
               </td>
-              <td>
-                <span class="badge badge-{{ 'ok' if realm.enabled else 'muted' }}">{{ 'Activé' if realm.enabled else 'Désactivé' }}</span>
+              <td class="col-ico">
+                {{ status_ico(realm.enabled, 'Activé' if realm.enabled else 'Désactivé') }}
               </td>
-              <td>
-                {% if realm.oidc_native_session_enabled %}
-                  <span class="badge badge-ok" title="Session native OIDC (pilote)">Pilote ON</span>
-                {% else %}
-                  <span class="badge badge-muted">OFF</span>
-                {% endif %}
+              <td class="col-ico">
+                {{ status_ico(realm.oidc_native_session_enabled, 'OIDC natif ON' if realm.oidc_native_session_enabled else 'OIDC natif OFF') }}
               </td>
-              <td>
-                {% if realm.oidc_mfa_enabled %}
-                  <span class="badge badge-ok">ON</span>
-                {% else %}
-                  <span class="badge badge-muted">OFF</span>
-                {% endif %}
+              <td class="col-ico">
+                {{ status_ico(realm.oidc_mfa_enabled, 'MFA ON' if realm.oidc_mfa_enabled else 'MFA OFF') }}
               </td>
-              <td>
-                {% if realm.show_on_login %}
-                  <span class="badge badge-info" title="{{ realm.login_label or realm.name }}">Visible</span>
-                {% else %}
-                  <span class="badge badge-muted">Masqué</span>
-                {% endif %}
+              <td class="col-ico">
+                {{ status_ico(realm.show_on_login, (realm.login_label or realm.name) if realm.show_on_login else 'Masqué sur le login') }}
               </td>
               <td>
                 <div class="users-row-actions realms-row-actions">
-                  <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Modifier</a>
+                  <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Éditer</a>
                   <form method="post" action="/admin/realms/{{ realm.id }}/export">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                    <button class="btn btn-ghost btn-sm" {% if realm.last_test_status != 'ok' %}disabled{% endif %}>Exporter</button>
+                    <button class="btn btn-ghost btn-sm" {% if realm.last_test_status != 'ok' %}disabled{% endif %}>Export</button>
                   </form>
                   {% if realm.enabled %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/disable">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button class="btn btn-ghost btn-sm">Désactiver</button>
+                      <button class="btn btn-ghost btn-sm">Off</button>
                     </form>
                   {% else %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/enable">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button class="btn btn-ghost btn-sm" {% if realm.last_test_status != 'ok' %}disabled{% endif %}>Activer</button>
+                      <button class="btn btn-ghost btn-sm" {% if realm.last_test_status != 'ok' %}disabled{% endif %}>On</button>
                     </form>
                   {% endif %}
                   {% if realm.oidc_native_session_enabled %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/oidc-native-session/disable">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button class="btn btn-ghost btn-sm" title="Désactiver le formulaire natif + bastion_session pour ce realm">Natif OFF</button>
+                      <button class="btn btn-ghost btn-sm" title="Désactiver le formulaire natif + bastion_session pour ce realm">Natif</button>
                     </form>
                   {% else %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/oidc-native-session/enable">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button class="btn btn-ghost btn-sm" title="Activer le pilote session native OIDC pour ce realm">Natif ON</button>
+                      <button class="btn btn-ghost btn-sm" title="Activer le pilote session native OIDC pour ce realm">Natif</button>
                     </form>
                   {% endif %}
                 </div>

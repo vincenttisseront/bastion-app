@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from app.models import App, AuditLog
 from app.web.portal_enrichment import (
+    build_apps_sections,
     enrich_tile,
     protocol_filter_key,
     recent_sessions_for_user,
@@ -80,3 +81,38 @@ def test_recent_sessions_from_audit(db_session):
     assert recent
     assert recent[0]["slug"] == "crm"
     assert recent[0]["label"] == "CRM"
+
+
+def test_build_apps_sections_recent_and_types():
+    tiles = [
+        {
+            "slug": "crm",
+            "label": "CRM",
+            "protocol_filter": "web",
+            "can_launch": True,
+        },
+        {
+            "slug": "proxy-app",
+            "label": "Proxy App",
+            "protocol_filter": "proxy",
+            "can_launch": True,
+        },
+        {
+            "slug": "vault-app",
+            "label": "Vault App",
+            "protocol_filter": "vault",
+            "can_launch": True,
+        },
+    ]
+    sections = build_apps_sections(
+        tiles,
+        recent_sessions=[{"slug": "crm"}],
+    )
+    assert [s["id"] for s in sections] == ["recent", "web", "proxy", "vault"]
+    assert sections[0]["label"] == "Accès rapides"
+    assert [a["slug"] for a in sections[0]["apps"]] == ["crm"]
+    assert len(sections[1]["apps"]) == 1
+
+    no_recent = build_apps_sections(tiles, recent_sessions=[])
+    assert [s["id"] for s in no_recent] == ["web", "proxy", "vault"]
+
