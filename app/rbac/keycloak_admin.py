@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from urllib.parse import quote
@@ -14,6 +15,9 @@ from app.secret_crypto import decrypt_secret
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
+
+# Concurrent Keycloak member-count refreshes during group sync.
+_MEMBER_REFRESH_CONCURRENCY = 8
 
 
 def _issuer_parts(issuer_url: str) -> tuple[str, str]:
@@ -934,8 +938,7 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
     skipped = 0
     members_refreshed = 0
     members_total = 0
-    # Refresh member counts only when an allowlist is set (avoids N Keycloak calls on 200+ groups).
-    refresh_members = bool(include)
+    # Always refresh member counts so list/filter coherence matches Keycloak.
     synced_rows: list[RBACGroup] = []
 
     for g in groups:
@@ -978,15 +981,30 @@ async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settin
 
     db.flush()
 
-    if refresh_members:
-        for row in synced_rows:
-            if not row.keycloak_group_id:
+    rows_to_refresh = [row for row in synced_rows if row.keycloak_group_id]
+    if rows_to_refresh:
+        sem = asyncio.Semaphore(_MEMBER_REFRESH_CONCURRENCY)
+        results: list[tuple[RBACGroup, int | None]] = []
+
+        async def _refresh_one(row: RBACGroup) -> tuple[RBACGroup, int | None]:
+            async with sem:
+                try:
+                    members = await fetch_group_members(
+                        realm, row.keycloak_group_id, settings
+                    )
+                    return row, len(members)
+                except Exception:
+                    logger.exception(
+                        "Failed to refresh members for group %s (%s)",
+                        row.name,
+                        row.keycloak_group_id,
+                    )
+                    return row, None
+
+        results = await asyncio.gather(*[_refresh_one(r) for r in rows_to_refresh])
+        for row, count in results:
+            if count is None:
                 continue
-            try:
-                members = await fetch_group_members(realm, row.keycloak_group_id, settings)
-            except Exception:
-                continue
-            count = len(members)
             row.member_count = count
             members_refreshed += 1
             members_total += count

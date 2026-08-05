@@ -81,7 +81,7 @@
           <p class="users-panel-title">
             Affichage {{ groups_range_start }}–{{ groups_range_end }} sur {{ groups_total }}
           </p>
-          <form method="get" action="/admin/rbac" class="groups-table-filters">
+          <form method="get" action="/admin/rbac" class="groups-table-filters" data-live-search data-live-delay="320">
             <label class="visually-hidden" for="rbac-groups-search">Rechercher</label>
             <input type="search" id="rbac-groups-search" name="q" class="form-input"
                    value="{{ groups_q }}" placeholder="Recherche…" autocomplete="off">
@@ -91,7 +91,7 @@
               <option value="{{ n }}"{% if groups_per_page == n %} selected{% endif %}>{{ n }}</option>
               {% endfor %}
             </select>
-            <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+            <noscript><button type="submit" class="btn btn-primary btn-sm">Filtrer</button></noscript>
             {% if groups_q %}
             <a href="/admin/rbac" class="btn btn-ghost btn-sm">Reset</a>
             {% endif %}

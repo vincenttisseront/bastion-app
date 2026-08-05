@@ -249,6 +249,10 @@ async def admin_rbac_group_detail(
         try:
             raw = await fetch_group_members(realm, group.keycloak_group_id, settings)
             members = [serialize_member(m) for m in raw]
+            # Keep cached count coherent with live Keycloak membership.
+            if group.member_count != len(members):
+                group.member_count = len(members)
+                db.commit()
         except ValueError as exc:
             members_error = str(exc)
         except Exception:
@@ -667,6 +671,24 @@ async def admin_rbac_users_page(
         )
 
     user_stats = await fetch_user_directory_stats(db, selected_realm, settings)
+
+    kc_search_hits: list[dict] = []
+    kc_search_error: str | None = None
+    if search_q and len(search_q) >= 2 and selected_realm is not None:
+        try:
+            from app.rbac.keycloak_admin import search_keycloak_users
+            from app.rbac.grants_service import serialize_user_search_result
+
+            raw_hits = await search_keycloak_users(
+                selected_realm, search_q, settings, max_results=20
+            )
+            kc_search_hits = [serialize_user_search_result(u) for u in raw_hits]
+        except ValueError as exc:
+            kc_search_error = str(exc)
+        except Exception:
+            logger.exception("Keycloak user search failed on users page")
+            kc_search_error = "Recherche Keycloak indisponible"
+
     include_empty = (groups_include_empty or "").strip().lower() in (
         "1",
         "true",
@@ -766,6 +788,8 @@ async def admin_rbac_users_page(
             filter_q=search_q,
             list_meta=list_meta,
             users_qs=_users_qs,
+            kc_search_hits=kc_search_hits,
+            kc_search_error=kc_search_error,
             bastion_accounts=bastion_accounts,
             bastion_accounts_total=int(bastion_count),
             bastion_account_for_user=None,

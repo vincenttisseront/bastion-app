@@ -962,6 +962,9 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
   .users-filters .form-select{max-width:none;flex:1 1 8rem}
 }
 
+.users-kc-hits{margin-bottom:var(--sp-3)}
+.users-kc-hits .users-panel-head{background:var(--info-bg);border-bottom-color:rgba(96,165,250,.25)}
+
 /* —— RBAC groups page (compact) —— */
 .page-groups-compact .page-header{margin-bottom:var(--sp-3);gap:var(--sp-3)}
 .page-groups-compact .page-title{font-size:var(--fs-xl);line-height:1.2}

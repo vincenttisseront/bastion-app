@@ -326,3 +326,64 @@ def test_sync_respects_groups_include_filter(client, db_session):
     group = db_session.query(RBACGroup).filter_by(realm_id=realm.id).one()
     assert group.name == "ARSYSTEMS-Users"
     assert group.member_count == 3
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_sync_refreshes_members_without_include_allowlist(db_session):
+    """member_count must refresh even when groups_sync_include is empty (sync all)."""
+    from app.rbac.keycloak_admin import sync_keycloak_groups
+
+    settings = Settings(
+        vault_portal_internal_token="test-secret",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        portal_domain="portal.test",
+        database_url="sqlite://",
+    )
+    realm = RealmConfig(
+        slug="kc-all",
+        name="KC",
+        issuer_url="https://kc.example.com/realms/demo",
+        client_id="login",
+        client_secret_encrypted=encrypt_secret("s", settings),
+        redirect_uri="https://portal.test/oauth2/kc-all/callback",
+        scopes="openid profile email",
+        oauth2_proxy_port=4192,
+        keycloak_admin_client_id="sync",
+        keycloak_admin_client_secret_encrypted=encrypt_secret("admin", settings),
+        groups_sync_enabled=True,
+        groups_sync_include="",
+    )
+    db_session.add(realm)
+    db_session.commit()
+
+    token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
+    groups_url = "https://kc.example.com/admin/realms/demo/groups?briefRepresentation=false"
+    respx.post(token_url).respond(
+        200, json={"access_token": "t"}, headers={"content-type": "application/json"}
+    )
+    respx.get(groups_url).respond(
+        200,
+        json=[
+            {"id": "10", "name": "TeamA", "path": "/TeamA"},
+            {"id": "11", "name": "TeamB", "path": "/TeamB"},
+        ],
+    )
+    respx.get(
+        "https://kc.example.com/admin/realms/demo/groups/10/members?max=500"
+    ).respond(200, json=[{"id": "u1"}, {"id": "u2"}])
+    respx.get(
+        "https://kc.example.com/admin/realms/demo/groups/11/members?max=500"
+    ).respond(200, json=[{"id": "u3"}])
+
+    data = await sync_keycloak_groups(realm, db_session, settings)
+    db_session.commit()
+    assert data["imported"] == 2
+    assert data["skipped"] == 0
+    assert data["members_refreshed"] == 2
+    assert data["members_total"] == 3
+    counts = {
+        g.name: g.member_count
+        for g in db_session.query(RBACGroup).filter_by(realm_id=realm.id).all()
+    }
+    assert counts == {"TeamA": 2, "TeamB": 1}

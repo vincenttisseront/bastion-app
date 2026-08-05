@@ -67,7 +67,7 @@
       <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">↓ PDF</a>
     </div>
 
-    <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters">
+    <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters" data-live-search data-live-delay="400">
       <input type="hidden" name="columns" id="filter-columns" value="{{ visible_columns | join(',') }}">
       <div class="logs-filters-row">
         <div class="logs-filters-grid">
