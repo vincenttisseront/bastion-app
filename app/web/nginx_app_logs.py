@@ -26,6 +26,16 @@ _LOGGABLE_MODES = frozenset({"public_proxy", "subdomain_proxy"})
 _DEFAULT_TAIL = 200
 _MAX_TAIL = 5000
 
+# Bastion nginx ``log_format app`` (see docker/nginx/nginx.conf).
+_APP_ACCESS_RE = re.compile(
+    r"^(?P<remote_addr>\S+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\] "
+    r"host=(?P<host>\S+) \"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+) "
+    r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\" "
+    r"rt=(?P<request_time>\S+) upstream=(?P<upstream_addr>\S+) "
+    r"us=(?P<upstream_status>\S+) ut=(?P<upstream_response_time>\S+) "
+    r"auth_err=(?P<auth_err>\S+)\s*$"
+)
+
 
 def resolve_nginx_app_logs_dir(settings: Settings) -> Path:
     raw = (getattr(settings, "nginx_app_logs_dir", None) or "").strip()
@@ -151,6 +161,101 @@ def empty_access_log_message(settings: Settings, slug: str) -> str:
     if hint:
         lines.append(f"astuce: {hint}")
     return "\n".join(lines) + "\n"
+
+
+def _split_request(request: str) -> tuple[str, str, str]:
+    parts = (request or "").split()
+    if len(parts) >= 3:
+        return parts[0], parts[1], parts[2]
+    if len(parts) == 2:
+        return parts[0], parts[1], ""
+    if len(parts) == 1:
+        return "", parts[0], ""
+    return "", "", ""
+
+
+def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | None:
+    """Parse one nginx ``log_format app`` line into a structured dict."""
+    raw = (line or "").rstrip("\r\n")
+    if not raw.strip():
+        return None
+    m = _APP_ACCESS_RE.match(raw)
+    if not m:
+        return {
+            "id": f"raw-{index}",
+            "parse_ok": False,
+            "ecosystem": "nginx_access",
+            "raw": raw,
+            "remote_addr": "",
+            "time_local": "",
+            "host": "",
+            "method": "",
+            "path": "",
+            "protocol": "",
+            "request": raw,
+            "status": "",
+            "status_class": "muted",
+            "body_bytes_sent": "",
+            "referer": "",
+            "user_agent": "",
+            "request_time": "",
+            "upstream_addr": "",
+            "upstream_status": "",
+            "upstream_response_time": "",
+            "auth_err": "",
+            "is_internal_hop": False,
+        }
+    g = m.groupdict()
+    method, path, protocol = _split_request(g["request"])
+    try:
+        status_i = int(g["status"])
+    except ValueError:
+        status_i = 0
+    if 200 <= status_i < 300:
+        status_class = "ok"
+    elif 300 <= status_i < 400:
+        status_class = "warn"
+    elif status_i >= 400:
+        status_class = "err"
+    else:
+        status_class = "muted"
+    upstream = g["upstream_addr"] or ""
+    is_internal = upstream.startswith("127.0.0.1:") or upstream.startswith("[::1]:")
+    return {
+        "id": f"{index}-{g['time_local']}-{g['status']}-{path[:48]}",
+        "parse_ok": True,
+        "ecosystem": "nginx_access",
+        "raw": raw,
+        "remote_addr": g["remote_addr"],
+        "remote_user": g["remote_user"],
+        "time_local": g["time_local"],
+        "host": g["host"],
+        "method": method,
+        "path": path,
+        "protocol": protocol,
+        "request": g["request"],
+        "status": g["status"],
+        "status_class": status_class,
+        "body_bytes_sent": g["body_bytes_sent"],
+        "referer": g["referer"],
+        "user_agent": g["user_agent"],
+        "request_time": g["request_time"],
+        "upstream_addr": upstream,
+        "upstream_status": g["upstream_status"],
+        "upstream_response_time": g["upstream_response_time"],
+        "auth_err": g["auth_err"],
+        "is_internal_hop": is_internal,
+    }
+
+
+def parse_app_access_text(text: str) -> list[dict[str, object]]:
+    """Parse multi-line access log text (newest last, as stored by nginx)."""
+    out: list[dict[str, object]] = []
+    for i, line in enumerate((text or "").splitlines()):
+        entry = parse_app_access_line(line, index=i)
+        if entry is not None:
+            out.append(entry)
+    return out
 
 
 def read_access_log_tail(

@@ -43,6 +43,7 @@ from app.web.nginx_app_logs import (
     empty_access_log_message,
     iter_access_log_follow,
     list_loggable_apps,
+    parse_app_access_text,
     read_access_log_tail,
 )
 from app.web.templates import render
@@ -542,10 +543,13 @@ async def admin_app_access_logs_snapshot(
         },
         ip_address=_client_ip(request),
     )
+    entries = parse_app_access_text(text) if text.strip() else []
     return {
         "slug": safe,
-        "text": text or empty_access_log_message(settings, safe),
+        "text": text,
+        "entries": entries,
         "meta": meta,
+        "message": None if text.strip() else empty_access_log_message(settings, safe).rstrip(),
     }
 
 
@@ -579,7 +583,10 @@ async def admin_app_access_logs_stream(
                 if time.monotonic() - started >= timeout:
                     yield "event: timeout\ndata: {}\n\n"
                     break
-                payload = json.dumps({"text": chunk}, ensure_ascii=False)
+                entries = parse_app_access_text(chunk)
+                payload = json.dumps(
+                    {"text": chunk, "entries": entries}, ensure_ascii=False
+                )
                 yield f"data: {payload}\n\n"
         except asyncio.CancelledError:
             raise

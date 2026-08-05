@@ -238,14 +238,40 @@
     </div>
     <p class="form-help mb-2">
       Access log nginx (<span class="mono">{slug}.access.log</span>) — requêtes HTTP y compris
-      <span class="mono">public_proxy</span>. Volume hôte partagé&nbsp;:
-      <span class="mono">…/nginx-logs</span> → nginx <span class="mono">/var/log/nginx/apps</span>
-      et bastion-app <span class="mono">NGINX_APP_LOGS_DIR</span>.
-      Après déploiement&nbsp;: <span class="mono">docker compose up -d --force-recreate nginx bastion-app</span>.
+      <span class="mono">public_proxy</span>. Cliquez une ligne pour le détail (panneau latéral).
+      Les hops internes <span class="mono">127.0.0.1:8080</span> (TLS → :8080) sont masqués par défaut.
     </p>
-    <div class="card">
-      <pre class="container-logs-pre font-mono" id="app-access-pre" aria-live="polite">Sélectionnez une application.</pre>
+    <label class="form-help" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:var(--sp-3);">
+      <input type="checkbox" id="app-access-show-internal"> Afficher hops internes (:8080)
+    </label>
+    <p class="form-help dep-filter-empty" id="app-access-message" hidden></p>
+    <div class="table-wrap">
+      <table class="data-table" id="app-access-table">
+        <thead>
+          <tr>
+            <th>Horodatage</th>
+            <th>IP</th>
+            <th>Méthode</th>
+            <th>URI</th>
+            <th>Status</th>
+            <th>Upstream</th>
+            <th>rt</th>
+            <th>Détail</th>
+          </tr>
+        </thead>
+        <tbody id="app-access-tbody">
+          <tr class="dep-empty-row" id="app-access-empty-row">
+            <td colspan="8">
+              <div class="empty-state">
+                <div class="empty-title">Sélectionnez une application</div>
+                <div class="empty-sub">Puis cliquez sur Charger pour parser le access.log nginx.</div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
+    <pre class="container-logs-pre font-mono" id="app-access-pre" hidden aria-hidden="true"></pre>
     {% endif %}
   </div>
 
@@ -475,6 +501,9 @@
     document.querySelectorAll('#audit-tbody tr.is-selected').forEach(function (tr) {
       tr.classList.remove('is-selected');
     });
+    document.querySelectorAll('#app-access-tbody tr.is-selected').forEach(function (tr) {
+      tr.classList.remove('is-selected');
+    });
     selectedId = null;
   }
 
@@ -484,17 +513,55 @@
     document.querySelectorAll('#audit-tbody tr[data-audit-id]').forEach(function (tr) {
       tr.classList.toggle('is-selected', tr.getAttribute('data-audit-id') === selectedId);
     });
-    drawerTitle.textContent = entry.action || 'Détail';
-    var meta =
-      '<dl class="logs-drawer-meta">' +
-      '<dt>Horodatage</dt><dd class="font-mono">' + esc(entry.timestamp) + '</dd>' +
-      '<dt>Acteur</dt><dd>' + esc(entry.actor) + '</dd>' +
-      '<dt>Action</dt><dd><code>' + esc(entry.action) + '</code></dd>' +
-      '<dt>IP</dt><dd class="font-mono">' + esc(entry.ip_address || '—') + '</dd>' +
-      '<dt>Résultat</dt><dd>' + esc(entry.result || entry.status || entry.severity || '—') + '</dd>' +
-      '<dt>Cible</dt><dd>' + esc(entry.target || '—') + '</dd>' +
-      '</dl>';
-    var json = entry.detail_full || '—';
+    document.querySelectorAll('#app-access-tbody tr[data-access-id]').forEach(function (tr) {
+      tr.classList.toggle('is-selected', tr.getAttribute('data-access-id') === selectedId);
+    });
+    drawerTitle.textContent = entry.action || entry.request || entry.path || 'Détail';
+    var meta;
+    var json;
+    if (entry.ecosystem === 'nginx_access') {
+      meta =
+        '<dl class="logs-drawer-meta">' +
+        '<dt>Horodatage</dt><dd class="font-mono">' + esc(entry.time_local || '—') + '</dd>' +
+        '<dt>IP</dt><dd class="font-mono">' + esc(entry.remote_addr || '—') + '</dd>' +
+        '<dt>Host</dt><dd class="font-mono">' + esc(entry.host || '—') + '</dd>' +
+        '<dt>Requête</dt><dd><code>' + esc(entry.request || '—') + '</code></dd>' +
+        '<dt>Status</dt><dd>' + esc(entry.status || '—') + '</dd>' +
+        '<dt>Upstream</dt><dd class="font-mono">' + esc(entry.upstream_addr || '—') + '</dd>' +
+        '<dt>rt / ut</dt><dd class="font-mono">' + esc((entry.request_time || '—') + ' / ' + (entry.upstream_response_time || '—')) + '</dd>' +
+        '<dt>auth_err</dt><dd class="font-mono">' + esc(entry.auth_err || '—') + '</dd>' +
+        '</dl>';
+      json = JSON.stringify({
+        remote_addr: entry.remote_addr,
+        time_local: entry.time_local,
+        host: entry.host,
+        method: entry.method,
+        path: entry.path,
+        protocol: entry.protocol,
+        request: entry.request,
+        status: entry.status,
+        body_bytes_sent: entry.body_bytes_sent,
+        referer: entry.referer,
+        user_agent: entry.user_agent,
+        request_time: entry.request_time,
+        upstream_addr: entry.upstream_addr,
+        upstream_status: entry.upstream_status,
+        upstream_response_time: entry.upstream_response_time,
+        auth_err: entry.auth_err,
+        raw: entry.raw
+      }, null, 2);
+    } else {
+      meta =
+        '<dl class="logs-drawer-meta">' +
+        '<dt>Horodatage</dt><dd class="font-mono">' + esc(entry.timestamp) + '</dd>' +
+        '<dt>Acteur</dt><dd>' + esc(entry.actor) + '</dd>' +
+        '<dt>Action</dt><dd><code>' + esc(entry.action) + '</code></dd>' +
+        '<dt>IP</dt><dd class="font-mono">' + esc(entry.ip_address || '—') + '</dd>' +
+        '<dt>Résultat</dt><dd>' + esc(entry.result || entry.status || entry.severity || '—') + '</dd>' +
+        '<dt>Cible</dt><dd>' + esc(entry.target || '—') + '</dd>' +
+        '</dl>';
+      json = entry.detail_full || '—';
+    }
     drawerBody.innerHTML = meta +
       '<pre class="logs-drawer-json font-mono" id="audit-drawer-json">' + esc(json) + '</pre>' +
       '<div class="logs-drawer-actions"><button type="button" class="btn btn-secondary btn-sm" id="audit-drawer-copy">Copier</button></div>';
@@ -689,14 +756,21 @@
   });
   window.addEventListener('beforeunload', stopContainerLive);
 
-  /* Accès apps — nginx per-app access logs */
+  /* Accès apps — table + drawer (nginx access.log parsed) */
   var appSel = document.getElementById('app-access-select');
   var appLoadBtn = document.getElementById('app-access-load-btn');
   var appLiveBtn = document.getElementById('app-access-live-btn');
   var appCopyBtn = document.getElementById('app-access-copy-btn');
   var appPre = document.getElementById('app-access-pre');
   var appLiveStatus = document.getElementById('app-access-live-status');
+  var appTbody = document.getElementById('app-access-tbody');
+  var appMsg = document.getElementById('app-access-message');
+  var appShowInternal = document.getElementById('app-access-show-internal');
   var appEs = null;
+  var appEntries = [];
+  var appRawText = '';
+  var appSeq = 0;
+
   function stopAppAccessLive() {
     if (appEs) { appEs.close(); appEs = null; }
     if (appLiveBtn) { appLiveBtn.setAttribute('aria-pressed', 'false'); appLiveBtn.textContent = '● Live'; }
@@ -706,49 +780,164 @@
     if (appLiveBtn) appLiveBtn.disabled = !enabled;
     if (appCopyBtn) appCopyBtn.disabled = !enabled;
   }
+  function setAppAccessMessage(text) {
+    if (!appMsg) return;
+    if (text) {
+      appMsg.hidden = false;
+      appMsg.textContent = text;
+    } else {
+      appMsg.hidden = true;
+      appMsg.textContent = '';
+    }
+  }
+  function truncateUri(path) {
+    var s = path || '';
+    return s.length > 64 ? s.slice(0, 61) + '…' : s;
+  }
+  function visibleAppEntries() {
+    var showInternal = !!(appShowInternal && appShowInternal.checked);
+    return appEntries.filter(function (e) {
+      return showInternal || !e.is_internal_hop;
+    });
+  }
+  function renderAppAccessRows() {
+    if (!appTbody) return;
+    var rows = visibleAppEntries();
+    appTbody.innerHTML = '';
+    if (!rows.length) {
+      var empty = document.createElement('tr');
+      empty.className = 'dep-empty-row';
+      empty.id = 'app-access-empty-row';
+      empty.innerHTML =
+        '<td colspan="8"><div class="empty-state"><div class="empty-title">' +
+        (appEntries.length ? 'Aucune ligne avec ce filtre' : 'Aucune entrée') +
+        '</div><div class="empty-sub">' +
+        (appEntries.length
+          ? 'Cochez « Afficher hops internes » ou rechargez après trafic.'
+          : 'Cliquez sur Charger pour parser le access.log.') +
+        '</div></div></td>';
+      appTbody.appendChild(empty);
+      return;
+    }
+    var ordered = rows.slice().reverse();
+    ordered.forEach(function (e) {
+      var tr = document.createElement('tr');
+      tr.tabIndex = 0;
+      tr.setAttribute('data-access-id', String(e.id));
+      tr.setAttribute('data-entry', JSON.stringify(e));
+      var badge = e.status
+        ? ('<span class="badge badge-' + esc(e.status_class || 'muted') + '">' + esc(e.status) + '</span>')
+        : '<span class="badge badge-muted">—</span>';
+      var detailLabel = e.parse_ok === false ? 'brut' : 'détail';
+      tr.innerHTML =
+        '<td class="font-mono">' + esc(e.time_local || '—') + '</td>' +
+        '<td class="font-mono">' + esc(e.remote_addr || '—') + '</td>' +
+        '<td><code>' + esc(e.method || '—') + '</code></td>' +
+        '<td class="font-mono" title="' + esc(e.path || '') + '">' + esc(truncateUri(e.path || e.request || '—')) + '</td>' +
+        '<td>' + badge + '</td>' +
+        '<td class="font-mono">' + esc(e.upstream_addr || '—') + '</td>' +
+        '<td class="font-mono">' + esc(e.request_time || '—') + '</td>' +
+        '<td><button type="button" class="btn btn-ghost btn-sm app-access-detail-btn">' + detailLabel + ' ↗</button></td>';
+      appTbody.appendChild(tr);
+    });
+  }
+  function ingestAppEntries(list, mode) {
+    if (!Array.isArray(list) || !list.length) return;
+    list.forEach(function (e) {
+      appSeq += 1;
+      e.id = String(appSeq) + '-' + (e.id || 'row');
+      e.ecosystem = 'nginx_access';
+    });
+    if (mode === 'replace') appEntries = list.slice();
+    else appEntries = appEntries.concat(list);
+    renderAppAccessRows();
+  }
   async function loadAppAccessSnapshot() {
-    if (!appSel || !appSel.value || !appPre) return;
+    if (!appSel || !appSel.value) return;
     stopAppAccessLive();
-    appPre.textContent = 'Chargement…';
+    setAppAccessMessage('Chargement…');
+    appEntries = [];
+    appRawText = '';
+    renderAppAccessRows();
     try {
       var resp = await fetch('/admin/logs/apps/' + encodeURIComponent(appSel.value) + '/access', {
         headers: { 'Accept': 'application/json' }, credentials: 'same-origin',
       });
-      if (!resp.ok) { appPre.textContent = 'Erreur ' + resp.status; setAppAccessButtons(false); return; }
+      if (!resp.ok) {
+        setAppAccessMessage('Erreur ' + resp.status);
+        setAppAccessButtons(false);
+        return;
+      }
       var body = await resp.json();
-      appPre.textContent = body.text || '';
+      appRawText = body.text || '';
+      if (appPre) appPre.textContent = appRawText;
+      if (body.message) setAppAccessMessage(body.message);
+      else setAppAccessMessage('');
+      ingestAppEntries(body.entries || [], 'replace');
       setAppAccessButtons(true);
-      appPre.scrollTop = appPre.scrollHeight;
     } catch (err) {
-      appPre.textContent = 'Erreur réseau';
+      setAppAccessMessage('Erreur réseau');
       setAppAccessButtons(false);
     }
   }
   function startAppAccessLive() {
-    if (!appSel || !appSel.value || !appPre) return;
+    if (!appSel || !appSel.value) return;
     stopAppAccessLive();
     appEs = new EventSource('/admin/logs/apps/' + encodeURIComponent(appSel.value) + '/stream');
     if (appLiveBtn) { appLiveBtn.setAttribute('aria-pressed', 'true'); appLiveBtn.textContent = '● Live ON'; }
     if (appLiveStatus) appLiveStatus.hidden = false;
+    var first = true;
     appEs.onmessage = function (ev) {
       if (!ev.data) return;
       var payload;
       try { payload = JSON.parse(ev.data); } catch (err) { return; }
-      if (payload && payload.text) { appPre.textContent += payload.text; appPre.scrollTop = appPre.scrollHeight; }
+      if (!payload) return;
+      if (payload.text) {
+        if (first && !(appRawText || '').trim()) appRawText = payload.text;
+        else appRawText += payload.text;
+        if (appPre) appPre.textContent = appRawText;
+      }
+      if (payload.entries && payload.entries.length) {
+        if (first && !appEntries.length) ingestAppEntries(payload.entries, 'replace');
+        else ingestAppEntries(payload.entries, 'append');
+        setAppAccessMessage('');
+      }
+      first = false;
     };
     appEs.addEventListener('timeout', function () { stopAppAccessLive(); });
   }
+  if (appTbody) {
+    appTbody.addEventListener('click', function (ev) {
+      var tr = ev.target.closest('tr[data-access-id]');
+      if (!tr) return;
+      var raw = tr.getAttribute('data-entry');
+      if (!raw) return;
+      try { openDrawer(JSON.parse(raw)); } catch (err) { /* ignore */ }
+    });
+    appTbody.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Enter' && ev.key !== ' ') return;
+      var tr = ev.target.closest('tr[data-access-id]');
+      if (!tr) return;
+      ev.preventDefault();
+      var raw = tr.getAttribute('data-entry');
+      if (!raw) return;
+      try { openDrawer(JSON.parse(raw)); } catch (err) { /* ignore */ }
+    });
+  }
+  if (appShowInternal) appShowInternal.addEventListener('change', renderAppAccessRows);
   if (appLoadBtn) appLoadBtn.addEventListener('click', loadAppAccessSnapshot);
   if (appLiveBtn) appLiveBtn.addEventListener('click', function () {
     if (appLiveBtn.getAttribute('aria-pressed') === 'true') stopAppAccessLive();
     else startAppAccessLive();
   });
-  if (appCopyBtn && appPre) appCopyBtn.addEventListener('click', function () {
-    if (navigator.clipboard) navigator.clipboard.writeText(appPre.textContent || '');
+  if (appCopyBtn) appCopyBtn.addEventListener('click', function () {
+    if (navigator.clipboard) navigator.clipboard.writeText(appRawText || '');
   });
   if (appSel) appSel.addEventListener('change', function () {
     stopAppAccessLive(); setAppAccessButtons(false);
-    if (appPre) appPre.textContent = 'Cliquez sur Charger pour afficher les logs.';
+    appEntries = []; appRawText = '';
+    setAppAccessMessage('');
+    renderAppAccessRows();
   });
   window.addEventListener('beforeunload', stopAppAccessLive);
 })();
