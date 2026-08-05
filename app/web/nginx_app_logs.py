@@ -78,6 +78,81 @@ def access_log_path(settings: Settings, slug: str) -> Path:
     return path
 
 
+def describe_access_log(settings: Settings, slug: str) -> dict[str, object]:
+    """Admin diagnostics for why Accès apps may appear empty."""
+    root = resolve_nginx_app_logs_dir(settings)
+    try:
+        root_resolved = root.resolve()
+    except OSError:
+        root_resolved = root
+    path = access_log_path(settings, slug)
+    exists = False
+    size = 0
+    try:
+        exists = path.is_file()
+        if exists:
+            size = int(path.stat().st_size)
+    except OSError:
+        exists = False
+        size = 0
+    siblings: list[str] = []
+    root_exists = False
+    try:
+        root_exists = root_resolved.is_dir()
+        if root_exists:
+            siblings = sorted(p.name for p in root_resolved.glob("*.access.log"))[:40]
+    except OSError:
+        root_exists = False
+    if exists and size > 0:
+        hint = ""
+    elif exists and size == 0:
+        hint = (
+            "Fichier présent mais vide : le vhost nginx n'a pas encore écrit de ligne, "
+            "ou le trafic n'atteint pas bastion-nginx (DNS/Traefik direct)."
+        )
+    elif root_exists and siblings:
+        hint = (
+            f"Autres access.log visibles ({', '.join(siblings[:5])}"
+            f"{'…' if len(siblings) > 5 else ''}) — vérifier le slug de l'app."
+        )
+    elif root_exists:
+        hint = (
+            "Répertoire nginx-logs monté mais aucun *.access.log : recreer bastion-nginx "
+            "avec le volume partagé, puis générer du trafic via le FQDN public."
+        )
+    else:
+        hint = (
+            "Répertoire nginx-logs absent côté bastion-app. "
+            "docker compose up -d --force-recreate nginx bastion-app "
+            "(volume …/nginx-logs → /var/log/nginx/apps)."
+        )
+    return {
+        "path": str(path),
+        "root": str(root_resolved),
+        "root_exists": root_exists,
+        "exists": exists,
+        "size_bytes": size,
+        "sibling_access_logs": siblings,
+        "hint": hint,
+    }
+
+
+def empty_access_log_message(settings: Settings, slug: str) -> str:
+    meta = describe_access_log(settings, slug)
+    lines = [
+        "(fichier d'accès vide ou absent)",
+        f"chemin: {meta['path']}",
+        f"existe: {'oui' if meta['exists'] else 'non'} · taille: {meta['size_bytes']} o",
+    ]
+    siblings = meta.get("sibling_access_logs") or []
+    if siblings:
+        lines.append("autres: " + ", ".join(str(s) for s in siblings[:8]))
+    hint = str(meta.get("hint") or "").strip()
+    if hint:
+        lines.append(f"astuce: {hint}")
+    return "\n".join(lines) + "\n"
+
+
 def read_access_log_tail(
     settings: Settings,
     slug: str,

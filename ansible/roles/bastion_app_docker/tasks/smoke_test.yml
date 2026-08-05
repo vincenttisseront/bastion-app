@@ -122,6 +122,36 @@
   changed_when: false
   failed_when: false
 
+- name: "SMOKE : shared nginx-logs volume (Accès apps)"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ bastion_app_docker_compose_dir }}"
+    cid="{{ _nginx_cid.stdout | trim }}"
+    marker="bastion-smoke.access.log"
+    docker exec "$cid" sh -c 'test -d /var/log/nginx/apps'
+    docker exec "$cid" sh -c "echo smoke-ok > /var/log/nginx/apps/$marker"
+    docker compose exec -T bastion-app test -f "/var/lib/sso-portal/nginx-logs/$marker"
+    body="$(docker compose exec -T bastion-app cat "/var/lib/sso-portal/nginx-logs/$marker")"
+    echo "$body" | grep -q smoke-ok
+    docker exec "$cid" rm -f "/var/log/nginx/apps/$marker"
+    echo "shared nginx-logs volume OK"
+  args:
+    executable: /bin/bash
+  register: _nginx_logs_volume_smoke
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : warn if nginx-logs volume not shared"
+  ansible.builtin.debug:
+    msg: >-
+      Volume nginx-logs non partagé entre bastion-nginx et bastion-app
+      (Admin → Logs → Accès apps restera vide).
+      Forcer: docker compose up -d --force-recreate nginx bastion-app
+      rc={{ _nginx_logs_volume_smoke.rc }}
+      {{ _nginx_logs_volume_smoke.stdout | default('') }}
+      {{ _nginx_logs_volume_smoke.stderr | default('') }}
+  when: _nginx_logs_volume_smoke.rc | default(1) != 0
+
 - name: "SMOKE : diagnose nginx listen sockets on failure"
   when: _nginx_exec_health.rc | default(1) != 0
   ansible.builtin.shell: |

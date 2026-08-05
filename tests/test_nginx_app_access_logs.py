@@ -70,6 +70,8 @@ def test_app_access_logs_tab_lists_apps(client, db_session, tmp_path, monkeypatc
         assert body["slug"] == "overseerr"
         assert "GET /" in body["text"]
         assert "1.2.3.4" in body["text"]
+        assert body["meta"]["exists"] is True
+        assert body["meta"]["size_bytes"] > 0
     finally:
         # Restore client fixture override shape
         fastapi_app.dependency_overrides[get_settings] = lambda: Settings(
@@ -104,3 +106,21 @@ def test_read_access_log_tail_units(tmp_path):
     assert "line2" in text
     assert "line3" in text
     assert "line1" not in text
+
+
+def test_empty_access_log_message_diagnostics(tmp_path):
+    from app.web.nginx_app_logs import describe_access_log, empty_access_log_message
+
+    s = _settings(tmp_path)
+    root = tmp_path / "nginx-logs"
+    root.mkdir()
+    (root / "other.access.log").write_text("x\n", encoding="utf-8")
+
+    meta = describe_access_log(s, "overseerr")
+    assert meta["exists"] is False
+    assert meta["root_exists"] is True
+    assert "other.access.log" in meta["sibling_access_logs"]
+    msg = empty_access_log_message(s, "overseerr")
+    assert "chemin:" in msg
+    assert "other.access.log" in msg
+    assert "astuce:" in msg

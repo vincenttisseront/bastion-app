@@ -39,6 +39,8 @@ from app.web.docker_logs import (
 from app.web.flash import base_template_context, flash_redirect
 from app.web.nginx_app_logs import (
     assert_loggable_slug,
+    describe_access_log,
+    empty_access_log_message,
     iter_access_log_follow,
     list_loggable_apps,
     read_access_log_tail,
@@ -525,17 +527,25 @@ async def admin_app_access_logs_snapshot(
 ):
     safe = assert_loggable_slug(db, slug)
     text = read_access_log_tail(settings, safe, lines=tail)
+    meta = describe_access_log(settings, safe)
     log_action(
         db,
         actor=user.email or user.username or "admin",
         action="admin.app_access_logs.viewed",
         target=safe,
-        details={"mode": "snapshot", "tail": tail, "empty": not bool(text.strip())},
+        details={
+            "mode": "snapshot",
+            "tail": tail,
+            "empty": not bool(text.strip()),
+            "exists": bool(meta.get("exists")),
+            "size_bytes": int(meta.get("size_bytes") or 0),
+        },
         ip_address=_client_ip(request),
     )
     return {
         "slug": safe,
-        "text": text or "(fichier d'accès vide ou pas encore de trafic)\n",
+        "text": text or empty_access_log_message(settings, safe),
+        "meta": meta,
     }
 
 

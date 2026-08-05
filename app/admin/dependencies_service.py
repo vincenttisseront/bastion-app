@@ -7,13 +7,17 @@ import logging
 import os
 import re
 import tomllib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
+from packaging.utils import canonicalize_name
+from packaging.version import InvalidVersion, Version
 from sqlalchemy.orm import Session
 
 from app.models import DependencySnapshot, utcnow
@@ -21,8 +25,11 @@ from app.testing_framework.throttle import throttle_retry_after
 
 logger = logging.getLogger(__name__)
 
-LOOKUP_TIMEOUT_SECONDS = 5.0
+LOOKUP_TIMEOUT_SECONDS = 12.0
+LOOKUP_MAX_WORKERS = 8
+LOOKUP_RETRIES = 1
 REFRESH_THROTTLE_SECONDS = 30.0
+_USER_AGENT = "BastionPro-Dependencies/1.0 (+https://github.com/vincenttisseront/bastion-app)"
 
 # Declared name (after stripping extras) → importlib.metadata distribution name.
 _PYTHON_DIST_ALIASES: dict[str, str] = {
@@ -34,8 +41,9 @@ _PYTHON_DIST_ALIASES: dict[str, str] = {
 _REQ_NAME_RE = re.compile(
     r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?",
 )
-_SEMVER_RE = re.compile(
-    r"^v?(?P<major>\d+)(?:\.(?P<minor>\d+))?(?:\.(?P<patch>\d+))?",
+# First version-like token inside a constraint / lock value.
+_VERSION_TOKEN_RE = re.compile(
+    r"v?(?P<ver>\d+(?:\.\d+){0,3}(?:[a-zA-Z0-9._+-]*)?)",
 )
 
 
@@ -87,35 +95,64 @@ def package_json_path(root: Path | None = None) -> Path:
     return (root or resolve_manifest_root()) / "package.json"
 
 
+def normalize_version_token(value: str | None) -> str | None:
+    """
+    Extract a comparable version from lock values or range constraints.
+
+    Examples: ``^1.49.0`` → ``1.49.0``, ``>=0.115`` → ``0.115``,
+    ``[standard]>=0.49`` → ``0.49``, ``1.2.3+meta`` → ``1.2.3+meta``.
+    """
+    if not value:
+        return None
+    cleaned = value.strip()
+    if not cleaned or cleaned == "—":
+        return None
+    cleaned = cleaned.split(",", 1)[0].strip()
+    cleaned = cleaned.split("||", 1)[0].strip()
+    for prefix in ("===", "==", ">=", "<=", "~=", "!=", "^", "~", "=", ">"):
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix) :].strip()
+            break
+    # Drop extras remnant like ``[standard]0.49`` after partial strip.
+    if cleaned.startswith("["):
+        bracket = cleaned.find("]")
+        if bracket != -1:
+            cleaned = cleaned[bracket + 1 :].strip()
+            for prefix in (">=", "<=", "==", "=", ">", "^", "~"):
+                if cleaned.startswith(prefix):
+                    cleaned = cleaned[len(prefix) :].strip()
+                    break
+    m = _VERSION_TOKEN_RE.search(cleaned)
+    if not m:
+        return None
+    return m.group("ver")
+
+
+def parse_version(value: str | None) -> Version | None:
+    token = normalize_version_token(value)
+    if not token:
+        return None
+    try:
+        return Version(token)
+    except InvalidVersion:
+        return None
+
+
 def compute_status(current: str | None, latest: str | None) -> str:
-    """Compare SemVer-ish versions → up_to_date / outdated_* / unknown."""
-    cur = _parse_semver(current)
-    lat = _parse_semver(latest)
+    """Compare versions (PEP 440 / SemVer-ish) → up_to_date / outdated_* / unknown."""
+    cur = parse_version(current)
+    lat = parse_version(latest)
     if cur is None or lat is None:
         return "unknown"
     if lat <= cur:
         return "up_to_date"
-    if lat[0] > cur[0]:
+    cur_rel = cur.release + (0, 0, 0)
+    lat_rel = lat.release + (0, 0, 0)
+    if lat_rel[0] > cur_rel[0]:
         return "outdated_major"
-    if lat[1] > cur[1]:
+    if lat_rel[1] > cur_rel[1]:
         return "outdated_minor"
     return "outdated_patch"
-
-
-def _parse_semver(value: str | None) -> tuple[int, int, int] | None:
-    if not value:
-        return None
-    cleaned = value.strip()
-    cleaned = cleaned.split("+", 1)[0]
-    cleaned = cleaned.split("!", 1)[0]
-    m = _SEMVER_RE.match(cleaned)
-    if not m:
-        return None
-    return (
-        int(m.group("major")),
-        int(m.group("minor") or 0),
-        int(m.group("patch") or 0),
-    )
 
 
 def _requirement_name(spec: str) -> str | None:
@@ -144,12 +181,19 @@ def _resolve_python_installed(declared_name: str) -> str | None:
     alias = _PYTHON_DIST_ALIASES.get(declared_name.lower())
     if alias and alias not in candidates:
         candidates.append(alias)
+    canon = canonicalize_name(declared_name)
+    if canon not in {c.lower().replace("_", "-") for c in candidates}:
+        candidates.append(canon)
     for candidate in candidates:
         try:
             return importlib_metadata.version(candidate)
         except importlib_metadata.PackageNotFoundError:
             continue
-    return None
+    # importlib may only expose the canonical distribution name.
+    try:
+        return importlib_metadata.version(canon)
+    except importlib_metadata.PackageNotFoundError:
+        return None
 
 
 def parse_python_dependencies(
@@ -360,35 +404,148 @@ def parse_npm_dependencies(
     return out
 
 
+def _http_client(client: httpx.Client | None = None) -> tuple[httpx.Client, bool]:
+    if client is not None:
+        return client, False
+    return (
+        httpx.Client(
+            timeout=LOOKUP_TIMEOUT_SECONDS,
+            headers={
+                "User-Agent": _USER_AGENT,
+                "Accept": "application/json",
+            },
+            follow_redirects=True,
+        ),
+        True,
+    )
+
+
+def _get_json_with_retry(
+    http: httpx.Client,
+    url: str,
+    *,
+    retries: int = LOOKUP_RETRIES,
+) -> dict[str, Any]:
+    last_exc: Exception | None = None
+    attempts = max(1, retries + 1)
+    for attempt in range(attempts):
+        try:
+            resp = http.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+            if not isinstance(data, dict):
+                raise ValueError("registry payload is not an object")
+            return data
+        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+            last_exc = exc
+            # Do not retry hard client errors except 408/429.
+            if isinstance(exc, httpx.HTTPStatusError):
+                code = exc.response.status_code
+                if code < 500 and code not in (408, 429):
+                    raise
+            if attempt + 1 >= attempts:
+                raise
+            logger.debug("registry retry url=%s attempt=%s err=%s", url, attempt + 1, exc)
+    assert last_exc is not None
+    raise last_exc
+
+
+def _highest_stable_version(version_names: list[str]) -> str | None:
+    parsed: list[tuple[Version, str]] = []
+    for raw in version_names:
+        try:
+            ver = Version(raw)
+        except InvalidVersion:
+            continue
+        if ver.is_prerelease or ver.is_devrelease:
+            continue
+        parsed.append((ver, raw))
+    if not parsed:
+        return None
+    parsed.sort(key=lambda item: item[0])
+    return parsed[-1][1]
+
+
+def _highest_stable_pypi_release(releases: dict[str, Any]) -> str | None:
+    """Highest non-prerelease release that still has at least one non-yanked file."""
+    candidates: list[tuple[Version, str]] = []
+    for raw, files in releases.items():
+        try:
+            ver = Version(str(raw))
+        except InvalidVersion:
+            continue
+        if ver.is_prerelease or ver.is_devrelease:
+            continue
+        file_list = files if isinstance(files, list) else []
+        if file_list and all(
+            isinstance(f, dict) and bool(f.get("yanked")) for f in file_list
+        ):
+            continue
+        candidates.append((ver, str(raw)))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    return candidates[-1][1]
+
+
 def fetch_pypi_latest(name: str, *, client: httpx.Client | None = None) -> str:
-    url = f"https://pypi.org/pypi/{name}/json"
-    own = client is None
-    http = client or httpx.Client(timeout=LOOKUP_TIMEOUT_SECONDS)
+    """
+    Resolve the latest PyPI release for ``name``.
+
+    Uses PEP 503 canonical name, follows redirects, prefers ``info.version``
+    when not fully yanked, otherwise the highest non-yanked stable release.
+    """
+    canon = canonicalize_name(name)
+    url = f"https://pypi.org/pypi/{quote(canon, safe='')}/json"
+    http, own = _http_client(client)
     try:
-        resp = http.get(url)
-        resp.raise_for_status()
-        info = resp.json().get("info") or {}
+        data = _get_json_with_retry(http, url)
+        info = data.get("info") or {}
         version = info.get("version")
-        if not version:
-            raise ValueError("missing info.version")
-        return str(version)
+        releases = data.get("releases") or {}
+        if not isinstance(releases, dict):
+            releases = {}
+
+        if version:
+            files = releases.get(str(version)) or []
+            fully_yanked = bool(files) and all(
+                isinstance(f, dict) and bool(f.get("yanked")) for f in files
+            )
+            if not fully_yanked:
+                return str(version)
+
+        stable = _highest_stable_pypi_release(releases)
+        if stable:
+            return stable
+        if version:
+            return str(version)
+        raise ValueError("missing info.version")
     finally:
         if own:
             http.close()
 
 
 def fetch_npm_latest(name: str, *, client: httpx.Client | None = None) -> str:
-    encoded = name.replace("/", "%2F")
-    url = f"https://registry.npmjs.org/{encoded}/latest"
-    own = client is None
-    http = client or httpx.Client(timeout=LOOKUP_TIMEOUT_SECONDS)
+    """
+    Resolve npm ``dist-tags.latest``, with fallback to the highest stable version.
+
+    Full package metadata is used (not only ``/latest``) so the analysis matches
+    what package managers see on the public registry.
+    """
+    encoded = quote(name, safe="@")
+    url = f"https://registry.npmjs.org/{encoded}"
+    http, own = _http_client(client)
     try:
-        resp = http.get(url)
-        resp.raise_for_status()
-        version = resp.json().get("version")
-        if not version:
-            raise ValueError("missing version")
-        return str(version)
+        data = _get_json_with_retry(http, url)
+        tags = data.get("dist-tags") or {}
+        latest = tags.get("latest")
+        if latest:
+            return str(latest)
+        versions = data.get("versions") or {}
+        stable = _highest_stable_version(list(versions.keys()))
+        if stable:
+            return stable
+        raise ValueError("missing dist-tags.latest")
     finally:
         if own:
             http.close()
@@ -446,6 +603,23 @@ def sync_local_to_db(
     return rows
 
 
+def _lookup_latest_for_row(
+    row: DependencySnapshot,
+    http: httpx.Client,
+) -> tuple[str, str | None, str | None]:
+    """Return (name, latest_or_none, error_or_none)."""
+    try:
+        if row.ecosystem == "python":
+            latest = fetch_pypi_latest(row.name, client=http)
+        elif row.ecosystem == "npm":
+            latest = fetch_npm_latest(row.name, client=http)
+        else:
+            raise ValueError(f"unknown ecosystem: {row.ecosystem}")
+        return row.name, latest, None
+    except Exception as exc:  # noqa: BLE001 — per-package isolation
+        return row.name, None, str(exc)[:500]
+
+
 def refresh_latest_versions(
     db: Session,
     *,
@@ -456,8 +630,10 @@ def refresh_latest_versions(
 ) -> dict[str, Any]:
     """
     Sync local packages then lookup latest versions on PyPI / npm registry.
-    Returns summary dict; never raises for per-package lookup failures.
-    Raises ManifestMissingError when manifests cannot be read (unless deps injected).
+
+    Lookups run in parallel (bounded workers). Per-package failures never abort
+    the whole refresh. Raises ManifestMissingError when manifests cannot be read
+    (unless deps are injected).
     """
     if not skip_throttle:
         wait = throttle_retry_after(
@@ -476,36 +652,38 @@ def refresh_latest_versions(
             }
 
     rows = sync_local_to_db(db, python_deps=python_deps, npm_deps=npm_deps)
-    own_client = client is None
-    http = client or httpx.Client(timeout=LOOKUP_TIMEOUT_SECONDS)
+    http, own_client = _http_client(client)
     checked = 0
     errors = 0
     now = utcnow()
+    results: dict[str, tuple[str | None, str | None]] = {}
 
     try:
+        workers = min(LOOKUP_MAX_WORKERS, max(1, len(rows)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_lookup_latest_for_row, row, http) for row in rows]
+            for fut in as_completed(futures):
+                name, latest, err = fut.result()
+                results[name] = (latest, err)
+
         for row in rows:
-            try:
-                if row.ecosystem == "python":
-                    latest = fetch_pypi_latest(row.name, client=http)
-                elif row.ecosystem == "npm":
-                    latest = fetch_npm_latest(row.name, client=http)
-                else:
-                    raise ValueError(f"unknown ecosystem: {row.ecosystem}")
+            latest, err = results.get(row.name, (None, "lookup missing"))
+            if latest and not err:
                 row.latest_version = latest
                 row.status = compute_status(row.current_version, latest)
                 row.check_error = None
                 row.last_checked_at = now
                 checked += 1
-            except Exception as exc:  # noqa: BLE001 — per-package isolation
+            else:
                 errors += 1
                 row.status = "unknown"
-                row.check_error = str(exc)[:500]
+                row.check_error = (err or "lookup failed")[:500]
                 row.last_checked_at = now
                 logger.warning(
                     "dependency lookup failed ecosystem=%s name=%s: %s",
                     row.ecosystem,
                     row.name,
-                    exc,
+                    err,
                 )
         db.commit()
     except Exception:

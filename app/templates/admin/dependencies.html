@@ -11,11 +11,19 @@
         {{ summary.total }} package{{ 's' if summary.total != 1 else '' }}
         · {{ summary.outdated }} MAJ disponible{{ 's' if summary.outdated != 1 else '' }}
         · {{ summary.up_to_date }} à jour
+        {% if summary.unknown %}
+        · {{ summary.unknown }} n/a
+        {% endif %}
         {% if last_checked_at %}
         · dernière vérif. {{ last_checked_at }}
         {% else %}
         · jamais vérifié
         {% endif %}
+      </p>
+      <p class="form-help" style="margin-top:var(--sp-2);max-width:52rem;">
+        Versions installées : <span class="mono">pyproject.toml</span> / <span class="mono">importlib</span> (Python)
+        et <span class="mono">package-lock.json</span> (npm). Dernière version : registres PyPI et npm
+        (<span class="mono">dist-tags.latest</span>, hors prerelease / yank).
       </p>
     </div>
     <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;">
@@ -115,10 +123,20 @@
             </td>
             <td><span class="badge badge-muted">{{ p.type_label }}</span></td>
             <td class="mono">{% if p.declared_version %}{{ p.declared_version }}{% else %}—{% endif %}</td>
-            <td class="mono">{{ p.current_version }}</td>
+            <td class="mono">
+              {% if p.is_outdated and p.latest_version and p.current_version and p.current_version != '—' %}
+                <span title="Installé → dernière">{{ p.current_version }} → {{ p.latest_version }}</span>
+              {% else %}
+                {{ p.current_version }}
+              {% endif %}
+            </td>
             <td class="mono">
               {% if p.latest_version %}
+                {% if p.is_major %}
+                <span class="dep-latest-major">{{ p.latest_version }}</span>
+                {% else %}
                 {{ p.latest_version }}
+                {% endif %}
                 {% if p.is_outdated %}
                 <span class="badge badge-{{ p.badge }}" style="margin-left:6px;">{{ p.status_label }}</span>
                 {% endif %}
@@ -177,6 +195,7 @@
   .dep-toolbar-btns{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
   .dep-panel[hidden]{display:none!important}
   .dep-row-major td{background:color-mix(in srgb,var(--danger,#b91c1c) 6%,transparent)}
+  .dep-latest-major{color:var(--danger,#b91c1c);font-weight:600}
   #dep-tabs .tab{cursor:pointer;border:none;background:transparent;font:inherit;color:inherit}
   .dep-filter-btn.active{outline:2px solid var(--accent,#2563eb);outline-offset:1px}
   .dep-filter-empty{margin:0 0 var(--sp-3)}
