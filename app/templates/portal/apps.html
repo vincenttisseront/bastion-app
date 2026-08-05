@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260805-okta-apps">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260805-favorites">
 {% endblock %}
 
 {% block content %}
@@ -52,18 +52,30 @@
       {% if can_open %}
       <button type="button" class="app-tile-menu-item" role="menuitem" data-tile-open>Ouvrir</button>
       {% endif %}
+      <button
+        type="button"
+        class="app-tile-menu-item"
+        role="menuitem"
+        data-tile-favorite
+        data-app-id="{{ app.id }}"
+        data-favorited="{{ '1' if app.is_favorite else '0' }}"
+      >
+        {% if app.is_favorite %}Retirer des Accès rapides{% else %}Ajouter aux Accès rapides{% endif %}
+      </button>
     </div>
   </div>
 {%- endmacro %}
 {% macro app_tile(app, id_prefix='') -%}
   {% set tile_id = (id_prefix ~ app.slug) if id_prefix else ('app-' ~ app.slug) %}
   {% set fuzzy = app.label ~ ' ' ~ (app.description or '') ~ ' ' ~ app.slug %}
+  {% set fav_class = ' is-favorite' if app.is_favorite else '' %}
   {% if app.needs_credential_setup %}
   <div
-    class="app-tile-wrap"
+    class="app-tile-wrap{{ fav_class }}"
     data-searchable
     data-fuzzy-key="{{ fuzzy }}"
     data-protocol-filter="{{ app.protocol_filter }}"
+    data-app-id="{{ app.id }}"
   >
     <div
       id="{{ tile_id }}"
@@ -73,6 +85,7 @@
       title="Cette application nécessite une configuration par votre administrateur avant le premier accès."
       aria-disabled="true"
     >
+      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="Accès rapide">★</span>{% endif %}
       {{ app_tile_icon(app) }}
       <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
     </div>
@@ -80,10 +93,11 @@
   </div>
   {% elif app.can_launch and app.credential_mode == 'identite_utilisateur' %}
   <div
-    class="app-tile-wrap"
+    class="app-tile-wrap{{ fav_class }}"
     data-searchable
     data-fuzzy-key="{{ fuzzy }}"
     data-protocol-filter="{{ app.protocol_filter }}"
+    data-app-id="{{ app.id }}"
   >
     <button
       type="button"
@@ -97,6 +111,7 @@
       data-open-with-identity
       data-open-identity-url="/api/apps/{{ app.slug }}/open-with-identity"
     >
+      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="Accès rapide">★</span>{% endif %}
       {{ app_tile_icon(app) }}
       <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
     </button>
@@ -104,10 +119,11 @@
   </div>
   {% elif app.can_launch %}
   <div
-    class="app-tile-wrap"
+    class="app-tile-wrap{{ fav_class }}"
     data-searchable
     data-fuzzy-key="{{ fuzzy }}"
     data-protocol-filter="{{ app.protocol_filter }}"
+    data-app-id="{{ app.id }}"
   >
     <a
       id="{{ tile_id }}"
@@ -119,6 +135,7 @@
       data-app-label="{{ app.label }}"
       {% if app.access_mode != 'legacy_path_proxy' %}target="_blank" rel="noopener noreferrer"{% endif %}
     >
+      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="Accès rapide">★</span>{% endif %}
       {{ app_tile_icon(app) }}
       <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
     </a>
@@ -126,10 +143,11 @@
   </div>
   {% else %}
   <div
-    class="app-tile-wrap"
+    class="app-tile-wrap{{ fav_class }}"
     data-searchable
     data-fuzzy-key="{{ fuzzy }}"
     data-protocol-filter="{{ app.protocol_filter }}"
+    data-app-id="{{ app.id }}"
   >
     <div
       id="{{ tile_id }}"
@@ -139,6 +157,7 @@
       title="Accès lecture seule — ouverture non autorisée"
       aria-disabled="true"
     >
+      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="Accès rapide">★</span>{% endif %}
       {{ app_tile_icon(app) }}
       <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
     </div>
@@ -231,11 +250,18 @@
           <h2 class="portal-apps-section-title">{{ section.label }}</h2>
           <span class="portal-apps-section-count">{{ section.apps | length }}</span>
         </header>
+        {% if section.is_favorites and not section.apps %}
+        <p class="portal-apps-empty-fav">
+          Aucun accès rapide pour le moment. Ouvrez le menu <strong>…</strong> d’une application
+          et choisissez <em>Ajouter aux Accès rapides</em>.
+        </p>
+        {% else %}
         <div class="admin-grid portal-app-grid" data-apps-view="grid">
           {% for app in section.apps %}
-            {{ app_tile(app, id_prefix=('app-recent-' if section.is_recent else 'app-')) }}
+            {{ app_tile(app, id_prefix=('app-fav-' if section.is_favorites else 'app-')) }}
           {% endfor %}
         </div>
+        {% endif %}
       </section>
       {% endfor %}
       <p class="portal-apps-hint" id="portal-filter-empty" hidden>Aucune application ne correspond à votre recherche.</p>
@@ -368,6 +394,15 @@
       return;
     }
 
+    var favItem = e.target && e.target.closest ? e.target.closest('[data-tile-favorite]') : null;
+    if (favItem) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAllTileMenus();
+      toggleFavorite(favItem);
+      return;
+    }
+
     if (e.target && e.target.closest && e.target.closest('[data-tile-menu]')) {
       return;
     }
@@ -382,6 +417,39 @@
     launchPing(tile.getAttribute('data-app-id'));
     openWithIdentity(tile);
   });
+
+  function toggleFavorite(btn) {
+    var appId = btn.getAttribute('data-app-id');
+    var favorited = btn.getAttribute('data-favorited') === '1';
+    if (!appId) return;
+    btn.disabled = true;
+    fetch('/api/apps/' + encodeURIComponent(appId) + '/favorite', {
+      method: favorited ? 'DELETE' : 'POST',
+      headers: {
+        'X-CSRF-Token': csrfToken(),
+        Accept: 'application/json',
+      },
+    })
+      .then(function (res) {
+        return res.json().then(function (body) {
+          return { ok: res.ok, body: body };
+        });
+      })
+      .then(function (result) {
+        if (!result.ok) {
+          var detail = (result.body && result.body.detail) || 'Action impossible';
+          if (window.bastionToast) window.bastionToast(detail, 'error');
+          else window.alert(detail);
+          btn.disabled = false;
+          return;
+        }
+        window.location.reload();
+      })
+      .catch(function () {
+        btn.disabled = false;
+        if (window.bastionToast) window.bastionToast('Réseau indisponible', 'error');
+      });
+  }
 
   function closeAllTileMenus() {
     document.querySelectorAll('[data-tile-menu]').forEach(function (menu) {

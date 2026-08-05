@@ -83,36 +83,85 @@ def test_recent_sessions_from_audit(db_session):
     assert recent[0]["label"] == "CRM"
 
 
-def test_build_apps_sections_recent_and_types():
+def test_build_apps_sections_favorites_and_types():
     tiles = [
         {
+            "id": 1,
             "slug": "crm",
             "label": "CRM",
             "protocol_filter": "web",
             "can_launch": True,
         },
         {
+            "id": 2,
             "slug": "proxy-app",
             "label": "Proxy App",
             "protocol_filter": "proxy",
             "can_launch": True,
         },
         {
+            "id": 3,
             "slug": "vault-app",
             "label": "Vault App",
             "protocol_filter": "vault",
             "can_launch": True,
         },
     ]
-    sections = build_apps_sections(
-        tiles,
-        recent_sessions=[{"slug": "crm"}],
-    )
-    assert [s["id"] for s in sections] == ["recent", "web", "proxy", "vault"]
+    sections = build_apps_sections(tiles, favorite_ids=[1])
+    assert [s["id"] for s in sections] == ["favorites", "web", "proxy", "vault"]
     assert sections[0]["label"] == "Accès rapides"
     assert [a["slug"] for a in sections[0]["apps"]] == ["crm"]
-    assert len(sections[1]["apps"]) == 1
+    assert sections[0]["is_favorites"] is True
 
-    no_recent = build_apps_sections(tiles, recent_sessions=[])
-    assert [s["id"] for s in no_recent] == ["web", "proxy", "vault"]
+    empty_fav = build_apps_sections(tiles, favorite_ids=[])
+    assert empty_fav[0]["id"] == "favorites"
+    assert empty_fav[0]["apps"] == []
+
+    no_empty = build_apps_sections(
+        tiles, favorite_ids=[], show_empty_favorites=False
+    )
+    assert [s["id"] for s in no_empty] == ["web", "proxy", "vault"]
+
+
+def test_portal_favorites_add_remove(db_session):
+    from app.models import App
+    from app.web.portal_favorites import (
+        add_favorite,
+        list_favorite_app_ids,
+        remove_favorite,
+    )
+
+    app = App(
+        slug="wiki",
+        label="Wiki",
+        upstream_url="https://wiki.example.com/",
+        access_mode="sso_gate",
+    )
+    db_session.add(app)
+    db_session.commit()
+
+    assert list_favorite_app_ids(db_session, "kc-alice") == []
+    assert add_favorite(
+        db_session,
+        keycloak_user_id="kc-alice",
+        application_id=app.id,
+        actor="alice@example.com",
+    )
+    assert list_favorite_app_ids(db_session, "kc-alice") == [app.id]
+    assert (
+        add_favorite(
+            db_session,
+            keycloak_user_id="kc-alice",
+            application_id=app.id,
+            actor="alice@example.com",
+        )
+        is False
+    )
+    assert remove_favorite(
+        db_session,
+        keycloak_user_id="kc-alice",
+        application_id=app.id,
+        actor="alice@example.com",
+    )
+    assert list_favorite_app_ids(db_session, "kc-alice") == []
 
