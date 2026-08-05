@@ -18,6 +18,7 @@ from app.web.user_context import require_admin
 
 router = APIRouter(tags=["admin-configuration"], dependencies=[Depends(require_admin)])
 
+_CONFIG_SMTP = "/admin/configuration#smtp"
 _CONFIG_SIEM = "/admin/configuration#siem"
 
 
@@ -77,7 +78,7 @@ async def admin_configuration_save(
     smtp_from_name: str = Form(""),
 ):
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/configuration#smtp", status_code=302)
+    response = RedirectResponse(url=_CONFIG_SMTP, status_code=302)
     try:
         update_smtp_settings(
             db,
@@ -96,6 +97,30 @@ async def admin_configuration_save(
         flash_redirect(response, "Configuration SMTP enregistrée.", "success", token)
     except ValueError as exc:
         flash_redirect(response, str(exc), "error", token)
+    return response
+
+
+@router.post("/admin/configuration/smtp/test")
+def admin_configuration_smtp_test(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.mail.smtp_service import test_smtp_connection
+
+    ok, message = test_smtp_connection(
+        db,
+        settings,
+        actor=_actor(user),
+    )
+    response = RedirectResponse(url=_CONFIG_SMTP, status_code=302)
+    flash_redirect(
+        response,
+        message,
+        "success" if ok else "error",
+        settings.vault_portal_internal_token or "dev",
+    )
     return response
 
 

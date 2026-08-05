@@ -427,6 +427,40 @@ def test_smtp_send_email_builds_message():
     assert "pw" not in str(sent)
 
 
+def test_smtp_connectivity_test_endpoint(client, db_session):
+    from app.portal_settings_service import ensure_portal_settings
+
+    s = _settings()
+    row = ensure_portal_settings(db_session, s)
+    row.smtp_enabled = True
+    row.smtp_host = "smtp.example.com"
+    row.smtp_port = 587
+    row.smtp_use_tls = True
+    row.smtp_username = "u"
+    row.smtp_password_encrypted = encrypt_secret("pw", s)
+    row.smtp_from_email = "from@example.com"
+    db_session.commit()
+
+    fake_smtp = MagicMock()
+    fake_smtp.__enter__ = MagicMock(return_value=fake_smtp)
+    fake_smtp.__exit__ = MagicMock(return_value=False)
+    with patch("app.mail.smtp_service.smtplib.SMTP", return_value=fake_smtp):
+        resp = client.post(
+            "/admin/configuration/smtp/test",
+            headers=ADMIN_HEADERS,
+            follow_redirects=False,
+        )
+    assert resp.status_code == 302
+    assert "#smtp" in (resp.headers.get("location") or "")
+    fake_smtp.noop.assert_called_once()
+    fake_smtp.send_message.assert_not_called()
+
+    page = client.get("/admin/configuration", headers=ADMIN_HEADERS)
+    assert page.status_code == 200
+    assert 'id="configuration-tabs"' in page.text
+    assert "Tester la connexion" in page.text
+
+
 @respx.mock
 def test_reset_password_endpoint(client, db_session):
     realm = _realm(db_session)
