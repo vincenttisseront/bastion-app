@@ -86,6 +86,21 @@ def _company_group(db, realm: RealmConfig, name: str = "OrgCo") -> RBACGroup:
     return group
 
 
+def _form_tokens(html: str) -> dict[str, str]:
+    """Extract CSRF + math captcha fields from the access-request form HTML."""
+    csrf = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    assert csrf, "csrf_token missing"
+    token = re.search(r'name="captcha_token" value="([^"]+)"', html)
+    assert token, "captcha_token missing"
+    q = re.search(r"Combien font (\d+) \+ (\d+) \?", html)
+    assert q, "captcha question missing"
+    return {
+        "csrf_token": csrf.group(1),
+        "captcha_token": token.group(1),
+        "captcha_answer": str(int(q.group(1)) + int(q.group(2))),
+    }
+
+
 def test_login_shows_access_request_link_when_realm_open(client, db_session):
     _realm(db_session, access_request_enabled=True)
     set_breakglass_password(db_session, "admin", "super-secret-password")
@@ -125,13 +140,11 @@ def test_login_shows_access_request_even_without_provisioning(client, db_session
 def test_access_request_honeypot_skips_persist(client, db_session):
     _realm(db_session)
     get_resp = client.get("/auth/access-request")
-    m = re.search(r'name="csrf_token" value="([^"]+)"', get_resp.text)
-    assert m, "csrf_token missing"
-    csrf = m.group(1)
+    tokens = _form_tokens(get_resp.text)
     resp = client.post(
         "/auth/access-request",
         data={
-            "csrf_token": csrf,
+            **tokens,
             "website": "https://spam.example",
             "username": "botuser",
             "email": "bot@example.com",
@@ -160,20 +173,40 @@ def test_access_request_get_has_no_realm_choice(client, db_session):
     assert 'name="realm_id"' not in resp.text
     assert "Realm / organisation" not in resp.text
     assert realm.slug not in resp.text
+    assert "Vérification anti-robot" in resp.text
+    assert "Combien font" in resp.text
+
+
+def test_access_request_captcha_rejects_wrong_answer(client, db_session):
+    _realm(db_session)
+    get_resp = client.get("/auth/access-request")
+    tokens = _form_tokens(get_resp.text)
+    tokens["captcha_answer"] = "999"
+    resp = client.post(
+        "/auth/access-request",
+        data={
+            **tokens,
+            "username": "badbot",
+            "email": "badbot@example.com",
+            "organization": "SpamCo",
+        },
+        headers={"X-Real-IP": "10.0.0.77"},
+    )
+    assert resp.status_code == 200
+    assert "Vérification anti-robot" in resp.text
+    assert db_session.query(AccessRequest).count() == 0
 
 
 def test_access_request_submit_creates_pending(client, db_session):
     _realm(db_session)
     get_resp = client.get("/auth/access-request")
-    m = re.search(r'name="csrf_token" value="([^"]+)"', get_resp.text)
-    assert m, "csrf_token missing from access-request form"
-    csrf = m.group(1)
+    tokens = _form_tokens(get_resp.text)
 
     with patch("app.rbac.access_request_service.send_email") as mock_send:
         resp = client.post(
             "/auth/access-request",
             data={
-                "csrf_token": csrf,
+                **tokens,
                 "username": "newuser",
                 "email": "newuser@example.com",
                 "first_name": "New",
