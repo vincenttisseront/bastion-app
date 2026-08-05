@@ -65,6 +65,22 @@ class Settings(BaseSettings):
             "vault_portal_internal_token",
         ),
     )
+    # ALTCHA PoW captcha HMAC (empty → derived from vault_portal_internal_token).
+    altcha_hmac_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "ALTCHA_HMAC_KEY",
+            "altcha_hmac_key",
+        ),
+    )
+    # PoW search space upper bound (higher = harder for bots, slower for users).
+    altcha_max_number: int = Field(
+        default=100_000,
+        validation_alias=AliasChoices(
+            "ALTCHA_MAX_NUMBER",
+            "altcha_max_number",
+        ),
+    )
     # HMAC key for bg_session JWT — must NOT be the Bearer internal token.
     breakglass_jwt_secret: str = Field(
         default="",

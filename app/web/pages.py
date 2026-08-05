@@ -944,12 +944,9 @@ def _access_request_page(
     submitted: dict | None = None,
 ):
     from app.rbac.access_request_service import realms_advertising_access_requests
-    from app.security.captcha import issue_math_captcha
 
     advertising = realms_advertising_access_requests(db)
-    secret = settings.vault_portal_internal_token or "dev-insecure"
     show_form = bool(advertising) and not request_submitted
-    captcha = issue_math_captcha(secret) if show_form else None
     return render(
         "auth/access_request.html",
         **_ctx(
@@ -959,15 +956,33 @@ def _access_request_page(
             access_form_open=bool(advertising),
             request_submitted=bool(request_submitted),
             submitted=submitted or {},
-            captcha_question=captcha.question if captcha else "",
-            captcha_token=captcha.token if captcha else "",
-            captcha_left=captcha.left if captcha else None,
-            captcha_right=captcha.right if captcha else None,
+            altcha_enabled=show_form,
             form_error=form_error,
             form_success=form_success,
             form_values=form_values or {},
         ),
     )
+
+
+@router.get("/auth/altcha/challenge")
+def altcha_challenge_get(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    """Issue a fresh ALTCHA PoW challenge for the access-request widget."""
+    from fastapi.responses import JSONResponse
+
+    from app.security.access_request_throttle import check_altcha_challenge_rate
+    from app.security.altcha_service import create_altcha_challenge
+
+    retry = check_altcha_challenge_rate(client_ip_from_request(request))
+    if retry is not None:
+        return JSONResponse(
+            {"error": "rate_limited"},
+            status_code=429,
+            headers={"Retry-After": str(int(retry))},
+        )
+    return JSONResponse(create_altcha_challenge(settings))
 
 
 @router.get("/auth/access-request")
@@ -986,8 +1001,7 @@ def access_request_post(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     csrf_token: str = Form(""),
-    captcha_token: str = Form(""),
-    captcha_answer: str = Form(""),
+    altcha: str = Form(""),
     username: str = Form(""),
     email: str = Form(""),
     first_name: str = Form(""),
@@ -1001,7 +1015,8 @@ def access_request_post(
         realms_advertising_access_requests,
         submit_access_request,
     )
-    from app.security.captcha import verify_math_captcha
+    from app.security.access_request_throttle import check_access_request_post_rate
+    from app.security.altcha_service import verify_altcha_payload
     from app.web.flash import make_csrf_token
 
     form_values = {
@@ -1013,6 +1028,8 @@ def access_request_post(
         "message": (message or "").strip(),
     }
 
+    client_ip = client_ip_from_request(request) or None
+
     # Honeypot: bots that fill hidden fields get a fake success (no DB write).
     if (website or "").strip():
         log_action(
@@ -1020,7 +1037,7 @@ def access_request_post(
             actor=(email or "").strip() or "honeypot",
             action="access_request.honeypot",
             details={"path": "/auth/access-request"},
-            ip_address=client_ip_from_request(request) or None,
+            ip_address=client_ip,
         )
         return _access_request_page(
             request,
@@ -1032,6 +1049,26 @@ def access_request_post(
                 "organization": form_values["organization"] or "—",
                 "message": form_values["message"],
             },
+        )
+
+    retry = check_access_request_post_rate(client_ip)
+    if retry is not None:
+        log_action(
+            db,
+            actor=(email or "").strip() or "anonymous",
+            action="access_request.rate_limited",
+            details={"path": "/auth/access-request", "retry_after": int(retry)},
+            ip_address=client_ip,
+        )
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error=(
+                "Trop de demandes depuis cette adresse — "
+                f"réessayez dans {int(retry)} s."
+            ),
+            form_values=form_values,
         )
 
     if not realms_advertising_access_requests(db):
@@ -1054,23 +1091,22 @@ def access_request_post(
             form_values=form_values,
         )
 
-    if not verify_math_captcha(secret, captcha_token, captcha_answer):
+    if not verify_altcha_payload(settings, altcha):
         log_action(
             db,
             actor=(email or "").strip() or "anonymous",
             action="access_request.captcha_failed",
-            details={"path": "/auth/access-request"},
-            ip_address=client_ip_from_request(request) or None,
+            details={"path": "/auth/access-request", "kind": "altcha"},
+            ip_address=client_ip,
         )
         return _access_request_page(
             request,
             settings,
             db,
-            form_error="Vérification anti-robot incorrecte — réessayez.",
+            form_error="Vérification anti-robot incorrecte ou expirée — réessayez.",
             form_values=form_values,
         )
 
-    client_ip = client_ip_from_request(request) or None
     try:
         submit_access_request(
             db,
