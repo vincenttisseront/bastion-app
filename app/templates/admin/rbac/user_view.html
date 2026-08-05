@@ -215,24 +215,26 @@
       </div>
 
       <div class="user-fiche-actions">
-        {% if account and account.keycloak_user_id %}
+        {% if keycloak_user_id and realm %}
         <div class="card user-fiche-card">
           <h3 class="card-title" style="margin-top:0;">Mot de passe</h3>
           <p class="form-hint" style="margin:0 0 var(--sp-3);">
             Réinitialise le mot de passe Keycloak (temporaire —
-            <span class="mono">UPDATE_PASSWORD</span> au prochain login).
+            <span class="mono">UPDATE_PASSWORD</span> au prochain login, sauf session native).
           </p>
-          <form method="post" action="/admin/rbac/accounts/{{ account.id }}/reset-password"
+          <form method="post" action="/admin/rbac/users/reset-password"
                 class="stack" style="gap:var(--sp-3);">
+            <input type="hidden" name="realm_id" value="{{ realm.id }}">
+            <input type="hidden" name="keycloak_user_id" value="{{ keycloak_user_id }}">
             <input type="hidden" name="redirect_url" value="{{ view_url }}#identite">
             <label class="form-check" style="margin:0;">
               <input type="checkbox" name="send_email" value="1"
                      {% if realm and realm.send_credentials_email and realm.smtp_enabled %}checked{% endif %}>
-              <span>Envoyer par email</span>
+              <span>Envoyer par email{% if account and account.email %} ({{ account.email }}){% endif %}</span>
             </label>
             <div>
               <button type="submit" class="btn btn-ghost btn-sm"
-                      data-confirm="Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?">Réinitialiser</button>
+                      data-confirm="Réinitialiser le mot de passe Keycloak de « {{ display_name }} » ?">Réinitialiser</button>
             </div>
           </form>
         </div>

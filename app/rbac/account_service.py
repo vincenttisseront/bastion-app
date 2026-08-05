@@ -993,6 +993,37 @@ async def create_bastion_account(
     return account, errors, temp_password
 
 
+def send_credentials_email(
+    settings: Settings,
+    *,
+    realm: RealmConfig,
+    username: str,
+    to_email: str,
+    temporary_password: str,
+    kind: str = "created",
+) -> None:
+    """Email a temporary Keycloak password via the realm's SMTP. Raises SmtpError."""
+    from app.mail.smtp_service import credentials_email_bodies, send_email
+
+    portal = (settings.portal_domain or "portal.ar-systems.fr").strip()
+    portal_url = f"https://{portal}" if not portal.startswith("http") else portal
+    subject, text, html = credentials_email_bodies(
+        portal_url=portal_url,
+        username=username,
+        temporary_password=temporary_password,
+        realm_name=realm.name or realm.slug,
+        kind=kind,
+    )
+    send_email(
+        realm,
+        settings,
+        to_email=to_email,
+        subject=subject,
+        body_text=text,
+        body_html=html,
+    )
+
+
 def send_account_credentials_email(
     settings: Settings,
     *,
@@ -1002,25 +1033,150 @@ def send_account_credentials_email(
     kind: str = "created",
 ) -> None:
     """Email the temporary Keycloak password via the realm's SMTP. Raises SmtpError."""
-    from app.mail.smtp_service import credentials_email_bodies, send_email
-
-    portal = (settings.portal_domain or "portal.ar-systems.fr").strip()
-    portal_url = f"https://{portal}" if not portal.startswith("http") else portal
-    subject, text, html = credentials_email_bodies(
-        portal_url=portal_url,
+    send_credentials_email(
+        settings,
+        realm=realm,
         username=account.username,
+        to_email=account.email,
         temporary_password=temporary_password,
-        realm_name=realm.name or realm.slug,
         kind=kind,
     )
-    send_email(
-        realm,
-        settings,
-        to_email=account.email,
-        subject=subject,
-        body_text=text,
-        body_html=html,
+
+
+async def reset_keycloak_user_password(
+    db: Session,
+    settings: Settings,
+    *,
+    realm: RealmConfig,
+    keycloak_user_id: str,
+    actor: str,
+    ip_address: str | None = None,
+    username: str | None = None,
+    email: str | None = None,
+    bastion_account_id: int | None = None,
+    send_email: bool = False,
+) -> tuple[str, str | None]:
+    """Reset Keycloak password for any user (SSO-only or bastion-linked).
+
+    Returns ``(password, email_error)``. On realms with native headless login the
+    password is permanent; otherwise temporary + UPDATE_PASSWORD.
+    """
+    uid = (keycloak_user_id or "").strip()
+    if not uid:
+        raise AccountCreationError("Identifiant utilisateur Keycloak manquant")
+    if not realm_provisioning_ready(realm):
+        raise AccountCreationError(
+            "Provisioning non activé pour ce realm — requis pour reset Keycloak."
+        )
+
+    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+    from app.rbac.keycloak_admin import fetch_keycloak_user
+
+    label = (username or "").strip()
+    to_email = (email or "").strip()
+    if send_email and (not label or not to_email):
+        try:
+            kc = await fetch_keycloak_user(realm, uid, settings)
+        except Exception:
+            kc = None
+        if isinstance(kc, dict):
+            label = label or (kc.get("username") or "").strip()
+            to_email = to_email or (kc.get("email") or "").strip()
+    label = label or uid
+
+    temporary = not is_oidc_native_session_enabled_for_realm(db, realm.slug, settings)
+    new_password = generate_initial_password()
+    logger.info(
+        "account_password_reset start realm=%s username=%s account_id=%s "
+        "keycloak_user_id=%s temporary=%s send_email=%s actor=%s",
+        realm.slug,
+        label,
+        bastion_account_id,
+        uid,
+        temporary,
+        bool(send_email),
+        actor,
     )
+    try:
+        await reset_keycloak_password(
+            realm,
+            settings,
+            keycloak_user_id=uid,
+            new_password=new_password,
+            temporary=temporary,
+        )
+    except ValueError as exc:
+        logger.warning(
+            "account_password_reset keycloak_failed realm=%s username=%s "
+            "account_id=%s keycloak_user_id=%s err=%s",
+            realm.slug,
+            label,
+            bastion_account_id,
+            uid,
+            str(exc)[:200],
+        )
+        raise AccountCreationError(str(exc)) from exc
+
+    logger.info(
+        "account_password_reset keycloak_ok realm=%s username=%s account_id=%s "
+        "keycloak_user_id=%s temporary=%s",
+        realm.slug,
+        label,
+        bastion_account_id,
+        uid,
+        temporary,
+    )
+    log_action(
+        db,
+        actor=actor,
+        action="account.password_reset",
+        target=_account_target(realm, label),
+        details={
+            "bastion_account_id": bastion_account_id,
+            "keycloak_user_id": uid,
+            "temporary": temporary,
+            "email_requested": bool(send_email),
+        },
+        ip_address=ip_address,
+    )
+    db.commit()
+
+    email_error: str | None = None
+    if send_email:
+        if not to_email or "@" not in to_email:
+            email_error = "Adresse email Keycloak manquante — mot de passe non envoyé"
+        else:
+            try:
+                send_credentials_email(
+                    settings,
+                    realm=realm,
+                    username=label,
+                    to_email=to_email,
+                    temporary_password=new_password,
+                    kind="reset",
+                )
+                log_action(
+                    db,
+                    actor=actor,
+                    action="account.credentials_emailed",
+                    target=_account_target(realm, label),
+                    details={"kind": "reset", "to": to_email},
+                    ip_address=ip_address,
+                )
+                db.commit()
+            except Exception as exc:
+                email_error = str(exc)
+                log_action(
+                    db,
+                    actor=actor,
+                    action="account.credentials_email_failed",
+                    target=_account_target(realm, label),
+                    details={"kind": "reset", "error": email_error},
+                    ip_address=ip_address,
+                )
+                db.commit()
+
+    return new_password, email_error
 
 
 async def reset_bastion_account_password(
@@ -1047,103 +1203,18 @@ async def reset_bastion_account_password(
         raise AccountCreationError(
             "Compte Keycloak non créé — impossible de réinitialiser le mot de passe."
         )
-    if not realm_provisioning_ready(realm):
-        raise AccountCreationError(
-            "Provisioning non activé pour ce realm — requis pour reset Keycloak."
-        )
-
-    from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
-
-    temporary = not is_oidc_native_session_enabled_for_realm(db, realm.slug, settings)
-    new_password = generate_initial_password()
-    logger.info(
-        "account_password_reset start realm=%s username=%s account_id=%s "
-        "keycloak_user_id=%s temporary=%s send_email=%s actor=%s",
-        realm.slug,
-        account.username,
-        account.id,
-        account.keycloak_user_id,
-        temporary,
-        bool(send_email),
-        actor,
-    )
-    try:
-        await reset_keycloak_password(
-            realm,
-            settings,
-            keycloak_user_id=account.keycloak_user_id,
-            new_password=new_password,
-            temporary=temporary,
-        )
-    except ValueError as exc:
-        logger.warning(
-            "account_password_reset keycloak_failed realm=%s username=%s "
-            "account_id=%s keycloak_user_id=%s err=%s",
-            realm.slug,
-            account.username,
-            account.id,
-            account.keycloak_user_id,
-            str(exc)[:200],
-        )
-        new_password = ""  # noqa: F841
-        raise AccountCreationError(str(exc)) from exc
-
-    logger.info(
-        "account_password_reset keycloak_ok realm=%s username=%s account_id=%s "
-        "keycloak_user_id=%s temporary=%s",
-        realm.slug,
-        account.username,
-        account.id,
-        account.keycloak_user_id,
-        temporary,
-    )
-    log_action(
+    return await reset_keycloak_user_password(
         db,
+        settings,
+        realm=realm,
+        keycloak_user_id=account.keycloak_user_id,
         actor=actor,
-        action="account.password_reset",
-        target=_account_target(realm, account.username),
-        details={
-            "bastion_account_id": account.id,
-            "keycloak_user_id": account.keycloak_user_id,
-            "temporary": temporary,
-            "email_requested": bool(send_email),
-        },
         ip_address=ip_address,
+        username=account.username,
+        email=account.email,
+        bastion_account_id=account.id,
+        send_email=send_email,
     )
-    db.commit()
-
-    email_error: str | None = None
-    if send_email:
-        try:
-            send_account_credentials_email(
-                settings,
-                realm=realm,
-                account=account,
-                temporary_password=new_password,
-                kind="reset",
-            )
-            log_action(
-                db,
-                actor=actor,
-                action="account.credentials_emailed",
-                target=_account_target(realm, account.username),
-                details={"kind": "reset", "to": account.email},
-                ip_address=ip_address,
-            )
-            db.commit()
-        except Exception as exc:
-            email_error = str(exc)
-            log_action(
-                db,
-                actor=actor,
-                action="account.credentials_email_failed",
-                target=_account_target(realm, account.username),
-                details={"kind": "reset", "error": email_error},
-                ip_address=ip_address,
-            )
-            db.commit()
-
-    return new_password, email_error
 
 
 async def mark_keycloak_email_verified(

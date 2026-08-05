@@ -33,6 +33,7 @@ from app.rbac.grants_service import (
     serialize_member,
     serialize_user_search_result,
 )
+from app.rbac.groups_service import group_has_local_children
 from app.rbac.keycloak_admin import (
     fetch_group_members,
     fetch_keycloak_user,
@@ -286,6 +287,17 @@ async def admin_rbac_group_detail(
 
     file_options = file_grant_select_options(db)
     folder_options = folder_grant_select_options(db)
+    # Empty = no live/cached members and no local subgroups (grants/credentials cascade).
+    if members_error:
+        can_delete_group = False
+    elif group.keycloak_group_id and realm.groups_sync_enabled:
+        can_delete_group = len(members) == 0 and not group_has_local_children(db, group)
+    else:
+        can_delete_group = (
+            (group.member_count or 0) == 0
+            and len(members) == 0
+            and not group_has_local_children(db, group)
+        )
     return render(
         "admin/rbac/groups_detail.html",
         **_ctx(
@@ -304,6 +316,7 @@ async def admin_rbac_group_detail(
             folder_options=folder_options,
             system_roles=SYSTEM_ROLES,
             access_levels=sorted(ACCESS_LEVELS),
+            can_delete_group=can_delete_group,
         ),
     )
 

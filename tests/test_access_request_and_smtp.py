@@ -438,7 +438,7 @@ def test_reset_password_endpoint(client, db_session):
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
     reset_route = respx.put(f"{KC_ADMIN}/users/kc-user-1/reset-password").respond(204)
 
-    with patch("app.rbac.account_service.send_account_credentials_email") as mock_mail:
+    with patch("app.rbac.account_service.send_credentials_email") as mock_mail:
         resp = client.post(
             f"/admin/rbac/accounts/{account.id}/reset-password",
             headers={**ADMIN_HEADERS, "Accept": "application/json"},
@@ -452,6 +452,70 @@ def test_reset_password_endpoint(client, db_session):
     mock_mail.assert_called_once()
     assert "temporaryPassword" not in body
     assert "password" not in body
+
+
+@respx.mock
+def test_reset_password_sso_only_user(client, db_session):
+    """Keycloak user without BastionAccount can still be reset from the fiche."""
+    realm = _realm(db_session)
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    respx.get(f"{KC_ADMIN}/users/kc-sso-1").respond(
+        200,
+        json={
+            "id": "kc-sso-1",
+            "username": "sso.user",
+            "email": "sso@example.com",
+            "enabled": True,
+        },
+    )
+    reset_route = respx.put(f"{KC_ADMIN}/users/kc-sso-1/reset-password").respond(204)
+
+    with patch("app.rbac.account_service.send_credentials_email") as mock_mail:
+        resp = client.post(
+            "/admin/rbac/users/reset-password",
+            headers={**ADMIN_HEADERS, "Accept": "application/json"},
+            data={
+                "realm_id": str(realm.id),
+                "keycloak_user_id": "kc-sso-1",
+                "send_email": "1",
+            },
+        )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["emailed"] is True
+    assert reset_route.called
+    mock_mail.assert_called_once()
+    assert mock_mail.call_args.kwargs["to_email"] == "sso@example.com"
+    assert mock_mail.call_args.kwargs["username"] == "sso.user"
+
+
+@respx.mock
+def test_user_view_shows_reset_for_sso_only(client, db_session):
+    realm = _realm(db_session)
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "tok"})
+    respx.get(f"{KC_ADMIN}/users/kc-sso-1").respond(
+        200,
+        json={
+            "id": "kc-sso-1",
+            "username": "sso.user",
+            "email": "sso@example.com",
+            "enabled": True,
+            "requiredActions": [],
+        },
+    )
+    respx.get(url__regex=rf"{re.escape(KC_ADMIN)}/users/kc-sso-1/groups.*").respond(
+        200, json=[]
+    )
+
+    resp = client.get(
+        f"/admin/rbac/users/view?realm_id={realm.id}&keycloak_user_id=kc-sso-1",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert 'action="/admin/rbac/users/reset-password"' in resp.text
+    assert "Réinitialiser" in resp.text
 
 
 @respx.mock

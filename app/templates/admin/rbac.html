@@ -177,6 +177,15 @@
                       Perm.
                     </button>
                     <a href="/admin/rbac/groups/{{ row.id }}" class="btn btn-primary btn-sm">Ouvrir</a>
+                    {% if (row.member_count or 0) == 0 %}
+                    <form method="post" action="/admin/rbac/groups/{{ row.id }}/delete" style="display:inline;margin:0;">
+                      <input type="hidden" name="redirect_url" value="/admin/rbac?include_empty=1">
+                      <button type="submit" class="btn btn-danger btn-sm"
+                              data-confirm="Supprimer le groupe vide « {{ row.name }} » dans Keycloak et Bastion ?">
+                        Supprimer
+                      </button>
+                    </form>
+                    {% endif %}
                   </div>
                 </td>
               </tr>

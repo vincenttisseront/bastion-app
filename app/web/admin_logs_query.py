@@ -153,7 +153,10 @@ def apply_audit_filters(
     ip: str | None = None,
     q: str | None = None,
     detail_kw: str | None = None,
+    audit_id: int | None = None,
 ):
+    if audit_id is not None:
+        query = query.filter(AuditLog.id == int(audit_id))
     if action:
         query = query.filter(AuditLog.action == action)
     if actor:
@@ -205,6 +208,7 @@ def list_admin_log_entries(
     q: str | None = None,
     detail_kw: str | None = None,
     status: list[str] | None = None,
+    audit_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int, list[str]]:
@@ -222,6 +226,7 @@ def list_admin_log_entries(
         ip=ip,
         q=q,
         detail_kw=detail_kw,
+        audit_id=audit_id,
     )
 
     action_choices = [
