@@ -40,6 +40,9 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/auth/access-request": (
         "public access-request form — self-registration awaiting admin approval"
     ),
+    "/auth/altcha/challenge": (
+        "ALTCHA proof-of-work challenge for the public access-request form"
+    ),
     "/breakglass": "break-glass login page (same family as /auth/login)",
     "/logout": "clears break-glass + native OIDC bastion_session; safe without session",
     "/health": "liveness probe, non-sensitive",

@@ -148,24 +148,21 @@
           </span>
           <div class="captcha-panel__copy">
             <p class="captcha-panel__eyebrow" id="captcha_label">Vérification</p>
-            <p class="captcha-panel__hint">Résolvez pour confirmer que vous n’êtes pas un robot</p>
+            <p class="captcha-panel__hint">Cochez la case pour confirmer que vous n’êtes pas un robot</p>
           </div>
         </div>
-        <p class="visually-hidden" id="captcha_question">{{ captcha_question }}</p>
-        <input type="hidden" name="captcha_token" value="{{ captcha_token }}">
-        <div class="captcha-panel__body">
-          <div class="captcha-challenge" aria-hidden="true">
-            <span class="captcha-tile">{{ captcha_left }}</span>
-            <span class="captcha-op">+</span>
-            <span class="captcha-tile">{{ captcha_right }}</span>
-            <span class="captcha-op">=</span>
-          </div>
-          <input type="text" id="captcha_answer" name="captcha_answer"
-                 class="form-input captcha-answer" required
-                 inputmode="numeric" autocomplete="off" spellcheck="false"
-                 maxlength="3" placeholder="?"
-                 aria-describedby="captcha_question"
-                 aria-label="Résultat de {{ captcha_left }} plus {{ captcha_right }}">
+        <div class="captcha-panel__body captcha-panel__body--altcha">
+          <altcha-widget
+            challengeurl="/auth/altcha/challenge"
+            name="altcha"
+            hidelogo
+            hidefooter
+            strings='{"label":"Je ne suis pas un robot","verifying":"Vérification…","verified":"Vérifié","error":"Échec — réessayez"}'
+            style="--altcha-border-width:1px;--altcha-border-radius:var(--r-md);width:100%;"
+          ></altcha-widget>
+          <noscript>
+            <p class="form-help">JavaScript est requis pour la vérification anti-robot.</p>
+          </noscript>
         </div>
       </div>
 
@@ -185,4 +182,10 @@
     {% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block head_extra %}
+{% if altcha_enabled | default(false) %}
+<script async defer src="/static/js/vendor/altcha.min.js?v=20260805-altcha" type="module"></script>
+{% endif %}
 {% endblock %}

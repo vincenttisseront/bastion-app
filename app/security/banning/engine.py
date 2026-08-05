@@ -113,6 +113,7 @@ _SENSITIVE_PREFIXES = (
     "/auth/sso-start",
     "/auth/sso-failed",
     "/auth/access-request",
+    "/auth/altcha/challenge",
     "/admin",
     "/api/admin",
 )
@@ -124,6 +125,7 @@ _LOGIN_PATHS = {
     "/auth/sso-start",
     "/auth/sso-failed",
     "/auth/access-request",
+    "/auth/altcha/challenge",
     "/api/admin/breakglass/login",
 }
 

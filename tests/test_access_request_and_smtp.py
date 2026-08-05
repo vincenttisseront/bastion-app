@@ -86,18 +86,24 @@ def _company_group(db, realm: RealmConfig, name: str = "OrgCo") -> RBACGroup:
     return group
 
 
-def _form_tokens(html: str) -> dict[str, str]:
-    """Extract CSRF + math captcha fields from the access-request form HTML."""
+def _form_tokens(client, html: str) -> dict[str, str]:
+    """Extract CSRF and a solved ALTCHA payload for the access-request form."""
+    from app.security.altcha_service import (
+        clear_altcha_replay_for_tests,
+        solve_altcha_for_tests,
+    )
+    from app.security.access_request_throttle import clear_access_request_throttle_for_tests
+
+    clear_altcha_replay_for_tests()
+    clear_access_request_throttle_for_tests()
     csrf = re.search(r'name="csrf_token" value="([^"]+)"', html)
     assert csrf, "csrf_token missing"
-    token = re.search(r'name="captcha_token" value="([^"]+)"', html)
-    assert token, "captcha_token missing"
-    q = re.search(r"Combien font (\d+) \+ (\d+) \?", html)
-    assert q, "captcha question missing"
+    challenge_resp = client.get("/auth/altcha/challenge")
+    assert challenge_resp.status_code == 200, challenge_resp.text
+    challenge = challenge_resp.json()
     return {
         "csrf_token": csrf.group(1),
-        "captcha_token": token.group(1),
-        "captcha_answer": str(int(q.group(1)) + int(q.group(2))),
+        "altcha": solve_altcha_for_tests(challenge),
     }
 
 
@@ -140,7 +146,7 @@ def test_login_shows_access_request_even_without_provisioning(client, db_session
 def test_access_request_honeypot_skips_persist(client, db_session):
     _realm(db_session)
     get_resp = client.get("/auth/access-request")
-    tokens = _form_tokens(get_resp.text)
+    tokens = _form_tokens(client, get_resp.text)
     resp = client.post(
         "/auth/access-request",
         data={
@@ -174,16 +180,17 @@ def test_access_request_get_has_no_realm_choice(client, db_session):
     assert "Realm / organisation" not in resp.text
     assert realm.slug not in resp.text
     assert "Vérification" in resp.text
-    assert "Combien font" in resp.text
+    assert "altcha-widget" in resp.text
     assert "captcha-panel" in resp.text
-    assert "captcha-tile" in resp.text
+    assert "/auth/altcha/challenge" in resp.text
+    assert "Combien font" not in resp.text
 
 
 def test_access_request_captcha_rejects_wrong_answer(client, db_session):
     _realm(db_session)
     get_resp = client.get("/auth/access-request")
-    tokens = _form_tokens(get_resp.text)
-    tokens["captcha_answer"] = "999"
+    tokens = _form_tokens(client, get_resp.text)
+    tokens["altcha"] = "invalid-payload"
     resp = client.post(
         "/auth/access-request",
         data={
@@ -202,7 +209,7 @@ def test_access_request_captcha_rejects_wrong_answer(client, db_session):
 def test_access_request_submit_creates_pending(client, db_session):
     _realm(db_session)
     get_resp = client.get("/auth/access-request")
-    tokens = _form_tokens(get_resp.text)
+    tokens = _form_tokens(client, get_resp.text)
 
     with patch("app.rbac.access_request_service.send_email") as mock_send:
         resp = client.post(
@@ -216,6 +223,7 @@ def test_access_request_submit_creates_pending(client, db_session):
                 "organization": "ACME Corp",
                 "message": "Please grant access",
             },
+            headers={"X-Real-IP": "10.0.0.55"},
         )
     assert resp.status_code == 200
     assert "Demande en cours de traitement" in resp.text
@@ -235,6 +243,33 @@ def test_access_request_submit_creates_pending(client, db_session):
     assert row.realm_id is None
     assert row.organization == "ACME Corp"
     assert mock_send.called
+
+
+def test_altcha_challenge_endpoint_returns_pow(client, db_session):
+    _realm(db_session)
+    resp = client.get("/auth/altcha/challenge")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["algorithm"] == "SHA-256"
+    assert body["challenge"]
+    assert body["salt"]
+    assert body["signature"]
+    assert int(body["maxnumber"]) >= 10000
+
+
+def test_altcha_payload_is_single_use(client, db_session):
+    from app.security.altcha_service import (
+        clear_altcha_replay_for_tests,
+        solve_altcha_for_tests,
+        verify_altcha_payload,
+    )
+
+    clear_altcha_replay_for_tests()
+    challenge = client.get("/auth/altcha/challenge").json()
+    payload = solve_altcha_for_tests(challenge)
+    settings = _settings()
+    assert verify_altcha_payload(settings, payload) is True
+    assert verify_altcha_payload(settings, payload) is False
 
 
 def test_access_request_reject(client, db_session):
