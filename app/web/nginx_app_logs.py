@@ -27,14 +27,17 @@ _DEFAULT_TAIL = 200
 _MAX_TAIL = 5000
 
 # Bastion nginx ``log_format app`` (see docker/nginx/nginx.conf).
+# remote_user may contain spaces (ActiveSync: ``A.R. Systems\user@…``).
+# Trailing kv values may be empty (``auth_err=``).
 _APP_ACCESS_RE = re.compile(
-    r"^(?P<remote_addr>\S+) - (?P<remote_user>\S+) \[(?P<time_local>[^\]]+)\] "
+    r"^(?P<remote_addr>\S+) - (?P<remote_user>.+?) \[(?P<time_local>[^\]]+)\] "
     r"host=(?P<host>\S+) \"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+) "
     r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\" "
-    r"rt=(?P<request_time>\S+) upstream=(?P<upstream_addr>\S+) "
-    r"us=(?P<upstream_status>\S+) ut=(?P<upstream_response_time>\S+) "
-    r"auth_err=(?P<auth_err>\S+)\s*$"
+    r"rt=(?P<request_time>\S*) upstream=(?P<upstream_addr>\S*) "
+    r"us=(?P<upstream_status>\S*) ut=(?P<upstream_response_time>\S*) "
+    r"auth_err=(?P<auth_err>\S*)\s*$"
 )
+_NGINX_HEX_ESCAPE_RE = re.compile(r"\\x([0-9A-Fa-f]{2})")
 
 
 def resolve_nginx_app_logs_dir(settings: Settings) -> Path:
@@ -174,77 +177,143 @@ def _split_request(request: str) -> tuple[str, str, str]:
     return "", "", ""
 
 
+def _decode_nginx_escapes(value: str) -> str:
+    """Decode nginx-style ``\\xNN`` escapes (e.g. ``\\x5C`` → ``\\``)."""
+    if not value or "\\x" not in value:
+        return value
+
+    def _repl(match: re.Match[str]) -> str:
+        try:
+            return chr(int(match.group(1), 16))
+        except ValueError:
+            return match.group(0)
+
+    return _NGINX_HEX_ESCAPE_RE.sub(_repl, value)
+
+
+def _status_class(status: str) -> str:
+    try:
+        status_i = int(status)
+    except ValueError:
+        return "muted"
+    if 200 <= status_i < 300:
+        return "ok"
+    if 300 <= status_i < 400:
+        return "warn"
+    if status_i >= 400:
+        return "err"
+    return "muted"
+
+
+def _entry_from_groups(
+    raw: str,
+    g: dict[str, str],
+    *,
+    index: int,
+    parse_ok: bool,
+) -> dict[str, object]:
+    method, path, protocol = _split_request(g.get("request") or "")
+    status = g.get("status") or ""
+    upstream = g.get("upstream_addr") or ""
+    is_internal = upstream.startswith("127.0.0.1:") or upstream.startswith("[::1]:")
+    remote_user = _decode_nginx_escapes(g.get("remote_user") or "")
+    return {
+        "id": f"{index}-{g.get('time_local') or 't'}-{status}-{path[:48]}",
+        "parse_ok": parse_ok,
+        "ecosystem": "nginx_access",
+        "raw": raw,
+        "remote_addr": g.get("remote_addr") or "",
+        "remote_user": remote_user,
+        "time_local": g.get("time_local") or "",
+        "host": g.get("host") or "",
+        "method": method,
+        "path": path,
+        "protocol": protocol,
+        "request": g.get("request") or "",
+        "status": status,
+        "status_class": _status_class(status),
+        "body_bytes_sent": g.get("body_bytes_sent") or "",
+        "referer": g.get("referer") or "",
+        "user_agent": g.get("user_agent") or "",
+        "request_time": g.get("request_time") or "",
+        "upstream_addr": upstream,
+        "upstream_status": g.get("upstream_status") or "",
+        "upstream_response_time": g.get("upstream_response_time") or "",
+        "auth_err": g.get("auth_err") or "",
+        "is_internal_hop": is_internal,
+    }
+
+
+def _loose_parse_app_access(raw: str) -> dict[str, str] | None:
+    """Best-effort field extraction when the full-line regex does not match."""
+    m_head = re.match(
+        r"^(?P<remote_addr>\S+) - (?P<remote_user>.+?) \[(?P<time_local>[^\]]+)\] "
+        r"host=(?P<host>\S+) \"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+)",
+        raw,
+    )
+    if not m_head:
+        return None
+    g = m_head.groupdict()
+    quoted = re.findall(r'"([^"]*)"', raw[m_head.end() :])
+    # After status/bytes: referer, user_agent (request already captured).
+    g["referer"] = quoted[0] if len(quoted) >= 1 else ""
+    g["user_agent"] = quoted[1] if len(quoted) >= 2 else ""
+    for key in (
+        "request_time",
+        "upstream_addr",
+        "upstream_status",
+        "upstream_response_time",
+        "auth_err",
+    ):
+        g[key] = ""
+    for key, pattern in (
+        ("request_time", r"\brt=(\S*)"),
+        ("upstream_addr", r"\bupstream=(\S*)"),
+        ("upstream_status", r"\bus=(\S*)"),
+        ("upstream_response_time", r"\but=(\S*)"),
+        ("auth_err", r"\bauth_err=(\S*)"),
+    ):
+        km = re.search(pattern, raw)
+        if km:
+            g[key] = km.group(1)
+    return g
+
+
 def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | None:
     """Parse one nginx ``log_format app`` line into a structured dict."""
     raw = (line or "").rstrip("\r\n")
     if not raw.strip():
         return None
     m = _APP_ACCESS_RE.match(raw)
-    if not m:
-        return {
-            "id": f"raw-{index}",
-            "parse_ok": False,
-            "ecosystem": "nginx_access",
-            "raw": raw,
-            "remote_addr": "",
-            "time_local": "",
-            "host": "",
-            "method": "",
-            "path": "",
-            "protocol": "",
-            "request": raw,
-            "status": "",
-            "status_class": "muted",
-            "body_bytes_sent": "",
-            "referer": "",
-            "user_agent": "",
-            "request_time": "",
-            "upstream_addr": "",
-            "upstream_status": "",
-            "upstream_response_time": "",
-            "auth_err": "",
-            "is_internal_hop": False,
-        }
-    g = m.groupdict()
-    method, path, protocol = _split_request(g["request"])
-    try:
-        status_i = int(g["status"])
-    except ValueError:
-        status_i = 0
-    if 200 <= status_i < 300:
-        status_class = "ok"
-    elif 300 <= status_i < 400:
-        status_class = "warn"
-    elif status_i >= 400:
-        status_class = "err"
-    else:
-        status_class = "muted"
-    upstream = g["upstream_addr"] or ""
-    is_internal = upstream.startswith("127.0.0.1:") or upstream.startswith("[::1]:")
+    if m:
+        return _entry_from_groups(raw, m.groupdict(), index=index, parse_ok=True)
+    loose = _loose_parse_app_access(raw)
+    if loose:
+        return _entry_from_groups(raw, loose, index=index, parse_ok=True)
     return {
-        "id": f"{index}-{g['time_local']}-{g['status']}-{path[:48]}",
-        "parse_ok": True,
+        "id": f"raw-{index}",
+        "parse_ok": False,
         "ecosystem": "nginx_access",
         "raw": raw,
-        "remote_addr": g["remote_addr"],
-        "remote_user": g["remote_user"],
-        "time_local": g["time_local"],
-        "host": g["host"],
-        "method": method,
-        "path": path,
-        "protocol": protocol,
-        "request": g["request"],
-        "status": g["status"],
-        "status_class": status_class,
-        "body_bytes_sent": g["body_bytes_sent"],
-        "referer": g["referer"],
-        "user_agent": g["user_agent"],
-        "request_time": g["request_time"],
-        "upstream_addr": upstream,
-        "upstream_status": g["upstream_status"],
-        "upstream_response_time": g["upstream_response_time"],
-        "auth_err": g["auth_err"],
-        "is_internal_hop": is_internal,
+        "remote_addr": "",
+        "remote_user": "",
+        "time_local": "",
+        "host": "",
+        "method": "",
+        "path": "",
+        "protocol": "",
+        "request": raw,
+        "status": "",
+        "status_class": "muted",
+        "body_bytes_sent": "",
+        "referer": "",
+        "user_agent": "",
+        "request_time": "",
+        "upstream_addr": "",
+        "upstream_status": "",
+        "upstream_response_time": "",
+        "auth_err": "",
+        "is_internal_hop": False,
     }
 
 

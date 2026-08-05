@@ -524,6 +524,7 @@
         '<dl class="logs-drawer-meta">' +
         '<dt>Horodatage</dt><dd class="font-mono">' + esc(entry.time_local || '—') + '</dd>' +
         '<dt>IP</dt><dd class="font-mono">' + esc(entry.remote_addr || '—') + '</dd>' +
+        '<dt>Utilisateur</dt><dd class="font-mono">' + esc(entry.remote_user || '—') + '</dd>' +
         '<dt>Host</dt><dd class="font-mono">' + esc(entry.host || '—') + '</dd>' +
         '<dt>Requête</dt><dd><code>' + esc(entry.request || '—') + '</code></dd>' +
         '<dt>Status</dt><dd>' + esc(entry.status || '—') + '</dd>' +
@@ -533,6 +534,7 @@
         '</dl>';
       json = JSON.stringify({
         remote_addr: entry.remote_addr,
+        remote_user: entry.remote_user,
         time_local: entry.time_local,
         host: entry.host,
         method: entry.method,

@@ -164,3 +164,40 @@ def test_parse_app_access_line_nominal():
     text = line + "\n" + line.replace("172.24.0.109:443", "127.0.0.1:8080") + "\n"
     entries = parse_app_access_text(text)
     assert len(entries) == 2
+
+
+def test_parse_app_access_activesync_user_and_empty_auth_err():
+    """ActiveSync: remote_user may include spaces + \\x5C; auth_err may be empty."""
+    from app.web.nginx_app_logs import parse_app_access_line
+
+    line = (
+        r"92.184.121.16 - ar-systems.fr\x5Cvincent.tisseront@ar-systems.fr "
+        "[05/Aug/2026:15:36:10 +0000] host=webmail.ar-systems.fr "
+        '"POST /Microsoft-Server-ActiveSync?User=vincent.tisseront@ar-systems.fr'
+        '&DeviceID=FBJV9GQU3D7890K74K10V5IC5K&DeviceType=iPhone&Cmd=Sync HTTP/1.1" '
+        '200 0 "-" "Apple-iPhone13C4/2306.84" '
+        "rt=0.760 upstream=172.24.10.104:443 us=200 ut=0.322 auth_err="
+    )
+    e = parse_app_access_line(line)
+    assert e is not None
+    assert e["parse_ok"] is True
+    assert e["remote_addr"] == "92.184.121.16"
+    assert e["remote_user"] == r"ar-systems.fr\vincent.tisseront@ar-systems.fr"
+    assert e["host"] == "webmail.ar-systems.fr"
+    assert e["method"] == "POST"
+    assert e["path"].startswith("/Microsoft-Server-ActiveSync")
+    assert e["status"] == "200"
+    assert e["upstream_addr"] == "172.24.10.104:443"
+    assert e["auth_err"] == ""
+
+    spaced = (
+        r"172.24.1.230 - A.R. Systems\x5Ccherve.tisseront@ar-systems.fr "
+        "[05/Aug/2026:15:36:10 +0000] host=webmail.ar-systems.fr "
+        '"POST /Microsoft-Server-ActiveSync?Cmd=Sync HTTP/1.1" 200 0 "-" "Apple" '
+        "rt=0.1 upstream=172.24.10.104:443 us=200 ut=0.1 auth_err="
+    )
+    e2 = parse_app_access_line(spaced)
+    assert e2 is not None
+    assert e2["parse_ok"] is True
+    assert e2["remote_user"] == r"A.R. Systems\cherve.tisseront@ar-systems.fr"
+    assert e2["method"] == "POST"
