@@ -56,6 +56,14 @@
         <label class="form-label" for="message">Motif (optionnel)</label>
         <textarea id="message" name="message" class="form-input" rows="3">{{ form_values.message or '' }}</textarea>
       </div>
+      <div class="form-group">
+        <label class="form-label" for="captcha_answer">Vérification anti-robot <span class="req">*</span></label>
+        <p class="form-help" id="captcha_question" style="margin-bottom:var(--sp-2); font-weight:600;">{{ captcha_question }}</p>
+        <input type="hidden" name="captcha_token" value="{{ captcha_token }}">
+        <input type="text" id="captcha_answer" name="captcha_answer" class="form-input" required
+               inputmode="numeric" autocomplete="off" aria-describedby="captcha_question"
+               placeholder="Résultat">
+      </div>
       <button type="submit" class="btn btn-primary btn-full">Envoyer la demande</button>
     </form>
     {% else %}
