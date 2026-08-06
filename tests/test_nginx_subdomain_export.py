@@ -120,6 +120,10 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "client_max_body_size 64m;" in block
     assert "proxy_buffering off;" in main
     assert "proxy_request_buffering off;" in main
+    assert "proxy_buffer_size 128k;" in main
+    assert "proxy_buffers 8 128k;" in main
+    assert "proxy_set_header Connection $connection_upgrade;" in main
+    assert "proxy_set_header Connection $http_connection;" not in block
 
 
 def test_generate_crushftp_block_filters_portal_cookies():
@@ -285,6 +289,8 @@ def test_generate_non_crushftp_forwards_trusted_identity_headers():
     assert "proxy_set_header X-Forwarded-User $auth_display;" in block
     assert "proxy_set_header X-Auth-Email $auth_email;" in block
     assert "proxy_set_header X-Auth-Source $auth_source;" in block
+    assert "proxy_buffer_size 128k;" in block
+    assert "proxy_set_header Connection $connection_upgrade;" in block
 
 
 def test_allow_identity_headers_email_fallback_from_preferred():
