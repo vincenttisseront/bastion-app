@@ -83,7 +83,7 @@ def test_recent_sessions_from_audit(db_session):
     assert recent[0]["label"] == "CRM"
 
 
-def test_build_apps_sections_favorites_and_types():
+def test_build_apps_sections_favorites_and_applications():
     tiles = [
         {
             "id": 1,
@@ -108,19 +108,26 @@ def test_build_apps_sections_favorites_and_types():
         },
     ]
     sections = build_apps_sections(tiles, favorite_ids=[1])
-    assert [s["id"] for s in sections] == ["favorites", "web", "proxy", "vault"]
+    assert [s["id"] for s in sections] == ["favorites", "applications"]
     assert sections[0]["label"] == "Accès rapides"
     assert [a["slug"] for a in sections[0]["apps"]] == ["crm"]
     assert sections[0]["is_favorites"] is True
+    assert sections[1]["label"] == "Applications"
+    assert [a["slug"] for a in sections[1]["apps"]] == [
+        "crm",
+        "proxy-app",
+        "vault-app",
+    ]
 
     empty_fav = build_apps_sections(tiles, favorite_ids=[])
     assert empty_fav[0]["id"] == "favorites"
     assert empty_fav[0]["apps"] == []
+    assert empty_fav[1]["id"] == "applications"
 
     no_empty = build_apps_sections(
         tiles, favorite_ids=[], show_empty_favorites=False
     )
-    assert [s["id"] for s in no_empty] == ["web", "proxy", "vault"]
+    assert [s["id"] for s in no_empty] == ["applications"]
 
 
 def test_portal_favorites_add_remove(db_session):

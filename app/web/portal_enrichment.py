@@ -24,14 +24,18 @@ PORTAL_FILTERS: tuple[tuple[str, str], ...] = (
     ("vault", "Vault"),
 )
 
-# Fixed portal sections by access type (no user-custom sections for now).
+# Portal body sections (Accès rapides is added separately in build_apps_sections).
 PORTAL_SECTIONS: tuple[tuple[str, str], ...] = (
-    ("web", "Web"),
-    ("proxy", "Proxy"),
-    ("vault", "Vault"),
+    ("applications", "Applications"),
 )
 
-SECTION_LABELS: dict[str, str] = {key: label for key, label in PORTAL_SECTIONS}
+# Internal protocol_filter keys → display label in tile menu (no Proxy/Vault UX).
+SECTION_LABELS: dict[str, str] = {
+    "web": "Application",
+    "proxy": "Application",
+    "vault": "Application",
+    "applications": "Applications",
+}
 
 
 def _probe_badge(app: App) -> dict[str, str] | None:
@@ -77,7 +81,7 @@ def enrich_tile(app: App, tile: dict[str, Any]) -> dict[str, Any]:
     tile["status_badges"] = badges
     key = protocol_filter_key(app)
     tile["protocol_filter"] = key
-    tile["protocol_label"] = SECTION_LABELS.get(key, "Web")
+    tile["protocol_label"] = SECTION_LABELS.get(key, "Application")
     tile["auth_mode"] = normalize_auth_mode(getattr(app, "auth_mode", None))
     return tile
 
@@ -92,8 +96,8 @@ def build_apps_sections(
     """
     Group portal apps for Okta-style sections.
 
-    - Accès rapides: user-pinned favorites (may also appear in type sections).
-    - Web / Proxy / Vault: fixed sections by protocol_filter (empty sections omitted).
+    - Accès rapides: user-pinned favorites (may also appear under Applications).
+    - Applications: all accessible apps (no Proxy / Vault / Web type split).
 
     ``recent_sessions`` is accepted for backward compatibility but ignored;
     Accès rapides is driven only by favorites.
@@ -128,18 +132,16 @@ def build_apps_sections(
             }
         )
 
-    for key, label in PORTAL_SECTIONS:
-        apps = [t for t in tiles if t.get("protocol_filter") == key]
-        if apps:
-            sections.append(
-                {
-                    "id": key,
-                    "label": label,
-                    "apps": apps,
-                    "is_favorites": False,
-                    "is_recent": False,
-                }
-            )
+    if tiles:
+        sections.append(
+            {
+                "id": "applications",
+                "label": "Applications",
+                "apps": list(tiles),
+                "is_favorites": False,
+                "is_recent": False,
+            }
+        )
     return sections
 
 
