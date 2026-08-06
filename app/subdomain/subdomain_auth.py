@@ -118,6 +118,39 @@ def _header(headers: Mapping[str, str], *names: str) -> str:
     return ""
 
 
+def _allow_identity_headers(
+    *,
+    app_slug: str,
+    auth_source: str,
+    keycloak_user_id: str = "",
+    email: str = "",
+    preferred: str = "",
+    groups: list[str] | None = None,
+) -> dict[str, str]:
+    """Headers returned on auth_request 200 for nginx → upstream SSO apps.
+
+    Bastion gate alone does not create an upstream session. Apps that support
+    trusted-header SSO (e.g. Open WebUI ``WEBUI_AUTH_TRUSTED_EMAIL_HEADER``)
+    consume the X-Forwarded-* aliases that nginx maps from these values.
+    """
+    user = keycloak_user_id or preferred or email
+    display = preferred or email or keycloak_user_id or user
+    headers: dict[str, str] = {
+        "X-Auth-Source": auth_source,
+        "X-Auth-User": user,
+        "X-Auth-App": app_slug,
+    }
+    if email:
+        headers["X-Auth-Email"] = email
+    if preferred or email:
+        headers["X-Auth-Preferred-Username"] = preferred or email
+    if display:
+        headers["X-Auth-Display-Name"] = display
+    if groups:
+        headers["X-Auth-Groups"] = ",".join(groups)
+    return headers
+
+
 def _deny_no_grant(
     db: Session,
     *,
@@ -361,11 +394,14 @@ async def subdomain_auth(
         )
         return Response(
             status_code=200,
-            headers={
-                "X-Auth-Source": auth_source,
-                "X-Auth-User": keycloak_user_id or preferred or email,
-                "X-Auth-App": app_slug,
-            },
+            headers=_allow_identity_headers(
+                app_slug=app_slug,
+                auth_source=auth_source,
+                keycloak_user_id=keycloak_user_id,
+                email=email,
+                preferred=preferred,
+                groups=groups,
+            ),
         )
 
     # auth_request is high-concurrency — never hold a pool slot across httpx.
@@ -460,11 +496,14 @@ async def subdomain_auth(
         )
         return Response(
             status_code=200,
-            headers={
-                "X-Auth-Source": "oidc",
-                "X-Auth-User": keycloak_user_id or preferred or email,
-                "X-Auth-App": app_slug,
-            },
+            headers=_allow_identity_headers(
+                app_slug=app_slug,
+                auth_source="oidc",
+                keycloak_user_id=keycloak_user_id,
+                email=email,
+                preferred=preferred,
+                groups=groups,
+            ),
         )
 
     # 3b. Break-glass — emergency admin: allow all apps without AccessGrant.
@@ -495,13 +534,17 @@ async def subdomain_auth(
                 source_ip=client_ip,
                 auth_source="breakglass",
             )
+        bg_user = result.username or "breakglass"
         return Response(
             status_code=200,
-            headers={
-                "X-Auth-Source": "breakglass",
-                "X-Auth-User": result.username or "breakglass",
-                "X-Auth-App": app_slug,
-            },
+            headers=_allow_identity_headers(
+                app_slug=app_slug,
+                auth_source="breakglass",
+                keycloak_user_id="",
+                email="",
+                preferred=bg_user,
+                groups=None,
+            ),
         )
 
     if oauth2_unreachable:

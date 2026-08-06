@@ -276,10 +276,24 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     auth_request_set_user_lines = [
         "        auth_request_set $auth_user $upstream_http_x_auth_user;",
         "        auth_request_set $auth_app $upstream_http_x_auth_app;",
+        "        auth_request_set $auth_email $upstream_http_x_auth_email;",
+        "        auth_request_set $auth_preferred $upstream_http_x_auth_preferred_username;",
+        "        auth_request_set $auth_display $upstream_http_x_auth_display_name;",
+        "        auth_request_set $auth_groups $upstream_http_x_auth_groups;",
     ]
+    # Identity from auth_request only (never $http_*) — trusted-header SSO for
+    # upstreams (Open WebUI WEBUI_AUTH_TRUSTED_*, Authelia-style apps, …).
     proxy_auth_header_lines = [
         "        proxy_set_header X-Auth-User $auth_user;",
         "        proxy_set_header X-Auth-App $auth_app;",
+        "        proxy_set_header X-Auth-Email $auth_email;",
+        "        proxy_set_header X-Auth-Preferred-Username $auth_preferred;",
+        "        proxy_set_header X-Auth-Display-Name $auth_display;",
+        "        proxy_set_header X-Auth-Groups $auth_groups;",
+        "        proxy_set_header X-Forwarded-Email $auth_email;",
+        "        proxy_set_header X-Forwarded-User $auth_display;",
+        "        proxy_set_header X-Forwarded-Preferred-Username $auth_preferred;",
+        "        proxy_set_header X-Forwarded-Groups $auth_groups;",
     ]
     proxy_body_lines = [
         f"        proxy_pass $app_upstream;",

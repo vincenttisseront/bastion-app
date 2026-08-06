@@ -112,12 +112,20 @@ def test_subdomain_auth_launch_grant_allows(client, db_session):
         "admin",
     )
     db_session.commit()
-    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+    respx.get(OIDC_URL).mock(
+        return_value=_oidc_ok(**{"X-Auth-Request-Groups": "alice-group,ops"})
+    )
 
     resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
     assert resp.status_code == 200
     assert resp.headers.get("x-auth-app") == "transfer"
     assert resp.headers.get("x-auth-source") == "oidc"
+    assert resp.headers.get("x-auth-email") == "alice@example.com"
+    assert resp.headers.get("x-auth-preferred-username") == "alice"
+    assert resp.headers.get("x-auth-display-name") == "alice"
+    groups_hdr = resp.headers.get("x-auth-groups") or ""
+    assert "alice-group" in groups_hdr
+    assert "ops" in groups_hdr
 
 
 @respx.mock
