@@ -310,9 +310,15 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        # minutes). Same directives as the legacy hand-written vhost.",
         "        proxy_buffering off;",
         "        proxy_request_buffering off;",
-        # Needed for ws/wss endpoints (e.g. Teleport terminal streaming).
+        # Response-header buffers (independent of proxy_buffering): Immich/oauth
+        # Set-Cookie jars blow the default 4k/8k → 502 "upstream sent too big header".
+        "        proxy_buffer_size 128k;",
+        "        proxy_buffers 8 128k;",
+        "        proxy_busy_buffers_size 256k;",
+        # Needed for ws/wss (Immich socket.io, Teleport, …). Use the http{} map
+        # $connection_upgrade — raw $http_connection is empty on HTTP/2 hops.
         "        proxy_set_header Upgrade $http_upgrade;",
-        "        proxy_set_header Connection $http_connection;",
+        "        proxy_set_header Connection $connection_upgrade;",
         "        proxy_connect_timeout 60s;",
         "        proxy_read_timeout 3600s;",
         "        proxy_send_timeout 3600s;",
