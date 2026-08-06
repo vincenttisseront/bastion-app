@@ -280,10 +280,11 @@ def test_generate_non_crushftp_forwards_trusted_identity_headers():
         enabled=True,
     )
     block = generate_subdomain_server_block(app, _settings())
-    assert "auth_request_set $auth_email $upstream_http_x_auth_email;" in block
+    assert "auth_request_set $auth_email $upstream_http_x_auth_request_email;" in block
     assert "proxy_set_header X-Forwarded-Email $auth_email;" in block
     assert "proxy_set_header X-Forwarded-User $auth_display;" in block
     assert "proxy_set_header X-Auth-Email $auth_email;" in block
+    assert "proxy_set_header X-Auth-Source $auth_source;" in block
 
 
 def test_allow_identity_headers_email_fallback_from_preferred():
