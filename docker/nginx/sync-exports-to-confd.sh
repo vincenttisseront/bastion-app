@@ -81,10 +81,15 @@ cat > /etc/nginx/modsecurity/generated/crs-setup-generated.conf <<'EOF'
 # Not loaded by main-*.conf — anomaly thresholds come from ../crs-setup.conf (id:900110).
 # Export may still be written by Admin → WAF for a future safe re-Include (id:1000900110).
 EOF
-if [[ -f "$EXPORTS/modsecurity/engine-mode-generated.conf" ]]; then
-  cp -a "$EXPORTS/modsecurity/engine-mode-generated.conf" \
-    /etc/nginx/modsecurity/generated/engine-mode-generated.conf
-fi
+# if [[ -f "$EXPORTS/modsecurity/engine-mode-generated.conf" ]]; then
+#   # Not copied into the live Include chain (main-*.conf) during emergency Off.
+#   cp -a "$EXPORTS/modsecurity/engine-mode-generated.conf" \
+#     /etc/nginx/modsecurity/generated/engine-mode-generated.conf
+# fi
+cat > /etc/nginx/modsecurity/generated/engine-mode-generated.conf <<'EOF'
+# Not loaded by main-*.conf — emergency Off 2026-08-06 (see ops-modsecurity-crs.md).
+SecRuleEngine Off
+EOF
 if [[ -f "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" ]]; then
   cp -a "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" \
     /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf

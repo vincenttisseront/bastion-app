@@ -1,4 +1,4 @@
-﻿"""ModSecurity CRS — docker nginx wiring (engine On after reverse01 cutover)."""
+﻿"""ModSecurity CRS — docker nginx wiring (emergency Off 2026-08-06)."""
 
 from __future__ import annotations
 
@@ -7,11 +7,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_docker_portal_enables_modsecurity_main_portal():
+def test_docker_portal_keeps_modsecurity_wiring_but_off():
     text = (ROOT / "docker/nginx/templates/vhost_sso_portal.conf.template").read_text(
         encoding="utf-8"
     )
-    assert "modsecurity on;" in text
+    # Emergency Off — connector still wired for a safe re-enable later.
+    assert "modsecurity off;" in text
+    assert "modsecurity on;" not in [
+        ln.strip()
+        for ln in text.splitlines()
+        if ln.strip() and not ln.strip().startswith("#")
+    ]
     assert (
         "modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;" in text
     )
@@ -42,7 +48,7 @@ def test_docker_nginx_loads_modsecurity_module_after_real_ip_order():
     assert conf.index("set_real_ip_from") < conf.index("include /etc/nginx/conf.d/*.conf;")
 
 
-def test_modsecurity_engine_files_on():
+def test_modsecurity_engine_files_off_emergency():
     for name in ("engine-portal.conf", "engine-subdomain.conf", "engine-public.conf"):
         text = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")
         live = [
@@ -50,15 +56,14 @@ def test_modsecurity_engine_files_on():
             for ln in text.splitlines()
             if ln.strip() and not ln.strip().startswith("#")
         ]
-        assert live == ["SecRuleEngine On"]
+        assert live == ["SecRuleEngine Off"]
 
 
-def test_modsecurity_audit_log_and_response_body_off():
+def test_modsecurity_audit_engine_off_emergency():
     text = (ROOT / "docker/nginx/modsecurity/modsecurity.conf").read_text(
         encoding="utf-8"
     )
-    assert "SecAuditLogFormat JSON" in text
-    assert "SecAuditLog /var/log/nginx/apps/modsec_audit.log" in text
+    assert "SecAuditEngine Off" in text
     assert "SecResponseBodyAccess Off" in text
     assert "SecRequestBodyAccess On" in text
     live = [
@@ -67,6 +72,7 @@ def test_modsecurity_audit_log_and_response_body_off():
         if ln.strip() and not ln.strip().startswith("#")
     ]
     assert not any(ln.startswith("SecRuleEngine") for ln in live)
+    assert any(ln == "SecAuditEngine Off" for ln in live)
 
 
 def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
@@ -78,19 +84,15 @@ def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
             "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
             not in text
         )
+        # Emergency: do not load engine-mode-generated (DB mode=on forced On → 500).
+        assert (
+            "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
+            not in text
+        )
         assert "Include /etc/nginx/includes/waf-basic.conf" in text
         assert (
             "Include /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf"
             in text
-        )
-        assert (
-            "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf" in text
-        )
-        assert text.index("waf-basic.conf") < text.index(
-            "bastion-exclusions-generated.conf"
-        )
-        assert text.index("bastion-exclusions-generated.conf") < text.index(
-            "engine-mode-generated.conf"
         )
 
 
@@ -107,3 +109,15 @@ def test_auth_snippets_disable_modsecurity():
     assert "modsecurity off;" in eas.split("location = /internal/activesync-auth", 1)[
         1
     ][:200]
+
+
+def test_family_snippets_modsecurity_off_emergency():
+    for name in ("modsecurity-subdomain.conf", "modsecurity-public.conf"):
+        text = (ROOT / "docker/nginx/snippets" / name).read_text(encoding="utf-8")
+        live = [
+            ln.strip()
+            for ln in text.splitlines()
+            if ln.strip() and not ln.strip().startswith("#")
+        ]
+        assert "modsecurity off;" in live
+        assert "modsecurity on;" not in live

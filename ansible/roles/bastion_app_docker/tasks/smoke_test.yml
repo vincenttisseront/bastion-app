@@ -155,6 +155,10 @@
     docker exec "$cid" grep -n Include /etc/nginx/modsecurity/main-portal.conf || true
     echo "=== export on volume ==="
     cat /tools/portal/data/exports/modsecurity/crs-setup-generated.conf 2>/dev/null || true
+    echo "=== error.log (tail) ==="
+    docker exec "$cid" tail -n 40 /var/log/nginx/error.log 2>/dev/null || true
+    echo "=== modsec dirs ==="
+    docker exec "$cid" ls -la /tmp/modsecurity /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
     echo "=== wget /auth/login ==="
     docker exec "$cid" wget -S -O /dev/null \
       --header="Host: {{ portal_domain | default('portal.ar-systems.fr') }}" \
