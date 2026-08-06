@@ -112,3 +112,18 @@ def test_acme_scripts_exist_and_no_certs_committed():
     assert (root / "docker/nginx/sync-public-proxy-tls.sh").is_file()
     assert (root / ".env.acme.example").is_file()
     assert not (root / ".env.acme").exists()
+
+
+def test_acme_docs_describe_multi_family_and_staging():
+    root = Path(__file__).resolve().parents[1]
+    doc = (root / "docs/lets-encrypt-acme-nginx-bastion.md").read_text(encoding="utf-8")
+    assert "subdomain_proxy" in doc
+    assert "public_proxy" in doc
+    assert "letsencrypt_test" in doc
+    assert "Zone.DNS Edit" in doc
+    assert ":8443" not in doc
+    assert "public_proxy only" not in doc.lower()
+    watch = (root / "docker/nginx/watch-exports-reload.sh").read_text(encoding="utf-8")
+    assert "acme-domains.json" in watch
+    assert "fullchain.pem" in watch
+    assert "docker.sock" not in watch.lower()
