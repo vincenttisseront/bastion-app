@@ -73,7 +73,11 @@ def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
     for name in ("main-portal.conf", "main-subdomain.conf", "main-public.conf"):
         text = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")
         assert "Include /etc/nginx/modsecurity/crs-setup.conf" in text
-        assert "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf" in text
+        # Hotfix: do not load crs-setup-generated (stale id:901110 → HTTP 500).
+        assert (
+            "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
+            not in text
+        )
         assert "Include /etc/nginx/includes/waf-basic.conf" in text
         assert (
             "Include /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf"
@@ -82,7 +86,6 @@ def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
         assert (
             "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf" in text
         )
-        assert text.index("crs-setup.conf") < text.index("crs-setup-generated.conf")
         assert text.index("waf-basic.conf") < text.index(
             "bastion-exclusions-generated.conf"
         )

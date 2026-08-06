@@ -122,6 +122,62 @@
   changed_when: false
   failed_when: false
 
+# /api/health has « modsecurity off » — a CRS rule-id collision still yields HTTP 500 on
+# /, /auth/login, /static, … while health stays 200. Catch that class of outage here.
+- name: "SMOKE : nginx ModSec path /auth/login must not be 500"
+  ansible.builtin.shell: |
+    set -o pipefail
+    cid="{{ _nginx_cid.stdout | trim }}"
+    # Headers only; follow nothing. Accept 200/302/401/403 — never 500.
+    code="$(docker exec "$cid" wget -S -O /dev/null \
+      --header="Host: {{ portal_domain | default('portal.ar-systems.fr') }}" \
+      http://127.0.0.1:8080/auth/login 2>&1 \
+      | awk '/^  HTTP\//{code=$2} END{print code+0}')"
+    echo "auth_login_http=$code"
+    test "$code" -ge 200 -a "$code" -lt 500 -a "$code" -ne 0
+  args:
+    executable: /bin/bash
+  register: _nginx_modsec_login_smoke
+  retries: 10
+  delay: 2
+  until: _nginx_modsec_login_smoke.rc | default(1) == 0
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : fail if ModSec path returns 500 (crs overlay collision)"
+  when: _nginx_modsec_login_smoke.rc | default(1) != 0
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cid="{{ _nginx_cid.stdout | trim }}"
+    echo "=== generated crs-setup (should be stub / not Included) ==="
+    docker exec "$cid" cat /etc/nginx/modsecurity/generated/crs-setup-generated.conf || true
+    echo "=== main-portal Include lines ==="
+    docker exec "$cid" grep -n Include /etc/nginx/modsecurity/main-portal.conf || true
+    echo "=== export on volume ==="
+    cat /tools/portal/data/exports/modsecurity/crs-setup-generated.conf 2>/dev/null || true
+    echo "=== wget /auth/login ==="
+    docker exec "$cid" wget -S -O /dev/null \
+      --header="Host: {{ portal_domain | default('portal.ar-systems.fr') }}" \
+      http://127.0.0.1:8080/auth/login 2>&1 || true
+  args:
+    executable: /bin/bash
+  register: _nginx_modsec_diag
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : fail with ModSec diagnostics"
+  when: _nginx_modsec_login_smoke.rc | default(1) != 0
+  ansible.builtin.fail:
+    msg: |
+      /auth/login via nginx returned HTTP 5xx (or unreachable).
+      /api/health can still be 200 when ModSecurity is broken (modsecurity off on health).
+      Likely stale crs-setup-generated id:901110 — ensure main-*.conf does not Include it,
+      and rebuild nginx from master.
+      --- smoke ---
+      {{ _nginx_modsec_login_smoke.stdout | default('') }}
+      --- diag ---
+      {{ _nginx_modsec_diag.stdout | default('') }}
+
 - name: "SMOKE : shared nginx-logs volume (Accès apps)"
   ansible.builtin.shell: |
     set -euo pipefail
