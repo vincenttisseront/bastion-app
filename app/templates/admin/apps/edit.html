@@ -8,6 +8,8 @@
 {% set form_values = {
   'description': app.description or ''
 } %}
+{% set show_vault_step = vault_enabled | default(false) or app.robotic_driver %}
+{% set wizard_embed = true %}
 <div class="page page-form">
   <div class="page-header">
     <div>
@@ -17,16 +19,86 @@
   </div>
 
   <form method="post" action="/admin/apps/{{ app.slug }}/edit" id="app-form">
-    <div class="form-section is-accordion is-open" data-form-accordion data-open-default>
-      <div class="form-section-header" data-form-accordion-toggle>
-        <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
-        <div>
-          <div class="form-section-title">Informations générales</div>
-          <div class="form-section-sub">Libellé, mode d'accès et URL cible</div>
-          <div class="form-section-summary">{{ app.slug }} · {{ access_mode_labels.get(app.access_mode, app.access_mode) }}</div>
-        </div>
+    <div class="wizard" data-wizard data-initial-step="general">
+      <div class="wizard-stepper" role="tablist" aria-label="Configuration de l'application">
+        <button
+          type="button"
+          class="wizard-step is-todo"
+          role="tab"
+          id="wizard-tab-general"
+          aria-controls="wizard-panel-general"
+          data-wizard-goto="general"
+          data-wizard-status="todo"
+          data-wizard-locked="0"
+        >
+          <span class="wizard-step-rail" aria-hidden="true"></span>
+          <span class="wizard-step-dot" aria-hidden="true">1</span>
+          <span class="wizard-step-label">Général</span>
+        </button>
+        <button
+          type="button"
+          class="wizard-step is-todo"
+          role="tab"
+          id="wizard-tab-auth"
+          aria-controls="wizard-panel-auth"
+          data-wizard-goto="auth"
+          data-wizard-status="todo"
+          data-wizard-locked="0"
+        >
+          <span class="wizard-step-rail" aria-hidden="true"></span>
+          <span class="wizard-step-dot" aria-hidden="true">2</span>
+          <span class="wizard-step-label">Authentification</span>
+        </button>
+        <button
+          type="button"
+          class="wizard-step is-todo"
+          role="tab"
+          id="wizard-tab-presentation"
+          aria-controls="wizard-panel-presentation"
+          data-wizard-goto="presentation"
+          data-wizard-status="todo"
+          data-wizard-locked="0"
+        >
+          <span class="wizard-step-rail" aria-hidden="true"></span>
+          <span class="wizard-step-dot" aria-hidden="true">3</span>
+          <span class="wizard-step-label">Présentation</span>
+        </button>
+        {% if show_vault_step %}
+        <button
+          type="button"
+          class="wizard-step is-todo"
+          role="tab"
+          id="wizard-tab-vault"
+          aria-controls="wizard-panel-vault"
+          data-wizard-goto="vault"
+          data-wizard-status="todo"
+          data-wizard-locked="0"
+        >
+          <span class="wizard-step-rail" aria-hidden="true"></span>
+          <span class="wizard-step-dot" aria-hidden="true">4</span>
+          <span class="wizard-step-label">Vault</span>
+        </button>
+        {% endif %}
+        <button
+          type="button"
+          class="wizard-step is-todo"
+          role="tab"
+          id="wizard-tab-provisioning"
+          aria-controls="wizard-panel-provisioning"
+          data-wizard-goto="provisioning"
+          data-wizard-status="todo"
+          data-wizard-locked="0"
+        >
+          <span class="wizard-step-rail" aria-hidden="true"></span>
+          <span class="wizard-step-dot" aria-hidden="true">{% if show_vault_step %}5{% else %}4{% endif %}</span>
+          <span class="wizard-step-label">Provisioning</span>
+        </button>
       </div>
-      <div class="form-body">
+
+      <section class="wizard-panel" id="wizard-panel-general" role="tabpanel" aria-labelledby="wizard-tab-general" data-wizard-panel="general" hidden>
+        <header class="wizard-panel-head">
+          <h3 class="wizard-panel-title">Informations générales</h3>
+        </header>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="label">Nom affiché <span class="req">*</span></label>
@@ -132,37 +204,48 @@
           (ex. <span class="mono">https://172.24.…</span>). Activer uniquement si le certificat
           est valide pour le hostname de l’upstream.
         </p>
-      </div>
-    </div>
+      </section>
 
-    {% set form_values = {
-      'auth_mode': app.auth_mode,
-      'login_form_url': app.login_form_url or '',
-      'login_username_field': app.login_username_field,
-      'login_password_field': app.login_password_field,
-      'login_http_method': app.login_http_method,
-      'login_extra_fields': app.login_extra_fields or '',
-      'credential_mode': app.credential_mode or 'shared'
-    } %}
-    {% include "admin/apps/_auth_mode_section.html" with context %}
+      <section class="wizard-panel" id="wizard-panel-auth" role="tabpanel" aria-labelledby="wizard-tab-auth" data-wizard-panel="auth" hidden>
+        <header class="wizard-panel-head">
+          <h3 class="wizard-panel-title">Mode d'authentification</h3>
+        </header>
+        {% set form_values = {
+          'auth_mode': app.auth_mode,
+          'login_form_url': app.login_form_url or '',
+          'login_username_field': app.login_username_field,
+          'login_password_field': app.login_password_field,
+          'login_http_method': app.login_http_method,
+          'login_extra_fields': app.login_extra_fields or '',
+          'credential_mode': app.credential_mode or 'shared'
+        } %}
+        {% include "admin/apps/_auth_mode_section.html" with context %}
+      </section>
 
-    {% include "admin/apps/_description_logo_sections.html" with context %}
+      <section class="wizard-panel" id="wizard-panel-presentation" role="tabpanel" aria-labelledby="wizard-tab-presentation" data-wizard-panel="presentation" hidden>
+        <header class="wizard-panel-head">
+          <h3 class="wizard-panel-title">Présentation</h3>
+        </header>
+        <p class="form-help" style="margin-top:0;">Texte court affiché sous le nom sur le portail (max. 140 caractères)</p>
+        {% include "admin/apps/_description_logo_sections.html" with context %}
+      </section>
 
-    {% include "admin/apps/_vault_credential_section.html" with context %}
+      {% if show_vault_step %}
+      <section class="wizard-panel" id="wizard-panel-vault" role="tabpanel" aria-labelledby="wizard-tab-vault" data-wizard-panel="vault" hidden>
+        <header class="wizard-panel-head">
+          <h3 class="wizard-panel-title">Credential vault</h3>
+        </header>
+        <p class="form-help" style="margin-top:0;">Compte de service robotic — mot de passe chiffré en base</p>
+        {% include "admin/apps/_vault_credential_section.html" with context %}
+      </section>
+      {% endif %}
 
-    {% set current_provision_driver = app.provisioning_driver or '' %}
-    {% set provision_summary = provisioning_driver_labels.get(current_provision_driver, 'Aucun (SSO uniquement)') %}
-    <div class="form-section is-accordion form-section-gap" id="provisioning-driver-section" data-form-accordion>
-      <div class="form-section-header" data-form-accordion-toggle>
-        <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
-        <div>
-          <div class="form-section-title">Provisioning de comptes</div>
-          <div class="form-section-sub">Création de compte local via API (Nouvel utilisateur / AccessGrant)</div>
-          <div class="form-section-summary{% if not current_provision_driver %} is-off{% endif %}">{{ provision_summary }}</div>
-        </div>
-      </div>
-      <div class="form-body">
-        <div class="form-group">
+      <section class="wizard-panel" id="wizard-panel-provisioning" role="tabpanel" aria-labelledby="wizard-tab-provisioning" data-wizard-panel="provisioning" hidden>
+        <header class="wizard-panel-head">
+          <h3 class="wizard-panel-title">Provisioning de comptes</h3>
+        </header>
+        {% set current_provision_driver = app.provisioning_driver or '' %}
+        <div class="form-group" id="provisioning-driver-section">
           <label class="form-label" for="provisioning_driver">Driver de provisioning</label>
           <select id="provisioning_driver" name="provisioning_driver" class="form-select">
             {% for value, label in provisioning_driver_labels.items() %}
@@ -177,99 +260,88 @@
             Vide = SSO uniquement, aucun compte local créé.
           </p>
         </div>
-      </div>
-    </div>
 
-    {% set crush_admin_configured = app.crushftp_admin_password_encrypted and app.crushftp_admin_username and app.crushftp_admin_base_url %}
-    {% set crush_admin_summary = 'Configuré' if crush_admin_configured else 'Non configuré' %}
-    {% set show_crushftp_admin = current_provision_driver == 'crushftp' %}
-    <div class="form-section is-accordion form-section-gap{% if not show_crushftp_admin %} is-off{% endif %}"
-         id="crushftp-admin-api-section"
-         data-form-accordion
-         data-crushftp-admin-section
-         {% if not show_crushftp_admin %}hidden{% endif %}>
-      <div class="form-section-header" data-form-accordion-toggle>
-        <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
-        <div>
-          <div class="form-section-title">API Admin CrushFTP</div>
-          <div class="form-section-sub">Visible uniquement si le provisioning = CrushFTP</div>
-          <div class="form-section-summary{% if not crush_admin_configured %} is-off{% endif %}">{{ crush_admin_summary }}</div>
-        </div>
-      </div>
-      <div class="form-body">
-        <p class="form-help" style="margin-top:0">
-          Compte admin CrushFTP partagé pour cette application — distinct du credential
-          individuel ci-dessus, utilisé uniquement pour créer/gérer les comptes et groupes
-          via l'API. Authentification HTTP Basic Auth (pas le flow session robotic).
-        </p>
-        <div class="form-group">
-          <label class="form-label" for="crushftp_admin_base_url">URL API Admin CrushFTP</label>
-          <input type="url" id="crushftp_admin_base_url" name="crushftp_admin_base_url"
-                 class="form-input" value="{{ app.crushftp_admin_base_url or '' }}"
-                 placeholder="http://10.x.x.x:8080/" autocomplete="off">
-          <p class="form-help">
-            Listener CrushFTP joignable <strong>depuis le conteneur portail</strong>
-            (souvent <span class="mono">http://IP-LAN:8080/</span>) —
-            <strong>pas</strong> l’URL publique SSO
-            (<span class="mono">transfer.…</span> / bastion), qui renvoie un 302 oauth2-proxy
-            et fait échouer <span class="mono">setUserItem</span>.
+        {% set show_crushftp_admin = current_provision_driver == 'crushftp' %}
+        <div id="crushftp-admin-api-section"
+             data-crushftp-admin-section
+             {% if not show_crushftp_admin %}hidden{% endif %}>
+          <hr class="form-divider" style="border:0;border-top:1px solid var(--border-muted);margin:var(--sp-5) 0;">
+          <h4 class="wizard-panel-title" style="font-size:var(--fs-md);margin:0 0 var(--sp-3);">API Admin CrushFTP</h4>
+          <p class="form-help" style="margin-top:0">
+            Compte admin CrushFTP partagé pour cette application — distinct du credential
+            individuel ci-dessus, utilisé uniquement pour créer/gérer les comptes et groupes
+            via l'API. Authentification HTTP Basic Auth (pas le flow session robotic).
           </p>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="crushftp_vfs_base_path">Racine VFS sociétés (serveur)</label>
-          <input type="text" id="crushftp_vfs_base_path" name="crushftp_vfs_base_path"
-                 class="form-input" value="{{ app.crushftp_vfs_base_path or '' }}"
-                 placeholder="/crush_data/AR-SYSTEMS" autocomplete="off">
-          <p class="form-help">
-            Chemin physique côté CrushFTP. Pour chaque utilisateur, le dossier société
-            (<span class="mono">organization</span>, ex. <span class="mono">SDIS999</span>)
-            est monté en lecture seule :
-            <span class="mono">FILE://…/AR-SYSTEMS/SDIS999/</span>.
-            Obligatoire pour le provisioning CrushFTP.
-            L’import des dossiers existants se fait depuis la
-            <a href="/admin/apps">liste des applications</a>
-            (bouton <strong>Importer sociétés</strong>).
-          </p>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="crushftp_admin_server_group">Contexte serveur CrushFTP (serverGroup)</label>
-          <input type="text" id="crushftp_admin_server_group" name="crushftp_admin_server_group"
-                 class="form-input" value="{{ app.crushftp_admin_server_group or 'MainUsers' }}"
-                 placeholder="MainUsers" autocomplete="off">
-          <p class="form-help">
-            Namespace/contexte utilisateur CrushFTP (<span class="mono">serverGroup</span> de l'API) —
-            <strong>pas</strong> le groupe RBAC Keycloak ni le <span class="mono">group_name</span>
-            d'appartenance cible. Défaut : <span class="mono">MainUsers</span>.
-          </p>
-        </div>
-        <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="crushftp_admin_username">Utilisateur admin CrushFTP</label>
-            <input type="text" id="crushftp_admin_username" name="crushftp_admin_username"
-                   class="form-input" value="{{ app.crushftp_admin_username or '' }}"
-                   placeholder="crushadmin" autocomplete="off">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="crushftp_admin_password">Mot de passe admin</label>
-            <input type="password" id="crushftp_admin_password" name="crushftp_admin_password"
-                   class="form-input" value="" autocomplete="new-password"
-                   placeholder="{% if app.crushftp_admin_password_encrypted %}••••••••{% else %}Mot de passe admin{% endif %}">
+            <label class="form-label" for="crushftp_admin_base_url">URL API Admin CrushFTP</label>
+            <input type="url" id="crushftp_admin_base_url" name="crushftp_admin_base_url"
+                   class="form-input" value="{{ app.crushftp_admin_base_url or '' }}"
+                   placeholder="http://10.x.x.x:8080/" autocomplete="off">
             <p class="form-help">
-              {% if app.crushftp_admin_password_encrypted %}
-              Laisser vide pour conserver le secret déjà enregistré.
-              {% else %}
-              Un seul secret partagé pour toute l'app — chiffré Fernet en base.
-              {% endif %}
+              Listener CrushFTP joignable <strong>depuis le conteneur portail</strong>
+              (souvent <span class="mono">http://IP-LAN:8080/</span>) —
+              <strong>pas</strong> l’URL publique SSO
+              (<span class="mono">transfer.…</span> / bastion), qui renvoie un 302 oauth2-proxy
+              et fait échouer <span class="mono">setUserItem</span>.
             </p>
           </div>
+          <div class="form-group">
+            <label class="form-label" for="crushftp_vfs_base_path">Racine VFS sociétés (serveur)</label>
+            <input type="text" id="crushftp_vfs_base_path" name="crushftp_vfs_base_path"
+                   class="form-input" value="{{ app.crushftp_vfs_base_path or '' }}"
+                   placeholder="/crush_data/AR-SYSTEMS" autocomplete="off">
+            <p class="form-help">
+              Chemin physique côté CrushFTP. Pour chaque utilisateur, le dossier société
+              (<span class="mono">organization</span>, ex. <span class="mono">SDIS999</span>)
+              est monté en lecture seule :
+              <span class="mono">FILE://…/AR-SYSTEMS/SDIS999/</span>.
+              Obligatoire pour le provisioning CrushFTP.
+              L’import des dossiers existants se fait depuis la
+              <a href="/admin/apps">liste des applications</a>
+              (bouton <strong>Importer sociétés</strong>).
+            </p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="crushftp_admin_server_group">Contexte serveur CrushFTP (serverGroup)</label>
+            <input type="text" id="crushftp_admin_server_group" name="crushftp_admin_server_group"
+                   class="form-input" value="{{ app.crushftp_admin_server_group or 'MainUsers' }}"
+                   placeholder="MainUsers" autocomplete="off">
+            <p class="form-help">
+              Namespace/contexte utilisateur CrushFTP (<span class="mono">serverGroup</span> de l'API) —
+              <strong>pas</strong> le groupe RBAC Keycloak ni le <span class="mono">group_name</span>
+              d'appartenance cible. Défaut : <span class="mono">MainUsers</span>.
+            </p>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="crushftp_admin_username">Utilisateur admin CrushFTP</label>
+              <input type="text" id="crushftp_admin_username" name="crushftp_admin_username"
+                     class="form-input" value="{{ app.crushftp_admin_username or '' }}"
+                     placeholder="crushadmin" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="crushftp_admin_password">Mot de passe admin</label>
+              <input type="password" id="crushftp_admin_password" name="crushftp_admin_password"
+                     class="form-input" value="" autocomplete="new-password"
+                     placeholder="{% if app.crushftp_admin_password_encrypted %}••••••••{% else %}Mot de passe admin{% endif %}">
+              <p class="form-help">
+                {% if app.crushftp_admin_password_encrypted %}
+                Laisser vide pour conserver le secret déjà enregistré.
+                {% else %}
+                Un seul secret partagé pour toute l'app — chiffré Fernet en base.
+                {% endif %}
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </section>
 
-    <div class="form-section form-section-gap">
-      <div class="form-footer">
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      <div class="wizard-nav" aria-label="Navigation du parcours">
+        <button type="button" class="btn btn-ghost" data-wizard-prev>Précédent</button>
+        <button type="button" class="btn btn-primary" data-wizard-next>Suivant</button>
+        <span class="wizard-nav-spacer" aria-hidden="true"></span>
         <a href="/admin/apps" class="btn btn-ghost">Annuler</a>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
       </div>
     </div>
   </form>

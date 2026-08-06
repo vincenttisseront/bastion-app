@@ -434,6 +434,10 @@ function initAccessModeForm() {
     if (authSection) {
       authSection.hidden = (mode === 'sso_gate' || mode === 'public_proxy');
     }
+    var authNa = document.getElementById('auth-mode-na');
+    if (authNa) {
+      authNa.hidden = !(mode === 'sso_gate' || mode === 'public_proxy');
+    }
     syncFqdnCookieWarning();
   }
 
