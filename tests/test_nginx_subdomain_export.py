@@ -256,11 +256,34 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     assert "set $bastion_upstream_cookie" not in main
     assert "auth_request_set $bastion_auth_err" in main
     assert "auth_request_set $auth_user" in main
+    assert "auth_request_set $auth_email" in main
+    assert "auth_request_set $auth_preferred" in main
     assert "proxy_intercept_errors off;" in main
     assert "try_files /nonexistent @app_upstream_transfer;" in main
     named = block.split("location @app_upstream_transfer {", 1)[1]
     assert "set $bastion_upstream_cookie" in named
     assert "proxy_set_header X-Auth-User $auth_user;" in named
+    assert "proxy_set_header X-Forwarded-Email $auth_email;" in named
+    assert "proxy_set_header X-Forwarded-User $auth_display;" in named
+
+
+def test_generate_non_crushftp_forwards_trusted_identity_headers():
+    """SSO subdomain apps get email/name headers for upstream trusted-header auth."""
+    app = App(
+        slug="open-webui",
+        label="Open WebUI",
+        upstream_url="https://10.0.31.112/",
+        access_mode="subdomain_proxy",
+        public_fqdn="open-webui.ar-systems.fr",
+        realm_slug="ar-systems",
+        auth_mode="sso",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert "auth_request_set $auth_email $upstream_http_x_auth_email;" in block
+    assert "proxy_set_header X-Forwarded-Email $auth_email;" in block
+    assert "proxy_set_header X-Forwarded-User $auth_display;" in block
+    assert "proxy_set_header X-Auth-Email $auth_email;" in block
 
 
 def test_generate_conf_and_inventory(db_session, tmp_path):
