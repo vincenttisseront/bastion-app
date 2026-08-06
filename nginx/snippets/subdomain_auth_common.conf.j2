@@ -19,6 +19,10 @@ location = /internal/subdomain-auth {
     proxy_pass http://{{ sso_portal_bind_host | default('127.0.0.1') }}:{{ sso_portal_bind_port | default('8000') }}/internal/subdomain-auth;
     proxy_pass_request_body off;
     proxy_pass_request_headers off;
+    # auth_request defaults to HTTP/1.0; force 1.1 so identity response headers
+    # reach auth_request_set (X-Forwarded-Email for trusted-header upstreams).
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
     proxy_set_header Content-Length  "";
     proxy_set_header Host            $bastion_vhost_fqdn;
     proxy_set_header X-Original-URI  $request_uri;
