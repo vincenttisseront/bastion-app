@@ -57,11 +57,19 @@
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="username">Identifiant <span class="req">*</span></label>
-            <input type="text" id="username" name="username" class="form-input" value="{{ form_values.username or '' }}" required autocomplete="off" placeholder="jdoe">
+            <div style="display:flex; gap:var(--sp-2); align-items:stretch;">
+              <input type="text" id="username" name="username" class="form-input" value="{{ form_values.username or '' }}" required autocomplete="off" placeholder="prenom.nom" style="flex:1; min-width:0;">
+              <button type="button" class="btn btn-ghost btn-sm" data-fill-name-from-username
+                      title="Remplit Prénom / Nom depuis l’identifiant (ex. franck.gros → Franck / GROS)"
+                      style="white-space:nowrap; flex-shrink:0;">
+                → Prénom / Nom
+              </button>
+            </div>
+            <p class="form-help">Format attendu : <span class="mono">prenom.nom</span> — le bouton dérive Prénom (capitale) et Nom (MAJUSCULES).</p>
           </div>
           <div class="form-group">
             <label class="form-label" for="email">Email <span class="req">*</span></label>
-            <input type="email" id="email" name="email" class="form-input" value="{{ form_values.email or '' }}" required autocomplete="off" placeholder="jdoe@example.com">
+            <input type="email" id="email" name="email" class="form-input" value="{{ form_values.email or '' }}" required autocomplete="off" placeholder="prenom.nom@example.com">
           </div>
         </div>
         <div class="form-row">
@@ -242,6 +250,44 @@
     var orgNewWrap = document.querySelector("[data-org-new-wrap]");
     var orgNewInput = document.querySelector("[data-org-new-input]");
     var orgExistingHelp = document.querySelector("[data-org-existing-help]");
+    var usernameInput = document.getElementById("username");
+    var firstNameInput = document.getElementById("first_name");
+    var lastNameInput = document.getElementById("last_name");
+    var fillNameBtn = document.querySelector("[data-fill-name-from-username]");
+
+    function titleCaseToken(token) {
+      if (!token) return "";
+      return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+    }
+
+    function titleCaseName(raw) {
+      return String(raw || "")
+        .split("-")
+        .map(titleCaseToken)
+        .join("-");
+    }
+
+    function fillNameFromUsername() {
+      if (!usernameInput || !firstNameInput || !lastNameInput) return;
+      var raw = String(usernameInput.value || "").trim();
+      var dot = raw.indexOf(".");
+      if (dot <= 0 || dot >= raw.length - 1) {
+        if (window.bastionToast) {
+          window.bastionToast("Identifiant attendu au format prenom.nom", "warn");
+        } else {
+          window.alert("Identifiant attendu au format prenom.nom (ex. franck.gros).");
+        }
+        usernameInput.focus();
+        return;
+      }
+      firstNameInput.value = titleCaseName(raw.slice(0, dot));
+      lastNameInput.value = raw.slice(dot + 1).toUpperCase();
+      lastNameInput.focus();
+    }
+
+    if (fillNameBtn) {
+      fillNameBtn.addEventListener("click", fillNameFromUsername);
+    }
 
     function syncRevealDefault() {
       if (!sendCred || !revealPw) return;
