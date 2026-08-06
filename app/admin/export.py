@@ -226,6 +226,13 @@ def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str
     except Exception:
         # Table may not exist until alembic 039 — catalogue export must not fail.
         pass
+    try:
+        from app.bastion.nginx_waf_export import write_waf_exports
+
+        paths.update(write_waf_exports(db, settings))
+    except Exception:
+        # waf_profiles may be missing until alembic 066
+        pass
     return paths
 
 

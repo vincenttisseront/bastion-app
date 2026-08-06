@@ -1035,6 +1035,50 @@ class SecurityBan(Base):
     created_by = Column(String, nullable=True)
 
 
+class WafProfile(Base):
+    """Active ModSecurity/CRS pilot profile (Phase B IHM).
+
+    Does not replace static Phase A files (engine-*.conf / crs-setup.conf /
+    waf-basic.conf). Exports write *generated* overlays only.
+    """
+
+    __tablename__ = "waf_profiles"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False, unique=True)
+    # off | detection_only | on
+    mode = Column(String, nullable=False, default="on")
+    # Inbound anomaly threshold; clamped to [3, 10] on export (default 5).
+    anomaly_threshold = Column(Integer, nullable=False, default=5)
+    # Promote SecurityBan(ip) into nginx deny only if permanent OR
+    # historical ban count for that IP >= this value (default 3).
+    ip_deny_min_occurrences = Column(Integer, nullable=False, default=3)
+    # Existing portal limit_req zones — rates as requests/second.
+    portal_login_rate = Column(Integer, nullable=False, default=3)
+    portal_login_burst = Column(Integer, nullable=False, default=5)
+    portal_api_rate = Column(Integer, nullable=False, default=30)
+    portal_api_burst = Column(Integer, nullable=False, default=60)
+    is_active = Column(Boolean, nullable=False, default=False, index=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class WafExclusion(Base):
+    """Targeted CRS exclusion (rule id + optional URI/host). Soft-disable via active=False."""
+
+    __tablename__ = "waf_exclusions"
+
+    id = Column(Integer, primary_key=True)
+    uri_pattern = Column(String, nullable=True)
+    host = Column(String, nullable=True)
+    crs_rule_id = Column(Integer, nullable=True)
+    reason = Column(String, nullable=False)
+    active = Column(Boolean, nullable=False, default=True, index=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+
+
 class SecurityAllowlistEntry(Base):
     """IP or username that must never be banned."""
 

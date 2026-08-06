@@ -65,3 +65,25 @@ else
   echo "# no ACME TLS sync script" > /etc/nginx/conf.d/nginx-acme-tls.conf
   echo "# deprecated — see nginx-acme-tls.conf" > /etc/nginx/conf.d/nginx-public-proxy-apps-tls.conf
 fi
+
+# --- WAF Phase B overlays (never overwrite Phase A static crs-setup / waf-basic / engine-*) ---
+mkdir -p /etc/nginx/modsecurity/generated
+if [[ -f "$EXPORTS/modsecurity/crs-setup-generated.conf" ]]; then
+  cp -a "$EXPORTS/modsecurity/crs-setup-generated.conf" \
+    /etc/nginx/modsecurity/generated/crs-setup-generated.conf
+fi
+if [[ -f "$EXPORTS/modsecurity/engine-mode-generated.conf" ]]; then
+  cp -a "$EXPORTS/modsecurity/engine-mode-generated.conf" \
+    /etc/nginx/modsecurity/generated/engine-mode-generated.conf
+fi
+if [[ -f "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" ]]; then
+  cp -a "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" \
+    /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf
+fi
+if [[ -f "$EXPORTS/waf-ip-deny.conf" ]]; then
+  cp -a "$EXPORTS/waf-ip-deny.conf" /etc/nginx/includes/waf-ip-deny.conf
+fi
+if [[ -f "$EXPORTS/nginx-portal-rate-limits.conf" ]]; then
+  cp -a "$EXPORTS/nginx-portal-rate-limits.conf" \
+    /etc/nginx/includes/nginx-portal-rate-limits.conf
+fi
