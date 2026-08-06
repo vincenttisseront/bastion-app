@@ -306,7 +306,41 @@ async def subdomain_auth(
     # same flag; disabled until reverse01 → nginx-bastion → app IP resolution is
     # validated end-to-end. client_ip_from_request ignores spoofed headers unless
     # the TCP peer is in TRUSTED_PROXY_CIDRS.
+    #
+    # When enabled: skip AccessGrant, but still forward session identity when a
+    # bastion_session is present — trusted-header upstreams need X-Auth-Email.
+    # Anonymous LAN 200 only if no session.
     if settings.rfc1918_bypass_enabled and is_rfc1918(client_ip, settings.rfc1918_cidrs):
+        from app.auth import _native_oidc_auth_response
+
+        lan_app = _resolve_app_by_host(db, original_host)
+        native = _native_oidc_auth_response(request, settings, db)
+        if native is not None:
+            keycloak_user_id = _header(
+                native.headers,
+                "X-Auth-Request-User",
+                "X-Auth-User",
+            )
+            groups = parse_groups_header(
+                _header(native.headers, "X-Auth-Request-Groups", "X-Auth-Groups")
+            )
+            email = _header(native.headers, "X-Auth-Request-Email", "X-Auth-Email")
+            preferred = _header(
+                native.headers,
+                "X-Auth-Request-Preferred-Username",
+                "X-Auth-Preferred-Username",
+            )
+            return Response(
+                status_code=200,
+                headers=_allow_identity_headers(
+                    app_slug=lan_app.slug if lan_app is not None else "lan",
+                    auth_source="rfc1918-bypass+oidc-native",
+                    keycloak_user_id=keycloak_user_id,
+                    email=email,
+                    preferred=preferred,
+                    groups=groups,
+                ),
+            )
         return Response(
             status_code=200,
             headers={"X-Auth-Source": "rfc1918-bypass"},
