@@ -125,6 +125,26 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
    restauration des `*.prev` (pas de reload de conf cassée). Sinon le watcher nginx
    (`watch-exports-reload`) synchronise et reload.
 
+### Incident — HTTP 500 partout sauf `/api/health`
+
+Cause connue : overlay `crs-setup-generated.conf` avec **`id:901110`** (collision CRS
+`REQUEST-901-*`). `/api/health` reste 200 car `modsecurity off`.
+
+**Fix immédiat** (volume exports, sans attendre un rebuild) :
+
+```bash
+# Sur l’hôte — chemin typique du volume portal exports
+grep -n 'id:' /chemin/exports/modsecurity/crs-setup-generated.conf
+sed -i 's/id:901110,/id:1000900110,/g' /chemin/exports/modsecurity/crs-setup-generated.conf
+# ou supprimer le fichier pour retomber sur le défaut image
+docker exec bastion-nginx nginx -t && docker exec bastion-nginx nginx -s reload
+# vérifier
+docker exec bastion-nginx grep id: /etc/nginx/modsecurity/generated/crs-setup-generated.conf
+```
+
+`sync-exports-to-confd.sh` réécrit aussi `901110` → `1000900110` à chaque sync (filet).
+Redeployer **bastion-app** pour que `write_waf_exports` n’écrive plus l’ancien id.
+
 ### Rollback via IHM
 
 Repasser le mode en **DetectionOnly** (ou Off), **Enregistrer**, puis **Appliquer**.
