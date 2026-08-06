@@ -25,6 +25,12 @@ if [[ ! -d /var/log/nginx/apps ]]; then
   echo "ERROR: /var/log/nginx/apps missing — Accès apps requires shared nginx-logs volume" >&2
 fi
 
+# ModSecurity audit log (same volume as per-app access/error logs).
+mkdir -p /var/log/nginx/apps /tmp/modsecurity/data /tmp/modsecurity/tmp /tmp/modsecurity/upload
+touch /var/log/nginx/apps/modsec_audit.log
+chown -R nginx:nginx /tmp/modsecurity /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
+chmod 0640 /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
+
 envsubst '${PORTAL_INTERNAL_TOKEN}' \
   < /etc/nginx/templates-portal/proxy_portal_trusted_internal.conf.template \
   > /etc/nginx/snippets/proxy_portal_trusted_internal.conf
@@ -47,6 +53,17 @@ if ! grep -qE 'listen[[:space:]]+0\.0\.0\.0:8080[[:space:]]+default_server' \
 fi
 
 nginx -t
+
+# Daily logrotate for modsec_audit.log (alpine crond).
+if [[ "${BASTION_MODSEC_LOGROTATE:-1}" != "0" ]] && command -v crond >/dev/null 2>&1; then
+  mkdir -p /etc/periodic/daily
+  cat > /etc/periodic/daily/modsecurity-logrotate <<'EOF'
+#!/bin/sh
+/usr/sbin/logrotate -f /etc/logrotate.d/modsecurity >/dev/null 2>&1 || true
+EOF
+  chmod +x /etc/periodic/daily/modsecurity-logrotate
+  crond -b -l 8 || echo "WARN: crond failed to start — modsec logrotate inactive" >&2
+fi
 
 # Watch App catalogue exports → conf.d + reload (approve/edit without apply-infra-docker).
 if [[ "${BASTION_EXPORTS_WATCH:-1}" != "0" ]]; then

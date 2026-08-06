@@ -124,6 +124,9 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "proxy_buffers 8 128k;" in main
     assert "proxy_set_header Connection $connection_upgrade;" in main
     assert "proxy_set_header Connection $http_connection;" not in block
+    assert "include /etc/nginx/snippets/modsecurity-subdomain.conf;" in block
+    hop = block.split("location = /.bastion/session-cookies {", 1)[1].split("}", 1)[0]
+    assert "modsecurity off;" in hop
 
 
 def test_generate_crushftp_block_filters_portal_cookies():
