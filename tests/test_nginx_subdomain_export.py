@@ -286,6 +286,21 @@ def test_generate_non_crushftp_forwards_trusted_identity_headers():
     assert "proxy_set_header X-Auth-Email $auth_email;" in block
 
 
+def test_allow_identity_headers_email_fallback_from_preferred():
+    from app.subdomain.subdomain_auth import _allow_identity_headers
+
+    headers = _allow_identity_headers(
+        app_slug="open-webui",
+        auth_source="oidc",
+        preferred="alice@example.com",
+        groups=["ops"],
+    )
+    assert headers["X-Auth-Email"] == "alice@example.com"
+    assert headers["X-Auth-Request-Email"] == "alice@example.com"
+    assert headers["X-Auth-Display-Name"] == "alice@example.com"
+    assert "ops" in headers["X-Auth-Groups"]
+
+
 def test_generate_conf_and_inventory(db_session, tmp_path):
     db_session.add(
         App(

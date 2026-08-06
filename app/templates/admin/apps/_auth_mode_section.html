@@ -34,9 +34,13 @@
         <span class="mono">X-Forwarded-User</span>, …). L’appli doit accepter ces
         en-têtes de confiance (ex. Open WebUI&nbsp;:
         <span class="mono">WEBUI_AUTH_TRUSTED_EMAIL_HEADER=X-Forwarded-Email</span>
-        et <span class="mono">WEBUI_AUTH_TRUSTED_NAME_HEADER=X-Forwarded-User</span>)
-        — sinon elle affichera encore sa propre page de login.
-        Après changement, appliquer l’infra (export nginx) pour recharger le vhost.
+        et <span class="mono">WEBUI_AUTH_TRUSTED_NAME_HEADER=X-Forwarded-User</span>).
+        Avec trusted headers, désactivez l’OAuth intégré de l’appli
+        (<span class="mono">ENABLE_OAUTH_SIGNUP=false</span>) pour éviter le conflit
+        avec le bouton Keycloak local.
+        Déployez <strong>bastion-app</strong> (nouveau code auth) puis
+        <strong>Appliquer l’infra</strong> (export nginx + reload) — sinon l’en-tête
+        n’atteint jamais l’upstream.
       </p>
       <p id="generic-wsse-help" class="form-help" hidden>
         En-tête X-WSSE (UsernameToken, digest SHA-1) régénéré à chaque requête par Nginx.

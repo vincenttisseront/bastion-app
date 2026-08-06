@@ -132,18 +132,28 @@ def _allow_identity_headers(
     Bastion gate alone does not create an upstream session. Apps that support
     trusted-header SSO (e.g. Open WebUI ``WEBUI_AUTH_TRUSTED_EMAIL_HEADER``)
     consume the X-Forwarded-* aliases that nginx maps from these values.
+
+    Email is required for most trusted-header apps: prefer the IdP email claim,
+    else a preferred username that already looks like an email.
     """
-    user = keycloak_user_id or preferred or email
-    display = preferred or email or keycloak_user_id or user
+    email_l = (email or "").strip()
+    preferred_l = (preferred or "").strip()
+    if not email_l and "@" in preferred_l:
+        email_l = preferred_l
+    user = keycloak_user_id or preferred_l or email_l
+    display = preferred_l or email_l or keycloak_user_id or user
     headers: dict[str, str] = {
         "X-Auth-Source": auth_source,
         "X-Auth-User": user,
         "X-Auth-App": app_slug,
     }
-    if email:
-        headers["X-Auth-Email"] = email
-    if preferred or email:
-        headers["X-Auth-Preferred-Username"] = preferred or email
+    if email_l:
+        # Dual names: nginx maps X-Auth-Email → X-Forwarded-Email; some stacks
+        # also inspect X-Auth-Request-Email (oauth2-proxy convention).
+        headers["X-Auth-Email"] = email_l
+        headers["X-Auth-Request-Email"] = email_l
+    if preferred_l or email_l:
+        headers["X-Auth-Preferred-Username"] = preferred_l or email_l
     if display:
         headers["X-Auth-Display-Name"] = display
     if groups:
