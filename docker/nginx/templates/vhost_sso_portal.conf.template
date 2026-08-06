@@ -8,7 +8,7 @@ server {
     server_name ${PORTAL_DOMAIN} _;
     server_tokens off;
 
-    # Derrière Traefik/edge :443 — ne pas réécrire Location en :8080 (port listen interne)
+    # Derrière edge TLS :443 (sync-acme-tls) — ne pas réécrire Location en :8080
     absolute_redirect off;
     port_in_redirect off;
 
@@ -34,9 +34,10 @@ server {
     client_header_timeout 30s;
     keepalive_timeout 65s;
 
-    # Security headers (HSTS/CSP/…) are set once on the edge reverse proxy
-    # (reverse01). Do not re-add them here — duplicates appear as comma-joined
-    # values on /health (audit F-09). Keep only cache/rate headers in locations.
+    # Security headers (HSTS/…) are set once on the public TLS edge
+    # (sync-acme-tls.sh :443 → includes/security-headers.conf). Do not re-add
+    # them here on :8080 — duplicates appear as comma-joined values (audit F-09).
+    # Keep only cache/rate headers in locations.
 
     include /etc/nginx/snippets/error_pages.conf;
     error_page 404 = /__portal_err/404;
@@ -352,7 +353,6 @@ server {
     }
 
     location ^~ /admin {
-        add_header X-Frame-Options "DENY" always;
         limit_req zone=portal_api burst=60 nodelay;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;

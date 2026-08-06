@@ -66,6 +66,8 @@ server {
     ssl_certificate_key ${DEFAULT_KEY};
     ssl_protocols TLSv1.2 TLSv1.3;
 
+    include /etc/nginx/includes/security-headers.conf;
+
     absolute_redirect off;
     port_in_redirect off;
 
@@ -142,6 +144,8 @@ server {
     ssl_certificate     ${cert};
     ssl_certificate_key ${key};
     ssl_protocols TLSv1.2 TLSv1.3;
+
+    include /etc/nginx/includes/security-headers.conf;
 
     absolute_redirect off;
     port_in_redirect off;
