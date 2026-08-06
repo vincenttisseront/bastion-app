@@ -1,17 +1,10 @@
-{# Auth mode + generic form fields — shown when access_mode != sso_gate #}
+{# Auth mode + generic form fields — shown when access_mode != sso_gate.
+   Set wizard_embed=true to render body-only (app config wizard panels). #}
 {% set current_auth = form_values.auth_mode | default(app.auth_mode if app is defined else 'sso') %}
 {% set normalized_auth = current_auth if current_auth in auth_modes else ('sso' if current_auth in ('oidc', '') else current_auth) %}
+{% set wizard_embed = wizard_embed | default(false) %}
 
-<div class="form-section is-accordion form-section-gap" id="auth-mode-section" hidden data-form-accordion>
-  <div class="form-section-header" data-form-accordion-toggle>
-    <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
-    <div>
-      <div class="form-section-title">Mode d'authentification</div>
-      <div class="form-section-sub">SSO OIDC ou connexion robotic via le vault</div>
-      <div class="form-section-summary">{{ auth_mode_labels.get(normalized_auth, normalized_auth) }}</div>
-    </div>
-  </div>
-  <div class="form-body">
+{% macro auth_mode_body() %}
   {% if app is defined and app.robotic_driver == 'crushftp' %}
     <div class="alert alert-info">
       <div class="alert-body">
@@ -103,5 +96,31 @@
         {% if errors.login_extra_fields %}<div class="form-error">{{ errors.login_extra_fields }}</div>{% endif %}
       </div>
     </div>
+{% endmacro %}
+
+{% if wizard_embed %}
+<div id="auth-mode-section" hidden>
+  {{ auth_mode_body() }}
+</div>
+<div id="auth-mode-na" class="alert alert-info" hidden>
+  <div class="alert-body">
+    Ce mode d’accès (<span class="mono">SSO Gate</span> ou <span class="mono">public_proxy</span>)
+    ne configure pas d’authentification applicative bastion sur cette étape.
+    Choisissez un mode sous-domaine / legacy dans <strong>Général</strong> pour activer SSO / vault.
   </div>
 </div>
+{% else %}
+<div class="form-section is-accordion form-section-gap" id="auth-mode-section" hidden data-form-accordion>
+  <div class="form-section-header" data-form-accordion-toggle>
+    <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
+    <div>
+      <div class="form-section-title">Mode d'authentification</div>
+      <div class="form-section-sub">SSO OIDC ou connexion robotic via le vault</div>
+      <div class="form-section-summary">{{ auth_mode_labels.get(normalized_auth, normalized_auth) }}</div>
+    </div>
+  </div>
+  <div class="form-body">
+    {{ auth_mode_body() }}
+  </div>
+</div>
+{% endif %}

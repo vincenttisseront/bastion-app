@@ -5,6 +5,7 @@
 {% block content %}
 {% set selected_mode = form_values.access_mode | default('sso_gate') %}
 {% set errors = errors | default({}) %}
+{% set wizard_embed = true %}
 <div class="page page-form">
   <div class="page-header">
     <div>
@@ -14,16 +15,56 @@
   </div>
 
   <form method="post" action="/admin/apps/create" id="app-form">
-    <div class="form-section is-accordion is-open" data-form-accordion data-open-default>
-      <div class="form-section-header" data-form-accordion-toggle>
-        <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
-        <div>
-          <div class="form-section-title">Informations générales</div>
-          <div class="form-section-sub">Identité, mode d'accès et URL cible</div>
-          <div class="form-section-summary">Slug · label · upstream</div>
-        </div>
+    <div class="wizard" data-wizard data-initial-step="general">
+      <div class="wizard-stepper" role="tablist" aria-label="Création d'une application">
+        <button
+          type="button"
+          class="wizard-step is-todo"
+          role="tab"
+          id="wizard-tab-general"
+          aria-controls="wizard-panel-general"
+          data-wizard-goto="general"
+          data-wizard-status="todo"
+          data-wizard-locked="0"
+        >
+          <span class="wizard-step-rail" aria-hidden="true"></span>
+          <span class="wizard-step-dot" aria-hidden="true">1</span>
+          <span class="wizard-step-label">Général</span>
+        </button>
+        <button
+          type="button"
+          class="wizard-step is-todo"
+          role="tab"
+          id="wizard-tab-auth"
+          aria-controls="wizard-panel-auth"
+          data-wizard-goto="auth"
+          data-wizard-status="todo"
+          data-wizard-locked="0"
+        >
+          <span class="wizard-step-rail" aria-hidden="true"></span>
+          <span class="wizard-step-dot" aria-hidden="true">2</span>
+          <span class="wizard-step-label">Authentification</span>
+        </button>
+        <button
+          type="button"
+          class="wizard-step is-todo"
+          role="tab"
+          id="wizard-tab-presentation"
+          aria-controls="wizard-panel-presentation"
+          data-wizard-goto="presentation"
+          data-wizard-status="todo"
+          data-wizard-locked="0"
+        >
+          <span class="wizard-step-rail" aria-hidden="true"></span>
+          <span class="wizard-step-dot" aria-hidden="true">3</span>
+          <span class="wizard-step-label">Présentation</span>
+        </button>
       </div>
-      <div class="form-body">
+
+      <section class="wizard-panel" id="wizard-panel-general" role="tabpanel" aria-labelledby="wizard-tab-general" data-wizard-panel="general" hidden>
+        <header class="wizard-panel-head">
+          <h3 class="wizard-panel-title">Informations générales</h3>
+        </header>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label" for="label">Nom affiché <span class="req">*</span></label>
@@ -121,17 +162,29 @@
           Laisser désactivé pour IP LAN / certificat auto-signé ; activer seulement
           si le certificat est valide pour le hostname de l’upstream.
         </p>
-      </div>
-    </div>
+      </section>
 
-    {% include "admin/apps/_auth_mode_section.html" with context %}
+      <section class="wizard-panel" id="wizard-panel-auth" role="tabpanel" aria-labelledby="wizard-tab-auth" data-wizard-panel="auth" hidden>
+        <header class="wizard-panel-head">
+          <h3 class="wizard-panel-title">Mode d'authentification</h3>
+        </header>
+        {% include "admin/apps/_auth_mode_section.html" with context %}
+      </section>
 
-    {% include "admin/apps/_description_logo_sections.html" with context %}
+      <section class="wizard-panel" id="wizard-panel-presentation" role="tabpanel" aria-labelledby="wizard-tab-presentation" data-wizard-panel="presentation" hidden>
+        <header class="wizard-panel-head">
+          <h3 class="wizard-panel-title">Présentation</h3>
+        </header>
+        <p class="form-help" style="margin-top:0;">Texte court affiché sous le nom sur le portail (max. 140 caractères)</p>
+        {% include "admin/apps/_description_logo_sections.html" with context %}
+      </section>
 
-    <div class="form-section form-section-gap">
-      <div class="form-footer">
-        <button type="submit" class="btn btn-primary">Créer</button>
+      <div class="wizard-nav" aria-label="Navigation du parcours">
+        <button type="button" class="btn btn-ghost" data-wizard-prev>Précédent</button>
+        <button type="button" class="btn btn-primary" data-wizard-next>Suivant</button>
+        <span class="wizard-nav-spacer" aria-hidden="true"></span>
         <a href="/admin/apps" class="btn btn-ghost">Annuler</a>
+        <button type="submit" class="btn btn-primary">Créer</button>
       </div>
     </div>
   </form>
