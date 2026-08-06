@@ -69,6 +69,28 @@ def test_modsecurity_audit_log_and_response_body_off():
     assert not any(ln.startswith("SecRuleEngine") for ln in live)
 
 
+def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
+    for name in ("main-portal.conf", "main-subdomain.conf", "main-public.conf"):
+        text = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")
+        assert "Include /etc/nginx/modsecurity/crs-setup.conf" in text
+        assert "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf" in text
+        assert "Include /etc/nginx/includes/waf-basic.conf" in text
+        assert (
+            "Include /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf"
+            in text
+        )
+        assert (
+            "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf" in text
+        )
+        assert text.index("crs-setup.conf") < text.index("crs-setup-generated.conf")
+        assert text.index("waf-basic.conf") < text.index(
+            "bastion-exclusions-generated.conf"
+        )
+        assert text.index("bastion-exclusions-generated.conf") < text.index(
+            "engine-mode-generated.conf"
+        )
+
+
 def test_auth_snippets_disable_modsecurity():
     sub = (ROOT / "docker/nginx/snippets/subdomain_auth_common.conf").read_text(
         encoding="utf-8"

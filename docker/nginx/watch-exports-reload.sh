@@ -22,6 +22,14 @@ fingerprint() {
         echo "missing $f"
       fi
     done
+    if [[ -d "$EXPORTS/modsecurity" ]]; then
+      find "$EXPORTS/modsecurity" -type f -exec stat -c '%Y %s %n' {} \; 2>/dev/null | sort || true
+    fi
+    for f in waf-ip-deny.conf nginx-portal-rate-limits.conf; do
+      if [[ -f "$EXPORTS/$f" ]]; then
+        stat -c '%Y %s %n' "$EXPORTS/$f" 2>/dev/null || ls -lL "$EXPORTS/$f"
+      fi
+    done
     if [[ -d "$CERTS" ]]; then
       find "$CERTS" -type f \( -name 'fullchain.pem' -o -name 'privkey.pem' \) \
         -exec stat -c '%Y %s %n' {} \; 2>/dev/null | sort || true

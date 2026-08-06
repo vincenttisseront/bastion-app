@@ -102,13 +102,47 @@ SecRuleUpdateTargetById 942100 "!ARGS:password"
 
 Puis rebuild ou monter le fichier + `nginx -s reload` selon le mode de déploiement.
 
+## IHM Phase B — `/admin/security/waf`
+
+Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`,
+`crs-setup.conf` paranoia, ni `waf-basic.conf` manuel) :
+
+| Export | Rôle |
+|--------|------|
+| `exports/modsecurity/crs-setup-generated.conf` | Seuil anomalie (id 901110) |
+| `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil (inclus en dernier) |
+| `exports/modsecurity/bastion-exclusions-generated.conf` | Exclusions UI après `waf-basic.conf` |
+| `exports/waf-ip-deny.conf` | `deny` IP promues depuis `SecurityBan` |
+| `exports/nginx-portal-rate-limits.conf` | Zones `portal_login` / `portal_api` |
+| `exports/modsecurity/waf-effective-status.json` | Statut lu par l’IHM |
+
+### Utilisation
+
+1. Admin → **WAF** : choisir profil (Production / Préproduction / Développement / Custom),
+   mode, seuil (3–10), min. occurrences IP deny (défaut **3**).
+2. Ajouter exclusions (raison + ID règle CRS + host ou URI) — désactivation soft (historique).
+3. **Appliquer** : génère les exports → `nginx -t` (docker exec si dispo) → en échec,
+   restauration des `*.prev` (pas de reload de conf cassée). Sinon le watcher nginx
+   (`watch-exports-reload`) synchronise et reload.
+
+### Rollback via IHM
+
+Repasser le mode en **DetectionOnly** (ou Off), **Enregistrer**, puis **Appliquer**.
+
+### Promotion IP deny
+
+Un ban `SecurityBan` (`target_type=ip`) n’apparaît dans nginx que s’il est **actif** et
+(**permanent** OU historique `count >= ip_deny_min_occurrences`). Un seul échec de login
+ne régénère pas la liste deny.
+
 ## Notes d’exploitation
 
 - **`/healthz` subdomain_proxy** : absent de l’export Python (présent seulement dans le
   j2 DMZ legacy). Ne pas ajouter une sonde sans `modsecurity off;` dédié.
-- **Headers sécurité** (HSTS/XFO/…) : propriété de l’edge TLS (F-09) — hors scope
-  ModSecurity ; ne pas les reposer sur `:8080`.
-- **Rate limiting** portal (`portal_login` / `portal_api`) : inchangé.
+- **Headers sécurité** (HSTS/XFO/…) : edge TLS nginx-bastion `:443` (`security-headers.conf`)
+  — lecture seule dans l’IHM WAF pour l’instant.
+- **Rate limiting** portal : zones `portal_login` / `portal_api` pilotables via IHM (taux) ;
+  burst location encore dans le template portal (hors génération).
 - **nginx 1.30+** : le portal déclare des `set $bastion_* ""` pour les variables utilisées
   par les maps subdomain / `log_format app` (sinon `nginx -t` échoue tant qu’aucun vhost
   subdomain n’est chargé).

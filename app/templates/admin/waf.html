@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}WAF / ModSecurity{% endblock %}
+{% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
+
+{% block content %}
+<div class="page" id="waf-page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">WAF / ModSecurity CRS</h1>
+      <p class="page-sub">
+        Pilotage Phase B — overlays générés uniquement (ne remplace pas
+        <span class="mono">engine-*.conf</span> / <span class="mono">waf-basic.conf</span> Phase A).
+      </p>
+    </div>
+    <div class="page-header-actions">
+      <a href="/admin/security#banning" class="btn btn-ghost btn-sm">Anti-bruteforce</a>
+      <form method="post" action="/admin/security/waf/apply" style="display:inline"
+            onsubmit="return confirm('Générer les exports WAF et valider nginx -t ?');">
+        <button type="submit" class="btn btn-primary">Appliquer</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><h2 class="card-title">Statut effectif (exports générés)</h2></div>
+    <div class="card-body">
+      {% if effective.present %}
+      <dl class="kv">
+        <dt>Profil</dt><dd>{{ effective.profile_name }}</dd>
+        <dt>Mode</dt><dd><span class="mono">{{ effective.mode }}</span></dd>
+        <dt>Seuil anomalie</dt><dd>{{ effective.anomaly_threshold }}</dd>
+        <dt>Exclusions actives</dt><dd>{{ effective.exclusion_count }}</dd>
+        <dt>IP deny (promues)</dt>
+        <dd>{{ effective.ip_deny_count }}
+          <span class="muted">(min occurrences={{ effective.ip_deny_min_occurrences }})</span>
+        </dd>
+        <dt>Rate login / API</dt>
+        <dd>{{ effective.portal_login_rate }}r/s · {{ effective.portal_api_rate }}r/s</dd>
+      </dl>
+      <p class="muted mono">{{ effective.path }}</p>
+      {% else %}
+      <p class="muted">Aucun export encore — cliquez <strong>Appliquer</strong> pour générer
+        (équivalent Phase A : mode On, seuil 5, exclusions vides).</p>
+      {% endif %}
+      <p class="muted mt-2">{{ security_headers_note }}</p>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <div class="card-header"><h2 class="card-title">Profil actif</h2></div>
+    <div class="card-body">
+      <form method="post" action="/admin/security/waf/profile" class="stack">
+        <label>Préréglage
+          <select name="profile_preset">
+            <option value="Production" {% if profile.name == 'Production' %}selected{% endif %}>Production</option>
+            <option value="Préproduction" {% if profile.name == 'Préproduction' %}selected{% endif %}>Préproduction</option>
+            <option value="Développement" {% if profile.name == 'Développement' %}selected{% endif %}>Développement</option>
+            <option value="Custom" {% if profile.name not in ['Production','Préproduction','Développement'] %}selected{% endif %}>Custom</option>
+          </select>
+        </label>
+        <label>Mode
+          <select name="mode" required>
+            <option value="on" {% if profile.mode == 'on' %}selected{% endif %}>On (blocage)</option>
+            <option value="detection_only" {% if profile.mode == 'detection_only' %}selected{% endif %}>DetectionOnly</option>
+            <option value="off" {% if profile.mode == 'off' %}selected{% endif %}>Off</option>
+          </select>
+        </label>
+        <label>Seuil d'anomalie inbound ({{ anomaly_min }}–{{ anomaly_max }})
+          <input type="number" name="anomaly_threshold" min="{{ anomaly_min }}" max="{{ anomaly_max }}"
+                 value="{{ profile.anomaly_threshold }}" required>
+        </label>
+        <label>Promotion IP deny — min. occurrences historique
+          <input type="number" name="ip_deny_min_occurrences" min="1" max="100"
+                 value="{{ profile.ip_deny_min_occurrences }}" required>
+          <span class="muted">Permanent → toujours ; sinon count(security_bans) ≥ N (défaut 3).</span>
+        </label>
+        <div class="grid-2">
+          <label>portal_login rate (r/s)
+            <input type="number" name="portal_login_rate" min="1" value="{{ profile.portal_login_rate }}">
+          </label>
+          <label>portal_login burst
+            <input type="number" name="portal_login_burst" min="0" value="{{ profile.portal_login_burst }}">
+          </label>
+          <label>portal_api rate (r/s)
+            <input type="number" name="portal_api_rate" min="1" value="{{ profile.portal_api_rate }}">
+          </label>
+          <label>portal_api burst
+            <input type="number" name="portal_api_burst" min="0" value="{{ profile.portal_api_burst }}">
+          </label>
+        </div>
+        <button type="submit" class="btn btn-secondary">Enregistrer le profil</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card mb-4" id="exclusions">
+    <div class="card-header"><h2 class="card-title">Exclusions CRS</h2></div>
+    <div class="card-body">
+      <form method="post" action="/admin/security/waf/exclusions/add" class="stack mb-4">
+        <label>Raison (obligatoire)
+          <input type="text" name="reason" required maxlength="500">
+        </label>
+        <label>ID règle CRS
+          <input type="number" name="crs_rule_id" required min="1">
+        </label>
+        <label>Host (optionnel)
+          <input type="text" name="host" placeholder="transfer.ar-systems.fr">
+        </label>
+        <label>URI pattern (optionnel)
+          <input type="text" name="uri_pattern" placeholder="/admin/apps/analyze-login-form">
+        </label>
+        <p class="muted">Host ou URI requis. Jamais de désactivation de catégorie CRS entière.</p>
+        <button type="submit" class="btn btn-secondary">Ajouter</button>
+      </form>
+
+      <table class="table">
+        <thead>
+          <tr><th>ID</th><th>Règle</th><th>Scope</th><th>Raison</th><th>Actif</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for ex in exclusions %}
+          <tr>
+            <td>{{ ex.id }}</td>
+            <td class="mono">{{ ex.crs_rule_id }}</td>
+            <td class="mono">{{ ex.host or '—' }} {{ ex.uri_pattern or '' }}</td>
+            <td>{{ ex.reason }}</td>
+            <td>{% if ex.active %}oui{% else %}non{% endif %}</td>
+            <td>
+              {% if ex.active %}
+              <form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/disable" class="inline-form">
+                <button type="submit" class="btn btn-ghost btn-sm">Désactiver</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="muted">Aucune exclusion</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

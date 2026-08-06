@@ -55,7 +55,7 @@
     )) | int %}
     {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') or path.startswith('/admin/access-requests') %}
     {% set general_open = path == '/admin/dashboard' or path == '/admin' or path.startswith('/admin/branding') or path.startswith('/admin/configuration') %}
-    {% set access_open = path.startswith('/admin/realms') or path.startswith('/admin/rbac') or path == '/admin/security' or path.startswith('/admin/acme') %}
+    {% set access_open = path.startswith('/admin/realms') or path.startswith('/admin/rbac') or path == '/admin/security' or path.startswith('/admin/security/waf') or path.startswith('/admin/acme') %}
     {% set content_open = path.startswith('/admin/apps') or path.startswith('/admin/files') or path.startswith('/files') or pending_nav_open %}
     {% set infra_open = path.startswith('/admin/infrastructure') or path.startswith('/admin/dependencies') or path.startswith('/admin/logs') or path == '/admin/health' %}
 
@@ -89,6 +89,10 @@
     <a href="/admin/security" class="nav-item{% if path == '/admin/security' %} active{% endif %}" data-nav-label="Sécurité">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       Sécurité
+    </a>
+    <a href="/admin/security/waf" class="nav-item{% if path.startswith('/admin/security/waf') %} active{% endif %}" data-nav-label="WAF">
+      <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      WAF
     </a>
     <a href="/admin/acme" class="nav-item{% if path.startswith('/admin/acme') %} active{% endif %}" data-nav-label="ACME">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
