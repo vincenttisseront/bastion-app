@@ -1,13 +1,16 @@
 # Ops — ModSecurity v3 + OWASP CRS (nginx-bastion)
 
-**Statut cutover reverse01 (2026-08-06)** : les trois familles sont en
-**`SecRuleEngine On`**.
+**Statut (2026-08-06 soir)** : **EMERGENCY Off** sur les 3 familles
+(`modsecurity off` + `SecRuleEngine Off`). Cause : HTTP **500** sur tout chemin ModSec
+(`/auth/login`, `/`, …) alors que `/api/health` (`modsecurity off`) restait 200.
+`crs-setup-generated` a été écarté (#113) — le 500 persistait avec CRS + engine On.
+Re-activer uniquement après root cause (`error.log` nginx / debug ModSec).
 
 | Famille | Fichier | Engine | Date |
 |---------|---------|--------|------|
-| portal | `engine-portal.conf` | **On** | 2026-08-06 |
-| subdomain_proxy | `engine-subdomain.conf` | **On** | 2026-08-06 |
-| public_proxy | `engine-public.conf` | **On** | 2026-08-06 |
+| portal | `engine-portal.conf` | **Off** | 2026-08-06 emergency |
+| subdomain_proxy | `engine-subdomain.conf` | **Off** | 2026-08-06 emergency |
+| public_proxy | `engine-public.conf` | **Off** | 2026-08-06 emergency |
 
 Exclusions custom : aucune (`waf-basic.conf` vide) tant qu’aucun faux positif n’est
 confirmé en prod. Ajouter uniquement des `SecRuleRemoveById` /
@@ -127,32 +130,38 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 
 ### Incident — HTTP 500 partout sauf `/api/health`
 
-Cause connue : overlay `crs-setup-generated.conf` avec **`id:901110`** (collision CRS
-`REQUEST-901-*`). `/api/health` reste 200 car `modsecurity off`. Les smokes AWX qui ne
-testent que `/api/health` restent verts.
+**Chronologie 2026-08-06 :**
+1. Overlay `id:901110` (collision CRS) — fix #111/#112/#113 (Include retiré).
+2. Après #113 : stub généré OK, **pas** d’Include `crs-setup-generated`, export déjà
+   `1000900110` — **`/auth/login` toujours 500**. Donc pas (seulement) l’overlay seuil.
+3. Mitigation : **`modsecurity off`** serveur + `SecRuleEngine Off` + ne plus Inclure
+   `engine-mode-generated` (le profil WAF DB `mode=on` forçait On en dernier).
 
-**Mitigation code (2026-08-06)** : `main-*.conf` **n’inclut plus**
-`crs-setup-generated.conf`. Seuils = `crs-setup.conf` (900110). Rebuild **nginx** obligatoire.
-
-**Fix immédiat volume** (si ancien image encore en Include) :
+**Contournement immédiat (sans rebuild)** :
 
 ```bash
-grep -n 'id:' /tools/portal/data/exports/modsecurity/crs-setup-generated.conf
-sed -i 's/id:901110,/id:1000900110,/g' /tools/portal/data/exports/modsecurity/crs-setup-generated.conf
-# ou vider / supprimer le SecAction du fichier généré dans le conteneur
-docker exec bastion-nginx nginx -t && docker exec bastion-nginx nginx -s reload
+docker exec bastion-nginx sh -c '
+  sed -i "s/modsecurity on;/modsecurity off;/g" /etc/nginx/conf.d/vhost_sso_portal.conf
+  for f in /etc/nginx/conf.d/nginx-subdomain-apps.conf /etc/nginx/conf.d/nginx-public-proxy-apps.conf /etc/nginx/conf.d/nginx-acme-tls.conf; do
+    [ -f "$f" ] && sed -i "s/modsecurity on;/modsecurity off;/g" "$f"
+  done
+  nginx -t && nginx -s reload
+'
+docker exec bastion-nginx wget -S -O /dev/null \
+  --header="Host: portal.ar-systems.fr" http://127.0.0.1:8080/auth/login 2>&1 | head
 ```
 
-Vérifier un chemin ModSec (pas health) :
+Diag utile si 500 revient après re-enable :
 
 ```bash
-docker exec bastion-nginx wget -S -O /dev/null http://127.0.0.1:8080/auth/login 2>&1 | head
-# attendu: HTTP/1.1 200 (pas 500)
+docker exec bastion-nginx tail -n 80 /var/log/nginx/error.log
+docker exec bastion-nginx ls -la /tmp/modsecurity /var/log/nginx/apps/modsec_audit.log
 ```
 
 ### Rollback via IHM
 
-Repasser le mode en **DetectionOnly** (ou Off), **Enregistrer**, puis **Appliquer**.
+Profil WAF → mode **Off** (ou DetectionOnly), **Enregistrer**, puis **Appliquer**.
+Ne pas repasser en **On** tant que le smoke `/auth/login` n’est pas vert avec ModSec on.
 
 ### Promotion IP deny
 
