@@ -69,8 +69,25 @@ fi
 # --- WAF Phase B overlays (never overwrite Phase A static crs-setup / waf-basic / engine-*) ---
 mkdir -p /etc/nginx/modsecurity/generated
 if [[ -f "$EXPORTS/modsecurity/crs-setup-generated.conf" ]]; then
-  cp -a "$EXPORTS/modsecurity/crs-setup-generated.conf" \
-    /etc/nginx/modsecurity/generated/crs-setup-generated.conf
+  # Stale exports may still use id:901110 (CRS REQUEST-901 collision → HTTP 500 on every
+  # ModSec-enabled request). Rewrite on install so a bad volume cannot brick the portal.
+  sed 's/id:901110,/id:1000900110,/g' \
+    "$EXPORTS/modsecurity/crs-setup-generated.conf" \
+    > /etc/nginx/modsecurity/generated/crs-setup-generated.conf
+  if grep -qE 'id:901[0-9]{3},' /etc/nginx/modsecurity/generated/crs-setup-generated.conf; then
+    echo "WARN: crs-setup-generated export still uses CRS 901xxx id — refusing, keeping safe default" >&2
+    cat > /etc/nginx/modsecurity/generated/crs-setup-generated.conf <<'EOF'
+# Refused unsafe export (CRS 901xxx rule id). Thresholds: Admin → WAF after bastion-app upgrade.
+SecAction \
+    "id:1000900110,\
+    phase:1,\
+    nolog,\
+    pass,\
+    t:none,\
+    setvar:tx.inbound_anomaly_score_threshold=5,\
+    setvar:tx.outbound_anomaly_score_threshold=4"
+EOF
+  fi
 fi
 if [[ -f "$EXPORTS/modsecurity/engine-mode-generated.conf" ]]; then
   cp -a "$EXPORTS/modsecurity/engine-mode-generated.conf" \
