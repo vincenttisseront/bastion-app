@@ -138,6 +138,9 @@ def test_public_proxy_nginx_has_no_auth(db_session, tmp_path):
         )
     )
     assert "server_name status.ar-systems.fr;" in block
+    assert "include /etc/nginx/snippets/modsecurity-public.conf;" in block
+    healthz = block.split("location = /healthz {", 1)[1].split("}", 1)[0]
+    assert "modsecurity off;" in healthz
     assert "proxy_set_header Upgrade $http_upgrade;" in block
     assert "proxy_set_header Connection $connection_upgrade;" in block
     assert 'proxy_set_header Connection "upgrade";' in block
