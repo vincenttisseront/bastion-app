@@ -1,4 +1,4 @@
-"""Admin HTML routes for ACME / Let's Encrypt (public_proxy)."""
+"""Admin HTML routes for ACME / Let's Encrypt (portal + subdomain + public_proxy)."""
 
 from __future__ import annotations
 
