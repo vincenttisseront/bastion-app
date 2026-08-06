@@ -62,8 +62,9 @@ def test_write_waf_exports_profile_and_exclusion(db_session, tmp_path):
     paths = write_waf_exports(db_session, settings)
     crs = Path(paths["crs-setup-generated.conf"]).read_text(encoding="utf-8")
     assert "inbound_anomaly_score_threshold=5" in crs
-    assert "id:901110" in crs
-    assert "900110" not in crs  # must not rewrite Phase A static id
+    assert "id:1000900110" in crs
+    assert "id:900110" not in crs  # must not rewrite Phase A static id
+    assert "id:901110" not in crs  # must not collide with CRS REQUEST-901-*
 
     excl = Path(paths["bastion-exclusions-generated.conf"]).read_text(encoding="utf-8")
     assert "SecRuleRemoveById 942100" in excl

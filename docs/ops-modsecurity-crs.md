@@ -109,7 +109,7 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 
 | Export | Rôle |
 |--------|------|
-| `exports/modsecurity/crs-setup-generated.conf` | Seuil anomalie (id 901110) |
+| `exports/modsecurity/crs-setup-generated.conf` | Seuil anomalie (id **1000900110**, hors plage CRS) |
 | `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil (inclus en dernier) |
 | `exports/modsecurity/bastion-exclusions-generated.conf` | Exclusions UI après `waf-basic.conf` |
 | `exports/waf-ip-deny.conf` | `deny` IP promues depuis `SecurityBan` |
