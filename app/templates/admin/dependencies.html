@@ -43,8 +43,9 @@
     <div class="form-group dep-toolbar-filter">
       <label class="form-label">Filtre</label>
       <div class="dep-toolbar-btns">
-        <button type="button" class="btn {% if summary.outdated %}btn-secondary{% else %}btn-ghost{% endif %} btn-sm dep-filter-btn{% if summary.outdated %} active{% endif %}" data-filter="outdated" id="dep-filter-outdated">MAJ disponibles</button>
-        <button type="button" class="btn {% if summary.outdated %}btn-ghost{% else %}btn-secondary{% endif %} btn-sm dep-filter-btn{% if not summary.outdated %} active{% endif %}" data-filter="all" id="dep-filter-all">Tous</button>
+        {% set show_outdated_filter = summary.outdated and (python_outdated or npm_outdated) %}
+        <button type="button" class="btn {% if show_outdated_filter %}btn-secondary{% else %}btn-ghost{% endif %} btn-sm dep-filter-btn{% if show_outdated_filter %} active{% endif %}" data-filter="outdated" id="dep-filter-outdated">MAJ disponibles{% if summary.outdated %} ({{ summary.outdated }}){% endif %}</button>
+        <button type="button" class="btn {% if show_outdated_filter %}btn-ghost{% else %}btn-secondary{% endif %} btn-sm dep-filter-btn{% if not show_outdated_filter %} active{% endif %}" data-filter="all" id="dep-filter-all">Tous</button>
       </div>
     </div>
     <div class="form-group dep-toolbar-plan">
@@ -57,22 +58,34 @@
   </div>
 
   <div class="tabs" role="tablist" aria-label="Écosystèmes" id="dep-tabs">
-    <button type="button" class="tab active" role="tab" data-tab="python" id="tab-python" aria-selected="true">
+    <button type="button" class="tab{% if initial_tab == 'python' %} active{% endif %}" role="tab" data-tab="python" id="tab-python" aria-selected="{{ 'true' if initial_tab == 'python' else 'false' }}">
       Python (backend)
       <span class="badge badge-muted" style="margin-left:6px;">{{ python_count }}</span>
+      {% if python_outdated %}
+      <span class="badge badge-warn" style="margin-left:4px;" title="MAJ disponibles">{{ python_outdated }} MAJ</span>
+      {% endif %}
     </button>
-    <button type="button" class="tab" role="tab" data-tab="npm" id="tab-npm" aria-selected="false">
+    <button type="button" class="tab{% if initial_tab == 'npm' %} active{% endif %}" role="tab" data-tab="npm" id="tab-npm" aria-selected="{{ 'true' if initial_tab == 'npm' else 'false' }}">
       npm (tests e2e)
       <span class="badge badge-muted" style="margin-left:6px;">{{ npm_count }}</span>
+      {% if npm_outdated %}
+      <span class="badge badge-warn" style="margin-left:4px;" title="MAJ disponibles">{{ npm_outdated }} MAJ</span>
+      {% endif %}
     </button>
   </div>
 
   <p class="form-help dep-filter-empty" id="dep-filter-empty" hidden>
     Aucun paquet ne correspond à ce filtre dans cet écosystème.
   </p>
+  {% if summary.outdated and not python_outdated and not npm_outdated %}
+  <p class="form-help" style="color:var(--danger,#b91c1c);margin:0 0 var(--sp-3);">
+    Incohérence inventaire : le résumé annonce {{ summary.outdated }} MAJ mais aucune ligne
+    n’est marquée obsolète. Cliquez sur <strong>Actualiser</strong> pour recalculer.
+  </p>
+  {% endif %}
 
-  {% macro dep_table(packages, panel_id, tab_id, empty_msg) %}
-  <div class="dep-panel" id="{{ panel_id }}" role="tabpanel" aria-labelledby="{{ tab_id }}"{% if panel_id != 'panel-python' %} hidden{% endif %}>
+  {% macro dep_table(packages, panel_id, tab_id, empty_msg, start_visible) %}
+  <div class="dep-panel" id="{{ panel_id }}" role="tabpanel" aria-labelledby="{{ tab_id }}"{% if not start_visible %} hidden{% endif %}>
     <div class="table-wrap">
       <table class="data-table dep-table" data-sortable>
         <thead>
@@ -92,7 +105,7 @@
             class="{% if p.is_major %}dep-row-major{% endif %}"
             data-name="{{ p.name | lower }}"
             data-status="{{ p.status }}"
-            data-outdated="{{ '1' if p.is_outdated else '0' }}"
+            data-outdated="{% if p.status and p.status.startswith('outdated_') %}1{% else %}0{% endif %}"
             data-ecosystem="{{ p.ecosystem }}"
             data-pkg-name="{{ p.name }}"
             data-type="{{ p.dep_type }}"
@@ -180,8 +193,8 @@
   </div>
   {% endmacro %}
 
-  {{ dep_table(python_packages, 'panel-python', 'tab-python', 'Aucun paquet Python en base') }}
-  {{ dep_table(npm_packages, 'panel-npm', 'tab-npm', 'Aucun paquet npm en base') }}
+  {{ dep_table(python_packages, 'panel-python', 'tab-python', 'Aucun paquet Python en base', initial_tab == 'python') }}
+  {{ dep_table(npm_packages, 'panel-npm', 'tab-npm', 'Aucun paquet npm en base', initial_tab == 'npm') }}
 </div>
 
 <style>
@@ -210,10 +223,12 @@
     python: document.getElementById('panel-python'),
     npm: document.getElementById('panel-npm')
   };
-  var filterMode = {{ ('outdated' if summary.outdated else 'all') | tojson }};
+  var filterMode = {{ (
+    'outdated' if summary.outdated and (python_outdated or npm_outdated) else 'all'
+  ) | tojson }};
   var qInput = document.getElementById('dep-filter-q');
   var emptyHint = document.getElementById('dep-filter-empty');
-  var activeTab = 'python';
+  var activeTab = {{ initial_tab | tojson }};
 
   function panelVisibleCount(panel) {
     if (!panel) return 0;
@@ -263,7 +278,10 @@
     var q = (qInput && qInput.value || '').trim().toLowerCase();
     document.querySelectorAll('.dep-table tbody tr[data-name]').forEach(function (tr) {
       var name = tr.getAttribute('data-name') || '';
-      var outdated = tr.getAttribute('data-outdated') === '1';
+      var status = tr.getAttribute('data-status') || '';
+      var outdated =
+        tr.getAttribute('data-outdated') === '1' ||
+        status.indexOf('outdated_') === 0;
       var matchQ = !q || name.indexOf(q) !== -1;
       var matchS = filterMode !== 'outdated' || outdated;
       tr.hidden = !(matchQ && matchS);

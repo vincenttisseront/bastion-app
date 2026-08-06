@@ -942,6 +942,29 @@
     renderAppAccessRows();
   });
   window.addEventListener('beforeunload', stopAppAccessLive);
+
+  /* Deep-link from Sessions: /admin/logs?app=<slug>#app-access */
+  (function bootAppFromQuery() {
+    if (!appSel) return;
+    var slug = (new URLSearchParams(location.search).get('app') || '').trim();
+    if (!slug) return;
+    var found = false;
+    Array.prototype.forEach.call(appSel.options, function (opt) {
+      if (opt.value === slug) found = true;
+    });
+    if (!found) return;
+    appSel.value = slug;
+    if (currentTab() === 'app-access') {
+      loadAppAccessSnapshot();
+    } else {
+      window.addEventListener('hashchange', function onHash() {
+        if (currentTab() === 'app-access') {
+          window.removeEventListener('hashchange', onHash);
+          loadAppAccessSnapshot();
+        }
+      });
+    }
+  })();
 })();
 </script>
 {% endblock %}
