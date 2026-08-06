@@ -1,4 +1,4 @@
-"""ModSecurity CRS Phase A — docker nginx wiring (DetectionOnly)."""
+﻿"""ModSecurity CRS — docker nginx wiring (engine On after reverse01 cutover)."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def test_docker_nginx_loads_modsecurity_module_after_real_ip_order():
     assert conf.index("set_real_ip_from") < conf.index("include /etc/nginx/conf.d/*.conf;")
 
 
-def test_modsecurity_engine_files_detection_only():
+def test_modsecurity_engine_files_on():
     for name in ("engine-portal.conf", "engine-subdomain.conf", "engine-public.conf"):
         text = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")
         live = [
@@ -50,7 +50,7 @@ def test_modsecurity_engine_files_detection_only():
             for ln in text.splitlines()
             if ln.strip() and not ln.strip().startswith("#")
         ]
-        assert live == ["SecRuleEngine DetectionOnly"]
+        assert live == ["SecRuleEngine On"]
 
 
 def test_modsecurity_audit_log_and_response_body_off():
