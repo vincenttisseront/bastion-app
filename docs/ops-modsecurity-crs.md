@@ -109,7 +109,7 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 
 | Export | Rôle |
 |--------|------|
-| `exports/modsecurity/crs-setup-generated.conf` | Seuil anomalie (id **1000900110**, hors plage CRS) |
+| `exports/modsecurity/crs-setup-generated.conf` | Seuil anomalie (id **1000900110**) — **non chargé** par `main-*.conf` (seuils = static `crs-setup.conf` id 900110). Filet anti-500 si export stale `901110`. |
 | `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil (inclus en dernier) |
 | `exports/modsecurity/bastion-exclusions-generated.conf` | Exclusions UI après `waf-basic.conf` |
 | `exports/waf-ip-deny.conf` | `deny` IP promues depuis `SecurityBan` |
@@ -128,22 +128,27 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 ### Incident — HTTP 500 partout sauf `/api/health`
 
 Cause connue : overlay `crs-setup-generated.conf` avec **`id:901110`** (collision CRS
-`REQUEST-901-*`). `/api/health` reste 200 car `modsecurity off`.
+`REQUEST-901-*`). `/api/health` reste 200 car `modsecurity off`. Les smokes AWX qui ne
+testent que `/api/health` restent verts.
 
-**Fix immédiat** (volume exports, sans attendre un rebuild) :
+**Mitigation code (2026-08-06)** : `main-*.conf` **n’inclut plus**
+`crs-setup-generated.conf`. Seuils = `crs-setup.conf` (900110). Rebuild **nginx** obligatoire.
+
+**Fix immédiat volume** (si ancien image encore en Include) :
 
 ```bash
-# Sur l’hôte — chemin typique du volume portal exports
-grep -n 'id:' /chemin/exports/modsecurity/crs-setup-generated.conf
-sed -i 's/id:901110,/id:1000900110,/g' /chemin/exports/modsecurity/crs-setup-generated.conf
-# ou supprimer le fichier pour retomber sur le défaut image
+grep -n 'id:' /tools/portal/data/exports/modsecurity/crs-setup-generated.conf
+sed -i 's/id:901110,/id:1000900110,/g' /tools/portal/data/exports/modsecurity/crs-setup-generated.conf
+# ou vider / supprimer le SecAction du fichier généré dans le conteneur
 docker exec bastion-nginx nginx -t && docker exec bastion-nginx nginx -s reload
-# vérifier
-docker exec bastion-nginx grep id: /etc/nginx/modsecurity/generated/crs-setup-generated.conf
 ```
 
-`sync-exports-to-confd.sh` réécrit aussi `901110` → `1000900110` à chaque sync (filet).
-Redeployer **bastion-app** pour que `write_waf_exports` n’écrive plus l’ancien id.
+Vérifier un chemin ModSec (pas health) :
+
+```bash
+docker exec bastion-nginx wget -S -O /dev/null http://127.0.0.1:8080/auth/login 2>&1 | head
+# attendu: HTTP/1.1 200 (pas 500)
+```
 
 ### Rollback via IHM
 
