@@ -42,7 +42,7 @@ server {
     error_page 404 = /__portal_err/404;
     error_page 500 502 503 504 = /__portal_err/500;
     error_page 429 = @portal_rate_limited;
-    # ModSecurity CRS Phase A — DetectionOnly (engine-portal.conf). Custom exclusions: includes/waf-basic.conf
+    # ModSecurity CRS — engine-portal.conf (SecRuleEngine On). Exclusions: includes/waf-basic.conf
     modsecurity on;
     modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;
 

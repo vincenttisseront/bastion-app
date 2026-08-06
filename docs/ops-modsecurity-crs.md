@@ -1,8 +1,17 @@
 # Ops — ModSecurity v3 + OWASP CRS (nginx-bastion)
 
-Phase A livrée en **`SecRuleEngine DetectionOnly`** sur les trois familles de vhosts
-(portal, subdomain_proxy, public_proxy). Aucun blocage réel tant que les fichiers
-`engine-*.conf` restent en `DetectionOnly`.
+**Statut cutover reverse01 (2026-08-06)** : les trois familles sont en
+**`SecRuleEngine On`**.
+
+| Famille | Fichier | Engine | Date |
+|---------|---------|--------|------|
+| portal | `engine-portal.conf` | **On** | 2026-08-06 |
+| subdomain_proxy | `engine-subdomain.conf` | **On** | 2026-08-06 |
+| public_proxy | `engine-public.conf` | **On** | 2026-08-06 |
+
+Exclusions custom : aucune (`waf-basic.conf` vide) tant qu’aucun faux positif n’est
+confirmé en prod. Ajouter uniquement des `SecRuleRemoveById` /
+`SecRuleUpdateTargetById` ciblés — jamais désactiver une catégorie CRS entière.
 
 Prérequis audit : [`audit-preintegration-modsecurity-crs-nginx-bastion.md`](audit-preintegration-modsecurity-crs-nginx-bastion.md).
 Image : `owasp/modsecurity-crs:4.28.0-nginx-alpine-202607160307` (nginx **1.30.4**, écart
@@ -19,6 +28,26 @@ accepté vs ancien `nginx:1.27-alpine`).
 | Exclusions custom | `docker/nginx/includes/waf-basic.conf` |
 | Audit log | `/var/log/nginx/apps/modsec_audit.log` (volume Compose `nginx-logs`) |
 | Rotation | `docker/nginx/logrotate.d/modsecurity` (crond dans l’entrypoint) |
+
+## Smoke post-deploy (bloquant avant / après `On`)
+
+Sur docker01, après rebuild/reload `bastion-nginx` :
+
+1. Login SSO → dashboard
+2. Un flux `subdomain_proxy` (ex. CrushFTP)
+3. Un flux `public_proxy`
+4. `POST /admin/apps/analyze-login-form` avec une URL légitime
+5. Locations `modsecurity off` : **aucune** ligne correspondante dans
+   `/var/log/nginx/apps/modsec_audit.log` (health, hops cookie, auth internes,
+   oauth2/static, `/.bastion/session-cookies`, `/healthz` public)
+
+```bash
+docker exec bastion-nginx nginx -t
+docker exec bastion-nginx tail -n 100 /var/log/nginx/apps/modsec_audit.log
+```
+
+Si faux positif : exclusion ciblée dans `waf-basic.conf`, rebuild/reload, re-smoke —
+**ne pas** repasser toute une famille en `DetectionOnly` sauf rollback d’urgence.
 
 ## Lire `modsec_audit.log`
 
@@ -41,45 +70,18 @@ Format : **JSON** (`SecAuditLogFormat JSON`). Filtrer une URI :
 docker exec bastion-nginx grep '"uri":"/apps"' /var/log/nginx/apps/modsec_audit.log | tail
 ```
 
-Les locations avec `modsecurity off;` (health, auth internes, hops cookie, oauth2/static,
-`/.bastion/session-cookies`, `/healthz` public) **ne doivent pas** produire d’entrées
-d’audit correspondantes.
+## Rollback immédiat (une famille)
 
-## Bascule DetectionOnly → On (par famille)
-
-1. Observer 1–2 semaines en DetectionOnly ; noter les faux positifs.
-2. Ajouter les exclusions ciblées dans `waf-basic.conf` (voir ci-dessous).
-3. Éditer **un seul** fichier engine, par ex. portal :
-
-```text
-# docker/nginx/modsecurity/engine-portal.conf
-SecRuleEngine On
-```
-
-4. Rebuild / redeploy `bastion-nginx`, puis `nginx -t` + reload (entrypoint fait `nginx -t`).
-5. Répéter pour `engine-subdomain.conf` puis `engine-public.conf` — **jamais** les trois
-   d’un coup en premier déploiement.
-
-Ne pas utiliser un unique `SecRuleEngine` global dans `modsecurity.conf` (volontairement
-absent) : cela empêcherait la bascule progressive.
-
-## Rollback immédiat
-
-**Option A — désactiver ModSecurity sur une famille** (snippet / template) :
-
-- Portal : commenter `modsecurity on;` + `modsecurity_rules_file` dans
-  `docker/nginx/templates/vhost_sso_portal.conf.template`, rebuild, reload.
-- Subdomain / public : retirer ou commenter l’`include` du snippet
-  `modsecurity-subdomain.conf` / `modsecurity-public.conf` dans les générateurs
-  (ou vider temporairement le snippet en `modsecurity off;` au niveau server), apply-infra
-  pour régénérer les exports, reload.
-
-**Option B — rester inspecté mais non bloquant** : remettre `SecRuleEngine DetectionOnly`
-dans le `engine-*.conf` concerné, rebuild/reload.
+Remettre **un seul** `engine-*.conf` en `SecRuleEngine DetectionOnly`, rebuild/reload :
 
 ```bash
 docker exec bastion-nginx nginx -t && docker exec bastion-nginx nginx -s reload
 ```
+
+Ordre de re-activation après exclusion : portal → subdomain → public_proxy.
+
+Ne pas utiliser un unique `SecRuleEngine` global dans `modsecurity.conf` (volontairement
+absent) : cela empêcherait la bascule / le rollback progressifs.
 
 ## Ajouter une exclusion dans `waf-basic.conf`
 
@@ -102,12 +104,9 @@ Puis rebuild ou monter le fichier + `nginx -s reload` selon le mode de déploiem
 
 - **`/healthz` subdomain_proxy** : absent de l’export Python (présent seulement dans le
   j2 DMZ legacy). Ne pas ajouter une sonde sans `modsecurity off;` dédié.
-- **Headers sécurité** (HSTS/CSP/…) : toujours propriété de reverse01 (F-09) — hors scope
-  ModSecurity.
+- **Headers sécurité** (HSTS/XFO/…) : propriété de l’edge TLS (F-09) — hors scope
+  ModSecurity ; ne pas les reposer sur `:8080`.
 - **Rate limiting** portal (`portal_login` / `portal_api`) : inchangé.
 - **nginx 1.30+** : le portal déclare des `set $bastion_* ""` pour les variables utilisées
   par les maps subdomain / `log_format app` (sinon `nginx -t` échoue tant qu’aucun vhost
   subdomain n’est chargé).
-- Smoke DetectionOnly attendu : login SSO → dashboard ; un flux subdomain (CrushFTP) ;
-  un flux public_proxy ; `POST /admin/apps/analyze-login-form` ; health/hops sans ligne
-  audit.
