@@ -14,6 +14,8 @@ confirmé en prod. Ajouter uniquement des `SecRuleRemoveById` /
 `SecRuleUpdateTargetById` ciblés — jamais désactiver une catégorie CRS entière.
 
 Prérequis audit : [`audit-preintegration-modsecurity-crs-nginx-bastion.md`](audit-preintegration-modsecurity-crs-nginx-bastion.md).
+Conception (Phase A livrée / Phase B) :
+[`conception-modsecurity-crs-nginx-bastion.md`](conception-modsecurity-crs-nginx-bastion.md).
 Image : `owasp/modsecurity-crs:4.28.0-nginx-alpine-202607160307` (nginx **1.30.4**, écart
 accepté vs ancien `nginx:1.27-alpine`).
 
