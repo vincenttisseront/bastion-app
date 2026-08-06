@@ -189,13 +189,21 @@ def test_login_alias_bypasses_portal_auth_request():
 
 
 def test_docker_portal_no_duplicate_security_headers_at_server():
-    """F-09: edge owns HSTS/CSP; docker must not re-add overlapping add_header."""
+    """F-09: TLS edge owns HSTS/XFO; :8080 portal must not re-add overlapping add_header."""
     path = ROOT / "docker/nginx/templates/vhost_sso_portal.conf.template"
     text = path.read_text(encoding="utf-8")
     # Server-level security headers removed (comment documents edge ownership).
     assert "add_header X-Content-Type-Options" not in text.split("location")[0]
     assert "add_header Strict-Transport-Security" not in text
-    assert "edge reverse proxy" in text.lower() or "reverse01" in text.lower()
+    assert "add_header X-Frame-Options" not in text
+    assert "security-headers" in text.lower() or "tls edge" in text.lower() or ":443" in text
+
+    sync = (ROOT / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
+    assert "include /etc/nginx/includes/security-headers.conf;" in sync
+    hdr = (ROOT / "docker/nginx/includes/security-headers.conf").read_text(encoding="utf-8")
+    assert "Strict-Transport-Security" in hdr
+    assert "X-Content-Type-Options" in hdr
+    assert "Content-Security-Policy" not in hdr
 
 
 def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
@@ -210,25 +218,27 @@ def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
     assert "$http_x_portal_client_ip" in map_text
     assert "$portal_client_real_ip" in map_text
     assert "$remote_addr" in map_text
+    assert "bastion_portal_client_ip_fallback" in map_text
 
     nginx_conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
-    assert "set_real_ip_from 172.24.0.108" in nginx_conf
+    assert "include /etc/nginx/includes/cloudflare-ips.conf;" in nginx_conf
+    assert "set_real_ip_from 172.24.0.108" not in nginx_conf
     assert "set_real_ip_from 10.5.0.0/16" in nginx_conf
-    assert "real_ip_header X-Forwarded-For" in nginx_conf
+    assert "real_ip_header CF-Connecting-IP;" in nginx_conf
     assert "real_ip_recursive on" in nginx_conf
-    assert "forwardedHeaders.trustedIPs" in nginx_conf
+    cf_ips = (ROOT / "docker/nginx/includes/cloudflare-ips.conf").read_text(encoding="utf-8")
+    assert "173.245.48.0/20" in cf_ips
+    assert "2400:cb00::/32" in cf_ips
     # Must not trust the whole Internet or whole corp LAN as real_ip sources.
     real_ip_from_lines = [
         ln.strip()
-        for ln in nginx_conf.splitlines()
+        for ln in (nginx_conf + "\n" + cf_ips).splitlines()
         if ln.strip().startswith("set_real_ip_from")
     ]
     assert real_ip_from_lines
     joined = "\n".join(real_ip_from_lines)
     assert "0.0.0.0/0" not in joined
     assert "172.24.0.0/16" not in joined
-    assert "172.24.0.108" in joined
-    assert "10.5.0.0/16" in joined
     forwarded = (ROOT / "docker/nginx/snippets/proxy_portal_forwarded.conf").read_text(
         encoding="utf-8"
     )
@@ -246,15 +256,16 @@ def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
 
 
 def test_docker_nginx_real_ip_contract_documented():
-    """Ops doc + nginx comments must state both edge and Traefik are required."""
+    """Ops doc + nginx comments: CF → bastion-nginx edge; Traefik out of public path."""
     doc = (ROOT / "docs/ops-client-ip-chain.md").read_text(encoding="utf-8")
-    assert "Traefik" in doc
-    assert "172.24.0.108" in doc
+    assert "Cloudflare" in doc
+    assert "CF-Connecting-IP" in doc
+    assert "bastion_portal_client_ip_fallback" in doc
     assert "resolved" in doc
-    assert "awx-playbook" in doc
+    assert "hors chemin" in doc.lower()
     nginx_conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
-    assert "Traefik" in nginx_conf
-    assert "Neither alone" in nginx_conf or "neither alone" in nginx_conf.lower() or "Both hops" in nginx_conf
+    assert "cloudflare-ips.conf" in nginx_conf
+    assert "bastion_require_traefik" in nginx_conf or "Traefik is out" in nginx_conf
 
 
 def test_breakglass_api_locations_lan_only_before_api_admin():

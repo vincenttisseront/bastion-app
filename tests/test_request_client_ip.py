@@ -120,8 +120,8 @@ def test_reverse01_never_used_as_client_ip():
     assert is_infra_hop("172.24.0.108")
 
 
-def test_portal_client_ip_header_survives_traefik_xff_overwrite():
-    """When Traefik replaces XFF with reverse01, edge X-Portal-Client-IP still wins."""
+def test_portal_client_ip_header_survives_infra_only_xff():
+    """Fallback path: infra-only XFF/X-Real → X-Portal-Client-IP still wins (flag on)."""
     ip = client_ip_from_request(
         _req(
             headers={
@@ -133,6 +133,21 @@ def test_portal_client_ip_header_survives_traefik_xff_overwrite():
         )
     )
     assert ip == "172.24.0.50"
+
+
+def test_cf_connecting_ip_ignored_app_uses_nginx_x_real_ip():
+    """App never trusts CF-Connecting-IP; nginx real_ip must put client in X-Real-IP."""
+    ip = client_ip_from_request(
+        _req(
+            headers={
+                "CF-Connecting-IP": "198.51.100.20",
+                "X-Real-IP": "198.51.100.20",
+                "X-Forwarded-For": "198.51.100.20",
+            },
+            host="10.5.0.2",
+        )
+    )
+    assert ip == "198.51.100.20"
 
 
 def test_portal_client_ip_ignored_from_untrusted_peer():
