@@ -740,6 +740,7 @@
     );
     detail.appendChild(list);
     bindSessionActionClicks(detail);
+  }
 
   window.disconnectUser = async function (userEmail, realmSlug) {
     var ok = window.bastionConfirm
