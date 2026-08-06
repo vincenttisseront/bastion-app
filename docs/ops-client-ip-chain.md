@@ -38,6 +38,13 @@ map $host $bastion_portal_client_ip_fallback {
 
 Quand `fallback=1` et que `$remote_addr` après real_ip est encore un hop infra
 (docker/loopback), nginx préfère `X-Portal-Client-IP` s’il est présent.
+
+**Critique hop `:443` → `:8080`** : le terminateur ACME (`sync-acme-tls.sh`) doit poser
+`X-Portal-Client-IP $remote_addr` (IP déjà corrigée par `real_ip` / LAN). Sans ce
+header, le vhost portal sur `:8080` ne voit que `127.0.0.1` → FastAPI fail-closed →
+pas de formulaire break-glass (même depuis le LAN). Les logs `apps/portal.access.log`
+montrent la vraie IP ; `/var/log/nginx/portal.access.log` (:8080) montre `127.0.0.1`.
+
 Après recette (audit / break-glass voient l’IP client via CF), passer le default à
 `0`.
 
@@ -71,6 +78,7 @@ DNS Cloudflare pointé directement sur bastion-nginx:443.
 | Confiance limitée (pas `0.0.0.0/0` ni `172.24.0.0/16`) | OK |
 | `X-Real-IP` / `X-Forwarded-For` = `$portal_client_real_ip` | OK |
 | Fallback `X-Portal-Client-IP` derrière flag (défaut on) | OK |
+| `:443` pose `X-Portal-Client-IP $remote_addr` vers `:8080` | OK (requis break-glass) |
 | App : peer TCP trusted = docker only | OK |
 | Traefik trustedIPs | Hors chemin ingress public |
 

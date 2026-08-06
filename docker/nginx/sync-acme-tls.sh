@@ -94,8 +94,13 @@ server {
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_set_header Host \$host;
+        # Edge → :8080: peer on portal becomes 127.0.0.1. FastAPI ignores X-Real-IP
+        # from non-resolved paths; $portal_client_real_ip only trusts X-Portal-Client-IP
+        # when \$remote_addr is infra. Without this header, break-glass always sees
+        # 127.0.0.1 / empty and hides the LAN form (symptom since ACME :443 edge).
         proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Portal-Client-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host \$host;
         proxy_set_header X-Forwarded-Port 443;
@@ -173,8 +178,13 @@ server {
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
         proxy_set_header Host \$host;
+        # Edge → :8080: peer on portal becomes 127.0.0.1. FastAPI ignores X-Real-IP
+        # from non-resolved paths; $portal_client_real_ip only trusts X-Portal-Client-IP
+        # when \$remote_addr is infra. Without this header, break-glass always sees
+        # 127.0.0.1 / empty and hides the LAN form (symptom since ACME :443 edge).
         proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Portal-Client-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host \$host;
         proxy_set_header X-Forwarded-Port 443;

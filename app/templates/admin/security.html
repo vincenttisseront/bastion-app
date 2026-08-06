@@ -817,6 +817,23 @@
       <div class="form-section-title">Misc — paramètres anti-abus</div>
       <div class="form-section-sub">Activation globale et contrôle d'accès IP break-glass</div>
     </div>
+    {% set ip_probe = client_ip_probe | default({}) %}
+    <div class="alert {% if breakglass_ip_allowed %}alert-ok{% else %}alert-warn{% endif %}" role="status" style="margin-bottom:1rem">
+      <strong>IP vue par le portail (cette requête) :</strong>
+      <code class="mono">{{ ip_probe.resolved or '(vide — fail closed)' }}</code>
+      {% if breakglass_ip_allowed %}
+      — break-glass <strong>autorisé</strong> pour cette IP.
+      {% else %}
+      — break-glass <strong>refusé</strong> (pas dans RFC1918 / allowlist, ou IP non résolue).
+      Le navigateur peut être en <code class="mono">192.168.1.x</code> alors que l’app voit
+      une IP Cloudflare, un hop Docker (<code class="mono">10.5.x</code>), ou rien.
+      {% endif %}
+      <div class="form-help" style="margin-top:0.5rem">
+        peer={{ ip_probe.request_client_host or '—' }}
+        · X-Real-IP={{ ip_probe.x_real_ip or '—' }}
+        · XFF={{ ip_probe.x_forwarded_for or '—' }}
+      </div>
+    </div>
     <div class="form-body">
       <form method="post" action="/admin/security/misc" class="stack" id="misc-form">
         <label class="check-row">

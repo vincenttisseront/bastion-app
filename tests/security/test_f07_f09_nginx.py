@@ -109,6 +109,10 @@ def test_acme_tls_sync_forwards_websocket_headers():
     # CrushFTP chunked uploads (POST /U/…~1M) hit :443 first — default 1m → 413
     assert text.count("client_max_body_size 2G;") >= 2
     assert text.count("proxy_request_buffering off;") >= 2
+    # Edge must pass client IP as X-Portal-Client-IP so :8080 map (peer=127.0.0.1)
+    # can resolve break-glass / audit IP (X-Real-IP alone is overwritten on portal).
+    assert text.count("X-Portal-Client-IP \\$remote_addr") >= 2
+    assert text.count("X-Forwarded-For \\$remote_addr") >= 2
     main = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "map $http_upgrade $connection_upgrade" in main
 
