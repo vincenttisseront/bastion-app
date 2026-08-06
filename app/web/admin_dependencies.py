@@ -85,6 +85,12 @@ def admin_dependencies_page(
     npm_rows = [_row_view(r) for r in rows if r.ecosystem == "npm"]
     last_at = last_checked_summary(rows)
     summary = count_summary(rows)
+    python_outdated = sum(1 for p in python_rows if p["is_outdated"])
+    npm_outdated = sum(1 for p in npm_rows if p["is_outdated"])
+    # Prefer the ecosystem that actually has MAJ when the default filter is outdated.
+    initial_tab = "python"
+    if summary["outdated"] and not python_outdated and npm_outdated:
+        initial_tab = "npm"
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/dependencies.html",
@@ -93,6 +99,9 @@ def admin_dependencies_page(
         npm_packages=npm_rows,
         python_count=len(python_rows),
         npm_count=len(npm_rows),
+        python_outdated=python_outdated,
+        npm_outdated=npm_outdated,
+        initial_tab=initial_tab,
         summary=summary,
         last_checked_at=last_at.strftime("%Y-%m-%d %H:%M UTC") if last_at else None,
         has_snapshots=bool(rows),

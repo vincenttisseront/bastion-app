@@ -182,5 +182,5 @@
   window.__SESSIONS_IS_ADMIN__ = {{ 'true' if is_admin else 'false' }};
   window.__SESSIONS_BOOT__ = {{ session_groups | default([]) | tojson }};
 </script>
-<script src="/static/js/bastion-sessions.js?v=20260806-brace-fix"></script>
+<script src="/static/js/bastion-sessions.js?v=20260806-logs-link"></script>
 {% endblock %}

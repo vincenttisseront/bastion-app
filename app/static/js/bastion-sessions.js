@@ -415,10 +415,49 @@
           rotateBtn.textContent = 'Rotation';
           els.actions.appendChild(rotateBtn);
         }
+        var logsLink = document.createElement('a');
+        logsLink.className = 'btn btn-ghost btn-sm';
+        logsLink.href = logsUrlForSession(s);
+        logsLink.target = '_blank';
+        logsLink.rel = 'noopener noreferrer';
+        logsLink.title =
+          'Ouvre Logs (audit) filtré sur cet utilisateur / IP / session';
+        logsLink.textContent = 'Voir les logs';
+        els.actions.appendChild(logsLink);
+        if (s.kind === 'app' && (s.target || '').trim()) {
+          var accessLink = document.createElement('a');
+          accessLink.className = 'btn btn-ghost btn-sm';
+          accessLink.href =
+            '/admin/logs?app=' +
+            encodeURIComponent(String(s.target).trim()) +
+            '#app-access';
+          accessLink.target = '_blank';
+          accessLink.rel = 'noopener noreferrer';
+          accessLink.title =
+            'Access log nginx de l’application ' + String(s.target).trim();
+          accessLink.textContent = 'Access log app';
+          els.actions.appendChild(accessLink);
+        }
         bindSessionActionClicks(els.actions);
         els.actions.hidden = false;
       }
     }
+  }
+
+  function logsUrlForSession(s) {
+    var params = new URLSearchParams();
+    var actor = (s.user_email || s.username || '').trim();
+    var ip = (s.client_ip || s.source_ip || '').trim();
+    if (actor) params.set('actor', actor);
+    if (ip && ip !== '—' && !s.client_ip_is_infra) params.set('ip', ip);
+    if (s.id) params.set('detail', String(s.id));
+    var qBits = [];
+    if (s.kind === 'app' && (s.target || '').trim()) {
+      qBits.push(String(s.target).trim());
+    }
+    if (actor) qBits.push(actor);
+    if (qBits.length) params.set('q', qBits.join(' '));
+    return '/admin/logs?' + params.toString() + '#audit';
   }
 
   function openSessionDetailPanel(sessionId) {
