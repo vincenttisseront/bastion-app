@@ -113,6 +113,8 @@ def test_acme_tls_sync_forwards_websocket_headers():
     # can resolve break-glass / audit IP (X-Real-IP alone is overwritten on portal).
     assert text.count("X-Portal-Client-IP \\$remote_addr") >= 2
     assert text.count("X-Forwarded-For \\$remote_addr") >= 2
+    # Comments inside <<EOF must not contain bare $vars (set -u → unbound).
+    assert "$portal_client_real_ip" not in text
     main = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "map $http_upgrade $connection_upgrade" in main
 
