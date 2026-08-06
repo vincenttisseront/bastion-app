@@ -2692,6 +2692,15 @@ def admin_security(
     policy = get_or_create_policy(db)
     rules = {r.rule_type: r for r in list_ban_rules(db)}
     container_logs = ensure_container_logs_settings(db)
+    from app.request_client_ip import client_ip_probe
+    from app.security.banning.engine import is_breakglass_ip_allowed
+
+    ip_probe = client_ip_probe(request)
+    breakglass_ip_ok = is_breakglass_ip_allowed(
+        db,
+        ip_probe.get("resolved") or "",
+        rfc1918_cidrs=settings.rfc1918_cidrs,
+    )
     return render(
         "admin/security.html",
         **_ctx(
@@ -2708,6 +2717,8 @@ def admin_security(
             security_bans=list_active_bans(db),
             security_allowlist=list_allowlist(db),
             container_logs_settings=container_logs,
+            client_ip_probe=ip_probe,
+            breakglass_ip_allowed=breakglass_ip_ok,
         ),
     )
 
