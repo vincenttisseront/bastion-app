@@ -17,6 +17,7 @@ from app.bastion.bastion_fields import (
     normalize_credential_mode,
     normalize_identity_format,
     normalize_provisioning_driver,
+    normalize_sso_bridge,
     resolve_robotic_driver,
     validate_generic_form_fields,
     vault_enabled_for_app,
@@ -137,6 +138,7 @@ def _normalize_description(raw: str | None) -> str | None:
 
 def _auth_form_values(
     auth_mode: str = "sso",
+    sso_bridge: str = "trusted_headers",
     login_form_url: str = "",
     login_username_field: str = "username",
     login_password_field: str = "password",
@@ -145,6 +147,7 @@ def _auth_form_values(
 ) -> dict:
     return {
         "auth_mode": normalize_auth_mode(auth_mode),
+        "sso_bridge": normalize_sso_bridge(sso_bridge),
         "login_form_url": login_form_url,
         "login_username_field": login_username_field or "username",
         "login_password_field": login_password_field or "password",
@@ -162,12 +165,16 @@ def _apply_auth_config(
     login_password_field: str,
     login_http_method: str,
     login_extra_fields: str,
+    sso_bridge: str = "trusted_headers",
     credential_mode: str = "shared",
     identity_format: str = "email",
     injected_cookie_scope: str = "host_only",
 ) -> None:
     mode = normalize_auth_mode(auth_mode)
     app.auth_mode = mode
+    app.sso_bridge = (
+        normalize_sso_bridge(sso_bridge) if mode == "sso" else "trusted_headers"
+    )
     app.robotic_driver = resolve_robotic_driver(mode, app.robotic_driver)
     app.login_form_url = (login_form_url or "").strip() or None
     app.login_username_field = (login_username_field or "username").strip() or "username"
@@ -216,14 +223,22 @@ def _validate_auth_fields(
     login_password_field: str,
     login_http_method: str,
     login_extra_fields: str,
+    sso_bridge: str = "trusted_headers",
 ) -> dict[str, str]:
     errors: dict[str, str] = {}
     mode = normalize_access_mode(access_mode)
     auth = normalize_auth_mode(auth_mode)
+    bridge = normalize_sso_bridge(sso_bridge)
     if mode in ("sso_gate", "public_proxy") and auth != "sso":
         errors["auth_mode"] = (
             "Le vault robotic n'est pas disponible pour ce mode d'accès."
         )
+    if auth == "sso" and bridge == "app_oidc":
+        if not (login_form_url or "").strip():
+            errors["login_form_url"] = (
+                "URL d’entrée portail requise pour l’OIDC délégué "
+                "(ex. https://app.example.com/login)."
+            )
     if auth == "generic_form":
         errors.update(
             validate_generic_form_fields(
@@ -1580,6 +1595,7 @@ def admin_apps_create_post(
     allow_activesync: str | None = Form(None),
     upstream_tls_verify: str | None = Form(None),
     auth_mode: str = Form("sso"),
+    sso_bridge: str = Form("trusted_headers"),
     login_form_url: str = Form(""),
     login_username_field: str = Form("username"),
     login_password_field: str = Form("password"),
@@ -1594,6 +1610,7 @@ def admin_apps_create_post(
     desc = _normalize_description(description)
     auth_values = _auth_form_values(
         auth_mode,
+        sso_bridge,
         login_form_url,
         login_username_field,
         login_password_field,
@@ -1621,6 +1638,7 @@ def admin_apps_create_post(
             login_password_field,
             login_http_method,
             login_extra_fields,
+            sso_bridge=sso_bridge,
         )
     )
     if len((description or "").strip()) > _DESC_MAX:
@@ -1645,6 +1663,7 @@ def admin_apps_create_post(
     _apply_auth_config(
         app,
         auth_mode=auth_mode,
+        sso_bridge=sso_bridge,
         login_form_url=login_form_url,
         login_username_field=login_username_field,
         login_password_field=login_password_field,
@@ -1718,6 +1737,7 @@ def admin_apps_edit_post(
     allow_activesync: str | None = Form(None),
     upstream_tls_verify: str | None = Form(None),
     auth_mode: str = Form("sso"),
+    sso_bridge: str = Form("trusted_headers"),
     login_form_url: str = Form(""),
     login_username_field: str = Form("username"),
     login_password_field: str = Form("password"),
@@ -1752,6 +1772,7 @@ def admin_apps_edit_post(
             login_password_field,
             login_http_method,
             login_extra_fields,
+            sso_bridge=sso_bridge,
         )
     )
     if len((description or "").strip()) > _DESC_MAX:
@@ -1777,6 +1798,7 @@ def admin_apps_edit_post(
         _apply_auth_config(
             app,
             auth_mode=auth_mode,
+            sso_bridge=sso_bridge,
             login_form_url=login_form_url,
             login_username_field=login_username_field,
             login_password_field=login_password_field,
@@ -1832,6 +1854,7 @@ def admin_apps_edit_post(
         _apply_auth_config(
             app,
             auth_mode=auth_mode,
+            sso_bridge=sso_bridge,
             login_form_url=login_form_url,
             login_username_field=login_username_field,
             login_password_field=login_password_field,
@@ -1874,6 +1897,7 @@ def admin_apps_edit_post(
     _apply_auth_config(
         app,
         auth_mode=auth_mode,
+        sso_bridge=sso_bridge,
         login_form_url=login_form_url,
         login_username_field=login_username_field,
         login_password_field=login_password_field,

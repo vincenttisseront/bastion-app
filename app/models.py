@@ -37,6 +37,8 @@ class App(Base):
     access_mode = Column(String, default="sso_gate", nullable=False)
     public_fqdn = Column(String, nullable=True)
     auth_mode = Column(String, default="sso")
+    # When auth_mode=sso: trusted_headers | app_oidc (how the target consumes SSO).
+    sso_bridge = Column(String, default="trusted_headers", nullable=False)
     robotic_driver = Column(String, nullable=True)
     # Account provisioning driver (None = SSO only, no local account pushed).
     # V1 values: "crushftp" | "generic" (explicit no-op). See app/bastion/drivers/registry.py.

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.access_modes import is_user_catalogue_mode, normalize_access_mode, validate_app_access_fields
 from app.audit import log_action
+from app.bastion.bastion_fields import normalize_auth_mode, normalize_sso_bridge
 from app.database import get_db
 from app.models import App
 from app.rbac.effective_access_service import get_effective_apps_for_user
@@ -40,6 +41,7 @@ class AppCreate(BaseModel):
     ] = "sso_gate"
     public_fqdn: str | None = None
     auth_mode: str = "sso"
+    sso_bridge: str = "trusted_headers"
     robotic_driver: str | None = None
     login_form_url: str | None = None
     login_username_field: str = "username"
@@ -66,6 +68,7 @@ class AppUpdate(BaseModel):
     ) = None
     public_fqdn: str | None = None
     auth_mode: str | None = None
+    sso_bridge: str | None = None
     robotic_driver: str | None = None
     login_form_url: str | None = None
     login_username_field: str | None = None
@@ -91,6 +94,7 @@ class AppOut(BaseModel):
     access_mode: str
     public_fqdn: str | None
     auth_mode: str
+    sso_bridge: str = "trusted_headers"
     robotic_driver: str | None
     login_form_url: str | None = None
     login_username_field: str = "username"
@@ -196,6 +200,13 @@ def create_app(
 
     payload = body.model_dump()
     payload["access_mode"] = mode
+    auth = normalize_auth_mode(payload.get("auth_mode"))
+    payload["auth_mode"] = auth
+    payload["sso_bridge"] = (
+        normalize_sso_bridge(payload.get("sso_bridge"))
+        if auth == "sso"
+        else "trusted_headers"
+    )
     if mode != "subdomain_proxy":
         payload["allow_activesync"] = False
     if mode == "sso_gate":
@@ -242,6 +253,15 @@ def update_app(
         updates["upstream_tls_verify"] = False
     elif "upstream_tls_verify" in updates:
         updates["upstream_tls_verify"] = bool(updates["upstream_tls_verify"])
+    if "auth_mode" in updates or "sso_bridge" in updates:
+        auth = normalize_auth_mode(updates.get("auth_mode", app.auth_mode))
+        if "auth_mode" in updates:
+            updates["auth_mode"] = auth
+        updates["sso_bridge"] = (
+            normalize_sso_bridge(updates.get("sso_bridge", getattr(app, "sso_bridge", None)))
+            if auth == "sso"
+            else "trusted_headers"
+        )
     for key, value in updates.items():
         setattr(app, key, value)
     app.updated_at = datetime.now(timezone.utc)

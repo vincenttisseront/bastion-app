@@ -61,11 +61,17 @@ def is_user_catalogue_mode(access_mode: str | None) -> bool:
 
 def upstream_entry_path(app) -> str:
     """
-    Browser entry path on the public FQDN (e.g. ``/web/`` for grommunio).
+    Browser entry path on the public FQDN (e.g. ``/web/`` for grommunio,
+    ``/login`` for Wiki.js OIDC bypass).
 
     Prefer ``login_form_url`` path; else a non-root path on ``upstream_url``.
     Nginx still proxies origin-only — this is only for redirects / probes.
+
+    Directory-style paths without a trailing slash get one (``/web`` → ``/web/``).
+    Auth entry points and file-like paths keep their exact form (``/login``,
+    ``/index.php``) — Wiki.js Bypass Login Screen breaks on ``/login/``.
     """
+    _AUTH_ENTRY_NAMES = frozenset({"login", "signin", "auth", "sso", "oauth", "oidc"})
     for raw in (
         (getattr(app, "login_form_url", None) or "").strip(),
         (getattr(app, "upstream_url", None) or "").strip(),
@@ -73,8 +79,14 @@ def upstream_entry_path(app) -> str:
         if not raw:
             continue
         path = urlparse(raw).path or "/"
-        if path not in ("", "/"):
-            return path if path.endswith("/") else f"{path}/"
+        if path in ("", "/"):
+            continue
+        if path.endswith("/"):
+            return path
+        last = path.rsplit("/", 1)[-1].lower()
+        if "." in last or last in _AUTH_ENTRY_NAMES:
+            return path
+        return f"{path}/"
     return "/"
 
 

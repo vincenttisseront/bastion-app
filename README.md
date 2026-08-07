@@ -199,7 +199,10 @@ migrations/          # Alembic
 
 | Document | Contenu |
 |----------|---------|
-| [docs/bastion-architecture.md](docs/bastion-architecture.md) | Vision et couches (peut encore citer des exemples d’env historiques) |
+| [docs/wikijs/](docs/wikijs/README.md) | **Pages Wiki.js** (utilisateur, fonctionnel, architecture, admin, config) |
+| [docs/wikijs/MAINTENANCE.md](docs/wikijs/MAINTENANCE.md) | Tenir la doc à jour à chaque release |
+| [docs/README.md](docs/README.md) | Index docs/ (wiki + annexes techniques) |
+| [docs/bastion-architecture.md](docs/bastion-architecture.md) | Vision et couches (exemples d’env historiques possibles) |
 | [docs/lets-encrypt-acme-nginx-bastion.md](docs/lets-encrypt-acme-nginx-bastion.md) | ACME / nginx TLS |
 | [docs/oauth2-cookie-secret-policy.md](docs/oauth2-cookie-secret-policy.md) | Secrets oauth2-proxy |
 | [ansible/README.md](ansible/README.md) | Déploiement Ansible |

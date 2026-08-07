@@ -62,6 +62,31 @@ IDENTITY_FORMAT_LABELS: dict[str, str] = {
 
 LOGIN_HTTP_METHODS: frozenset[str] = frozenset({"POST", "GET"})
 
+# When auth_mode=sso: how the target app consumes the bastion gate.
+SSO_BRIDGES: tuple[str, ...] = (
+    "trusted_headers",
+    "app_oidc",
+)
+
+SSO_BRIDGE_LABELS: dict[str, str] = {
+    "trusted_headers": "Injection d’identité (en-têtes de confiance)",
+    "app_oidc": "OIDC délégué à l’application",
+}
+
+SSO_BRIDGE_HELP: dict[str, str] = {
+    "trusted_headers": (
+        "Le bastion injecte X-Forwarded-Email / X-Auth-* après auth_request. "
+        "L’application doit être configurée pour faire confiance à ces en-têtes "
+        "et ne pas ouvrir son propre écran OAuth concurrent."
+    ),
+    "app_oidc": (
+        "L’application ignore les en-têtes bruts : elle crée sa session via "
+        "sa propre stratégie OpenID / OAuth (même IdP que le portail). "
+        "Configurez Bypass Login / équivalent côté app et une URL d’entrée "
+        "portail (souvent …/login) pour que la tuile déclenche le SSO."
+    ),
+}
+
 
 def normalize_auth_mode(value: str | None) -> str:
     if not value:
@@ -71,6 +96,15 @@ def normalize_auth_mode(value: str | None) -> str:
         return lowered
     return _AUTH_MODE_ALIASES.get(lowered, "sso")
 
+
+def normalize_sso_bridge(value: str | None) -> str:
+    """SSO sub-mode: trusted_headers (default) or app_oidc."""
+    if not value:
+        return "trusted_headers"
+    lowered = value.strip().lower()
+    if lowered in SSO_BRIDGES:
+        return lowered
+    return "trusted_headers"
 
 def normalize_provisioning_driver(value: str | None) -> str | None:
     """Normalize App.provisioning_driver — None when unset or unknown."""
