@@ -51,8 +51,8 @@ server {
     modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;
 
     # Unknown Host discovery (bastion-nginx): Hosts not in nginx-known-hosts.map
-    # are rewritten to a stub that records PendingHost + returns 503.
-    # Map $bastion_unknown_host is loaded from conf.d/00-known-hosts-map.conf.
+    # are rewritten to a stub that records PendingHost + returns a neutral 403
+    # (no portal/bastion branding). Map from conf.d/00-known-hosts-map.conf.
     # Keep portal as the only default_server — do not add a second one.
     if ($bastion_unknown_host) {
         rewrite ^ /__bastion_unknown_host last;
