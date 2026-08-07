@@ -3,6 +3,17 @@
 {% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
 
 {% block content %}
+{% set mode_badge = {
+  'on': 'badge-err',
+  'detection_only': 'badge-warn',
+  'off': 'badge-muted'
+} %}
+{% set mode_label = {
+  'on': 'On (blocage)',
+  'detection_only': 'DetectionOnly',
+  'off': 'Off'
+} %}
+{% set eff_mode = effective.mode if effective.present else profile.mode %}
 <div class="page" id="waf-page">
   <div class="page-header">
     <div>
@@ -14,131 +25,322 @@
     </div>
     <div class="page-header-actions">
       <a href="/admin/security#banning" class="btn btn-ghost btn-sm">Anti-bruteforce</a>
-      <form method="post" action="/admin/security/waf/apply" style="display:inline"
-            onsubmit="return confirm('Générer les exports WAF et valider nginx -t ?');">
+      <form method="post" action="/admin/security/waf/apply" id="waf-apply-form" style="display:inline">
         <button type="submit" class="btn btn-primary">Appliquer</button>
       </form>
     </div>
   </div>
 
-  <div class="card mb-4">
-    <div class="card-header"><h2 class="card-title">Statut effectif (exports générés)</h2></div>
-    <div class="card-body">
-      {% if effective.present %}
-      <dl class="kv">
-        <dt>Profil</dt><dd>{{ effective.profile_name }}</dd>
-        <dt>Mode</dt><dd><span class="mono">{{ effective.mode }}</span></dd>
-        <dt>Seuil anomalie</dt><dd>{{ effective.anomaly_threshold }}</dd>
-        <dt>Exclusions actives</dt><dd>{{ effective.exclusion_count }}</dd>
-        <dt>IP deny (promues)</dt>
-        <dd>{{ effective.ip_deny_count }}
-          <span class="muted">(min occurrences={{ effective.ip_deny_min_occurrences }})</span>
-        </dd>
-        <dt>Rate login / API</dt>
-        <dd>{{ effective.portal_login_rate }}r/s · {{ effective.portal_api_rate }}r/s</dd>
-      </dl>
-      <p class="muted mono">{{ effective.path }}</p>
-      {% else %}
-      <p class="muted">Aucun export encore — cliquez <strong>Appliquer</strong> pour générer
-        (équivalent Phase A : mode On, seuil 5, exclusions vides).</p>
+  <div class="tabs" role="tablist" aria-label="Sections WAF" id="waf-tabs">
+    <a href="#status" class="tab active" role="tab" data-tab="status" id="tab-status" aria-selected="true">Statut</a>
+    <a href="#profile" class="tab" role="tab" data-tab="profile" id="tab-profile" aria-selected="false">Profil</a>
+    <a href="#exclusions" class="tab" role="tab" data-tab="exclusions" id="tab-exclusions" aria-selected="false">
+      Exclusions
+      {% if exclusions %}
+      <span class="badge badge-muted tab-badge">{{ exclusions|length }}</span>
       {% endif %}
-      <p class="muted mt-2">{{ security_headers_note }}</p>
-    </div>
+    </a>
   </div>
 
-  <div class="card mb-4">
-    <div class="card-header"><h2 class="card-title">Profil actif</h2></div>
-    <div class="card-body">
-      <form method="post" action="/admin/security/waf/profile" class="stack">
-        <label>Préréglage
-          <select name="profile_preset">
-            <option value="Production" {% if profile.name == 'Production' %}selected{% endif %}>Production</option>
-            <option value="Préproduction" {% if profile.name == 'Préproduction' %}selected{% endif %}>Préproduction</option>
-            <option value="Développement" {% if profile.name == 'Développement' %}selected{% endif %}>Développement</option>
-            <option value="Custom" {% if profile.name not in ['Production','Préproduction','Développement'] %}selected{% endif %}>Custom</option>
-          </select>
-        </label>
-        <label>Mode
-          <select name="mode" required>
-            <option value="on" {% if profile.mode == 'on' %}selected{% endif %}>On (blocage)</option>
-            <option value="detection_only" {% if profile.mode == 'detection_only' %}selected{% endif %}>DetectionOnly</option>
-            <option value="off" {% if profile.mode == 'off' %}selected{% endif %}>Off</option>
-          </select>
-        </label>
-        <label>Seuil d'anomalie inbound ({{ anomaly_min }}–{{ anomaly_max }})
-          <input type="number" name="anomaly_threshold" min="{{ anomaly_min }}" max="{{ anomaly_max }}"
-                 value="{{ profile.anomaly_threshold }}" required>
-        </label>
-        <label>Promotion IP deny — min. occurrences historique
-          <input type="number" name="ip_deny_min_occurrences" min="1" max="100"
-                 value="{{ profile.ip_deny_min_occurrences }}" required>
-          <span class="muted">Permanent → toujours ; sinon count(security_bans) ≥ N (défaut 3).</span>
-        </label>
-        <div class="grid-2">
-          <label>portal_login rate (r/s)
-            <input type="number" name="portal_login_rate" min="1" value="{{ profile.portal_login_rate }}">
-          </label>
-          <label>portal_login burst
-            <input type="number" name="portal_login_burst" min="0" value="{{ profile.portal_login_burst }}">
-          </label>
-          <label>portal_api rate (r/s)
-            <input type="number" name="portal_api_rate" min="1" value="{{ profile.portal_api_rate }}">
-          </label>
-          <label>portal_api burst
-            <input type="number" name="portal_api_burst" min="0" value="{{ profile.portal_api_burst }}">
-          </label>
+  {# —— Statut —— #}
+  <div class="form-section waf-panel" id="status" role="tabpanel" aria-labelledby="tab-status">
+    <div class="form-section-header">
+      <div class="form-section-title">Statut effectif (exports générés)</div>
+      <div class="form-section-sub">
+        Lecture seule —
+        <span class="mono">waf-effective-status.json</span>
+        après un <strong>Appliquer</strong> réussi.
+      </div>
+    </div>
+    <div class="form-body">
+      {% if effective.present %}
+      <div class="wizard-summary">
+        <div class="wizard-summary-grid waf-status-grid">
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Profil</span>
+            <span class="wizard-summary-value">{{ effective.profile_name }}</span>
+          </div>
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Mode</span>
+            <span class="wizard-summary-value">
+              <span class="badge {{ mode_badge.get(effective.mode, 'badge-muted') }}">
+                {{ mode_label.get(effective.mode, effective.mode) }}
+              </span>
+            </span>
+          </div>
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Seuil anomalie</span>
+            <span class="wizard-summary-value mono">{{ effective.anomaly_threshold }}</span>
+          </div>
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Exclusions actives</span>
+            <span class="wizard-summary-value mono">{{ effective.exclusion_count }}</span>
+          </div>
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">IP deny (promues)</span>
+            <span class="wizard-summary-value">
+              <span class="mono">{{ effective.ip_deny_count }}</span>
+              <span class="muted"> · min occ.={{ effective.ip_deny_min_occurrences }}</span>
+            </span>
+          </div>
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Rate login / API</span>
+            <span class="wizard-summary-value mono">
+              {{ effective.portal_login_rate }}r/s · {{ effective.portal_api_rate }}r/s
+            </span>
+          </div>
         </div>
-        <button type="submit" class="btn btn-secondary">Enregistrer le profil</button>
+        <p class="form-help mono">{{ effective.path }}</p>
+      </div>
+      {% else %}
+      <div class="alert alert-warn mb-4">
+        <div class="alert-body">
+          Aucun export encore — cliquez <strong>Appliquer</strong> pour générer
+          (équivalent Phase A : mode On, seuil 5, exclusions vides).
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="waf-status-chip-row">
+        <span class="badge {{ mode_badge.get(eff_mode, 'badge-muted') }}">
+          Mode DB : {{ mode_label.get(eff_mode, eff_mode) }}
+        </span>
+        <span class="badge badge-info">Headers sécurité : actifs</span>
+      </div>
+      <p class="form-help mt-2">{{ security_headers_note }}</p>
+    </div>
+  </div>
+
+  {# —— Profil —— #}
+  <div class="form-section waf-panel" id="profile" role="tabpanel" aria-labelledby="tab-profile" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">Profil actif</div>
+      <div class="form-section-sub">
+        Enregistrement SQLite — puis <strong>Appliquer</strong> pour pousser vers nginx.
+      </div>
+    </div>
+    <div class="form-body">
+      <form method="post" action="/admin/security/waf/profile" class="stack" id="waf-profile-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="waf_profile_preset">Préréglage</label>
+            <select id="waf_profile_preset" name="profile_preset" class="form-select">
+              <option value="Production" {% if profile.name == 'Production' %}selected{% endif %}>Production</option>
+              <option value="Préproduction" {% if profile.name == 'Préproduction' %}selected{% endif %}>Préproduction</option>
+              <option value="Développement" {% if profile.name == 'Développement' %}selected{% endif %}>Développement</option>
+              <option value="Custom" {% if profile.name not in ['Production','Préproduction','Développement'] %}selected{% endif %}>Custom</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_mode">Mode <span class="req">*</span></label>
+            <select id="waf_mode" name="mode" class="form-select" required>
+              <option value="on" {% if profile.mode == 'on' %}selected{% endif %}>On (blocage)</option>
+              <option value="detection_only" {% if profile.mode == 'detection_only' %}selected{% endif %}>DetectionOnly</option>
+              <option value="off" {% if profile.mode == 'off' %}selected{% endif %}>Off</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="waf_anomaly_threshold">
+              Seuil d'anomalie inbound ({{ anomaly_min }}–{{ anomaly_max }})
+              <span class="req">*</span>
+            </label>
+            <input class="form-input" type="number" id="waf_anomaly_threshold" name="anomaly_threshold"
+                   min="{{ anomaly_min }}" max="{{ anomaly_max }}"
+                   value="{{ profile.anomaly_threshold }}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_ip_deny_min">
+              Promotion IP deny — min. occurrences
+              <span class="req">*</span>
+            </label>
+            <input class="form-input" type="number" id="waf_ip_deny_min" name="ip_deny_min_occurrences"
+                   min="1" max="100" value="{{ profile.ip_deny_min_occurrences }}" required>
+            <p class="form-help">Permanent → toujours ; sinon count(security_bans) ≥ N (défaut 3).</p>
+          </div>
+        </div>
+
+        <div class="form-section-sub" style="margin:var(--sp-2) 0">Rate limiting portail (nginx)</div>
+        <div class="form-row waf-rate-grid">
+          <div class="form-group">
+            <label class="form-label" for="waf_portal_login_rate">portal_login rate (r/s)</label>
+            <input class="form-input" type="number" id="waf_portal_login_rate" name="portal_login_rate"
+                   min="1" value="{{ profile.portal_login_rate }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_portal_login_burst">portal_login burst</label>
+            <input class="form-input" type="number" id="waf_portal_login_burst" name="portal_login_burst"
+                   min="0" value="{{ profile.portal_login_burst }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_portal_api_rate">portal_api rate (r/s)</label>
+            <input class="form-input" type="number" id="waf_portal_api_rate" name="portal_api_rate"
+                   min="1" value="{{ profile.portal_api_rate }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_portal_api_burst">portal_api burst</label>
+            <input class="form-input" type="number" id="waf_portal_api_burst" name="portal_api_burst"
+                   min="0" value="{{ profile.portal_api_burst }}">
+          </div>
+        </div>
+
+        <div class="form-footer form-footer-flush">
+          <button type="submit" class="btn btn-secondary">Enregistrer le profil</button>
+        </div>
       </form>
     </div>
   </div>
 
-  <div class="card mb-4" id="exclusions">
-    <div class="card-header"><h2 class="card-title">Exclusions CRS</h2></div>
-    <div class="card-body">
-      <form method="post" action="/admin/security/waf/exclusions/add" class="stack mb-4">
-        <label>Raison (obligatoire)
-          <input type="text" name="reason" required maxlength="500">
-        </label>
-        <label>ID règle CRS
-          <input type="number" name="crs_rule_id" required min="1">
-        </label>
-        <label>Host (optionnel)
-          <input type="text" name="host" placeholder="transfer.ar-systems.fr">
-        </label>
-        <label>URI pattern (optionnel)
-          <input type="text" name="uri_pattern" placeholder="/admin/apps/analyze-login-form">
-        </label>
-        <p class="muted">Host ou URI requis. Jamais de désactivation de catégorie CRS entière.</p>
-        <button type="submit" class="btn btn-secondary">Ajouter</button>
+  {# —— Exclusions —— #}
+  <div class="form-section waf-panel" id="exclusions" role="tabpanel" aria-labelledby="tab-exclusions" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">Exclusions CRS</div>
+      <div class="form-section-sub">
+        Host ou URI requis. Jamais de désactivation de catégorie CRS entière.
+      </div>
+    </div>
+    <div class="form-body">
+      <form method="post" action="/admin/security/waf/exclusions/add" class="stack mb-4" id="waf-exclusion-add-form">
+        <div class="form-group">
+          <label class="form-label" for="waf_ex_reason">Raison <span class="req">*</span></label>
+          <input class="form-input" type="text" id="waf_ex_reason" name="reason" required maxlength="500"
+                 placeholder="Ex. FP confirmé sur formulaire métier">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="waf_ex_rule">ID règle CRS <span class="req">*</span></label>
+            <input class="form-input is-mono" type="number" id="waf_ex_rule" name="crs_rule_id" required min="1"
+                   placeholder="942100">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_ex_host">Host (optionnel)</label>
+            <input class="form-input is-mono" type="text" id="waf_ex_host" name="host"
+                   placeholder="transfer.ar-systems.fr">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="waf_ex_uri">URI pattern (optionnel)</label>
+          <input class="form-input is-mono" type="text" id="waf_ex_uri" name="uri_pattern"
+                 placeholder="/admin/apps/analyze-login-form">
+        </div>
+        <div class="form-footer form-footer-flush">
+          <button type="submit" class="btn btn-secondary">Ajouter</button>
+        </div>
       </form>
 
-      <table class="table">
-        <thead>
-          <tr><th>ID</th><th>Règle</th><th>Scope</th><th>Raison</th><th>Actif</th><th></th></tr>
-        </thead>
-        <tbody>
-          {% for ex in exclusions %}
-          <tr>
-            <td>{{ ex.id }}</td>
-            <td class="mono">{{ ex.crs_rule_id }}</td>
-            <td class="mono">{{ ex.host or '—' }} {{ ex.uri_pattern or '' }}</td>
-            <td>{{ ex.reason }}</td>
-            <td>{% if ex.active %}oui{% else %}non{% endif %}</td>
-            <td>
-              {% if ex.active %}
-              <form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/disable" class="inline-form">
-                <button type="submit" class="btn btn-ghost btn-sm">Désactiver</button>
-              </form>
-              {% endif %}
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="6" class="muted">Aucune exclusion</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="data-table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Règle</th>
+              <th>Scope</th>
+              <th>Raison</th>
+              <th>Actif</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for ex in exclusions %}
+            <tr>
+              <td class="mono">{{ ex.id }}</td>
+              <td class="mono">{{ ex.crs_rule_id }}</td>
+              <td class="mono">{{ ex.host or '—' }}{% if ex.uri_pattern %} {{ ex.uri_pattern }}{% endif %}</td>
+              <td>{{ ex.reason }}</td>
+              <td>
+                {% if ex.active %}
+                <span class="badge badge-ok">oui</span>
+                {% else %}
+                <span class="badge badge-muted">non</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if ex.active %}
+                <form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/disable"
+                      class="inline-form waf-disable-form">
+                  <button type="submit" class="btn btn-ghost btn-sm">Désactiver</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="muted">Aucune exclusion</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var VALID = ['status', 'profile', 'exclusions'];
+  var DEFAULT = 'status';
+
+  function currentTab() {
+    var h = (location.hash || '').replace(/^#/, '');
+    return VALID.indexOf(h) >= 0 ? h : DEFAULT;
+  }
+
+  function activate(id) {
+    document.querySelectorAll('.waf-panel').forEach(function (panel) {
+      var on = panel.id === id;
+      panel.hidden = !on;
+      panel.setAttribute('aria-hidden', on ? 'false' : 'true');
+    });
+    document.querySelectorAll('#waf-tabs .tab').forEach(function (tab) {
+      var on = tab.getAttribute('data-tab') === id;
+      tab.classList.toggle('active', on);
+      tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+
+  activate(currentTab());
+  window.addEventListener('hashchange', function () {
+    activate(currentTab());
+  });
+
+  function confirmSubmit(form, opts) {
+    if (!form || form.getAttribute('data-bypass-confirm') === '1') return;
+    form.addEventListener('submit', function (e) {
+      if (form.getAttribute('data-bypass-confirm') === '1') return;
+      e.preventDefault();
+      var run = function (ok) {
+        if (!ok) return;
+        form.setAttribute('data-bypass-confirm', '1');
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.submit();
+      };
+      if (typeof window.bastionConfirm === 'function') {
+        window.bastionConfirm(opts).then(run);
+      } else {
+        run(window.confirm(opts.message || opts.title || 'Confirmer ?'));
+      }
+    });
+  }
+
+  confirmSubmit(document.getElementById('waf-apply-form'), {
+    title: 'Appliquer la configuration WAF ?',
+    message:
+      'Génère les exports ModSecurity / nginx et exécute nginx -t. ' +
+      'En cas d’échec de validation, la config précédente est restaurée.',
+    confirmLabel: 'Appliquer',
+    danger: true,
+  });
+
+  document.querySelectorAll('.waf-disable-form').forEach(function (form) {
+    confirmSubmit(form, {
+      title: 'Désactiver cette exclusion ?',
+      message: 'L’historique est conservé. Pensez à Appliquer pour pousser vers nginx.',
+      confirmLabel: 'Désactiver',
+      danger: true,
+    });
+  });
+})();
+</script>
 {% endblock %}

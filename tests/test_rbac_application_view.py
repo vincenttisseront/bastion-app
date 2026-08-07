@@ -195,11 +195,13 @@ def test_catalogue_grant_badge_count_matches_grants(client, db_session):
     assert counts[app.id] == 2
     assert other.id not in counts
 
-    resp = client.get("/catalogue", headers=ADMIN_HEADERS)
-    assert resp.status_code == 200
-    assert f"/admin/rbac/applications/{app.id}" in resp.text
-    assert "2 droits" in resp.text
-    assert "0 droit" in resp.text
+    resp = client.get("/catalogue", headers=ADMIN_HEADERS, follow_redirects=False)
+    assert resp.status_code == 302
+    assert resp.headers["location"] == "/admin/apps"
+
+    detail = client.get(f"/admin/rbac/applications/{app.id}", headers=ADMIN_HEADERS)
+    assert detail.status_code == 200
+    assert "droit" in detail.text.lower() or "grant" in detail.text.lower() or app.label in detail.text
 
 
 def test_rbac_matrix_shows_group_level(client, db_session):

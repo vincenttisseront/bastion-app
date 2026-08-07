@@ -82,17 +82,14 @@ document.addEventListener('DOMContentLoaded', function () {
         });
       }
       chip.classList.add('active');
-      // Catalogue (and similar): let BastionFuzzy combine text + chip filters.
-      if (window.BastionFuzzy && window.BastionFuzzy.reapplyAll &&
-          document.getElementById('catalogue-search')) {
-        window.BastionFuzzy.reapplyAll();
-        return;
-      }
       var filter = chip.dataset.filter;
       document.querySelectorAll('[data-mode], [data-severity]').forEach(function (el) {
         var mode = el.dataset.mode || el.dataset.severity;
         el.style.display = filter === 'all' || mode === filter ? '' : 'none';
       });
+      if (window.BastionFuzzy && window.BastionFuzzy.reapplyAll) {
+        window.BastionFuzzy.reapplyAll();
+      }
     });
   });
 
