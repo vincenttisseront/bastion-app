@@ -75,7 +75,7 @@ def test_infrastructure_page_renders_for_admin(
     assert "oauth2-proxy" in resp.text
 
 
-def test_infrastructure_apply_redirects_with_flash(
+def test_infrastructure_apply_redirects_to_wait_page(
     client: TestClient, db_session: Session, tmp_path
 ):
     settings = _test_settings(tmp_path)
@@ -90,10 +90,8 @@ def test_infrastructure_apply_redirects_with_flash(
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    assert resp.headers["location"] == "/admin/infrastructure"
-    assert "portal_flash" in resp.cookies or any(
-        "portal_flash" in v for v in resp.headers.get_list("set-cookie")
-    )
+    location = resp.headers["location"]
+    assert location.startswith("/admin/infrastructure/apply-wait")
 
     exports = Path(settings.exports_dir)
     data = Path(settings.portal_data_dir)
@@ -101,7 +99,7 @@ def test_infrastructure_apply_redirects_with_flash(
     assert (data / "apply-infra.request").is_file()
     assert (data / "apply-infra.status").read_text(encoding="utf-8").startswith("pending")
 
-    page = client.get("/admin/infrastructure", headers=ADMIN_HEADERS)
+    page = client.get(location, headers=ADMIN_HEADERS, follow_redirects=False)
     assert page.status_code == 200
-    assert "Étape 1/2" in page.text or "Export OK" in page.text or "En attente" in page.text
-    assert "signal en attente" in page.text or "pending" in page.text.lower()
+    assert "Application sur l’hôte en cours" in page.text
+    assert "Export OK" in page.text

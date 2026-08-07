@@ -24,7 +24,8 @@ from app.bastion.bastion_fields import (
 )
 from app.robotic.robotic_session_cookies import normalize_injected_cookie_scope
 from app.admin.export import export_app_catalogue_files
-from app.admin.infra_host_apply import request_host_apply, wait_for_host_apply
+from app.admin.infra_host_apply import request_host_apply
+from app.web.admin_infrastructure import host_apply_wait_redirect
 from app.audit import list_audit_entries, log_action
 from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
 from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
@@ -1916,7 +1917,6 @@ def admin_apps_edit_post(
     )
     exported = export_app_catalogue_files(db, settings)
     apply_req = request_host_apply(settings, exported_files=len(exported))
-    apply_state = wait_for_host_apply(settings, timeout_sec=8.0)
     log_action(
         db,
         actor=user.email,
@@ -1926,47 +1926,27 @@ def admin_apps_edit_post(
             "access_mode": mode,
             "public_fqdn": fqdn,
             "host_apply_requested": bool(apply_req.get("ok")),
-            "host_apply_status": apply_state.get("status"),
         },
     )
-    log_action(
-        db,
-        actor=user.email,
-        action=f"infrastructure.apply.{apply_state.get('status', 'unknown')}",
-        target=slug,
-        details={
-            "source": "app.updated",
-            "application_id": app.id,
-            "application_slug": slug,
-            "requested": bool(apply_req.get("ok")),
-            "request_path": apply_req.get("path"),
-            "status_path": apply_state.get("status_path"),
-            "log_path": apply_state.get("log_path"),
-            "request_pending": apply_state.get("request_pending"),
-        },
+    if not apply_req.get("ok"):
+        response = RedirectResponse(url="/admin/apps", status_code=302)
+        flash_redirect(
+            response,
+            (
+                f"Application '{label}' mise à jour, mais signal apply hôte en échec : "
+                f"{apply_req.get('message')}. "
+                "Voir Admin → Infrastructure."
+            ),
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
+    return host_apply_wait_redirect(
+        next_path="/admin/apps",
+        context_label=f"Application '{label}' mise à jour.",
+        audit_target=slug,
+        audit_source="app.updated",
     )
-    response = RedirectResponse(url="/admin/apps", status_code=302)
-    if apply_state.get("status") == "ok":
-        msg = (
-            f"Application '{label}' mise à jour. "
-            "Export et apply hôte confirmés."
-        )
-        category = "success"
-    elif apply_state.get("status") == "error":
-        msg = (
-            f"Application '{label}' mise à jour, mais l'apply hôte a échoué. "
-            "Voir Admin → Infrastructure pour le log détaillé."
-        )
-        category = "error"
-    else:
-        msg = (
-            f"Application '{label}' mise à jour. "
-            "Export demandé ; apply hôte toujours en attente."
-        )
-        category = "error"
-    flash_redirect(response, msg, category, settings.vault_portal_internal_token or "dev")
-    return response
-
 
 class _VaultCredentialBody(BaseModel):
     robotic_username: str = Field(min_length=1)

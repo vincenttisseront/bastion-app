@@ -73,3 +73,12 @@ def test_wait_for_host_apply_returns_current_ok(tmp_path: Path):
 
     host = wait_for_host_apply(settings, timeout_sec=0.1, poll_interval_sec=0.05)
     assert host["status"] == STATUS_OK
+
+
+def test_host_apply_is_terminal():
+    from app.admin.infra_host_apply import host_apply_is_terminal
+
+    assert host_apply_is_terminal("ok")
+    assert host_apply_is_terminal("error")
+    assert not host_apply_is_terminal("pending")
+    assert not host_apply_is_terminal(None)

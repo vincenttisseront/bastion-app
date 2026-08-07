@@ -293,7 +293,9 @@ def test_app_description_saved_on_edit(client: TestClient, db_session: Session):
     assert app.description == "Base de connaissances partagée"
 
 
-def test_app_edit_logs_confirmed_host_apply(client: TestClient, db_session: Session, tmp_path, monkeypatch):
+def test_app_edit_redirects_to_apply_wait_then_confirms(
+    client: TestClient, db_session: Session, tmp_path, monkeypatch
+):
     app = App(
         slug="grommunio",
         label="Grommunio",
@@ -314,12 +316,19 @@ def test_app_edit_logs_confirmed_host_apply(client: TestClient, db_session: Sess
         lambda settings, exported_files=0: {"ok": True, "path": str(tmp_path / "apply-infra.request")},
     )
     monkeypatch.setattr(
-        "app.web.pages.wait_for_host_apply",
-        lambda settings, timeout_sec=0.0: {
+        "app.web.admin_infrastructure.read_host_apply_status",
+        lambda settings, log_max_chars=4000: {
             "status": "ok",
+            "status_label": "Appliqué sur l'hôte",
+            "badge": "ok",
+            "request_pending": False,
             "status_path": str(tmp_path / "apply-infra.status"),
             "log_path": str(tmp_path / "apply-infra.log"),
-            "request_pending": False,
+            "request_path": str(tmp_path / "apply-infra.request"),
+            "request_exists": False,
+            "log_exists": True,
+            "log_text": "done\n",
+            "data_dir": str(tmp_path),
         },
     )
 
@@ -337,6 +346,11 @@ def test_app_edit_logs_confirmed_host_apply(client: TestClient, db_session: Sess
         follow_redirects=False,
     )
     assert resp.status_code == 302
+    assert "/admin/infrastructure/apply-wait" in (resp.headers.get("location") or "")
+
+    wait = client.get(resp.headers["location"], headers=ADMIN_HEADERS, follow_redirects=False)
+    assert wait.status_code == 302
+    assert wait.headers.get("location") == "/admin/apps"
     audit = (
         db_session.query(AuditLog)
         .filter_by(action="infrastructure.apply.ok", target=app.slug)
@@ -347,7 +361,7 @@ def test_app_edit_logs_confirmed_host_apply(client: TestClient, db_session: Sess
     assert audit.details["source"] == "app.updated"
 
 
-def test_app_edit_warns_when_host_apply_still_pending(
+def test_app_edit_stays_on_apply_wait_while_pending(
     client: TestClient, db_session: Session, tmp_path, monkeypatch
 ):
     app = _app(db_session, slug="grommunio2", label="Grommunio2")
@@ -357,12 +371,19 @@ def test_app_edit_warns_when_host_apply_still_pending(
         lambda settings, exported_files=0: {"ok": True, "path": str(tmp_path / "apply-infra.request")},
     )
     monkeypatch.setattr(
-        "app.web.pages.wait_for_host_apply",
-        lambda settings, timeout_sec=0.0: {
+        "app.web.admin_infrastructure.read_host_apply_status",
+        lambda settings, log_max_chars=4000: {
             "status": "pending",
+            "status_label": "En attente apply hôte",
+            "badge": "warn",
+            "request_pending": True,
             "status_path": str(tmp_path / "apply-infra.status"),
             "log_path": str(tmp_path / "apply-infra.log"),
-            "request_pending": True,
+            "request_path": str(tmp_path / "apply-infra.request"),
+            "request_exists": True,
+            "log_exists": True,
+            "log_text": "En attente…\n",
+            "data_dir": str(tmp_path),
         },
     )
 
@@ -380,5 +401,11 @@ def test_app_edit_warns_when_host_apply_still_pending(
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    page = client.get("/admin/apps", headers=ADMIN_HEADERS)
-    assert "apply hôte toujours en attente" in page.text
+    location = resp.headers.get("location") or ""
+    assert "/admin/infrastructure/apply-wait" in location
+
+    page = client.get(location, headers=ADMIN_HEADERS, follow_redirects=False)
+    assert page.status_code == 200
+    assert "Application sur l’hôte en cours" in page.text
+    assert "Grommunio2" in page.text
+    assert "apply hôte toujours en attente" not in page.text
