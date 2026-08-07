@@ -18,11 +18,12 @@ DEFAULT_COLUMNS = [
     "timestamp",
     "actor",
     "action",
+    "target",
     "ip",
     "result",
     "detail",
 ]
-OPTIONAL_DETAIL_COLUMNS = ("reason", "x_real_ip", "x_forwarded_for", "peer", "resolved", "target")
+OPTIONAL_DETAIL_COLUMNS = ("reason", "x_real_ip", "x_forwarded_for", "peer", "resolved")
 ALL_COLUMNS = DEFAULT_COLUMNS + list(OPTIONAL_DETAIL_COLUMNS)
 
 _RESULT_VALUES = frozenset({"success", "error", "info"})
@@ -74,7 +75,11 @@ def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
 
     raw_details = row.details if isinstance(row.details, dict) else {}
     display_actor, details = normalize_audit_actor(row.actor, raw_details)
-    detail_short, detail_full = format_details_for_display(details)
+    detail_short, detail_full = format_details_for_display(
+        details,
+        target=row.target or "",
+        action=row.action or "",
+    )
     status = None
     if "status" in details:
         status = str(details.get("status"))

@@ -16,6 +16,10 @@ _SENSITIVE_KEYS = re.compile(
 
 # Prefer these keys for the compact table label (order = priority).
 _SUMMARY_KEYS = (
+    "app_label",
+    "app_slug",
+    "slug",
+    "application",
     "reason",
     "error",
     "family",
@@ -23,6 +27,7 @@ _SUMMARY_KEYS = (
     "status",
     "mode",
     "type",
+    "access_level",
 )
 
 
@@ -70,12 +75,12 @@ def summarize_details_for_table(details: Any) -> str:
             if len(text) > 28:
                 text = text[:27] + "…"
             parts.append(text)
-            if len(parts) >= 2:
+            if len(parts) >= 3:
                 break
         n = len(masked)
         if parts:
             label = " · ".join(parts)
-            if n > 2:
+            if n > len(parts):
                 label = f"{label} · {n} champs"
             return label
         if n == 0:
@@ -92,21 +97,33 @@ def summarize_details_for_table(details: Any) -> str:
     return text
 
 
-def format_details_for_display(details: Any, *, max_len: int = 120) -> tuple[str, str]:
+def format_details_for_display(
+    details: Any,
+    *,
+    max_len: int = 120,
+    target: str | None = None,
+    action: str | None = None,
+) -> tuple[str, str]:
     """Return (table_summary, full_pretty) for UI.
 
     ``full_pretty`` is always the complete masked payload (pretty JSON for
     dict/list). The first element is a compact label via
     ``summarize_details_for_table`` — not a truncated JSON dump.
-    ``max_len`` is kept for call-site compatibility and ignored for summaries.
+    When ``target`` is set (e.g. app slug on ``app_launch``), it is shown first
+    so the launched app is visible without opening the drawer.
+    ``max_len`` / ``action`` kept for call-site compatibility.
     """
-    del max_len  # display summary is keyword-based, not character truncation
-    if details is None:
-        return "", ""
-    summary = summarize_details_for_table(details)
+    del max_len
+    del action
+    summary = summarize_details_for_table(details) if details is not None else ""
+    tgt = (target or "").strip()
+    if tgt and tgt.lower() not in summary.lower():
+        summary = f"{tgt} · {summary}" if summary else tgt
     if isinstance(details, (dict, list)):
         masked = mask_secrets(details)
         pretty = json.dumps(masked, ensure_ascii=False, indent=2)
         return summary, pretty
+    if details is None:
+        return summary, ""
     text = mask_secrets_text(str(details))
-    return summary, text
+    return summary or text, text

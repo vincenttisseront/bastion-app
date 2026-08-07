@@ -24,8 +24,11 @@ Filtres : acteur, IP, action, détail, recherche tokenisée, niveaux success/err
 
 ## Accès apps
 
-Parse le `log_format app` nginx (`auth_err`, `auth_email`, upstream…).
+Parse le `log_format app` nginx : timings (`rt`/`uct`/`uht`/`ut`), upstream,
+taille requête, XFF / `X-Portal-Client-IP`, proto, `X-Request-Id`, identité
+(`auth_email`/`auth_user`/`auth_app`/`auth_src`/`auth_pref`), `auth_err`.
 Masque par défaut les hops internes `127.0.0.1:8080`.
+Après changement du format : `apply` infra + recreate nginx pour les nouvelles lignes.
 
 ## Conteneurs
 

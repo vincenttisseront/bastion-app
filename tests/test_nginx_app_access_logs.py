@@ -205,6 +205,40 @@ def test_parse_app_access_activesync_user_and_empty_auth_err():
     assert e_email["auth_email"] == "vincent.tisseront@ar-systems.fr"
     assert e_email["upstream_addr"] == "10.0.31.112:443"
 
+    enriched = (
+        "92.184.121.16 - - [07/Aug/2026:18:10:00 +0000] host=wikijs.ar-systems.fr "
+        '"GET /en HTTP/1.1" 200 1234 '
+        '"https://portal.ar-systems.fr/" "Mozilla/5.0" '
+        "rt=0.120 uct=0.001 uht=0.040 ut=0.110 "
+        "upstream=10.0.31.112:443 us=200 "
+        "req_len=512 "
+        "xff=\"203.0.113.9, 10.0.0.2\" "
+        "xpci=203.0.113.9 "
+        "proto=https "
+        "rid=req-abc-123 "
+        "auth_err= "
+        "auth_email=vincent.tisseront@ar-systems.fr "
+        "auth_user=vincent.tisseront "
+        "auth_app=wikijs "
+        "auth_src=portal "
+        "auth_pref=vtisseront"
+    )
+    e3 = parse_app_access_line(enriched)
+    assert e3 is not None
+    assert e3["parse_ok"] is True
+    assert e3["upstream_connect_time"] == "0.001"
+    assert e3["upstream_header_time"] == "0.040"
+    assert e3["request_length"] == "512"
+    assert e3["x_forwarded_for"] == "203.0.113.9, 10.0.0.2"
+    assert e3["x_portal_client_ip"] == "203.0.113.9"
+    assert e3["client_ip"] == "203.0.113.9"
+    assert e3["forwarded_proto"] == "https"
+    assert e3["request_id"] == "req-abc-123"
+    assert e3["auth_user"] == "vincent.tisseront"
+    assert e3["auth_app"] == "wikijs"
+    assert e3["auth_source"] == "portal"
+    assert e3["auth_preferred"] == "vtisseront"
+
     spaced = (
         r"172.24.1.230 - A.R. Systems\x5Ccherve.tisseront@ar-systems.fr "
         "[05/Aug/2026:15:36:10 +0000] host=webmail.ar-systems.fr "

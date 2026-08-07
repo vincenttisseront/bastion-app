@@ -37,6 +37,19 @@ intégré concurrent. L’URL d’entrée portail reste optionnelle (défaut = r
 Le bastion reste la **porte réseau** (session + AccessGrant) ; l’application crée
 **sa** session via l’IdP.
 
+## Vault — formulaire (`generic_form`)
+
+La tuile ouvre `/api/internal/impersonate/{slug}` puis hop cookies sur le FQDN.
+
+| Cible | URL d’entrée | Champs |
+|-------|--------------|--------|
+| grommunio-web | `…/web/?logon` | `username` / `password` |
+| grommunio-admin | `…/api/v1/login` | `user` / `pass` |
+| QNAP QTS | `…/cgi-bin/authLogin.cgi` | `user` / `pwd` (Base64) |
+
+QNAP : **ne pas** utiliser Basic Auth (UI formulaire). Le driver détecte
+`authLogin.cgi`, encode `pwd`, lit `authSid` et pose le cookie `NAS_SID`.
+
 ## Vault
 
 Secrets applicatifs chiffrés (Fernet) dans la base :

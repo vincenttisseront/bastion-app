@@ -28,16 +28,55 @@ _MAX_TAIL = 5000
 
 # Bastion nginx ``log_format app`` (see docker/nginx/nginx.conf).
 # remote_user may contain spaces (ActiveSync: ``A.R. Systems\user@…``).
-# Trailing kv values may be empty (``auth_err=``).
-_APP_ACCESS_RE = re.compile(
+# Fixed head + flexible trailing kv (old and new formats parse the same way).
+_APP_ACCESS_HEAD_RE = re.compile(
     r"^(?P<remote_addr>\S+) - (?P<remote_user>.+?) \[(?P<time_local>[^\]]+)\] "
     r"host=(?P<host>\S+) \"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+) "
-    r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\" "
-    r"rt=(?P<request_time>\S*) upstream=(?P<upstream_addr>\S*) "
-    r"us=(?P<upstream_status>\S*) ut=(?P<upstream_response_time>\S*) "
-    r"auth_err=(?P<auth_err>\S*)(?:\s+auth_email=(?P<auth_email>\S*))?\s*$"
+    r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\"\s*(?P<kv>.*)$"
 )
+_KV_RE = re.compile(r'(\w+)=(?:"([^"]*)"|(\S*))')
 _NGINX_HEX_ESCAPE_RE = re.compile(r"\\x([0-9A-Fa-f]{2})")
+
+# Short nginx log keys → entry field names.
+_KV_ALIASES: dict[str, str] = {
+    "rt": "request_time",
+    "uct": "upstream_connect_time",
+    "uht": "upstream_header_time",
+    "ut": "upstream_response_time",
+    "upstream": "upstream_addr",
+    "us": "upstream_status",
+    "req_len": "request_length",
+    "xff": "x_forwarded_for",
+    "xpci": "x_portal_client_ip",
+    "proto": "forwarded_proto",
+    "rid": "request_id",
+    "auth_err": "auth_err",
+    "auth_email": "auth_email",
+    "auth_user": "auth_user",
+    "auth_app": "auth_app",
+    "auth_src": "auth_source",
+    "auth_pref": "auth_preferred",
+}
+
+_EMPTY_META_FIELDS = (
+    "request_time",
+    "upstream_connect_time",
+    "upstream_header_time",
+    "upstream_response_time",
+    "upstream_addr",
+    "upstream_status",
+    "request_length",
+    "x_forwarded_for",
+    "x_portal_client_ip",
+    "forwarded_proto",
+    "request_id",
+    "auth_err",
+    "auth_email",
+    "auth_user",
+    "auth_app",
+    "auth_source",
+    "auth_preferred",
+)
 
 
 def resolve_nginx_app_logs_dir(settings: Settings) -> Path:
@@ -205,6 +244,16 @@ def _status_class(status: str) -> str:
     return "muted"
 
 
+def _parse_kv_tail(kv: str) -> dict[str, str]:
+    """Map trailing ``key=value`` / ``key="value"`` tokens to entry fields."""
+    out = {name: "" for name in _EMPTY_META_FIELDS}
+    for short, quoted, bare in _KV_RE.findall(kv or ""):
+        field = _KV_ALIASES.get(short)
+        if field:
+            out[field] = quoted if quoted else bare
+    return out
+
+
 def _entry_from_groups(
     raw: str,
     g: dict[str, str],
@@ -217,12 +266,14 @@ def _entry_from_groups(
     upstream = g.get("upstream_addr") or ""
     is_internal = upstream.startswith("127.0.0.1:") or upstream.startswith("[::1]:")
     remote_user = _decode_nginx_escapes(g.get("remote_user") or "")
+    client_ip = (g.get("x_portal_client_ip") or "").strip() or (g.get("remote_addr") or "")
     return {
         "id": f"{index}-{g.get('time_local') or 't'}-{status}-{path[:48]}",
         "parse_ok": parse_ok,
         "ecosystem": "nginx_access",
         "raw": raw,
         "remote_addr": g.get("remote_addr") or "",
+        "client_ip": client_ip,
         "remote_user": remote_user,
         "time_local": g.get("time_local") or "",
         "host": g.get("host") or "",
@@ -236,50 +287,24 @@ def _entry_from_groups(
         "referer": g.get("referer") or "",
         "user_agent": g.get("user_agent") or "",
         "request_time": g.get("request_time") or "",
+        "upstream_connect_time": g.get("upstream_connect_time") or "",
+        "upstream_header_time": g.get("upstream_header_time") or "",
+        "upstream_response_time": g.get("upstream_response_time") or "",
         "upstream_addr": upstream,
         "upstream_status": g.get("upstream_status") or "",
-        "upstream_response_time": g.get("upstream_response_time") or "",
+        "request_length": g.get("request_length") or "",
+        "x_forwarded_for": g.get("x_forwarded_for") or "",
+        "x_portal_client_ip": g.get("x_portal_client_ip") or "",
+        "forwarded_proto": g.get("forwarded_proto") or "",
+        "request_id": g.get("request_id") or "",
         "auth_err": g.get("auth_err") or "",
         "auth_email": g.get("auth_email") or "",
+        "auth_user": g.get("auth_user") or "",
+        "auth_app": g.get("auth_app") or "",
+        "auth_source": g.get("auth_source") or "",
+        "auth_preferred": g.get("auth_preferred") or "",
         "is_internal_hop": is_internal,
     }
-
-
-def _loose_parse_app_access(raw: str) -> dict[str, str] | None:
-    """Best-effort field extraction when the full-line regex does not match."""
-    m_head = re.match(
-        r"^(?P<remote_addr>\S+) - (?P<remote_user>.+?) \[(?P<time_local>[^\]]+)\] "
-        r"host=(?P<host>\S+) \"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+)",
-        raw,
-    )
-    if not m_head:
-        return None
-    g = m_head.groupdict()
-    quoted = re.findall(r'"([^"]*)"', raw[m_head.end() :])
-    # After status/bytes: referer, user_agent (request already captured).
-    g["referer"] = quoted[0] if len(quoted) >= 1 else ""
-    g["user_agent"] = quoted[1] if len(quoted) >= 2 else ""
-    for key in (
-        "request_time",
-        "upstream_addr",
-        "upstream_status",
-        "upstream_response_time",
-        "auth_err",
-        "auth_email",
-    ):
-        g[key] = ""
-    for key, pattern in (
-        ("request_time", r"\brt=(\S*)"),
-        ("upstream_addr", r"\bupstream=(\S*)"),
-        ("upstream_status", r"\bus=(\S*)"),
-        ("upstream_response_time", r"\but=(\S*)"),
-        ("auth_err", r"\bauth_err=(\S*)"),
-        ("auth_email", r"\bauth_email=(\S*)"),
-    ):
-        km = re.search(pattern, raw)
-        if km:
-            g[key] = km.group(1)
-    return g
 
 
 def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | None:
@@ -287,18 +312,20 @@ def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | N
     raw = (line or "").rstrip("\r\n")
     if not raw.strip():
         return None
-    m = _APP_ACCESS_RE.match(raw)
+    m = _APP_ACCESS_HEAD_RE.match(raw)
     if m:
-        return _entry_from_groups(raw, m.groupdict(), index=index, parse_ok=True)
-    loose = _loose_parse_app_access(raw)
-    if loose:
-        return _entry_from_groups(raw, loose, index=index, parse_ok=True)
+        g = m.groupdict()
+        kv = g.pop("kv", "") or ""
+        g.update(_parse_kv_tail(kv))
+        return _entry_from_groups(raw, g, index=index, parse_ok=True)
+    empty = {name: "" for name in _EMPTY_META_FIELDS}
     return {
         "id": f"raw-{index}",
         "parse_ok": False,
         "ecosystem": "nginx_access",
         "raw": raw,
         "remote_addr": "",
+        "client_ip": "",
         "remote_user": "",
         "time_local": "",
         "host": "",
@@ -311,12 +338,7 @@ def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | N
         "body_bytes_sent": "",
         "referer": "",
         "user_agent": "",
-        "request_time": "",
-        "upstream_addr": "",
-        "upstream_status": "",
-        "upstream_response_time": "",
-        "auth_err": "",
-        "auth_email": "",
+        **empty,
         "is_internal_hop": False,
     }
 

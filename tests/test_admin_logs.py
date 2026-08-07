@@ -364,6 +364,27 @@ def test_format_details_short_has_no_expand_pair():
     assert "\n" in full
 
 
+def test_format_details_app_launch_shows_target_and_label():
+    from app.web.log_masking import format_details_for_display, summarize_details_for_table
+
+    details = {
+        "application_id": 12,
+        "app_slug": "wikijs",
+        "app_label": "Wiki.js",
+        "access_level": "Launch",
+        "sources": ["via groupe ARSYSTEMS-Users"],
+        "grant_ids": [12],
+    }
+    label = summarize_details_for_table(details)
+    assert "Wiki.js" in label
+    assert "Launch" in label
+    short, full = format_details_for_display(details, target="wikijs", action="app_launch")
+    assert "Wiki.js" in short
+    assert "wikijs" in short
+    assert "Launch" in short
+    assert "application_id" in full
+
+
 def test_summarize_session_hijack_detail():
     from app.web.log_masking import format_details_for_display, summarize_details_for_table
 
