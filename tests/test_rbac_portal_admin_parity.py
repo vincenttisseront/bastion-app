@@ -53,7 +53,6 @@ ADMIN_ROUTES = [
     "/admin/logs",
     "/admin/health",
     "/sessions",
-    "/catalogue",
 ]
 
 

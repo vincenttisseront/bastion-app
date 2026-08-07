@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.access_modes import (
-    is_user_catalogue_mode,
     normalize_access_mode,
     validate_app_access_fields,
 )
@@ -49,7 +48,6 @@ from app.bastion.pending_host_service import (
     reject_pending_host,
     suggest_slug,
 )
-from app.rbac.grants_service import count_grants_by_application
 from app.robotic.robotic_session_cookies import shared_parent_domain
 from app.sso_settings import Settings, get_settings
 from app.web.app_logos import (
@@ -426,36 +424,15 @@ def sessions_page(
 
 
 @authenticated_router.get("/catalogue")
-def catalogue_page(
-    request: Request,
+def catalogue_page_redirect(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_user),
 ):
-    from app.rbac.effective_access_service import get_effective_apps_for_user
-
+    """Legacy URL — UI removed; admins → Apps, users → Mes applications."""
     if is_portal_admin(user, db, settings):
-        user.is_admin = True
-        apps = (
-            db.query(App)
-            .filter_by(enabled=True)
-            .order_by(App.label)
-            .all()
-        )
-        apps = [a for a in apps if is_user_catalogue_mode(a.access_mode)]
-    else:
-        # Single source of truth: AccessGrant (legacy group↔app links backfilled as launch).
-        entries = get_effective_apps_for_user(
-            db,
-            keycloak_user_id=user.keycloak_user_id,
-            group_names=user.groups,
-        )
-        apps = [e.app for e in entries]
-    grant_counts = count_grants_by_application(db) if user.is_admin else {}
-    return render(
-        "catalogue/index.html",
-        **_ctx(request, settings, apps=apps, grant_counts=grant_counts),
-    )
+        return RedirectResponse(url="/admin/apps", status_code=302)
+    return RedirectResponse(url="/apps", status_code=302)
 
 
 # --- Auth ---

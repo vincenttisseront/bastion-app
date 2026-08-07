@@ -38,7 +38,7 @@
       <div class="metric-label">Tentatives bloquées</div>
     </a>
 
-    <a href="/catalogue" class="metric-card blue metric-card-link">
+    <a href="/admin/apps" class="metric-card blue metric-card-link">
       <div class="metric-head">
         <div class="metric-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
@@ -46,7 +46,7 @@
         <span class="metric-trend {% if metrics.total_apps and metrics.enabled_apps == metrics.total_apps %}down{% else %}flat{% endif %}">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</span>
       </div>
       <div class="metric-value">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</div>
-      <div class="metric-label">Santé catalogue</div>
+      <div class="metric-label">Santé apps</div>
       <div class="metric-sub">{{ metrics.enabled_apps }}/{{ metrics.total_apps }} apps actives</div>
     </a>
 

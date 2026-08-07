@@ -139,8 +139,9 @@ def _apps_visible_to_user(
     Catalogue API visibility (F-03).
 
     Portal admins / break-glass (via is_portal_admin) see all enabled apps —
-    same rule as ``catalogue_page``. End users see AccessGrant-effective apps only.
-    Full admin CRUD remains on ``/admin/apps`` (HTML) and token-mutated ``router``.
+    same rule as Mes applications (``/apps``). End users see AccessGrant-effective
+    apps only. Full admin CRUD remains on ``/admin/apps`` (HTML) and token-mutated
+    ``router``.
     """
     if is_portal_admin(user, db, settings):
         apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
