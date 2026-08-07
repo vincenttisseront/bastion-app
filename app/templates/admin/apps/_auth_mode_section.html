@@ -2,6 +2,7 @@
    Set wizard_embed=true to render body-only (app config wizard panels). #}
 {% set current_auth = form_values.auth_mode | default(app.auth_mode if app is defined else 'sso') %}
 {% set normalized_auth = current_auth if current_auth in auth_modes else ('sso' if current_auth in ('oidc', '') else current_auth) %}
+{% set current_bridge = form_values.sso_bridge | default(app.sso_bridge if app is defined else 'trusted_headers') %}
 {% set wizard_embed = wizard_embed | default(false) %}
 
 {% macro auth_mode_body() %}
@@ -21,19 +22,28 @@
         {% endfor %}
       </select>
       {% if errors.auth_mode %}<div class="form-error">{{ errors.auth_mode }}</div>{% endif %}
+      <div id="sso-bridge-group" hidden>
+        <div class="form-group" style="margin-top:var(--sp-3);">
+          <label class="form-label" for="sso_bridge">Mode SSO applicatif</label>
+          <select id="sso_bridge" name="sso_bridge" class="form-select" data-sso-bridge-select>
+            {% for bridge in sso_bridges %}
+            <option value="{{ bridge }}"{% if current_bridge == bridge %} selected{% endif %}>{{ sso_bridge_labels[bridge] }}</option>
+            {% endfor %}
+          </select>
+          {% if errors.sso_bridge %}<div class="form-error">{{ errors.sso_bridge }}</div>{% endif %}
+          <p class="form-help" data-sso-bridge-help-trusted>
+            {{ sso_bridge_help.trusted_headers }}
+          </p>
+          <p class="form-help" data-sso-bridge-help-oidc hidden>
+            {{ sso_bridge_help.app_oidc }}
+          </p>
+        </div>
+      </div>
       <p class="form-help" data-auth-mode-sso-help>
-        <strong>SSO</strong> : le bastion vérifie la session portail + AccessGrant, puis
-        injecte l’identité vers l’upstream (<span class="mono">X-Forwarded-Email</span>,
-        <span class="mono">X-Forwarded-User</span>, …). L’appli doit accepter ces
-        en-têtes de confiance (ex. Open WebUI&nbsp;:
-        <span class="mono">WEBUI_AUTH_TRUSTED_EMAIL_HEADER=X-Forwarded-Email</span>
-        et <span class="mono">WEBUI_AUTH_TRUSTED_NAME_HEADER=X-Forwarded-User</span>).
-        Avec trusted headers, désactivez l’OAuth intégré de l’appli
-        (<span class="mono">ENABLE_OAUTH_SIGNUP=false</span>) pour éviter le conflit
-        avec le bouton Keycloak local.
-        Déployez <strong>bastion-app</strong> (nouveau code auth) puis
-        <strong>Appliquer l’infra</strong> (export nginx + reload) — sinon l’en-tête
-        n’atteint jamais l’upstream.
+        <strong>SSO</strong> : le bastion vérifie la session portail + AccessGrant.
+        Choisissez le <strong>mode SSO applicatif</strong> selon que la cible
+        consomme les en-têtes de confiance ou gère elle-même l’OIDC.
+        Puis <strong>Appliquer l’infra</strong> si le vhost change.
       </p>
       <p id="generic-wsse-help" class="form-help" hidden>
         En-tête X-WSSE (UsernameToken, digest SHA-1) régénéré à chaque requête par Nginx.
@@ -42,18 +52,33 @@
     </div>
   {% endif %}
 
-    <div id="generic-form-fields" hidden>
+    {# Shared login_form_url: optional/required according to SSO bridge or generic_form. #}
+    <div id="portal-entry-url-group" hidden>
       <div class="form-group">
-        <label class="form-label" for="login_form_url">URL du formulaire de login <span class="req">*</span></label>
+        <label class="form-label" for="login_form_url">
+          <span data-portal-entry-label-sso>URL / chemin d’entrée portail</span>
+          <span data-portal-entry-label-generic hidden>URL du formulaire de login <span class="req">*</span></span>
+          <span data-portal-entry-req-oidc class="req" hidden>*</span>
+        </label>
         <div class="login-form-url-row">
           <input type="url" id="login_form_url" name="login_form_url" class="form-input{% if errors.login_form_url %} is-invalid{% endif %}"
             value="{{ form_values.login_form_url | default(app.login_form_url if app is defined else '') }}"
-            data-login-form-url>
-          <button type="button" id="btn-analyze-login-form" class="btn btn-secondary btn-sm" disabled title="Analyser le HTML de la page pour pré-remplir les champs">
+            data-login-form-url
+            placeholder="https://app.example.com/login">
+          <button type="button" id="btn-analyze-login-form" class="btn btn-secondary btn-sm" hidden disabled title="Analyser le HTML de la page pour pré-remplir les champs">
             🔍 Analyser
           </button>
         </div>
-        <p class="form-help">
+        <p class="form-help" data-portal-entry-help-sso-trusted>
+          Optionnel. Laissé vide = racine du FQDN. Adapté aux apps qui créent la
+          session uniquement via les en-têtes injectés.
+        </p>
+        <p class="form-help" data-portal-entry-help-sso-oidc hidden>
+          Obligatoire. Chemin ouvert par la tuile (souvent
+          <span class="mono">https://app.example.com/login</span>) pour déclencher
+          le SSO IdP de l’application (Bypass Login / équivalent).
+        </p>
+        <p class="form-help" data-portal-entry-help-generic hidden>
           Endpoint qui accepte un POST form-urlencoded. Pour grommunio-web :
           <span class="mono">https://webmail…/web/?logon</span>
           (champs <span class="mono">username</span> / <span class="mono">password</span>) —
@@ -66,6 +91,9 @@
         {% if errors.login_form_url %}<div class="form-error">{{ errors.login_form_url }}</div>{% endif %}
         <div id="login-form-analyze-panel" class="login-form-analyze-panel" hidden></div>
       </div>
+    </div>
+
+    <div id="generic-form-fields" hidden>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label" for="login_username_field">Champ utilisateur</label>

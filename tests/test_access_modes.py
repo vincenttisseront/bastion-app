@@ -48,6 +48,64 @@ def test_app_launch_url_subdomain_uses_login_entry_path():
     assert app_launch_url(app) == "https://webmail.example.fr/web/"
 
 
+def test_app_launch_url_wikijs_sso_entry_keeps_login_without_slash():
+    """Portal tile must open /login (Bypass Login Screen), not /login/."""
+    app = SimpleNamespace(
+        access_mode="subdomain_proxy",
+        upstream_url="https://10.0.31.112/",
+        public_fqdn="wikijs.ar-systems.fr",
+        slug="wikijs",
+        robotic_driver=None,
+        login_form_url="https://wikijs.ar-systems.fr/login",
+    )
+    assert app_launch_url(app) == "https://wikijs.ar-systems.fr/login"
+
+
+def test_normalize_sso_bridge_and_app_oidc_requires_entry():
+    from app.bastion.bastion_fields import normalize_sso_bridge
+    from app.web.pages import _validate_auth_fields
+
+    assert normalize_sso_bridge(None) == "trusted_headers"
+    assert normalize_sso_bridge("APP_OIDC") == "app_oidc"
+    assert normalize_sso_bridge("nope") == "trusted_headers"
+
+    missing = _validate_auth_fields(
+        "subdomain_proxy",
+        "sso",
+        "",
+        "username",
+        "password",
+        "POST",
+        "",
+        sso_bridge="app_oidc",
+    )
+    assert "login_form_url" in missing
+
+    ok = _validate_auth_fields(
+        "subdomain_proxy",
+        "sso",
+        "https://app.example.com/login",
+        "username",
+        "password",
+        "POST",
+        "",
+        sso_bridge="app_oidc",
+    )
+    assert ok == {}
+
+    trusted_ok = _validate_auth_fields(
+        "subdomain_proxy",
+        "sso",
+        "",
+        "username",
+        "password",
+        "POST",
+        "",
+        sso_bridge="trusted_headers",
+    )
+    assert trusted_ok == {}
+
+
 def test_validate_public_proxy_requires_fqdn():
     errors = validate_app_access_fields("public_proxy", "http://127.0.0.1:8080", "")
     assert "public_fqdn" in errors

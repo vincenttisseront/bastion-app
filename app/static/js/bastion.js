@@ -387,8 +387,20 @@ function initAccessModeForm() {
   var rbacWarn = document.getElementById('access-mode-public-rbac-warning');
   var authSection = document.getElementById('auth-mode-section');
   var authSelect = document.querySelector('[data-auth-mode-select]');
+  var ssoBridgeGroup = document.getElementById('sso-bridge-group');
+  var ssoBridgeSelect = document.querySelector('[data-sso-bridge-select]');
+  var portalEntryGroup = document.getElementById('portal-entry-url-group');
   var genericFields = document.getElementById('generic-form-fields');
   var wsseHelp = document.getElementById('generic-wsse-help');
+  var analyzeBtn = document.getElementById('btn-analyze-login-form');
+  var labelSso = document.querySelector('[data-portal-entry-label-sso]');
+  var labelGeneric = document.querySelector('[data-portal-entry-label-generic]');
+  var reqOidc = document.querySelector('[data-portal-entry-req-oidc]');
+  var helpSsoTrusted = document.querySelector('[data-portal-entry-help-sso-trusted]');
+  var helpSsoOidc = document.querySelector('[data-portal-entry-help-sso-oidc]');
+  var helpGeneric = document.querySelector('[data-portal-entry-help-generic]');
+  var helpBridgeTrusted = document.querySelector('[data-sso-bridge-help-trusted]');
+  var helpBridgeOidc = document.querySelector('[data-sso-bridge-help-oidc]');
   if (!select || !labelEl || !helpEl) return;
 
   function syncFqdnCookieWarning() {
@@ -438,15 +450,41 @@ function initAccessModeForm() {
     syncFqdnCookieWarning();
   }
 
+  function currentSsoBridge() {
+    if (!ssoBridgeSelect) return 'trusted_headers';
+    return ssoBridgeSelect.value || 'trusted_headers';
+  }
+
   function applyAuthMode() {
     if (!authSelect) return;
     var mode = authSelect.value;
-    // generic_form only — keep hidden for generic_basic_auth and generic_wsse
+    var isSso = mode === 'sso' || mode === 'oidc';
+    var isGenericForm = mode === 'generic_form';
+    var bridge = currentSsoBridge();
+    var isAppOidc = isSso && bridge === 'app_oidc';
+    if (ssoBridgeGroup) {
+      ssoBridgeGroup.hidden = !isSso;
+    }
+    if (helpBridgeTrusted) helpBridgeTrusted.hidden = !isSso || bridge !== 'trusted_headers';
+    if (helpBridgeOidc) helpBridgeOidc.hidden = !isAppOidc;
+    if (portalEntryGroup) {
+      portalEntryGroup.hidden = !(isSso || isGenericForm);
+    }
     if (genericFields) {
-      genericFields.hidden = (mode !== 'generic_form');
+      genericFields.hidden = !isGenericForm;
     }
     if (wsseHelp) {
-      wsseHelp.hidden = (mode !== 'generic_wsse');
+      wsseHelp.hidden = mode !== 'generic_wsse';
+    }
+    if (labelSso) labelSso.hidden = !isSso;
+    if (labelGeneric) labelGeneric.hidden = !isGenericForm;
+    if (reqOidc) reqOidc.hidden = !isAppOidc;
+    if (helpSsoTrusted) helpSsoTrusted.hidden = !(isSso && bridge === 'trusted_headers');
+    if (helpSsoOidc) helpSsoOidc.hidden = !isAppOidc;
+    if (helpGeneric) helpGeneric.hidden = !isGenericForm;
+    if (analyzeBtn) {
+      analyzeBtn.hidden = !isGenericForm;
+      if (!isGenericForm) analyzeBtn.disabled = true;
     }
   }
 
@@ -459,6 +497,9 @@ function initAccessModeForm() {
   if (authSelect) {
     authSelect.addEventListener('change', applyAuthMode);
     applyAuthMode();
+  }
+  if (ssoBridgeSelect) {
+    ssoBridgeSelect.addEventListener('change', applyAuthMode);
   }
 }
 

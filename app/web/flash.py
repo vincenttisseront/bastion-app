@@ -15,6 +15,9 @@ from app.bastion.bastion_fields import (
     CREDENTIAL_MODES,
     IDENTITY_FORMAT_LABELS,
     IDENTITY_FORMATS,
+    SSO_BRIDGE_HELP,
+    SSO_BRIDGE_LABELS,
+    SSO_BRIDGES,
 )
 from app.robotic.robotic_session_cookies import (
     INJECTED_COOKIE_SCOPE_LABELS,
@@ -165,6 +168,9 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "access_mode_labels": ACCESS_MODE_LABELS,
         "auth_modes": AUTH_MODES,
         "auth_mode_labels": AUTH_MODE_LABELS,
+        "sso_bridges": SSO_BRIDGES,
+        "sso_bridge_labels": SSO_BRIDGE_LABELS,
+        "sso_bridge_help": SSO_BRIDGE_HELP,
         "credential_modes": CREDENTIAL_MODES,
         "credential_mode_labels": CREDENTIAL_MODE_LABELS,
         "identity_formats": IDENTITY_FORMATS,
