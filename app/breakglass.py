@@ -836,32 +836,56 @@ def set_breakglass_cookie(
     *,
     max_age: int | None = None,
 ) -> None:
-    # Host-only cookie (no Domain=) so it stays on the portal host and works in tests.
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=token,
-        max_age=max_age if max_age is not None else COOKIE_MAX_AGE,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        path="/",
-    )
+    """Set ``bg_session`` on the portal parent domain when possible.
+
+    Same Domain strategy as ``bastion_session``: subdomain auth_request
+    (wikijs.*, webmail.*, …) must receive the cookie or break-glass admins
+    only work on the portal host and get opaque nginx 500s on apps.
+    """
+    from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
+
+    kwargs: dict = {
+        "key": COOKIE_NAME,
+        "value": token,
+        "max_age": max_age if max_age is not None else COOKIE_MAX_AGE,
+        "httponly": True,
+        "secure": True,
+        "samesite": "lax",
+        "path": "/",
+    }
+    domain = portal_sso_cookie_domain(settings.portal_domain or "")
+    if domain:
+        kwargs["domain"] = domain
+    response.set_cookie(**kwargs)
 
 
-def clear_breakglass_cookie(response: Response) -> None:
+def clear_breakglass_cookie(
+    response: Response,
+    settings: Settings | None = None,
+) -> None:
     """Clear ``bg_session`` with the same flags used at set time (Secure/HttpOnly).
 
     Browsers ignore a delete_cookie that omits ``Secure`` when the cookie was
     set with ``Secure`` — that left break-glass sessions alive after GET /logout
     and bounced users from /auth/login back to /apps.
+
+    Clears parent-domain cookie and any legacy host-only copy on the portal.
     """
-    response.delete_cookie(
-        key=COOKIE_NAME,
-        path="/",
-        httponly=True,
-        secure=True,
-        samesite="lax",
-    )
+    from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
+
+    clear_kwargs: dict = {
+        "key": COOKIE_NAME,
+        "path": "/",
+        "httponly": True,
+        "secure": True,
+        "samesite": "lax",
+    }
+    response.delete_cookie(**clear_kwargs)
+    domain = None
+    if settings is not None:
+        domain = portal_sso_cookie_domain(settings.portal_domain or "")
+    if domain:
+        response.delete_cookie(**clear_kwargs, domain=domain)
 
 
 def revoke_breakglass_session_from_request(
@@ -1075,7 +1099,7 @@ async def breakglass_logout(
     db: Session = Depends(get_db),
 ):
     username = revoke_breakglass_session_from_request(request, db, settings)
-    clear_breakglass_cookie(response)
+    clear_breakglass_cookie(response, settings)
     log_action(
         db,
         actor=username,

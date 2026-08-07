@@ -466,7 +466,8 @@ async def subdomain_auth(
             oauth2_ok = True
             oauth2_headers = resp.headers
     except httpx.RequestError:
-        # Fall through to break-glass; if neither works, return 503 below.
+        # Fall through to break-glass; if neither works, return 401 below
+        # (never 503 — nginx auth_request maps unexpected codes to client 500).
         oauth2_unreachable = True
 
     if oauth2_ok:
@@ -594,7 +595,12 @@ async def subdomain_auth(
         )
 
     if oauth2_unreachable:
-        return Response(status_code=503)
+        # Must be 401 (or 403): auth_request treats 5xx as client 500 with
+        # upstream=- (wikijs symptom). Redirect to portal login / break-glass.
+        return Response(
+            status_code=401,
+            headers={"X-Auth-Error": "oauth2-unreachable"},
+        )
     # Unauthenticated — nginx error_page 401 → @portal_redirect → /auth/login.
     # Distinct from 403 (authenticated, no AccessGrant).
     from app.auth import extract_oidc_session_cookie_raw

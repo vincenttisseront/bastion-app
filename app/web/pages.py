@@ -546,7 +546,7 @@ def login_page(
                         **_login_surface_flags(request, db, settings, rd=rd),
                     ),
                 )
-                clear_breakglass_cookie(response)
+                clear_breakglass_cookie(response, settings)
                 return response
     # Absolute subdomain rd= (from @portal_redirect) must never bounce back unless
     # subdomain-auth would accept this session for that Host — otherwise the
@@ -906,7 +906,7 @@ def logout(
     oidc_actor = revoke_oidc_session_from_request(request, db, settings)
     clear_oidc_session_cookie(response, settings)
     bg_actor = revoke_breakglass_session_from_request(request, db, settings)
-    clear_breakglass_cookie(response)
+    clear_breakglass_cookie(response, settings)
     actor = oidc_actor if oidc_actor and oidc_actor != "unknown" else bg_actor
     if actor and actor != "unknown":
         log_action(
