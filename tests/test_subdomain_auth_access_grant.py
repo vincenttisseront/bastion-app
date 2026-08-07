@@ -250,14 +250,14 @@ def test_subdomain_auth_no_warning_without_crushauth_or_on_normal_uri(
 
 
 @respx.mock
-def test_subdomain_auth_no_grant_returns_403(client, db_session):
+def test_subdomain_auth_no_grant_returns_401(client, db_session):
     _override_settings(client, _settings())
     _realm(db_session)
     _app(db_session)
     respx.get(OIDC_URL).mock(return_value=_oidc_ok())
 
     resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
-    assert resp.status_code == 403
+    assert resp.status_code == 401
     assert resp.headers.get("x-auth-error") == "access_denied_no_grant"
 
     entry = (
@@ -322,12 +322,12 @@ def test_subdomain_auth_view_only_grant_returns_403(client, db_session):
     respx.get(OIDC_URL).mock(return_value=_oidc_ok())
 
     resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
-    assert resp.status_code == 403
+    assert resp.status_code == 401
 
 
 @respx.mock
 def test_subdomain_auth_revoked_grant_cuts_access_immediately(client, db_session):
-    """Gap fix: cookie still valid, grant removed → 403 without waiting for expiry."""
+    """Gap fix: cookie still valid, grant removed → 401 without waiting for expiry."""
     _override_settings(client, _settings())
     _realm(db_session)
     app = _app(db_session)
@@ -352,7 +352,7 @@ def test_subdomain_auth_revoked_grant_cuts_access_immediately(client, db_session
     db_session.commit()
 
     denied = client.get("/internal/subdomain-auth", headers=_auth_headers())
-    assert denied.status_code == 403
+    assert denied.status_code == 401
     assert denied.headers.get("x-auth-error") == "access_denied_no_grant"
 
 
@@ -495,7 +495,7 @@ def test_subdomain_auth_native_without_grant_returns_403(client, db_session):
             "Cookie": f"{COOKIE}={token}",
         },
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 401
     assert resp.headers.get("x-auth-error") == "access_denied_no_grant"
 
 

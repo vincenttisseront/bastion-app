@@ -186,7 +186,7 @@ def _deny_no_grant(
         ip_address=ip_address or None,
     )
     return Response(
-        status_code=403,
+        status_code=401,
         headers={
             "X-Auth-Error": "access_denied_no_grant",
             "X-Auth-App": app.slug,
@@ -286,7 +286,9 @@ async def subdomain_auth(
            break-glass cookie
         4. Authorization        -> AccessGrant launch+ via get_effective_apps_for_user
            Break-glass: full access to all apps (emergency admin; no grant required)
-        5. Deny                 -> 403 (authenticated but not authorized)
+        5. Deny                 -> 401 access_denied_no_grant (authenticated but not
+           authorized). Must stay 401/2xx — nginx auth_request turns any other
+           status (including legacy 403) into a client HTTP 500 with upstream=-.
     """
     # Prefer X-Original-Host (auth_request snippet). Fall back like activesync-auth
     # when a misconfigured edge omits it — Host alone is the vhost FQDN on
