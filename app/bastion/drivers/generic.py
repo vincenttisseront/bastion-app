@@ -29,6 +29,16 @@ _JSON_COOKIE_KEYS: tuple[str, ...] = (
     "csrf",
 )
 
+# QNAP QTS authLogin.cgi XML (authPassed / authSid).
+_QNAP_AUTH_PASSED_RE = re.compile(
+    r"<authPassed>\s*(?:<!\[CDATA\[)?\s*([01])",
+    re.IGNORECASE,
+)
+_QNAP_AUTH_SID_RE = re.compile(
+    r"<authSid>\s*(?:<!\[CDATA\[)?\s*([^\]<\s]+)",
+    re.IGNORECASE,
+)
+
 _HIDDEN_INPUT_RE = re.compile(
     r"""<input\b(?=[^>]*\btype\s*=\s*["']hidden["'])[^>]*>""",
     re.IGNORECASE,
@@ -114,6 +124,44 @@ def extract_hidden_form_fields(html: str) -> dict[str, str]:
 def _path_is_spa_login(login_url: str) -> bool:
     path = (urlparse(login_url).path or "").rstrip("/") or "/"
     return path == "/login" or path.endswith("/login")
+
+
+def _is_qnap_auth_login_url(login_url: str) -> bool:
+    """True when login targets QTS ``/cgi-bin/authLogin.cgi``."""
+    path = (urlparse(login_url).path or "").lower()
+    return "authlogin.cgi" in path
+
+
+def _qnap_encode_pwd(password: str) -> str:
+    """QNAP ``pwd`` field: Base64(UTF-8 password) — not plaintext."""
+    return base64.b64encode(password.encode("utf-8")).decode("ascii")
+
+
+def _qnap_parse_login_xml(body: str) -> tuple[bool | None, str | None]:
+    """
+    Parse QTS authLogin.cgi XML.
+
+    Returns ``(auth_passed_or_None_if_unknown, auth_sid_or_None)``.
+    """
+    if not body:
+        return None, None
+    passed: bool | None = None
+    m_pass = _QNAP_AUTH_PASSED_RE.search(body)
+    if m_pass:
+        passed = m_pass.group(1) == "1"
+    sid: str | None = None
+    m_sid = _QNAP_AUTH_SID_RE.search(body)
+    if m_sid:
+        sid = (m_sid.group(1) or "").strip() or None
+    return passed, sid
+
+
+def _cookies_from_qnap_auth(response: httpx.Response) -> dict[str, str]:
+    """Synthesize ``NAS_SID`` from XML when QTS omits Set-Cookie on authLogin."""
+    passed, sid = _qnap_parse_login_xml(response.text or "")
+    if not passed or not sid:
+        return {}
+    return {"NAS_SID": sid}
 
 
 def _grommunio_admin_api_url(login_url: str) -> str:
@@ -260,13 +308,24 @@ async def generic_form_login(
         )
     log_url = _safe_url_for_log(login_url)
     tls_verify = resolve_upstream_tls_verify(app)
+    qnap_login = _is_qnap_auth_login_url(login_url)
+    if qnap_login:
+        # Desktop web session defaults when Admin left extras empty.
+        extra.setdefault("remme", "1")
+        if "service" not in extra and "serviceKey" not in extra:
+            extra.setdefault("service", "1")
+        logger.info("generic_form: QNAP authLogin.cgi mode url=%s", log_url)
 
     def _payload(uf: str, pf: str, hidden: dict[str, str] | None = None) -> dict[str, str]:
         body = dict(extra)
         if hidden:
             body.update(hidden)
         body[uf] = _username(credential)
-        body[pf] = password
+        raw_password = password
+        # QNAP authLogin.cgi: field ``pwd`` expects Base64; ``plain_pwd`` is plaintext.
+        if qnap_login and pf.lower() == "pwd":
+            raw_password = _qnap_encode_pwd(password)
+        body[pf] = raw_password
         return body
 
     try:
@@ -277,7 +336,8 @@ async def generic_form_login(
             headers=headers or None,
         ) as client:
             hidden_fields: dict[str, str] = {}
-            if method == "POST" and not _path_is_spa_login(login_url):
+            # Skip HTML bootstrap for SPA /login and for QNAP CGI (XML API).
+            if method == "POST" and not _path_is_spa_login(login_url) and not qnap_login:
                 page_url = _login_page_url(login_url)
                 logger.info("generic_form bootstrap GET %s", _safe_url_for_log(page_url))
                 bootstrap = await client.get(page_url)
@@ -338,6 +398,25 @@ async def generic_form_login(
                 )
                 raise DriverUpstreamError(f"Upstream returned HTTP {status}")
 
+            if qnap_login:
+                passed, sid = _qnap_parse_login_xml(response.text or "")
+                if passed is False or (passed is True and not sid):
+                    logger.info(
+                        "generic_form QNAP auth rejected url=%s passed=%s sid=%s",
+                        log_url,
+                        passed,
+                        "yes" if sid else "no",
+                    )
+                    raise DriverAuthRejectedError("Upstream rejected credentials")
+                if passed and sid:
+                    cookies = _cookies_from_client(client)
+                    if not cookies:
+                        cookies = _extract_response_cookies(response)
+                    cookies = {**cookies, **_cookies_from_qnap_auth(response)}
+                    if not cookies.get("NAS_SID"):
+                        cookies["NAS_SID"] = sid
+                    return DriverLoginResult(cookies=cookies)
+
             if _is_auth_failure(response):
                 hresult = response.headers.get("x-grommunio-hresult", "")
                 logger.info(
@@ -356,6 +435,8 @@ async def generic_form_login(
                 cookies = _extract_response_cookies(response)
             if not cookies:
                 cookies = _cookies_from_json_body(response)
+            if not cookies and qnap_login:
+                cookies = _cookies_from_qnap_auth(response)
 
             if not cookies:
                 raise DriverAuthRejectedError("Upstream returned no session cookies")

@@ -251,6 +251,7 @@
           <tr>
             <th>Horodatage</th>
             <th>IP</th>
+            <th>Identité</th>
             <th>Méthode</th>
             <th>URI</th>
             <th>Status</th>
@@ -261,7 +262,7 @@
         </thead>
         <tbody id="app-access-tbody">
           <tr class="dep-empty-row" id="app-access-empty-row">
-            <td colspan="8">
+            <td colspan="9">
               <div class="empty-state">
                 <div class="empty-title">Sélectionnez une application</div>
                 <div class="empty-sub">Puis cliquez sur Charger pour parser le access.log nginx.</div>
@@ -520,20 +521,35 @@
     var meta;
     var json;
     if (entry.ecosystem === 'nginx_access') {
+      var clientIp = entry.client_ip || entry.x_portal_client_ip || entry.remote_addr || '—';
+      var identity = entry.auth_email || entry.auth_user || entry.remote_user || '—';
       meta =
         '<dl class="logs-drawer-meta">' +
         '<dt>Horodatage</dt><dd class="font-mono">' + esc(entry.time_local || '—') + '</dd>' +
-        '<dt>IP</dt><dd class="font-mono">' + esc(entry.remote_addr || '—') + '</dd>' +
-        '<dt>Utilisateur</dt><dd class="font-mono">' + esc(entry.remote_user || '—') + '</dd>' +
+        '<dt>IP client</dt><dd class="font-mono">' + esc(clientIp) + '</dd>' +
+        '<dt>remote_addr</dt><dd class="font-mono">' + esc(entry.remote_addr || '—') + '</dd>' +
+        '<dt>XFF</dt><dd class="font-mono">' + esc(entry.x_forwarded_for || '—') + '</dd>' +
+        '<dt>Identité</dt><dd class="font-mono">' + esc(identity) + '</dd>' +
+        '<dt>auth_app / src</dt><dd class="font-mono">' + esc((entry.auth_app || '—') + ' / ' + (entry.auth_source || '—')) + '</dd>' +
         '<dt>Host</dt><dd class="font-mono">' + esc(entry.host || '—') + '</dd>' +
+        '<dt>Proto / rid</dt><dd class="font-mono">' + esc((entry.forwarded_proto || '—') + ' / ' + (entry.request_id || '—')) + '</dd>' +
         '<dt>Requête</dt><dd><code>' + esc(entry.request || '—') + '</code></dd>' +
         '<dt>Status</dt><dd>' + esc(entry.status || '—') + '</dd>' +
-        '<dt>Upstream</dt><dd class="font-mono">' + esc(entry.upstream_addr || '—') + '</dd>' +
-        '<dt>rt / ut</dt><dd class="font-mono">' + esc((entry.request_time || '—') + ' / ' + (entry.upstream_response_time || '—')) + '</dd>' +
+        '<dt>Upstream</dt><dd class="font-mono">' + esc(entry.upstream_addr || '—') + ' · us=' + esc(entry.upstream_status || '—') + '</dd>' +
+        '<dt>rt / uct / uht / ut</dt><dd class="font-mono">' + esc(
+          (entry.request_time || '—') + ' / ' +
+          (entry.upstream_connect_time || '—') + ' / ' +
+          (entry.upstream_header_time || '—') + ' / ' +
+          (entry.upstream_response_time || '—')
+        ) + '</dd>' +
+        '<dt>req_len / bytes</dt><dd class="font-mono">' + esc((entry.request_length || '—') + ' / ' + (entry.body_bytes_sent || '—')) + '</dd>' +
         '<dt>auth_err</dt><dd class="font-mono">' + esc(entry.auth_err || '—') + '</dd>' +
         '</dl>';
       json = JSON.stringify({
         remote_addr: entry.remote_addr,
+        client_ip: entry.client_ip,
+        x_portal_client_ip: entry.x_portal_client_ip,
+        x_forwarded_for: entry.x_forwarded_for,
         remote_user: entry.remote_user,
         time_local: entry.time_local,
         host: entry.host,
@@ -543,13 +559,23 @@
         request: entry.request,
         status: entry.status,
         body_bytes_sent: entry.body_bytes_sent,
+        request_length: entry.request_length,
         referer: entry.referer,
         user_agent: entry.user_agent,
         request_time: entry.request_time,
+        upstream_connect_time: entry.upstream_connect_time,
+        upstream_header_time: entry.upstream_header_time,
+        upstream_response_time: entry.upstream_response_time,
         upstream_addr: entry.upstream_addr,
         upstream_status: entry.upstream_status,
-        upstream_response_time: entry.upstream_response_time,
+        forwarded_proto: entry.forwarded_proto,
+        request_id: entry.request_id,
         auth_err: entry.auth_err,
+        auth_email: entry.auth_email,
+        auth_user: entry.auth_user,
+        auth_app: entry.auth_app,
+        auth_source: entry.auth_source,
+        auth_preferred: entry.auth_preferred,
         raw: entry.raw
       }, null, 2);
     } else {
@@ -811,7 +837,7 @@
       empty.className = 'dep-empty-row';
       empty.id = 'app-access-empty-row';
       empty.innerHTML =
-        '<td colspan="8"><div class="empty-state"><div class="empty-title">' +
+        '<td colspan="9"><div class="empty-state"><div class="empty-title">' +
         (appEntries.length ? 'Aucune ligne avec ce filtre' : 'Aucune entrée') +
         '</div><div class="empty-sub">' +
         (appEntries.length
@@ -831,9 +857,12 @@
         ? ('<span class="badge badge-' + esc(e.status_class || 'muted') + '">' + esc(e.status) + '</span>')
         : '<span class="badge badge-muted">—</span>';
       var detailLabel = e.parse_ok === false ? 'brut' : 'détail';
+      var ip = e.client_ip || e.x_portal_client_ip || e.remote_addr || '—';
+      var identity = e.auth_email || e.auth_user || e.remote_user || '—';
       tr.innerHTML =
         '<td class="font-mono">' + esc(e.time_local || '—') + '</td>' +
-        '<td class="font-mono">' + esc(e.remote_addr || '—') + '</td>' +
+        '<td class="font-mono">' + esc(ip) + '</td>' +
+        '<td class="font-mono" title="' + esc(identity) + '">' + esc(truncateUri(identity)) + '</td>' +
         '<td><code>' + esc(e.method || '—') + '</code></td>' +
         '<td class="font-mono" title="' + esc(e.path || '') + '">' + esc(truncateUri(e.path || e.request || '—')) + '</td>' +
         '<td>' + badge + '</td>' +

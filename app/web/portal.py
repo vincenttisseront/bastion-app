@@ -222,6 +222,8 @@ async def app_launch_ping(
         target=match.app.slug,
         details={
             "application_id": match.app.id,
+            "app_slug": match.app.slug,
+            "app_label": match.app.label,
             "access_level": match.access_level,
             "sources": match.sources,
             "grant_ids": match.grant_ids,

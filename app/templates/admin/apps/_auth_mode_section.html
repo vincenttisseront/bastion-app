@@ -79,14 +79,20 @@
           le SSO IdP de l’application (Bypass Login / équivalent).
         </p>
         <p class="form-help" data-portal-entry-help-generic hidden>
-          Endpoint qui accepte un POST form-urlencoded. Pour grommunio-web :
+          Endpoint qui accepte un POST form-urlencoded.
+          <br>• grommunio-web :
           <span class="mono">https://webmail…/web/?logon</span>
           (champs <span class="mono">username</span> / <span class="mono">password</span>) —
-          le driver fait un GET préalable (cookies de session + champs cachés CSRF)
-          puis POST avec le User-Agent du navigateur.
-          Pour grommunio-admin :
+          GET préalable (cookies + CSRF) puis POST.
+          <br>• grommunio-admin :
           <span class="mono">https://hôte:8443/api/v1/login</span>
           (champs <span class="mono">user</span> / <span class="mono">pass</span>).
+          <br>• QNAP QTS :
+          <span class="mono">https://nas…/cgi-bin/authLogin.cgi</span>
+          (champs <span class="mono">user</span> / <span class="mono">pwd</span> —
+          le mot de passe est envoyé en Base64 ; extras typiques
+          <span class="mono">{"remme":"1","service":"1"}</span>).
+          La tuile passe par impersonation + hop cookies (<span class="mono">NAS_SID</span>).
         </p>
         {% if errors.login_form_url %}<div class="form-error">{{ errors.login_form_url }}</div>{% endif %}
         <div id="login-form-analyze-panel" class="login-form-analyze-panel" hidden></div>

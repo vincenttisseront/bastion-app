@@ -355,3 +355,59 @@ def test_generic_wsse_header_password_never_in_value_or_logs(caplog):
     assert SECRET_PASSWORD not in caplog.text
     assert "PasswordDigest=" in header
     assert header.startswith("UsernameToken Username=")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_generic_form_qnap_authlogin_sets_nas_sid():
+    """QNAP returns XML authSid — synthesize NAS_SID for the cookie hop."""
+    xml = (
+        '<?xml version="1.0" ?>'
+        "<QDocRoot>"
+        "<authPassed><![CDATA[1]]></authPassed>"
+        "<authSid><![CDATA[Ab12Cd34]]></authSid>"
+        "</QDocRoot>"
+    )
+    route = respx.post("https://10.0.0.50:443/cgi-bin/authLogin.cgi").mock(
+        return_value=Response(200, text=xml, headers={"content-type": "text/xml"})
+    )
+    app = _generic_app(
+        login_form_url="https://10.0.0.50:443/cgi-bin/authLogin.cgi",
+        login_username_field="user",
+        login_password_field="pwd",
+        login_extra_fields="",
+        access_mode="subdomain_proxy",
+        public_fqdn="qnap.example.fr",
+        upstream_url="https://10.0.0.50/",
+        upstream_tls_verify=False,
+    )
+    result = await generic_form_login(_credential(), app, SECRET_PASSWORD)
+    assert route.called
+    sent = route.calls.last.request
+    from urllib.parse import parse_qs
+
+    body = parse_qs(sent.content.decode())
+    assert body["user"] == ["robot"]
+    assert body["pwd"] == [base64.b64encode(SECRET_PASSWORD.encode()).decode()]
+    assert body["remme"] == ["1"]
+    assert body["service"] == ["1"]
+    assert result.cookies["NAS_SID"] == "Ab12Cd34"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_generic_form_qnap_auth_rejected():
+    xml = (
+        "<QDocRoot><authPassed><![CDATA[0]]></authPassed>"
+        "<authSid><![CDATA[]]></authSid></QDocRoot>"
+    )
+    respx.post("https://nas.example/cgi-bin/authLogin.cgi").mock(
+        return_value=Response(200, text=xml)
+    )
+    app = _generic_app(
+        login_form_url="https://nas.example/cgi-bin/authLogin.cgi",
+        login_username_field="user",
+        login_password_field="pwd",
+    )
+    with pytest.raises(DriverAuthRejectedError):
+        await generic_form_login(_credential(), app, SECRET_PASSWORD)
