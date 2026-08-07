@@ -420,23 +420,25 @@
         logsLink.href = logsUrlForSession(s);
         logsLink.target = '_blank';
         logsLink.rel = 'noopener noreferrer';
-        logsLink.title =
-          'Ouvre Logs (audit) filtré sur cet utilisateur / IP / session';
-        logsLink.textContent = 'Voir les logs';
-        els.actions.appendChild(logsLink);
         if (s.kind === 'app' && (s.target || '').trim()) {
-          var accessLink = document.createElement('a');
-          accessLink.className = 'btn btn-ghost btn-sm';
-          accessLink.href =
-            '/admin/logs?app=' +
-            encodeURIComponent(String(s.target).trim()) +
-            '#app-access';
-          accessLink.target = '_blank';
-          accessLink.rel = 'noopener noreferrer';
-          accessLink.title =
+          logsLink.title =
             'Access log nginx de l’application ' + String(s.target).trim();
-          accessLink.textContent = 'Access log app';
-          els.actions.appendChild(accessLink);
+          logsLink.textContent = 'Access log app';
+        } else {
+          logsLink.title = 'Ouvre Logs (audit) filtré sur cet utilisateur';
+          logsLink.textContent = 'Voir les logs';
+        }
+        els.actions.appendChild(logsLink);
+        if (s.kind === 'app') {
+          var auditLink = document.createElement('a');
+          auditLink.className = 'btn btn-ghost btn-sm';
+          auditLink.href = auditUrlForSession(s);
+          auditLink.target = '_blank';
+          auditLink.rel = 'noopener noreferrer';
+          auditLink.title =
+            'Audit filtré sur l’acteur (pas l’id de session — non écrit en AuditLog)';
+          auditLink.textContent = 'Audit acteur';
+          els.actions.appendChild(auditLink);
         }
         bindSessionActionClicks(els.actions);
         els.actions.hidden = false;
@@ -445,18 +447,26 @@
   }
 
   function logsUrlForSession(s) {
+    // App browsing traffic is in nginx access logs. ActiveSession ids
+    // (app:email:slug) are never written into AuditLog.details — deep-linking
+    // audit with detail= + multi-word q + IP looked like "empty retention".
+    if (s.kind === 'app' && (s.target || '').trim()) {
+      return (
+        '/admin/logs?app=' +
+        encodeURIComponent(String(s.target).trim()) +
+        '#app-access'
+      );
+    }
+    return auditUrlForSession(s);
+  }
+
+  function auditUrlForSession(s) {
     var params = new URLSearchParams();
     var actor = (s.user_email || s.username || '').trim();
-    var ip = (s.client_ip || s.source_ip || '').trim();
     if (actor) params.set('actor', actor);
-    if (ip && ip !== '—' && !s.client_ip_is_infra) params.set('ip', ip);
-    if (s.id) params.set('detail', String(s.id));
-    var qBits = [];
     if (s.kind === 'app' && (s.target || '').trim()) {
-      qBits.push(String(s.target).trim());
+      params.set('q', String(s.target).trim());
     }
-    if (actor) qBits.push(actor);
-    if (qBits.length) params.set('q', qBits.join(' '));
     return '/admin/logs?' + params.toString() + '#audit';
   }
 

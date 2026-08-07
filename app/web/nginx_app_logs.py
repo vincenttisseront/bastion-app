@@ -35,7 +35,7 @@ _APP_ACCESS_RE = re.compile(
     r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\" "
     r"rt=(?P<request_time>\S*) upstream=(?P<upstream_addr>\S*) "
     r"us=(?P<upstream_status>\S*) ut=(?P<upstream_response_time>\S*) "
-    r"auth_err=(?P<auth_err>\S*)\s*$"
+    r"auth_err=(?P<auth_err>\S*)(?:\s+auth_email=(?P<auth_email>\S*))?\s*$"
 )
 _NGINX_HEX_ESCAPE_RE = re.compile(r"\\x([0-9A-Fa-f]{2})")
 
@@ -240,6 +240,7 @@ def _entry_from_groups(
         "upstream_status": g.get("upstream_status") or "",
         "upstream_response_time": g.get("upstream_response_time") or "",
         "auth_err": g.get("auth_err") or "",
+        "auth_email": g.get("auth_email") or "",
         "is_internal_hop": is_internal,
     }
 
@@ -264,6 +265,7 @@ def _loose_parse_app_access(raw: str) -> dict[str, str] | None:
         "upstream_status",
         "upstream_response_time",
         "auth_err",
+        "auth_email",
     ):
         g[key] = ""
     for key, pattern in (
@@ -272,6 +274,7 @@ def _loose_parse_app_access(raw: str) -> dict[str, str] | None:
         ("upstream_status", r"\bus=(\S*)"),
         ("upstream_response_time", r"\but=(\S*)"),
         ("auth_err", r"\bauth_err=(\S*)"),
+        ("auth_email", r"\bauth_email=(\S*)"),
     ):
         km = re.search(pattern, raw)
         if km:
@@ -313,6 +316,7 @@ def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | N
         "upstream_status": "",
         "upstream_response_time": "",
         "auth_err": "",
+        "auth_email": "",
         "is_internal_hop": False,
     }
 

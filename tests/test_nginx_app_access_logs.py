@@ -190,6 +190,21 @@ def test_parse_app_access_activesync_user_and_empty_auth_err():
     assert e["upstream_addr"] == "172.24.10.104:443"
     assert e["auth_err"] == ""
 
+    with_email = (
+        "127.0.0.1 - - [07/Aug/2026:08:02:01 +0000] host=wikijs.ar-systems.fr "
+        '"GET / HTTP/1.1" 304 0 "-" '
+        '"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:153.0) Gecko/20100101 Firefox/153.0" '
+        "rt=0.090 upstream=10.0.31.112:443 us=304 ut=0.058 "
+        "auth_err= auth_email=vincent.tisseront@ar-systems.fr"
+    )
+    e_email = parse_app_access_line(with_email)
+    assert e_email is not None
+    assert e_email["parse_ok"] is True
+    assert e_email["status"] == "304"
+    assert e_email["auth_err"] == ""
+    assert e_email["auth_email"] == "vincent.tisseront@ar-systems.fr"
+    assert e_email["upstream_addr"] == "10.0.31.112:443"
+
     spaced = (
         r"172.24.1.230 - A.R. Systems\x5Ccherve.tisseront@ar-systems.fr "
         "[05/Aug/2026:15:36:10 +0000] host=webmail.ar-systems.fr "
