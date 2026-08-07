@@ -77,6 +77,7 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "session-cookie-hop" in block
     assert "proxy_set_header Host portal.ar-systems.fr;" in block
     assert "auth_request /internal/subdomain-auth;" in block
+    assert "error_page 401 403 = @portal_redirect_doli;" in block
     assert 'set $app_upstream "https://10.0.0.5";' in block
     assert "rewrite ^/(.*)$ /dolibarr/$1 break;" not in block
     assert "rd=https://$host$request_uri" in block

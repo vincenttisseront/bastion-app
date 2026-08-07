@@ -416,7 +416,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
             *auth_request_set_user_lines,
-            f"        error_page 401 = @portal_redirect_{slug};",
+            f"        error_page 401 403 = @portal_redirect_{slug};",
             # Do not map CrushFTP/upstream 401 through @portal_redirect.
             "        proxy_intercept_errors off;",
             "",
@@ -439,7 +439,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
             *auth_request_set_user_lines,
-            f"        error_page 401 = @portal_redirect_{slug};",
+            f"        error_page 401 403 = @portal_redirect_{slug};",
             "        proxy_intercept_errors off;",
             "",
             *proxy_body_lines,
