@@ -91,6 +91,13 @@ def admin_dependencies_page(
     initial_tab = "python"
     if summary["outdated"] and not python_outdated and npm_outdated:
         initial_tab = "npm"
+    inventory_age_hours: float | None = None
+    inventory_stale = False
+    if last_at is not None:
+        # DB may store naive UTC; treat as UTC.
+        checked = last_at if last_at.tzinfo else last_at.replace(tzinfo=timezone.utc)
+        inventory_age_hours = (datetime.now(timezone.utc) - checked.astimezone(timezone.utc)).total_seconds() / 3600.0
+        inventory_stale = inventory_age_hours >= 36.0
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/dependencies.html",
@@ -104,6 +111,8 @@ def admin_dependencies_page(
         initial_tab=initial_tab,
         summary=summary,
         last_checked_at=last_at.strftime("%Y-%m-%d %H:%M UTC") if last_at else None,
+        inventory_stale=inventory_stale,
+        inventory_age_hours=round(inventory_age_hours, 1) if inventory_age_hours is not None else None,
         has_snapshots=bool(rows),
     )
 

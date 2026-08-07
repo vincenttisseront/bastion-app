@@ -24,7 +24,19 @@
         Versions installées : <span class="mono">pyproject.toml</span> / <span class="mono">importlib</span> (Python)
         et <span class="mono">package-lock.json</span> (npm). Dernière version : registres PyPI et npm
         (<span class="mono">dist-tags.latest</span>, hors prerelease / yank).
+        Cette page <strong>détecte</strong> les MAJ ; elle ne les applique pas dans les images Docker —
+        mettre à jour <span class="mono">pyproject.toml</span> / <span class="mono">package-lock.json</span>
+        puis rebuild.
       </p>
+      {% if inventory_stale %}
+      <div class="alert alert-warn" style="margin-top:var(--sp-3);max-width:52rem;">
+        <div class="alert-body">
+          Inventaire ancien ({{ inventory_age_hours | int }}&nbsp;h, dernière vérif. {{ last_checked_at }}).
+          Un onglet Python sans MAJ peut être <strong>périmé</strong> : cliquez
+          <strong>Actualiser</strong> pour re-interroger PyPI / npm.
+        </div>
+      </div>
+      {% endif %}
     </div>
     <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;">
       <form method="post" action="/admin/dependencies/refresh" style="margin:0;">
