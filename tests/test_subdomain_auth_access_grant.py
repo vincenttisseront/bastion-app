@@ -776,3 +776,19 @@ def test_har_garbled_starlette_cookie_falls_back_to_x_bastion_header(
     )
     assert resp.status_code == 200
     assert resp.headers.get("x-auth-source") == "oidc-native"
+
+
+@respx.mock
+def test_subdomain_auth_oauth2_unreachable_returns_401_not_503(client, db_session):
+    """nginx auth_request maps 503 → client 500; must stay 401 for @portal_redirect."""
+    import httpx
+
+    _override_settings(client, _settings())
+    _realm(db_session)
+    _app(db_session)
+    respx.get(OIDC_URL).mock(side_effect=httpx.ConnectError("oauth2-proxy down"))
+
+    resp = client.get("/internal/subdomain-auth", headers=_auth_headers())
+
+    assert resp.status_code == 401
+    assert resp.headers.get("x-auth-error") == "oauth2-unreachable"
