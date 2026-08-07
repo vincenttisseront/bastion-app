@@ -175,14 +175,24 @@ def read_host_apply_status(settings: Settings, *, log_max_chars: int = 4000) -> 
     }
 
 
+# Max time the apply-wait UI keeps polling before giving up.
+HOST_APPLY_WAIT_TIMEOUT_SEC = 180.0
+# Browser / server poll interval while waiting.
+HOST_APPLY_WAIT_POLL_SEC = 2.0
+
+
+def host_apply_is_terminal(status: str | None) -> bool:
+    return (status or "").strip().lower() in {STATUS_OK, STATUS_ERROR}
+
+
 def wait_for_host_apply(
     settings: Settings, *, timeout_sec: float = 10.0, poll_interval_sec: float = 0.25
 ) -> dict[str, Any]:
-    """Wait briefly for host apply to leave pending and return the latest status."""
+    """Wait for host apply to leave pending and return the latest status."""
     deadline = time.monotonic() + max(0.0, timeout_sec)
     while True:
         state = read_host_apply_status(settings)
-        if state["status"] in {STATUS_OK, STATUS_ERROR}:
+        if host_apply_is_terminal(state.get("status")):
             return state
         if time.monotonic() >= deadline:
             return state

@@ -1,0 +1,52 @@
+{# Intermediate page: keep the admin in a wait loop until host apply leaves pending. #}
+{% extends "base.html" %}
+{% block title %}Application infrastructure{% endblock %}
+{% block breadcrumb %}Admin / Infrastructure / En cours{% endblock %}
+
+{% block content %}
+<div class="page" id="infrastructure-apply-wait">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Application sur l’hôte en cours</h1>
+      <p class="page-sub">
+        {{ context_label or "Export enregistré." }}
+        La main n’est rendue qu’après confirmation (ou échec) de l’apply hôte.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Statut</span>
+      <span class="badge badge-{{ host_apply.badge }}">{{ host_apply.status_label }}</span>
+    </div>
+    <div class="card-body">
+      <p class="form-help" style="margin-top:0;">
+        Attente depuis <span class="mono" id="wait-elapsed">{{ elapsed_sec | int }}</span>s
+        (limite <span class="mono">{{ timeout_sec | int }}</span>s).
+        Actualisation automatique toutes les <span class="mono">{{ poll_sec | int }}</span>s.
+      </p>
+      <p class="form-help">
+        Signal : <code class="mono">{{ host_apply.request_path }}</code><br>
+        Statut : <code class="mono">{{ host_apply.status_path }}</code>
+      </p>
+      {% if host_apply.log_text %}
+      <pre class="mono" style="margin:var(--sp-3) 0 0;white-space:pre-wrap;max-height:14rem;overflow:auto;padding:var(--sp-3);background:var(--bg-elevated, rgba(0,0,0,.25));border-radius:6px;">{{ host_apply.log_text }}</pre>
+      {% endif %}
+      <div style="margin-top:var(--sp-4);display:flex;gap:var(--sp-2);flex-wrap:wrap;">
+        <a class="btn btn-secondary btn-sm" href="{{ refresh_url }}">Actualiser</a>
+        <a class="btn btn-ghost btn-sm" href="/admin/infrastructure">Voir Infrastructure</a>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var pollMs = {{ (poll_sec * 1000) | int }};
+  var refreshUrl = {{ refresh_url_json }};
+  window.setTimeout(function () {
+    window.location.replace(refreshUrl);
+  }, Math.max(1000, pollMs));
+})();
+</script>
+{% endblock %}

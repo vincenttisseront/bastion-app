@@ -10,7 +10,12 @@ Champs critiques :
 - **URL d’entrée portail** (`login_form_url`) — obligatoire si OIDC délégué
 - Options TLS upstream, ActiveSync, logo, description
 
-Après enregistrement : **Apply infrastructure** pour régénérer nginx.
+Après enregistrement d’une app SSO/sous-domaine, l’admin est redirigé vers une
+**page d’attente apply hôte** qui poll jusqu’à `ok` / `error` (ou timeout 180s)
+avant de rendre la main sur la liste apps. Même comportement pour le bouton
+**Appliquer l’infrastructure**.
+
+Après enregistrement : **Apply infrastructure** pour régénérer nginx (si besoin hors flux auto).
 
 ## Domaines inconnus
 
