@@ -21,7 +21,7 @@ Ce dépôt contient :
 | Apps legacy sans OIDC | Vault chiffré + « robotic SSO » (formulaire / basic / cookies) |
 | Catalogue et droits | Apps, groupes RBAC, grants, sessions visibles côté admin |
 | Secours admin | Break-glass (JWT cookie) indépendant du SSO |
-| Découverte de domaines | Hosts inconnus → file d’attente Admin → Domaines |
+| Découverte de domaines | Hosts inconnus → 403 neutre + file Admin → Domaines (sans fuite portail) |
 | Certificats | Let’s Encrypt DNS-01 (ex. Cloudflare) sur nginx `:443` |
 
 **Principe :** le *core* portail (`/`, `/apps`, `/admin`, `/api/health`, break-glass, SSO) ne doit pas être cassé par une app ou un proxy métier.

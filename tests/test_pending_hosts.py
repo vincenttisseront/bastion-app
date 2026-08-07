@@ -201,12 +201,15 @@ def test_internal_unknown_host_records(client, db_session):
             "X-Original-URI": "/web/",
         },
     )
-    assert r.status_code == 503
-    assert "Hôte non enregistré" in r.text
-    assert "Domaines découverts" in r.text
-    assert "teleport.example.fr" in r.text
-    assert "/admin/pending-hosts" in r.text
-    assert r.headers.get("x-portal-unknown-host") == "1"
+    assert r.status_code == 403
+    assert "403" in r.text
+    assert "Forbidden" in r.text
+    assert "Hôte non enregistré" not in r.text
+    assert "Domaines découverts" not in r.text
+    assert "Bastion" not in r.text
+    assert "portail" not in r.text.lower()
+    assert "/admin/pending-hosts" not in r.text
+    assert r.headers.get("x-portal-unknown-host") is None
     row = db_session.query(PendingHost).filter_by(hostname="teleport.example.fr").first()
     assert row is not None
     assert row.status == "pending"
@@ -220,6 +223,22 @@ def test_internal_unknown_host_records(client, db_session):
     )
     assert audit is not None
     assert (audit.details or {}).get("uri") == "/web/"
+
+
+def test_render_unknown_host_page_is_identity_free():
+    from app.bastion.unknown_host_routes import render_unknown_host_page
+
+    html = render_unknown_host_page(
+        hostname="secret.example.fr",
+        branding={"show_product_branding": True, "company_name": "Portail sécurisé"},
+    )
+    assert "403" in html
+    assert "Forbidden" in html
+    assert "secret.example.fr" not in html
+    assert "Bastion" not in html
+    assert "Portail" not in html
+    assert "Domaines" not in html
+    assert "/admin/" not in html
 
 
 def test_docker_portal_has_unknown_host_rewrite():
