@@ -183,17 +183,20 @@ def apply_audit_filters(
         kw = detail_kw.strip()
         query = query.filter(detail_text.ilike(f"%{kw}%"))
     if q and q.strip():
-        term = q.strip()
-        like = f"%{term}%"
-        query = query.filter(
-            or_(
-                AuditLog.actor.ilike(like),
-                AuditLog.action.ilike(like),
-                AuditLog.target.ilike(like),
-                AuditLog.ip_address.ilike(like),
-                detail_text.ilike(like),
+        # Tokenize so "open-webui user@x" matches rows that contain each term
+        # (deep-links used to AND a single multi-word phrase → empty results).
+        terms = [t for t in q.strip().split() if t]
+        for term in terms:
+            like = f"%{term}%"
+            query = query.filter(
+                or_(
+                    AuditLog.actor.ilike(like),
+                    AuditLog.action.ilike(like),
+                    AuditLog.target.ilike(like),
+                    AuditLog.ip_address.ilike(like),
+                    detail_text.ilike(like),
+                )
             )
-        )
     return query
 
 
