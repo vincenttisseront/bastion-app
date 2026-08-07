@@ -43,6 +43,11 @@ def test_waf_page_ok_as_admin(client: TestClient, db_session: Session):
     resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert "ModSecurity" in resp.text or "WAF" in resp.text
+    assert 'id="waf-tabs"' in resp.text
+    assert 'class="form-input"' in resp.text
+    assert 'class="form-select"' in resp.text
+    assert "bastionConfirm" in resp.text
+    assert 'id="bastion-modal"' in resp.text or "bastion-modal" in resp.text
 
 
 def test_waf_threshold_rejected_out_of_bounds(client: TestClient, db_session: Session):

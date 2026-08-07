@@ -80,7 +80,7 @@ def admin_waf_profile_post(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    response = RedirectResponse(url="/admin/security/waf", status_code=302)
+    response = RedirectResponse(url="/admin/security/waf#profile", status_code=302)
     try:
         waf_service.update_active_profile(
             db,
