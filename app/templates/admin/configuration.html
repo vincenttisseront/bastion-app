@@ -231,13 +231,22 @@
         </div>
         <div class="form-actions" style="margin-top:var(--sp-3);">
           <button type="submit" class="btn btn-primary">Enregistrer</button>
-          <button type="submit" form="siem-test-form" class="btn btn-secondary">Tester la connexion</button>
+          <button type="button" class="btn btn-secondary" id="siem-test-btn"
+                  data-test-url="/admin/configuration/siem/test"
+                  data-csrf="{{ csrf_token }}">Tester la connexion</button>
         </div>
         <p class="form-help">Le test envoie un événement <span class="mono">siem.connectivity.test</span> avec la configuration enregistrée.</p>
       </form>
       <form method="post" action="/admin/configuration/siem/test" id="siem-test-form" hidden>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       </form>
+      <div class="config-test-shell" id="siem-test-shell" hidden aria-live="polite">
+        <div class="config-test-shell-header">
+          <span class="config-test-shell-title">Test de connectivité SIEM</span>
+          <span class="badge badge-muted" id="siem-test-shell-status">…</span>
+        </div>
+        <pre class="config-test-shell-body font-mono" id="siem-test-shell-body"></pre>
+      </div>
     </div>
   </div>
 </div>
@@ -271,6 +280,58 @@
   window.addEventListener('hashchange', function () {
     activate(currentTab());
   });
+
+  var testBtn = document.getElementById('siem-test-btn');
+  var shell = document.getElementById('siem-test-shell');
+  var shellBody = document.getElementById('siem-test-shell-body');
+  var shellStatus = document.getElementById('siem-test-shell-status');
+  if (testBtn && shell && shellBody && shellStatus) {
+    testBtn.addEventListener('click', async function () {
+      var url = testBtn.getAttribute('data-test-url') || '/admin/configuration/siem/test';
+      var csrf = testBtn.getAttribute('data-csrf') || '';
+      shell.hidden = false;
+      shell.classList.remove('is-ok', 'is-err');
+      shellStatus.className = 'badge badge-muted';
+      shellStatus.textContent = 'en cours…';
+      shellBody.textContent = '$ bastion siem connectivity-test\n…';
+      testBtn.disabled = true;
+      try {
+        var body = new URLSearchParams();
+        if (csrf) body.set('csrf_token', csrf);
+        var resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: body.toString(),
+          credentials: 'same-origin',
+        });
+        var data = {};
+        try { data = await resp.json(); } catch (e) { data = {}; }
+        var lines = Array.isArray(data.lines) ? data.lines : [];
+        if (!lines.length) {
+          lines = [
+            '$ bastion siem connectivity-test',
+            (data.ok ? '✓ ' : '✗ ') + (data.message || (resp.ok ? 'OK' : 'Échec HTTP ' + resp.status)),
+          ];
+        }
+        shellBody.textContent = lines.join('\n');
+        var ok = !!data.ok;
+        shell.classList.add(ok ? 'is-ok' : 'is-err');
+        shellStatus.className = 'badge ' + (ok ? 'badge-ok' : 'badge-err');
+        shellStatus.textContent = ok ? 'OK' : 'KO';
+      } catch (err) {
+        shell.classList.add('is-err');
+        shellStatus.className = 'badge badge-err';
+        shellStatus.textContent = 'KO';
+        shellBody.textContent = '$ bastion siem connectivity-test\n✗ Erreur réseau: ' + (err && err.message ? err.message : String(err));
+      } finally {
+        testBtn.disabled = false;
+        shell.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    });
+  }
 })();
 </script>
 {% endblock %}

@@ -445,7 +445,56 @@ def test_connectivity_test_button(client: TestClient, db_session: Session, monke
     assert "Forwarding SIEM" in page.text
     assert 'id="smtp"' in page.text
     assert 'action="/admin/configuration/smtp/test"' in page.text
-    assert 'action="/admin/configuration/siem/test"' in page.text
+    assert 'id="siem-test-btn"' in page.text
+    assert 'id="siem-test-shell"' in page.text
+
+
+def test_connectivity_test_json_shell_transcript(
+    client: TestClient, db_session: Session, monkeypatch
+):
+    settings = get_settings()
+    update_siem_settings(
+        db_session,
+        settings,
+        enabled=True,
+        protocol="webhook_https",
+        syslog_host="",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="https://siem.test/ingest",
+        webhook_auth_type="none",
+        webhook_auth_secret=None,
+        clear_webhook_secret=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        actor="admin@example.com",
+    )
+    monkeypatch.setattr("app.siem.outbox.deliver_entry", lambda *a, **k: None)
+    resp = client.post(
+        "/admin/configuration/siem/test",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert "OK" in data["message"]
+    assert any(line.startswith("$ bastion siem") for line in data["lines"])
+    assert any(line.startswith("→ POST https://siem.test/ingest") for line in data["lines"])
+    assert any(line.startswith("✓") for line in data["lines"])
+
+
+def test_connectivity_test_json_failure(client: TestClient, db_session: Session):
+    ensure_siem_settings(db_session)
+    resp = client.post(
+        "/admin/configuration/siem/test",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+    )
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["ok"] is False
+    assert any("désactivé" in line.lower() or line.startswith("✗") for line in data["lines"])
 
 
 def test_siem_disabled_by_default_no_enqueue(db_session: Session):
