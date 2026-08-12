@@ -44,6 +44,28 @@
 .badge-critical{background:var(--err-bg);color:var(--err);border:1px solid rgba(239,68,68,.45);font-weight:800}
 .badge-notice{background:transparent;color:var(--info);border:1px solid rgba(96,165,250,.45)}
 .badge-error-outline{background:transparent;color:var(--err);border:1px solid rgba(239,68,68,.45)}
+.config-test-shell{
+  margin-top:var(--sp-4);
+  border:1px solid var(--border);
+  border-radius:var(--r-md);
+  background:var(--bg-tertiary);
+  overflow:hidden;
+}
+.config-test-shell-header{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);
+  padding:var(--sp-2) var(--sp-3);
+  border-bottom:1px solid var(--border-muted);
+}
+.config-test-shell-title{font-size:var(--fs-xs);font-weight:700;color:var(--text-2)}
+.config-test-shell-body{
+  margin:0;padding:var(--sp-3);
+  max-height:14rem;overflow:auto;
+  white-space:pre-wrap;word-break:break-word;
+  font-size:0.8em;line-height:1.5;color:var(--text);
+  background:transparent;
+}
+.config-test-shell.is-ok .config-test-shell-header{border-bottom-color:rgba(16,185,129,.35)}
+.config-test-shell.is-err .config-test-shell-header{border-bottom-color:rgba(239,68,68,.35)}
 .badge-sso{background:var(--info-bg);color:var(--info);border:1px solid rgba(96,165,250,.2)}
 .badge-robotic{background:var(--purple-bg);color:var(--purple);border:1px solid rgba(139,92,246,.2)}
 .badge-direct{background:var(--ok-bg);color:var(--ok);border:1px solid rgba(16,185,129,.2)}

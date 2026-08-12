@@ -215,6 +215,9 @@ def process_outbox_once(
 
 
 def build_test_entry(*, actor: str = "admin") -> dict[str, Any]:
+    from app.audit.event_catalog import resolve_event
+
+    ev = resolve_event(action="siem.connectivity.test")
     return {
         "id": 0,
         "action": "siem.connectivity.test",
@@ -224,6 +227,11 @@ def build_test_entry(*, actor: str = "admin") -> dict[str, Any]:
         "severity": "info",
         "status": None,
         "result": "info",
+        "event_code": ev.code,
+        "event_label": ev.label,
+        "catalog_severity": ev.severity.value,
+        "domain": ev.domain,
+        "ecs_category": list(ev.ecs_category),
         "detail_short": "connectivity test",
         "detail_full": '{\n  "op": "connectivity_test"\n}',
         "detail": {"op": "connectivity_test"},
@@ -239,17 +247,44 @@ def run_connectivity_test(
     actor: str,
     sock_factory=None,
     http_client=None,
-) -> tuple[bool, str]:
-    """Send siem.connectivity.test immediately (bypass queue)."""
+) -> tuple[bool, str, list[str]]:
+    """Send siem.connectivity.test immediately (bypass queue).
+
+    Returns ``(ok, message, shell_lines)`` — shell_lines are human-readable
+    transcript lines for the admin UI terminal panel.
+    """
+    lines: list[str] = []
     cfg = get_siem_config(db)
+    lines.append("$ bastion siem connectivity-test")
+    lines.append(f"enabled={cfg.enabled} protocol={cfg.protocol}")
+
     if not cfg.active and not cfg.enabled:
-        return False, "Forwarder désactivé"
+        msg = "Forwarder désactivé"
+        lines.append(f"✗ {msg}")
+        return False, msg, lines
     if cfg.protocol == "syslog_tls" and not cfg.syslog_host:
-        return False, "syslog_host manquant"
+        msg = "syslog_host manquant"
+        lines.append(f"✗ {msg}")
+        return False, msg, lines
     if cfg.protocol == "webhook_https" and not cfg.webhook_url.startswith("https://"):
-        return False, "webhook_url HTTPS manquant"
+        msg = "webhook_url HTTPS manquant"
+        lines.append(f"✗ {msg}")
+        return False, msg, lines
+
     entry = build_test_entry(actor=actor)
     secret = resolve_webhook_secret(db, settings) if cfg.protocol == "webhook_https" else None
+
+    if cfg.protocol == "syslog_tls":
+        lines.append(f"→ syslog_tls connect {cfg.syslog_host}:{cfg.syslog_port}")
+        lines.append(f"  tls_verify={cfg.syslog_tls_verify}")
+        lines.append(f"  event={entry.get('event_code')} {entry.get('event_label')}")
+        lines.append("  format=CEF over RFC5424")
+    else:
+        lines.append(f"→ POST {cfg.webhook_url}")
+        lines.append(f"  auth={cfg.webhook_auth_type}")
+        lines.append(f"  event={entry.get('event_code')} {entry.get('event_label')}")
+        lines.append("  format=ECS JSON")
+
     try:
         deliver_entry(
             entry,
@@ -267,14 +302,18 @@ def run_connectivity_test(
             details={"protocol": cfg.protocol, "ok": True},
             forward_to_siem=False,
         )
-        return True, "Connexion OK — événement de test envoyé"
+        msg = "Connexion OK — événement de test envoyé"
+        lines.append(f"✓ {msg}")
+        return True, msg, lines
     except SiemDeliveryError as exc:
+        err = str(exc)
         log_action(
             db,
             actor=actor,
             action="siem.connectivity.test",
             target="siem",
-            details={"protocol": cfg.protocol, "ok": False, "error": str(exc)[:300]},
+            details={"protocol": cfg.protocol, "ok": False, "error": err[:300]},
             forward_to_siem=False,
         )
-        return False, str(exc)
+        lines.append(f"✗ {err}")
+        return False, err, lines

@@ -188,13 +188,26 @@ def admin_configuration_siem_test(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    from fastapi.responses import JSONResponse
+
     from app.siem.outbox import run_connectivity_test
 
-    ok, message = run_connectivity_test(
+    ok, message, lines = run_connectivity_test(
         db,
         settings,
         actor=_actor(user),
     )
+    accept = (request.headers.get("accept") or "").lower()
+    wants_json = "application/json" in accept
+    if wants_json:
+        return JSONResponse(
+            {
+                "ok": ok,
+                "message": message,
+                "lines": lines,
+            },
+            status_code=200 if ok else 400,
+        )
     response = RedirectResponse(url=_CONFIG_SIEM, status_code=302)
     flash_redirect(
         response,
