@@ -210,10 +210,11 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="siem_filter_actions">Actions (séparées par des virgules)</label>
+            <label class="form-label" for="siem_filter_actions">Filtres (séparés par des virgules)</label>
             <input class="form-input" id="siem_filter_actions" name="filter_actions"
                    value="{{ (siem.filter_actions or []) | join(', ') if siem else '' }}"
-                   placeholder="health.probe, admin.container_logs.viewed" autocomplete="off">
+                   placeholder="health.probe, BST-WAF-*, severity>=ERROR" autocomplete="off">
+            <p class="form-hint">Actions exactes, codes BST-…, globs de domaine (<code>BST-WAF-*</code>) ou seuil (<code>severity&gt;=ERROR</code>).</p>
           </div>
         </div>
         <div class="form-row">

@@ -1,5 +1,7 @@
 """Admin action audit journal — write and read helpers."""
 
+from __future__ import annotations
+
 import hashlib
 import logging
 from datetime import datetime
@@ -8,6 +10,19 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.audit.event_catalog import (
+    ACTION_TO_CODE,
+    CEF_SEVERITY,
+    DOMAINS,
+    EVENTS,
+    SEVERITY_RANK,
+    EventDef,
+    Severity,
+    format_log_line,
+    get_event_by_code,
+    historical_severity_from_result,
+    resolve_event,
+)
 from app.models import AuditLog
 
 logger = logging.getLogger(__name__)
@@ -61,6 +76,7 @@ def log_action(
     details: dict[str, Any] | None = None,
     ip_address: str | None = None,
     *,
+    code: str | EventDef | None = None,
     forward_to_siem: bool = True,
 ) -> AuditLog | None:
     """Persist an audit entry. Never raises — failures are logged and swallowed.
@@ -68,8 +84,12 @@ def log_action(
     After a successful commit, optionally enqueue for SIEM forwarding (same
     single write-path accroche used by Live consumers of AuditLog — no
     duplicated call-site hooks).
+
+    ``code`` is optional: when omitted, resolved from ``action`` via the
+    central event catalogue; unknown actions get ``BST-<DOMAIN>-0000``.
     """
     display_actor, normalized_details = normalize_audit_actor(actor, details)
+    ev = resolve_event(action=action, code=code)
     try:
         entry = AuditLog(
             actor=display_actor,
@@ -77,13 +97,23 @@ def log_action(
             target=target,
             details=normalized_details or None,
             ip_address=ip_address,
+            event_code=ev.code,
+            severity=ev.severity.value,
         )
         db.add(entry)
         db.commit()
         db.refresh(entry)
     except SQLAlchemyError:
+        # Do not call log_action again — emit structured logger line for BST-SYS-3001.
+        audit_fail = resolve_event(code="BST-SYS-3001")
         logger.exception(
-            "audit log write failed (actor=%s action=%s target=%s)",
+            "%s (actor=%s action=%s target=%s)",
+            format_log_line(
+                audit_fail,
+                actor=display_actor,
+                ip=ip_address or "",
+                result="error",
+            ),
             display_actor,
             action,
             target,
@@ -162,6 +192,8 @@ def list_audit_entries(
             else "",
             "severity": derive_severity(row.action),
             "ip_address": row.ip_address,
+            "event_code": getattr(row, "event_code", None) or "",
+            "catalog_severity": getattr(row, "severity", None) or "",
         }
 
     # Severity is derived in Python — only scan when filtering by it.
@@ -205,3 +237,23 @@ def compute_integrity(db: Session) -> dict[str, Any]:
             break
 
     return {"score": score, "ok": ok, "hash": final_hash[:64]}
+
+
+__all__ = [
+    "ACTION_TO_CODE",
+    "CEF_SEVERITY",
+    "DOMAINS",
+    "EVENTS",
+    "OPAQUE_SSO_ACTOR",
+    "SEVERITY_RANK",
+    "EventDef",
+    "Severity",
+    "compute_integrity",
+    "derive_severity",
+    "get_event_by_code",
+    "historical_severity_from_result",
+    "list_audit_entries",
+    "log_action",
+    "normalize_audit_actor",
+    "resolve_event",
+]

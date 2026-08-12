@@ -21,11 +21,15 @@ from app.sso_settings import Settings, get_settings
 from app.web.admin_logs_query import (
     DEFAULT_COLUMNS,
     apply_audit_filters,
+    count_uncatalogued_types,
     list_admin_log_entries,
     normalize_columns,
+    parse_domain_list,
+    parse_severity_list,
     parse_status_list,
     serialize_audit_row,
 )
+from app.audit.event_catalog import DOMAINS, EVENTS, Severity
 from app.web.audit_export import build_audit_csv_export, build_audit_pdf_export
 from app.web.constants import APP_VERSION
 from app.web.container_logs_settings import get_container_logs_config
@@ -54,6 +58,47 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["admin-logs"], dependencies=[Depends(require_admin)])
 
 _PAGE_SIZE = 50
+_SYSTEM_SECURITY_VIEW = "Sécurité"
+
+
+def _ensure_system_views(db: Session, user_key: str) -> None:
+    """Seed non-deletable default view « Sécurité » (criticité ≥ WARNING)."""
+    row = (
+        db.query(SavedLogView)
+        .filter_by(user_email=user_key, name=_SYSTEM_SECURITY_VIEW)
+        .first()
+    )
+    payload = {
+        "severity_min": "WARNING",
+        "action": "",
+        "actor": "",
+        "date_from": "",
+        "date_to": "",
+        "ip": "",
+        "q": "",
+        "detail": "",
+        "status": [],
+        "domain": [],
+        "severity": [],
+        "event_code": "",
+    }
+    cols = list(DEFAULT_COLUMNS)
+    if row is None:
+        db.add(
+            SavedLogView(
+                user_email=user_key,
+                name=_SYSTEM_SECURITY_VIEW,
+                filters_json=payload,
+                columns_json=cols,
+                is_system=True,
+            )
+        )
+        db.commit()
+        return
+    if not getattr(row, "is_system", False):
+        row.is_system = True
+        row.filters_json = payload
+        db.commit()
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -109,6 +154,10 @@ def _filter_dict(
     detail: str | None,
     status: list[str],
     audit_id: int | None = None,
+    event_code: str | None = None,
+    domains: list[str] | None = None,
+    severities: list[str] | None = None,
+    severity_min: str | None = None,
 ) -> dict[str, Any]:
     return {
         "action": action or "",
@@ -120,6 +169,10 @@ def _filter_dict(
         "detail": detail or "",
         "status": status,
         "id": audit_id or "",
+        "event_code": event_code or "",
+        "domain": domains or [],
+        "severity": severities or [],
+        "severity_min": severity_min or "",
     }
 
 
@@ -129,6 +182,8 @@ def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:
         chips.append({"key": "id", "label": f"Entrée #{filters['id']}"})
     if filters.get("action"):
         chips.append({"key": "action", "label": f"Action: {filters['action']}"})
+    if filters.get("event_code"):
+        chips.append({"key": "event_code", "label": f"Code: {filters['event_code']}"})
     if filters.get("actor"):
         chips.append({"key": "actor", "label": f"Acteur: {filters['actor']}"})
     if filters.get("date_from") or filters.get("date_to"):
@@ -146,6 +201,17 @@ def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:
         chips.append({"key": "q", "label": f"Recherche: {filters['q']}"})
     for st in filters.get("status") or []:
         chips.append({"key": f"status:{st}", "label": f"Résultat: {st}"})
+    for dom in filters.get("domain") or []:
+        chips.append({"key": f"domain:{dom}", "label": f"Domaine: {dom}"})
+    for sev in filters.get("severity") or []:
+        chips.append({"key": f"severity:{sev}", "label": f"Criticité: {sev}"})
+    if filters.get("severity_min"):
+        chips.append(
+            {
+                "key": "severity_min",
+                "label": f"Criticité ≥ {filters['severity_min']}",
+            }
+        )
     return chips
 
 
@@ -160,6 +226,10 @@ def admin_logs_page(
     q: str | None = None,
     detail: str | None = None,
     status: list[str] | None = Query(None),
+    domain: list[str] | None = Query(None),
+    severity: list[str] | None = Query(None),
+    severity_min: str | None = None,
+    event_code: str | None = None,
     columns: str | None = None,
     view: int | None = None,
     page: int = Query(1, ge=1),
@@ -175,6 +245,7 @@ def admin_logs_page(
         return build_audit_pdf_export(db, date_from=date_from, date_to=date_to)
 
     user_key = _user_key(user)
+    _ensure_system_views(db, user_key)
     if view:
         saved = (
             db.query(SavedLogView)
@@ -190,12 +261,23 @@ def admin_logs_page(
             ip = ip or f.get("ip") or None
             q = q or f.get("q") or None
             detail = detail or f.get("detail") or None
+            event_code = event_code or f.get("event_code") or None
+            severity_min = severity_min or f.get("severity_min") or None
             if not status and isinstance(f.get("status"), list):
                 status = f.get("status")
+            if not domain and isinstance(f.get("domain"), list):
+                domain = f.get("domain")
+            if not severity and isinstance(f.get("severity"), list):
+                severity = f.get("severity")
             if not columns and isinstance(saved.columns_json, list):
                 columns = ",".join(str(c) for c in saved.columns_json)
 
     statuses = parse_status_list(status)
+    domains = parse_domain_list(domain)
+    severities = parse_severity_list(severity)
+    sev_min = (severity_min or "").strip().upper() or None
+    if sev_min and sev_min not in {s.value for s in Severity}:
+        sev_min = None
     df = _parse_date(date_from)
     dt = _parse_date_end(date_to)
     offset = (page - 1) * _PAGE_SIZE
@@ -210,6 +292,10 @@ def admin_logs_page(
         detail_kw=detail or None,
         status=statuses,
         audit_id=audit_id,
+        event_code=event_code or None,
+        domains=domains,
+        severities=severities,
+        severity_min=sev_min,
         limit=_PAGE_SIZE,
         offset=offset,
     )
@@ -228,10 +314,16 @@ def admin_logs_page(
         detail=detail,
         status=statuses,
         audit_id=audit_id,
+        event_code=event_code,
+        domains=domains,
+        severities=severities,
+        severity_min=sev_min,
     )
     docker_cfg = get_container_logs_config(db)
     integrity = compute_integrity(db)
     app_access_apps = list_loggable_apps(db)
+    uncatalogued_count = count_uncatalogued_types(db, date_from=df, date_to=dt)
+    catalog_codes = sorted(EVENTS.keys())
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/logs.html",
@@ -255,6 +347,10 @@ def admin_logs_page(
         integrity=integrity,
         app_access_apps=app_access_apps,
         app_access_tail_lines=200,
+        uncatalogued_count=uncatalogued_count,
+        catalog_domains=sorted(DOMAINS),
+        catalog_severities=[s.value for s in Severity],
+        catalog_codes=catalog_codes,
     )
 
 
@@ -269,11 +365,20 @@ async def admin_logs_stream(
     q: str | None = None,
     detail: str | None = None,
     status: list[str] | None = Query(None),
+    domain: list[str] | None = Query(None),
+    severity: list[str] | None = Query(None),
+    severity_min: str | None = None,
+    event_code: str | None = None,
     settings: Settings = Depends(get_settings),
     _user=Depends(require_admin),
 ):
     """SSE: push new audit rows matching filters (poll DB)."""
+    from app.web.admin_logs_query import entry_matches_live_filters
+
     statuses = parse_status_list(status)
+    domains = parse_domain_list(domain)
+    severities = parse_severity_list(severity)
+    sev_min = (severity_min or "").strip().upper() or None
     df = _parse_date(date_from)
     dt = _parse_date_end(date_to)
     timeout = int(settings.admin_logs_sse_timeout_seconds or 1800)
@@ -304,18 +409,27 @@ async def admin_logs_stream(
                         ip=ip or None,
                         q=q or None,
                         detail_kw=detail or None,
+                        event_code=event_code or None,
                     )
                     rows = qset.order_by(AuditLog.id.asc()).limit(50).all()
                     entries = [serialize_audit_row(r) for r in rows]
-                    if statuses:
-                        wanted = set(statuses)
-                        entries = [e for e in entries if e.get("result") in wanted]
-                    if ip and "/" in ip:
-                        from app.web.admin_logs_query import _ip_matches
-
-                        entries = [
-                            e for e in entries if _ip_matches(e.get("ip_address"), ip)
-                        ]
+                    entries = [
+                        e
+                        for e in entries
+                        if entry_matches_live_filters(
+                            e,
+                            action=action,
+                            actor=actor,
+                            ip=ip,
+                            q=q,
+                            detail_kw=detail,
+                            status=statuses,
+                            event_code=event_code,
+                            domains=domains,
+                            severities=severities,
+                            severity_min=sev_min,
+                        )
+                    ]
                 finally:
                     db.close()
 
@@ -394,9 +508,13 @@ def admin_logs_save_view(
         .filter_by(user_email=user_key, name=view_name)
         .first()
     )
+    is_system = view_name == _SYSTEM_SECURITY_VIEW
     if existing:
+        if getattr(existing, "is_system", False) and not is_system:
+            raise HTTPException(status_code=400, detail="Vue système non modifiable ainsi")
         existing.filters_json = filters
         existing.columns_json = col_list
+        existing.is_system = bool(getattr(existing, "is_system", False) or is_system)
     else:
         db.add(
             SavedLogView(
@@ -404,6 +522,7 @@ def admin_logs_save_view(
                 name=view_name,
                 filters_json=filters,
                 columns_json=col_list,
+                is_system=is_system,
             )
         )
     db.commit()
@@ -431,6 +550,15 @@ def admin_logs_delete_view(
         .filter_by(id=view_id, user_email=user_key)
         .first()
     )
+    if row and getattr(row, "is_system", False):
+        response = RedirectResponse(url="/admin/logs#audit", status_code=302)
+        flash_redirect(
+            response,
+            "La vue système ne peut pas être supprimée.",
+            "error",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
     if row:
         db.delete(row)
         db.commit()
@@ -443,6 +571,100 @@ def admin_logs_delete_view(
     )
     return response
 
+
+@router.get("/admin/logs/catalogue")
+def admin_logs_catalogue(
+    request: Request,
+    domain: str | None = None,
+    severity: str | None = None,
+    q: str | None = None,
+    export: str | None = None,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Read-only event catalogue for SIEM / ops (CSV/JSON export)."""
+    rows = list(EVENTS.values())
+    if domain:
+        d = domain.strip().upper()
+        rows = [e for e in rows if e.domain == d]
+    if severity:
+        s = severity.strip().upper()
+        rows = [e for e in rows if e.severity.value == s]
+    if q and q.strip():
+        term = q.strip().lower()
+        rows = [
+            e
+            for e in rows
+            if term in e.code.lower()
+            or term in e.label.lower()
+            or term in e.title_fr.lower()
+            or term in (e.legacy_action or "").lower()
+        ]
+    rows.sort(key=lambda e: e.code)
+    payload = [
+        {
+            "code": e.code,
+            "label": e.label,
+            "title_fr": e.title_fr,
+            "severity": e.severity.value,
+            "domain": e.domain,
+            "legacy_action": e.legacy_action or "",
+            "ecs_category": list(e.ecs_category),
+            "runbook": e.runbook or "",
+            "deprecated": e.deprecated,
+        }
+        for e in rows
+    ]
+    if export == "json":
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(payload)
+    if export == "csv":
+        import csv
+        import io
+
+        from fastapi.responses import Response
+
+        buf = io.StringIO()
+        writer = csv.DictWriter(
+            buf,
+            fieldnames=[
+                "code",
+                "label",
+                "title_fr",
+                "severity",
+                "domain",
+                "legacy_action",
+                "ecs_category",
+                "runbook",
+                "deprecated",
+            ],
+        )
+        writer.writeheader()
+        for row in payload:
+            writer.writerow(
+                {
+                    **row,
+                    "ecs_category": "|".join(row["ecs_category"]),
+                }
+            )
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="bastion-event-catalogue.csv"'
+            },
+        )
+    ctx = base_template_context(request, settings, APP_VERSION)
+    return render(
+        "admin/logs_catalogue.html",
+        **ctx,
+        events=payload,
+        domains=sorted(DOMAINS),
+        severities=[s.value for s in Severity],
+        filters={"domain": domain or "", "severity": severity or "", "q": q or ""},
+    )
 
 @router.get("/admin/logs/containers/{name}/logs")
 async def admin_container_logs_snapshot(

@@ -92,14 +92,105 @@ def get_siem_config(db: Session) -> SiemForwardingConfig:
 
 
 def action_passes_filter(config: SiemForwardingConfig, action: str) -> bool:
+    """Backward-compatible wrapper — prefer ``event_passes_filter``."""
+    return event_passes_filter(config, action=action)
+
+
+def _severity_rank_name(name: str) -> int | None:
+    from app.audit.event_catalog import SEVERITY_RANK, Severity
+
+    try:
+        return SEVERITY_RANK[Severity(name.upper())]
+    except (KeyError, ValueError):
+        return None
+
+
+def _criterion_matches(
+    criterion: str,
+    *,
+    action: str,
+    event_code: str,
+    catalog_severity: str,
+    domain: str,
+) -> bool:
+    """Match one filter criterion: exact action, BST-WAF-*, or severity>=ERROR."""
+    crit = (criterion or "").strip()
+    if not crit:
+        return False
+    act = (action or "").strip()
+    code = (event_code or "").strip().upper()
+    sev = (catalog_severity or "").strip().upper()
+    dom = (domain or "").strip().upper()
+
+    if crit.upper().startswith("SEVERITY>=") or crit.lower().startswith("severity>="):
+        min_name = crit.split("=", 1)[-1].strip().upper()
+        min_rank = _severity_rank_name(min_name)
+        cur_rank = _severity_rank_name(sev) if sev else None
+        if min_rank is None or cur_rank is None:
+            return False
+        return cur_rank >= min_rank
+
+    # Domain / code glob: BST-WAF-*
+    if crit.upper().startswith("BST-") and crit.endswith("*"):
+        prefix = crit[:-1].upper()
+        if code.startswith(prefix):
+            return True
+        parts = prefix.rstrip("-").split("-")
+        return bool(len(parts) >= 2 and dom == parts[1])
+
+    if crit.upper().startswith("BST-") and crit.upper() == code:
+        return True
+
+    return crit == act
+
+
+def event_passes_filter(
+    config: SiemForwardingConfig,
+    *,
+    action: str,
+    event_code: str | None = None,
+    catalog_severity: str | None = None,
+    domain: str | None = None,
+    entry: dict | None = None,
+) -> bool:
+    """Allow/deny using action names, event codes, BST-DOMAIN-* globs, severity>=X."""
     act = (action or "").strip()
     if act.startswith("siem."):
         return False
-    names = set(config.filter_actions)
+    if entry:
+        event_code = event_code or entry.get("event_code")
+        catalog_severity = catalog_severity or entry.get("catalog_severity")
+        domain = domain or entry.get("domain")
+        act = act or str(entry.get("action") or "")
+    code = (event_code or "").strip()
+    sev = (catalog_severity or "").strip()
+    dom = (domain or "").strip()
+    if not code and not sev:
+        # Resolve from action for filter evaluation when enqueueing a fresh row
+        from app.audit.event_catalog import resolve_event
+
+        ev = resolve_event(action=act)
+        code = ev.code
+        sev = ev.severity.value
+        dom = ev.domain
+
+    criteria = [str(a).strip() for a in config.filter_actions if str(a).strip()]
     if config.filter_mode == "allowlist":
-        return act in names if names else False
-    # denylist (default): empty list → forward all (except siem.*)
-    return act not in names
+        if not criteria:
+            return False
+        return any(
+            _criterion_matches(
+                c, action=act, event_code=code, catalog_severity=sev, domain=dom
+            )
+            for c in criteria
+        )
+    # denylist (default): empty → forward all (except siem.*)
+    return not any(
+        _criterion_matches(
+            c, action=act, event_code=code, catalog_severity=sev, domain=dom
+        )
+        for c in criteria
+    )
 
 
 def resolve_webhook_secret(db: Session, settings: Settings) -> str | None:

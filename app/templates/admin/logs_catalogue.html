@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Catalogue des événements{% endblock %}
+{% block breadcrumb %}Admin / Logs / Catalogue{% endblock %}
+
+{% block content %}
+{% set filters = filters | default({}) %}
+{% set events = events | default([]) %}
+{% set domains = domains | default([]) %}
+{% set severities = severities | default([]) %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Catalogue des événements</h1>
+      <p class="page-sub">{{ events | length }} code(s) — source de vérité pour SIEM et runbooks</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-ghost btn-sm" href="/admin/logs#audit">← Logs</a>
+      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=csv{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">↓ CSV</a>
+      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=json{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">↓ JSON</a>
+    </div>
+  </div>
+
+  <form class="logs-filters" method="get" action="/admin/logs/catalogue">
+    <div class="logs-filters-row">
+      <div class="logs-filters-grid">
+        <label class="logs-filter-field logs-filter-grow">
+          <span class="form-label">Recherche</span>
+          <input type="search" class="form-input" name="q" value="{{ filters.q or '' }}" placeholder="code, label, action…">
+        </label>
+        <label class="logs-filter-field">
+          <span class="form-label">Domaine</span>
+          <select class="form-select" name="domain">
+            <option value="">Tous</option>
+            {% for d in domains %}
+            <option value="{{ d }}"{% if filters.domain == d %} selected{% endif %}>{{ d }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="logs-filter-field">
+          <span class="form-label">Criticité</span>
+          <select class="form-select" name="severity">
+            <option value="">Toutes</option>
+            {% for s in severities %}
+            <option value="{{ s }}"{% if filters.severity == s %} selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="logs-filters-footer">
+        <div class="logs-filters-actions">
+          <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="card logs-table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Criticité</th>
+          <th>Domaine</th>
+          <th>Label</th>
+          <th>Libellé FR</th>
+          <th>Action legacy</th>
+          <th>Runbook</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in events %}
+        <tr>
+          <td class="font-mono"><code>{{ e.code }}</code></td>
+          <td>
+            {% if e.severity == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
+            {% elif e.severity == 'ERROR' %}<span class="badge badge-error-outline">ERROR</span>
+            {% elif e.severity == 'WARNING' %}<span class="badge badge-warn">WARNING</span>
+            {% elif e.severity == 'NOTICE' %}<span class="badge badge-notice">NOTICE</span>
+            {% else %}<span class="badge badge-muted">{{ e.severity }}</span>
+            {% endif %}
+          </td>
+          <td>{{ e.domain }}</td>
+          <td><code>{{ e.label }}</code></td>
+          <td>{{ e.title_fr }}</td>
+          <td class="font-mono">{{ e.legacy_action or "—" }}</td>
+          <td>{{ e.runbook or "—" }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="logs-empty-cell">Aucun événement</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
