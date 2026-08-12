@@ -41,6 +41,9 @@
 .badge-err,.badge-danger{background:var(--err-bg);color:var(--err);border:1px solid rgba(239,68,68,.25)}
 .badge-info{background:var(--info-bg);color:var(--info);border:1px solid rgba(96,165,250,.25)}
 .badge-muted{background:rgba(71,85,105,.15);color:var(--text-2);border:1px solid var(--border)}
+.badge-critical{background:var(--err-bg);color:var(--err);border:1px solid rgba(239,68,68,.45);font-weight:800}
+.badge-notice{background:transparent;color:var(--info);border:1px solid rgba(96,165,250,.45)}
+.badge-error-outline{background:transparent;color:var(--err);border:1px solid rgba(239,68,68,.45)}
 .badge-sso{background:var(--info-bg);color:var(--info);border:1px solid rgba(96,165,250,.2)}
 .badge-robotic{background:var(--purple-bg);color:var(--purple);border:1px solid rgba(139,92,246,.2)}
 .badge-direct{background:var(--ok-bg);color:var(--ok);border:1px solid rgba(16,185,129,.2)}

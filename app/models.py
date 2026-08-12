@@ -850,6 +850,9 @@ class AuditLog(Base):
     target = Column(String, nullable=True)
     details = Column(JSON, nullable=True)
     ip_address = Column(String, nullable=True)
+    # Catalogue-derived fields (nullable for historical rows pre-event-codes).
+    event_code = Column(String, nullable=True, index=True)
+    severity = Column(String, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
 
 
@@ -866,6 +869,7 @@ class SavedLogView(Base):
     name = Column(String, nullable=False)
     filters_json = Column(JSON, nullable=False, default=dict)
     columns_json = Column(JSON, nullable=False, default=list)
+    is_system = Column(Boolean, nullable=False, default=False, server_default="0")
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
 
 

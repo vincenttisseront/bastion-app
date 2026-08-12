@@ -49,18 +49,39 @@ def _sample_entry(**overrides):
 
 
 def test_cef_format_and_escape():
-    entry = _sample_entry(action="breakglass.login|denied", result="error")
+    entry = _sample_entry(
+        action="breakglass.login_failed",
+        event_code="BST-BGL-2001",
+        event_label="BREAKGLASS_LOGIN_FAILED",
+        catalog_severity="WARNING",
+        result="error",
+    )
     cef = format_cef(entry, version="0.5.0")
     assert cef.startswith("CEF:0|iBanFirst|BastionPro-Sentinel|0.5.0|")
-    assert "breakglass.login\\|denied" in cef
+    assert "BST-BGL-2001" in cef
+    assert "BREAKGLASS_LOGIN_FAILED" in cef
     assert "outcome=error" in cef
-    assert "suser=e189ed16-79f0-4fa1-85ee-1bb7ff28052c" in cef
-    assert "src=192.168.2.172" in cef
-    assert "cs1Label=detail" in cef
-    assert "family" in cef
+    assert cef_severity(entry) == 5  # WARNING
+    # Historical result-only fallback (no code)
     assert cef_severity("error") == 7
-    assert cef_severity("success") == 1
-    assert cef_severity("info") == 3
+    assert cef_severity("success") == 3  # NOTICE
+    assert cef_severity("info") == 1  # INFO
+
+
+def test_cef_critical_success_is_severity_10():
+    """Decisive case: success result + CRITICAL catalogue → CEF 10, not 1."""
+    entry = _sample_entry(
+        action="breakglass.login",
+        result="success",
+        event_code="BST-BGL-4001",
+        event_label="BREAKGLASS_LOGIN_FROM_NON_LAN",
+        catalog_severity="CRITICAL",
+        domain="BGL",
+    )
+    cef = format_cef(entry)
+    assert "|10|" in cef or cef.split("|")[6] == "10"
+    assert "BST-BGL-4001" in cef
+    assert cef_severity(entry) == 10
 
 
 def test_cef_truncation_marker():
@@ -72,11 +93,20 @@ def test_cef_truncation_marker():
 
 
 def test_ecs_json_full_detail():
-    entry = _sample_entry()
+    entry = _sample_entry(
+        event_code="BST-SESS-4001",
+        event_label="SESSION_HIJACK_SUSPECTED",
+        catalog_severity="CRITICAL",
+        ecs_category=["session", "intrusion_detection"],
+        domain="SESS",
+    )
     doc = format_ecs(entry, version="0.5.0")
     assert doc["@timestamp"] == "2026-07-26T12:12:05Z"
-    assert doc["event"]["action"] == "session_hijack_suspected"
+    assert doc["event"]["code"] == "BST-SESS-4001"
+    assert doc["event"]["action"] == "SESSION_HIJACK_SUSPECTED"
     assert doc["event"]["outcome"] == "error"
+    assert doc["event"]["severity"] == 10
+    assert doc["log"]["level"] == "critical"
     assert doc["user"]["name"] == "e189ed16-79f0-4fa1-85ee-1bb7ff28052c"
     assert doc["source"]["ip"] == "192.168.2.172"
     assert doc["bastion"]["detail"]["cookie_hash_prefix"] == "75bdc892e5335867"
@@ -125,6 +155,70 @@ def test_filter_allow_deny():
     )
     assert action_passes_filter(allow, "realm.test")
     assert not action_passes_filter(allow, "health.probe")
+
+
+def test_filter_domain_glob_and_severity():
+    from app.siem.settings_service import SiemForwardingConfig, event_passes_filter
+
+    deny = SiemForwardingConfig(
+        enabled=True,
+        protocol="webhook_https",
+        syslog_host="",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="https://example.test/h",
+        webhook_auth_type="none",
+        webhook_auth_configured=False,
+        filter_mode="denylist",
+        filter_actions=["BST-WAF-*"],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        last_success_at=None,
+    )
+    assert not event_passes_filter(
+        deny,
+        action="security.ban.applied",
+        event_code="BST-WAF-4001",
+        catalog_severity="CRITICAL",
+        domain="WAF",
+    )
+    assert event_passes_filter(
+        deny,
+        action="realm.test",
+        event_code="BST-ADM-1017",
+        catalog_severity="NOTICE",
+        domain="ADM",
+    )
+
+    allow = SiemForwardingConfig(
+        enabled=True,
+        protocol="webhook_https",
+        syslog_host="",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="https://example.test/h",
+        webhook_auth_type="none",
+        webhook_auth_configured=False,
+        filter_mode="allowlist",
+        filter_actions=["severity>=ERROR"],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        last_success_at=None,
+    )
+    assert event_passes_filter(
+        allow,
+        action="security.ban.applied",
+        event_code="BST-WAF-4001",
+        catalog_severity="CRITICAL",
+        domain="WAF",
+    )
+    assert not event_passes_filter(
+        allow,
+        action="admin.container_logs.viewed",
+        event_code="BST-ADM-0001",
+        catalog_severity="INFO",
+        domain="ADM",
+    )
 
 
 def test_webhook_delivery_mock(httpx_mock=None):

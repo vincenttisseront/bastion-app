@@ -8,14 +8,19 @@
 {% set docker_containers = docker_containers | default([]) %}
 {% set docker_logs_tail_lines = docker_logs_tail_lines | default(200) %}
 {% set admin_logs_sse_timeout_seconds = admin_logs_sse_timeout_seconds | default(1800) %}
-{% set visible_columns = visible_columns | default(['timestamp','actor','action','ip','result','detail']) %}
+{% set visible_columns = visible_columns | default(['timestamp','actor','code','action','ip','result','detail']) %}
 {% set all_columns = all_columns | default(visible_columns) %}
 {% set saved_views = saved_views | default([]) %}
 {% set active_chips = active_chips | default([]) %}
 {% set filters = filters | default({}) %}
+{% set uncatalogued_count = uncatalogued_count | default(0) %}
+{% set catalog_domains = catalog_domains | default([]) %}
+{% set catalog_severities = catalog_severities | default([]) %}
+{% set catalog_codes = catalog_codes | default([]) %}
 {% set col_labels = {
   'timestamp': 'Horodatage',
   'actor': 'Acteur',
+  'code': 'Code',
   'action': 'Action',
   'ip': 'IP',
   'result': 'Résultat',
@@ -59,15 +64,22 @@
     <div class="logs-views">
       <a class="btn btn-secondary btn-sm" href="/admin/logs#audit">Tout</a>
       {% for v in saved_views %}
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?view={{ v.id }}#audit">{{ v.name }}</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?view={{ v.id }}#audit">{{ v.name }}{% if v.is_system %} ★{% endif %}</a>
+      {% if not v.is_system %}
       <form method="post" action="/admin/logs/views/{{ v.id }}/delete" class="inline-form">
         <button type="submit" class="btn btn-ghost btn-sm" title="Supprimer la vue">×</button>
       </form>
+      {% endif %}
       {% endfor %}
       <span style="flex:1;"></span>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs/catalogue">Catalogue</a>
       <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">↓ CSV</a>
       <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">↓ PDF</a>
     </div>
+
+    {% if uncatalogued_count %}
+    <p class="page-sub" id="uncatalogued-banner">{{ uncatalogued_count }} type(s) d’événements non catalogués sur la période.</p>
+    {% endif %}
 
     <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters" data-live-search data-live-delay="400">
       <input type="hidden" name="columns" id="filter-columns" value="{{ visible_columns | join(',') }}">
@@ -103,6 +115,17 @@
                    placeholder="Mot-clé" aria-label="Mot-clé dans le détail" autocomplete="off">
           </label>
           <label class="logs-filter-field">
+            <span class="form-label">Code</span>
+            <input type="text" class="form-input" name="event_code" id="filter-event-code"
+                   list="catalog-codes" value="{{ filters.event_code or '' }}"
+                   placeholder="BST-…" aria-label="Code événement" autocomplete="off">
+            <datalist id="catalog-codes">
+              {% for code in catalog_codes %}
+              <option value="{{ code }}"></option>
+              {% endfor %}
+            </datalist>
+          </label>
+          <label class="logs-filter-field">
             <span class="form-label">Du</span>
             <input type="date" class="form-input" name="date_from" id="filter-date-from" value="{{ filters.date_from or '' }}"
                    aria-label="Date début">
@@ -117,6 +140,17 @@
           <div class="logs-result-checks" role="group" aria-label="Résultat">
             {% for st in ['success', 'error', 'info'] %}
             <label><input type="checkbox" name="status" value="{{ st }}"{% if st in (filters.status or []) %} checked{% endif %}> {{ st }}</label>
+            {% endfor %}
+          </div>
+          <div class="logs-result-checks" role="group" aria-label="Criticité">
+            {% for sev in catalog_severities %}
+            <label><input type="checkbox" name="severity" value="{{ sev }}"{% if sev in (filters.severity or []) %} checked{% endif %}> {{ sev }}</label>
+            {% endfor %}
+            <label><input type="checkbox" name="severity_min" value="WARNING"{% if filters.severity_min == 'WARNING' %} checked{% endif %}> ≥ WARNING</label>
+          </div>
+          <div class="logs-result-checks" role="group" aria-label="Domaine">
+            {% for dom in catalog_domains %}
+            <label><input type="checkbox" name="domain" value="{{ dom }}"{% if dom in (filters.domain or []) %} checked{% endif %}> {{ dom }}</label>
             {% endfor %}
           </div>
           <div class="logs-filters-actions">
@@ -166,10 +200,22 @@
             <td class="{% if c in ['timestamp','ip'] %}font-mono{% endif %}">
               {% if c == 'timestamp' %}{{ e.timestamp }}
               {% elif c == 'actor' %}{{ e.actor }}
-              {% elif c == 'action' %}<code>{{ e.action }}</code>
+              {% elif c == 'code' %}
+                <code class="font-mono">{{ e.event_code or "—" }}</code>
+                {% if e.historical %}<span class="badge badge-muted" title="Entrée historique">hist.</span>{% endif %}
+              {% elif c == 'action' %}
+                <code>{{ e.action }}</code>
+                {% if e.event_title_fr %}<div class="page-sub">{{ e.event_title_fr }}</div>{% endif %}
               {% elif c == 'ip' %}{{ e.ip_address or "—" }}
               {% elif c == 'result' %}
                 <span class="badge badge-{{ 'ok' if e.result == 'success' else ('err' if e.result == 'error' else 'info') }}">{{ e.result }}</span>
+                {% set sev = e.catalog_severity or '' %}
+                {% if sev == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
+                {% elif sev == 'ERROR' %}<span class="badge badge-error-outline">ERROR</span>
+                {% elif sev == 'WARNING' %}<span class="badge badge-warn">WARNING</span>
+                {% elif sev == 'NOTICE' %}<span class="badge badge-notice">NOTICE</span>
+                {% elif sev == 'INFO' %}<span class="badge badge-muted">INFO</span>
+                {% endif %}
               {% elif c == 'detail' %}
                 <button type="button" class="btn btn-ghost btn-sm audit-detail-open" title="Voir le détail JSON">
                   <span class="audit-detail-summary">{{ e.detail_short or "—" }}</span>
@@ -377,6 +423,8 @@
   function currentFilters() {
     var p = new URLSearchParams(window.location.search);
     var status = p.getAll('status');
+    var domain = p.getAll('domain');
+    var severity = p.getAll('severity');
     return {
       action: (document.getElementById('filter-action') || {}).value || '',
       actor: (document.getElementById('filter-actor') || {}).value || '',
@@ -385,10 +433,20 @@
       ip: (document.getElementById('filter-ip') || {}).value || '',
       q: (document.getElementById('filter-q') || {}).value || '',
       detail: (document.getElementById('filter-detail') || {}).value || '',
+      event_code: (document.getElementById('filter-event-code') || {}).value || '',
       status: status.length ? status : Array.prototype.map.call(
         document.querySelectorAll('#audit-filters input[name="status"]:checked'),
         function (el) { return el.value; }
       ),
+      domain: domain.length ? domain : Array.prototype.map.call(
+        document.querySelectorAll('#audit-filters input[name="domain"]:checked'),
+        function (el) { return el.value; }
+      ),
+      severity: severity.length ? severity : Array.prototype.map.call(
+        document.querySelectorAll('#audit-filters input[name="severity"]:checked'),
+        function (el) { return el.value; }
+      ),
+      severity_min: (document.querySelector('#audit-filters input[name="severity_min"]:checked') || {}).value || '',
     };
   }
 
@@ -396,8 +454,8 @@
     var f = currentFilters();
     var p = new URLSearchParams();
     Object.keys(f).forEach(function (k) {
-      if (k === 'status') {
-        (f.status || []).forEach(function (s) { p.append('status', s); });
+      if (k === 'status' || k === 'domain' || k === 'severity') {
+        (f[k] || []).forEach(function (s) { p.append(k, s); });
       } else if (f[k]) {
         p.set(k, f[k]);
       }
@@ -434,6 +492,18 @@
         var keep = p.getAll('status').filter(function (x) { return x !== st; });
         p.delete('status');
         keep.forEach(function (x) { p.append('status', x); });
+      } else if (key && key.indexOf('domain:') === 0) {
+        var dom = key.slice(7);
+        var keepD = p.getAll('domain').filter(function (x) { return x !== dom; });
+        p.delete('domain');
+        keepD.forEach(function (x) { p.append('domain', x); });
+      } else if (key && key.indexOf('severity:') === 0) {
+        var sev = key.slice(9);
+        var keepS = p.getAll('severity').filter(function (x) { return x !== sev; });
+        p.delete('severity');
+        keepS.forEach(function (x) { p.append('severity', x); });
+      } else if (key === 'severity_min') {
+        p.delete('severity_min');
       } else if (key) {
         p.delete(key);
       }
@@ -583,10 +653,17 @@
         '<dl class="logs-drawer-meta">' +
         '<dt>Horodatage</dt><dd class="font-mono">' + esc(entry.timestamp) + '</dd>' +
         '<dt>Acteur</dt><dd>' + esc(entry.actor) + '</dd>' +
+        '<dt>Code</dt><dd class="font-mono">' + esc(entry.event_code || '—') + '</dd>' +
+        '<dt>Label</dt><dd><code>' + esc(entry.event_label || '—') + '</code></dd>' +
+        '<dt>Événement</dt><dd>' + esc(entry.event_title_fr || '—') + '</dd>' +
+        '<dt>Criticité</dt><dd>' + esc(entry.catalog_severity || '—') +
+          (entry.historical ? ' <span class="badge badge-muted">historique</span>' : '') + '</dd>' +
+        '<dt>Domaine</dt><dd>' + esc(entry.domain || '—') + '</dd>' +
         '<dt>Action</dt><dd><code>' + esc(entry.action) + '</code></dd>' +
         '<dt>IP</dt><dd class="font-mono">' + esc(entry.ip_address || '—') + '</dd>' +
         '<dt>Résultat</dt><dd>' + esc(entry.result || entry.status || entry.severity || '—') + '</dd>' +
         '<dt>Cible</dt><dd>' + esc(entry.target || '—') + '</dd>' +
+        (entry.runbook ? '<dt>Runbook</dt><dd>' + esc(entry.runbook) + '</dd>' : '') +
         '</dl>';
       json = entry.detail_full || '—';
     }
@@ -652,13 +729,30 @@
   function statusHtml(e) {
     var r = e.result || e.status || e.severity || '';
     var cls = r === 'success' || r === 'ok' ? 'ok' : (r === 'error' || r === 'err' || r === 'warn' ? 'err' : 'info');
-    return '<span class="badge badge-' + cls + '">' + esc(r) + '</span>';
+    var html = '<span class="badge badge-' + cls + '">' + esc(r) + '</span>';
+    var sev = e.catalog_severity || '';
+    var sevCls = {
+      CRITICAL: 'critical',
+      ERROR: 'error-outline',
+      WARNING: 'warn',
+      NOTICE: 'notice',
+      INFO: 'muted'
+    }[sev];
+    if (sevCls) html += ' <span class="badge badge-' + sevCls + '">' + esc(sev) + '</span>';
+    return html;
   }
 
   function cellHtml(c, e) {
     if (c === 'timestamp') return esc(e.timestamp);
     if (c === 'actor') return esc(e.actor);
-    if (c === 'action') return '<code>' + esc(e.action) + '</code>';
+    if (c === 'code') {
+      return '<code class="font-mono">' + esc(e.event_code || '—') + '</code>' +
+        (e.historical ? ' <span class="badge badge-muted">hist.</span>' : '');
+    }
+    if (c === 'action') {
+      return '<code>' + esc(e.action) + '</code>' +
+        (e.event_title_fr ? '<div class="page-sub">' + esc(e.event_title_fr) + '</div>' : '');
+    }
     if (c === 'ip') return esc(e.ip_address || '—');
     if (c === 'result') return statusHtml(e);
     if (c === 'detail') {

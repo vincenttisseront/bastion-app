@@ -12,7 +12,7 @@ from app.audit import log_action
 from app.database import SessionLocal
 from app.models import AuditLog, SiemOutboxEntry, utcnow
 from app.siem.settings_service import (
-    action_passes_filter,
+    event_passes_filter,
     get_siem_config,
     mark_siem_success,
     resolve_webhook_secret,
@@ -47,7 +47,15 @@ def try_enqueue_audit(audit_log_id: int, db: Session | None = None) -> None:
         row = session.query(AuditLog).filter_by(id=audit_log_id).first()
         if row is None:
             return
-        if not action_passes_filter(cfg, row.action):
+        entry = serialize_audit_row(row)
+        if not event_passes_filter(
+            cfg,
+            action=row.action,
+            event_code=entry.get("event_code"),
+            catalog_severity=entry.get("catalog_severity"),
+            domain=entry.get("domain"),
+            entry=entry,
+        ):
             return
         # Drop oldest if at capacity (before insert), with explicit audit.
         while queue_size(session) >= cfg.retry_max_queue_size:
@@ -59,7 +67,6 @@ def try_enqueue_audit(audit_log_id: int, db: Session | None = None) -> None:
             if oldest is None:
                 break
             _drop_entry(session, oldest, reason="queue_full")
-        entry = serialize_audit_row(row)
         if isinstance(row.details, (dict, list)):
             from app.web.log_masking import mask_secrets
 

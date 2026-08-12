@@ -11,12 +11,21 @@ from sqlalchemy import String, cast, distinct, or_
 from sqlalchemy.orm import Session
 
 from app.audit import derive_severity
+from app.audit.event_catalog import (
+    DOMAINS,
+    SEVERITY_RANK,
+    Severity,
+    get_event_by_code,
+    historical_severity_from_result,
+    resolve_event,
+)
 from app.models import AuditLog
 from app.web.log_masking import format_details_for_display
 
 DEFAULT_COLUMNS = [
     "timestamp",
     "actor",
+    "code",
     "action",
     "target",
     "ip",
@@ -27,6 +36,7 @@ OPTIONAL_DETAIL_COLUMNS = ("reason", "x_real_ip", "x_forwarded_for", "peer", "re
 ALL_COLUMNS = DEFAULT_COLUMNS + list(OPTIONAL_DETAIL_COLUMNS)
 
 _RESULT_VALUES = frozenset({"success", "error", "info"})
+_SEVERITY_VALUES = frozenset(s.value for s in Severity)
 
 
 def normalize_columns(raw: list[str] | None) -> list[str]:
@@ -57,6 +67,32 @@ def parse_status_list(raw: list[str] | str | None) -> list[str]:
     return [p for p in parts if p in _RESULT_VALUES]
 
 
+def parse_severity_list(raw: list[str] | str | None) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = [p.strip().upper() for p in raw.split(",") if p.strip()]
+    else:
+        parts = []
+        for item in raw:
+            parts.extend(str(item).split(","))
+        parts = [p.strip().upper() for p in parts if p.strip()]
+    return [p for p in parts if p in _SEVERITY_VALUES]
+
+
+def parse_domain_list(raw: list[str] | str | None) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        parts = [p.strip().upper() for p in raw.split(",") if p.strip()]
+    else:
+        parts = []
+        for item in raw:
+            parts.extend(str(item).split(","))
+        parts = [p.strip().upper() for p in parts if p.strip()]
+    return [p for p in parts if p in DOMAINS]
+
+
 def result_bucket(status: str | None, severity: str | None) -> str:
     """Map row status/severity to success|error|info (UI filter vocabulary)."""
     st = (status or "").strip().lower()
@@ -68,6 +104,20 @@ def result_bucket(status: str | None, severity: str | None) -> str:
     if st in ("ok", "success") or sev == "success":
         return "success"
     return "info"
+
+
+def effective_catalog_severity(row: AuditLog, result: str) -> tuple[str, bool]:
+    """Return (severity, historical). Historical rows lack event_code."""
+    raw_code = getattr(row, "event_code", None)
+    raw_sev = getattr(row, "severity", None)
+    if raw_code:
+        if raw_sev:
+            return str(raw_sev).upper(), False
+        ev = get_event_by_code(str(raw_code))
+        if ev is not None:
+            return ev.severity.value, False
+        return Severity.WARNING.value, False
+    return historical_severity_from_result(result).value, True
 
 
 def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
@@ -85,7 +135,15 @@ def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
         status = str(details.get("status"))
     elif "success" in details:
         status = "ok" if details.get("success") else "error"
-    severity = derive_severity(row.action)
+    legacy_severity = derive_severity(row.action)
+    result = result_bucket(status, legacy_severity)
+    catalog_sev, historical = effective_catalog_severity(row, result)
+    event_code = (getattr(row, "event_code", None) or "") or ""
+    ev = None
+    if event_code:
+        ev = get_event_by_code(event_code)
+        if ev is None and event_code.endswith("-0000"):
+            ev = resolve_event(action=row.action, code=event_code)
     extras: dict[str, str] = {}
     for key in OPTIONAL_DETAIL_COLUMNS:
         if key == "target":
@@ -93,15 +151,41 @@ def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
             continue
         if key in details and details[key] is not None:
             extras[key] = str(details[key])
+    domain = ""
+    event_label = ""
+    event_title_fr = ""
+    runbook = ""
+    ecs_category: list[str] = []
+    if ev is not None:
+        domain = ev.domain
+        event_label = ev.label
+        event_title_fr = ev.title_fr
+        runbook = ev.runbook or ""
+        ecs_category = list(ev.ecs_category)
+    elif event_code:
+        try:
+            from app.audit.event_catalog import parse_event_code
+
+            domain = parse_event_code(event_code)[0]
+        except ValueError:
+            domain = ""
     return {
         "id": row.id,
         "action": row.action,
         "actor": display_actor,
         "target": row.target or "",
         "ip_address": row.ip_address or "",
-        "severity": severity,
+        "severity": legacy_severity,
         "status": status,
-        "result": result_bucket(status, severity),
+        "result": result,
+        "event_code": event_code or None,
+        "event_label": event_label,
+        "event_title_fr": event_title_fr,
+        "catalog_severity": catalog_sev,
+        "domain": domain,
+        "runbook": runbook,
+        "ecs_category": ecs_category,
+        "historical": historical,
         "detail_short": detail_short,
         "detail_full": detail_full,
         "extras": extras,
@@ -120,7 +204,6 @@ def _ip_clause(ip_filter: str):
             net = ipaddress.ip_network(raw, strict=False)
         except ValueError:
             return AuditLog.ip_address == "__invalid_cidr__"
-        # Prefix match for common IPv4 aligned prefixes; else exact membership checked later.
         if isinstance(net, ipaddress.IPv4Network) and net.prefixlen % 8 == 0:
             octets = str(net.network_address).split(".")
             keep = net.prefixlen // 8
@@ -128,7 +211,6 @@ def _ip_clause(ip_filter: str):
             if keep < 4:
                 return AuditLog.ip_address.like(f"{prefix}.%")
             return AuditLog.ip_address == str(net.network_address)
-        # Non-aligned: defer to Python filter (broad SQL fetch via IS NOT NULL)
         return AuditLog.ip_address.isnot(None)
     return or_(AuditLog.ip_address == raw, AuditLog.ip_address.ilike(f"{raw}%"))
 
@@ -159,6 +241,7 @@ def apply_audit_filters(
     q: str | None = None,
     detail_kw: str | None = None,
     audit_id: int | None = None,
+    event_code: str | None = None,
 ):
     if audit_id is not None:
         query = query.filter(AuditLog.id == int(audit_id))
@@ -170,11 +253,12 @@ def apply_audit_filters(
         query = query.filter(AuditLog.created_at >= date_from)
     if date_to:
         query = query.filter(AuditLog.created_at <= date_to)
+    if event_code and event_code.strip():
+        query = query.filter(AuditLog.event_code == event_code.strip().upper())
     clause = _ip_clause(ip or "")
     if clause is not None and "/" not in (ip or ""):
         query = query.filter(clause)
     elif clause is not None and "/" in (ip or ""):
-        # Aligned prefix already in clause; non-aligned uses not-null then Python filter.
         try:
             net = ipaddress.ip_network((ip or "").strip(), strict=False)
             if isinstance(net, ipaddress.IPv4Network) and net.prefixlen % 8 == 0:
@@ -188,8 +272,6 @@ def apply_audit_filters(
         kw = detail_kw.strip()
         query = query.filter(detail_text.ilike(f"%{kw}%"))
     if q and q.strip():
-        # Tokenize so "open-webui user@x" matches rows that contain each term
-        # (deep-links used to AND a single multi-word phrase → empty results).
         terms = [t for t in q.strip().split() if t]
         for term in terms:
             like = f"%{term}%"
@@ -199,10 +281,39 @@ def apply_audit_filters(
                     AuditLog.action.ilike(like),
                     AuditLog.target.ilike(like),
                     AuditLog.ip_address.ilike(like),
+                    AuditLog.event_code.ilike(like),
                     detail_text.ilike(like),
                 )
             )
     return query
+
+
+def _matches_severity_filters(
+    entry: dict[str, Any],
+    *,
+    severities: list[str] | None,
+    severity_min: str | None,
+) -> bool:
+    cat = (entry.get("catalog_severity") or "").upper()
+    if not cat:
+        return False
+    if severities and cat not in set(severities):
+        return False
+    if severity_min:
+        min_rank = SEVERITY_RANK.get(Severity(severity_min), 0)
+        try:
+            rank = SEVERITY_RANK[Severity(cat)]
+        except ValueError:
+            return False
+        if rank < min_rank:
+            return False
+    return True
+
+
+def _matches_domain_filter(entry: dict[str, Any], domains: list[str] | None) -> bool:
+    if not domains:
+        return True
+    return (entry.get("domain") or "").upper() in set(domains)
 
 
 def list_admin_log_entries(
@@ -217,12 +328,25 @@ def list_admin_log_entries(
     detail_kw: str | None = None,
     status: list[str] | None = None,
     audit_id: int | None = None,
+    event_code: str | None = None,
+    domains: list[str] | None = None,
+    severities: list[str] | None = None,
+    severity_min: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int, list[str]]:
     statuses = parse_status_list(status)
-    need_python = bool(statuses) or (
-        ip and "/" in ip and not _aligned_v4_prefix(ip)
+    domain_list = parse_domain_list(domains)
+    sev_list = parse_severity_list(severities)
+    sev_min = (severity_min or "").strip().upper() or None
+    if sev_min and sev_min not in _SEVERITY_VALUES:
+        sev_min = None
+    need_python = (
+        bool(statuses)
+        or bool(domain_list)
+        or bool(sev_list)
+        or bool(sev_min)
+        or (ip and "/" in ip and not _aligned_v4_prefix(ip))
     )
 
     base = apply_audit_filters(
@@ -235,6 +359,7 @@ def list_admin_log_entries(
         q=q,
         detail_kw=detail_kw,
         audit_id=audit_id,
+        event_code=event_code,
     )
 
     action_choices = [
@@ -248,7 +373,6 @@ def list_admin_log_entries(
         rows = base.offset(offset).limit(limit).all()
         return [serialize_audit_row(r) for r in rows], total, action_choices
 
-    # Status / non-aligned CIDR: filter in Python (admin-scale volumes).
     rows = base.limit(5000).all()
     entries = [serialize_audit_row(r) for r in rows]
     if ip and "/" in ip and not _aligned_v4_prefix(ip):
@@ -256,9 +380,34 @@ def list_admin_log_entries(
     if statuses:
         wanted = set(statuses)
         entries = [e for e in entries if e.get("result") in wanted]
+    if domain_list:
+        entries = [e for e in entries if _matches_domain_filter(e, domain_list)]
+    if sev_list or sev_min:
+        entries = [
+            e
+            for e in entries
+            if _matches_severity_filters(e, severities=sev_list or None, severity_min=sev_min)
+        ]
     total = len(entries)
     page = entries[offset : offset + limit]
     return page, total, action_choices
+
+
+def count_uncatalogued_types(
+    db: Session,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> int:
+    q = db.query(distinct(AuditLog.event_code)).filter(
+        AuditLog.event_code.isnot(None),
+        AuditLog.event_code.like("%-0000"),
+    )
+    if date_from:
+        q = q.filter(AuditLog.created_at >= date_from)
+    if date_to:
+        q = q.filter(AuditLog.created_at <= date_to)
+    return q.count()
 
 
 def _aligned_v4_prefix(ip_filter: str) -> bool:
@@ -278,6 +427,10 @@ def entry_matches_live_filters(
     q: str | None,
     detail_kw: str | None,
     status: list[str] | None,
+    event_code: str | None = None,
+    domains: list[str] | None = None,
+    severities: list[str] | None = None,
+    severity_min: str | None = None,
 ) -> bool:
     """Client-side parity check for SSE-pushed rows (server already filtered)."""
     if action and entry.get("action") != action:
@@ -286,8 +439,21 @@ def entry_matches_live_filters(
         return False
     if ip and not _ip_matches(entry.get("ip_address"), ip):
         return False
+    if event_code and (entry.get("event_code") or "").upper() != event_code.strip().upper():
+        return False
     statuses = parse_status_list(status)
     if statuses and entry.get("result") not in statuses:
+        return False
+    domain_list = parse_domain_list(domains)
+    if domain_list and not _matches_domain_filter(entry, domain_list):
+        return False
+    sev_list = parse_severity_list(severities)
+    sev_min = (severity_min or "").strip().upper() or None
+    if sev_min and sev_min not in _SEVERITY_VALUES:
+        sev_min = None
+    if (sev_list or sev_min) and not _matches_severity_filters(
+        entry, severities=sev_list or None, severity_min=sev_min
+    ):
         return False
     if detail_kw:
         blob = (entry.get("detail_full") or "") + json.dumps(entry.get("extras") or {})
@@ -301,6 +467,7 @@ def entry_matches_live_filters(
                 str(entry.get("action") or ""),
                 str(entry.get("target") or ""),
                 str(entry.get("ip_address") or ""),
+                str(entry.get("event_code") or ""),
                 str(entry.get("detail_full") or ""),
             ]
         ).lower()
