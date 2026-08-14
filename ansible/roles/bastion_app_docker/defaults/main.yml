@@ -85,6 +85,14 @@ vault_sso_portal_oidc_client_secret: ""
 vault_portal_vault_fernet_key: ""
 vault_portal_db_encryption_key: ""
 portal_secret_encryption_key: ""
+# Optional Postgres hot store (compose service ``postgres``).
+# AWX: set Extra Var / Vault ``vault_hot_store_pg_password`` (aliases:
+# ``hot_store_pg_password`` or ``HOT_STORE_PG_PASSWORD``). Same value must also
+# be saved in Admin → Sécurité → Stockage chaud after deploy.
+hot_store_pg_user: bastion_hot
+hot_store_pg_db: bastion_hot
+vault_hot_store_pg_password: ""
+hot_store_pg_password: ""
 # development | production
 portal_environment: production
 
