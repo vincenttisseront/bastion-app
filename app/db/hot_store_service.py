@@ -18,6 +18,7 @@ from app.db.hot_store import (
     invalidate_hot_enabled_cache,
     migrate_all_hot_tables,
     prepare_hot_schema,
+    provision_hot_role_and_database,
     set_hot_enabled_cache,
     sync_hot_engine_from_config,
     test_hot_connection,
@@ -154,6 +155,98 @@ def save_hot_store_config(
         ip_address=ip_address,
     )
     return row
+
+
+def provision_hot_store(
+    db: Session,
+    settings: Settings,
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    sslmode: str,
+    admin_user: str,
+    admin_password: str,
+    admin_database: str = "",
+    actor: str,
+    ip_address: str | None = None,
+) -> dict[str, Any]:
+    """Create/align PG role+database, then persist app connection settings."""
+    if not encryption_configured(settings):
+        raise HotStoreError(
+            "Chiffrement Fernet requis pour stocker le mot de passe PostgreSQL"
+        )
+    password = (password or "").strip()
+    if not password:
+        # Allow reuse of already-stored password when provisioning only resets role.
+        row = ensure_portal_settings(db, settings)
+        if row.hot_store_password_encrypted:
+            password = decrypt_secret(row.hot_store_password_encrypted, settings) or ""
+        if not password:
+            raise HotStoreError(
+                "Mot de passe du rôle hot store requis (champ « Mot de passe »)"
+            )
+    admin_password = (admin_password or "").strip()
+    if not admin_password:
+        raise HotStoreError(
+            "Mot de passe admin PostgreSQL requis pour créer/aligner le rôle et la base"
+        )
+    admin_user = (admin_user or "").strip() or "postgres"
+
+    result = provision_hot_role_and_database(
+        host=host,
+        port=port,
+        sslmode=sslmode,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        database=database,
+        user=user,
+        password=password,
+        admin_database=(admin_database or "").strip() or None,
+    )
+
+    save_hot_store_config(
+        db,
+        settings,
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        sslmode=sslmode,
+        actor=actor,
+        ip_address=ip_address,
+    )
+    # Mark connection test OK after successful verify inside provision.
+    row = ensure_portal_settings(db, settings)
+    row.hot_store_last_test_at = utcnow()
+    row.hot_store_last_test_ok = True
+    row.hot_store_last_test_ms = result.get("ping_ms")
+    row.hot_store_last_test_error = None
+    row.updated_at = utcnow()
+    row.updated_by = actor
+    db.commit()
+
+    log_action(
+        db,
+        actor=actor,
+        action="hot_store.provisioned",
+        target="portal_settings",
+        details={
+            "host": (host or "").strip(),
+            "database": result.get("database"),
+            "user": result.get("user"),
+            "role_created": result.get("role_created"),
+            "database_created": result.get("database_created"),
+            "role_password_set": result.get("role_password_set"),
+            "admin_user": admin_user,
+            "admin_database": result.get("admin_database"),
+        },
+        ip_address=ip_address,
+    )
+    return result
 
 
 def test_hot_store_config(

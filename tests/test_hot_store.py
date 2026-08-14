@@ -249,7 +249,93 @@ def test_security_page_shows_hot_store_tab(client, db_session):
     assert 'id="hot-store"' in resp.text
     assert "Stockage chaud" in resp.text
     assert 'action="/admin/security/hot-store/config"' in resp.text
+    assert 'formaction="/admin/security/hot-store/provision"' in resp.text
+    assert "Créer / aligner rôle + base" in resp.text
     assert "wizard-stepper" in resp.text
     assert "data-wizard" in resp.text
     assert "Passer cette étape" in resp.text
-    assert "facultatif" in resp.text
+
+
+def test_validate_pg_identifier():
+    from app.db.hot_store import validate_pg_identifier
+
+    assert validate_pg_identifier("bastion_hot", label="Base") == "bastion_hot"
+    with pytest.raises(HotStoreError):
+        validate_pg_identifier("bad-name", label="Base")
+    with pytest.raises(HotStoreError):
+        validate_pg_identifier("'; DROP", label="Utilisateur")
+
+
+def test_provision_hot_store_service(db_session, monkeypatch):
+    from app.db.hot_store_service import provision_hot_store
+    from app.portal_settings_service import ensure_portal_settings
+    from app.secret_crypto import decrypt_secret
+
+    settings = Settings(
+        environment="test",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+        vault_portal_internal_token="t",
+    )
+    ensure_portal_settings(db_session, settings)
+
+    calls: list[dict] = []
+
+    def fake_provision(**kwargs):
+        calls.append(kwargs)
+        return {
+            "ok": True,
+            "admin_database": "postgres",
+            "role_created": True,
+            "role_password_set": True,
+            "database_created": True,
+            "database": kwargs["database"],
+            "user": kwargs["user"],
+            "ping_ms": 3.0,
+            "version": "PostgreSQL 16",
+        }
+
+    monkeypatch.setattr(
+        "app.db.hot_store_service.provision_hot_role_and_database",
+        fake_provision,
+    )
+    monkeypatch.setattr(
+        "app.db.hot_store_service.sync_hot_engine_from_config",
+        lambda db, settings: None,
+    )
+
+    result = provision_hot_store(
+        db_session,
+        settings,
+        host="postgres",
+        port=5432,
+        database="bastion_hot",
+        user="bastion_hot",
+        password="new-app-secret",
+        sslmode="disable",
+        admin_user="bastion_hot",
+        admin_password="old-init-secret",
+        actor="admin@example.com",
+    )
+    assert result["role_created"] is True
+    assert calls and calls[0]["password"] == "new-app-secret"
+    assert calls[0]["admin_password"] == "old-init-secret"
+
+    row = ensure_portal_settings(db_session, settings)
+    assert row.hot_store_host == "postgres"
+    assert row.hot_store_last_test_ok is True
+    assert decrypt_secret(row.hot_store_password_encrypted, settings) == "new-app-secret"
+
+    with pytest.raises(HotStoreError, match="admin"):
+        provision_hot_store(
+            db_session,
+            settings,
+            host="postgres",
+            port=5432,
+            database="bastion_hot",
+            user="bastion_hot",
+            password="x",
+            sslmode="disable",
+            admin_user="bastion_hot",
+            admin_password="",
+            actor="admin@example.com",
+        )
