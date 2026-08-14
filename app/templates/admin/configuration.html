@@ -12,7 +12,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Configuration</h1>
-      <p class="page-sub">Réglages globaux du portail — SMTP et forwarding SIEM</p>
+      <p class="page-sub">Réglages globaux du portail — SMTP, récap quotidien et forwarding SIEM</p>
     </div>
     <div class="page-header-actions">
       {% if s.ready %}
@@ -51,7 +51,8 @@
     <div class="form-section-header">
       <div class="form-section-title">SMTP sortant</div>
       <div class="form-section-sub">
-        Envoi des identifiants Keycloak et notifications de demandes d'accès.
+        Envoi des identifiants Keycloak, notifications de demandes d'accès,
+        et récapitulatif quotidien (domaines, comptes en attente, alertes).
         Une seule configuration pour tout le portail (pas par realm).
       </div>
     </div>
@@ -110,13 +111,45 @@
                    value="{{ s.from_name }}" placeholder="Portail sécurisé">
           </div>
         </div>
+        <div class="form-section-header mt-4">
+          <div class="form-section-title">Récapitulatif quotidien</div>
+          <div class="form-section-sub">
+            Synthèse des 24 dernières heures : domaines découverts, comptes en attente,
+            alertes WARNING et plus. Envoi à l'heure indiquée (Europe/Paris) sur l'instance leader.
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="daily_recap_enabled" value="on"
+                   {% if s.daily_recap_enabled %}checked{% endif %}>
+            Envoyer un récapitulatif quotidien par email
+          </label>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="daily_recap_email">Destinataire</label>
+            <input type="email" id="daily_recap_email" name="daily_recap_email" class="form-input"
+                   value="{{ s.daily_recap_email }}" placeholder="{{ s.from_email or 'admin@example.com' }}">
+            <p class="form-help">Laisser vide pour utiliser l'expéditeur SMTP.</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="daily_recap_hour">Heure d'envoi (0–23)</label>
+            <input type="number" id="daily_recap_hour" name="daily_recap_hour" class="form-input"
+                   value="{{ s.daily_recap_hour | default(7) }}" min="0" max="23">
+            <p class="form-help">Fuseau Europe/Paris. Dernier envoi : {{ s.daily_recap_last_sent or "jamais" }}</p>
+          </div>
+        </div>
         <div class="form-actions" style="margin-top:var(--sp-3);">
           <button type="submit" class="btn btn-primary">Enregistrer</button>
           <button type="submit" form="smtp-test-form" class="btn btn-secondary">Tester la connexion</button>
+          <button type="submit" form="smtp-recap-form" class="btn btn-secondary">Envoyer un récap maintenant</button>
         </div>
-        <p class="form-help">Le test utilise la configuration <strong>déjà enregistrée</strong> (connect + auth, sans envoi d'email).</p>
+        <p class="form-help">Le test SMTP et l'envoi manuel utilisent la configuration <strong>déjà enregistrée</strong>.</p>
       </form>
       <form method="post" action="/admin/configuration/smtp/test" id="smtp-test-form" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      </form>
+      <form method="post" action="/admin/configuration/smtp/recap" id="smtp-recap-form" hidden>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       </form>
     </div>
