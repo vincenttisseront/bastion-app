@@ -2749,6 +2749,65 @@ def admin_security_hot_store_config(
         return _hot_store_flash(response, str(exc), "error", settings)
 
 
+@admin_router.post("/admin/security/hot-store/provision")
+def admin_security_hot_store_provision(
+    request: Request,
+    host: str = Form(""),
+    port: int = Form(5432),
+    database: str = Form("bastion_hot"),
+    user: str = Form("bastion_hot"),
+    password: str = Form(""),
+    sslmode: str = Form("prefer"),
+    admin_user: str = Form("postgres"),
+    admin_password: str = Form(""),
+    admin_database: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    """Create/align PostgreSQL role + database, then save app credentials."""
+    from app.db.hot_store import HotStoreError
+    from app.db.hot_store_service import provision_hot_store
+
+    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    try:
+        result = provision_hot_store(
+            db,
+            settings,
+            host=host,
+            port=port,
+            database=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+            admin_user=admin_user,
+            admin_password=admin_password,
+            admin_database=admin_database,
+            actor=admin.email or admin.username or "admin",
+            ip_address=_client_ip(request),
+        )
+        parts = []
+        if result.get("role_created"):
+            parts.append("rôle créé")
+        elif result.get("role_password_set"):
+            parts.append("mot de passe rôle aligné")
+        if result.get("database_created"):
+            parts.append("base créée")
+        else:
+            parts.append("base OK")
+        detail = ", ".join(parts) if parts else "OK"
+        return _hot_store_flash(
+            response,
+            f"PostgreSQL provisionné ({detail}). Connexion enregistrée et testée.",
+            "success",
+            settings,
+        )
+    except HotStoreError as exc:
+        return _hot_store_flash(response, str(exc), "error", settings)
+    except Exception as exc:
+        return _hot_store_flash(response, f"Échec provisionnement : {exc}", "error", settings)
+
+
 @admin_router.post("/admin/security/hot-store/test")
 def admin_security_hot_store_test(
     request: Request,

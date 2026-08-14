@@ -415,6 +415,8 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
        legacy_action='hot_store.migrate'),
     _e('BST-SYS-1006', 'HOT_STORE_MIGRATE_SKIPPED', 'Migration hot-store ignorée', ('configuration',),
        legacy_action='hot_store.migrate_skipped'),
+    _e('BST-SYS-1009', 'HOT_STORE_PROVISIONED', 'Rôle/base hot-store provisionnés', ('configuration',),
+       legacy_action='hot_store.provisioned'),
     _e('BST-SYS-1007', 'INFRA_APPLY_REQUESTED', "Application d'infrastructure demandée", ('configuration',),
        legacy_action='infrastructure.apply.requested'),
     _e('BST-SYS-1008', 'INFRA_APPLY_OK', "Application d'infrastructure réussie", ('configuration',),

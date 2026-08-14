@@ -7,6 +7,7 @@ Sécurité, selected hot tables are read/written on a separate Postgres engine.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -57,9 +58,23 @@ _HOT_ENABLED_TTL_SEC = 5.0
 
 HOT_SCHEMA_VERSION = 1
 
+# Safe SQL identifiers for CREATE ROLE / CREATE DATABASE (no quoting gymnastics).
+_PG_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")
+
 
 class HotStoreError(RuntimeError):
     """Configuration or migration error for the hot store."""
+
+
+def validate_pg_identifier(name: str, *, label: str) -> str:
+    """Reject anything that cannot be a bare PostgreSQL identifier."""
+    value = (name or "").strip()
+    if not value or not _PG_IDENT_RE.match(value):
+        raise HotStoreError(
+            f"{label} invalide : utilisez uniquement lettres, chiffres et "
+            f"underscore (max 63), sans commencer par un chiffre."
+        )
+    return value
 
 
 def is_hot_model(model: type | None) -> bool:
@@ -321,6 +336,239 @@ def test_hot_connection(dsn: str) -> dict[str, Any]:
                 "can_create": bool(can_create),
                 "ping_ms": ping_ms,
             }
+    finally:
+        engine.dispose()
+
+
+def _pg_ident(name: str) -> str:
+    """Double-quote a validated identifier for DDL."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _connect_admin_engine(
+    *,
+    host: str,
+    port: int,
+    sslmode: str,
+    admin_user: str,
+    admin_password: str,
+    admin_database: str | None = None,
+    fallback_database: str | None = None,
+) -> tuple[Engine, str]:
+    """Open an admin connection to a maintenance DB (postgres / template1 / …)."""
+    candidates: list[str] = []
+    if (admin_database or "").strip():
+        candidates.append(admin_database.strip())
+    for name in ("postgres", "template1"):
+        if name not in candidates:
+            candidates.append(name)
+    if (fallback_database or "").strip() and fallback_database.strip() not in candidates:
+        candidates.append(fallback_database.strip())
+
+    last_exc: Exception | None = None
+    for dbname in candidates:
+        dsn = build_hot_dsn(
+            host=host,
+            port=port,
+            database=dbname,
+            user=admin_user,
+            password=admin_password,
+            sslmode=sslmode,
+        )
+        engine = create_hot_engine(dsn, poolclass=NullPool)
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            return engine, dbname
+        except Exception as exc:
+            last_exc = exc
+            try:
+                engine.dispose()
+            except Exception:
+                pass
+            continue
+    detail = str(last_exc)[:300] if last_exc else "inconnu"
+    raise HotStoreError(
+        "Connexion admin PostgreSQL impossible. Vérifiez l’utilisateur/mot de passe "
+        "d’administration (souvent le POSTGRES_PASSWORD d’initialisation du volume "
+        f"pgdata, car il ne change plus ensuite). Détail : {detail}"
+    ) from last_exc
+
+
+def provision_hot_role_and_database(
+    *,
+    host: str,
+    port: int,
+    sslmode: str,
+    admin_user: str,
+    admin_password: str,
+    database: str,
+    user: str,
+    password: str,
+    admin_database: str | None = None,
+) -> dict[str, Any]:
+    """Create/align PostgreSQL role + database for the hot store (idempotent).
+
+    Connects with ``admin_user`` / ``admin_password`` (superuser or CREATEROLE),
+    then ensures ``user`` exists with ``password``, and ``database`` exists
+    owned by that role. Does not log passwords.
+    """
+    host = (host or "").strip()
+    if not host:
+        raise HotStoreError("Hôte PostgreSQL requis")
+    admin_user = validate_pg_identifier(admin_user, label="Utilisateur admin")
+    database = validate_pg_identifier(database, label="Base")
+    user = validate_pg_identifier(user, label="Utilisateur")
+    password = password or ""
+    if not password.strip():
+        raise HotStoreError("Mot de passe du rôle hot store requis pour le provisionnement")
+    sslmode = (sslmode or "prefer").strip() or "prefer"
+    try:
+        port_i = int(port or 5432)
+    except (TypeError, ValueError) as exc:
+        raise HotStoreError("Port PostgreSQL invalide") from exc
+
+    engine, connected_db = _connect_admin_engine(
+        host=host,
+        port=port_i,
+        sslmode=sslmode,
+        admin_user=admin_user,
+        admin_password=admin_password or "",
+        admin_database=admin_database,
+        fallback_database=database,
+    )
+    role_created = False
+    role_password_set = False
+    database_created = False
+    try:
+        # CREATE DATABASE cannot run inside a transaction block.
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            role_exists = bool(
+                conn.execute(
+                    text("SELECT 1 FROM pg_roles WHERE rolname = :n"),
+                    {"n": user},
+                ).scalar()
+            )
+            lit = conn.execute(
+                text("SELECT quote_literal(:pw)"),
+                {"pw": password},
+            ).scalar()
+            if not lit:
+                raise HotStoreError("Échec d’échappement du mot de passe PostgreSQL")
+            role_sql = _pg_ident(user)
+
+            # Create role early with the target password. If the role already
+            # exists, delay ALTER PASSWORD until after grants — otherwise a
+            # subsequent admin reconnect (same login) would fail with the old pwd.
+            if not role_exists:
+                conn.exec_driver_sql(
+                    f"CREATE ROLE {role_sql} WITH LOGIN PASSWORD {lit}"
+                )
+                role_created = True
+                role_password_set = True
+
+            db_exists = bool(
+                conn.execute(
+                    text("SELECT 1 FROM pg_database WHERE datname = :n"),
+                    {"n": database},
+                ).scalar()
+            )
+            db_sql = _pg_ident(database)
+            if not db_exists:
+                conn.exec_driver_sql(
+                    f"CREATE DATABASE {db_sql} OWNER {role_sql}"
+                )
+                database_created = True
+            else:
+                conn.exec_driver_sql(
+                    f"GRANT ALL PRIVILEGES ON DATABASE {db_sql} TO {role_sql}"
+                )
+                try:
+                    conn.exec_driver_sql(
+                        f"ALTER DATABASE {db_sql} OWNER TO {role_sql}"
+                    )
+                except Exception:
+                    logger.debug(
+                        "hot store: ALTER DATABASE OWNER skipped (insufficient privilege)",
+                        exc_info=True,
+                    )
+
+            conn.exec_driver_sql(
+                f"GRANT ALL PRIVILEGES ON DATABASE {db_sql} TO {role_sql}"
+            )
+
+        # Schema privileges on the target DB (public) — still with admin password.
+        target_dsn = build_hot_dsn(
+            host=host,
+            port=port_i,
+            database=database,
+            user=admin_user,
+            password=admin_password or "",
+            sslmode=sslmode,
+        )
+        target_engine = create_hot_engine(target_dsn, poolclass=NullPool)
+        try:
+            with target_engine.connect().execution_options(
+                isolation_level="AUTOCOMMIT"
+            ) as conn:
+                conn.exec_driver_sql(f"GRANT ALL ON SCHEMA public TO {role_sql}")
+                conn.exec_driver_sql(f"GRANT CREATE ON SCHEMA public TO {role_sql}")
+                try:
+                    conn.exec_driver_sql(
+                        f"ALTER SCHEMA public OWNER TO {role_sql}"
+                    )
+                except Exception:
+                    logger.debug(
+                        "hot store: ALTER SCHEMA OWNER skipped",
+                        exc_info=True,
+                    )
+        finally:
+            target_engine.dispose()
+
+        # Align password last so admin reconnects above still work when
+        # admin_user == application user.
+        if role_exists:
+            with engine.connect().execution_options(
+                isolation_level="AUTOCOMMIT"
+            ) as conn:
+                lit = conn.execute(
+                    text("SELECT quote_literal(:pw)"),
+                    {"pw": password},
+                ).scalar()
+                conn.exec_driver_sql(
+                    f"ALTER ROLE {role_sql} WITH LOGIN PASSWORD {lit}"
+                )
+                role_password_set = True
+
+        # Verify app credentials work.
+        app_dsn = build_hot_dsn(
+            host=host,
+            port=port_i,
+            database=database,
+            user=user,
+            password=password,
+            sslmode=sslmode,
+        )
+        verify = test_hot_connection(app_dsn)
+        if not verify.get("ok"):
+            raise HotStoreError(
+                "Rôle/base créés mais la connexion applicative a échoué après alignement"
+            )
+        return {
+            "ok": True,
+            "admin_database": connected_db,
+            "role_created": role_created,
+            "role_password_set": role_password_set,
+            "database_created": database_created,
+            "database": database,
+            "user": user,
+            "ping_ms": verify.get("ping_ms"),
+            "version": verify.get("version"),
+        }
+    except HotStoreError:
+        raise
+    except Exception as exc:
+        raise HotStoreError(f"Provisionnement PostgreSQL échoué : {exc}") from exc
     finally:
         engine.dispose()
 

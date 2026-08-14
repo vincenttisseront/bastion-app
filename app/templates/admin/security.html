@@ -668,6 +668,43 @@
                 l’hôte <span class="mono">postgres</span> et <span class="mono">sslmode=disable</span>.
                 Un changement d’hôte / base / utilisateur réinitialise les étapes suivantes.
               </p>
+              <details class="hot-store-provision mb-3">
+                <summary class="form-label" style="cursor:pointer">Créer le rôle, la base et le mot de passe sur PostgreSQL</summary>
+                <div class="stack" style="margin-top:0.75rem">
+                  <p class="form-help mb-0">
+                    Utile si l’auth échoue (<span class="mono">password authentication failed</span>) :
+                    le volume <span class="mono">pgdata</span> garde le mot de passe d’origine
+                    (<span class="mono">POSTGRES_PASSWORD</span> — changer le <span class="mono">.env</span>
+                    ne le met pas à jour. Connectez-vous avec le compte admin d’init (souvent
+                    <span class="mono">bastion_hot</span> + mot de passe d’origine) pour créer
+                    ou réaligner le rôle applicatif saisi ci-dessus.
+                  </p>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label class="form-label" for="hot_store_admin_user">Utilisateur admin</label>
+                      <input type="text" id="hot_store_admin_user" name="admin_user" class="form-input" value="{{ hs.user if hs and hs.user else 'bastion_hot' }}" placeholder="bastion_hot ou postgres" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label" for="hot_store_admin_password">Mot de passe admin</label>
+                      <input type="password" id="hot_store_admin_password" name="admin_password" class="form-input" value="" autocomplete="new-password" placeholder="POSTGRES_PASSWORD d’init du volume">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" for="hot_store_admin_database">Base de maintenance (optionnel)</label>
+                    <input type="text" id="hot_store_admin_database" name="admin_database" class="form-input" value="" placeholder="postgres (défaut) puis template1">
+                  </div>
+                  <div class="hot-store-actions">
+                    <button
+                      type="submit"
+                      class="btn btn-primary"
+                      formaction="/admin/security/hot-store/provision"
+                      onclick="return confirm('Créer ou réaligner le rôle et la base PostgreSQL avec le mot de passe applicatif saisi ci-dessus ?');"
+                    >
+                      Créer / aligner rôle + base
+                    </button>
+                  </div>
+                </div>
+              </details>
               <div class="form-footer form-footer-flush hot-store-actions">
                 {% if hs and hs.configured %}<button type="button" class="btn btn-ghost" data-wizard-cancel-edit>Annuler</button>{% endif %}
                 <button type="submit" class="btn btn-primary">Enregistrer la connexion</button>

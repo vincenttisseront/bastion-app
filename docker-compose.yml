@@ -28,7 +28,12 @@ services:
         alembic upgrade head
         # HMAC secrets in portal_settings (not .env) — idempotent.
         python -m app.runtime_secrets_service
+        # App/files as UID 1000; never recurse into pgdata (postgres:16-alpine = UID 70).
         chown -R 1000:1000 /var/lib/sso-portal /var/lib/sso-portal-files
+        if [ -d /var/lib/sso-portal/pgdata ]; then
+          chown -R 70:70 /var/lib/sso-portal/pgdata
+          chmod 700 /var/lib/sso-portal/pgdata
+        fi
     env_file:
       - .env
     environment:
