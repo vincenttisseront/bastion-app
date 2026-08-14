@@ -672,12 +672,13 @@
                 <summary class="form-label" style="cursor:pointer">Créer le rôle, la base et le mot de passe sur PostgreSQL</summary>
                 <div class="stack" style="margin-top:0.75rem">
                   <p class="form-help mb-0">
-                    Utile si l’auth échoue (<span class="mono">password authentication failed</span>) :
-                    le volume <span class="mono">pgdata</span> garde le mot de passe d’origine
-                    (<span class="mono">POSTGRES_PASSWORD</span> — changer le <span class="mono">.env</span>
-                    ne le met pas à jour. Connectez-vous avec le compte admin d’init (souvent
-                    <span class="mono">bastion_hot</span> + mot de passe d’origine) pour créer
-                    ou réaligner le rôle applicatif saisi ci-dessus.
+                    Si l’auth échoue et qu’aucun mot de passe admin n’a jamais été choisi :
+                    définissez <span class="mono">HOT_STORE_PG_PASSWORD</span> dans le
+                    <span class="mono">.env</span>, redémarrez le service
+                    <span class="mono">postgres</span> (le entrypoint réaligne le rôle via
+                    socket local, sans ancien secret), puis saisissez <strong>le même</strong>
+                    mot de passe ci-dessus. La section admin ci-dessous sert seulement si vous
+                    provisionnez un rôle/base distincts avec un compte déjà connu.
                   </p>
                   <div class="form-row">
                     <div class="form-group">

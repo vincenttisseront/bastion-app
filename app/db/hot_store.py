@@ -128,16 +128,31 @@ def create_hot_engine(dsn: str, **kwargs: Any) -> Engine:
 
     @event.listens_for(engine, "connect")
     def _pg_timeouts(dbapi_connection, _connection_record) -> None:  # noqa: ANN001
+        # SET must not leave the DBAPI connection INTRANS — that blocks later
+        # isolation_level=AUTOCOMMIT (CREATE DATABASE / provision).
         cursor = dbapi_connection.cursor()
+        prev_ac = getattr(dbapi_connection, "autocommit", None)
         try:
+            if prev_ac is not None:
+                dbapi_connection.autocommit = True
             cursor.execute("SET statement_timeout = '30s'")
             cursor.execute("SET lock_timeout = '5s'")
         except Exception:
             logger.debug("hot store: could not set PG timeouts", exc_info=True)
         finally:
+            try:
+                if prev_ac is not None:
+                    dbapi_connection.autocommit = prev_ac
+            except Exception:
+                pass
             cursor.close()
 
     return engine
+
+
+def _autocommit_connect(engine: Engine):
+    """Open a connection that is already in AUTOCOMMIT (for DDL like CREATE DATABASE)."""
+    return engine.execution_options(isolation_level="AUTOCOMMIT").connect()
 
 
 def dispose_hot_engine() -> None:
@@ -377,7 +392,7 @@ def _connect_admin_engine(
         )
         engine = create_hot_engine(dsn, poolclass=NullPool)
         try:
-            with engine.connect() as conn:
+            with _autocommit_connect(engine) as conn:
                 conn.execute(text("SELECT 1"))
             return engine, dbname
         except Exception as exc:
@@ -389,9 +404,10 @@ def _connect_admin_engine(
             continue
     detail = str(last_exc)[:300] if last_exc else "inconnu"
     raise HotStoreError(
-        "Connexion admin PostgreSQL impossible. Vérifiez l’utilisateur/mot de passe "
-        "d’administration (souvent le POSTGRES_PASSWORD d’initialisation du volume "
-        f"pgdata, car il ne change plus ensuite). Détail : {detail}"
+        "Connexion admin PostgreSQL impossible. Sur le compose Bastion, définissez "
+        "HOT_STORE_PG_PASSWORD dans le .env puis redémarrez le service postgres "
+        "(sync automatique via socket local, sans ancien mot de passe). "
+        f"Détail : {detail}"
     ) from last_exc
 
 
@@ -442,7 +458,7 @@ def provision_hot_role_and_database(
     database_created = False
     try:
         # CREATE DATABASE cannot run inside a transaction block.
-        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        with _autocommit_connect(engine) as conn:
             role_exists = bool(
                 conn.execute(
                     text("SELECT 1 FROM pg_roles WHERE rolname = :n"),
@@ -508,9 +524,7 @@ def provision_hot_role_and_database(
         )
         target_engine = create_hot_engine(target_dsn, poolclass=NullPool)
         try:
-            with target_engine.connect().execution_options(
-                isolation_level="AUTOCOMMIT"
-            ) as conn:
+            with _autocommit_connect(target_engine) as conn:
                 conn.exec_driver_sql(f"GRANT ALL ON SCHEMA public TO {role_sql}")
                 conn.exec_driver_sql(f"GRANT CREATE ON SCHEMA public TO {role_sql}")
                 try:
@@ -528,9 +542,7 @@ def provision_hot_role_and_database(
         # Align password last so admin reconnects above still work when
         # admin_user == application user.
         if role_exists:
-            with engine.connect().execution_options(
-                isolation_level="AUTOCOMMIT"
-            ) as conn:
+            with _autocommit_connect(engine) as conn:
                 lit = conn.execute(
                     text("SELECT quote_literal(:pw)"),
                     {"pw": password},

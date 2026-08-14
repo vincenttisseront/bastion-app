@@ -56,14 +56,19 @@ services:
   # Optional hot store (sessions / audit / rate). Config stays on SQLite/SQLCipher.
   # Configure + migrate from Admin → Sécurité → Stockage chaud.
   # No host ports — vpcbr only. Encrypt the host pgdata volume for at-rest parity.
+  # Password: set HOT_STORE_PG_PASSWORD in .env — bastion-entrypoint.sh re-applies it
+  # on every start via local socket (no prior admin password required).
   postgres:
     image: postgres:16-alpine
+    entrypoint: ["/bin/sh", "/bastion-entrypoint.sh"]
+    command: ["postgres"]
     environment:
       POSTGRES_USER: ${HOT_STORE_PG_USER:-bastion_hot}
       POSTGRES_PASSWORD: ${HOT_STORE_PG_PASSWORD:-bastion_hot_change_me}
       POSTGRES_DB: ${HOT_STORE_PG_DB:-bastion_hot}
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/bastion-entrypoint.sh:/bastion-entrypoint.sh:ro
     networks:
       vpcbr:
         aliases:
@@ -77,7 +82,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 15s
+      start_period: 20s
     restart: unless-stopped
 
   bastion-app:

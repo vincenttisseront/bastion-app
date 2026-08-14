@@ -256,6 +256,21 @@ def test_security_page_shows_hot_store_tab(client, db_session):
     assert "Passer cette étape" in resp.text
 
 
+def test_autocommit_connect_sets_isolation_on_engine():
+    """AUTOCOMMIT must be set on the engine before connect (SA2 / psycopg)."""
+    from app.db.hot_store import _autocommit_connect, create_hot_engine
+    from sqlalchemy.pool import NullPool
+
+    eng = create_hot_engine(
+        "postgresql+psycopg://u:p@localhost:5432/db?sslmode=disable",
+        poolclass=NullPool,
+    )
+    opt = eng.execution_options(isolation_level="AUTOCOMMIT")
+    assert opt.get_execution_options().get("isolation_level") == "AUTOCOMMIT"
+    assert callable(_autocommit_connect)
+    eng.dispose()
+
+
 def test_validate_pg_identifier():
     from app.db.hot_store import validate_pg_identifier
 
