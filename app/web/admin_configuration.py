@@ -41,6 +41,13 @@ def admin_configuration_page(
 
     row = ensure_portal_settings(db, settings)
     siem_settings = ensure_siem_settings(db)
+    last_sent = getattr(row, "daily_recap_last_sent_at", None)
+    last_sent_s = ""
+    if last_sent is not None:
+        try:
+            last_sent_s = last_sent.strftime("%Y-%m-%d %H:%M UTC")
+        except (TypeError, ValueError, AttributeError, OSError):
+            last_sent_s = str(last_sent)
     ctx = base_template_context(
         request,
         settings,
@@ -55,6 +62,10 @@ def admin_configuration_page(
             "from_email": row.smtp_from_email or "",
             "from_name": row.smtp_from_name or "",
             "ready": smtp_configured(row),
+            "daily_recap_enabled": bool(getattr(row, "daily_recap_enabled", False)),
+            "daily_recap_email": getattr(row, "daily_recap_email", None) or "",
+            "daily_recap_hour": int(getattr(row, "daily_recap_hour", None) or 7),
+            "daily_recap_last_sent": last_sent_s,
         },
         siem_settings=siem_settings,
         siem_status=siem_public_status(db),
@@ -76,6 +87,9 @@ async def admin_configuration_save(
     smtp_password: str = Form(""),
     smtp_from_email: str = Form(""),
     smtp_from_name: str = Form(""),
+    daily_recap_enabled: str | None = Form(None),
+    daily_recap_email: str = Form(""),
+    daily_recap_hour: int = Form(7),
 ):
     token = settings.vault_portal_internal_token or "dev"
     response = RedirectResponse(url=_CONFIG_SMTP, status_code=302)
@@ -93,6 +107,9 @@ async def admin_configuration_save(
             smtp_password=smtp_password,
             smtp_from_email=smtp_from_email,
             smtp_from_name=smtp_from_name,
+            daily_recap_enabled=_form_bool(daily_recap_enabled),
+            daily_recap_email=daily_recap_email,
+            daily_recap_hour=daily_recap_hour,
         )
         flash_redirect(response, "Configuration SMTP enregistrée.", "success", token)
     except ValueError as exc:
@@ -118,6 +135,32 @@ def admin_configuration_smtp_test(
     flash_redirect(
         response,
         message,
+        "success" if ok else "error",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
+@router.post("/admin/configuration/smtp/recap")
+def admin_configuration_smtp_recap(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.mail.recap_service import send_daily_recap
+
+    result = send_daily_recap(
+        db,
+        settings,
+        force=True,
+        actor=_actor(user),
+    )
+    ok = result.status == "sent"
+    response = RedirectResponse(url=_CONFIG_SMTP, status_code=302)
+    flash_redirect(
+        response,
+        result.message,
         "success" if ok else "error",
         settings.vault_portal_internal_token or "dev",
     )

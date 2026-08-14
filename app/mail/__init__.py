@@ -1,1 +1,1 @@
-"""Mail package — global SMTP delivery (PortalSettings)."""
+"""Mail package — global SMTP delivery and daily ops recap (PortalSettings)."""

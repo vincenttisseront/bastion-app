@@ -65,6 +65,21 @@ def start_health_scheduler(settings: Settings) -> None:
     )
     logger.info("Vault key rotation watch scheduled (every 24h)")
 
+    from app.mail.recap_service import daily_recap_job, recap_timezone
+
+    scheduler.add_job(
+        daily_recap_job,
+        "cron",
+        minute=5,
+        timezone=recap_timezone(),
+        id="daily_ops_recap",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        kwargs={"settings": settings},
+    )
+    logger.info("Daily ops recap scheduled (hourly check at :05)")
+
 
 def stop_health_scheduler() -> None:
     if scheduler.running:

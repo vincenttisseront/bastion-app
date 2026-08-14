@@ -952,6 +952,12 @@ class PortalSettings(Base):
     smtp_from_email = Column(String, nullable=True)
     smtp_from_name = Column(String, nullable=True)
 
+    # Daily ops recap email (domains / pending accounts / alerts) — uses SMTP above.
+    daily_recap_enabled = Column(Boolean, nullable=False, default=False)
+    daily_recap_email = Column(String, nullable=True)
+    daily_recap_hour = Column(Integer, nullable=False, default=7)  # 0–23, Europe/Paris
+    daily_recap_last_sent_at = Column(DateTime(timezone=True), nullable=True)
+
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 

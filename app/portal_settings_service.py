@@ -144,6 +144,9 @@ def update_smtp_settings(
     smtp_password: str | None,
     smtp_from_email: str | None,
     smtp_from_name: str | None,
+    daily_recap_enabled: bool = False,
+    daily_recap_email: str | None = None,
+    daily_recap_hour: int | None = 7,
 ) -> PortalSettings:
     """Persist global SMTP settings. Empty password keeps the existing secret."""
     from app.secret_crypto import encrypt_secret
@@ -153,13 +156,26 @@ def update_smtp_settings(
     from_email = (smtp_from_email or "").strip() or None
     username = (smtp_username or "").strip() or None
     from_name = (smtp_from_name or "").strip() or None
+    recap_email = (daily_recap_email or "").strip() or None
     port = int(smtp_port) if smtp_port else 587
     enabled = bool(smtp_enabled)
+    recap_on = bool(daily_recap_enabled)
+    try:
+        recap_hour = int(daily_recap_hour) if daily_recap_hour is not None else 7
+    except (TypeError, ValueError):
+        recap_hour = 7
+    recap_hour = max(0, min(23, recap_hour))
 
     if enabled and not host:
         raise ValueError("Hôte SMTP requis lorsque SMTP est activé")
     if enabled and not from_email:
         raise ValueError("Expéditeur requis lorsque SMTP est activé")
+    if recap_on and not (recap_email or from_email):
+        raise ValueError(
+            "Destinataire du récap (ou expéditeur SMTP) requis lorsque le récap est activé"
+        )
+    if recap_email and "@" not in recap_email:
+        raise ValueError("Adresse du récap quotidien invalide")
 
     previous_enabled = bool(row.smtp_enabled)
     row.smtp_enabled = enabled
@@ -169,6 +185,9 @@ def update_smtp_settings(
     row.smtp_username = username
     row.smtp_from_email = from_email
     row.smtp_from_name = from_name
+    row.daily_recap_enabled = recap_on
+    row.daily_recap_email = recap_email
+    row.daily_recap_hour = recap_hour
 
     pwd = (smtp_password or "").strip()
     password_updated = False
@@ -193,6 +212,8 @@ def update_smtp_settings(
             "smtp_use_tls": bool(smtp_use_tls),
             "smtp_from_email": from_email,
             "password_updated": password_updated,
+            "daily_recap_enabled": recap_on,
+            "daily_recap_hour": recap_hour,
         },
         ip_address=ip_address,
     )
