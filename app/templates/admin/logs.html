@@ -197,31 +197,37 @@
           <tr data-audit-id="{{ e.id }}" tabindex="0"
               data-entry='{{ e | tojson }}'>
             {% for c in visible_columns %}
-            <td class="{% if c in ['timestamp','ip'] %}font-mono{% endif %}">
+            <td class="{% if c in ['timestamp','ip'] %}font-mono{% endif %}{% if c == 'action' %} audit-col-action{% elif c == 'result' %} audit-col-result{% elif c == 'code' %} audit-col-code{% elif c == 'actor' %} audit-col-actor{% endif %}">
               {% if c == 'timestamp' %}{{ e.timestamp }}
-              {% elif c == 'actor' %}{{ e.actor }}
+              {% elif c == 'actor' %}<span class="audit-cell-text" title="{{ e.actor }}">{{ e.actor }}</span>
               {% elif c == 'code' %}
-                <code class="font-mono">{{ e.event_code or "—" }}</code>
-                {% if e.historical %}<span class="badge badge-muted" title="Entrée historique">hist.</span>{% endif %}
+                <span class="audit-code-cell">
+                  <code class="font-mono">{{ e.event_code or "—" }}</code>
+                  {% if e.historical %}<span class="badge badge-muted" title="Entrée historique">hist.</span>{% endif %}
+                </span>
               {% elif c == 'action' %}
-                <code>{{ e.action }}</code>
-                {% if e.event_title_fr %}<div class="page-sub">{{ e.event_title_fr }}</div>{% endif %}
+                <span class="audit-action-cell" title="{{ e.action }}{% if e.event_title_fr %} — {{ e.event_title_fr }}{% endif %}">
+                  <code>{{ e.action }}</code>
+                  {% if e.event_title_fr %}<span class="audit-action-title">{{ e.event_title_fr }}</span>{% endif %}
+                </span>
               {% elif c == 'ip' %}{{ e.ip_address or "—" }}
               {% elif c == 'result' %}
-                <span class="badge badge-{{ 'ok' if e.result == 'success' else ('err' if e.result == 'error' else 'info') }}">{{ e.result }}</span>
-                {% set sev = e.catalog_severity or '' %}
-                {% if sev == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
-                {% elif sev == 'ERROR' %}<span class="badge badge-error-outline">ERROR</span>
-                {% elif sev == 'WARNING' %}<span class="badge badge-warn">WARNING</span>
-                {% elif sev == 'NOTICE' %}<span class="badge badge-notice">NOTICE</span>
-                {% elif sev == 'INFO' %}<span class="badge badge-muted">INFO</span>
-                {% endif %}
+                <span class="audit-result-cell">
+                  <span class="badge badge-{{ 'ok' if e.result == 'success' else ('err' if e.result == 'error' else 'info') }}">{{ e.result }}</span>
+                  {% set sev = e.catalog_severity or '' %}
+                  {% if sev == 'CRITICAL' %}<span class="badge badge-critical">CRITICAL</span>
+                  {% elif sev == 'ERROR' %}<span class="badge badge-error-outline">ERROR</span>
+                  {% elif sev == 'WARNING' %}<span class="badge badge-warn">WARNING</span>
+                  {% elif sev == 'NOTICE' %}<span class="badge badge-notice">NOTICE</span>
+                  {% elif sev == 'INFO' %}<span class="badge badge-muted">INFO</span>
+                  {% endif %}
+                </span>
               {% elif c == 'detail' %}
                 <button type="button" class="btn btn-ghost btn-sm audit-detail-open" title="Voir le détail JSON">
                   <span class="audit-detail-summary">{{ e.detail_short or "—" }}</span>
                   <span class="audit-detail-hint" aria-hidden="true">↗</span>
                 </button>
-              {% elif c == 'target' %}{{ e.target or "—" }}
+              {% elif c == 'target' %}<span class="audit-cell-text" title="{{ e.target or '' }}">{{ e.target or "—" }}</span>
               {% else %}{{ e.extras.get(c, "—") if e.extras else "—" }}
               {% endif %}
             </td>
@@ -729,7 +735,7 @@
   function statusHtml(e) {
     var r = e.result || e.status || e.severity || '';
     var cls = r === 'success' || r === 'ok' ? 'ok' : (r === 'error' || r === 'err' || r === 'warn' ? 'err' : 'info');
-    var html = '<span class="badge badge-' + cls + '">' + esc(r) + '</span>';
+    var html = '<span class="audit-result-cell"><span class="badge badge-' + cls + '">' + esc(r) + '</span>';
     var sev = e.catalog_severity || '';
     var sevCls = {
       CRITICAL: 'critical',
@@ -738,20 +744,25 @@
       NOTICE: 'notice',
       INFO: 'muted'
     }[sev];
-    if (sevCls) html += ' <span class="badge badge-' + sevCls + '">' + esc(sev) + '</span>';
-    return html;
+    if (sevCls) html += '<span class="badge badge-' + sevCls + '">' + esc(sev) + '</span>';
+    return html + '</span>';
   }
 
   function cellHtml(c, e) {
     if (c === 'timestamp') return esc(e.timestamp);
-    if (c === 'actor') return esc(e.actor);
+    if (c === 'actor') {
+      return '<span class="audit-cell-text" title="' + esc(e.actor || '') + '">' + esc(e.actor) + '</span>';
+    }
     if (c === 'code') {
-      return '<code class="font-mono">' + esc(e.event_code || '—') + '</code>' +
-        (e.historical ? ' <span class="badge badge-muted">hist.</span>' : '');
+      return '<span class="audit-code-cell"><code class="font-mono">' + esc(e.event_code || '—') + '</code>' +
+        (e.historical ? '<span class="badge badge-muted">hist.</span>' : '') + '</span>';
     }
     if (c === 'action') {
-      return '<code>' + esc(e.action) + '</code>' +
-        (e.event_title_fr ? '<div class="page-sub">' + esc(e.event_title_fr) + '</div>' : '');
+      var title = e.action + (e.event_title_fr ? (' — ' + e.event_title_fr) : '');
+      return '<span class="audit-action-cell" title="' + esc(title) + '">' +
+        '<code>' + esc(e.action) + '</code>' +
+        (e.event_title_fr ? '<span class="audit-action-title">' + esc(e.event_title_fr) + '</span>' : '') +
+        '</span>';
     }
     if (c === 'ip') return esc(e.ip_address || '—');
     if (c === 'result') return statusHtml(e);
@@ -761,7 +772,9 @@
         '<span class="audit-detail-summary">' + esc(label) + '</span>' +
         '<span class="audit-detail-hint" aria-hidden="true">↗</span></button>';
     }
-    if (c === 'target') return esc(e.target || '—');
+    if (c === 'target') {
+      return '<span class="audit-cell-text" title="' + esc(e.target || '') + '">' + esc(e.target || '—') + '</span>';
+    }
     var extras = e.extras || {};
     return esc(extras[c] != null ? extras[c] : '—');
   }
@@ -773,7 +786,13 @@
     tr.tabIndex = 0;
     tr.className = 'audit-row-live';
     tr.innerHTML = COLS.map(function (c) {
-      var cls = (c === 'timestamp' || c === 'ip') ? ' class="font-mono"' : '';
+      var extra = '';
+      if (c === 'timestamp' || c === 'ip') extra += ' font-mono';
+      if (c === 'action') extra += ' audit-col-action';
+      if (c === 'result') extra += ' audit-col-result';
+      if (c === 'code') extra += ' audit-col-code';
+      if (c === 'actor') extra += ' audit-col-actor';
+      var cls = extra ? (' class="' + extra.trim() + '"') : '';
       return '<td' + cls + '>' + cellHtml(c, e) + '</td>';
     }).join('');
     return tr;

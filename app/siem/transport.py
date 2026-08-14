@@ -23,8 +23,11 @@ class SiemDeliveryError(Exception):
 
 def _rfc5424_message(cef_body: str, *, hostname: str = "bastion") -> bytes:
     # PRI = facility 14 (log audit) * 8 + severity 5 (notice) → 117 — pragmatic default.
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    msg = f"<117>1 {ts} {hostname} BastionPro-Sentinel - - - {cef_body}\n"
+    # Second precision only: fractional seconds make some syslog predecoders (Wazuh)
+    # swallow the first character of HOSTNAME into TIMESTAMP (e.g. bastion → bastio).
+    host = (hostname or "bastion").strip().replace(" ", "_") or "bastion"
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    msg = f"<117>1 {ts} {host} BastionPro-Sentinel - - - {cef_body}\n"
     return msg.encode("utf-8")
 
 

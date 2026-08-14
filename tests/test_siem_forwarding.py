@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.models import AuditLog, SiemOutboxEntry, utcnow
-from app.siem.formatters import cef_severity, format_cef, format_ecs
+from app.siem.formatters import (
+    canonical_siem_actor,
+    cef_severity,
+    format_cef,
+    format_ecs,
+)
 from app.siem.outbox import process_outbox_once, queue_size
 from app.siem.settings_service import (
     action_passes_filter,
@@ -55,17 +60,102 @@ def test_cef_format_and_escape():
         event_label="BREAKGLASS_LOGIN_FAILED",
         catalog_severity="WARNING",
         result="error",
+        detail={
+            "uri": (
+                "/Microsoft-Server-ActiveSync?Cmd=Sync"
+                "&User=herve%40ar-systems.fr&DeviceId=ABC=123&DeviceType=iPhone"
+            ),
+            "note": "a=b|c\\d",
+        },
     )
     cef = format_cef(entry, version="0.5.0")
     assert cef.startswith("CEF:0|iBanFirst|BastionPro-Sentinel|0.5.0|")
     assert "BST-BGL-2001" in cef
     assert "BREAKGLASS_LOGIN_FAILED" in cef
     assert "outcome=error" in cef
+    # Strict CEF: '=', '|', '\' inside extension values must be escaped.
+    assert "Cmd\\=Sync" in cef
+    assert "DeviceId\\=ABC\\=123" in cef
+    assert "a\\=b\\|c" in cef  # equals + pipe escaped after JSON dump
+    assert "Cmd=Sync" not in cef.replace("Cmd\\=Sync", "")
+    assert "deviceExternalId=ABC\\=123" in cef
     assert cef_severity(entry) == 5  # WARNING
     # Historical result-only fallback (no code)
     assert cef_severity("error") == 7
     assert cef_severity("success") == 3  # NOTICE
     assert cef_severity("info") == 1  # INFO
+
+
+def test_cef_suser_is_canonical_email_not_display_blob():
+    entry = _sample_entry(
+        actor="A.R. Systems herve.tisseront@ar-systems.fr",
+        action="activesync.allowed",
+        event_code="BST-AUTH-0007",
+        event_label="ACTIVESYNC_ALLOWED",
+        catalog_severity="INFO",
+        result="success",
+        detail={
+            "uri": (
+                "/Microsoft-Server-ActiveSync?Cmd=Sync"
+                "&User=herve.tisseront%40ar-systems.fr"
+                "&DeviceId=ApplC39ZH2VJJCM3&DeviceType=iPhone"
+            ),
+        },
+    )
+    suser, display = canonical_siem_actor(entry)
+    assert suser == "herve.tisseront@ar-systems.fr"
+    assert display == "A.R. Systems"
+    cef = format_cef(entry)
+    assert "suser=herve.tisseront@ar-systems.fr" in cef
+    assert "cs3Label=displayName" in cef
+    assert "cs3=A.R. Systems" in cef
+    assert "deviceExternalId=ApplC39ZH2VJJCM3" in cef
+    assert "suser=herve.tisseront@ar-systems.fr" in cef
+    # Display blob must not remain the suser value.
+    assert "suser=A.R. Systems herve.tisseront@ar-systems.fr" not in cef
+
+
+def test_cef_suser_prefers_keycloak_uuid():
+    entry = _sample_entry(
+        actor="Vincent Tisseront",
+        detail={
+            "keycloak_user_id": "e189ed16-79f0-4fa1-85ee-1bb7ff28052c",
+            "email": "vincent.tisseront@ar-systems.fr",
+        },
+    )
+    suser, display = canonical_siem_actor(entry)
+    assert suser == "e189ed16-79f0-4fa1-85ee-1bb7ff28052c"
+    assert display == "Vincent Tisseront"
+    cef = format_cef(entry)
+    assert f"suser={suser}" in cef
+    assert "cs3=Vincent Tisseront" in cef
+
+
+def test_cef_strips_mailto_artifacts():
+    entry = _sample_entry(
+        actor="[mailto:ops@example.com]",
+        detail={"uri": "/x?User=[mailto:ops@example.com]"},
+    )
+    suser, _ = canonical_siem_actor(entry)
+    assert suser == "ops@example.com"
+    cef = format_cef(entry)
+    assert "mailto:" not in cef
+    assert "suser=ops@example.com" in cef
+
+
+def test_ecs_uses_canonical_user():
+    entry = _sample_entry(
+        actor="A.R. Systems herve@ar-systems.fr",
+        event_code="BST-AUTH-0007",
+        event_label="ACTIVESYNC_ALLOWED",
+        catalog_severity="INFO",
+        detail={"uri": "/Microsoft-Server-ActiveSync?DeviceId=DEV1"},
+    )
+    doc = format_ecs(entry)
+    assert doc["user"]["name"] == "herve@ar-systems.fr"
+    assert doc["user"]["email"] == "herve@ar-systems.fr"
+    assert doc["user"]["full_name"] == "A.R. Systems"
+    assert doc["device"]["id"] == "DEV1"
 
 
 def test_cef_critical_success_is_severity_10():
@@ -284,7 +374,11 @@ def test_syslog_tls_delivery_mock():
 
     deliver_entry(_sample_entry(), config, sock_factory=lambda: FakeSock())
     assert sent
-    assert b"CEF:0|" in sent[0]
+    raw = sent[0].decode("utf-8")
+    assert "CEF:0|" in raw
+    # RFC5424 header: no fractional seconds (Wazuh predecoder truncates hostname otherwise).
+    assert " bastion BastionPro-Sentinel " in raw
+    assert ".034Z" not in raw.split(" CEF:", 1)[0]
 
 
 def test_outbox_retry_then_success(db_session: Session, monkeypatch):
