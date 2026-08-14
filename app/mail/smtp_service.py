@@ -24,6 +24,17 @@ logger = logging.getLogger(__name__)
 class SmtpError(ValueError):
     """SMTP misconfiguration or delivery failure — never includes the password."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        smtp_code: int | None = None,
+        smtp_detail: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.smtp_code = smtp_code
+        self.smtp_detail = smtp_detail
+
 
 class SmtpConfigLike(Protocol):
     smtp_enabled: bool
@@ -58,6 +69,68 @@ def _from_header(cfg: SmtpConfigLike) -> str:
     if name:
         return f"{name} <{email}>"
     return email
+
+
+def _smtp_exc_detail(exc: BaseException) -> tuple[int | None, str]:
+    """Extract SMTP response code + text (no secrets)."""
+    code = getattr(exc, "smtp_code", None)
+    if code is not None:
+        try:
+            code = int(code)
+        except (TypeError, ValueError):
+            code = None
+    raw = getattr(exc, "smtp_error", None)
+    if isinstance(raw, bytes):
+        text = raw.decode("utf-8", errors="replace").strip()
+    elif raw is not None:
+        text = str(raw).strip()
+    else:
+        text = str(exc).strip()
+    # Keep audit/UI payloads compact and free of multiline noise.
+    text = " ".join(text.split())[:400]
+    return code, text
+
+
+def _raise_smtp_failure(exc: smtplib.SMTPException) -> None:
+    code, detail = _smtp_exc_detail(exc)
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        raise SmtpError(
+            "Authentification SMTP refusée (identifiant / mot de passe)",
+            smtp_code=code,
+            smtp_detail=detail or None,
+        ) from exc
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        raise SmtpError(
+            f"Destinataire refusé par le serveur SMTP"
+            + (f" ({code})" if code else "")
+            + (f" : {detail}" if detail else ""),
+            smtp_code=code,
+            smtp_detail=detail or None,
+        ) from exc
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        raise SmtpError(
+            "Expéditeur (From) refusé par le serveur SMTP"
+            + (f" ({code})" if code else "")
+            + (f" : {detail}" if detail else "")
+            + " — vérifiez que l'adresse From est autorisée pour le compte SMTP",
+            smtp_code=code,
+            smtp_detail=detail or None,
+        ) from exc
+    if isinstance(exc, smtplib.SMTPDataError):
+        raise SmtpError(
+            "Serveur SMTP a rejeté le contenu du message"
+            + (f" ({code})" if code else "")
+            + (f" : {detail}" if detail else ""),
+            smtp_code=code,
+            smtp_detail=detail or None,
+        ) from exc
+    label = exc.__class__.__name__
+    msg = f"Échec SMTP : {label}"
+    if code is not None:
+        msg = f"Échec SMTP : {label} ({code})"
+    if detail:
+        msg = f"{msg} — {detail}"
+    raise SmtpError(msg, smtp_code=code, smtp_detail=detail or None) from exc
 
 
 def send_email(
@@ -148,10 +221,8 @@ def _smtp_session(
                     client.send_message(send_msg)
                 else:
                     client.noop()
-    except smtplib.SMTPAuthenticationError as exc:
-        raise SmtpError("Authentification SMTP refusée (identifiant / mot de passe)") from exc
     except smtplib.SMTPException as exc:
-        raise SmtpError(f"Échec SMTP : {exc.__class__.__name__}") from exc
+        _raise_smtp_failure(exc)
     except OSError as exc:
         raise SmtpError(f"SMTP injoignable ({host}:{port})") from exc
 
@@ -198,7 +269,14 @@ def test_smtp_connection(
             actor=actor,
             action="smtp.connectivity.test",
             target="portal_settings",
-            details={"ok": False, "host": host, "port": port, "error": str(exc)},
+            details={
+                "ok": False,
+                "host": host,
+                "port": port,
+                "error": str(exc),
+                "smtp_code": getattr(exc, "smtp_code", None),
+                "smtp_detail": getattr(exc, "smtp_detail", None),
+            },
             forward_to_siem=False,
         )
         return False, str(exc)

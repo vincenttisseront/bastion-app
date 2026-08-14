@@ -69,7 +69,7 @@ def test_cef_format_and_escape():
         },
     )
     cef = format_cef(entry, version="0.5.0")
-    assert cef.startswith("CEF:0|iBanFirst|BastionPro-Sentinel|0.5.0|")
+    assert cef.startswith("CEF:0|Bastion|BastionPro-Sentinel|0.5.0|")
     assert "BST-BGL-2001" in cef
     assert "BREAKGLASS_LOGIN_FAILED" in cef
     assert "outcome=error" in cef
@@ -200,7 +200,7 @@ def test_ecs_json_full_detail():
     assert doc["user"]["name"] == "e189ed16-79f0-4fa1-85ee-1bb7ff28052c"
     assert doc["source"]["ip"] == "192.168.2.172"
     assert doc["bastion"]["detail"]["cookie_hash_prefix"] == "75bdc892e5335867"
-    assert doc["observer"]["vendor"] == "iBanFirst"
+    assert doc["observer"]["vendor"] == "Bastion"
     assert doc["observer"]["product"] == "BastionPro-Sentinel"
 
 

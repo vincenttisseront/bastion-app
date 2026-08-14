@@ -279,7 +279,7 @@ async def search_keycloak_users_fuzzy(
 
     Keycloak Admin `/users?search=` is prefix/substring-oriented (no typo tolerance).
     We fetch the native match plus a broader prefix pool (first 2 chars, max=100 —
-    reasonable for typical iBanFirst realms), then rank with SequenceMatcher and
+    reasonable for typical realms), then rank with SequenceMatcher and
     return the top ``limit`` above ``min_score``. Native hits are always kept.
     No new dependency (difflib / unicodedata).
     """

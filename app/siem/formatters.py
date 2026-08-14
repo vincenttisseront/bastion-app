@@ -17,7 +17,7 @@ from app.audit.event_catalog import (
 )
 from app.web.constants import APP_VERSION
 
-VENDOR = "iBanFirst"
+VENDOR = "Bastion"
 PRODUCT = "BastionPro-Sentinel"
 
 # CEF extension values MUST escape: backslash, equals, pipe (ArcSight CEF).

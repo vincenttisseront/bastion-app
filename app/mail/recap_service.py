@@ -554,7 +554,14 @@ def send_daily_recap(
             actor=actor,
             action="portal_settings.daily_recap_failed",
             target="portal_settings",
-            details={"ok": False, "error": str(exc), "to": to_email},
+            details={
+                "ok": False,
+                "error": str(exc),
+                "to": to_email,
+                "smtp_code": getattr(exc, "smtp_code", None),
+                "smtp_detail": getattr(exc, "smtp_detail", None),
+                "from": (row.smtp_from_email or "").strip() or None,
+            },
             forward_to_siem=True,
         )
         logger.warning("daily recap send failed: %s", exc)

@@ -427,6 +427,47 @@ def test_smtp_send_email_builds_message():
     assert "pw" not in str(sent)
 
 
+def test_smtp_data_error_includes_server_response():
+    import smtplib
+
+    from app.mail.smtp_service import SmtpError, send_email
+    from app.models import PortalSettings
+
+    s = _settings()
+    cfg = PortalSettings(
+        id=1,
+        smtp_enabled=True,
+        smtp_host="smtp.example.com",
+        smtp_port=587,
+        smtp_use_tls=True,
+        smtp_username="u",
+        smtp_password_encrypted=encrypt_secret("pw", s),
+        smtp_from_email="noreply@example.com",
+        smtp_from_name="Bastion",
+    )
+    fake_smtp = MagicMock()
+    fake_smtp.__enter__ = MagicMock(return_value=fake_smtp)
+    fake_smtp.__exit__ = MagicMock(return_value=False)
+    fake_smtp.send_message.side_effect = smtplib.SMTPDataError(
+        550, b"5.7.1 Sender address rejected: not owned by user"
+    )
+    with patch("app.mail.smtp_service.smtplib.SMTP", return_value=fake_smtp):
+        try:
+            send_email(
+                cfg,
+                s,
+                to_email="ops@example.com",
+                subject="Recap",
+                body_text="Body",
+            )
+            raise AssertionError("expected SmtpError")
+        except SmtpError as exc:
+            assert exc.smtp_code == 550
+            assert "Sender address rejected" in str(exc)
+            assert "rejeté le contenu" in str(exc) or "550" in str(exc)
+
+
+
 def test_smtp_connectivity_test_endpoint(client, db_session):
     from app.portal_settings_service import ensure_portal_settings
 
