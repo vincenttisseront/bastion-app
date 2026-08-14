@@ -483,6 +483,7 @@ def test_connectivity_test_json_shell_transcript(
     assert any(line.startswith("$ bastion siem") for line in data["lines"])
     assert any(line.startswith("→ POST https://siem.test/ingest") for line in data["lines"])
     assert any(line.startswith("✓") for line in data["lines"])
+    assert any("event.code=BST-SIEM-0001" in line for line in data["lines"])
 
 
 def test_connectivity_test_json_failure(client: TestClient, db_session: Session):
