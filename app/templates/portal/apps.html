@@ -439,7 +439,7 @@
         if (!result.ok) {
           var detail = (result.body && result.body.detail) || 'Action impossible';
           if (window.bastionToast) window.bastionToast(detail, 'error');
-          else window.alert(detail);
+          else if (window.bastionAlert) window.bastionAlert({ title: 'Action impossible', message: detail });
           btn.disabled = false;
           return;
         }

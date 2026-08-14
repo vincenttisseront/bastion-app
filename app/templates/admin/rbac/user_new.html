@@ -274,8 +274,11 @@
       if (dot <= 0 || dot >= raw.length - 1) {
         if (window.bastionToast) {
           window.bastionToast("Identifiant attendu au format prenom.nom", "warn");
-        } else {
-          window.alert("Identifiant attendu au format prenom.nom (ex. franck.gros).");
+        } else if (window.bastionAlert) {
+          window.bastionAlert({
+            title: "Identifiant invalide",
+            message: "Identifiant attendu au format prenom.nom (ex. franck.gros).",
+          });
         }
         usernameInput.focus();
         return;

@@ -22,19 +22,60 @@ document.addEventListener('DOMContentLoaded', function () {
         el.dataset.bastionConfirmOk = '';
         return;
       }
+      // Forms use the submit interceptor below.
+      if (el.tagName === 'FORM') return;
       e.preventDefault();
       e.stopPropagation();
       var msg = el.dataset.confirm || 'Confirmer cette action ?';
       if (!window.bastionConfirm) return;
-      window.bastionConfirm({ message: msg, danger: true }).then(function (ok) {
-        if (!ok) return;
-        el.dataset.bastionConfirmOk = '1';
-        if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.type === 'submit') {
-          el.click();
-        }
-      });
+      window
+        .bastionConfirm({
+          title: el.dataset.confirmTitle || 'Confirmation',
+          message: msg,
+          confirmLabel: el.dataset.confirmLabel || 'Confirmer',
+          danger: el.dataset.confirmDanger !== '0',
+        })
+        .then(function (ok) {
+          if (!ok) return;
+          el.dataset.bastionConfirmOk = '1';
+          if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.type === 'submit') {
+            el.click();
+          }
+        });
     });
   });
+
+  // Forms: data-confirm on <form> intercepts submit (replaces onsubmit="return confirm(...)").
+  document.addEventListener(
+    'submit',
+    function (e) {
+      var form = e.target;
+      if (!form || form.tagName !== 'FORM') return;
+      if (form.dataset.bastionConfirmOk === '1') {
+        form.dataset.bastionConfirmOk = '';
+        return;
+      }
+      var msg = form.getAttribute('data-confirm');
+      if (!msg) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (!window.bastionConfirm) return;
+      window
+        .bastionConfirm({
+          title: form.getAttribute('data-confirm-title') || 'Confirmation',
+          message: msg,
+          confirmLabel: form.getAttribute('data-confirm-label') || 'Confirmer',
+          danger: form.getAttribute('data-confirm-danger') !== '0',
+        })
+        .then(function (ok) {
+          if (!ok) return;
+          form.dataset.bastionConfirmOk = '1';
+          if (typeof form.requestSubmit === 'function') form.requestSubmit();
+          else form.submit();
+        });
+    },
+    true
+  );
 
   var search = document.getElementById('app-search');
   if (search && window.BastionFuzzy) {

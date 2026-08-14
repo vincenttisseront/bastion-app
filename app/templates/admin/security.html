@@ -239,7 +239,9 @@
         </div>
       </div>
       <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
-            onsubmit="return confirm('Générer un secret HMAC dédié pour les cookies break-glass ? Les nouvelles signatures utiliseront ce secret immédiatement. Les cookies déjà émis restent valides grâce au fallback de transition.');">
+            data-confirm="Générer un secret HMAC dédié pour les cookies break-glass ? Les nouvelles signatures utiliseront ce secret immédiatement. Les cookies déjà émis restent valides grâce au fallback de transition."
+            data-confirm-title="Générer le secret break-glass"
+            data-confirm-label="Générer">
         <div class="form-group">
           <label class="form-label form-check-row">
             <input type="checkbox" name="confirm" value="on" required>
@@ -254,7 +256,9 @@
         valeur reste acceptée en validation pendant la transition.
       </p>
       <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
-            onsubmit="return confirm('Régénérer (rotation) le secret break-glass UI ? Les nouvelles signatures utiliseront la nouvelle valeur ; les cookies déjà émis restent valides.');">
+            data-confirm="Régénérer (rotation) le secret break-glass UI ? Les nouvelles signatures utiliseront la nouvelle valeur ; les cookies déjà émis restent valides."
+            data-confirm-title="Régénérer le secret break-glass"
+            data-confirm-label="Régénérer">
         <div class="form-group">
           <label class="form-label form-check-row">
             <input type="checkbox" name="confirm" value="on" required>
@@ -699,7 +703,9 @@
                       type="submit"
                       class="btn btn-primary"
                       formaction="/admin/security/hot-store/provision"
-                      onclick="return confirm('Créer ou réaligner le rôle et la base PostgreSQL avec le mot de passe applicatif saisi ci-dessus ?');"
+                      data-confirm="Créer ou réaligner le rôle et la base PostgreSQL avec le mot de passe applicatif saisi ci-dessus ?"
+                      data-confirm-title="Provisionner PostgreSQL"
+                      data-confirm-label="Créer / aligner"
                     >
                       Créer / aligner rôle + base
                     </button>
@@ -756,7 +762,10 @@
           </div>
           {% else %}
           <p class="form-help mb-3">Crée les tables chaudes sur PostgreSQL (idempotent tant qu’elle n’a jamais réussi).</p>
-          <form method="post" action="/admin/security/hot-store/prepare" class="hot-store-actions" onsubmit="return confirm('Créer le schéma des tables chaudes sur PostgreSQL ?');">
+          <form method="post" action="/admin/security/hot-store/prepare" class="hot-store-actions"
+                data-confirm="Créer le schéma des tables chaudes sur PostgreSQL ?"
+                data-confirm-title="Initialiser le schéma"
+                data-confirm-label="Préparer le schéma">
             <button type="submit" class="btn btn-primary" {% if not can_prepare %}disabled title="Réussissez d’abord le test de connexion"{% endif %}>Préparer le schéma</button>
           </form>
           {% endif %}
@@ -784,10 +793,17 @@
           </div>
           {% endif %}
           <div class="hot-store-actions hot-store-actions--row">
-            <form method="post" action="/admin/security/hot-store/migrate" onsubmit="return confirm('Copier les tables chaudes SQLite → PostgreSQL ? Le hot store doit être désactivé. Les tables cibles seront remplacées.');">
+            <form method="post" action="/admin/security/hot-store/migrate"
+                  data-confirm="Copier les tables chaudes SQLite → PostgreSQL ? Le hot store doit être désactivé. Les tables cibles seront remplacées."
+                  data-confirm-title="Migrer vers PostgreSQL"
+                  data-confirm-label="Migrer">
               <button type="submit" class="btn btn-ghost" {% if not can_migrate %}disabled title="{% if not schema_done %}Préparez d’abord le schéma{% elif hs.enabled %}Désactivez le hot store avant de re-migrer{% else %}Indisponible{% endif %}"{% endif %}>Migrer les données</button>
             </form>
-            <form method="post" action="/admin/security/hot-store/skip-migrate" onsubmit="return confirm('Passer la migration ? Aucune donnée SQLite ne sera copiée.');">
+            <form method="post" action="/admin/security/hot-store/skip-migrate"
+                  data-confirm="Passer la migration ? Aucune donnée SQLite ne sera copiée."
+                  data-confirm-title="Passer la migration"
+                  data-confirm-label="Passer"
+                  data-confirm-danger="0">
               <button type="submit" class="btn btn-ghost" {% if not can_migrate or migrate_done %}disabled title="{% if migrate_done %}Migration déjà effectuée{% elif not schema_done %}Préparez d’abord le schéma{% else %}Indisponible{% endif %}"{% endif %}>Passer cette étape</button>
             </form>
           </div>
@@ -812,14 +828,21 @@
               {% if hs.last_migrate_at %}<div class="wizard-summary-item"><span class="wizard-summary-label">Migration</span><span class="wizard-summary-value mono">{{ hs.last_migrate_at }}</span></div>
               {% elif hs.migrate_skipped_at %}<div class="wizard-summary-item"><span class="wizard-summary-label">Migration</span><span class="wizard-summary-value">Passée</span></div>{% endif %}
             </div>
-            <form method="post" action="/admin/security/hot-store/enable" onsubmit="return confirm('Désactiver le hot store ? Les lectures/écritures repassent sur SQLite.');">
+            <form method="post" action="/admin/security/hot-store/enable"
+                  data-confirm="Désactiver le hot store ? Les lectures/écritures repassent sur SQLite."
+                  data-confirm-title="Désactiver le hot store"
+                  data-confirm-label="Désactiver">
               <input type="hidden" name="enabled" value="0">
               <button type="submit" class="btn btn-ghost">Désactiver (retour SQLite)</button>
             </form>
           </div>
           {% else %}
           <p class="form-help mb-3">Active la bascule des écritures (sessions OIDC, sessions actives, audit, anti-bruteforce, outbox SIEM) vers PostgreSQL. La configuration reste sur SQLite.</p>
-          <form method="post" action="/admin/security/hot-store/enable" onsubmit="return confirm('Activer le hot store ? Les tables chaudes seront lues/écrites sur PostgreSQL.');">
+          <form method="post" action="/admin/security/hot-store/enable"
+                data-confirm="Activer le hot store ? Les tables chaudes seront lues/écrites sur PostgreSQL."
+                data-confirm-title="Activer le hot store"
+                data-confirm-label="Activer"
+                data-confirm-danger="0">
             <input type="hidden" name="enabled" value="1">
             <button type="submit" class="btn btn-primary" {% if not can_enable %}disabled title="Terminez le schéma puis migrez ou passez la migration"{% endif %}>Activer le hot store</button>
           </form>

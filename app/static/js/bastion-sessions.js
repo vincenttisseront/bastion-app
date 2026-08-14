@@ -802,7 +802,7 @@
           confirmLabel: 'Déconnecter',
           danger: true,
         })
-      : window.confirm('Déconnecter cet utilisateur ?');
+      : false;
     if (!ok) return;
     var resultEl = document.getElementById('disconnect-user-result');
     if (resultEl) resultEl.innerHTML = '<div class="form-hint">Déconnexion en cours…</div>';
