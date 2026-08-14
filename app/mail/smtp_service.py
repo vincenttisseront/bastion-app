@@ -10,6 +10,7 @@ import logging
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import formatdate, make_msgid, parseaddr
 from typing import Any, Protocol
 
 from sqlalchemy.orm import Session
@@ -69,6 +70,38 @@ def _from_header(cfg: SmtpConfigLike) -> str:
     if name:
         return f"{name} <{email}>"
     return email
+
+
+def _msgid_domain(from_header: str) -> str:
+    _, addr = parseaddr(from_header or "")
+    if "@" in addr:
+        return addr.rsplit("@", 1)[-1].strip().lower() or "localhost"
+    return "localhost"
+
+
+def build_email_message(
+    *,
+    from_header: str,
+    to_email: str,
+    subject: str,
+    body_text: str,
+    body_html: str | None = None,
+) -> EmailMessage:
+    """Build a MIME message with headers required by spam filters (Date, Message-ID)."""
+    msg = EmailMessage()
+    # Order matters for some scanners: Date / Message-ID before body parts.
+    msg["Date"] = formatdate(localtime=False)
+    msg["Message-ID"] = make_msgid(domain=_msgid_domain(from_header))
+    msg["From"] = from_header
+    msg["To"] = to_email
+    msg["Subject"] = subject or ""
+    msg["MIME-Version"] = "1.0"
+    # Mark as automated mail (RFC 3834) — helps distinguish from phishing.
+    msg["Auto-Submitted"] = "auto-generated"
+    msg.set_content(body_text or "", charset="utf-8", cte="quoted-printable")
+    if body_html:
+        msg.add_alternative(body_html, subtype="html", charset="utf-8")
+    return msg
 
 
 def _smtp_exc_detail(exc: BaseException) -> tuple[int | None, str]:
@@ -163,13 +196,13 @@ def send_email(
         except ValueError as exc:
             raise SmtpError("Déchiffrement du mot de passe SMTP impossible") from exc
 
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = _from_header(cfg)
-    msg["To"] = to_addr
-    msg.set_content(body_text or "")
-    if body_html:
-        msg.add_alternative(body_html, subtype="html")
+    msg = build_email_message(
+        from_header=_from_header(cfg),
+        to_email=to_addr,
+        subject=subject,
+        body_text=body_text or "",
+        body_html=body_html,
+    )
 
     try:
         _smtp_session(
@@ -184,9 +217,10 @@ def send_email(
         password = ""  # noqa: F841
 
     logger.info(
-        "smtp sent to=%s subject=%s",
+        "smtp sent to=%s subject=%s message_id=%s",
         to_addr,
         (subject or "")[:80],
+        (msg["Message-ID"] or "")[:80],
     )
 
 

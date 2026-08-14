@@ -423,6 +423,10 @@ def test_smtp_send_email_builds_message():
     sent = fake_smtp.send_message.call_args[0][0]
     assert sent["To"] == "user@example.com"
     assert sent["Subject"] == "Hello"
+    assert sent["Date"]
+    assert sent["Message-ID"]
+    assert "@example.com>" in sent["Message-ID"]
+    assert sent["Auto-Submitted"] == "auto-generated"
     assert "Body" in sent.get_content()
     assert "pw" not in str(sent)
 
