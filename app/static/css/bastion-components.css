@@ -886,9 +886,40 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
   .logs-filters-footer{width:100%;justify-content:space-between}
 }
 .logs-table-wrap{padding:0;overflow-x:auto}
+.logs-table-wrap .data-table{table-layout:auto;width:max-content;min-width:100%}
 .logs-table-wrap .data-table tbody tr{cursor:pointer}
 .logs-table-wrap .data-table tbody tr.is-selected{background:var(--accent-muted)}
-.logs-table-wrap .data-table th,.logs-table-wrap .data-table td{text-align:left;padding:0.75rem;vertical-align:top}
+.logs-table-wrap .data-table th,
+.logs-table-wrap .data-table td{
+  text-align:left;padding:0.45rem 0.65rem;vertical-align:middle;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  max-width:18rem;
+}
+.logs-table-wrap .data-table td.font-mono{max-width:13.5rem}
+.logs-table-wrap .data-table .audit-action-cell{
+  display:inline-flex;align-items:baseline;gap:0.4rem;max-width:22rem;
+  overflow:hidden;
+}
+.logs-table-wrap .data-table .audit-action-cell code{
+  flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;
+}
+.logs-table-wrap .data-table .audit-action-title{
+  flex:0 1 auto;font-size:var(--fs-xs);color:var(--text-3);
+  overflow:hidden;text-overflow:ellipsis;max-width:12rem;
+}
+.logs-table-wrap .data-table .audit-result-cell{
+  display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap;
+}
+.logs-table-wrap .data-table .audit-code-cell{
+  display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap;
+}
+.logs-table-wrap .data-table .audit-cell-text{
+  display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;
+}
+.logs-table-wrap .data-table td.audit-col-actor{max-width:14rem}
+.logs-table-wrap .data-table td.audit-col-action{max-width:24rem}
+.logs-table-wrap .data-table td.audit-col-result,
+.logs-table-wrap .data-table td.audit-col-code{max-width:none;overflow:visible}
 .logs-col-menu{position:relative}
 .logs-col-panel{position:absolute;right:0;top:calc(100% + 4px);z-index:20;min-width:14rem;padding:var(--sp-3);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--shadow-md,0 4px 16px rgba(0,0,0,.12))}
 .logs-col-panel label{display:flex;gap:var(--sp-2);align-items:center;padding:4px 0;font-size:var(--fs-sm)}
