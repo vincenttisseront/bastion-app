@@ -346,7 +346,12 @@
         });
       });
       if (!packages.length) {
-        window.alert('Sélectionnez au moins un paquet obsolète (case à cocher) pour exporter le plan.');
+        if (window.bastionAlert) {
+          window.bastionAlert({
+            title: 'Sélection requise',
+            message: 'Sélectionnez au moins un paquet obsolète (case à cocher) pour exporter le plan.',
+          });
+        }
         return;
       }
       var payload = {

@@ -1,10 +1,12 @@
 /**
- * Bastion themed confirm / alert / password dialogs.
+ * Bastion themed confirm / alert / prompt / password dialogs.
  *
  * window.bastionConfirm({ title, message, list, confirmLabel, cancelLabel, danger })
  *   → Promise<boolean>
  * window.bastionAlert({ title, message, confirmLabel })
  *   → Promise<void>
+ * window.bastionPrompt({ title, message, label, defaultValue, placeholder, confirmLabel, cancelLabel, required })
+ *   → Promise<string|null>  (null = cancelled)
  * window.bastionPasswordPrompt({ title, message, username, confirmLabel, cancelLabel, error, onConfirm })
  *   → Promise<{ ok: boolean, password: string|null }>
  *   Optional onConfirm(password) runs inside the click/Enter gesture before close.
@@ -25,9 +27,12 @@
   var dialogEl = null;
   var pendingResolve = null;
   var previousFocus = null;
-  var mode = 'confirm'; // confirm | alert | password
+  var mode = 'confirm'; // confirm | alert | password | prompt
   var passwordInput = null;
   var passwordErrorEl = null;
+  var promptInput = null;
+  var promptErrorEl = null;
+  var promptRequired = false;
   var listenersBound = false;
   var passwordOnConfirm = null;
 
@@ -89,10 +94,15 @@
     if (!extraEl) return;
     var pass = extraEl.querySelector('#bastion-modal-password');
     if (pass) pass.value = '';
+    var prompt = extraEl.querySelector('#bastion-modal-prompt');
+    if (prompt) prompt.value = '';
     extraEl.innerHTML = '';
     extraEl.hidden = true;
     passwordInput = null;
     passwordErrorEl = null;
+    promptInput = null;
+    promptErrorEl = null;
+    promptRequired = false;
   }
 
   function renderList(list) {
@@ -159,6 +169,39 @@
     }
   }
 
+  function renderPromptField(options) {
+    var label = options.label || 'Valeur';
+    var placeholder = options.placeholder || '';
+    var defaultValue = options.defaultValue || '';
+    promptRequired = options.required !== false;
+    extraEl.innerHTML =
+      '<div class="bastion-modal-prompt-form">' +
+      '<div class="form-group">' +
+      '<label class="form-label" for="bastion-modal-prompt">' +
+      escapeHtml(label) +
+      '</label>' +
+      '<input type="text" id="bastion-modal-prompt" class="form-input" ' +
+      'value="' +
+      escapeHtml(defaultValue) +
+      '" placeholder="' +
+      escapeHtml(placeholder) +
+      '" autocomplete="off" autofocus>' +
+      '<div id="bastion-modal-prompt-error" class="form-error" hidden></div>' +
+      '</div>' +
+      '</div>';
+    extraEl.hidden = false;
+    promptInput = document.getElementById('bastion-modal-prompt');
+    promptErrorEl = document.getElementById('bastion-modal-prompt-error');
+    if (promptInput) {
+      promptInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          confirmFromUi();
+        }
+      });
+    }
+  }
+
   function showPasswordError(text) {
     passwordErrorEl = document.getElementById('bastion-modal-password-error') || passwordErrorEl;
     if (!passwordErrorEl) return;
@@ -168,6 +211,18 @@
     } else {
       passwordErrorEl.textContent = '';
       passwordErrorEl.hidden = true;
+    }
+  }
+
+  function showPromptError(text) {
+    promptErrorEl = document.getElementById('bastion-modal-prompt-error') || promptErrorEl;
+    if (!promptErrorEl) return;
+    if (text) {
+      promptErrorEl.textContent = text;
+      promptErrorEl.hidden = false;
+    } else {
+      promptErrorEl.textContent = '';
+      promptErrorEl.hidden = true;
     }
   }
 
@@ -181,20 +236,31 @@
         return;
       }
       showPasswordError('');
-      // Call while still inside the user-gesture stack (before await microtasks).
       if (typeof passwordOnConfirm === 'function') {
         try {
           var cont = passwordOnConfirm(passwordValue);
           if (cont === false) {
-            showPasswordError('Impossible d\'ouvrir l\'application. Réessayez.');
+            showPasswordError("Impossible d'ouvrir l'application. Réessayez.");
             return;
           }
         } catch (err) {
-          showPasswordError('Impossible d\'ouvrir l\'application. Réessayez.');
+          showPasswordError("Impossible d'ouvrir l'application. Réessayez.");
           return;
         }
       }
       finishClose({ ok: true, password: passwordValue });
+      return;
+    }
+    if (mode === 'prompt') {
+      promptInput = document.getElementById('bastion-modal-prompt') || promptInput;
+      var promptValue = promptInput ? String(promptInput.value || '') : '';
+      if (promptRequired && !promptValue.trim()) {
+        showPromptError('Ce champ est requis.');
+        if (promptInput) promptInput.focus();
+        return;
+      }
+      showPromptError('');
+      finishClose(promptValue);
       return;
     }
     close(true);
@@ -242,6 +308,7 @@
     }
     document.body.classList.remove('bastion-modal-open');
     if (passwordInput) passwordInput.value = '';
+    if (promptInput) promptInput.value = '';
     clearExtra();
     passwordOnConfirm = null;
     if (confirmBtn) confirmBtn.disabled = false;
@@ -262,7 +329,6 @@
     if (!root || root.hidden) return;
     var passwordValue = null;
     if (mode === 'password') {
-      // Re-query in case refs went stale after innerHTML updates
       passwordInput = document.getElementById('bastion-modal-password') || passwordInput;
       passwordValue = result && passwordInput ? passwordInput.value : null;
     }
@@ -270,6 +336,8 @@
       finishClose(undefined);
     } else if (mode === 'password') {
       finishClose({ ok: Boolean(result), password: passwordValue });
+    } else if (mode === 'prompt') {
+      finishClose(result ? (promptInput ? promptInput.value : '') : null);
     } else {
       finishClose(Boolean(result));
     }
@@ -279,10 +347,9 @@
     options = options || {};
     if (!ensureDom()) {
       if (asAlert) {
-        window.alert(options.message || '');
         return Promise.resolve();
       }
-      return Promise.resolve(window.confirm(options.message || options.title || 'Confirmer ?'));
+      return Promise.resolve(false);
     }
     if (pendingResolve) {
       close(false);
@@ -321,6 +388,39 @@
   window.bastionAlert = function (options) {
     if (typeof options === 'string') options = { message: options };
     return open(options || {}, true);
+  };
+
+  window.bastionPrompt = function (options) {
+    options = options || {};
+    if (typeof options === 'string') options = { message: options };
+    if (!ensureDom()) {
+      return Promise.resolve(null);
+    }
+    if (pendingResolve) close(false);
+    mode = 'prompt';
+    previousFocus = document.activeElement;
+    titleEl.textContent = options.title || 'Saisie';
+    messageEl.innerHTML = formatMessage(options.message || '');
+    renderPromptField(options);
+    confirmBtn.textContent = options.confirmLabel || 'Valider';
+    confirmBtn.className = 'btn btn-secondary';
+    confirmBtn.disabled = false;
+    cancelBtn.hidden = false;
+    cancelBtn.textContent = options.cancelLabel || 'Annuler';
+    root.hidden = false;
+    root.setAttribute('aria-hidden', 'false');
+    root.classList.add('is-open');
+    document.body.classList.add('bastion-modal-open');
+    setTimeout(function () {
+      promptInput = document.getElementById('bastion-modal-prompt');
+      if (promptInput) {
+        promptInput.focus();
+        promptInput.select();
+      } else confirmBtn.focus();
+    }, 0);
+    return new Promise(function (resolve) {
+      pendingResolve = resolve;
+    });
   };
 
   window.bastionPasswordPrompt = function (options) {

@@ -543,10 +543,18 @@
   /* save view */
   var saveViewBtn = document.getElementById('save-view-btn');
   if (saveViewBtn) {
-    saveViewBtn.addEventListener('click', function () {
-      var name = window.prompt('Nom de la vue');
-      if (!name) return;
-      document.getElementById('view-form-name').value = name;
+    saveViewBtn.addEventListener('click', async function () {
+      var name = window.bastionPrompt
+        ? await window.bastionPrompt({
+            title: 'Enregistrer la vue',
+            message: 'Donnez un nom à cette vue de filtres / colonnes.',
+            label: 'Nom de la vue',
+            confirmLabel: 'Enregistrer',
+            required: true,
+          })
+        : null;
+      if (!name || !String(name).trim()) return;
+      document.getElementById('view-form-name').value = String(name).trim();
       document.getElementById('view-form-filters').value = JSON.stringify(currentFilters());
       document.getElementById('view-form-columns').value = COLS.join(',');
       document.getElementById('view-form').submit();

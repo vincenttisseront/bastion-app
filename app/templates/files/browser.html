@@ -262,16 +262,29 @@
   });
 
   var newFolderBtn = document.getElementById('fb-new-folder');
-  if (newFolderBtn) newFolderBtn.addEventListener('click', function () {
-    var name = window.prompt('Nom du dossier');
-    if (!name) return;
+  if (newFolderBtn) newFolderBtn.addEventListener('click', async function () {
+    var name = window.bastionPrompt
+      ? await window.bastionPrompt({
+          title: 'Nouveau dossier',
+          message: 'Indiquez le nom du dossier à créer.',
+          label: 'Nom du dossier',
+          confirmLabel: 'Créer',
+          required: true,
+        })
+      : null;
+    if (!name || !String(name).trim()) return;
     var fd = new FormData();
-    fd.append('name', name);
+    fd.append('name', String(name).trim());
     if (folderId) fd.append('parent_folder_id', folderId);
     fetch('/files/folders', { method: 'POST', body: fd, headers: { Accept: 'application/json' } })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (!data.ok) { alert(data.detail || 'Erreur'); return; }
+        if (!data.ok) {
+          if (window.bastionAlert) {
+            window.bastionAlert({ title: 'Erreur', message: data.detail || 'Erreur' });
+          }
+          return;
+        }
         refresh();
       });
   });
@@ -326,18 +339,38 @@
     menu.hidden = true;
     if (act === 'history') openHistory(id);
     if (act === 'rename') {
-      var label = window.prompt('Nouveau nom');
-      if (!label) return;
-      var fd = new FormData();
-      fd.append('label', label);
-      fetch('/files/' + id + '/rename', { method: 'PATCH', body: fd, headers: { Accept: 'application/json' } })
-        .then(function (r) { return r.json(); })
-        .then(function () { refresh(); });
+      (async function () {
+        var label = window.bastionPrompt
+          ? await window.bastionPrompt({
+              title: 'Renommer',
+              message: 'Nouveau nom du fichier.',
+              label: 'Nom',
+              confirmLabel: 'Renommer',
+              required: true,
+            })
+          : null;
+        if (!label || !String(label).trim()) return;
+        var fd = new FormData();
+        fd.append('label', String(label).trim());
+        fetch('/files/' + id + '/rename', { method: 'PATCH', body: fd, headers: { Accept: 'application/json' } })
+          .then(function (r) { return r.json(); })
+          .then(function () { refresh(); });
+      })();
     }
     if (act === 'archive') {
-      if (!window.confirm('Archiver ce fichier ?')) return;
-      fetch('/files/' + id, { method: 'DELETE', headers: { Accept: 'application/json' } })
-        .then(function () { refresh(); });
+      (async function () {
+        var ok = window.bastionConfirm
+          ? await window.bastionConfirm({
+              title: 'Archiver',
+              message: 'Archiver ce fichier ?',
+              confirmLabel: 'Archiver',
+              danger: true,
+            })
+          : false;
+        if (!ok) return;
+        fetch('/files/' + id, { method: 'DELETE', headers: { Accept: 'application/json' } })
+          .then(function () { refresh(); });
+      })();
     }
     if (act === 'download') {
       var row = body.querySelector('.fb-row[data-kind="file"][data-id="' + id + '"]');

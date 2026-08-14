@@ -319,7 +319,7 @@
       if (typeof window.bastionConfirm === 'function') {
         window.bastionConfirm(opts).then(run);
       } else {
-        run(window.confirm(opts.message || opts.title || 'Confirmer ?'));
+        run(false);
       }
     });
   }

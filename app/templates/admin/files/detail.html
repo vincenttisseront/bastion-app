@@ -269,7 +269,10 @@
     </div>
   </div>
 
-  <form method="post" action="/admin/files/{{ file.id }}/delete" onsubmit="return confirm('Supprimer ce fichier et toutes ses versions ?');">
+  <form method="post" action="/admin/files/{{ file.id }}/delete"
+        data-confirm="Supprimer ce fichier et toutes ses versions ?"
+        data-confirm-title="Supprimer le fichier"
+        data-confirm-label="Supprimer">
     <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--danger);">Supprimer le fichier</button>
   </form>
 </div>

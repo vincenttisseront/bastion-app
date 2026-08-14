@@ -38,6 +38,13 @@
     <a href="#droits" class="tab" role="tab" data-tab="droits" aria-selected="false">Accès effectifs</a>
     <a href="#vault" class="tab" role="tab" data-tab="vault" aria-selected="false">Vault</a>
     <a href="#provisioning" class="tab" role="tab" data-tab="provisioning" aria-selected="false">Provisioning</a>
+    {% if activesync_available %}
+    <a href="#appareils" class="tab" role="tab" data-tab="appareils" aria-selected="false">
+      Appareils
+      {% set as_pending = activesync_devices | selectattr('status', 'equalto', 'pending') | list | length %}
+      {% if as_pending %}<span class="badge badge-warn" style="margin-left:6px;">{{ as_pending }}</span>{% endif %}
+    </a>
+    {% endif %}
   </div>
 
   {% if user_error %}
@@ -606,6 +613,91 @@
     <div class="alert alert-info">Pas de compte bastion lié — provisioning non applicable.</div>
     {% endif %}
   </div>
+
+  {% if activesync_available %}
+  <div class="user-fiche-panel" id="panel-appareils" data-panel="appareils" hidden>
+    <div class="card" style="padding:var(--sp-4);">
+      <h2 class="card-title" style="margin:0;">Appareils ActiveSync</h2>
+      <p class="form-hint" style="margin:var(--sp-1) 0 var(--sp-3);">
+        Appareils mobiles vus sur la messagerie pour cette identité. Bloquer un appareil est
+        effectif immédiatement (cas du téléphone volé) et l’utilisateur ne pourra pas le
+        réactiver lui-même.
+      </p>
+      {% if activesync_devices %}
+      <div class="table-wrap" style="border:none;">
+        <table class="data-table" id="activesync-devices-table">
+          <thead>
+            <tr>
+              <th>Appareil</th>
+              <th>Type</th>
+              <th>Application</th>
+              <th>Statut</th>
+              <th>1<sup>re</sup> vue</th>
+              <th>Dernière sync</th>
+              <th>IP</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in activesync_devices %}
+            <tr>
+              <td>
+                <button type="button" class="btn btn-ghost btn-sm mono" data-copy-device
+                        data-device-id="{{ d.device_id }}"
+                        title="Copier l’identifiant complet : {{ d.device_id }}">
+                  {{ d.display_name }}
+                </button>
+                <div class="form-hint">{{ d.user_key }}</div>
+              </td>
+              <td>{{ d.device_type or d.client_kind or '—' }}</td>
+              <td>
+                {% if d.app_slug %}
+                <a href="/admin/apps/{{ d.app_slug }}/edit">{{ d.app_label }}</a>
+                {% if d.app_fqdn %}<div class="form-hint mono">{{ d.app_fqdn }}</div>{% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                <span class="badge {{ d.status_badge_class }}">{{ d.status_label }}</span>
+                <div class="form-hint">{{ d.source_label }}</div>
+                {% if d.blocked_by_admin %}
+                <div class="form-hint">Bloqué par un administrateur — l’utilisateur ne peut pas le réactiver.</div>
+                {% endif %}
+              </td>
+              <td class="form-hint">{{ d.first_seen_at.strftime('%d/%m/%Y %H:%M') if d.first_seen_at else '—' }}</td>
+              <td class="form-hint">{{ d.last_seen_at.strftime('%d/%m/%Y %H:%M') if d.last_seen_at else '—' }}</td>
+              <td class="mono form-hint">{{ d.last_ip or '—' }}</td>
+              <td>
+                {% if d.blocked_by_admin %}
+                <form method="post" action="/admin/activesync/devices/{{ d.id }}/unblock" style="display:inline;">
+                  <input type="hidden" name="redirect_url" value="{{ view_url }}#appareils">
+                  <button type="submit" class="btn btn-ghost btn-sm">Débloquer</button>
+                </form>
+                {% else %}
+                {% if d.status != 'approved' %}
+                <form method="post" action="/admin/activesync/devices/{{ d.id }}/approve" style="display:inline;">
+                  <input type="hidden" name="redirect_url" value="{{ view_url }}#appareils">
+                  <button type="submit" class="btn btn-ghost btn-sm">Approuver</button>
+                </form>
+                {% endif %}
+                <form method="post" action="/admin/activesync/devices/{{ d.id }}/block" style="display:inline;"
+                      data-block-device-form>
+                  <input type="hidden" name="redirect_url" value="{{ view_url }}#appareils">
+                  <input type="hidden" name="reason" value="">
+                  <button type="submit" class="btn btn-danger btn-sm">Bloquer</button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="alert alert-info">Aucun appareil ActiveSync observé pour cet utilisateur.</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -636,6 +728,41 @@
   var hash = (location.hash || '#identite').replace(/^#/, '');
   if (!document.querySelector('[data-panel="' + hash + '"]')) hash = 'identite';
   activate(hash);
+
+  document.querySelectorAll('[data-copy-device]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var full = btn.getAttribute('data-device-id') || '';
+      if (!navigator.clipboard || !navigator.clipboard.writeText) return;
+      var previous = btn.textContent;
+      navigator.clipboard.writeText(full).then(function () {
+        btn.textContent = 'Copié';
+        setTimeout(function () { btn.textContent = previous; }, 1500);
+      });
+    });
+  });
+
+  // Blocking is irreversible for the owner, so the reason is mandatory and the
+  // server refuses an empty one — ask for it here rather than bounce the admin.
+  document.querySelectorAll('[data-block-device-form]').forEach(function (form) {
+    form.addEventListener('submit', async function (e) {
+      var field = form.querySelector('input[name="reason"]');
+      if (field && field.value.trim()) return;
+      e.preventDefault();
+      var reason = window.bastionPrompt
+        ? await window.bastionPrompt({
+            title: 'Bloquer l’appareil',
+            message: 'Indiquez la raison du blocage (obligatoire).',
+            label: 'Raison',
+            placeholder: 'ex. téléphone volé',
+            confirmLabel: 'Bloquer',
+            required: true,
+          })
+        : null;
+      if (reason === null || !String(reason).trim()) return;
+      field.value = String(reason).trim();
+      form.submit();
+    });
+  });
 
   var disconnectBtn = document.getElementById('btn-disconnect-user');
   var resultEl = document.getElementById('disconnect-user-result');

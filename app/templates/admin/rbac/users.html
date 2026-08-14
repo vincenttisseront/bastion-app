@@ -494,21 +494,47 @@
   if (form) {
     form.querySelectorAll('[data-bulk-submit]').forEach(function (btn) {
       btn.addEventListener('click', function (ev) {
+        if (btn.dataset.bastionConfirmOk === '1') {
+          btn.dataset.bastionConfirmOk = '';
+          return;
+        }
         var n = selectedCount();
         if (!n) {
           ev.preventDefault();
-          alert('Sélectionnez au moins un utilisateur (ou « Sél. tous »).');
+          if (window.bastionAlert) {
+            window.bastionAlert({
+              title: 'Sélection requise',
+              message: 'Sélectionnez au moins un utilisateur (ou « Sél. tous »).',
+            });
+          }
           return;
         }
         if (!groupSelect || !groupSelect.value) {
           ev.preventDefault();
-          alert('Choisissez un groupe.');
+          if (window.bastionAlert) {
+            window.bastionAlert({
+              title: 'Groupe requis',
+              message: 'Choisissez un groupe.',
+            });
+          }
           return;
         }
+        ev.preventDefault();
         var tpl = btn.getAttribute('data-confirm-tpl') || 'Confirmer pour {n} utilisateur(s) ?';
-        if (!window.confirm(tpl.replace('{n}', String(Math.min(n, 200))))) {
-          ev.preventDefault();
-        }
+        var msg = tpl.replace('{n}', String(Math.min(n, 200)));
+        if (!window.bastionConfirm) return;
+        window
+          .bastionConfirm({
+            title: 'Action groupée',
+            message: msg,
+            confirmLabel: 'Continuer',
+            danger: true,
+          })
+          .then(function (ok) {
+            if (!ok) return;
+            btn.dataset.bastionConfirmOk = '1';
+            btn.click();
+          });
       });
     });
   }
