@@ -797,14 +797,14 @@
                   data-confirm="Copier les tables chaudes SQLite → PostgreSQL ? Le hot store doit être désactivé. Les tables cibles seront remplacées."
                   data-confirm-title="Migrer vers PostgreSQL"
                   data-confirm-label="Migrer">
-              <button type="submit" class="btn btn-ghost" {% if not can_migrate %}disabled title="{% if not schema_done %}Préparez d’abord le schéma{% elif hs.enabled %}Désactivez le hot store avant de re-migrer{% else %}Indisponible{% endif %}"{% endif %}>Migrer les données</button>
+              <button type="submit" class="btn btn-primary" {% if not can_migrate %}disabled title="{% if not schema_done %}Préparez d’abord le schéma{% elif hs.enabled %}Désactivez le hot store avant de re-migrer{% else %}Indisponible{% endif %}"{% endif %}>Migrer les données</button>
             </form>
             <form method="post" action="/admin/security/hot-store/skip-migrate"
                   data-confirm="Passer la migration ? Aucune donnée SQLite ne sera copiée."
                   data-confirm-title="Passer la migration"
                   data-confirm-label="Passer"
                   data-confirm-danger="0">
-              <button type="submit" class="btn btn-ghost" {% if not can_migrate or migrate_done %}disabled title="{% if migrate_done %}Migration déjà effectuée{% elif not schema_done %}Préparez d’abord le schéma{% else %}Indisponible{% endif %}"{% endif %}>Passer cette étape</button>
+              <button type="submit" class="btn btn-secondary" {% if not can_migrate or migrate_done %}disabled title="{% if migrate_done %}Migration déjà effectuée{% elif not schema_done %}Préparez d’abord le schéma{% else %}Indisponible{% endif %}"{% endif %}>Passer cette étape</button>
             </form>
           </div>
         </section>
