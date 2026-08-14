@@ -274,16 +274,20 @@ def run_connectivity_test(
     entry = build_test_entry(actor=actor)
     secret = resolve_webhook_secret(db, settings) if cfg.protocol == "webhook_https" else None
 
+    code = str(entry.get("event_code") or "BST-SIEM-0001")
+    label = str(entry.get("event_label") or "SIEM_CONNECTIVITY_TEST")
     if cfg.protocol == "syslog_tls":
         lines.append(f"→ syslog_tls connect {cfg.syslog_host}:{cfg.syslog_port}")
         lines.append(f"  tls_verify={cfg.syslog_tls_verify}")
-        lines.append(f"  event={entry.get('event_code')} {entry.get('event_label')}")
+        lines.append(f"  event={code} {label}")
         lines.append("  format=CEF over RFC5424")
+        lookup = f"SIEM : cherchez signatureId={code}  (label {label})"
     else:
         lines.append(f"→ POST {cfg.webhook_url}")
         lines.append(f"  auth={cfg.webhook_auth_type}")
-        lines.append(f"  event={entry.get('event_code')} {entry.get('event_label')}")
+        lines.append(f"  event={code} {label}")
         lines.append("  format=ECS JSON")
+        lookup = f"SIEM : cherchez event.code={code}  event.action={label}"
 
     try:
         deliver_entry(
@@ -304,6 +308,7 @@ def run_connectivity_test(
         )
         msg = "Connexion OK — événement de test envoyé"
         lines.append(f"✓ {msg}")
+        lines.append(lookup)
         return True, msg, lines
     except SiemDeliveryError as exc:
         err = str(exc)
