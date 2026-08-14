@@ -126,18 +126,30 @@ def test_build_daily_recap_includes_hosts_users_alerts(db_session: Session):
     assert recap.pending_access_total == 1
     assert recap.alerts_total >= 1
     assert any("breakglass" in (a.title + a.detail).lower() or "BST-BGL" in a.title for a in recap.alerts)
+    assert all("id=" in a.href and "event_code=" in a.href and a.href.endswith("#audit") for a in recap.alerts)
     assert recap.bans
     assert recap.bans[0].title == "ip:203.0.113.9"
 
-    subject, text, html = format_recap_email(recap)
+    subject, text, html_body = format_recap_email(recap)
     assert "Récap 24h" in subject
     assert "new-app.example.com" in text
     assert "alice@example.com" in text
     assert "bob@example.com" in text
     assert "203.0.113.9" in text
     assert "discovery-probe" not in text
-    assert "new-app.example.com" in html
-    assert "https://portal.test/admin/pending-hosts" in html
+    assert "new-app.example.com" in html_body
+    assert "https://portal.test/admin/pending-hosts?status=pending" in html_body
+    assert "admin/logs?id=" in html_body
+    assert "event_code=BST-" in html_body
+    assert "#audit" in html_body
+    assert "<!DOCTYPE html>" in html_body
+    assert "Récapitulatif 24h" in html_body
+    # Deep-link must include the concrete audit id (HTML-escaped & → &amp;).
+    alert = next(a for a in recap.alerts if "BST-BGL" in a.title or "breakglass" in a.title.lower())
+    assert "id=" in alert.href and "event_code=BST-BGL-2001" in alert.href
+    assert "admin/logs?id=" in html_body
+    assert "event_code=BST-BGL-2001" in html_body
+    assert 'href="https://portal.test/admin/logs?id=' in html_body
 
 
 def test_send_daily_recap_skips_when_disabled(db_session: Session):

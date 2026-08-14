@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
@@ -109,6 +110,43 @@ def _admin_base(settings: Settings) -> str:
     return f"https://{domain}"
 
 
+def _admin_path(portal_base: str, path: str, *, query: dict[str, Any] | None = None, fragment: str = "") -> str:
+    base = (portal_base or "").rstrip("/")
+    path = path if path.startswith("/") else f"/{path}"
+    url = f"{base}{path}" if base else path
+    if query:
+        cleaned = {k: v for k, v in query.items() if v is not None and str(v).strip() != ""}
+        if cleaned:
+            url = f"{url}?{urlencode(cleaned)}"
+    if fragment:
+        url = f"{url}#{fragment.lstrip('#')}"
+    return url
+
+
+def _audit_entry_href(portal_base: str, entry: dict[str, Any]) -> str:
+    """Deep-link that focuses a single audit row (`?id=` opens the drawer)."""
+    query: dict[str, Any] = {}
+    aid = entry.get("id")
+    if aid is not None:
+        query["id"] = int(aid)
+    code = (entry.get("event_code") or "").strip()
+    if code:
+        query["event_code"] = code
+    return _admin_path(portal_base, "/admin/logs", query=query, fragment="audit")
+
+
+def _logs_severity_href(portal_base: str, *, since: datetime, severity_min: str = "WARNING") -> str:
+    return _admin_path(
+        portal_base,
+        "/admin/logs",
+        query={
+            "severity_min": severity_min,
+            "date_from": since.date().isoformat(),
+        },
+        fragment="audit",
+    )
+
+
 def recap_recipient(row: PortalSettings) -> str | None:
     dedicated = (getattr(row, "daily_recap_email", None) or "").strip()
     if dedicated and "@" in dedicated:
@@ -132,6 +170,9 @@ class RecapLine:
     title: str
     detail: str = ""
     href: str = ""
+    severity: str = ""
+    meta: str = ""
+    code: str = ""
 
 
 @dataclass
@@ -191,11 +232,10 @@ def build_daily_recap(
     base = _admin_base(settings)
     recap = DailyRecap(since=since_dt, until=until_dt, portal_url=base)
 
-    host_href = f"{base}/admin/pending-hosts?status=pending" if base else "/admin/pending-hosts?status=pending"
-    user_href = f"{base}/admin/pending-users?status=pending" if base else "/admin/pending-users?status=pending"
-    access_href = f"{base}/admin/access-requests?status=pending" if base else "/admin/access-requests?status=pending"
-    accounts_href = f"{base}/admin/rbac/users" if base else "/admin/rbac/users"
-    logs_href = f"{base}/admin/logs" if base else "/admin/logs"
+    host_href = _admin_path(base, "/admin/pending-hosts", query={"status": "pending"})
+    user_href = _admin_path(base, "/admin/pending-users", query={"status": "pending"})
+    access_href = _admin_path(base, "/admin/access-requests", query={"status": "pending"})
+    accounts_href = _admin_path(base, "/admin/rbac/users")
 
     host_rows = [
         row
@@ -290,21 +330,25 @@ def build_daily_recap(
         limit=ALERT_CAP,
     )
     recap.alerts_total = alerts_total
-    recap.alerts = [
-        RecapLine(
-            title=(
-                f"{e.get('event_code') or ''} "
-                f"{e.get('event_title_fr') or e.get('action') or ''}"
-            ).strip(),
-            detail=(
-                f"{e.get('catalog_severity') or e.get('severity') or ''} · "
-                f"{e.get('actor') or '—'} · {e.get('timestamp') or ''}"
-                + (f" · {e.get('detail_short')}" if e.get("detail_short") else "")
-            ).strip(" ·"),
-            href=logs_href,
+    recap.alerts = []
+    for e in entries:
+        code = (e.get("event_code") or "").strip()
+        title_fr = (e.get("event_title_fr") or e.get("action") or "").strip()
+        sev = (e.get("catalog_severity") or e.get("severity") or "").strip().upper()
+        actor = (e.get("actor") or "—").strip()
+        ts = (e.get("timestamp") or "").strip()
+        target = (e.get("target") or "").strip()
+        detail_bits = [p for p in (sev, actor, ts, target, e.get("detail_short") or "") if p]
+        recap.alerts.append(
+            RecapLine(
+                title=f"{code} {title_fr}".strip() if code else title_fr,
+                detail=" · ".join(str(p) for p in detail_bits),
+                href=_audit_entry_href(base, e),
+                severity=sev,
+                meta=f"{actor} · {ts}" if ts else actor,
+                code=code,
+            )
         )
-        for e in entries
-    ]
 
     ban_rows = (
         db.query(SecurityBan)
@@ -320,7 +364,13 @@ def build_daily_recap(
                 f"{row.reason or row.rule_type or 'ban'} · {_fmt_dt(row.banned_at)}"
                 + (" · permanent" if row.permanent else "")
             ),
-            href=logs_href,
+            href=_admin_path(
+                base,
+                "/admin/logs",
+                query={"q": row.target, "date_from": since_dt.date().isoformat()},
+                fragment="audit",
+            ),
+            severity="WARNING",
         )
         for row in ban_rows
     ]
@@ -367,7 +417,10 @@ def _section_text(
         parts.append(empty)
     else:
         for line in lines:
-            parts.append(f"- {line.title}" + (f" — {line.detail}" if line.detail else ""))
+            item = f"- {line.title}" + (f" — {line.detail}" if line.detail else "")
+            if line.href:
+                item = f"{item}\n  {line.href}"
+            parts.append(item)
         if omitted:
             parts.append(f"- … et {omitted} de plus")
     parts.append("")
@@ -415,33 +468,100 @@ def _recap_text(recap: DailyRecap, date_label: str) -> str:
         ),
     ]
     if recap.portal_url:
-        parts.append(f"Admin : {recap.portal_url}/admin")
-        parts.append(f"Domaines : {recap.portal_url}/admin/pending-hosts")
-        parts.append(f"Utilisateurs : {recap.portal_url}/admin/pending-users")
-        parts.append(f"Logs : {recap.portal_url}/admin/logs")
+        parts.append(
+            f"Admin : {_admin_path(recap.portal_url, '/admin')}\n"
+            f"Domaines : {_admin_path(recap.portal_url, '/admin/pending-hosts', query={'status': 'pending'})}\n"
+            f"Utilisateurs : {_admin_path(recap.portal_url, '/admin/pending-users', query={'status': 'pending'})}\n"
+            f"Logs : {_logs_severity_href(recap.portal_url, since=recap.since)}"
+        )
     return "\n".join(parts).rstrip() + "\n"
+
+
+def _severity_color(severity: str) -> str:
+    sev = (severity or "").upper()
+    if sev == "CRITICAL":
+        return "#b91c1c"
+    if sev == "ERROR":
+        return "#dc2626"
+    if sev == "WARNING":
+        return "#d97706"
+    if sev == "NOTICE":
+        return "#2563eb"
+    return "#64748b"
 
 
 def _html_list(lines: list[RecapLine], *, omitted: int = 0) -> str:
     if not lines:
         return ""
-    items = []
+    rows: list[str] = []
     for line in lines:
         title = _esc(line.title)
         if line.href:
-            title = f'<a href="{_esc(line.href)}">{title}</a>'
-        detail = f"<br><small>{_esc(line.detail)}</small>" if line.detail else ""
-        items.append(f"<li>{title}{detail}</li>")
+            title = (
+                f'<a href="{_esc(line.href)}" style="color:#0f766e;text-decoration:none;font-weight:600;">'
+                f"{title}</a>"
+            )
+        detail = (
+            f'<div style="margin-top:4px;color:#64748b;font-size:12px;line-height:1.4;">'
+            f"{_esc(line.detail)}</div>"
+            if line.detail
+            else ""
+        )
+        badge = ""
+        if line.severity:
+            color = _severity_color(line.severity)
+            badge = (
+                f'<span style="display:inline-block;margin-right:8px;padding:2px 8px;'
+                f"border-radius:999px;background:{color};color:#fff;font-size:11px;"
+                f'font-weight:700;letter-spacing:.02em;">{_esc(line.severity)}</span>'
+            )
+        rows.append(
+            '<tr>'
+            f'<td style="padding:12px 0;border-bottom:1px solid #e2e8f0;vertical-align:top;">'
+            f"{badge}{title}{detail}"
+            f"</td></tr>"
+        )
     if omitted:
-        items.append(f"<li>… et {_esc(omitted)} de plus</li>")
-    return "<ul>" + "".join(items) + "</ul>"
+        rows.append(
+            '<tr><td style="padding:10px 0;color:#64748b;font-size:12px;">'
+            f"… et {_esc(omitted)} de plus</td></tr>"
+        )
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;">'
+        + "".join(rows)
+        + "</table>"
+    )
+
+
+def _html_section(title: str, body: str, *, subtitle: str = "", cta_href: str = "", cta_label: str = "") -> str:
+    cta = ""
+    if cta_href and cta_label:
+        cta = (
+            f'<a href="{_esc(cta_href)}" style="float:right;font-size:12px;color:#0f766e;'
+            f'text-decoration:none;font-weight:600;">{_esc(cta_label)} →</a>'
+        )
+    sub = (
+        f'<p style="margin:4px 0 12px;color:#64748b;font-size:13px;">{_esc(subtitle)}</p>'
+        if subtitle
+        else ""
+    )
+    return (
+        f'<tr><td style="padding:20px 24px 8px;">'
+        f'<h2 style="margin:0;font-size:16px;line-height:1.3;color:#0f172a;">'
+        f"{cta}{_esc(title)}</h2>"
+        f"{sub}"
+        f"{body}"
+        f"</td></tr>"
+    )
 
 
 def _recap_html(recap: DailyRecap, date_label: str) -> str:
-    empty_hosts = "<p>Aucun nouveau domaine en attente sur 24h.</p>"
-    empty_accounts = "<p>Aucun compte en attente.</p>"
-    empty_alerts = "<p>Aucune alerte sur 24h.</p>"
-    empty_bans = "<p>Aucun nouveau bannissement.</p>"
+    empty_hosts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun nouveau domaine en attente sur 24h.</p>'
+    empty_accounts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun compte en attente.</p>'
+    empty_alerts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucune alerte sur 24h.</p>'
+    empty_bans = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun nouveau bannissement.</p>'
+
     hosts_html = _html_list(
         recap.new_hosts,
         omitted=max(0, recap.new_hosts_count - len(recap.new_hosts)),
@@ -456,36 +576,81 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
         or empty_alerts
     )
     bans_html = _html_list(recap.bans) or empty_bans
-    links = ""
+
+    hosts_cta = _admin_path(recap.portal_url, "/admin/pending-hosts", query={"status": "pending"})
+    users_cta = _admin_path(recap.portal_url, "/admin/pending-users", query={"status": "pending"})
+    access_cta = _admin_path(recap.portal_url, "/admin/access-requests", query={"status": "pending"})
+    logs_cta = _logs_severity_href(recap.portal_url, since=recap.since)
+    admin_cta = _admin_path(recap.portal_url, "/admin")
+
+    footer_links = ""
     if recap.portal_url:
-        links = (
-            "<p>"
-            f'<a href="{_esc(recap.portal_url)}/admin/pending-hosts">Domaines</a> · '
-            f'<a href="{_esc(recap.portal_url)}/admin/pending-users">Utilisateurs</a> · '
-            f'<a href="{_esc(recap.portal_url)}/admin/access-requests">Demandes d\'accès</a> · '
-            f'<a href="{_esc(recap.portal_url)}/admin/logs">Logs</a>'
+        footer_links = (
+            '<p style="margin:0 0 8px;">'
+            f'<a href="{_esc(hosts_cta)}" style="color:#0f766e;text-decoration:none;">Domaines</a>'
+            " · "
+            f'<a href="{_esc(users_cta)}" style="color:#0f766e;text-decoration:none;">Utilisateurs</a>'
+            " · "
+            f'<a href="{_esc(access_cta)}" style="color:#0f766e;text-decoration:none;">Demandes d\'accès</a>'
+            " · "
+            f'<a href="{_esc(logs_cta)}" style="color:#0f766e;text-decoration:none;">Logs sécurité</a>'
             "</p>"
         )
-    return (
-        f"<p>Récapitulatif quotidien du portail — {_esc(date_label)}</p>"
-        f"<p>Fenêtre : {_esc(_fmt_dt(recap.since))} → {_esc(_fmt_dt(recap.until))}</p>"
-        "<h2>Domaines découverts (24h)</h2>"
-        f"<p>Toujours en file : {recap.pending_hosts_total}.</p>"
-        f"{hosts_html}"
-        "<h2>Comptes en attente</h2>"
-        "<p>"
+
+    return f"""<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Récapitulatif quotidien</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px;">
+<tr><td align="center">
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+<tr><td style="padding:20px 24px;background:#0f766e;color:#ffffff;">
+  <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">Portail sécurisé</div>
+  <h1 style="margin:6px 0 0;font-size:22px;line-height:1.25;">Récapitulatif 24h</h1>
+  <div style="margin-top:6px;font-size:13px;opacity:.9;">{_esc(date_label)}</div>
+</td></tr>
+<tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;color:#475569;font-size:13px;">
+  Fenêtre : {_esc(_fmt_dt(recap.since))} → {_esc(_fmt_dt(recap.until))}
+</td></tr>
+{_html_section(
+    "Domaines découverts",
+    hosts_html,
+    subtitle=f"Toujours en file : {recap.pending_hosts_total}.",
+    cta_href=hosts_cta,
+    cta_label="Voir la file",
+)}
+{_html_section(
+    "Comptes en attente",
+    accounts_html,
+    subtitle=(
         f"Utilisateurs SSO : {recap.pending_users_total} · "
         f"Demandes d'accès : {recap.pending_access_total} · "
         f"Comptes bastion : {recap.pending_accounts_count}."
-        "</p>"
-        f"{accounts_html}"
-        "<h2>Alertes (WARNING et plus)</h2>"
-        f"<p>Total : {recap.alerts_total}.</p>"
-        f"{alerts_html}"
-        "<h2>Bannissements (24h)</h2>"
-        f"{bans_html}"
-        f"{links}"
-    )
+    ),
+    cta_href=users_cta,
+    cta_label="Utilisateurs",
+)}
+{_html_section(
+    "Alertes (WARNING et plus)",
+    alerts_html,
+    subtitle=f"Total : {recap.alerts_total}. Chaque lien ouvre l'entrée exacte dans les journaux.",
+    cta_href=logs_cta,
+    cta_label="Filtrer WARNING+",
+)}
+{_html_section(
+    "Bannissements (24h)",
+    bans_html,
+)}
+<tr><td style="padding:20px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:13px;color:#64748b;">
+  {footer_links}
+  <p style="margin:0;"><a href="{_esc(admin_cta)}" style="color:#0f766e;text-decoration:none;font-weight:600;">Ouvrir l'admin →</a></p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
 
 
 def _already_sent_today(row: PortalSettings, now_local: datetime) -> bool:
