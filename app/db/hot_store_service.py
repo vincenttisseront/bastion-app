@@ -20,6 +20,7 @@ from app.db.hot_store import (
     prepare_hot_schema,
     provision_hot_role_and_database,
     reset_hot_table_sequences,
+    resolve_hot_password,
     set_hot_enabled_cache,
     sync_hot_engine_from_config,
     test_hot_connection,
@@ -64,9 +65,11 @@ def _require_configured(row: PortalSettings) -> None:
 
 def _hot_dsn_from_row(row: PortalSettings, settings: Settings) -> str:
     _require_configured(row)
-    password = ""
-    if row.hot_store_password_encrypted:
-        password = decrypt_secret(row.hot_store_password_encrypted, settings) or ""
+    password = resolve_hot_password(
+        row,
+        decrypt_password=lambda enc: decrypt_secret(enc, settings),
+        env_password=getattr(settings, "hot_store_pg_password", ""),
+    )
     return build_hot_dsn(
         host=row.hot_store_host or "",
         port=int(row.hot_store_port or 5432),
@@ -181,13 +184,18 @@ def provision_hot_store(
         )
     password = (password or "").strip()
     if not password:
-        # Allow reuse of already-stored password when provisioning only resets role.
+        # Blank field means "align the role on the password already in use" —
+        # the environment one, so provisioning cannot re-create the drift.
         row = ensure_portal_settings(db, settings)
-        if row.hot_store_password_encrypted:
-            password = decrypt_secret(row.hot_store_password_encrypted, settings) or ""
+        password = resolve_hot_password(
+            row,
+            decrypt_password=lambda enc: decrypt_secret(enc, settings),
+            env_password=getattr(settings, "hot_store_pg_password", ""),
+        )
         if not password:
             raise HotStoreError(
-                "Mot de passe du rôle hot store requis (champ « Mot de passe »)"
+                "Mot de passe du rôle hot store requis (champ « Mot de passe » "
+                "ou HOT_STORE_PG_PASSWORD dans le .env)"
             )
     admin_password = (admin_password or "").strip()
     if not admin_password:

@@ -241,7 +241,31 @@ def hot_store_runtime_enabled(config_db: Session | None = None) -> bool:
     return enabled
 
 
-def resolve_hot_dsn_from_settings_row(row: Any, *, decrypt_password) -> str | None:
+def resolve_hot_password(row: Any, *, decrypt_password, env_password: str = "") -> str:
+    """Role password, from the environment first.
+
+    ``HOT_STORE_PG_PASSWORD`` is the same value the postgres entrypoint applies
+    to the role on every start, so reading it here keeps both ends on one
+    source. The encrypted column is only a fallback for deployments predating
+    that variable; it is precisely the second source that can drift unnoticed.
+    """
+    env_password = (env_password or "").strip()
+    if env_password:
+        return env_password
+    enc = getattr(row, "hot_store_password_encrypted", None)
+    if not enc:
+        return ""
+    logger.warning(
+        "hot store: HOT_STORE_PG_PASSWORD unset, falling back to the stored "
+        "password — postgres syncs its role from that variable, so the two can "
+        "drift and authentication will fail after a postgres restart"
+    )
+    return decrypt_password(enc) or ""
+
+
+def resolve_hot_dsn_from_settings_row(
+    row: Any, *, decrypt_password, env_password: str = ""
+) -> str | None:
     """Build DSN from PortalSettings row; ``decrypt_password`` decrypts Fernet blob."""
     host = (getattr(row, "hot_store_host", None) or "").strip()
     if not host:
@@ -250,10 +274,9 @@ def resolve_hot_dsn_from_settings_row(row: Any, *, decrypt_password) -> str | No
     database = (getattr(row, "hot_store_database", None) or "").strip() or "bastion_hot"
     user = (getattr(row, "hot_store_user", None) or "").strip() or "bastion_hot"
     sslmode = (getattr(row, "hot_store_sslmode", None) or "prefer").strip() or "prefer"
-    enc = getattr(row, "hot_store_password_encrypted", None)
-    password = ""
-    if enc:
-        password = decrypt_password(enc) or ""
+    password = resolve_hot_password(
+        row, decrypt_password=decrypt_password, env_password=env_password
+    )
     return build_hot_dsn(
         host=host,
         port=port,
@@ -280,6 +303,7 @@ def sync_hot_engine_from_config(config_db: Session, settings) -> Engine | None:
         dsn = resolve_hot_dsn_from_settings_row(
             row,
             decrypt_password=lambda enc: decrypt_secret(enc, settings),
+            env_password=getattr(settings, "hot_store_pg_password", ""),
         )
     except Exception:
         logger.exception("hot store: cannot resolve DSN")

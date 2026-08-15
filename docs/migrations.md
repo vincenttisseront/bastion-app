@@ -93,10 +93,22 @@ offloaded to the compose `postgres` service:
    (no host ports; data under `{PORTAL_DATA_DIR}/pgdata`). The bastion entrypoint
    syncs that password on every start via the local socket — no prior admin
    password is required even if the volume was already initialized.
-2. Admin → Général → **Configuration** → onglet **Stockage chaud** — save DSN with the **same** password
-   (Fernet-encrypted in `portal_settings`), test, prepare schema, migrate, enable.
+2. Admin → Général → **Configuration** → onglet **Stockage chaud** — save host, port,
+   database, user and TLS mode, test, prepare schema, migrate, enable.
 3. Disable to roll back reads/writes to SQLite (data already migrated stays on PG
    until the next migrate).
+
+The application connects with `HOT_STORE_PG_PASSWORD` from the environment — the
+same value the entrypoint applies to the role — so both ends derive from one
+source. The password field in the admin form only feeds role provisioning; the
+Fernet blob in `portal_settings` is a fallback for deployments predating the
+variable. Setting the two to different values used to fail silently until the
+next postgres restart, then broke every hot table at once.
+
+Break-glass login survives a hot store outage: session rows, binding anchors,
+rate events and audit logs all live there, so the path degrades instead of
+returning 500. A login issued while the registry is unreachable gets a
+30-minute token rather than 8 hours, because no row means no way to revoke it.
 
 Alembic continues to evolve the **SQLite** schema only. Hot tables on Postgres are
 created via `HotBase`/`create_all` from the ORM models (see `app/db/hot_store.py`).

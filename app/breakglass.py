@@ -11,6 +11,7 @@ from uuid import uuid4
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -34,6 +35,9 @@ _IDLE_TOUCH_MIN_SECONDS = 60
 BREAKGLASS_SESSION_RETENTION_DAYS = 7
 # Grace window after rotation: old cookie still accepted briefly (parallel requests / race).
 GRACE_WINDOW_SECONDS = 5
+# TTL when the session registry is unreachable: such a token has no row, so it
+# cannot be revoked. Short enough to bound that, long enough to fix the outage.
+DEGRADED_TOKEN_TTL_SEC = 30 * 60
 
 # Process-lifetime secret when BREAKGLASS_JWT_SECRET is unset (dev / first boot).
 _EPHEMERAL_JWT_SECRET: str | None = None
@@ -228,18 +232,36 @@ def create_breakglass_token(
     secret: str,
     *,
     jti: str | None = None,
+    ttl_seconds: int = COOKIE_MAX_AGE,
 ) -> str:
     """Build a break-glass JWT. Always includes a unique ``jti`` claim."""
     now = datetime.now(timezone.utc)
     payload = {
         "sub": username,
         "iat": now,
-        "exp": now + timedelta(seconds=COOKIE_MAX_AGE),
+        "exp": now + timedelta(seconds=ttl_seconds),
         "last": int(now.timestamp()),
         "type": "bg",
         "jti": jti or str(uuid4()),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def registry_unavailable(exc: Exception, db: Session, *, stage: str) -> None:
+    """Record that the session registry could not be reached, and carry on.
+
+    The registry lives in the hot store; refusing here would remove the only
+    way in that remains when the hot store is what needs repairing. Nothing is
+    audited on this path either — ``audit_logs`` is a hot table too — so the
+    application log is the sole trace.
+    """
+    logger.warning(
+        "breakglass: session registry unavailable at %s, degrading — %s", stage, exc
+    )
+    try:
+        db.rollback()
+    except SQLAlchemyError:
+        logger.exception("breakglass: rollback failed after registry outage")
 
 
 def register_breakglass_session(
@@ -284,18 +306,31 @@ def issue_breakglass_token(
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=COOKIE_MAX_AGE)
     issued = payload.get("iat")
     issued_at = _aware_exp(issued) or datetime.now(timezone.utc)
-    row = register_breakglass_session(
-        db,
-        jti=jti,
-        username=username,
-        expires_at=expires_at,
-        issued_at=issued_at,
-        chain_id=jti,
-    )
-    if request is not None:
-        from app.security.session_binding_service import apply_breakglass_login_anchor
+    try:
+        row = register_breakglass_session(
+            db,
+            jti=jti,
+            username=username,
+            expires_at=expires_at,
+            issued_at=issued_at,
+            chain_id=jti,
+        )
+        if request is not None:
+            from app.security.session_binding_service import (
+                apply_breakglass_login_anchor,
+            )
 
-        apply_breakglass_login_anchor(db, row, request)
+            apply_breakglass_login_anchor(db, row, request)
+    except SQLAlchemyError as exc:
+        registry_unavailable(exc, db, stage="issue")
+        # An unregistered jti cannot be revoked (see resolve_breakglass_request),
+        # so the degraded token is short-lived: re-login rechecks the password.
+        return (
+            create_breakglass_token(
+                username, secret, jti=jti, ttl_seconds=DEGRADED_TOKEN_TTL_SEC
+            ),
+            jti,
+        )
     return token, jti
 
 
@@ -352,7 +387,14 @@ def is_breakglass_jti_revoked(db: Session, jti: str) -> bool:
     """
     if not jti:
         return True
-    row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+    try:
+        row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+    except SQLAlchemyError as exc:
+        # Consulted on every protected request. An unreachable registry cannot
+        # answer "revoked", and treating silence as revocation would log the
+        # admin out of the interface needed to bring the hot store back.
+        registry_unavailable(exc, db, stage="revocation_check")
+        return False
     if row is None:
         return False
     if bool(row.chain_revoked) or bool(row.revoked):
@@ -488,7 +530,15 @@ def process_breakglass_auth_request(
     if not jti or not isinstance(jti, str):
         return BreakglassAuthResult(ok=False)
 
-    row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+    try:
+        row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+    except SQLAlchemyError as exc:
+        # Hot store down: the registry cannot answer. Locking the admin out here
+        # would strand the one account able to repair it.
+        registry_unavailable(exc, db, stage="verify")
+        return BreakglassAuthResult(
+            ok=True, payload=payload, username=username, jti=jti
+        )
     if row is None:
         # Legacy token without registry: allow without rotation (cannot chain).
         return BreakglassAuthResult(
@@ -565,7 +615,16 @@ def process_breakglass_auth_request(
         )
         return BreakglassAuthResult(ok=False)
 
-    if not evaluate_breakglass_binding(db, request, jti=jti, username=username):
+    try:
+        bound = evaluate_breakglass_binding(db, request, jti=jti, username=username)
+    except SQLAlchemyError as exc:
+        # Binding anchors are hot rows too — an outage must not read as a
+        # binding violation, which would look like a session hijack.
+        registry_unavailable(exc, db, stage="binding")
+        return BreakglassAuthResult(
+            ok=True, payload=payload, username=username, jti=jti, chain_id=chain_id
+        )
+    if not bound:
         return BreakglassAuthResult(ok=False)
 
     if not rotate:
@@ -577,12 +636,24 @@ def process_breakglass_auth_request(
             chain_id=chain_id,
         )
 
-    # Re-load after possible audit commit inside binding (weak drift).
-    row = db.query(BreakGlassSession).filter_by(jti=jti).first()
-    if row is None or row.superseded_by or bool(row.chain_revoked) or bool(row.revoked):
-        return BreakglassAuthResult(ok=False)
-
-    new_token, new_row = rotate_breakglass_session(db, row, payload, secret)
+    try:
+        # Re-load after possible audit commit inside binding (weak drift).
+        row = db.query(BreakGlassSession).filter_by(jti=jti).first()
+        if (
+            row is None
+            or row.superseded_by
+            or bool(row.chain_revoked)
+            or bool(row.revoked)
+        ):
+            return BreakglassAuthResult(ok=False)
+        new_token, new_row = rotate_breakglass_session(db, row, payload, secret)
+    except SQLAlchemyError as exc:
+        # Keep the current cookie rather than cutting the chain: rotation is a
+        # hardening measure, not the authorisation itself.
+        registry_unavailable(exc, db, stage="rotate")
+        return BreakglassAuthResult(
+            ok=True, payload=payload, username=username, jti=jti, chain_id=chain_id
+        )
     return BreakglassAuthResult(
         ok=True,
         payload=payload,
