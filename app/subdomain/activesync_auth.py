@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import re
 import time
 from typing import Mapping
@@ -15,17 +16,21 @@ from app.audit import log_action
 from app.auth import get_realm_proxy_url
 from app.breakglass import COOKIE_NAME, process_breakglass_auth_request
 from app.database import get_db, release_db_connection
-from app.models import App
+from app.models import ActiveSyncDevice, App
 from app.rbac.effective_access_service import user_can_launch_application
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
+from app.subdomain import activesync_device_service as device_service
+from app.subdomain.eas_device import extract_eas_device, is_autodiscover_uri
 from app.subdomain.subdomain_auth import _header, _resolve_app_by_host
 from app.web.user_context import parse_groups_header
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["activesync-auth"])
 
 # Throttle allow audits (EAS is chatty); always log denials.
-_allow_log_ts: dict[tuple[str, str, str], float] = {}
+_allow_log_ts: dict[tuple[str, str, str, str], float] = {}
 _ALLOW_LOG_INTERVAL_SEC = 60.0
 
 _EAS_PATH_RE = re.compile(
@@ -70,8 +75,17 @@ def _basic_username(authorization: str) -> str | None:
     return user or None
 
 
-def _should_log_allow(app_slug: str, client_ip: str, actor: str) -> bool:
-    key = (app_slug, client_ip or "-", actor or "-")
+def reset_allow_log_throttle() -> None:
+    """Drop the allow-audit throttle state (tests)."""
+    _allow_log_ts.clear()
+
+
+def _should_log_allow(
+    app_slug: str, client_ip: str, actor: str, device_id: str | None = None
+) -> bool:
+    # device_id is part of the key: two phones of the same user behind one NAT
+    # would otherwise mask each other and leave the fleet unauditable.
+    key = (app_slug, client_ip or "-", actor or "-", device_id or "-")
     now = time.monotonic()
     last = _allow_log_ts.get(key, 0.0)
     if now - last < _ALLOW_LOG_INTERVAL_SEC:
@@ -97,6 +111,9 @@ def _log_activesync(
     auth_source: str | None = None,
     client_kind: str | None = None,
     reason: str | None = None,
+    device_id: str | None = None,
+    device_type: str | None = None,
+    device_status: str | None = None,
 ) -> None:
     details: dict = {
         "uri": (uri or "/")[:1024],
@@ -109,9 +126,18 @@ def _log_activesync(
         details["auth_source"] = auth_source
     if reason:
         details["reason"] = reason
+    # Promote the device out of the raw query string: it used to be readable
+    # only by hand-parsing ``uri``.
+    if device_id:
+        details["device_id"] = device_id
+    if device_type:
+        details["device_type"] = device_type
+    if device_status:
+        details["device_status"] = device_status
     if app is not None:
         details["application_id"] = app.id
         details["allow_activesync"] = bool(app.allow_activesync)
+        details["activesync_device_control"] = bool(app.activesync_device_control)
     log_action(
         db,
         actor=actor or "anonymous",
@@ -119,6 +145,89 @@ def _log_activesync(
         target=(app.slug if app else (host or "")[:255]) or None,
         details=details,
         ip_address=client_ip or None,
+    )
+
+
+def _is_device_exempt(uri: str, method: str) -> bool:
+    """Requests that must pass whatever the device inventory says.
+
+    OPTIONS is protocol negotiation and carries no DeviceId — denying it stops
+    any client from even connecting. Autodiscover is account setup, and cutting
+    it breaks the initial configuration rather than a single device.
+    """
+    return method.upper() == "OPTIONS" or is_autodiscover_uri(uri)
+
+
+def _evaluate_device(
+    db: Session,
+    *,
+    app: App,
+    actor: str,
+    device_id: str | None,
+    device_type: str | None,
+    exempt: bool,
+    uri: str,
+    host: str,
+    user_agent: str,
+    client_kind: str,
+    client_ip: str | None,
+    enforce: bool = True,
+) -> tuple[ActiveSyncDevice | None, Response | None]:
+    """Inventory the sighting and decide. Returns ``(device, deny_response)``.
+
+    Best-effort by construction: any inventory failure yields ``(None, None)``,
+    i.e. today's behaviour. A refusal may only come from an explicit decision
+    stored in the database, never from broken telemetry.
+    """
+    if exempt or not device_id:
+        return None, None
+
+    user_key = device_service.normalize_user_key(actor)
+    if not user_key:
+        return None, None
+
+    try:
+        device = device_service.record_sighting(
+            db,
+            app=app,
+            user_key=user_key,
+            device_id=device_id,
+            device_type=device_type,
+            user_agent=user_agent,
+            client_kind=client_kind,
+            client_ip=client_ip,
+        )
+    except Exception:
+        logger.exception("activesync inventory failed device_id=%s", device_id)
+        return None, None
+
+    if device is None or not device.blocked_by_admin or not enforce:
+        return device, None
+
+    if device_service.should_log_denial(app.id, device_id):
+        _log_activesync(
+            db,
+            action="activesync.denied",
+            app=app,
+            actor=actor,
+            client_ip=client_ip,
+            uri=uri,
+            host=host,
+            user_agent=user_agent,
+            client_kind=client_kind,
+            reason="device_blocked_by_admin",
+            device_id=device_id,
+            device_type=device_type,
+            device_status=device.status,
+        )
+    # 403, never 401: a 401 makes iOS/Android loop on the password prompt and
+    # convinces the user their account is broken.
+    return device, Response(
+        status_code=403,
+        headers={
+            "X-Auth-Error": "activesync-device-not-approved",
+            "X-Auth-App": app.slug,
+        },
     )
 
 
@@ -137,11 +246,16 @@ async def activesync_auth(
     """
     original_host = request.headers.get("X-Original-Host", "") or request.headers.get("Host", "")
     original_uri = request.headers.get("X-Original-URI", "") or request.url.path
+    # Absent until nginx is reloaded with the header — treated as "unknown
+    # method", which never blocks.
+    original_method = request.headers.get("X-Original-Method", "")
     client_ip = client_ip_from_request(request)
     user_agent = request.headers.get("User-Agent", "")
     cookie_header = request.headers.get("Cookie", "")
     authorization = request.headers.get("Authorization", "")
     client_kind = classify_mobile_client(user_agent)
+    device_id, device_type = extract_eas_device(original_uri)
+    device_exempt = _is_device_exempt(original_uri, original_method)
 
     app = _resolve_app_by_host(db, original_host)
     if not app:
@@ -188,10 +302,39 @@ async def activesync_auth(
         )
 
     # Detected ActiveSync path (or Autodiscover) for an opted-in app.
+    if not device_id and not device_exempt:
+        try:
+            device_service.log_unidentified_device(
+                db,
+                app=app,
+                actor=_basic_username(authorization) or "anonymous",
+                uri=original_uri,
+                user_agent=user_agent,
+                client_kind=client_kind,
+                client_ip=client_ip,
+            )
+        except Exception:
+            logger.exception("activesync unidentified log failed host=%s", original_host)
+
     basic_user = _basic_username(authorization)
     if basic_user:
         actor = basic_user
-        if _should_log_allow(app.slug, client_ip or "", actor):
+        device, denied = _evaluate_device(
+            db,
+            app=app,
+            actor=actor,
+            device_id=device_id,
+            device_type=device_type,
+            exempt=device_exempt,
+            uri=original_uri,
+            host=original_host,
+            user_agent=user_agent,
+            client_kind=client_kind,
+            client_ip=client_ip,
+        )
+        if denied is not None:
+            return denied
+        if _should_log_allow(app.slug, client_ip or "", actor, device_id):
             _log_activesync(
                 db,
                 action="activesync.allowed",
@@ -203,6 +346,9 @@ async def activesync_auth(
                 user_agent=user_agent,
                 auth_source="basic",
                 client_kind=client_kind,
+                device_id=device_id,
+                device_type=device_type,
+                device_status=device.status if device is not None else None,
             )
         return Response(
             status_code=200,
@@ -274,7 +420,24 @@ async def activesync_auth(
                         "X-Auth-App": app_slug,
                     },
                 )
-            if _should_log_allow(app_slug, client_ip or "", actor):
+            device, denied = _evaluate_device(
+                db,
+                # Never the Keycloak UUID: the inventory is keyed on the same
+                # identity Basic Auth sends, or the two never join.
+                actor=email or preferred or "",
+                app=app,
+                device_id=device_id,
+                device_type=device_type,
+                exempt=device_exempt,
+                uri=original_uri,
+                host=original_host,
+                user_agent=user_agent,
+                client_kind=client_kind,
+                client_ip=client_ip,
+            )
+            if denied is not None:
+                return denied
+            if _should_log_allow(app_slug, client_ip or "", actor, device_id):
                 _log_activesync(
                     db,
                     action="activesync.allowed",
@@ -286,6 +449,9 @@ async def activesync_auth(
                     user_agent=user_agent,
                     auth_source="oidc",
                     client_kind=client_kind,
+                    device_id=device_id,
+                    device_type=device_type,
+                    device_status=device.status if device is not None else None,
                 )
             return Response(
                 status_code=200,
@@ -318,7 +484,23 @@ async def activesync_auth(
                         "WWW-Authenticate": 'Basic realm="ActiveSync"',
                     },
                 )
-            if _should_log_allow(app_slug, client_ip or "", actor):
+            # Break-glass is inventoried but never gated: this is the admin
+            # escape hatch and must stay usable to unblock a device.
+            device, _denied = _evaluate_device(
+                db,
+                app=app,
+                actor=actor,
+                device_id=device_id,
+                device_type=device_type,
+                exempt=device_exempt,
+                uri=original_uri,
+                host=original_host,
+                user_agent=user_agent,
+                client_kind=client_kind,
+                client_ip=client_ip,
+                enforce=False,
+            )
+            if _should_log_allow(app_slug, client_ip or "", actor, device_id):
                 _log_activesync(
                     db,
                     action="activesync.allowed",
@@ -330,6 +512,9 @@ async def activesync_auth(
                     user_agent=user_agent,
                     auth_source="breakglass",
                     client_kind=client_kind,
+                    device_id=device_id,
+                    device_type=device_type,
+                    device_status=device.status if device is not None else None,
                 )
             return Response(
                 status_code=200,
@@ -352,6 +537,8 @@ async def activesync_auth(
         user_agent=user_agent,
         client_kind=client_kind,
         reason="not_authenticated",
+        device_id=device_id,
+        device_type=device_type,
     )
     return Response(
         status_code=401,

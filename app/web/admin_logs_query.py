@@ -32,7 +32,14 @@ DEFAULT_COLUMNS = [
     "result",
     "detail",
 ]
-OPTIONAL_DETAIL_COLUMNS = ("reason", "x_real_ip", "x_forwarded_for", "peer", "resolved")
+OPTIONAL_DETAIL_COLUMNS = (
+    "reason",
+    "x_real_ip",
+    "x_forwarded_for",
+    "peer",
+    "resolved",
+    "miss_family",
+)
 ALL_COLUMNS = DEFAULT_COLUMNS + list(OPTIONAL_DETAIL_COLUMNS)
 
 _RESULT_VALUES = frozenset({"success", "error", "info"})

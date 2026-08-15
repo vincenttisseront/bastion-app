@@ -54,6 +54,22 @@ def normalize_access_mode(value: str | None) -> str:
     return LEGACY_ACCESS_MODE_MAP.get(value, "sso_gate")
 
 
+def activesync_flags_for(
+    access_mode: str | None,
+    *,
+    allow_activesync: bool,
+    device_control: bool,
+) -> tuple[bool, bool]:
+    """Coherent ``(allow_activesync, activesync_device_control)`` pair.
+
+    EAS only exists on subdomain_proxy, and gating devices is meaningless when
+    ActiveSync itself is off — a stale ``True`` there would silently arm a gate
+    nobody can see in the UI.
+    """
+    allowed = bool(allow_activesync) and normalize_access_mode(access_mode) == "subdomain_proxy"
+    return allowed, bool(device_control) and allowed
+
+
 def is_user_catalogue_mode(access_mode: str | None) -> bool:
     """False for modes that must never appear in Mes applications / API catalogue."""
     return normalize_access_mode(access_mode) not in CATALOGUE_EXCLUDED_ACCESS_MODES

@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.access_modes import (
+    activesync_flags_for,
     normalize_access_mode,
     validate_app_access_fields,
 )
@@ -1648,8 +1649,12 @@ def admin_apps_create_post(
         access_mode=mode,
         public_fqdn=fqdn,
         description=desc,
-        allow_activesync=allow_activesync == "on" and mode == "subdomain_proxy",
         upstream_tls_verify=upstream_tls_verify == "on" and mode != "sso_gate",
+    )
+    app.allow_activesync, app.activesync_device_control = activesync_flags_for(
+        mode,
+        allow_activesync=allow_activesync == "on",
+        device_control=False,
     )
     _apply_auth_config(
         app,
@@ -1774,7 +1779,11 @@ def admin_apps_edit_post(
         app.access_mode = mode
         app.public_fqdn = fqdn
         app.description = desc
-        app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
+        app.allow_activesync, app.activesync_device_control = activesync_flags_for(
+            mode,
+            allow_activesync=allow_activesync == "on",
+            device_control=getattr(app, "activesync_device_control", False),
+        )
         app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
         app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
         # Re-display CrushFTP admin fields from the form (do not encrypt yet).
@@ -1839,7 +1848,11 @@ def admin_apps_edit_post(
         app.access_mode = mode
         app.public_fqdn = fqdn
         app.description = desc
-        app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
+        app.allow_activesync, app.activesync_device_control = activesync_flags_for(
+            mode,
+            allow_activesync=allow_activesync == "on",
+            device_control=getattr(app, "activesync_device_control", False),
+        )
         app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
         app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
         _apply_auth_config(

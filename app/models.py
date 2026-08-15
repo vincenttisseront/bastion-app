@@ -63,6 +63,9 @@ class App(Base):
     injected_cookie_scope = Column(String, default="host_only", nullable=False)
     # Mobile messaging (EAS): allow ActiveSync/Autodiscover without browser SSO redirect
     allow_activesync = Column(Boolean, default=False, nullable=False)
+    # EAS per-device gate: only approved devices sync. Meaningless without allow_activesync.
+    activesync_device_control = Column(Boolean, default=False, nullable=False)
+    activesync_device_control_enabled_at = Column(DateTime(timezone=True), nullable=True)
     # Verify upstream TLS cert from bastion (robotic httpx + nginx). Off for LAN/self-signed.
     upstream_tls_verify = Column(Boolean, default=False, nullable=False)
     healthcheck_url = Column(String, nullable=True)
@@ -1255,6 +1258,85 @@ class PendingHost(Base):
     approved_app_slug = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
+ACTIVESYNC_DEVICE_PENDING = "pending"
+ACTIVESYNC_DEVICE_APPROVED = "approved"
+ACTIVESYNC_DEVICE_REJECTED = "rejected"
+ACTIVESYNC_DEVICE_BLOCKED = "blocked"
+ACTIVESYNC_DEVICE_STATUSES: tuple[str, ...] = (
+    ACTIVESYNC_DEVICE_PENDING,
+    ACTIVESYNC_DEVICE_APPROVED,
+    ACTIVESYNC_DEVICE_REJECTED,
+    ACTIVESYNC_DEVICE_BLOCKED,
+)
+
+# Distinct source IPs kept per device — enough to spot a roaming phone, bounded
+# so a mobile client on 4G cannot grow the row without limit.
+ACTIVESYNC_DEVICE_MAX_SAMPLE_IPS = 10
+
+
+class ActiveSyncDevice(Base):
+    """Mobile device seen on the EAS path, keyed by the Basic Auth identity.
+
+    ``user_key`` is the only identity available in the hot path (the EAS client
+    authenticates with Basic against the upstream, never against Keycloak), so
+    it is the source of truth. ``keycloak_user_id`` is filled opportunistically
+    outside the hot path and is display-only: a directory miss must never turn
+    into a security decision.
+    """
+
+    __tablename__ = "activesync_devices"
+    __table_args__ = (
+        UniqueConstraint(
+            "application_id",
+            "user_key",
+            "device_id",
+            name="uq_activesync_device_app_user_device",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    application_id = Column(
+        Integer, ForeignKey("apps.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    user_key = Column(String, nullable=False, index=True)
+    keycloak_user_id = Column(String, nullable=True, index=True)
+    realm_id = Column(Integer, ForeignKey("realm_configs.id"), nullable=True, index=True)
+
+    # Opaque client-generated token — case is significant, never normalized.
+    device_id = Column(String, nullable=False, index=True)
+    device_type = Column(String, nullable=True)
+    friendly_name = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    client_kind = Column(String, nullable=True)
+
+    status = Column(
+        String, nullable=False, default=ACTIVESYNC_DEVICE_PENDING, index=True
+    )
+    # observed | backfill | user | admin
+    source = Column(String, nullable=False, default="observed")
+
+    first_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    last_seen_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    request_count = Column(Integer, nullable=False, default=1)
+    last_ip = Column(String, nullable=True)
+    sample_source_ips = Column(JSON, nullable=True, default=list)
+
+    decided_by = Column(String, nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    decision_note = Column(Text, nullable=True)
+    # Admin lock: the owner can never lift this one (stolen phone).
+    blocked_by_admin = Column(Boolean, nullable=False, default=False)
+
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow
+    )
+
+    app = relationship("App", foreign_keys=[application_id])
+    realm = relationship("RealmConfig", foreign_keys=[realm_id])
 
 
 ACCESS_REQUEST_STATUSES: tuple[str, ...] = ("pending", "approved", "rejected")

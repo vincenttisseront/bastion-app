@@ -7,7 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.access_modes import is_user_catalogue_mode, normalize_access_mode, validate_app_access_fields
+from app.access_modes import (
+    activesync_flags_for,
+    is_user_catalogue_mode,
+    normalize_access_mode,
+    validate_app_access_fields,
+)
 from app.audit import log_action
 from app.bastion.bastion_fields import normalize_auth_mode, normalize_sso_bridge
 from app.database import get_db
@@ -207,8 +212,13 @@ def create_app(
         if auth == "sso"
         else "trusted_headers"
     )
-    if mode != "subdomain_proxy":
-        payload["allow_activesync"] = False
+    payload["allow_activesync"], payload["activesync_device_control"] = (
+        activesync_flags_for(
+            mode,
+            allow_activesync=payload.get("allow_activesync", False),
+            device_control=payload.get("activesync_device_control", False),
+        )
+    )
     if mode == "sso_gate":
         payload["upstream_tls_verify"] = False
     elif "upstream_tls_verify" in payload:
@@ -245,10 +255,16 @@ def update_app(
         raise HTTPException(status_code=422, detail=field_errors)
     if "access_mode" in updates:
         updates["access_mode"] = mode
-    if mode != "subdomain_proxy":
-        updates["allow_activesync"] = False
-    elif "allow_activesync" in updates:
-        updates["allow_activesync"] = bool(updates["allow_activesync"])
+    if mode != "subdomain_proxy" or "allow_activesync" in updates:
+        updates["allow_activesync"], updates["activesync_device_control"] = (
+            activesync_flags_for(
+                mode,
+                allow_activesync=updates.get("allow_activesync", app.allow_activesync),
+                device_control=updates.get(
+                    "activesync_device_control", app.activesync_device_control
+                ),
+            )
+        )
     if mode == "sso_gate":
         updates["upstream_tls_verify"] = False
     elif "upstream_tls_verify" in updates:
