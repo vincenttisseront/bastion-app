@@ -42,6 +42,25 @@
       Les HMAC (session hop, breakglass JWT) sont initialisés en base
       (portal_settings) par le job migrate — pas via .env.
 
+- name: "PREFLIGHT : stat pgdata (stockage chaud provisionné ?)"
+  ansible.builtin.stat:
+    path: "{{ bastion_app_docker_data_dir }}/pgdata"
+  register: _pgdata_stat
+
+- name: "PREFLIGHT : assert mot de passe hot-store"
+  ansible.builtin.assert:
+    that:
+      - hot_store_pg_password_resolved | trim | length > 0
+    fail_msg: >-
+      Le stockage chaud est provisionné ({{ bastion_app_docker_data_dir }}/pgdata
+      existe) mais aucun mot de passe n'est fourni. Sans lui, .env sort sans
+      HOT_STORE_PG_PASSWORD, compose retombe sur bastion_hot_change_me pour le rôle
+      postgres, et l'application se connecte avec la valeur enregistrée en base :
+      l'authentification échoue. Renseigner vault_hot_store_pg_password (alias
+      hot_store_pg_password ou HOT_STORE_PG_PASSWORD) en Extra Var / Vault AWX.
+      Si le stockage chaud est abandonné, supprimer le répertoire pgdata.
+  when: _pgdata_stat.stat.exists | default(false)
+
 - name: "PREFLIGHT : stat portal.db"
   ansible.builtin.stat:
     path: "{{ sso_portal_db_path }}"

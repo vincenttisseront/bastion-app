@@ -94,6 +94,15 @@ hot_store_pg_user: bastion_hot
 hot_store_pg_db: bastion_hot
 vault_hot_store_pg_password: ""
 hot_store_pg_password: ""
+# Single resolution of the three accepted names, shared by portal.env.j2 and the
+# preflight guard. ``default(x, true)`` on every level: the two aliases above are
+# declared empty here, so without the boolean flag the chain would stop on the
+# first one and never reach ``HOT_STORE_PG_PASSWORD``.
+hot_store_pg_password_resolved: >-
+  {{ (vault_hot_store_pg_password
+      | default(hot_store_pg_password
+                | default(HOT_STORE_PG_PASSWORD | default(''), true), true)
+     ) | trim }}
 # development | production
 portal_environment: production
 
