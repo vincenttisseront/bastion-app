@@ -2,6 +2,7 @@
 
 import hmac
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -47,6 +48,7 @@ from app.breakglass_store import (
     verify_breakglass_password,
 )
 from app.database import get_db
+from app.db.hot_store import hot_read
 from app.models import AccessGrant, App, PendingHost, PendingUser, RBACGroup, RealmConfig
 from app.bastion.pending_host_service import (
     approve_pending_host,
@@ -396,7 +398,14 @@ def dashboard(
 ):
     touch_portal_session(db, user, _client_ip(request), request=request)
     metrics = get_dashboard_metrics(db)
-    recent_audit, _ = list_audit_entries(db, limit=8)
+    # None, not [], so the panel can say "unreadable" instead of "nothing happened".
+    audit_page = hot_read(
+        lambda: list_audit_entries(db, limit=8),
+        default=None,
+        what="recent audit entries",
+        db=db,
+    )
+    recent_audit = audit_page[0] if audit_page else None
     from app.web.pending_queue_service import build_pending_action_items
 
     pending_queue = build_pending_action_items(db)
@@ -424,20 +433,31 @@ def sessions_page(
         user.is_admin = True
     touch_portal_session(db, user, _client_ip(request), request=request)
     filter_kind = kind if kind in ("user", "app") else None
-    sessions = get_active_sessions(db, viewer=user, kind=filter_kind)
+
+    def read_sessions() -> dict[str, Any]:
+        sessions = get_active_sessions(db, viewer=user, kind=filter_kind)
+        return {
+            "sessions": sessions,
+            "session_groups": build_session_groups(db, sessions),
+            "session_counts": {
+                "all": len(get_active_sessions(db, viewer=user)),
+                "user": len(get_active_sessions(db, viewer=user, kind="user")),
+                "app": len(get_active_sessions(db, viewer=user, kind="app")),
+            },
+        }
+
+    # active_sessions is a hot table, and this page is reachable by any user.
+    view = hot_read(read_sessions, default=None, what="active sessions", db=db)
     return render(
         "sessions/index.html",
         **_ctx(
             request,
             settings,
-            sessions=sessions,
-            session_groups=build_session_groups(db, sessions),
+            sessions=(view or {}).get("sessions", []),
+            session_groups=(view or {}).get("session_groups", []),
             session_kind=filter_kind or "all",
-            session_counts={
-                "all": len(get_active_sessions(db, viewer=user)),
-                "user": len(get_active_sessions(db, viewer=user, kind="user")),
-                "app": len(get_active_sessions(db, viewer=user, kind="app")),
-            },
+            session_counts=(view or {}).get("session_counts", {}),
+            sessions_unavailable=view is None,
         ),
     )
 

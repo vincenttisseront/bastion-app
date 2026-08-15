@@ -34,7 +34,7 @@
         </div>
         <span class="metric-trend {% if metrics.blocked_attempts %}up{% else %}down{% endif %}">{% if metrics.blocked_attempts %}↑{% else %}↓{% endif %}</span>
       </div>
-      <div class="metric-value">{{ metrics.blocked_attempts }}</div>
+      <div class="metric-value">{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</div>
       <div class="metric-label">Tentatives bloquées</div>
     </a>
 
@@ -101,6 +101,18 @@
         <a href="/admin/logs#audit" class="btn btn-ghost btn-sm">Voir tout →</a>
       </div>
       <div class="audit-stream">
+        {% if recent_audit is none %}
+        <div class="empty-state">
+          <div class="empty-icon">
+            <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+          </div>
+          <div class="empty-title">Journal indisponible</div>
+          <div class="empty-desc">
+            Le stockage chaud est injoignable —
+            <a href="/admin/configuration#hot-store">vérifier la configuration</a>.
+          </div>
+        </div>
+        {% else %}
         {% for entry in recent_audit %}
         <a class="audit-entry audit-entry-link" data-searchable
            href="/admin/logs?id={{ entry.id }}#audit"
@@ -122,6 +134,7 @@
           <div class="empty-desc">Les actions administrateur apparaîtront ici en temps réel.</div>
         </div>
         {% endfor %}
+        {% endif %}
       </div>
     </div>
   </div>

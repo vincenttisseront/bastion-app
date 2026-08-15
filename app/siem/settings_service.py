@@ -293,16 +293,23 @@ def mark_siem_success(db: Session) -> None:
 
 
 def public_status(db: Session) -> dict[str, Any]:
-    from app.siem.outbox import queue_size
+    from app.db.hot_store import hot_read
+    from app.siem import outbox
 
     cfg = get_siem_config(db)
+    pending = hot_read(
+        lambda: outbox.queue_size(db),
+        default=None,
+        what="SIEM outbox size",
+        db=db,
+    )
     return {
         "enabled": cfg.enabled,
         "active": cfg.active,
         "protocol": cfg.protocol,
         "webhook_auth_configured": cfg.webhook_auth_configured,
         "last_success_at": cfg.last_success_at.isoformat() if cfg.last_success_at else None,
-        "queue_size": queue_size(db),
+        "queue_size": pending,
         "filter_mode": cfg.filter_mode,
         "filter_actions": list(cfg.filter_actions),
     }

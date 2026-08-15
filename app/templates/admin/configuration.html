@@ -183,7 +183,8 @@
       <p class="form-help mb-4">
         Dernier envoi réussi :
         <strong class="mono">{{ st.last_success_at or "—" }}</strong>
-        · File d'attente : <strong class="mono">{{ st.queue_size | default(0) }}</strong>
+        · File d'attente :
+        <strong class="mono">{{ "indisponible" if st.queue_size is none else st.queue_size }}</strong>
         {% if st.webhook_auth_configured %}
         · Secret webhook : <span class="badge badge-ok">configuré</span>
         {% else %}
