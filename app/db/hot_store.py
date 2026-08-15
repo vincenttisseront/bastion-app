@@ -1,7 +1,8 @@
 """Optional PostgreSQL hot store for high-volume tables.
 
 SQLite (SQLCipher) remains the configuration database. When enabled via Admin →
-Sécurité, selected hot tables are read/written on a separate Postgres engine.
+Général → Configuration → Stockage chaud, selected hot tables are read/written
+on a separate Postgres engine.
 """
 
 from __future__ import annotations
@@ -10,11 +11,11 @@ import logging
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 from urllib.parse import quote_plus
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import Integer, create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
@@ -45,6 +46,18 @@ HOT_MODELS: tuple[type, ...] = (
 )
 
 HOT_TABLE_NAMES: tuple[str, ...] = tuple(m.__tablename__ for m in HOT_MODELS)
+
+# Human labels for admin UI (table → catégorie).
+HOT_TABLE_LABELS: dict[str, str] = {
+    "oidc_sessions": "Sessions OIDC",
+    "oidc_login_attempts": "Tentatives OIDC",
+    "active_sessions": "Sessions actives",
+    "sso_session_anchors": "Ancres SSO",
+    "breakglass_sessions": "Break-glass",
+    "security_rate_events": "Anti-bruteforce",
+    "audit_logs": "Journaux d’audit",
+    "siem_outbox": "Outbox SIEM",
+}
 
 _HOT_MODEL_SET = frozenset(HOT_MODELS)
 
@@ -279,6 +292,116 @@ def sync_hot_engine_from_config(config_db: Session, settings) -> Engine | None:
     except Exception:
         logger.exception("hot store: cannot create engine")
         return None
+
+
+def reset_hot_table_sequences(engine: Engine) -> None:
+    """Align Postgres serial sequences after bulk inserts with explicit ids.
+
+    ``bulk_insert_mappings`` / COPY with primary keys leaves sequences at 1, so
+    the next ORM insert collides (duplicate key on audit_logs_pkey, etc.).
+    No-op on non-Postgres dialects and on tables without an integer serial PK.
+    """
+    if engine.dialect.name != "postgresql":
+        return
+    with engine.begin() as conn:
+        for model in HOT_MODELS:
+            pk_cols = [c for c in model.__table__.primary_key.columns]
+            if len(pk_cols) != 1:
+                continue
+            pk = pk_cols[0]
+            if not isinstance(pk.type, Integer):
+                continue
+            table = model.__tablename__
+            seq = conn.execute(
+                text("SELECT pg_get_serial_sequence(:tbl, :col)"),
+                {"tbl": table, "col": pk.name},
+            ).scalar()
+            if not seq:
+                continue
+            max_id = conn.execute(
+                text(f'SELECT COALESCE(MAX("{pk.name}"), 0) FROM "{table}"')
+            ).scalar()
+            max_id = int(max_id or 0)
+            if max_id > 0:
+                conn.execute(
+                    text("SELECT setval(CAST(:seq AS regclass), :val, true)"),
+                    {"seq": seq, "val": max_id},
+                )
+            else:
+                conn.execute(
+                    text("SELECT setval(CAST(:seq AS regclass), 1, false)"),
+                    {"seq": seq},
+                )
+
+
+def collect_hot_store_stats(engine: Engine) -> dict[str, Any]:
+    """Row counts, 24h activity, and approximate DB size for the admin résumé."""
+    from datetime import timedelta
+
+    from app.models import utcnow
+
+    counts: dict[str, int] = {}
+    audit_24h: int | None = None
+    rate_24h: int | None = None
+    db_size_bytes: int | None = None
+    db_size_pretty: str | None = None
+    since = utcnow() - timedelta(hours=24)
+
+    with engine.connect() as conn:
+        for name in HOT_TABLE_NAMES:
+            try:
+                counts[name] = int(
+                    conn.execute(text(f'SELECT count(*) FROM "{name}"')).scalar() or 0
+                )
+            except Exception:
+                counts[name] = -1
+        try:
+            audit_24h = int(
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM audit_logs WHERE created_at >= :since"
+                    ),
+                    {"since": since},
+                ).scalar()
+                or 0
+            )
+        except Exception:
+            audit_24h = None
+        try:
+            rate_24h = int(
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM security_rate_events "
+                        "WHERE occurred_at >= :since"
+                    ),
+                    {"since": since},
+                ).scalar()
+                or 0
+            )
+        except Exception:
+            rate_24h = None
+        if engine.dialect.name == "postgresql":
+            try:
+                row = conn.execute(
+                    text(
+                        "SELECT pg_database_size(current_database()), "
+                        "pg_size_pretty(pg_database_size(current_database()))"
+                    )
+                ).one()
+                db_size_bytes = int(row[0] or 0)
+                db_size_pretty = str(row[1] or "")
+            except Exception:
+                pass
+
+    total = sum(v for v in counts.values() if isinstance(v, int) and v >= 0)
+    return {
+        "table_counts": counts,
+        "table_total": total,
+        "audit_logs_24h": audit_24h,
+        "security_rate_events_24h": rate_24h,
+        "db_size_bytes": db_size_bytes,
+        "db_size_pretty": db_size_pretty,
+    }
 
 
 def prepare_hot_schema(engine: Engine) -> None:
@@ -612,6 +735,12 @@ class HotStoreStatus:
     migrate_skipped_at: str | None = None
     migrate_skipped_by: str | None = None
     wizard_steps: tuple[dict[str, Any], ...] = ()
+    table_total: int = 0
+    audit_logs_24h: int | None = None
+    security_rate_events_24h: int | None = None
+    db_size_bytes: int | None = None
+    db_size_pretty: str | None = None
+    table_labels: dict[str, str] = field(default_factory=lambda: dict(HOT_TABLE_LABELS))
 
 
 def _iso(dt) -> str | None:
@@ -761,6 +890,11 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
     ping_error: str | None = None
     engine_ready = False
     counts: dict[str, int] = {}
+    table_total = 0
+    audit_logs_24h: int | None = None
+    security_rate_events_24h: int | None = None
+    db_size_bytes: int | None = None
+    db_size_pretty: str | None = None
 
     if configured:
         try:
@@ -771,18 +905,22 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
                     conn.execute(text("SELECT 1"))
                 ping_ms = round((time.perf_counter() - t0) * 1000, 1)
                 engine_ready = True
+                # Self-heal sequences left behind by an older migrate (duplicate pkey).
                 if enabled:
-                    for name in HOT_TABLE_NAMES:
-                        try:
-                            with eng.connect() as conn:
-                                counts[name] = int(
-                                    conn.execute(
-                                        text(f'SELECT count(*) FROM "{name}"')
-                                    ).scalar()
-                                    or 0
-                                )
-                        except Exception:
-                            counts[name] = -1
+                    try:
+                        reset_hot_table_sequences(eng)
+                    except Exception:
+                        logger.exception("hot store: sequence realign failed")
+                try:
+                    stats = collect_hot_store_stats(eng)
+                    counts = stats.get("table_counts") or {}
+                    table_total = int(stats.get("table_total") or 0)
+                    audit_logs_24h = stats.get("audit_logs_24h")
+                    security_rate_events_24h = stats.get("security_rate_events_24h")
+                    db_size_bytes = stats.get("db_size_bytes")
+                    db_size_pretty = stats.get("db_size_pretty")
+                except Exception:
+                    logger.exception("hot store: stats collection failed")
         except Exception as exc:
             ping_error = str(exc)[:300]
             engine_ready = False
@@ -833,6 +971,11 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
         migrate_skipped_at=_iso(migrate_skipped_at),
         migrate_skipped_by=(migrate_skipped_by or None),
         wizard_steps=wizard_steps,
+        table_total=table_total,
+        audit_logs_24h=audit_logs_24h,
+        security_rate_events_24h=security_rate_events_24h,
+        db_size_bytes=db_size_bytes,
+        db_size_pretty=db_size_pretty,
     )
 
 
@@ -922,4 +1065,5 @@ def migrate_all_hot_tables(
         if model.__tablename__ not in wanted:
             continue
         results[model.__tablename__] = copy_table_rows(config_db, dest_engine, model)
+    reset_hot_table_sequences(dest_engine)
     return results

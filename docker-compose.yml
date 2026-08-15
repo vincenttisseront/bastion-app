@@ -54,7 +54,7 @@ services:
     restart: "no"
 
   # Optional hot store (sessions / audit / rate). Config stays on SQLite/SQLCipher.
-  # Configure + migrate from Admin → Sécurité → Stockage chaud.
+  # Configure + migrate from Admin → Général → Configuration → Stockage chaud.
   # No host ports — vpcbr only. Encrypt the host pgdata volume for at-rest parity.
   # Password: set HOT_STORE_PG_PASSWORD in .env — bastion-entrypoint.sh re-applies it
   # on every start via local socket (no prior admin password required).

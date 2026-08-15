@@ -1201,19 +1201,9 @@ def admin_dashboard(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    app_count = db.query(App).count()
-    realm_count = db.query(RealmConfig).count()
-    metrics = get_dashboard_metrics(db)
-    return render(
-        "admin/dashboard.html",
-        **_ctx(
-            request,
-            settings,
-            app_count=app_count,
-            realm_count=realm_count,
-            metrics=metrics,
-        ),
-    )
+    """Legacy hub page — redirect to Général → Configuration."""
+    _ = (request, db, settings, user)
+    return RedirectResponse(url="/admin/configuration", status_code=302)
 
 
 @admin_router.get("/admin/apps")
@@ -2658,9 +2648,6 @@ def admin_security(
     )
     vault_status = get_vault_key_status(db, settings)
     db_encryption = get_db_encryption_status(settings)
-    from app.db.hot_store import get_hot_store_status
-
-    hot_store = get_hot_store_status(db, settings)
     bg_secret, bg_source = resolve_breakglass_signing_secret_with_source(
         settings, db=db
     )
@@ -2691,7 +2678,6 @@ def admin_security(
             subdomain_apps=subdomain_apps,
             vault_key=vault_status,
             db_encryption=db_encryption,
-            hot_store=hot_store,
             breakglass_secret=breakglass_secret.to_public_dict(),
             security_policy=policy,
             security_ban_rules=rules,
@@ -2714,6 +2700,7 @@ def _hot_store_flash(response, message: str, level: str, settings: Settings):
     return response
 
 
+@admin_router.post("/admin/configuration/hot-store/config")
 @admin_router.post("/admin/security/hot-store/config")
 def admin_security_hot_store_config(
     request: Request,
@@ -2730,7 +2717,7 @@ def admin_security_hot_store_config(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import save_hot_store_config
 
-    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
     try:
         save_hot_store_config(
             db,
@@ -2749,6 +2736,7 @@ def admin_security_hot_store_config(
         return _hot_store_flash(response, str(exc), "error", settings)
 
 
+@admin_router.post("/admin/configuration/hot-store/provision")
 @admin_router.post("/admin/security/hot-store/provision")
 def admin_security_hot_store_provision(
     request: Request,
@@ -2769,7 +2757,7 @@ def admin_security_hot_store_provision(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import provision_hot_store
 
-    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
     try:
         result = provision_hot_store(
             db,
@@ -2808,6 +2796,7 @@ def admin_security_hot_store_provision(
         return _hot_store_flash(response, f"Échec provisionnement : {exc}", "error", settings)
 
 
+@admin_router.post("/admin/configuration/hot-store/test")
 @admin_router.post("/admin/security/hot-store/test")
 def admin_security_hot_store_test(
     request: Request,
@@ -2818,7 +2807,7 @@ def admin_security_hot_store_test(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import test_hot_store_config
 
-    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
     actor = admin.email or admin.username or "admin"
     try:
         result = test_hot_store_config(
@@ -2840,6 +2829,7 @@ def admin_security_hot_store_test(
         return _hot_store_flash(response, f"Échec : {exc}", "error", settings)
 
 
+@admin_router.post("/admin/configuration/hot-store/prepare")
 @admin_router.post("/admin/security/hot-store/prepare")
 def admin_security_hot_store_prepare(
     request: Request,
@@ -2850,7 +2840,7 @@ def admin_security_hot_store_prepare(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import prepare_hot_store_schema
 
-    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
     try:
         prepare_hot_store_schema(
             db,
@@ -2865,6 +2855,7 @@ def admin_security_hot_store_prepare(
         return _hot_store_flash(response, f"Échec schéma : {exc}", "error", settings)
 
 
+@admin_router.post("/admin/configuration/hot-store/migrate")
 @admin_router.post("/admin/security/hot-store/migrate")
 def admin_security_hot_store_migrate(
     request: Request,
@@ -2875,7 +2866,7 @@ def admin_security_hot_store_migrate(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import run_hot_store_migrate
 
-    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
     try:
         counts = run_hot_store_migrate(
             db,
@@ -2896,6 +2887,7 @@ def admin_security_hot_store_migrate(
         return _hot_store_flash(response, f"Échec migration : {exc}", "error", settings)
 
 
+@admin_router.post("/admin/configuration/hot-store/skip-migrate")
 @admin_router.post("/admin/security/hot-store/skip-migrate")
 def admin_security_hot_store_skip_migrate(
     request: Request,
@@ -2906,7 +2898,7 @@ def admin_security_hot_store_skip_migrate(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import skip_hot_store_migrate
 
-    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
     try:
         skip_hot_store_migrate(
             db,
@@ -2924,6 +2916,7 @@ def admin_security_hot_store_skip_migrate(
         return _hot_store_flash(response, str(exc), "error", settings)
 
 
+@admin_router.post("/admin/configuration/hot-store/enable")
 @admin_router.post("/admin/security/hot-store/enable")
 def admin_security_hot_store_enable(
     request: Request,
@@ -2935,7 +2928,7 @@ def admin_security_hot_store_enable(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import set_hot_store_enabled
 
-    response = RedirectResponse(url="/admin/security#hot-store", status_code=302)
+    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
     want = str(enabled).strip().lower() in ("1", "true", "on", "yes")
     try:
         set_hot_store_enabled(

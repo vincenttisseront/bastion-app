@@ -1,0 +1,390 @@
+{# Hot-store wizard — included from admin/configuration.html #}
+  <div class="form-section config-panel" id="hot-store" role="tabpanel" aria-labelledby="tab-hot-store" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">Stockage chaud (PostgreSQL)</div>
+      <div class="form-section-sub">
+        Sessions, audit, rate-limit — optionnel —
+        {% if hot_store %}
+          {% if hot_store.status_badge == 'ok' %}
+          <span class="badge badge-ok">{{ hot_store.status_label }}</span>
+          {% elif hot_store.status_badge == 'warn' %}
+          <span class="badge badge-warn">{{ hot_store.status_label }}</span>
+          {% elif hot_store.status_badge == 'error' %}
+          <span class="badge badge-err">{{ hot_store.status_label }}</span>
+          {% else %}
+          <span class="badge badge-muted">{{ hot_store.status_label }}</span>
+          {% endif %}
+        {% else %}
+        <span class="badge badge-muted">Indisponible</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="form-body">
+      <div class="alert alert-info mb-4" role="note">
+        Le stockage chaud PostgreSQL est facultatif. Sans configuration, Bastion Pro continue
+        de fonctionner normalement avec SQLite.
+      </div>
+
+      <p class="form-prose form-prose-spaced">
+        La configuration (realms, RBAC, coffre Fernet, policies) reste dans
+        <span class="mono">portal.db</span> (SQLite / SQLCipher). PostgreSQL n’accueille
+        que les tables à fort volume : sessions OIDC, sessions actives, audit,
+        événements anti-bruteforce, outbox SIEM.
+      </p>
+
+      {% set hs = hot_store %}
+      {% set can_test = hs and hs.configured %}
+      {% set test_ok = hs and hs.last_test_ok %}
+      {% set schema_done = hs and (hs.schema_prepared_at or hs.last_migrate_at) %}
+      {% set migrate_done = hs and hs.last_migrate_at %}
+      {% set migrate_skipped = hs and hs.migrate_skipped_at %}
+      {% set migrate_ready = migrate_done or migrate_skipped %}
+      {% set can_prepare = test_ok and not schema_done %}
+      {% set can_migrate = schema_done and hs and not hs.enabled %}
+      {% set can_enable = schema_done and migrate_ready and hs and not hs.enabled %}
+      {% set wizard_complete = hs and hs.enabled %}
+      {% if wizard_complete %}
+        {% set initial_step = 'enable' %}
+      {% elif not can_test %}
+        {% set initial_step = 'config' %}
+      {% elif not test_ok %}
+        {% set initial_step = 'test' %}
+      {% elif not schema_done %}
+        {% set initial_step = 'schema' %}
+      {% elif not migrate_ready %}
+        {% set initial_step = 'migrate' %}
+      {% else %}
+        {% set initial_step = 'enable' %}
+      {% endif %}
+
+      <div
+        class="wizard"
+        id="hot-store-wizard"
+        data-wizard
+        data-initial-step="{{ initial_step }}"
+        data-complete="{{ '1' if wizard_complete else '0' }}"
+      >
+        {% if hs and hs.wizard_steps %}
+        <div class="wizard-stepper" role="tablist" aria-label="Parcours stockage chaud">
+          {% for step in hs.wizard_steps %}
+          {% set short_labels = {'config': 'Connexion', 'test': 'Test', 'schema': 'Schéma', 'migrate': 'Migration', 'enable': 'Activation'} %}
+          {% set short = short_labels.get(step.id, step.label) %}
+          {% set locked = step.status == 'locked' or (step.locked and step.status == 'todo') %}
+          <button
+            type="button"
+            class="wizard-step is-{{ step.status }}{% if locked %} is-locked{% endif %}"
+            role="tab"
+            id="wizard-tab-{{ step.id }}"
+            aria-controls="wizard-panel-{{ step.id }}"
+            data-wizard-goto="{{ step.id }}"
+            data-wizard-status="{{ step.status }}"
+            data-wizard-locked="{{ '1' if locked else '0' }}"
+            {% if locked %}disabled title="Étape non encore accessible"{% endif %}
+          >
+            <span class="wizard-step-rail" aria-hidden="true"></span>
+            <span class="wizard-step-dot" aria-hidden="true">
+              {% if step.status in ('done', 'skipped') %}✓
+              {% elif step.status == 'failed' %}!
+              {% else %}{{ loop.index }}{% endif %}
+            </span>
+            <span class="wizard-step-label">
+              {{ short }}{% if step.optional %} <span class="wizard-step-opt">(opt.)</span>{% endif %}
+            </span>
+          </button>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <section class="wizard-panel" id="wizard-panel-config" role="tabpanel" aria-labelledby="wizard-tab-config" data-wizard-panel="config" hidden>
+          <header class="wizard-panel-head">
+            <h3 class="wizard-panel-title">Configuration de la connexion</h3>
+            {% if hs and hs.configured %}<span class="badge badge-ok">Configuré</span>{% else %}<span class="badge badge-muted">Non configuré</span>{% endif %}
+          </header>
+          <div data-wizard-mode="review" data-wizard-has-review="{{ '1' if hs and hs.configured else '0' }}" {% if not (hs and hs.configured) %}hidden{% endif %}>
+            <div class="wizard-summary">
+              <div class="wizard-summary-grid">
+                <div class="wizard-summary-item"><span class="wizard-summary-label">Hôte</span><span class="wizard-summary-value mono">{{ hs.host if hs else '—' }}:{{ hs.port if hs else '—' }}</span></div>
+                <div class="wizard-summary-item"><span class="wizard-summary-label">Base</span><span class="wizard-summary-value mono">{{ hs.database if hs else '—' }}</span></div>
+                <div class="wizard-summary-item"><span class="wizard-summary-label">Utilisateur</span><span class="wizard-summary-value mono">{{ hs.user if hs else '—' }}</span></div>
+                <div class="wizard-summary-item"><span class="wizard-summary-label">TLS</span><span class="wizard-summary-value mono">{{ hs.sslmode if hs else '—' }}</span></div>
+                <div class="wizard-summary-item"><span class="wizard-summary-label">Mot de passe</span><span class="wizard-summary-value">{{ '••••••••' if hs and hs.password_set else 'Non défini' }}</span></div>
+              </div>
+              <div class="hot-store-actions"><button type="button" class="btn btn-ghost" data-wizard-edit>Modifier</button></div>
+            </div>
+          </div>
+          <div data-wizard-mode="edit" {% if hs and hs.configured %}hidden{% endif %}>
+            <form method="post" action="/admin/configuration/hot-store/config" class="stack">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="hot_store_host">Hôte</label>
+                  <input type="text" id="hot_store_host" name="host" class="form-input" required value="{{ hs.host if hs and hs.host else 'postgres' }}" placeholder="postgres">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="hot_store_port">Port</label>
+                  <input type="number" id="hot_store_port" name="port" class="form-input" required value="{{ hs.port if hs and hs.port else 5432 }}">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="hot_store_database">Base</label>
+                  <input type="text" id="hot_store_database" name="database" class="form-input" required value="{{ hs.database if hs and hs.database else 'bastion_hot' }}">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="hot_store_user">Utilisateur</label>
+                  <input type="text" id="hot_store_user" name="user" class="form-input" required value="{{ hs.user if hs and hs.user else 'bastion_hot' }}">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label" for="hot_store_password">Mot de passe</label>
+                  <input type="password" id="hot_store_password" name="password" class="form-input" value="" autocomplete="new-password" placeholder="{% if hs and hs.password_set %}•••••••• (laisser vide pour conserver){% else %}Mot de passe PostgreSQL{% endif %}">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="hot_store_sslmode">TLS (sslmode)</label>
+                  <select id="hot_store_sslmode" name="sslmode" class="form-select">
+                    {% set ssl = (hs.sslmode if hs and hs.sslmode else 'prefer') %}
+                    <option value="disable"{% if ssl == 'disable' %} selected{% endif %}>disable (réseau Docker interne)</option>
+                    <option value="prefer"{% if ssl == 'prefer' %} selected{% endif %}>prefer</option>
+                    <option value="require"{% if ssl == 'require' %} selected{% endif %}>require</option>
+                    <option value="verify-full"{% if ssl == 'verify-full' %} selected{% endif %}>verify-full</option>
+                  </select>
+                </div>
+              </div>
+              <p class="form-help">
+                Mot de passe stocké chiffré Fernet dans SQLite (jamais dans
+                <span class="mono">DATABASE_URL</span>). Sur le compose interne, utilisez
+                l’hôte <span class="mono">postgres</span> et <span class="mono">sslmode=disable</span>.
+                Un changement d’hôte / base / utilisateur réinitialise les étapes suivantes.
+              </p>
+              <details class="hot-store-provision mb-3">
+                <summary class="form-label" style="cursor:pointer">Créer le rôle, la base et le mot de passe sur PostgreSQL</summary>
+                <div class="stack" style="margin-top:0.75rem">
+                  <p class="form-help mb-0">
+                    Si l’auth échoue et qu’aucun mot de passe admin n’a jamais été choisi :
+                    définissez <span class="mono">HOT_STORE_PG_PASSWORD</span> dans le
+                    <span class="mono">.env</span>, redémarrez le service
+                    <span class="mono">postgres</span> (le entrypoint réaligne le rôle via
+                    socket local, sans ancien secret), puis saisissez <strong>le même</strong>
+                    mot de passe ci-dessus. La section admin ci-dessous sert seulement si vous
+                    provisionnez un rôle/base distincts avec un compte déjà connu.
+                  </p>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label class="form-label" for="hot_store_admin_user">Utilisateur admin</label>
+                      <input type="text" id="hot_store_admin_user" name="admin_user" class="form-input" value="{{ hs.user if hs and hs.user else 'bastion_hot' }}" placeholder="bastion_hot ou postgres" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                      <label class="form-label" for="hot_store_admin_password">Mot de passe admin</label>
+                      <input type="password" id="hot_store_admin_password" name="admin_password" class="form-input" value="" autocomplete="new-password" placeholder="POSTGRES_PASSWORD d’init du volume">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label class="form-label" for="hot_store_admin_database">Base de maintenance (optionnel)</label>
+                    <input type="text" id="hot_store_admin_database" name="admin_database" class="form-input" value="" placeholder="postgres (défaut) puis template1">
+                  </div>
+                  <div class="hot-store-actions">
+                    <button
+                      type="submit"
+                      class="btn btn-primary"
+                      formaction="/admin/configuration/hot-store/provision"
+                      data-confirm="Créer ou réaligner le rôle et la base PostgreSQL avec le mot de passe applicatif saisi ci-dessus ?"
+                      data-confirm-title="Provisionner PostgreSQL"
+                      data-confirm-label="Créer / aligner"
+                    >
+                      Créer / aligner rôle + base
+                    </button>
+                  </div>
+                </div>
+              </details>
+              <div class="form-footer form-footer-flush hot-store-actions">
+                {% if hs and hs.configured %}<button type="button" class="btn btn-ghost" data-wizard-cancel-edit>Annuler</button>{% endif %}
+                <button type="submit" class="btn btn-primary">Enregistrer la connexion</button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section class="wizard-panel" id="wizard-panel-test" role="tabpanel" aria-labelledby="wizard-tab-test" data-wizard-panel="test" hidden>
+          <header class="wizard-panel-head">
+            <h3 class="wizard-panel-title">Test de connexion</h3>
+            {% if test_ok %}<span class="badge badge-ok">Succès{% if hs.last_test_ms is not none %} · {{ hs.last_test_ms }} ms{% endif %}</span>
+            {% elif hs and hs.last_test_ok is sameas false %}<span class="badge badge-err">Échec</span>
+            {% else %}<span class="badge badge-muted">Non testé</span>{% endif %}
+          </header>
+          <p class="form-help mb-3">Étape sans risque — peut être relancée à volonté après chaque enregistrement.</p>
+          {% if hs and hs.last_test_error %}
+          <div class="alert alert-error mb-3">{{ hs.last_test_error }}</div>
+          {% elif test_ok and hs.last_test_at %}
+          <div class="wizard-summary mb-3">
+            <div class="wizard-summary-grid">
+              <div class="wizard-summary-item"><span class="wizard-summary-label">Dernier test</span><span class="wizard-summary-value mono">{{ hs.last_test_at }}</span></div>
+              {% if hs.last_test_ms is not none %}<div class="wizard-summary-item"><span class="wizard-summary-label">Latence</span><span class="wizard-summary-value mono">{{ hs.last_test_ms }} ms</span></div>{% endif %}
+              {% if hs.ping_ms is not none %}<div class="wizard-summary-item"><span class="wizard-summary-label">Ping actuel</span><span class="wizard-summary-value mono">{{ hs.ping_ms }} ms</span></div>{% endif %}
+            </div>
+          </div>
+          {% endif %}
+          <form method="post" action="/admin/configuration/hot-store/test" class="hot-store-actions">
+            <button type="submit" class="btn {% if test_ok %}btn-ghost{% else %}btn-primary{% endif %}" {% if not can_test %}disabled title="Enregistrez d’abord la connexion PostgreSQL"{% endif %}>
+              {% if test_ok %}Retester la connexion{% else %}Tester la connexion{% endif %}
+            </button>
+          </form>
+        </section>
+
+        <section class="wizard-panel" id="wizard-panel-schema" role="tabpanel" aria-labelledby="wizard-tab-schema" data-wizard-panel="schema" hidden>
+          <header class="wizard-panel-head">
+            <h3 class="wizard-panel-title">Initialisation du schéma</h3>
+            {% if schema_done %}<span class="badge badge-ok">Fait</span>{% else %}<span class="badge badge-muted">À faire</span>{% endif %}
+          </header>
+          {% if schema_done %}
+          <div class="wizard-summary">
+            <div class="wizard-summary-grid">
+              <div class="wizard-summary-item"><span class="wizard-summary-label">Initialisé le</span><span class="wizard-summary-value mono">{{ hs.schema_prepared_at or hs.last_migrate_at }}</span></div>
+              {% if hs.schema_prepared_by %}<div class="wizard-summary-item"><span class="wizard-summary-label">Par</span><span class="wizard-summary-value mono">{{ hs.schema_prepared_by }}</span></div>{% endif %}
+            </div>
+            <p class="form-help mb-0">Schéma verrouillé — pour réinitialiser, contactez le support ou utilisez une action avancée hors du parcours normal.</p>
+            <button type="button" class="btn btn-ghost" disabled title="Schéma déjà initialisé — réinitialisation verrouillée">Préparer le schéma</button>
+          </div>
+          {% else %}
+          <p class="form-help mb-3">Crée les tables chaudes sur PostgreSQL (idempotent tant qu’elle n’a jamais réussi).</p>
+          <form method="post" action="/admin/configuration/hot-store/prepare" class="hot-store-actions"
+                data-confirm="Créer le schéma des tables chaudes sur PostgreSQL ?"
+                data-confirm-title="Initialiser le schéma"
+                data-confirm-label="Préparer le schéma">
+            <button type="submit" class="btn btn-primary" {% if not can_prepare %}disabled title="Réussissez d’abord le test de connexion"{% endif %}>Préparer le schéma</button>
+          </form>
+          {% endif %}
+        </section>
+
+        <section class="wizard-panel" id="wizard-panel-migrate" role="tabpanel" aria-labelledby="wizard-tab-migrate" data-wizard-panel="migrate" hidden>
+          <header class="wizard-panel-head">
+            <h3 class="wizard-panel-title">Migration des données <span class="wizard-step-opt">(optionnel)</span></h3>
+            {% if migrate_done %}<span class="badge badge-ok">Terminée</span>
+            {% elif migrate_skipped %}<span class="badge badge-muted">Passée</span>
+            {% else %}<span class="badge badge-muted">Optionnelle</span>{% endif %}
+          </header>
+          <p class="form-help mb-3">Copie l’historique SQLite (sessions, audit, …) vers PostgreSQL. Si vous démarrez le hot store à neuf sans historique à reprendre, passez cette étape.</p>
+          {% if migrate_done or migrate_skipped %}
+          <div class="wizard-summary mb-3">
+            <div class="wizard-summary-grid">
+              {% if migrate_done %}
+              <div class="wizard-summary-item"><span class="wizard-summary-label">Dernière migration</span><span class="wizard-summary-value mono">{{ hs.last_migrate_at }}</span></div>
+              {% if hs.last_migrate_summary %}<div class="wizard-summary-item" style="grid-column:1/-1;"><span class="wizard-summary-label">Résumé</span><span class="wizard-summary-value mono" style="font-size:var(--fs-xs);">{{ hs.last_migrate_summary }}</span></div>{% endif %}
+              {% elif migrate_skipped %}
+              <div class="wizard-summary-item"><span class="wizard-summary-label">Passée le</span><span class="wizard-summary-value mono">{{ hs.migrate_skipped_at }}</span></div>
+              {% if hs.migrate_skipped_by %}<div class="wizard-summary-item"><span class="wizard-summary-label">Par</span><span class="wizard-summary-value mono">{{ hs.migrate_skipped_by }}</span></div>{% endif %}
+              {% endif %}
+            </div>
+          </div>
+          {% endif %}
+          <div class="hot-store-actions hot-store-actions--row">
+            <form method="post" action="/admin/configuration/hot-store/migrate"
+                  data-confirm="Copier les tables chaudes SQLite → PostgreSQL ? Le hot store doit être désactivé. Les tables cibles seront remplacées."
+                  data-confirm-title="Migrer vers PostgreSQL"
+                  data-confirm-label="Migrer">
+              <button type="submit" class="btn btn-primary" {% if not can_migrate %}disabled title="{% if not schema_done %}Préparez d’abord le schéma{% elif hs.enabled %}Désactivez le hot store avant de re-migrer{% else %}Indisponible{% endif %}"{% endif %}>Migrer les données</button>
+            </form>
+            <form method="post" action="/admin/configuration/hot-store/skip-migrate"
+                  data-confirm="Passer la migration ? Aucune donnée SQLite ne sera copiée."
+                  data-confirm-title="Passer la migration"
+                  data-confirm-label="Passer"
+                  data-confirm-danger="0">
+              <button type="submit" class="btn btn-secondary" {% if not can_migrate or migrate_done %}disabled title="{% if migrate_done %}Migration déjà effectuée{% elif not schema_done %}Préparez d’abord le schéma{% else %}Indisponible{% endif %}"{% endif %}>Passer cette étape</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="wizard-panel" id="wizard-panel-enable" role="tabpanel" aria-labelledby="wizard-tab-enable" data-wizard-panel="enable" hidden>
+          <header class="wizard-panel-head">
+            <h3 class="wizard-panel-title">{% if wizard_complete %}Résumé{% else %}Activation du hot store{% endif %}</h3>
+            {% if hs and hs.enabled %}<span class="badge badge-ok">Actif</span>{% else %}<span class="badge badge-muted">Inactif</span>{% endif %}
+          </header>
+          {% if hs.table_counts %}
+          <div class="hot-store-stats{% if not wizard_complete %} mb-3{% endif %}">
+            <div class="hot-store-stats-header">
+              <h4 class="hot-store-stats-title">Statistiques</h4>
+              <span class="form-help mb-0">{{ hs.table_total }} enregistrements au total</span>
+            </div>
+            <div class="wizard-summary-grid hot-store-stats-kpis">
+              {% if hs.db_size_pretty and not wizard_complete %}
+              <div class="wizard-summary-item">
+                <span class="wizard-summary-label">Taille DB</span>
+                <span class="wizard-summary-value mono">{{ hs.db_size_pretty }}</span>
+              </div>
+              {% endif %}
+              {% if hs.audit_logs_24h is not none %}
+              <div class="wizard-summary-item">
+                <span class="wizard-summary-label">Audit / 24 h</span>
+                <span class="wizard-summary-value mono">{{ hs.audit_logs_24h }}</span>
+              </div>
+              {% endif %}
+              {% if hs.security_rate_events_24h is not none %}
+              <div class="wizard-summary-item">
+                <span class="wizard-summary-label">Anti-bruteforce / 24 h</span>
+                <span class="wizard-summary-value mono">{{ hs.security_rate_events_24h }}</span>
+              </div>
+              {% endif %}
+            </div>
+            <table class="data-table hot-store-stats-table">
+              <thead>
+                <tr>
+                  <th>Catégorie</th>
+                  <th>Table</th>
+                  <th class="num">Records</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for name, count in hs.table_counts.items() %}
+                <tr>
+                  <td>{{ hs.table_labels.get(name, name) }}</td>
+                  <td class="mono">{{ name }}</td>
+                  <td class="num mono">{% if count < 0 %}—{% else %}{{ count }}{% endif %}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+          {% if wizard_complete %}
+          <div class="wizard-summary">
+            <div class="wizard-summary-hero">
+              <p class="wizard-summary-hero-title">Stockage chaud actif</p>
+              <p class="form-help mb-0">Les écritures sessions / audit / anti-bruteforce / outbox SIEM passent par PostgreSQL. La configuration (realms, RBAC, coffre) reste sur SQLite.</p>
+            </div>
+            <div class="wizard-summary-grid">
+              <div class="wizard-summary-item"><span class="wizard-summary-label">État</span><span class="wizard-summary-value">{{ hs.status_label }}</span></div>
+              <div class="wizard-summary-item"><span class="wizard-summary-label">Endpoint</span><span class="wizard-summary-value mono">{{ hs.host }}:{{ hs.port }}/{{ hs.database }}</span></div>
+              {% if hs.ping_ms is not none %}<div class="wizard-summary-item"><span class="wizard-summary-label">Ping</span><span class="wizard-summary-value mono">{{ hs.ping_ms }} ms</span></div>{% endif %}
+              {% if hs.db_size_pretty %}<div class="wizard-summary-item"><span class="wizard-summary-label">Taille DB</span><span class="wizard-summary-value mono">{{ hs.db_size_pretty }}</span></div>{% endif %}
+              {% if hs.schema_prepared_at %}<div class="wizard-summary-item"><span class="wizard-summary-label">Schéma</span><span class="wizard-summary-value mono">{{ hs.schema_prepared_at }}</span></div>{% endif %}
+              {% if hs.last_migrate_at %}<div class="wizard-summary-item"><span class="wizard-summary-label">Migration</span><span class="wizard-summary-value mono">{{ hs.last_migrate_at }}</span></div>
+              {% elif hs.migrate_skipped_at %}<div class="wizard-summary-item"><span class="wizard-summary-label">Migration</span><span class="wizard-summary-value">Passée</span></div>{% endif %}
+            </div>
+            <form method="post" action="/admin/configuration/hot-store/enable"
+                  data-confirm="Désactiver le hot store ? Les lectures/écritures repassent sur SQLite."
+                  data-confirm-title="Désactiver le hot store"
+                  data-confirm-label="Désactiver">
+              <input type="hidden" name="enabled" value="0">
+              <button type="submit" class="btn btn-ghost">Désactiver (retour SQLite)</button>
+            </form>
+          </div>
+          {% else %}
+          <p class="form-help mb-3">Active la bascule des écritures (sessions OIDC, sessions actives, audit, anti-bruteforce, outbox SIEM) vers PostgreSQL. La configuration reste sur SQLite.</p>
+          <form method="post" action="/admin/configuration/hot-store/enable"
+                data-confirm="Activer le hot store ? Les tables chaudes seront lues/écrites sur PostgreSQL."
+                data-confirm-title="Activer le hot store"
+                data-confirm-label="Activer"
+                data-confirm-danger="0">
+            <input type="hidden" name="enabled" value="1">
+            <button type="submit" class="btn btn-primary" {% if not can_enable %}disabled title="Terminez le schéma puis migrez ou passez la migration"{% endif %}>Activer le hot store</button>
+          </form>
+          {% endif %}
+        </section>
+
+        <div class="wizard-nav" aria-label="Navigation du parcours">
+          <button type="button" class="btn btn-secondary" data-wizard-prev>Précédent</button>
+          <span class="wizard-nav-spacer" aria-hidden="true"></span>
+          <button type="button" class="btn btn-primary" data-wizard-next>Suivant</button>
+        </div>
+      </div>
+    </div>
+  </div>

@@ -32,10 +32,12 @@ _bastion_sync_password() {
     return 0
   fi
 
-  # :'pass' → correctly quoted SQL literal (special chars safe).
+  # Escape single quotes for a SQL string literal. Do not use psql :'var'
+  # interpolation with -c — some clients send it literally to the server
+  # (syntax error at ":").
+  esc=$(printf '%s' "$pass" | sed "s/'/''/g")
   if psql -v ON_ERROR_STOP=1 -U "$user" -d "$db" \
-    -v pass="$pass" \
-    -c "ALTER ROLE \"${user}\" WITH PASSWORD :'pass'"; then
+    -c "ALTER ROLE \"${user}\" WITH PASSWORD '${esc}'"; then
     echo "bastion-pg: role \"${user}\" password synced from POSTGRES_PASSWORD" >&2
   else
     echo "bastion-pg: password sync failed (non-fatal)" >&2
