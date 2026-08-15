@@ -20,7 +20,7 @@ Emplacement typique : sous `SSO_PORTAL_DATA_DIR`.
 ## Hot store (optionnel)
 
 PostgreSQL pour volumes élevés (sessions / audit / rate) tout en gardant la
-**config** sur SQLite. Wizard Admin → Sécurité / hot store :
+**config** sur SQLite. Wizard Admin → Général → Configuration / Stockage chaud :
 
 1. Paramètres connexion
 2. Test

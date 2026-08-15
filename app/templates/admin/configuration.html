@@ -8,11 +8,12 @@
 {% set st = siem_status | default({}) %}
 {% set siem_on = siem and siem.enabled %}
 {% set siem_proto = siem.protocol if siem else 'webhook_https' %}
+{% set hot_store = hot_store | default(none) %}
 <div class="page" id="configuration-page">
   <div class="page-header">
     <div>
       <h1 class="page-title">Configuration</h1>
-      <p class="page-sub">Réglages globaux du portail — SMTP, récap quotidien et forwarding SIEM</p>
+      <p class="page-sub">Réglages globaux du portail — SMTP, SIEM et stockage chaud PostgreSQL</p>
     </div>
     <div class="page-header-actions">
       {% if s.ready %}
@@ -26,6 +27,11 @@
       <span class="badge badge-ok">SIEM actif</span>
       {% else %}
       <span class="badge badge-muted">SIEM off</span>
+      {% endif %}
+      {% if hot_store and hot_store.status_badge == 'ok' %}
+      <span class="badge badge-ok">Hot store OK</span>
+      {% elif hot_store and hot_store.status_badge == 'error' %}
+      <span class="badge badge-err">Hot store</span>
       {% endif %}
     </div>
   </div>
@@ -43,6 +49,16 @@
       SIEM
       {% if siem_on %}
       <span class="badge badge-ok tab-badge">ON</span>
+      {% endif %}
+    </a>
+    <a href="#hot-store" class="tab" role="tab" data-tab="hot-store" id="tab-hot-store" aria-selected="false">
+      Stockage chaud
+      {% if hot_store and hot_store.status_badge == 'error' %}
+      <span class="badge badge-err tab-badge">!</span>
+      {% elif hot_store and hot_store.status_badge == 'ok' %}
+      <span class="badge badge-ok tab-badge">OK</span>
+      {% elif hot_store and hot_store.status_badge == 'warn' %}
+      <span class="badge badge-warn tab-badge">!</span>
       {% endif %}
     </a>
   </div>
@@ -285,13 +301,15 @@
       </div>
     </div>
   </div>
+
+  {% include "admin/_hot_store_panel.html" %}
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
-  var VALID = ['smtp', 'siem'];
+  var VALID = ['smtp', 'siem', 'hot-store'];
   var DEFAULT = 'smtp';
 
   function currentTab() {

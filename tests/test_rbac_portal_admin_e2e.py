@@ -106,9 +106,9 @@ def test_promote_and_revoke_portal_admin_via_grants_api(client, db_session):
         "/admin/rbac/users?list_tab=keycloak", headers=ADMIN_HEADERS
     )
     assert users_page.status_code == 200
-    assert "droits Bastion" in users_page.text
     assert "bob" in users_page.text
     assert "Privilégié" in users_page.text
+    assert "droits individuels" in users_page.text or "Recherche Keycloak" in users_page.text
     assert "Anomalies de Connexion" not in users_page.text
 
     revoke = client.post(

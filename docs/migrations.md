@@ -93,7 +93,7 @@ offloaded to the compose `postgres` service:
    (no host ports; data under `{PORTAL_DATA_DIR}/pgdata`). The bastion entrypoint
    syncs that password on every start via the local socket — no prior admin
    password is required even if the volume was already initialized.
-2. Admin → Sécurité → **Stockage chaud** — save DSN with the **same** password
+2. Admin → Général → **Configuration** → onglet **Stockage chaud** — save DSN with the **same** password
    (Fernet-encrypted in `portal_settings`), test, prepare schema, migrate, enable.
 3. Disable to roll back reads/writes to SQLite (data already migrated stays on PG
    until the next migrate).

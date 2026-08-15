@@ -19,6 +19,7 @@ from app.db.hot_store import (
     migrate_all_hot_tables,
     prepare_hot_schema,
     provision_hot_role_and_database,
+    reset_hot_table_sequences,
     set_hot_enabled_cache,
     sync_hot_engine_from_config,
     test_hot_connection,
@@ -455,6 +456,10 @@ def set_hot_store_enabled(
         if eng is None:
             raise HotStoreError("Impossible d’ouvrir le moteur PostgreSQL")
         prepare_hot_schema(eng)
+        try:
+            reset_hot_table_sequences(eng)
+        except Exception:
+            logger.exception("hot store: sequence realign before enable failed")
         row = ensure_portal_settings(db, settings)
 
     previous = bool(getattr(row, "hot_store_enabled", False))

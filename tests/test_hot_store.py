@@ -20,7 +20,7 @@ from app.db.hot_store import (
     set_hot_enabled_cache,
 )
 from app.db import hot_store as hot_store_mod
-from app.models import AuditLog, Base, PortalSettings, utcnow
+from app.models import AuditLog, Base, PortalSettings, SecurityRateEvent, utcnow
 from app.sso_settings import Settings
 
 
@@ -137,6 +137,55 @@ def test_migrate_all_hot_tables_copies_rows():
     dest.close()
 
 
+def test_collect_hot_store_stats_counts_and_24h():
+    from app.db.hot_store import collect_hot_store_stats
+
+    eng = _mem_engine()
+    tables = [Base.metadata.tables[n] for n in HOT_TABLE_NAMES]
+    Base.metadata.create_all(bind=eng, tables=tables)
+    Session = sessionmaker(bind=eng)
+    db = Session()
+    db.add_all(
+        [
+            AuditLog(actor="a", action="one", target="t1"),
+            AuditLog(actor="b", action="two", target="t2"),
+            SecurityRateEvent(kind="fail_ip", key="1.2.3.4"),
+        ]
+    )
+    db.commit()
+    db.close()
+
+    stats = collect_hot_store_stats(eng)
+    assert stats["table_counts"]["audit_logs"] == 2
+    assert stats["table_counts"]["security_rate_events"] == 1
+    assert stats["table_total"] >= 3
+    assert stats["audit_logs_24h"] == 2
+    assert stats["security_rate_events_24h"] == 1
+
+
+def test_migrate_all_resets_sequences(monkeypatch):
+    from app.db.hot_store import migrate_all_hot_tables
+
+    called = []
+    monkeypatch.setattr(
+        "app.db.hot_store.reset_hot_table_sequences",
+        lambda eng: called.append(eng),
+    )
+    monkeypatch.setattr("app.db.hot_store.prepare_hot_schema", lambda eng: None)
+    monkeypatch.setattr(
+        "app.db.hot_store.copy_table_rows",
+        lambda *a, **k: 0,
+    )
+
+    src_eng = _mem_engine()
+    Base.metadata.create_all(bind=src_eng)
+    Src = sessionmaker(bind=src_eng)
+    src = Src()
+    migrate_all_hot_tables(src, src_eng, tables=["audit_logs"])
+    src.close()
+    assert len(called) == 1
+
+
 def test_save_and_enable_hot_store_service(db_session, monkeypatch):
     from app.db.hot_store_service import (
         prepare_hot_store_schema,
@@ -240,20 +289,37 @@ def test_create_hot_engine_rejects_sqlite():
         ensure_hot_engine("sqlite:///tmp/x.db")
 
 
-def test_security_page_shows_hot_store_tab(client, db_session):
+def test_configuration_page_shows_hot_store_tab(client, db_session):
     resp = client.get(
-        "/admin/security",
+        "/admin/configuration",
         headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
     )
     assert resp.status_code == 200
     assert 'id="hot-store"' in resp.text
     assert "Stockage chaud" in resp.text
-    assert 'action="/admin/security/hot-store/config"' in resp.text
-    assert 'formaction="/admin/security/hot-store/provision"' in resp.text
+    assert 'action="/admin/configuration/hot-store/config"' in resp.text
+    assert 'formaction="/admin/configuration/hot-store/provision"' in resp.text
     assert "Créer / aligner rôle + base" in resp.text
     assert "wizard-stepper" in resp.text
     assert "data-wizard" in resp.text
     assert "Passer cette étape" in resp.text
+
+    security = client.get(
+        "/admin/security",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert security.status_code == 200
+    assert 'data-tab="hot-store"' not in security.text
+
+
+def test_admin_hub_redirects_to_configuration(client, db_session):
+    resp = client.get(
+        "/admin/dashboard",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert resp.headers.get("location", "").endswith("/admin/configuration")
 
 
 def test_autocommit_connect_sets_isolation_on_engine():

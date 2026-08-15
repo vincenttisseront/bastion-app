@@ -469,7 +469,7 @@ def _recap_text(recap: DailyRecap, date_label: str) -> str:
     ]
     if recap.portal_url:
         parts.append(
-            f"Admin : {_admin_path(recap.portal_url, '/admin')}\n"
+            f"Admin : {_admin_path(recap.portal_url, '/admin/configuration')}\n"
             f"Domaines : {_admin_path(recap.portal_url, '/admin/pending-hosts', query={'status': 'pending'})}\n"
             f"Utilisateurs : {_admin_path(recap.portal_url, '/admin/pending-users', query={'status': 'pending'})}\n"
             f"Logs : {_logs_severity_href(recap.portal_url, since=recap.since)}"
@@ -581,7 +581,7 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
     users_cta = _admin_path(recap.portal_url, "/admin/pending-users", query={"status": "pending"})
     access_cta = _admin_path(recap.portal_url, "/admin/access-requests", query={"status": "pending"})
     logs_cta = _logs_severity_href(recap.portal_url, since=recap.since)
-    admin_cta = _admin_path(recap.portal_url, "/admin")
+    admin_cta = _admin_path(recap.portal_url, "/admin/configuration")
 
     footer_links = ""
     if recap.portal_url:

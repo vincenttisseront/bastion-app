@@ -1,4 +1,4 @@
-"""Admin → Général → Configuration (SMTP + SIEM)."""
+"""Admin → Général → Configuration (SMTP + SIEM + hot store)."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ router = APIRouter(tags=["admin-configuration"], dependencies=[Depends(require_a
 
 _CONFIG_SMTP = "/admin/configuration#smtp"
 _CONFIG_SIEM = "/admin/configuration#siem"
+_CONFIG_HOT_STORE = "/admin/configuration#hot-store"
 
 
 def _actor(user) -> str:
@@ -30,6 +31,16 @@ def _form_bool(value: str | None) -> bool:
     return value is not None and str(value).strip().lower() not in ("", "0", "false", "off")
 
 
+def _hot_store_flash(response, message: str, level: str, settings: Settings):
+    flash_redirect(
+        response,
+        message,
+        level,
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
 @router.get("/admin/configuration")
 def admin_configuration_page(
     request: Request,
@@ -37,6 +48,7 @@ def admin_configuration_page(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    from app.db.hot_store import get_hot_store_status
     from app.siem.settings_service import ensure_siem_settings, public_status as siem_public_status
 
     row = ensure_portal_settings(db, settings)
@@ -69,6 +81,7 @@ def admin_configuration_page(
         },
         siem_settings=siem_settings,
         siem_status=siem_public_status(db),
+        hot_store=get_hot_store_status(db, settings),
     )
     return render("admin/configuration.html", **ctx)
 

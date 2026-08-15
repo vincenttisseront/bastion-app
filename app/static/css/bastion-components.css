@@ -1273,6 +1273,13 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
   background:var(--accent-muted);
 }
 .wizard-summary-hero-title{margin:0 0 var(--sp-2);font-size:var(--fs-md);font-weight:700;color:var(--text)}
+.hot-store-stats{display:flex;flex-direction:column;gap:var(--sp-3)}
+.hot-store-stats-header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--sp-2)}
+.hot-store-stats-title{margin:0;font-size:var(--fs-sm);font-weight:700;color:var(--text)}
+.hot-store-stats-kpis{margin:0}
+.hot-store-stats-table{width:100%;margin:0}
+.hot-store-stats-table th.num,
+.hot-store-stats-table td.num{text-align:right;font-variant-numeric:tabular-nums}
 .hot-store-actions{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
 .hot-store-actions--row{align-items:center}
 
