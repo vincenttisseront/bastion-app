@@ -117,6 +117,14 @@ re-applies the password when the container is **created**, and `docker compose
 restart` does not re-read `.env` — so a manual fix can look right and change
 nothing. Use `up -d --force-recreate`.
 
+Under AWX the variable comes from `vault_hot_store_pg_password` (aliases
+`hot_store_pg_password`, `HOT_STORE_PG_PASSWORD`). Leave all three empty and
+`portal.env.j2` simply omits the line: compose then falls back to
+`bastion_hot_change_me` for the role while the app keeps using the stored blob,
+which authenticates against nothing. The preflight fails the deploy when
+`pgdata` exists without a password rather than shipping that pair, since the
+symptom only surfaces later, at the next container creation.
+
 The application connects with `HOT_STORE_PG_PASSWORD` from the environment — the
 same value the entrypoint applies to the role — so both ends derive from one
 source. The password field in the admin form only feeds role provisioning; the
