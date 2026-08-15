@@ -6,7 +6,6 @@ import json
 import re
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
 
 from app.audit.event_catalog import (
     CEF_SEVERITY,
@@ -15,6 +14,7 @@ from app.audit.event_catalog import (
     historical_severity_from_result,
     resolve_event,
 )
+from app.subdomain.eas_device import device_id_from_detail
 from app.web.constants import APP_VERSION
 
 VENDOR = "Bastion"
@@ -199,25 +199,7 @@ def canonical_siem_actor(entry: dict[str, Any]) -> tuple[str, str | None]:
 
 def _device_id_from_detail(detail: Any) -> str | None:
     """Promote ActiveSync DeviceId to a first-class CEF field when present."""
-    if not isinstance(detail, dict):
-        return None
-    for key in ("device_id", "DeviceId", "deviceId"):
-        val = detail.get(key)
-        if isinstance(val, str) and val.strip():
-            return val.strip()[:128]
-    uri = detail.get("uri")
-    if not isinstance(uri, str) or "DeviceId=" not in uri:
-        return None
-    # Query may be absolute path + query (no scheme) — urlsplit still parses qs.
-    query = urlsplit(uri).query
-    if not query and "?" in uri:
-        query = uri.split("?", 1)[1]
-    params = parse_qs(query, keep_blank_values=False)
-    for key in ("DeviceId", "deviceId", "device_id"):
-        values = params.get(key) or []
-        if values and values[0].strip():
-            return values[0].strip()[:128]
-    return None
+    return device_id_from_detail(detail)
 
 
 def _sanitize_detail_for_siem(detail: Any) -> Any:

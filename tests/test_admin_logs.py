@@ -331,6 +331,33 @@ def test_logs_columns_prefs_persist(client: TestClient, db_session: Session):
     assert "<th>peer</th>" in page.text
 
 
+def test_miss_family_is_a_selectable_column(client: TestClient, db_session: Session):
+    """Reading the ActiveSync switchover criterion must not require raw SQL.
+
+    The unidentified-device families drive opposite decisions, so they have to be
+    groupable from the audit view itself.
+    """
+    log_action(
+        db_session,
+        actor="phone@ex.com",
+        action="activesync.device_unidentified",
+        details={"miss_reason": "base64_truncated", "miss_family": "decoder_failure"},
+    )
+    save = client.post(
+        "/admin/logs/prefs/columns",
+        headers=ADMIN_HEADERS,
+        data={"columns": "timestamp,action,miss_family"},
+        follow_redirects=False,
+    )
+    assert save.status_code == 302
+
+    page = client.get(
+        "/admin/logs?action=activesync.device_unidentified", headers=ADMIN_HEADERS
+    )
+    assert "<th>miss_family</th>" in page.text
+    assert "decoder_failure" in page.text
+
+
 def test_mask_secrets_helpers():
     assert mask_secrets({"password": "x", "ok": True}) == {"password": "***", "ok": True}
     assert "secret=***" in mask_secrets_text("client_secret=abc123 rest")

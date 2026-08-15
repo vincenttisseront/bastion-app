@@ -35,12 +35,30 @@ Source de vérité runtime : [`app/audit/event_catalog.py`](../app/audit/event_c
 | BST-AUTH-0006 | SSO_TOTP_SETUP_REQUIRED | INFO | oidc_login_totp_setup_required |
 | BST-AUTH-0007 | ACTIVESYNC_ALLOWED | INFO | activesync.allowed |
 | BST-AUTH-0008 | APP_LAUNCH | INFO | app_launch |
+| BST-AUTH-0009 | ACTIVESYNC_DEVICE_DISCOVERED | INFO | activesync.device_discovered |
+| BST-AUTH-1001 | ACTIVESYNC_DEVICE_APPROVED | NOTICE | activesync.device_approved |
+| BST-AUTH-1004 | ACTIVESYNC_DEVICE_UNBLOCKED | NOTICE | activesync.device_unblocked |
 | BST-AUTH-2001 | SSO_LOGIN_FAILED | WARNING | oidc_login_failed |
 | BST-AUTH-2002 | SSO_OTP_LOGIN_FAILED | WARNING | oidc_login_otp_failed |
 | BST-AUTH-2003 | SSO_LOGIN_FAILED_PORTAL | WARNING | security.sso_login_failed |
 | BST-AUTH-2004 | SSO_UNSUPPORTED_FLOW | WARNING | oidc_login_unsupported_flow |
 | BST-AUTH-2005 | ACTIVESYNC_DENIED | WARNING | activesync.denied |
+| BST-AUTH-2008 | ACTIVESYNC_DEVICE_BLOCKED_BY_ADMIN | WARNING | activesync.device_blocked |
+| BST-AUTH-2009 | ACTIVESYNC_DEVICE_UNIDENTIFIED | WARNING | activesync.device_unidentified |
 | BST-AUTH-4001 | AUTH_BYPASS_ATTEMPT | CRITICAL | *(réservé)* |
+
+Numéros réservés au lot 2 du contrôle par appareil ActiveSync (enforcement + portail
+utilisateur), à ne pas réaffecter : `BST-AUTH-1002` (`ACTIVESYNC_DEVICE_REVOKED`),
+`BST-AUTH-1003` (`ACTIVESYNC_DEVICE_CONTROL_ENABLED`), `BST-AUTH-2006`
+(`ACTIVESYNC_DEVICE_DENIED`), `BST-AUTH-2007` (`ACTIVESYNC_DEVICE_REJECTED_BY_USER`).
+
+`BST-AUTH-2009` porte dans son détail JSON un champ `miss_family` qui regroupe les
+`miss_reason` en deux familles décisionnelles : `decoder_failure` (notre parsing échoue sur
+une trame porteuse d'un `DeviceId` — à corriger) et `no_device_sent` (le client n'envoie pas
+de `DeviceId` — sera refusé dès l'activation du contrôle par appareil). Le critère de
+bascule vers le lot 2 se lit par regroupement sur ce champ : `miss_family` est disponible
+comme colonne optionnelle dans `/admin/logs`, et la recherche plein texte porte déjà sur le
+détail JSON — aucun accès SQL direct n'est nécessaire.
 
 Toute évolution du catalogue code doit être re-exportée ici (gouvernance : pas de drift §3 vs runtime).
 

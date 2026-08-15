@@ -47,6 +47,9 @@ location = /internal/activesync-auth {
     proxy_set_header Content-Length  "";
     proxy_set_header Host            $bastion_vhost_fqdn;
     proxy_set_header X-Original-URI  $request_uri;
+    # auth_request is always a GET: without this the handler cannot tell an
+    # OPTIONS protocol negotiation (no DeviceId) from a real sync command.
+    proxy_set_header X-Original-Method $request_method;
     proxy_set_header X-Original-Host $bastion_vhost_fqdn;
     proxy_set_header X-Real-IP       $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

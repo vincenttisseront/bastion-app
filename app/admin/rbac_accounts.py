@@ -581,7 +581,23 @@ async def admin_rbac_user_view(
     otp_configure_pending = "CONFIGURE_TOTP" in kc_required_actions
     oidc_mfa_enabled = bool(getattr(realm, "oidc_mfa_enabled", True))
 
+    from app.admin.activesync_devices import build_user_devices_context
     from app.files.service import file_grant_select_options, folder_grant_select_options
+
+    # The EAS flow only ever sees a Basic Auth login, so match every identity
+    # this fiche knows about, not just the Keycloak id.
+    device_user_keys = [
+        str((kc_user or {}).get("email") or ""),
+        str((kc_user or {}).get("username") or ""),
+        str(account.email if account else ""),
+        str(account.username if account else ""),
+    ]
+    activesync_ctx = build_user_devices_context(
+        db,
+        user_keys=device_user_keys,
+        keycloak_user_id=keycloak_user_id,
+        realm_id=realm.id if realm else None,
+    )
 
     secret = settings.vault_portal_internal_token or "dev"
     initial_temporary_password = pop_temporary_password_reveal(
@@ -625,6 +641,7 @@ async def admin_rbac_user_view(
             view_url=view_url,
             provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
             initial_temporary_password=initial_temporary_password,
+            **activesync_ctx,
         ),
     )
     if request.cookies.get(_REVEAL_PW_COOKIE):
