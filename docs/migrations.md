@@ -110,5 +110,13 @@ rate events and audit logs all live there, so the path degrades instead of
 returning 500. A login issued while the registry is unreachable gets a
 30-minute token rather than 8 hours, because no row means no way to revoke it.
 
+The pages that read hot tables degrade too, so the repair path stays walkable
+end to end — dashboard, Configuration, Journaux and Sessions render with the
+unreadable figures marked unavailable rather than shown as zero, which would
+claim an empty audit trail or no open session. `hot_read()` in
+`app/db/hot_store.py` is the one place that does this, and it is for displayed
+values only: anything acting on a count — drain, trim, migrate — must still let
+the error surface.
+
 Alembic continues to evolve the **SQLite** schema only. Hot tables on Postgres are
 created via `HotBase`/`create_all` from the ORM models (see `app/db/hot_store.py`).

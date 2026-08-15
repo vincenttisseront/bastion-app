@@ -14,11 +14,27 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Sessions actives</h1>
+      {% if sessions_unavailable %}
+      <p class="page-sub">Registre injoignable — comptage indisponible</p>
+      {% else %}
       <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> connexion(s) · <span id="sessions-users-count">{{ groups | length }}</span> utilisateur(s)</p>
+      {% endif %}
     </div>
     <div class="live-pill"><span class="live-dot"></span>Live</div>
   </div>
 
+  {% if sessions_unavailable %}
+  <div class="empty-state" id="sessions-unavailable">
+    <div class="empty-icon">
+      <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+    </div>
+    <div class="empty-title">Sessions indisponibles</div>
+    <div class="empty-desc">
+      Le registre des sessions est injoignable. Les connexions en cours ne sont pas
+      interrompues, mais elles ne peuvent être ni listées ni révoquées pour l'instant.
+    </div>
+  </div>
+  {% else %}
   <div class="session-kind-tabs" role="tablist">
     <a href="/sessions" class="session-kind-tab{% if session_kind == 'all' or not session_kind %} is-active{% endif %}" data-kind="all">
       Toutes <span class="session-kind-count">{{ session_counts.all | default(sessions | length) }}</span>
@@ -151,6 +167,7 @@
       {% endif %}
     </section>
   </div>
+  {% endif %}
 </div>
 
 {# SessionDetailPanel — drawer (desktop) / full-screen sheet (mobile) #}

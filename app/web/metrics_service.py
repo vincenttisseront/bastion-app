@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.db.hot_store import hot_read
 from app.models import App, AuditLog
 from app.web.sessions_service import count_active_sessions
 from app.web.user_context import require_admin
@@ -17,13 +18,17 @@ router = APIRouter(
 
 
 def get_dashboard_metrics(db: Session) -> dict:
-    blocked = (
-        db.query(AuditLog)
+    # audit_logs is a hot table: keep the rest of the dashboard alive without it.
+    blocked = hot_read(
+        lambda: db.query(AuditLog)
         .filter(
             AuditLog.action.like("%login_failed%")
             | AuditLog.action.like("%blocked%")
         )
-        .count()
+        .count(),
+        default=None,
+        what="blocked attempts",
+        db=db,
     )
     enabled_apps = db.query(App).filter_by(enabled=True).count()
     total_apps = db.query(App).count()

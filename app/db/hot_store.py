@@ -17,6 +17,7 @@ from urllib.parse import quote_plus
 
 from sqlalchemy import Integer, create_engine, event, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
@@ -92,6 +93,26 @@ def validate_pg_identifier(name: str, *, label: str) -> str:
 
 def is_hot_model(model: type | None) -> bool:
     return model is not None and model in _HOT_MODEL_SET
+
+
+def hot_read(read, *, default, what: str, db: Session | None = None):
+    """Run a read against the hot store, yielding ``default`` when it is down.
+
+    For figures an admin page merely displays. An outage here must not take the
+    page with it: the pages that report on the hot store are the ones used to
+    repair it. Callers that act on the value — draining, trimming, migrating —
+    must let the error surface instead.
+    """
+    try:
+        return read()
+    except SQLAlchemyError as exc:
+        logger.warning("hot store unreachable, %s unavailable — %s", what, exc)
+        if db is not None:
+            try:
+                db.rollback()
+            except SQLAlchemyError:
+                logger.exception("rollback failed after hot store outage")
+        return default
 
 
 def build_hot_dsn(

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import compute_integrity, log_action
 from app.database import SessionLocal, get_db
+from app.db.hot_store import hot_read
 from app.models import AdminLogsUserPrefs, AuditLog, SavedLogView, utcnow
 from app.sso_settings import Settings, get_settings
 from app.web.admin_logs_query import (
@@ -281,24 +282,34 @@ def admin_logs_page(
     df = _parse_date(date_from)
     dt = _parse_date_end(date_to)
     offset = (page - 1) * _PAGE_SIZE
-    entries, total, action_choices = list_admin_log_entries(
-        db,
-        action=action or None,
-        actor=actor or None,
-        date_from=df,
-        date_to=dt,
-        ip=ip or None,
-        q=q or None,
-        detail_kw=detail or None,
-        status=statuses,
-        audit_id=audit_id,
-        event_code=event_code or None,
-        domains=domains,
-        severities=severities,
-        severity_min=sev_min,
-        limit=_PAGE_SIZE,
-        offset=offset,
+    # audit_logs is a hot table: without it this page has nothing to show, but
+    # it must still say so rather than 500 — and rather than show "no results",
+    # which would read as "nothing happened".
+    result = hot_read(
+        lambda: list_admin_log_entries(
+            db,
+            action=action or None,
+            actor=actor or None,
+            date_from=df,
+            date_to=dt,
+            ip=ip or None,
+            q=q or None,
+            detail_kw=detail or None,
+            status=statuses,
+            audit_id=audit_id,
+            event_code=event_code or None,
+            domains=domains,
+            severities=severities,
+            severity_min=sev_min,
+            limit=_PAGE_SIZE,
+            offset=offset,
+        ),
+        default=None,
+        what="audit log entries",
+        db=db,
     )
+    logs_unavailable = result is None
+    entries, total, action_choices = result or ([], 0, [])
     total_pages = max(1, (total + _PAGE_SIZE - 1) // _PAGE_SIZE)
     if columns:
         col_list = normalize_columns([c.strip() for c in columns.split(",") if c.strip()])
@@ -320,15 +331,23 @@ def admin_logs_page(
         severity_min=sev_min,
     )
     docker_cfg = get_container_logs_config(db)
-    integrity = compute_integrity(db)
+    integrity = hot_read(
+        lambda: compute_integrity(db), default=None, what="log integrity", db=db
+    )
     app_access_apps = list_loggable_apps(db)
-    uncatalogued_count = count_uncatalogued_types(db, date_from=df, date_to=dt)
+    uncatalogued_count = hot_read(
+        lambda: count_uncatalogued_types(db, date_from=df, date_to=dt),
+        default=None,
+        what="uncatalogued event types",
+        db=db,
+    )
     catalog_codes = sorted(EVENTS.keys())
     ctx = base_template_context(request, settings, APP_VERSION)
     return render(
         "admin/logs.html",
         **ctx,
         entries=entries,
+        logs_unavailable=logs_unavailable,
         total=total,
         page=page,
         total_pages=total_pages,
