@@ -98,6 +98,25 @@ offloaded to the compose `postgres` service:
 3. Disable to roll back reads/writes to SQLite (data already migrated stays on PG
    until the next migrate).
 
+When authentication fails with `password authentication failed for user
+"bastion_hot"`, the Configuration panel now names the password actually in use
+— the environment variable or the value stored in the database — with a keyed
+fingerprint of each, so a divergence is visible without revealing either. Its
+**Réaligner le rôle PostgreSQL** button reuses the apply-infra signal: the host
+script ends with `docker compose up -d`, which recreates the postgres container
+and lets the entrypoint re-apply the password. It grants nothing new and no
+secret leaves the application; it cannot help when `.env` itself holds the
+wrong value.
+
+From a shell, run `scripts/reset-hot-store-password.sh --check`: it prints a
+fingerprint of the value held by `.env`, by the app container and by the
+postgres container, which is enough to tell a stale container from a variable
+that never reached the app. `--keep` realigns both ends on the current value,
+`--generate` on a fresh one. The trap it exists for: the entrypoint only
+re-applies the password when the container is **created**, and `docker compose
+restart` does not re-read `.env` — so a manual fix can look right and change
+nothing. Use `up -d --force-recreate`.
+
 The application connects with `HOT_STORE_PG_PASSWORD` from the environment — the
 same value the entrypoint applies to the role — so both ends derive from one
 source. The password field in the admin form only feeds role provisioning; the

@@ -2988,6 +2988,49 @@ def admin_security_hot_store_enable(
         return _hot_store_flash(response, str(exc), "error", settings)
 
 
+@admin_router.post("/admin/configuration/hot-store/realign")
+def admin_hot_store_realign(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    admin=Depends(require_admin),
+):
+    """Ask the host to recreate the containers so the role password is re-applied.
+
+    The entrypoint only aligns the role when the postgres container is created,
+    and `docker compose restart` does not re-read .env — so a correct .env can
+    sit next to a stale container indefinitely. This reuses the apply-infra
+    signal, whose host script already ends with `docker compose up -d`; nothing
+    new is granted, and no secret leaves the application.
+    """
+    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    signal = request_host_apply(settings)
+    if not signal.get("ok"):
+        return _hot_store_flash(
+            response,
+            (
+                f"Signal hôte en échec : {signal.get('message')}. "
+                "Lancez scripts/reset-hot-store-password.sh --keep sur l'hôte."
+            ),
+            "error",
+            settings,
+        )
+    log_action(
+        db,
+        actor=admin.email or admin.username or "admin",
+        action="hot_store.realign_requested",
+        target="postgres",
+        ip_address=_client_ip(request),
+        details={"channel": "apply-infra"},
+    )
+    return host_apply_wait_redirect(
+        next_path="/admin/configuration#hot-store",
+        context_label="Réalignement du mot de passe PostgreSQL",
+        audit_target="postgres",
+        audit_source="hot_store.realign",
+    )
+
+
 @admin_router.post("/admin/security/container-logs")
 def admin_security_container_logs(
     request: Request,

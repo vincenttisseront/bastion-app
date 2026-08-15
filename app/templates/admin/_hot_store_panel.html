@@ -223,11 +223,71 @@
             </div>
           </div>
           {% endif %}
+          {% if hs and hs.configured %}
+          <div class="wizard-summary mb-3" id="hot-store-password-source">
+            <div class="wizard-summary-grid">
+              <div class="wizard-summary-item">
+                <span class="wizard-summary-label">Mot de passe utilisé</span>
+                <span class="wizard-summary-value">
+                  {% if hs.password_source == 'environment' %}Variable HOT_STORE_PG_PASSWORD
+                  {% elif hs.password_source == 'stored' %}Valeur enregistrée en base
+                  {% else %}Aucun{% endif %}
+                </span>
+              </div>
+              {% if hs.env_password_fingerprint %}
+              <div class="wizard-summary-item">
+                <span class="wizard-summary-label">Empreinte environnement</span>
+                <span class="wizard-summary-value mono">{{ hs.env_password_fingerprint }}</span>
+              </div>
+              {% endif %}
+              {% if hs.stored_password_fingerprint %}
+              <div class="wizard-summary-item">
+                <span class="wizard-summary-label">Empreinte base</span>
+                <span class="wizard-summary-value mono">{{ hs.stored_password_fingerprint }}</span>
+              </div>
+              {% endif %}
+            </div>
+            {% if hs.password_sources_agree is sameas false %}
+            <p class="form-help mb-0">
+              Les deux valeurs diffèrent. C’est la variable d’environnement qui est utilisée pour
+              se connecter, et c’est elle que l’entrypoint applique au rôle PostgreSQL : la valeur
+              saisie ici n’a donc pas d’effet sur la connexion.
+            </p>
+            {% elif hs.password_source == 'stored' %}
+            <p class="form-help mb-0">
+              HOT_STORE_PG_PASSWORD est absent de l’environnement de l’application. Postgres
+              synchronise pourtant son rôle depuis cette variable au démarrage : les deux valeurs
+              vont diverger au prochain redémarrage du conteneur.
+            </p>
+            {% endif %}
+          </div>
+          {% endif %}
           <form method="post" action="/admin/configuration/hot-store/test" class="hot-store-actions">
             <button type="submit" class="btn {% if test_ok %}btn-ghost{% else %}btn-primary{% endif %}" {% if not can_test %}disabled title="Enregistrez d’abord la connexion PostgreSQL"{% endif %}>
               {% if test_ok %}Retester la connexion{% else %}Tester la connexion{% endif %}
             </button>
           </form>
+
+          {% if hs and hs.configured %}
+          <div class="mt-4">
+            <h4 class="wizard-panel-title">Authentification refusée&nbsp;?</h4>
+            <p class="form-help mb-3">
+              Le mot de passe du rôle n’est réappliqué qu’à la <strong>création</strong> du
+              conteneur postgres, et un simple redémarrage ne relit pas <code>.env</code>. Ce
+              bouton demande à l’hôte de recréer les conteneurs pour réaligner le rôle sur
+              <code>HOT_STORE_PG_PASSWORD</code>. Sans effet si c’est <code>.env</code> lui-même
+              qui porte la mauvaise valeur.
+            </p>
+            <form method="post" action="/admin/configuration/hot-store/realign" class="hot-store-actions"
+                  data-confirm="Recréer les conteneurs pour réaligner le rôle PostgreSQL ? Le portail redémarre au passage, la session en cours sera brièvement coupée."
+                  data-confirm-title="Réaligner le mot de passe"
+                  data-confirm-label="Réaligner">
+              <button type="submit" class="btn btn-secondary" id="hot-store-realign-btn">
+                Réaligner le rôle PostgreSQL
+              </button>
+            </form>
+          </div>
+          {% endif %}
         </section>
 
         <section class="wizard-panel" id="wizard-panel-schema" role="tabpanel" aria-labelledby="wizard-tab-schema" data-wizard-panel="schema" hidden>

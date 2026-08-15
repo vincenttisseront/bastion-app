@@ -7,6 +7,8 @@ on a separate Postgres engine.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import re
 import threading
@@ -260,6 +262,27 @@ def hot_store_runtime_enabled(config_db: Session | None = None) -> bool:
     enabled = _read_hot_enabled_from_config_session(config_db)
     set_hot_enabled_cache(enabled)
     return enabled
+
+
+PASSWORD_SOURCE_ENV = "environment"
+PASSWORD_SOURCE_STORED = "stored"
+PASSWORD_SOURCE_NONE = "none"
+
+
+def password_fingerprint(value: str, *, key: str) -> str:
+    """Short keyed digest, to compare two sources without revealing either.
+
+    Keyed rather than a plain hash: a bare digest of a password is guessable
+    offline, and this one is rendered on an admin page that ends up in browser
+    history and screenshots. Only comparable within a deployment, which is all
+    the comparison needs.
+    """
+    if not value:
+        return ""
+    digest = hmac.new(
+        (key or "dev-insecure").encode("utf-8"), value.encode("utf-8"), hashlib.sha256
+    )
+    return digest.hexdigest()[:8]
 
 
 def resolve_hot_password(row: Any, *, decrypt_password, env_password: str = "") -> str:
@@ -786,6 +809,13 @@ class HotStoreStatus:
     db_size_bytes: int | None = None
     db_size_pretty: str | None = None
     table_labels: dict[str, str] = field(default_factory=lambda: dict(HOT_TABLE_LABELS))
+    # Which of the two possible passwords the application actually connects
+    # with, and whether they agree. Checking the wrong one is how a drift goes
+    # unnoticed until postgres restarts.
+    password_source: str = PASSWORD_SOURCE_NONE
+    env_password_fingerprint: str = ""
+    stored_password_fingerprint: str = ""
+    password_sources_agree: bool | None = None
 
 
 def _iso(dt) -> str | None:
@@ -931,6 +961,26 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
     migrate_skipped_at = getattr(row, "hot_store_migrate_skipped_at", None)
     migrate_skipped_by = getattr(row, "hot_store_migrate_skipped_by", None)
 
+    env_password = (getattr(settings, "hot_store_pg_password", "") or "").strip()
+    stored_password = ""
+    if password_set:
+        try:
+            stored_password = decrypt_secret(
+                getattr(row, "hot_store_password_encrypted", None), settings
+            ) or ""
+        except Exception:
+            logger.exception("hot store: stored password could not be decrypted")
+    fp_key = getattr(settings, "vault_portal_internal_token", "") or "dev-insecure"
+    env_fp = password_fingerprint(env_password, key=fp_key)
+    stored_fp = password_fingerprint(stored_password, key=fp_key)
+    if env_password:
+        password_source = PASSWORD_SOURCE_ENV
+    elif stored_password:
+        password_source = PASSWORD_SOURCE_STORED
+    else:
+        password_source = PASSWORD_SOURCE_NONE
+    sources_agree = (env_fp == stored_fp) if (env_fp and stored_fp) else None
+
     ping_ms: float | None = None
     ping_error: str | None = None
     engine_ready = False
@@ -1021,6 +1071,10 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
         security_rate_events_24h=security_rate_events_24h,
         db_size_bytes=db_size_bytes,
         db_size_pretty=db_size_pretty,
+        password_source=password_source,
+        env_password_fingerprint=env_fp,
+        stored_password_fingerprint=stored_fp,
+        password_sources_agree=sources_agree,
     )
 
 
