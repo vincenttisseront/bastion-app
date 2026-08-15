@@ -5,6 +5,7 @@ import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.access_modes import (
@@ -35,6 +36,7 @@ from app.breakglass import (
     clear_breakglass_cookie,
     issue_breakglass_token,
     process_breakglass_auth_request,
+    registry_unavailable,
     resolve_breakglass_signing_secret,
     revoke_breakglass_session_from_request,
     set_breakglass_cookie,
@@ -472,7 +474,12 @@ def _breakglass_login_response(
         resolve_breakglass_signing_secret(settings, db=db),
         request=request,
     )
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        # The password was already verified against SQLite; a hot-store outage
+        # must not turn a valid break-glass login into a 500.
+        registry_unavailable(exc, db, stage="login_commit")
     try:
         record_successful_login(
             db, ip=_client_ip(request), username=username

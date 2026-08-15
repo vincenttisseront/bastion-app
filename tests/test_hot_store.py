@@ -32,6 +32,44 @@ def _mem_engine():
     )
 
 
+def test_environment_password_wins_over_the_stored_one():
+    """Postgres re-applies HOT_STORE_PG_PASSWORD to the role on every start.
+
+    Reading anything else here is how the two ends silently drift apart and
+    authentication starts failing after a restart.
+    """
+    row = PortalSettings(
+        hot_store_host="postgres",
+        hot_store_port=5432,
+        hot_store_database="bastion_hot",
+        hot_store_user="bastion_hot",
+        hot_store_password_encrypted="stale-blob",
+    )
+    dsn = hot_store_mod.resolve_hot_dsn_from_settings_row(
+        row,
+        decrypt_password=lambda _enc: "password-from-the-database",
+        env_password="password-from-the-environment",
+    )
+    assert "password-from-the-environment" in dsn
+    assert "password-from-the-database" not in dsn
+
+
+def test_stored_password_remains_the_fallback_before_the_variable_existed():
+    row = PortalSettings(
+        hot_store_host="postgres",
+        hot_store_port=5432,
+        hot_store_database="bastion_hot",
+        hot_store_user="bastion_hot",
+        hot_store_password_encrypted="blob",
+    )
+    dsn = hot_store_mod.resolve_hot_dsn_from_settings_row(
+        row,
+        decrypt_password=lambda _enc: "legacy-password",
+        env_password="",
+    )
+    assert "legacy-password" in dsn
+
+
 def test_build_hot_dsn_encodes_password():
     dsn = build_hot_dsn(
         host="postgres",

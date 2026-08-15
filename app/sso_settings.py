@@ -180,6 +180,16 @@ class Settings(BaseSettings):
         default="./exports",
         validation_alias=AliasChoices("EXPORTS_DIR", "NGINX_EXPORT_DIR", "exports_dir"),
     )
+    # Hot store role password. Same variable the compose ``postgres`` service
+    # uses as POSTGRES_PASSWORD, so both ends derive from one value: the
+    # entrypoint re-applies it to the role on every start, and the app connects
+    # with it. Splitting the two is what silently breaks authentication.
+    hot_store_pg_password: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "HOT_STORE_PG_PASSWORD", "hot_store_pg_password"
+        ),
+    )
     # Persistent data root (SQLite, exports, uploads). Docker: /var/lib/sso-portal.
     portal_data_dir: str = Field(
         default="./data/sso-portal",

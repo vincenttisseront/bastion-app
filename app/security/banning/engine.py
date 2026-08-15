@@ -9,6 +9,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
@@ -833,38 +834,49 @@ def evaluate_login_attempt(
     threshold = int(fail_rule.threshold)
     ban: SecurityBan | None = None
 
-    if ip:
-        ip_count = _prune_and_count(db, "fail_ip", ip, window)
-        if ip_count >= threshold:
-            ban = apply_ban(
-                db,
-                target_type=TARGET_IP,
-                target=ip,
-                reason=f"Failed logins: {ip_count} in {window}s",
-                rule_type=RULE_FAILED_LOGIN,
-                permanent=bool(fail_rule.ban_permanent),
-                ban_minutes=int(fail_rule.ban_minutes or 30),
-                actor="system",
-                ip_address=ip,
-                confirm_permanent=bool(fail_rule.ban_permanent),
-            )
-
     cfg = fail_rule.config_json or {}
-    if uname and cfg.get("ban_username", True):
-        user_count = _prune_and_count(db, "fail_user", uname, window)
-        if user_count >= threshold:
-            ban = apply_ban(
-                db,
-                target_type=TARGET_USERNAME,
-                target=uname,
-                reason=f"Failed logins on account: {user_count} in {window}s",
-                rule_type=RULE_FAILED_LOGIN,
-                permanent=bool(fail_rule.ban_permanent),
-                ban_minutes=int(fail_rule.ban_minutes or 30),
-                actor="system",
-                ip_address=ip,
-                confirm_permanent=bool(fail_rule.ban_permanent),
-            ) or ban
+    try:
+        if ip:
+            ip_count = _prune_and_count(db, "fail_ip", ip, window)
+            if ip_count >= threshold:
+                ban = apply_ban(
+                    db,
+                    target_type=TARGET_IP,
+                    target=ip,
+                    reason=f"Failed logins: {ip_count} in {window}s",
+                    rule_type=RULE_FAILED_LOGIN,
+                    permanent=bool(fail_rule.ban_permanent),
+                    ban_minutes=int(fail_rule.ban_minutes or 30),
+                    actor="system",
+                    ip_address=ip,
+                    confirm_permanent=bool(fail_rule.ban_permanent),
+                )
+
+        if uname and cfg.get("ban_username", True):
+            user_count = _prune_and_count(db, "fail_user", uname, window)
+            if user_count >= threshold:
+                ban = apply_ban(
+                    db,
+                    target_type=TARGET_USERNAME,
+                    target=uname,
+                    reason=f"Failed logins on account: {user_count} in {window}s",
+                    rule_type=RULE_FAILED_LOGIN,
+                    permanent=bool(fail_rule.ban_permanent),
+                    ban_minutes=int(fail_rule.ban_minutes or 30),
+                    actor="system",
+                    ip_address=ip,
+                    confirm_permanent=bool(fail_rule.ban_permanent),
+                ) or ban
+    except SQLAlchemyError:
+        # Rate events live in the hot store. Unable to count is not "over the
+        # threshold" — turning an outage into a 500 on the login form would
+        # lock out the very account meant to repair it.
+        logger.warning("failed-login counters unavailable, skipping ban evaluation")
+        try:
+            db.rollback()
+        except SQLAlchemyError:
+            logger.exception("rollback failed after rate store outage")
+        return LoginEvalResult(allowed=True)
 
     if ban is not None:
         return LoginEvalResult(allowed=False, ban=ban, detail="failed_login_threshold")
