@@ -419,7 +419,7 @@ def format_recap_email(recap: DailyRecap) -> tuple[str, str, str]:
             bits.append(f"{n_pending} compte{'s' if n_pending != 1 else ''} en attente")
         if recap.pending_devices_total:
             n_dev = recap.pending_devices_total
-            bits.append(f"{n_dev} téléphone{'s' if n_dev != 1 else ''} en attente")
+            bits.append(f"{n_dev} appareil{'s' if n_dev != 1 else ''} en attente")
         if n_alerts:
             bits.append(f"{n_alerts} alerte{'s' if n_alerts != 1 else ''}")
         subject = f"[Portail] Récap 24h — {', '.join(bits)} ({date_label})"
@@ -484,9 +484,9 @@ def _recap_text(recap: DailyRecap, date_label: str) -> str:
             ),
         ),
         _section_text(
-            "Téléphones ActiveSync en attente",
+            "Appareils ActiveSync en attente",
             recap.pending_devices,
-            empty="Aucun téléphone en attente.",
+            empty="Aucun appareil en attente.",
             extra=(
                 f"Toujours en file : {recap.pending_devices_total}."
                 if recap.pending_devices_total
@@ -512,7 +512,7 @@ def _recap_text(recap: DailyRecap, date_label: str) -> str:
             f"Admin : {_admin_path(recap.portal_url, '/admin/configuration')}\n"
             f"Domaines : {_admin_path(recap.portal_url, '/admin/pending-hosts', query={'status': 'pending'})}\n"
             f"Utilisateurs : {_admin_path(recap.portal_url, '/admin/pending-users', query={'status': 'pending'})}\n"
-            f"Téléphones : {_admin_path(recap.portal_url, '/admin/pending-devices', query={'status': 'pending'})}\n"
+            f"Appareils : {_admin_path(recap.portal_url, '/admin/pending-devices', query={'status': 'pending'})}\n"
             f"Logs : {_logs_severity_href(recap.portal_url, since=recap.since)}"
         )
     return "\n".join(parts).rstrip() + "\n"
@@ -600,7 +600,7 @@ def _html_section(title: str, body: str, *, subtitle: str = "", cta_href: str = 
 def _recap_html(recap: DailyRecap, date_label: str) -> str:
     empty_hosts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun nouveau domaine en attente sur 24h.</p>'
     empty_accounts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun compte en attente.</p>'
-    empty_devices = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun téléphone en attente.</p>'
+    empty_devices = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun appareil en attente.</p>'
     empty_alerts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucune alerte sur 24h.</p>'
     empty_bans = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun nouveau bannissement.</p>'
 
@@ -641,7 +641,7 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
             " · "
             f'<a href="{_esc(users_cta)}" style="color:#0f766e;text-decoration:none;">Utilisateurs</a>'
             " · "
-            f'<a href="{_esc(devices_cta)}" style="color:#0f766e;text-decoration:none;">Téléphones</a>'
+            f'<a href="{_esc(devices_cta)}" style="color:#0f766e;text-decoration:none;">Appareils</a>'
             " · "
             f'<a href="{_esc(access_cta)}" style="color:#0f766e;text-decoration:none;">Demandes d\'accès</a>'
             " · "
@@ -684,7 +684,7 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
     cta_label="Utilisateurs",
 )}
 {_html_section(
-    "Téléphones ActiveSync",
+    "Appareils ActiveSync",
     devices_html,
     subtitle=f"Toujours en file : {recap.pending_devices_total}.",
     cta_href=devices_cta,

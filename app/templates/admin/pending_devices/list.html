@@ -1,16 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Téléphones ActiveSync{% endblock %}
-{% block breadcrumb %}Admin / Téléphones{% endblock %}
+{% block title %}Appareils ActiveSync{% endblock %}
+{% block breadcrumb %}Admin / Appareils{% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Téléphones</h1>
+      <h1 class="page-title">Appareils</h1>
       <p class="page-sub">
-        Appareils ActiveSync observés sur la messagerie — file d’attente de validation
-        (comme les domaines et les nouveaux users). Approuver autorise le sync ;
-        bloquer coupe immédiatement et l’utilisateur ne pourra pas réactiver.
+        Téléphones, tablettes et autres clients ActiveSync vus sur la messagerie —
+        file d’attente de validation (comme les domaines et les nouveaux users).
+        Approuver autorise le sync ; bloquer coupe immédiatement et l’utilisateur
+        ne pourra pas réactiver. Cliquez une ligne pour le détail.
       </p>
     </div>
   </div>
@@ -29,60 +30,33 @@
     </div>
     <div class="card-body card-flush">
       <div class="table-wrap">
-        <table class="data-table" id="pending-devices-table">
+        <table class="data-table data-table--dense" id="pending-devices-table">
           <thead>
             <tr>
               <th>Utilisateur</th>
               <th>Appareil</th>
               <th>App</th>
               <th>Hits</th>
-              <th>Première vue</th>
               <th>Dernière vue</th>
-              <th>IP</th>
               <th>Statut</th>
-              <th>Actions</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {% for row in rows %}
-            <tr>
-              <td>
-                <div class="mono">{{ row.user_key }}</div>
-                {% if row.fiche_url %}
-                <a class="form-hint" href="{{ row.fiche_url }}">Fiche →</a>
-                {% endif %}
-              </td>
-              <td>
-                <div>{{ row.display_name }}</div>
-                {% if row.identity_line %}
-                <div class="form-hint">{{ row.identity_line }}</div>
-                {% endif %}
-                <div class="mono form-hint" title="DeviceId EAS complet">
-                  <button type="button" class="btn btn-ghost btn-sm mono" data-copy-device
-                          data-device-id="{{ row.device_id }}"
-                          title="Copier le DeviceId complet">{{ row.device_id_short }}</button>
-                  {% if row.apple_serial %}
-                  · n° série <button type="button" class="btn btn-ghost btn-sm mono" data-copy-device
-                          data-device-id="{{ row.apple_serial }}"
-                          title="Copier le numéro de série Apple">{{ row.apple_serial }}</button>
-                  {% endif %}
-                </div>
-              </td>
-              <td>
-                <div>{{ row.app_label or '—' }}</div>
-                <div class="mono form-hint">{{ row.app_fqdn or row.app_slug or '' }}</div>
-              </td>
+            <tr class="pending-device-row"
+                data-device-id="{{ row.id }}"
+                data-device='{{ row.drawer | tojson }}'
+                tabindex="0"
+                role="button"
+                title="Voir le détail">
+              <td class="mono truncate" title="{{ row.user_key }}">{{ row.user_key }}</td>
+              <td class="truncate" title="{{ row.display_name }}">{{ row.display_name }}</td>
+              <td class="truncate" title="{{ row.app_label or '' }}">{{ row.app_label or '—' }}</td>
               <td>{{ row.request_count }}</td>
-              <td class="mono">{{ row.first_seen_at }}</td>
-              <td class="mono">{{ row.last_seen_at }}</td>
-              <td class="mono">{{ row.last_ip or '—' }}</td>
-              <td>
-                <span class="badge {{ row.status_badge_class }}">{{ row.status_label }}</span>
-              </td>
-              <td style="white-space:nowrap;">
-                {% if row.fiche_url %}
-                <a class="btn btn-ghost btn-sm" href="{{ row.fiche_url }}">Fiche</a>
-                {% endif %}
+              <td class="mono">{{ row.last_seen_label }}</td>
+              <td><span class="badge {{ row.status_badge_class }}">{{ row.status_label }}</span></td>
+              <td class="pending-device-actions" style="white-space:nowrap;text-align:right;" onclick="event.stopPropagation()">
                 {% if row.status == 'pending' %}
                 <form method="post" action="/admin/activesync/devices/{{ row.id }}/approve" style="display:inline;">
                   <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
@@ -98,21 +72,19 @@
                   <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
                   <button type="submit" class="btn btn-ghost btn-sm">Débloquer</button>
                 </form>
-                {% elif row.decided_by %}
-                <span class="form-hint">{{ row.decided_by }}</span>
                 {% else %}
-                —
+                <button type="button" class="btn btn-ghost btn-sm pending-device-detail-open" title="Détail">↗</button>
                 {% endif %}
               </td>
             </tr>
             {% else %}
             <tr>
-              <td colspan="9">
+              <td colspan="7">
                 <div class="empty-state" style="padding:2rem;">
-                  <div class="empty-title">Aucun téléphone {{ status_filter if status_filter != 'all' else '' }}</div>
+                  <div class="empty-title">Aucun appareil {{ status_filter if status_filter != 'all' else '' }}</div>
                   <div class="empty-desc">
-                    Les appareils ActiveSync apparaissent ici dès qu’un sync traverse le bastion
-                    (bandeau cloche et dashboard inclus).
+                    Les clients ActiveSync (téléphones, tablettes…) apparaissent ici dès
+                    qu’un sync traverse le bastion (bandeau cloche et dashboard inclus).
                   </div>
                 </div>
               </td>
@@ -124,20 +96,177 @@
     </div>
   </div>
 </div>
+
+<div class="logs-drawer-backdrop" id="device-drawer-backdrop" hidden></div>
+<aside class="logs-drawer" id="device-drawer" aria-hidden="true">
+  <div class="logs-drawer-head">
+    <strong id="device-drawer-title">Appareil</strong>
+    <button type="button" class="btn btn-ghost btn-sm" id="device-drawer-close">Fermer</button>
+  </div>
+  <div class="logs-drawer-body" id="device-drawer-body"></div>
+</aside>
 {% endblock %}
 
 {% block scripts %}
 <script>
-document.querySelectorAll('[data-copy-device]').forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    var full = btn.getAttribute('data-device-id') || '';
-    if (!navigator.clipboard || !navigator.clipboard.writeText) return;
-    var previous = btn.textContent;
-    navigator.clipboard.writeText(full).then(function () {
-      btn.textContent = 'Copié';
-      setTimeout(function () { btn.textContent = previous; }, 1500);
+(function () {
+  var listRedirect = {{ list_redirect | tojson }};
+  var drawer = document.getElementById('device-drawer');
+  var backdrop = document.getElementById('device-drawer-backdrop');
+  var body = document.getElementById('device-drawer-body');
+  var title = document.getElementById('device-drawer-title');
+  if (drawer && drawer.parentElement !== document.body) document.body.appendChild(drawer);
+  if (backdrop && backdrop.parentElement !== document.body) document.body.appendChild(backdrop);
+
+  function esc(v) {
+    return String(v == null ? '' : v)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function closeDrawer() {
+    if (drawer) {
+      drawer.classList.remove('is-open');
+      drawer.setAttribute('aria-hidden', 'true');
+    }
+    if (backdrop) {
+      backdrop.classList.remove('is-open');
+      backdrop.hidden = true;
+    }
+    document.querySelectorAll('#pending-devices-table tr.is-selected').forEach(function (tr) {
+      tr.classList.remove('is-selected');
+    });
+  }
+
+  function openDrawer(device, rowEl) {
+    if (!drawer || !body || !device) return;
+    document.querySelectorAll('#pending-devices-table tr.is-selected').forEach(function (tr) {
+      tr.classList.remove('is-selected');
+    });
+    if (rowEl) rowEl.classList.add('is-selected');
+    title.textContent = device.display_name || device.device_id_short || 'Appareil';
+
+    function row(label, value, mono) {
+      if (value == null || value === '') return '';
+      return '<dt>' + esc(label) + '</dt><dd' + (mono ? ' class="font-mono"' : '') + '>' + value + '</dd>';
+    }
+
+    function copyBtn(text, label) {
+      if (!text) return '';
+      return '<button type="button" class="btn btn-ghost btn-sm mono" data-copy-device data-device-id="' +
+        esc(text) + '" title="Copier">' + esc(label || text) + '</button>';
+    }
+
+    var actions = '';
+    if (device.fiche_url) {
+      actions += '<a class="btn btn-ghost btn-sm" href="' + esc(device.fiche_url) + '">Fiche utilisateur</a>';
+    }
+    if (device.status === 'pending') {
+      actions +=
+        '<form method="post" action="/admin/activesync/devices/' + esc(device.id) + '/approve" style="display:inline;">' +
+        '<input type="hidden" name="redirect_url" value="' + esc(listRedirect) + '">' +
+        '<button type="submit" class="btn btn-primary btn-sm">Approuver</button></form>' +
+        '<form method="post" action="/admin/activesync/devices/' + esc(device.id) + '/block" style="display:inline;" ' +
+        'data-confirm="Bloquer cet appareil ? L\'utilisateur ne pourra pas le réactiver.">' +
+        '<input type="hidden" name="redirect_url" value="' + esc(listRedirect) + '">' +
+        '<button type="submit" class="btn btn-danger btn-sm">Bloquer</button></form>';
+    } else if (device.status === 'blocked') {
+      actions +=
+        '<form method="post" action="/admin/activesync/devices/' + esc(device.id) + '/unblock" style="display:inline;">' +
+        '<input type="hidden" name="redirect_url" value="' + esc(listRedirect) + '">' +
+        '<button type="submit" class="btn btn-ghost btn-sm">Débloquer</button></form>';
+    }
+
+    body.innerHTML =
+      '<dl class="logs-drawer-meta">' +
+      row('Utilisateur', esc(device.user_key), true) +
+      row('Appareil', esc(device.display_name)) +
+      row('Modèle', esc(device.model_label || device.device_type || '—')) +
+      row('Identité', esc(device.identity_line || '—')) +
+      row('Client', esc(device.client_kind_label || '—')) +
+      row('User-Agent', esc(device.ua_summary || device.user_agent || '—')) +
+      row('DeviceId', copyBtn(device.device_id, device.device_id), false) +
+      (device.apple_serial ? row('N° série Apple', copyBtn(device.apple_serial, device.apple_serial)) : '') +
+      row('Application', esc((device.app_label || '—') + (device.app_fqdn ? ' · ' + device.app_fqdn : ''))) +
+      row('Hits', esc(device.request_count)) +
+      row('Première vue', esc(device.first_seen_at), true) +
+      row('Dernière vue', esc(device.last_seen_at), true) +
+      row('IP', esc(device.last_ip || '—'), true) +
+      row('Statut', '<span class="badge ' + esc(device.status_badge_class || '') + '">' + esc(device.status_label || device.status) + '</span>') +
+      row('Source', esc(device.source_label || '—')) +
+      (device.decided_by ? row('Décidé par', esc(device.decided_by + (device.decided_at ? ' · ' + device.decided_at : ''))) : '') +
+      (device.decision_note ? row('Note', esc(device.decision_note)) : '') +
+      (device.blocked_by_admin ? row('Admin lock', 'Bloqué par un administrateur — non réactivable par l\'utilisateur') : '') +
+      '</dl>' +
+      (actions ? '<div class="logs-drawer-actions">' + actions + '</div>' : '');
+
+    drawer.classList.add('is-open');
+    drawer.setAttribute('aria-hidden', 'false');
+    if (backdrop) {
+      backdrop.hidden = false;
+      backdrop.classList.add('is-open');
+    }
+
+    body.querySelectorAll('[data-copy-device]').forEach(function (btn) {
+      btn.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var full = btn.getAttribute('data-device-id') || '';
+        if (!navigator.clipboard || !navigator.clipboard.writeText) return;
+        var previous = btn.textContent;
+        navigator.clipboard.writeText(full).then(function () {
+          btn.textContent = 'Copié';
+          setTimeout(function () { btn.textContent = previous; }, 1500);
+        });
+      });
+    });
+  }
+
+  function parseRow(tr) {
+    try {
+      return JSON.parse(tr.getAttribute('data-device') || '{}');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  document.querySelectorAll('#pending-devices-table tr.pending-device-row').forEach(function (tr) {
+    tr.addEventListener('click', function () {
+      openDrawer(parseRow(tr), tr);
+    });
+    tr.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        openDrawer(parseRow(tr), tr);
+      }
     });
   });
-});
+
+  document.querySelectorAll('.pending-device-detail-open').forEach(function (btn) {
+    btn.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      var tr = btn.closest('tr');
+      if (tr) openDrawer(parseRow(tr), tr);
+    });
+  });
+
+  var closeBtn = document.getElementById('device-drawer-close');
+  if (closeBtn) closeBtn.addEventListener('click', closeDrawer);
+  if (backdrop) backdrop.addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && drawer && drawer.classList.contains('is-open')) closeDrawer();
+  });
+})();
 </script>
+<style>
+#pending-devices-table td.truncate {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#pending-devices-table tr.pending-device-row { cursor: pointer; }
+#pending-devices-table tr.pending-device-row.is-selected { background: var(--bg-tertiary); }
+#pending-devices-table tr.pending-device-row:hover { background: var(--bg-tertiary); }
+.data-table--dense td, .data-table--dense th { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+</style>
 {% endblock %}

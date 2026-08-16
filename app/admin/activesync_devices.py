@@ -135,7 +135,7 @@ def build_user_devices_context(
     devices = device_service.devices_for_identities(
         db, user_keys=user_keys, keycloak_user_id=keycloak_user_id
     )
-    device_service.repair_domain_prefixed_user_keys(db, devices)
+    devices = device_service.repair_domain_prefixed_user_keys(db, devices)
     device_service.link_devices_to_keycloak_user(
         db, devices=devices, keycloak_user_id=keycloak_user_id, realm_id=realm_id
     )
@@ -167,6 +167,49 @@ def _actor(user) -> str:
     return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
 
 
+def _fmt_short_dt(value) -> str:
+    if value is None:
+        return "—"
+    try:
+        return value.strftime("%d/%m %H:%M")
+    except Exception:
+        return str(value)[:16]
+
+
+def _drawer_payload(row: dict) -> dict:
+    """JSON-safe fields for the right-hand detail drawer."""
+    return {
+        "id": row.get("id"),
+        "user_key": row.get("user_key"),
+        "display_name": row.get("display_name"),
+        "device_id": row.get("device_id"),
+        "device_id_short": row.get("device_id_short"),
+        "apple_serial": row.get("apple_serial"),
+        "model_label": row.get("model_label"),
+        "identity_line": row.get("identity_line"),
+        "ua_summary": row.get("ua_summary"),
+        "user_agent": row.get("user_agent"),
+        "device_type": row.get("device_type"),
+        "client_kind_label": row.get("client_kind_label"),
+        "app_label": row.get("app_label"),
+        "app_slug": row.get("app_slug"),
+        "app_fqdn": row.get("app_fqdn"),
+        "status": row.get("status"),
+        "status_label": row.get("status_label"),
+        "status_badge_class": row.get("status_badge_class"),
+        "source_label": row.get("source_label"),
+        "request_count": row.get("request_count"),
+        "first_seen_at": str(row.get("first_seen_at") or "—"),
+        "last_seen_at": str(row.get("last_seen_at") or "—"),
+        "last_ip": row.get("last_ip"),
+        "decided_by": row.get("decided_by"),
+        "decided_at": str(row.get("decided_at") or "") or None,
+        "decision_note": row.get("decision_note"),
+        "fiche_url": row.get("fiche_url"),
+        "blocked_by_admin": bool(row.get("blocked_by_admin")),
+    }
+
+
 @router.get("/admin/pending-devices")
 def admin_pending_devices_list(
     request: Request,
@@ -177,6 +220,8 @@ def admin_pending_devices_list(
 ):
     """Queue of ActiveSync devices — same pending-items pattern as domaines / users."""
     status_filter = (status or "pending").strip().lower()
+    # Drop DOMAIN\email twins so an already-approved phone leaves the queue.
+    device_service.reconcile_duplicate_devices(db)
     query = db.query(ActiveSyncDevice)
     if status_filter != "all":
         query = query.filter(ActiveSyncDevice.status == status_filter)
@@ -192,6 +237,9 @@ def admin_pending_devices_list(
             )
         else:
             row["fiche_url"] = None
+        row["first_seen_label"] = _fmt_short_dt(device.first_seen_at)
+        row["last_seen_label"] = _fmt_short_dt(device.last_seen_at)
+        row["drawer"] = _drawer_payload(row)
         rows.append(row)
     return render(
         "admin/pending_devices/list.html",

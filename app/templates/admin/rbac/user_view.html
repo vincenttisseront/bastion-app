@@ -650,7 +650,7 @@
                 {% if d.identity_line %}
                 <div class="form-hint">{{ d.identity_line }}</div>
                 {% endif %}
-                {% if d.apple_serial %}
+                {% if d.apple_serial and d.apple_serial != d.device_id %}
                 <div class="form-hint">n° série Apple
                   <button type="button" class="btn btn-ghost btn-sm mono" data-copy-device
                           data-device-id="{{ d.apple_serial }}"
