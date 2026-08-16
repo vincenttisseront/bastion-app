@@ -36,6 +36,7 @@ from app.subdomain.eas_device import (
     query_sample,
     split_query,
 )
+from app.subdomain.eas_device_identity import describe_eas_device
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,16 @@ _CACHE_MAX_ENTRIES = 5000
 
 
 def normalize_user_key(raw: str | None) -> str:
-    """Basic Auth identity, lowercased. Empty when unusable."""
-    return (raw or "").strip().lower()[:255]
+    """Basic Auth identity used as the inventory key.
+
+    Outlook / Windows EAS often sends ``DOMAIN\\user`` or ``domain\\user@email``.
+    The fiche matches on the Keycloak email, so the domain prefix must come off
+    here — otherwise the row is written and never joins an identity again.
+    """
+    value = (raw or "").strip().lower()
+    if "\\" in value:
+        value = value.rsplit("\\", 1)[-1].strip()
+    return value[:255]
 
 
 def _utcnow() -> datetime:
@@ -133,12 +142,25 @@ def should_log_unidentified(app_slug: str, user_agent: str) -> bool:
 def get_device(
     db: Session, *, application_id: int, user_key: str, device_id: str
 ) -> ActiveSyncDevice | None:
-    return (
+    """Resolve by clean key, then by a legacy ``DOMAIN\\user`` row for the same device."""
+    device = (
         db.query(ActiveSyncDevice)
         .filter(
             ActiveSyncDevice.application_id == application_id,
             ActiveSyncDevice.user_key == user_key,
             ActiveSyncDevice.device_id == device_id,
+        )
+        .first()
+    )
+    if device is not None or not user_key:
+        return device
+    # Rows written before normalize_user_key stripped the NetBIOS / UPN prefix.
+    return (
+        db.query(ActiveSyncDevice)
+        .filter(
+            ActiveSyncDevice.application_id == application_id,
+            ActiveSyncDevice.device_id == device_id,
+            ActiveSyncDevice.user_key.endswith("\\" + user_key),
         )
         .first()
     )
@@ -194,6 +216,10 @@ def record_sighting(
         return device
 
     try:
+        # Rewrite a legacy DOMAIN\user row onto the clean key so the fiche
+        # and future lookups share one identity.
+        if device.user_key != user_key:
+            device.user_key = user_key
         device.last_seen_at = _utcnow()
         device.request_count = int(device.request_count or 0) + max(1, hits)
         if client_ip:
@@ -266,20 +292,31 @@ def _create_device(
             logger.exception("activesync device insert failed device_id=%s", device_id)
         return existing
 
+    identity = describe_eas_device(
+        device_id=device_id,
+        device_type=device_type,
+        user_agent=user_agent,
+        client_kind=client_kind,
+    )
+    details = {
+        "application_id": app.id,
+        "device_id": device_id,
+        "device_type": device_type,
+        "client_kind": client_kind,
+        "user_agent": (user_agent or "")[:512] or None,
+        "status": device.status,
+        "device_control": bool(app.activesync_device_control),
+    }
+    for key in ("apple_serial", "model_label", "display_name"):
+        value = identity.get(key)
+        if value:
+            details[key] = value
     log_action(
         db,
         actor=user_key,
         action="activesync.device_discovered",
         target=app.slug,
-        details={
-            "application_id": app.id,
-            "device_id": device_id,
-            "device_type": device_type,
-            "client_kind": client_kind,
-            "user_agent": (user_agent or "")[:512] or None,
-            "status": device.status,
-            "device_control": bool(app.activesync_device_control),
-        },
+        details=details,
         ip_address=client_ip,
     )
     return device
@@ -425,6 +462,28 @@ def admin_approve_device(
     )
 
 
+def repair_domain_prefixed_user_keys(
+    db: Session, devices: list[ActiveSyncDevice]
+) -> None:
+    """Rewrite ``DOMAIN\\email`` rows onto the clean email (fiche / next sighting)."""
+    changed = False
+    for device in devices:
+        clean = normalize_user_key(device.user_key)
+        if clean and clean != device.user_key:
+            device.user_key = clean
+            changed = True
+    if not changed:
+        return
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        logger.exception("activesync user_key repair failed")
+        try:
+            db.rollback()
+        except SQLAlchemyError:
+            logger.exception("activesync user_key repair rollback failed")
+
+
 def link_devices_to_keycloak_user(
     db: Session,
     *,
@@ -465,13 +524,19 @@ def devices_for_identities(
     user_keys: list[str],
     keycloak_user_id: str | None = None,
 ) -> list[ActiveSyncDevice]:
-    """Devices of one person, matched on the EAS identity or the Keycloak id."""
+    """Devices of one person, matched on the EAS identity or the Keycloak id.
+
+    Also matches legacy ``DOMAIN\\email`` rows so a fiche opened before the next
+    sync still sees the phones already inventoried under a dirty key.
+    """
     keys = sorted({normalize_user_key(k) for k in user_keys if normalize_user_key(k)})
     if not keys and not keycloak_user_id:
         return []
     clauses = []
     if keys:
         clauses.append(ActiveSyncDevice.user_key.in_(keys))
+        for k in keys:
+            clauses.append(ActiveSyncDevice.user_key.endswith("\\" + k))
     if keycloak_user_id:
         clauses.append(ActiveSyncDevice.keycloak_user_id == keycloak_user_id)
     return (

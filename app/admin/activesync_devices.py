@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Form, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -25,7 +25,9 @@ from app.models import (
 from app.sso_settings import Settings, get_settings
 from app.subdomain import activesync_device_service as device_service
 from app.subdomain.activesync_device_service import DeviceDecisionError
-from app.web.flash import flash_redirect
+from app.web.constants import APP_VERSION
+from app.web.flash import base_template_context, flash_redirect
+from app.web.templates import render
 from app.web.user_context import require_admin
 
 logger = logging.getLogger(__name__)
@@ -65,15 +67,31 @@ def activesync_enabled_apps(db: Session) -> list[App]:
 
 
 def serialize_device(device: ActiveSyncDevice, app: App | None) -> dict:
+    from app.subdomain.eas_device_identity import describe_eas_device
+
     badge_class, badge_label = _STATUS_BADGES.get(
         device.status, ("badge", device.status)
+    )
+    identity = describe_eas_device(
+        device_id=device.device_id,
+        device_type=device.device_type,
+        user_agent=device.user_agent,
+        client_kind=device.client_kind,
+        friendly_name=device.friendly_name,
     )
     return {
         "id": device.id,
         "device_id": device.device_id,
         "device_id_short": shorten_device_id(device.device_id),
         "friendly_name": device.friendly_name,
-        "display_name": device.friendly_name or shorten_device_id(device.device_id),
+        "display_name": identity["display_name"]
+        or device.friendly_name
+        or shorten_device_id(device.device_id),
+        "apple_serial": identity["apple_serial"],
+        "model_label": identity["model_label"],
+        "ua_summary": identity["ua_summary"],
+        "identity_line": identity["identity_line"],
+        "client_kind_label": identity["client_kind_label"],
         "device_type": device.device_type,
         "client_kind": device.client_kind,
         "user_agent": device.user_agent,
@@ -117,6 +135,7 @@ def build_user_devices_context(
     devices = device_service.devices_for_identities(
         db, user_keys=user_keys, keycloak_user_id=keycloak_user_id
     )
+    device_service.repair_domain_prefixed_user_keys(db, devices)
     device_service.link_devices_to_keycloak_user(
         db, devices=devices, keycloak_user_id=keycloak_user_id, realm_id=realm_id
     )
@@ -148,6 +167,45 @@ def _actor(user) -> str:
     return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
 
 
+@router.get("/admin/pending-devices")
+def admin_pending_devices_list(
+    request: Request,
+    status: str = Query("pending"),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    """Queue of ActiveSync devices — same pending-items pattern as domaines / users."""
+    status_filter = (status or "pending").strip().lower()
+    query = db.query(ActiveSyncDevice)
+    if status_filter != "all":
+        query = query.filter(ActiveSyncDevice.status == status_filter)
+    devices = query.order_by(ActiveSyncDevice.last_seen_at.desc()).limit(500).all()
+    apps_by_id = {a.id: a for a in db.query(App).all()}
+    rows = []
+    for device in devices:
+        row = serialize_device(device, apps_by_id.get(device.application_id))
+        if device.keycloak_user_id and device.realm_id:
+            row["fiche_url"] = (
+                f"/admin/rbac/users/view?realm_id={device.realm_id}"
+                f"&keycloak_user_id={device.keycloak_user_id}#appareils"
+            )
+        else:
+            row["fiche_url"] = None
+        rows.append(row)
+    return render(
+        "admin/pending_devices/list.html",
+        **base_template_context(
+            request,
+            settings,
+            APP_VERSION,
+            rows=rows,
+            status_filter=status_filter,
+            list_redirect=f"/admin/pending-devices?status={status_filter}",
+        ),
+    )
+
+
 @router.post("/admin/activesync/devices/{device_id}/block")
 def admin_activesync_device_block(
     device_id: int,
@@ -159,7 +217,7 @@ def admin_activesync_device_block(
 ):
     device = _device_or_404(db, device_id)
     secret = settings.vault_portal_internal_token or "dev"
-    dest = _safe_redirect_url(redirect_url, "/admin/rbac/users")
+    dest = _safe_redirect_url(redirect_url, "/admin/pending-devices?status=pending")
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
     try:
@@ -186,7 +244,7 @@ def admin_activesync_device_unblock(
 ):
     device = _device_or_404(db, device_id)
     secret = settings.vault_portal_internal_token or "dev"
-    dest = _safe_redirect_url(redirect_url, "/admin/rbac/users")
+    dest = _safe_redirect_url(redirect_url, "/admin/pending-devices?status=pending")
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
     device_service.admin_unblock_device(db, device, actor=_actor(user))
@@ -204,7 +262,7 @@ def admin_activesync_device_approve(
 ):
     device = _device_or_404(db, device_id)
     secret = settings.vault_portal_internal_token or "dev"
-    dest = _safe_redirect_url(redirect_url, "/admin/rbac/users")
+    dest = _safe_redirect_url(redirect_url, "/admin/pending-devices?status=pending")
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
     device_service.admin_approve_device(db, device, actor=_actor(user))

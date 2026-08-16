@@ -89,6 +89,31 @@ def test_build_daily_recap_includes_hosts_users_alerts(db_session: Session):
             status="pending",
         )
     )
+    from app.models import ActiveSyncDevice, App
+
+    mail_app = App(
+        slug="mail",
+        label="Mail",
+        upstream_url="https://10.0.0.9/",
+        allow_activesync=True,
+        enabled=True,
+    )
+    db_session.add(mail_app)
+    db_session.commit()
+    db_session.refresh(mail_app)
+    db_session.add(
+        ActiveSyncDevice(
+            application_id=mail_app.id,
+            user_key="alice@example.com",
+            device_id="ApplPHONE1",
+            device_type="iPhone",
+            first_seen_at=now - timedelta(hours=2),
+            last_seen_at=now,
+            status="pending",
+            source="observed",
+            request_count=5,
+        )
+    )
     db_session.add(
         AccessRequest(
             username="bob",
@@ -124,6 +149,8 @@ def test_build_daily_recap_includes_hosts_users_alerts(db_session: Session):
     assert recap.new_hosts_count == 1
     assert recap.pending_users_total == 1
     assert recap.pending_access_total == 1
+    assert recap.pending_devices_total == 1
+    assert any(line.title == "alice@example.com" for line in recap.pending_devices)
     assert recap.alerts_total >= 1
     assert any("breakglass" in (a.title + a.detail).lower() or "BST-BGL" in a.title for a in recap.alerts)
     assert all("id=" in a.href and "event_code=" in a.href and a.href.endswith("#audit") for a in recap.alerts)
@@ -132,13 +159,16 @@ def test_build_daily_recap_includes_hosts_users_alerts(db_session: Session):
 
     subject, text, html_body = format_recap_email(recap)
     assert "Récap 24h" in subject
+    assert "téléphone" in subject.lower()
     assert "new-app.example.com" in text
     assert "alice@example.com" in text
     assert "bob@example.com" in text
+    assert "Téléphones ActiveSync" in text
     assert "203.0.113.9" in text
     assert "discovery-probe" not in text
     assert "new-app.example.com" in html_body
     assert "https://portal.test/admin/pending-hosts?status=pending" in html_body
+    assert "https://portal.test/admin/pending-devices?status=pending" in html_body
     assert "admin/logs?id=" in html_body
     assert "event_code=BST-" in html_body
     assert "#audit" in html_body

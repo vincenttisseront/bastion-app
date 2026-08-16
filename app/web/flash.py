@@ -189,6 +189,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
     _pending_keys = (
         "pending_users_nav_count",
         "pending_hosts_nav_count",
+        "pending_devices_nav_count",
         "access_requests_nav_count",
         "bastion_accounts_nav_count",
         "dashboard_pending_total",
@@ -197,6 +198,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         counts = {
             "pending_users": 0,
             "pending_hosts": 0,
+            "pending_devices": 0,
             "access_requests": 0,
             "bastion_accounts": 0,
             "total": 0,
@@ -210,6 +212,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
                 pass
         ctx_out.setdefault("pending_users_nav_count", counts["pending_users"])
         ctx_out.setdefault("pending_hosts_nav_count", counts["pending_hosts"])
+        ctx_out.setdefault("pending_devices_nav_count", counts["pending_devices"])
         ctx_out.setdefault("access_requests_nav_count", counts["access_requests"])
         ctx_out.setdefault("bastion_accounts_nav_count", counts["bastion_accounts"])
         ctx_out.setdefault("dashboard_pending_total", counts["total"])

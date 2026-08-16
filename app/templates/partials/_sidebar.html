@@ -42,14 +42,16 @@
     {% set pending_users_count = pending_users_nav_count | default(0) %}
     {% set access_requests_count = access_requests_nav_count | default(0) %}
     {% set pending_hosts_count = pending_hosts_nav_count | default(0) %}
+    {% set pending_devices_count = pending_devices_nav_count | default(0) %}
     {% set bastion_accounts_count = bastion_accounts_nav_count | default(0) %}
     {% set pending_total = (dashboard_pending_total | default(
       (pending_users_count | int)
       + (access_requests_count | int)
       + (pending_hosts_count | int)
+      + (pending_devices_count | int)
       + (bastion_accounts_count | int)
     )) | int %}
-    {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') or path.startswith('/admin/access-requests') %}
+    {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') or path.startswith('/admin/pending-devices') or path.startswith('/admin/access-requests') %}
     {% set general_open = path.startswith('/admin/branding') or path.startswith('/admin/configuration') %}
     {% set access_open = path.startswith('/admin/realms') or path.startswith('/admin/rbac') or path == '/admin/security' or path.startswith('/admin/security/waf') or path.startswith('/admin/acme') %}
     {% set content_open = path.startswith('/admin/apps') or path.startswith('/admin/files') or path.startswith('/files') or pending_nav_open %}
@@ -127,6 +129,12 @@
           Nouveaux users
           {% if pending_users_count and pending_users_count > 0 %}
           <span class="nav-badge">{{ pending_users_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/admin/pending-devices" class="nav-item nav-item--sub{% if path.startswith('/admin/pending-devices') %} active{% endif %}" data-nav-label="Téléphones">
+          Téléphones
+          {% if pending_devices_count and pending_devices_count > 0 %}
+          <span class="nav-badge">{{ pending_devices_count }}</span>
           {% endif %}
         </a>
         <a href="/admin/access-requests" class="nav-item nav-item--sub{% if path.startswith('/admin/access-requests') %} active{% endif %}" data-nav-label="Demandes d'accès">

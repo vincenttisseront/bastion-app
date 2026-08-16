@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.audit import derive_severity, log_action
 from app.models import (
     AccessRequest,
+    ActiveSyncDevice,
     AdminNotificationDismissal,
     AuditLog,
     PendingHost,
@@ -287,6 +288,48 @@ def build_notification_feed(
                 "href": "/admin/pending-users?status=pending",
                 "time": _fmt_time(latest_u.last_seen_at) if latest_u else None,
                 "count": pending_user_count,
+                "counts_for_badge": True,
+                "dismissible": True,
+            }
+        )
+
+    pending_device_rows = (
+        db.query(ActiveSyncDevice)
+        .filter(ActiveSyncDevice.status == "pending")
+        .order_by(ActiveSyncDevice.last_seen_at.desc())
+        .limit(200)
+        .all()
+    )
+    pending_device_count = len(pending_device_rows)
+    if pending_device_count:
+        latest_d = pending_device_rows[0]
+        fp_d = [
+            str(pending_device_count),
+            latest_d.user_key or "",
+            latest_d.device_id or "",
+            str(int(latest_d.request_count or 0)),
+        ]
+        if latest_d.last_seen_at:
+            fp_d.append(latest_d.last_seen_at.isoformat())
+        items.append(
+            {
+                "id": "pending-devices",
+                "fingerprint": "|".join(fp_d),
+                "severity": "info",
+                "category": "identity",
+                "title": (
+                    f"{pending_device_count} téléphone"
+                    f"{'s' if pending_device_count > 1 else ''} "
+                    f"en attente"
+                ),
+                "body": (
+                    f"Dernier : {latest_d.user_key}"
+                    if latest_d.user_key
+                    else "Appareils ActiveSync à approuver"
+                ),
+                "href": "/admin/pending-devices?status=pending",
+                "time": _fmt_time(latest_d.last_seen_at) if latest_d else None,
+                "count": pending_device_count,
                 "counts_for_badge": True,
                 "dismissible": True,
             }

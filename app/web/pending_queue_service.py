@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.bastion.pending_host_service import is_infra_discovery_probe
-from app.models import BastionAccount, PendingHost, PendingUser, utcnow
+from app.models import ActiveSyncDevice, BastionAccount, PendingHost, PendingUser, utcnow
 from app.rbac.access_request_service import count_pending_access_requests
 
 
@@ -31,6 +31,15 @@ def count_pending_hosts(db: Session) -> int:
     return sum(1 for (hostname,) in rows if not is_infra_discovery_probe(hostname))
 
 
+def count_pending_devices(db: Session) -> int:
+    """ActiveSync devices awaiting admin approve / block."""
+    return (
+        db.query(ActiveSyncDevice)
+        .filter(ActiveSyncDevice.status == "pending")
+        .count()
+    )
+
+
 def count_pending_bastion_accounts(db: Session) -> int:
     """Bastion-created accounts still pending Keycloak or with provisioning failures."""
     return (
@@ -44,14 +53,16 @@ def pending_nav_counts(db: Session) -> dict[str, int]:
     """Counts injected into every admin chrome context (sidebar badges)."""
     users = count_pending_users(db)
     hosts = count_pending_hosts(db)
+    devices = count_pending_devices(db)
     access = count_pending_access_requests(db)
     accounts = count_pending_bastion_accounts(db)
     return {
         "pending_users": users,
         "pending_hosts": hosts,
+        "pending_devices": devices,
         "access_requests": access,
         "bastion_accounts": accounts,
-        "total": users + hosts + access + accounts,
+        "total": users + hosts + devices + access + accounts,
     }
 
 
@@ -182,6 +193,37 @@ def build_pending_action_items(db: Session) -> dict[str, Any]:
                 "count": n,
                 "href": "/admin/pending-hosts?status=pending",
                 "severity": "warn",
+            }
+        )
+
+    # --- Téléphones ActiveSync ---
+    device_rows = (
+        db.query(ActiveSyncDevice)
+        .filter(ActiveSyncDevice.status == "pending")
+        .order_by(ActiveSyncDevice.last_seen_at.desc())
+        .limit(200)
+        .all()
+    )
+    if device_rows:
+        n = len(device_rows)
+        latest = device_rows[0]
+        who = latest.user_key or "—"
+        rel = _fmt_relative(latest.last_seen_at)
+        if n == 1:
+            summary = "1 téléphone en attente"
+        else:
+            summary = f"{n} téléphones en attente"
+        if rel:
+            summary = f"{summary} ({rel})"
+        items.append(
+            {
+                "key": "pending_devices",
+                "label": "Téléphones",
+                "summary": summary,
+                "detail": f"Dernier : {who}",
+                "count": n,
+                "href": "/admin/pending-devices?status=pending",
+                "severity": "info",
             }
         )
 
