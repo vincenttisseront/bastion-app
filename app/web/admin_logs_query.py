@@ -39,6 +39,9 @@ OPTIONAL_DETAIL_COLUMNS = (
     "peer",
     "resolved",
     "miss_family",
+    "device_id",
+    "apple_serial",
+    "model_label",
 )
 ALL_COLUMNS = DEFAULT_COLUMNS + list(OPTIONAL_DETAIL_COLUMNS)
 

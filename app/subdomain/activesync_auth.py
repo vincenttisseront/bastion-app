@@ -130,6 +130,18 @@ def _log_activesync(
     # only by hand-parsing ``uri``.
     if device_id:
         details["device_id"] = device_id
+        from app.subdomain.eas_device_identity import describe_eas_device
+
+        identity = describe_eas_device(
+            device_id=device_id,
+            device_type=device_type,
+            user_agent=user_agent,
+            client_kind=details["client_kind"],
+        )
+        for key in ("apple_serial", "model_label", "display_name"):
+            value = identity.get(key)
+            if value:
+                details[key] = value
     if device_type:
         details["device_type"] = device_type
     if device_status:

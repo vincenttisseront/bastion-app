@@ -1,4 +1,4 @@
-"""Daily ops recap email — discovered domains, pending accounts, recent alerts.
+"""Daily ops recap email — discovered domains, pending accounts, devices, recent alerts.
 
 Uses the global SMTP config on PortalSettings. Scheduled on the health-probe
 leader; never raises out of the job wrapper.
@@ -21,6 +21,7 @@ from app.bastion.pending_host_service import is_infra_discovery_probe
 from app.mail.smtp_service import SmtpError, send_email, smtp_configured
 from app.models import (
     AccessRequest,
+    ActiveSyncDevice,
     BastionAccount,
     PendingHost,
     PendingUser,
@@ -189,6 +190,8 @@ class DailyRecap:
     pending_access_total: int = 0
     pending_accounts: list[RecapLine] = field(default_factory=list)
     pending_accounts_count: int = 0
+    pending_devices: list[RecapLine] = field(default_factory=list)
+    pending_devices_total: int = 0
     alerts: list[RecapLine] = field(default_factory=list)
     alerts_total: int = 0
     bans: list[RecapLine] = field(default_factory=list)
@@ -207,6 +210,7 @@ class DailyRecap:
             self.new_hosts
             or self.pending_hosts_total
             or self.pending_accounts_total
+            or self.pending_devices_total
             or self.alerts_total
             or self.bans
         )
@@ -234,6 +238,7 @@ def build_daily_recap(
 
     host_href = _admin_path(base, "/admin/pending-hosts", query={"status": "pending"})
     user_href = _admin_path(base, "/admin/pending-users", query={"status": "pending"})
+    device_href = _admin_path(base, "/admin/pending-devices", query={"status": "pending"})
     access_href = _admin_path(base, "/admin/access-requests", query={"status": "pending"})
     accounts_href = _admin_path(base, "/admin/rbac/users")
 
@@ -280,6 +285,27 @@ def build_daily_recap(
             href=user_href,
         )
         for row in user_rows[:LIST_CAP]
+    ]
+
+    device_rows = (
+        db.query(ActiveSyncDevice)
+        .filter(ActiveSyncDevice.status == "pending")
+        .order_by(ActiveSyncDevice.last_seen_at.desc())
+        .all()
+    )
+    recap.pending_devices_total = len(device_rows)
+    recap.pending_devices = [
+        RecapLine(
+            title=row.user_key or "—",
+            detail=(
+                f"{(row.device_type or row.device_id or 'appareil')[:40]}"
+                + f" · vu {_fmt_dt(row.last_seen_at)}"
+                + (f" · {row.request_count} hits" if row.request_count else "")
+                + (" · nouveau 24h" if _in_window(row.first_seen_at, since_dt) else "")
+            ),
+            href=device_href,
+        )
+        for row in device_rows[:LIST_CAP]
     ]
 
     access_rows = (
@@ -391,6 +417,9 @@ def format_recap_email(recap: DailyRecap) -> tuple[str, str, str]:
             )
         if n_pending:
             bits.append(f"{n_pending} compte{'s' if n_pending != 1 else ''} en attente")
+        if recap.pending_devices_total:
+            n_dev = recap.pending_devices_total
+            bits.append(f"{n_dev} téléphone{'s' if n_dev != 1 else ''} en attente")
         if n_alerts:
             bits.append(f"{n_alerts} alerte{'s' if n_alerts != 1 else ''}")
         subject = f"[Portail] Récap 24h — {', '.join(bits)} ({date_label})"
@@ -455,6 +484,17 @@ def _recap_text(recap: DailyRecap, date_label: str) -> str:
             ),
         ),
         _section_text(
+            "Téléphones ActiveSync en attente",
+            recap.pending_devices,
+            empty="Aucun téléphone en attente.",
+            extra=(
+                f"Toujours en file : {recap.pending_devices_total}."
+                if recap.pending_devices_total
+                else ""
+            ),
+            omitted=max(0, recap.pending_devices_total - len(recap.pending_devices)),
+        ),
+        _section_text(
             "Alertes (WARNING et plus)",
             recap.alerts,
             empty="Aucune alerte sur 24h.",
@@ -472,6 +512,7 @@ def _recap_text(recap: DailyRecap, date_label: str) -> str:
             f"Admin : {_admin_path(recap.portal_url, '/admin/configuration')}\n"
             f"Domaines : {_admin_path(recap.portal_url, '/admin/pending-hosts', query={'status': 'pending'})}\n"
             f"Utilisateurs : {_admin_path(recap.portal_url, '/admin/pending-users', query={'status': 'pending'})}\n"
+            f"Téléphones : {_admin_path(recap.portal_url, '/admin/pending-devices', query={'status': 'pending'})}\n"
             f"Logs : {_logs_severity_href(recap.portal_url, since=recap.since)}"
         )
     return "\n".join(parts).rstrip() + "\n"
@@ -559,6 +600,7 @@ def _html_section(title: str, body: str, *, subtitle: str = "", cta_href: str = 
 def _recap_html(recap: DailyRecap, date_label: str) -> str:
     empty_hosts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun nouveau domaine en attente sur 24h.</p>'
     empty_accounts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun compte en attente.</p>'
+    empty_devices = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun téléphone en attente.</p>'
     empty_alerts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucune alerte sur 24h.</p>'
     empty_bans = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun nouveau bannissement.</p>'
 
@@ -568,6 +610,13 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
     ) or empty_hosts
     accounts_lines = recap.new_users + recap.new_access_requests + recap.pending_accounts
     accounts_html = _html_list(accounts_lines) or empty_accounts
+    devices_html = (
+        _html_list(
+            recap.pending_devices,
+            omitted=max(0, recap.pending_devices_total - len(recap.pending_devices)),
+        )
+        or empty_devices
+    )
     alerts_html = (
         _html_list(
             recap.alerts,
@@ -579,6 +628,7 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
 
     hosts_cta = _admin_path(recap.portal_url, "/admin/pending-hosts", query={"status": "pending"})
     users_cta = _admin_path(recap.portal_url, "/admin/pending-users", query={"status": "pending"})
+    devices_cta = _admin_path(recap.portal_url, "/admin/pending-devices", query={"status": "pending"})
     access_cta = _admin_path(recap.portal_url, "/admin/access-requests", query={"status": "pending"})
     logs_cta = _logs_severity_href(recap.portal_url, since=recap.since)
     admin_cta = _admin_path(recap.portal_url, "/admin/configuration")
@@ -590,6 +640,8 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
             f'<a href="{_esc(hosts_cta)}" style="color:#0f766e;text-decoration:none;">Domaines</a>'
             " · "
             f'<a href="{_esc(users_cta)}" style="color:#0f766e;text-decoration:none;">Utilisateurs</a>'
+            " · "
+            f'<a href="{_esc(devices_cta)}" style="color:#0f766e;text-decoration:none;">Téléphones</a>'
             " · "
             f'<a href="{_esc(access_cta)}" style="color:#0f766e;text-decoration:none;">Demandes d\'accès</a>'
             " · "
@@ -630,6 +682,13 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
     ),
     cta_href=users_cta,
     cta_label="Utilisateurs",
+)}
+{_html_section(
+    "Téléphones ActiveSync",
+    devices_html,
+    subtitle=f"Toujours en file : {recap.pending_devices_total}.",
+    cta_href=devices_cta,
+    cta_label="Voir la file",
 )}
 {_html_section(
     "Alertes (WARNING et plus)",

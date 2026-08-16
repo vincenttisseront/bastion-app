@@ -644,12 +644,29 @@
               <td>
                 <button type="button" class="btn btn-ghost btn-sm mono" data-copy-device
                         data-device-id="{{ d.device_id }}"
-                        title="Copier l’identifiant complet : {{ d.device_id }}">
+                        title="Copier le DeviceId complet : {{ d.device_id }}">
                   {{ d.display_name }}
                 </button>
+                {% if d.identity_line %}
+                <div class="form-hint">{{ d.identity_line }}</div>
+                {% endif %}
+                {% if d.apple_serial %}
+                <div class="form-hint">n° série Apple
+                  <button type="button" class="btn btn-ghost btn-sm mono" data-copy-device
+                          data-device-id="{{ d.apple_serial }}"
+                          title="Copier le numéro de série">{{ d.apple_serial }}</button>
+                </div>
+                {% else %}
+                <div class="form-hint mono" title="{{ d.device_id }}">id {{ d.device_id_short }}</div>
+                {% endif %}
                 <div class="form-hint">{{ d.user_key }}</div>
               </td>
-              <td>{{ d.device_type or d.client_kind or '—' }}</td>
+              <td>
+                {{ d.model_label or d.device_type or d.client_kind_label or '—' }}
+                {% if d.ua_summary and d.ua_summary != d.model_label %}
+                <div class="form-hint">{{ d.ua_summary }}</div>
+                {% endif %}
+              </td>
               <td>
                 {% if d.app_slug %}
                 <a href="/admin/apps/{{ d.app_slug }}/edit">{{ d.app_label }}</a>

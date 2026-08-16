@@ -518,6 +518,67 @@ def test_fiche_lists_devices_and_backfills_keycloak_id(client, db_session, eas_a
     assert device.realm_id == realm.id
 
 
+def test_normalize_user_key_strips_windows_domain_prefix():
+    assert device_service.normalize_user_key(
+        r"AR-SYSTEMS\herve@example.fr"
+    ) == "herve@example.fr"
+    assert device_service.normalize_user_key(
+        r"a.r. systems\herve@example.fr"
+    ) == "herve@example.fr"
+    assert device_service.normalize_user_key("herve@example.fr") == "herve@example.fr"
+    assert device_service.normalize_user_key(r"DOMAIN\sam") == "sam"
+
+
+@respx.mock
+def test_fiche_finds_device_stored_under_domain_prefix(client, db_session, eas_app):
+    """Outlook often sends DOMAIN\\email — the fiche must still join on the email."""
+    realm = _realm(db_session)
+    _mock_keycloak_user()
+    dirty = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=r"ar-systems.fr\herve@example.fr",
+        device_id="ApplC39ZH2VJJCM3",
+        device_type="iPhone",
+        status="pending",
+        source="observed",
+        request_count=3,
+    )
+    db_session.add(dirty)
+    db_session.commit()
+
+    resp = _fiche(client, realm)
+    assert resp.status_code == 200
+    assert "ApplC39ZH2VJJCM3" in resp.text
+    assert "Aucun appareil ActiveSync observé" not in resp.text
+
+    db_session.expire_all()
+    device = _devices(db_session)[0]
+    assert device.user_key == "herve@example.fr"
+    assert device.keycloak_user_id == "kc-eas-1"
+
+
+@respx.mock
+def test_sighting_with_domain_prefix_rewrites_legacy_row(client, db_session, eas_app):
+    dirty = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=r"AR-SYSTEMS\herve@example.fr",
+        device_id="ApplC39ZH2VJJCM3",
+        status="pending",
+        source="observed",
+        request_count=1,
+    )
+    db_session.add(dirty)
+    db_session.commit()
+
+    resp = _sync(client, user=r"AR-SYSTEMS\herve@example.fr")
+    assert resp.status_code == 200
+
+    devices = _devices(db_session)
+    assert len(devices) == 1
+    assert devices[0].user_key == "herve@example.fr"
+    assert devices[0].request_count >= 2
+
+
 @respx.mock
 def test_fiche_hides_the_tab_without_any_activesync_app(client, db_session):
     realm = _realm(db_session)

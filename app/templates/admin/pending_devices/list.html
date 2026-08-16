@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Téléphones ActiveSync{% endblock %}
+{% block breadcrumb %}Admin / Téléphones{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Téléphones</h1>
+      <p class="page-sub">
+        Appareils ActiveSync observés sur la messagerie — file d’attente de validation
+        (comme les domaines et les nouveaux users). Approuver autorise le sync ;
+        bloquer coupe immédiatement et l’utilisateur ne pourra pas réactiver.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">File d’attente · {{ rows | length }}</span>
+      <div class="card-header-actions">
+        <div class="filter-group" role="group" aria-label="Filtrer par statut">
+          <a href="/admin/pending-devices?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">En attente</a>
+          <a href="/admin/pending-devices?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">Approuvés</a>
+          <a href="/admin/pending-devices?status=blocked" class="filter-chip{% if status_filter == 'blocked' %} active{% endif %}">Bloqués</a>
+          <a href="/admin/pending-devices?status=all" class="filter-chip{% if status_filter == 'all' %} active{% endif %}">Tout</a>
+        </div>
+      </div>
+    </div>
+    <div class="card-body card-flush">
+      <div class="table-wrap">
+        <table class="data-table" id="pending-devices-table">
+          <thead>
+            <tr>
+              <th>Utilisateur</th>
+              <th>Appareil</th>
+              <th>App</th>
+              <th>Hits</th>
+              <th>Première vue</th>
+              <th>Dernière vue</th>
+              <th>IP</th>
+              <th>Statut</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td>
+                <div class="mono">{{ row.user_key }}</div>
+                {% if row.fiche_url %}
+                <a class="form-hint" href="{{ row.fiche_url }}">Fiche →</a>
+                {% endif %}
+              </td>
+              <td>
+                <div>{{ row.display_name }}</div>
+                {% if row.identity_line %}
+                <div class="form-hint">{{ row.identity_line }}</div>
+                {% endif %}
+                <div class="mono form-hint" title="DeviceId EAS complet">
+                  <button type="button" class="btn btn-ghost btn-sm mono" data-copy-device
+                          data-device-id="{{ row.device_id }}"
+                          title="Copier le DeviceId complet">{{ row.device_id_short }}</button>
+                  {% if row.apple_serial %}
+                  · n° série <button type="button" class="btn btn-ghost btn-sm mono" data-copy-device
+                          data-device-id="{{ row.apple_serial }}"
+                          title="Copier le numéro de série Apple">{{ row.apple_serial }}</button>
+                  {% endif %}
+                </div>
+              </td>
+              <td>
+                <div>{{ row.app_label or '—' }}</div>
+                <div class="mono form-hint">{{ row.app_fqdn or row.app_slug or '' }}</div>
+              </td>
+              <td>{{ row.request_count }}</td>
+              <td class="mono">{{ row.first_seen_at }}</td>
+              <td class="mono">{{ row.last_seen_at }}</td>
+              <td class="mono">{{ row.last_ip or '—' }}</td>
+              <td>
+                <span class="badge {{ row.status_badge_class }}">{{ row.status_label }}</span>
+              </td>
+              <td style="white-space:nowrap;">
+                {% if row.fiche_url %}
+                <a class="btn btn-ghost btn-sm" href="{{ row.fiche_url }}">Fiche</a>
+                {% endif %}
+                {% if row.status == 'pending' %}
+                <form method="post" action="/admin/activesync/devices/{{ row.id }}/approve" style="display:inline;">
+                  <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
+                  <button type="submit" class="btn btn-primary btn-sm">Approuver</button>
+                </form>
+                <form method="post" action="/admin/activesync/devices/{{ row.id }}/block" style="display:inline;"
+                      data-confirm="Bloquer cet appareil ? L'utilisateur ne pourra pas le réactiver.">
+                  <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
+                  <button type="submit" class="btn btn-danger btn-sm">Bloquer</button>
+                </form>
+                {% elif row.status == 'blocked' %}
+                <form method="post" action="/admin/activesync/devices/{{ row.id }}/unblock" style="display:inline;">
+                  <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
+                  <button type="submit" class="btn btn-ghost btn-sm">Débloquer</button>
+                </form>
+                {% elif row.decided_by %}
+                <span class="form-hint">{{ row.decided_by }}</span>
+                {% else %}
+                —
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="9">
+                <div class="empty-state" style="padding:2rem;">
+                  <div class="empty-title">Aucun téléphone {{ status_filter if status_filter != 'all' else '' }}</div>
+                  <div class="empty-desc">
+                    Les appareils ActiveSync apparaissent ici dès qu’un sync traverse le bastion
+                    (bandeau cloche et dashboard inclus).
+                  </div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('[data-copy-device]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var full = btn.getAttribute('data-device-id') || '';
+    if (!navigator.clipboard || !navigator.clipboard.writeText) return;
+    var previous = btn.textContent;
+    navigator.clipboard.writeText(full).then(function () {
+      btn.textContent = 'Copié';
+      setTimeout(function () { btn.textContent = previous; }, 1500);
+    });
+  });
+});
+</script>
+{% endblock %}
