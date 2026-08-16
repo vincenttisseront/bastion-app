@@ -339,7 +339,7 @@ def test_users_page_lists_bastion_accounts_without_grants(client, db_session):
     # Default list tab shows bastion accounts (picker realms live under list_tab=open).
     resp = client.get(f"/admin/rbac/users?realm_id={ar.id}", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "Comptes créés via le bastion" in resp.text
+    assert "Créés bastion" in resp.text
     assert "toto" in resp.text
     assert "alice" in resp.text
     assert "clients" in resp.text
@@ -358,7 +358,9 @@ def test_users_page_lists_bastion_accounts_without_grants(client, db_session):
     assert fiche.status_code == 200
     assert "toto" in fiche.text
     assert "Identité" in fiche.text
-    assert 'href="/admin/rbac/matrix"' not in fiche.text
+    # No parent RBAC tab bar on the fiche — the contextual Matrice shortcut in
+    # the header is a link, not a tab.
+    assert 'aria-label="Navigation RBAC"' not in fiche.text
     assert 'href="/admin/rbac/governance"' not in fiche.text
 
 
