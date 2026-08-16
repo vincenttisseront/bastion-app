@@ -16,6 +16,24 @@
 {% endif %}
 
 <main class="portal-main portal-main--profile">
+  {% if activesync_pending_count %}
+  <div class="card" style="margin-bottom:var(--sp-4); border-color:var(--color-warn, #d97706);">
+    <div class="card-body" style="display:flex; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; align-items:center;">
+      <div>
+        <strong>Nouvel appareil mobile</strong>
+        <p class="text-2" style="margin:var(--sp-1) 0 0;">
+          {% set p = activesync_pending[0] %}
+          Un appareil ({{ p.model_label or p.device_type or 'mobile' }})
+          tente d'accéder à votre messagerie
+          {% if p.first_seen_at %}depuis le {{ p.first_seen_at.strftime('%d/%m %H:%M') }}{% endif %} —
+          validation requise.
+        </p>
+      </div>
+      <a class="btn btn-primary btn-sm" href="#section-devices">Vérifier</a>
+    </div>
+  </div>
+  {% endif %}
+
   <section class="portal-hero portal-hero--compact">
     <div class="portal-hero-copy">
       <p class="portal-eyebrow">Compte</p>
@@ -27,6 +45,7 @@
   <div class="portal-profile-layout">
     <nav class="portal-profile-nav card" aria-label="Sections du profil">
       <a href="#section-general" class="portal-profile-nav-link is-active" data-profile-nav>Général</a>
+      <a href="#section-devices" class="portal-profile-nav-link" data-profile-nav>Appareils</a>
       <a href="#section-security" class="portal-profile-nav-link" data-profile-nav>Sécurité</a>
       <a href="#section-prefs" class="portal-profile-nav-link" data-profile-nav>Préférences</a>
       <span class="portal-profile-nav-disabled" title="Non disponible dans cette version">Notifications</span>
@@ -92,6 +111,79 @@
           </div>
           {% else %}
           <p class="text-2">Aucune application pour le moment.</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section id="section-devices" class="card portal-profile-card">
+        <div class="card-header">
+          <h2 class="card-title">Mes appareils mobiles</h2>
+        </div>
+        <div class="card-body">
+          {% if activesync_devices %}
+          <div class="table-wrap" style="border:none;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Appareil</th>
+                  <th>Application</th>
+                  <th>Statut</th>
+                  <th>1ʳᵉ vue</th>
+                  <th>IP</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for d in activesync_devices %}
+                <tr>
+                  <td>
+                    <div>{{ d.display_name }}</div>
+                    {% if d.model_label %}<div class="form-hint">{{ d.model_label }}</div>{% endif %}
+                    <div class="form-hint mono">{{ d.device_id_short }}</div>
+                  </td>
+                  <td>
+                    {{ d.app_label or '—' }}
+                    {% if d.app_fqdn %}<div class="form-hint mono">{{ d.app_fqdn }}</div>{% endif %}
+                  </td>
+                  <td>
+                    <span class="badge {{ d.status_badge_class }}">{{ d.status_label }}</span>
+                    {% if d.blocked_by_admin %}
+                    <div class="form-hint">Bloqué par votre administrateur — contactez le support.</div>
+                    {% endif %}
+                  </td>
+                  <td class="form-hint">{{ d.first_seen_at.strftime('%d/%m/%Y %H:%M') if d.first_seen_at else '—' }}</td>
+                  <td class="mono form-hint">{{ d.last_ip or '—' }}</td>
+                  <td style="white-space:nowrap;">
+                    {% if d.blocked_by_admin %}
+                    —
+                    {% elif d.status == 'pending' or d.status == 'rejected' %}
+                    <form method="post" action="/profile/activesync/devices/{{ d.id }}/approve" style="display:inline;">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <button type="submit" class="btn btn-primary btn-sm">C'est mon appareil</button>
+                    </form>
+                    {% if d.status == 'pending' %}
+                    <form method="post" action="/profile/activesync/devices/{{ d.id }}/reject" style="display:inline;">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <button type="submit" class="btn btn-ghost btn-sm">Ce n'est pas moi</button>
+                    </form>
+                    {% endif %}
+                    {% elif d.status == 'approved' %}
+                    <form method="post" action="/profile/activesync/devices/{{ d.id }}/revoke" style="display:inline;"
+                          onsubmit="return confirm('Révoquer cet appareil ? La sync sera refusée.');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                      <button type="submit" class="btn btn-ghost btn-sm">Révoquer</button>
+                    </form>
+                    {% else %}
+                    —
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% else %}
+          <p class="text-2">Aucun appareil ActiveSync inventorié pour votre compte.</p>
           {% endif %}
         </div>
       </section>

@@ -72,6 +72,13 @@ def serialize_device(device: ActiveSyncDevice, app: App | None) -> dict:
     badge_class, badge_label = _STATUS_BADGES.get(
         device.status, ("badge", device.status)
     )
+    # Pending means "seen, undecided" while the gate is off — not "user must act".
+    control_on = bool(app and getattr(app, "activesync_device_control", False))
+    if device.status == ACTIVESYNC_DEVICE_PENDING:
+        if control_on:
+            badge_class, badge_label = ("badge-warn", "En attente de validation")
+        else:
+            badge_class, badge_label = ("badge", "Inventorié")
     identity = describe_eas_device(
         device_id=device.device_id,
         device_type=device.device_type,
@@ -99,6 +106,7 @@ def serialize_device(device: ActiveSyncDevice, app: App | None) -> dict:
         "app_slug": app.slug if app else None,
         "app_label": app.label if app else None,
         "app_fqdn": app.public_fqdn if app else None,
+        "app_device_control": control_on,
         "status": device.status,
         "status_badge_class": badge_class,
         "status_label": badge_label,
@@ -315,4 +323,99 @@ def admin_activesync_device_approve(
     label = shorten_device_id(device.device_id)
     device_service.admin_approve_device(db, device, actor=_actor(user))
     flash_redirect(response, f"Appareil {label} approuvé.", "success", secret)
+    return response
+
+
+def _app_or_404(db: Session, slug: str) -> App:
+    app = db.query(App).filter(App.slug == slug).first()
+    if app is None:
+        raise HTTPException(status_code=404, detail="Application introuvable")
+    return app
+
+
+def _utcnow_days_since(when) -> int:
+    from datetime import datetime, timezone
+
+    if when is None:
+        return 0
+    now = datetime.now(timezone.utc)
+    if getattr(when, "tzinfo", None) is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0, (now - when).days)
+
+
+@router.get("/admin/apps/{slug}/activesync/devices/preview")
+def admin_activesync_control_preview(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    _user=Depends(require_admin),
+):
+    """Simulate backfill + gate arming — does not change anything until confirm."""
+    app = _app_or_404(db, slug)
+    preview = device_service.preview_device_control(db, app)
+    return render(
+        "admin/activesync/control_preview.html",
+        **base_template_context(
+            request,
+            settings,
+            APP_VERSION,
+            app=app,
+            preview=preview,
+            inventory_days=(
+                _utcnow_days_since(preview["inventory_since"])
+                if preview.get("inventory_since")
+                else None
+            ),
+        ),
+    )
+
+
+@router.post("/admin/apps/{slug}/activesync/devices/enable")
+def admin_activesync_control_enable(
+    slug: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    app = _app_or_404(db, slug)
+    secret = settings.vault_portal_internal_token or "dev"
+    dest = f"/admin/apps/{slug}/activesync/devices/preview"
+    response = RedirectResponse(url=dest, status_code=302)
+    try:
+        result = device_service.enable_device_control(db, app, actor=_actor(user))
+    except DeviceDecisionError as exc:
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    flash_redirect(
+        response,
+        (
+            f"Contrôle activé : {result['approved_from_pending']} appareil(s) "
+            f"approuvé(s) depuis l'inventaire ({result['inventory_total']} au total)."
+        ),
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/admin/apps/{slug}/activesync/devices/disable")
+def admin_activesync_control_disable(
+    slug: str,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    app = _app_or_404(db, slug)
+    secret = settings.vault_portal_internal_token or "dev"
+    dest = f"/admin/apps/{slug}/activesync/devices/preview"
+    response = RedirectResponse(url=dest, status_code=302)
+    device_service.disable_device_control(db, app, actor=_actor(user))
+    flash_redirect(
+        response,
+        "Contrôle suspendu — inventaire et décisions conservés.",
+        "success",
+        secret,
+    )
     return response

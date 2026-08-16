@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.access_modes import app_launch_url
+from app.admin.activesync_devices import serialize_device
 from app.audit import log_action
 from app.database import get_db
-from app.models import RealmConfig
+from app.models import App, RealmConfig
 from app.rbac.effective_access_service import get_effective_apps_for_user
 from app.sso_settings import Settings, get_settings
+from app.subdomain import activesync_device_service as device_service
+from app.subdomain.activesync_device_service import DeviceDecisionError
 from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context
+from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
 from app.request_client_ip import client_ip_from_request
 from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
@@ -133,6 +136,42 @@ def _account_console_url(db: Session, user: UserContext, settings: Settings) -> 
     return f"{realm.issuer_url.rstrip('/')}/account/"
 
 
+def _portal_activesync_context(db: Session, user: UserContext) -> dict:
+    """Devices owned by the session identity + actionable pending for banners."""
+    devices = device_service.devices_for_identities(
+        db,
+        user_keys=[user.email or "", user.username or ""],
+        keycloak_user_id=user.keycloak_user_id,
+    )
+    devices = device_service.repair_domain_prefixed_user_keys(db, devices)
+    device_service.link_devices_to_keycloak_user(
+        db,
+        devices=devices,
+        keycloak_user_id=user.keycloak_user_id,
+        realm_id=None,
+    )
+    apps_by_id = {a.id: a for a in db.query(App).all()}
+    rows = []
+    pending_actionable = []
+    for device in devices:
+        if not device_service.device_owned_by_session(
+            device,
+            email=user.email,
+            username=user.username,
+            keycloak_user_id=user.keycloak_user_id,
+        ):
+            continue
+        row = serialize_device(device, apps_by_id.get(device.application_id))
+        rows.append(row)
+        if row["status"] == "pending" and row.get("app_device_control"):
+            pending_actionable.append(row)
+    return {
+        "activesync_devices": rows,
+        "activesync_pending": pending_actionable,
+        "activesync_pending_count": len(pending_actionable),
+    }
+
+
 @router.get("/apps")
 async def apps_portal(
     request: Request,
@@ -155,6 +194,7 @@ async def apps_portal(
     for tile in tiles:
         tile["is_favorite"] = tile.get("id") in fav_set
     sections = build_apps_sections(tiles, favorite_ids=favorite_ids)
+    as_ctx = _portal_activesync_context(db, user)
     return render(
         "portal/apps.html",
         **_portal_page_ctx(
@@ -165,6 +205,7 @@ async def apps_portal(
             apps=tiles,
             greeting_name=user.first_name,
             apps_sections=sections,
+            **as_ctx,
         ),
     )
 
@@ -181,6 +222,7 @@ async def user_profile(
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
     account_url = _account_console_url(db, user, settings)
+    as_ctx = _portal_activesync_context(db, user)
     return render(
         "portal/profile.html",
         **_portal_page_ctx(
@@ -192,8 +234,121 @@ async def user_profile(
             apps_preview=tiles[:6],
             account_url=account_url,
             role_label="Administrateur" if portal_admin else "Utilisateur",
+            **as_ctx,
         ),
     )
+
+
+def _owned_device_or_404(db: Session, device_id: int, user: UserContext):
+    from app.models import ActiveSyncDevice
+
+    device = db.get(ActiveSyncDevice, device_id)
+    if device is None or not device_service.device_owned_by_session(
+        device,
+        email=user.email,
+        username=user.username,
+        keycloak_user_id=user.keycloak_user_id,
+    ):
+        raise HTTPException(status_code=404, detail="Appareil introuvable")
+    return device
+
+
+def _require_portal_csrf(request: Request, settings: Settings, csrf_token: str) -> None:
+    # Must match base_template_context's fallback ("dev-insecure").
+    secret = settings.vault_portal_internal_token or "dev-insecure"
+    if not verify_csrf_token(request, secret, csrf_token):
+        raise HTTPException(status_code=403, detail="Jeton CSRF invalide")
+
+
+@router.post("/profile/activesync/devices/{device_id}/approve")
+async def portal_device_approve(
+    device_id: int,
+    request: Request,
+    csrf_token: str = Form(""),
+    friendly_name: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    _require_portal_csrf(request, settings, csrf_token)
+    device = _owned_device_or_404(db, device_id, user)
+    secret = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/profile#section-devices", status_code=302)
+    try:
+        device_service.user_approve_device(
+            db,
+            device,
+            actor=user.email or user.username or "user",
+            friendly_name=friendly_name or None,
+        )
+    except DeviceDecisionError as exc:
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    flash_redirect(
+        response,
+        "Appareil approuvé — la synchronisation peut reprendre dans quelques minutes.",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/profile/activesync/devices/{device_id}/reject")
+async def portal_device_reject(
+    device_id: int,
+    request: Request,
+    csrf_token: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    _require_portal_csrf(request, settings, csrf_token)
+    device = _owned_device_or_404(db, device_id, user)
+    secret = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/profile#section-devices", status_code=302)
+    try:
+        device_service.user_reject_device(
+            db, device, actor=user.email or user.username or "user"
+        )
+    except DeviceDecisionError as exc:
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    flash_redirect(
+        response,
+        "Appareil refusé — s'il ne s'agissait pas de vous, changez votre mot de passe.",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/profile/activesync/devices/{device_id}/revoke")
+async def portal_device_revoke(
+    device_id: int,
+    request: Request,
+    csrf_token: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    _require_portal_csrf(request, settings, csrf_token)
+    device = _owned_device_or_404(db, device_id, user)
+    secret = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/profile#section-devices", status_code=302)
+    try:
+        device_service.user_revoke_device(
+            db, device, actor=user.email or user.username or "user"
+        )
+    except DeviceDecisionError as exc:
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    flash_redirect(
+        response,
+        "Appareil révoqué — la synchronisation sera refusée à la prochaine tentative.",
+        "success",
+        secret,
+    )
+    return response
 
 
 @router.post("/api/apps/{app_id}/launch-ping")

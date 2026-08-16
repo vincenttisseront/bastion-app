@@ -16,7 +16,7 @@ from app.audit import log_action
 from app.auth import get_realm_proxy_url
 from app.breakglass import COOKIE_NAME, process_breakglass_auth_request
 from app.database import get_db, release_db_connection
-from app.models import ActiveSyncDevice, App
+from app.models import ACTIVESYNC_DEVICE_APPROVED, ActiveSyncDevice, App
 from app.rbac.effective_access_service import user_can_launch_application
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
@@ -170,6 +170,57 @@ def _is_device_exempt(uri: str, method: str) -> bool:
     return method.upper() == "OPTIONS" or is_autodiscover_uri(uri)
 
 
+def _deny_device_response(
+    *,
+    app: App,
+    error: str = "activesync-device-not-approved",
+) -> Response:
+    # 403, never 401: a 401 makes iOS/Android loop on the password prompt and
+    # convinces the user their account is broken.
+    return Response(
+        status_code=403,
+        headers={
+            "X-Auth-Error": error,
+            "X-Auth-App": app.slug,
+        },
+    )
+
+
+def _log_device_denial(
+    db: Session,
+    *,
+    app: App,
+    actor: str,
+    client_ip: str | None,
+    uri: str,
+    host: str,
+    user_agent: str,
+    client_kind: str,
+    reason: str,
+    device_id: str | None,
+    device_type: str | None,
+    device_status: str | None,
+) -> None:
+    denial_key = device_id or "__unidentified__"
+    if not device_service.should_log_denial(app.id, denial_key):
+        return
+    _log_activesync(
+        db,
+        action="activesync.device_denied",
+        app=app,
+        actor=actor,
+        client_ip=client_ip,
+        uri=uri,
+        host=host,
+        user_agent=user_agent,
+        client_kind=client_kind,
+        reason=reason,
+        device_id=device_id,
+        device_type=device_type,
+        device_status=device_status,
+    )
+
+
 def _evaluate_device(
     db: Session,
     *,
@@ -188,10 +239,35 @@ def _evaluate_device(
     """Inventory the sighting and decide. Returns ``(device, deny_response)``.
 
     Best-effort by construction: any inventory failure yields ``(None, None)``,
-    i.e. today's behaviour. A refusal may only come from an explicit decision
-    stored in the database, never from broken telemetry.
+    i.e. today's behaviour when the gate is off. A refusal may only come from an
+    explicit decision (or an active gate with no DeviceId), never from broken
+    telemetry alone.
     """
-    if exempt or not device_id:
+    if exempt:
+        return None, None
+
+    control = bool(getattr(app, "activesync_device_control", False))
+
+    if not device_id:
+        # Lot 1 fail-open; Lot 2 fail-closed when the gate is armed.
+        if enforce and control:
+            _log_device_denial(
+                db,
+                app=app,
+                actor=actor,
+                client_ip=client_ip,
+                uri=uri,
+                host=host,
+                user_agent=user_agent,
+                client_kind=client_kind,
+                reason="device_unidentified",
+                device_id=None,
+                device_type=device_type,
+                device_status=None,
+            )
+            return None, _deny_device_response(
+                app=app, error="activesync-device-unidentified"
+            )
         return None, None
 
     user_key = device_service.normalize_user_key(actor)
@@ -213,34 +289,35 @@ def _evaluate_device(
         logger.exception("activesync inventory failed device_id=%s", device_id)
         return None, None
 
-    if device is None or not device.blocked_by_admin or not enforce:
+    if device is None or not enforce:
         return device, None
 
-    if device_service.should_log_denial(app.id, device_id):
-        _log_activesync(
-            db,
-            action="activesync.denied",
-            app=app,
-            actor=actor,
-            client_ip=client_ip,
-            uri=uri,
-            host=host,
-            user_agent=user_agent,
-            client_kind=client_kind,
-            reason="device_blocked_by_admin",
-            device_id=device_id,
-            device_type=device_type,
-            device_status=device.status,
-        )
-    # 403, never 401: a 401 makes iOS/Android loop on the password prompt and
-    # convinces the user their account is broken.
-    return device, Response(
-        status_code=403,
-        headers={
-            "X-Auth-Error": "activesync-device-not-approved",
-            "X-Auth-App": app.slug,
-        },
+    # Stolen-phone lock always bites, even before the per-app gate is armed.
+    admin_lock = bool(device.blocked_by_admin)
+    gate_blocks = control and device.status != ACTIVESYNC_DEVICE_APPROVED
+    if not admin_lock and not gate_blocks:
+        return device, None
+
+    reason = (
+        "device_blocked_by_admin"
+        if admin_lock
+        else f"device_status_{device.status or 'unknown'}"
     )
+    _log_device_denial(
+        db,
+        app=app,
+        actor=actor,
+        client_ip=client_ip,
+        uri=uri,
+        host=host,
+        user_agent=user_agent,
+        client_kind=client_kind,
+        reason=reason,
+        device_id=device_id,
+        device_type=device_type,
+        device_status=device.status,
+    )
+    return device, _deny_device_response(app=app)
 
 
 @router.get("/internal/activesync-auth")

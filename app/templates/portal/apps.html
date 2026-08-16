@@ -173,6 +173,20 @@
 {% endif %}
 
 <main class="portal-main portal-main--apps">
+  {% if activesync_pending_count|default(0) %}
+  <div class="card" style="margin-bottom:var(--sp-4); border-color:var(--color-warn, #d97706);">
+    <div class="card-body" style="display:flex; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; align-items:center;">
+      <div>
+        <strong>Nouvel appareil mobile</strong>
+        <p class="text-2" style="margin:var(--sp-1) 0 0;">
+          {{ activesync_pending_count }} appareil{{ 's' if activesync_pending_count > 1 else '' }}
+          en attente de validation.
+        </p>
+      </div>
+      <a class="btn btn-primary btn-sm" href="/profile#section-devices">Vérifier</a>
+    </div>
+  </div>
+  {% endif %}
   <section class="portal-hero">
     <div class="portal-hero-copy">
       <p class="portal-eyebrow">Espace utilisateur</p>
