@@ -373,9 +373,10 @@ def test_blocked_device_gets_403_never_401(client, db_session, eas_app):
     assert resp.headers.get("x-auth-error") == "activesync-device-not-approved"
     assert "www-authenticate" not in {k.lower() for k in resp.headers}
 
-    denied = _audit(db_session, "activesync.denied")[-1]
+    denied = _audit(db_session, "activesync.device_denied")[-1]
     assert denied.details.get("reason") == "device_blocked_by_admin"
     assert denied.details.get("device_id") == "ApplC39ZH2VJJCM3"
+    assert denied.event_code == "BST-AUTH-2006"
 
     blocked = _audit(db_session, "activesync.device_blocked")
     assert len(blocked) == 1
@@ -744,3 +745,267 @@ def test_denied_activesync_never_records_a_login_attempt(
     )
     assert resp.status_code == 401
     assert calls == []
+
+
+# --- Lot 2: device control gate ---------------------------------------------
+
+
+def test_pending_device_allowed_while_control_off(client, db_session, eas_app):
+    resp = _sync(client)
+    assert resp.status_code == 200
+    device = _devices(db_session)[0]
+    assert device.status == "pending"
+    assert eas_app.activesync_device_control is False
+
+
+def test_pending_device_gets_403_when_control_on(client, db_session, eas_app):
+    _sync(client)
+    eas_app.activesync_device_control = True
+    db_session.commit()
+    device_service.reset_sighting_cache()
+
+    resp = _sync(client)
+    assert resp.status_code == 403
+    assert resp.headers.get("x-auth-error") == "activesync-device-not-approved"
+    assert "www-authenticate" not in {k.lower() for k in resp.headers}
+    denied = _audit(db_session, "activesync.device_denied")[-1]
+    assert denied.details.get("reason") == "device_status_pending"
+    assert denied.event_code == "BST-AUTH-2006"
+
+
+def test_approved_device_passes_when_control_on(client, db_session, eas_app):
+    _sync(client)
+    device = _devices(db_session)[0]
+    device_service.admin_approve_device(db_session, device, actor="admin@example.com")
+    eas_app.activesync_device_control = True
+    db_session.commit()
+    device_service.reset_sighting_cache()
+
+    resp = _sync(client)
+    assert resp.status_code == 200
+
+
+def test_unidentified_fails_closed_when_control_on(client, db_session, eas_app):
+    eas_app.activesync_device_control = True
+    db_session.commit()
+    resp = _sync(
+        client,
+        uri="/Microsoft-Server-ActiveSync?Cmd=Options",
+        method="POST",
+    )
+    # OPTIONS is exempt — use a non-OPTIONS path without DeviceId
+    resp = client.get(
+        "/internal/activesync-auth",
+        headers={
+            "X-Original-Host": EAS_HOST,
+            "X-Original-URI": "/Microsoft-Server-ActiveSync?Cmd=Ping",
+            "X-Original-Method": "POST",
+            "Authorization": _basic(),
+            "User-Agent": "Apple-iPhone/1601.405",
+            "X-Real-IP": "203.0.113.10",
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.headers.get("x-auth-error") == "activesync-device-unidentified"
+
+
+def test_unidentified_still_open_when_control_off(client, db_session, eas_app):
+    resp = client.get(
+        "/internal/activesync-auth",
+        headers={
+            "X-Original-Host": EAS_HOST,
+            "X-Original-URI": "/Microsoft-Server-ActiveSync?Cmd=Ping",
+            "X-Original-Method": "POST",
+            "Authorization": _basic(),
+            "User-Agent": "Apple-iPhone/1601.405",
+            "X-Real-IP": "203.0.113.10",
+        },
+    )
+    assert resp.status_code == 200
+
+
+def test_serialize_inventorie_vs_en_attente(db_session, eas_app):
+    from app.admin.activesync_devices import serialize_device
+
+    device = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="LABELTEST1",
+        status="pending",
+        source="observed",
+    )
+    db_session.add(device)
+    db_session.commit()
+
+    eas_app.activesync_device_control = False
+    row = serialize_device(device, eas_app)
+    assert row["status_label"] == "Inventorié"
+
+    eas_app.activesync_device_control = True
+    row = serialize_device(device, eas_app)
+    assert row["status_label"] == "En attente de validation"
+
+
+def test_backfill_enable_is_idempotent(db_session, eas_app):
+    pending = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="BFILL1",
+        status="pending",
+        source="observed",
+        request_count=3,
+    )
+    blocked = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key="other@example.fr",
+        device_id="BFILL2",
+        status="blocked",
+        source="admin",
+        blocked_by_admin=True,
+        request_count=1,
+    )
+    db_session.add_all([pending, blocked])
+    db_session.commit()
+
+    r1 = device_service.enable_device_control(db_session, eas_app, actor="admin")
+    assert r1["approved_from_pending"] == 1
+    assert eas_app.activesync_device_control is True
+    db_session.refresh(pending)
+    db_session.refresh(blocked)
+    assert pending.status == "approved"
+    assert pending.source == "backfill"
+    assert blocked.status == "blocked"
+
+    r2 = device_service.enable_device_control(db_session, eas_app, actor="admin")
+    assert r2["approved_from_pending"] == 0
+    events = _audit(db_session, "activesync.device_control_enabled")
+    assert len(events) >= 2
+    assert events[0].event_code == "BST-AUTH-1003"
+
+
+def test_merge_never_promotes_different_device_id(db_session, eas_app):
+    a = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="ExactCaseID",
+        status="approved",
+        source="admin",
+        request_count=1,
+    )
+    forged = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="exactcaseid",
+        status="pending",
+        source="observed",
+        request_count=1,
+    )
+    db_session.add_all([a, forged])
+    db_session.commit()
+    survivors = device_service.merge_device_duplicates(db_session, [a, forged])
+    assert len(survivors) == 2
+    assert len(_devices(db_session)) == 2
+
+
+def test_user_cannot_approve_admin_blocked(db_session, eas_app):
+    device = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="STOLEN1",
+        status="blocked",
+        source="admin",
+        blocked_by_admin=True,
+    )
+    db_session.add(device)
+    db_session.commit()
+    with pytest.raises(device_service.DeviceDecisionError):
+        device_service.user_approve_device(db_session, device, actor=EAS_USER)
+
+
+def test_user_revoke_then_sync_denied(client, db_session, eas_app):
+    _sync(client)
+    device = _devices(db_session)[0]
+    device_service.admin_approve_device(db_session, device, actor="admin")
+    eas_app.activesync_device_control = True
+    db_session.commit()
+    device_service.user_revoke_device(db_session, device, actor=EAS_USER)
+    device_service.reset_sighting_cache()
+    resp = _sync(client)
+    assert resp.status_code == 403
+    revoked = _audit(db_session, "activesync.device_revoked")
+    assert revoked[-1].event_code == "BST-AUTH-1002"
+
+
+def test_portal_approve_csrf_ownership_and_happy_path(client, db_session, eas_app):
+    import re
+
+    device = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="PORTAL1",
+        status="pending",
+        source="observed",
+    )
+    foreign = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key="other@example.fr",
+        device_id="PORTAL2",
+        status="pending",
+        source="observed",
+    )
+    db_session.add_all([device, foreign])
+    db_session.commit()
+
+    assert device_service.device_owned_by_session(
+        device, email=EAS_USER, username="herve", keycloak_user_id="kc-eas-1"
+    )
+    assert not device_service.device_owned_by_session(
+        foreign, email=EAS_USER, username="herve", keycloak_user_id="kc-eas-1"
+    )
+
+    headers = {
+        "X-Email": EAS_USER,
+        "X-Preferred-Username": "herve",
+        "X-User-Id": "kc-eas-1",
+        "X-Groups": "users",
+    }
+    page = client.get("/profile", headers=headers)
+    assert page.status_code == 200
+    assert "Mes appareils mobiles" in page.text
+    match = re.search(r'name="csrf-token" content="([^"]+)"', page.text)
+    assert match
+    csrf = match.group(1)
+
+    bad = client.post(
+        f"/profile/activesync/devices/{device.id}/approve",
+        data={"csrf_token": "not-valid"},
+        headers=headers,
+        follow_redirects=False,
+    )
+    # Authenticated HTML 403s are redirected to /apps by the global handler.
+    assert bad.status_code == 302
+    assert (bad.headers.get("location") or "").endswith("/apps")
+    db_session.refresh(device)
+    assert device.status == "pending"
+
+    missing = client.post(
+        f"/profile/activesync/devices/{foreign.id}/approve",
+        data={"csrf_token": csrf},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert missing.status_code == 404
+
+    ok = client.post(
+        f"/profile/activesync/devices/{device.id}/approve",
+        data={"csrf_token": csrf},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert ok.status_code == 302
+    assert "#section-devices" in (ok.headers.get("location") or "")
+    db_session.refresh(device)
+    assert device.status == "approved"
+    assert device.source == "user"
+    approved = _audit(db_session, "activesync.device_approved")
+    assert approved[-1].details.get("by") == "user"

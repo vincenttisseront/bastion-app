@@ -589,6 +589,10 @@ def _create_device(
         details=details,
         ip_address=client_ip,
     )
+    try:
+        maybe_notify_owner_new_pending(db, device=device, app=app)
+    except Exception:
+        logger.exception("activesync pending notify hook failed")
     return device
 
 
@@ -730,6 +734,227 @@ def admin_approve_device(
         blocked_by_admin=False,
         action="activesync.device_approved",
     )
+
+
+def user_approve_device(
+    db: Session, device: ActiveSyncDevice, *, actor: str, friendly_name: str | None = None
+) -> ActiveSyncDevice:
+    if device.blocked_by_admin:
+        raise DeviceDecisionError(
+            "Cet appareil est bloqué par un administrateur."
+        )
+    if friendly_name is not None:
+        cleaned = (friendly_name or "").strip()[:120] or None
+        device.friendly_name = cleaned
+    return _apply_decision(
+        db,
+        device,
+        status=ACTIVESYNC_DEVICE_APPROVED,
+        source="user",
+        actor=actor,
+        note=None,
+        blocked_by_admin=False,
+        action="activesync.device_approved",
+        extra_details={"by": "user"},
+    )
+
+
+def user_reject_device(
+    db: Session, device: ActiveSyncDevice, *, actor: str
+) -> ActiveSyncDevice:
+    if device.blocked_by_admin:
+        raise DeviceDecisionError(
+            "Cet appareil est bloqué par un administrateur."
+        )
+    return _apply_decision(
+        db,
+        device,
+        status=ACTIVESYNC_DEVICE_REJECTED,
+        source="user",
+        actor=actor,
+        note=None,
+        blocked_by_admin=False,
+        action="activesync.device_rejected",
+        extra_details={"by": "user"},
+    )
+
+
+def user_revoke_device(
+    db: Session, device: ActiveSyncDevice, *, actor: str
+) -> ActiveSyncDevice:
+    """Owner revokes a previously approved device — next sync is denied when gated."""
+    if device.blocked_by_admin:
+        raise DeviceDecisionError(
+            "Cet appareil est bloqué par un administrateur."
+        )
+    return _apply_decision(
+        db,
+        device,
+        status=ACTIVESYNC_DEVICE_PENDING,
+        source="user",
+        actor=actor,
+        note=None,
+        blocked_by_admin=False,
+        action="activesync.device_revoked",
+        extra_details={"by": "user"},
+    )
+
+
+def device_owned_by_session(
+    device: ActiveSyncDevice, *, email: str | None, username: str | None, keycloak_user_id: str | None
+) -> bool:
+    """Ownership for portal actions — never trust a client-supplied user_key."""
+    keys = {normalize_user_key(email), normalize_user_key(username)} - {""}
+    if device.user_key and device.user_key in keys:
+        return True
+    if keycloak_user_id and device.keycloak_user_id == keycloak_user_id:
+        return True
+    if device.user_key and keys:
+        return any((device.user_key or "").endswith("\\" + k) for k in keys)
+    return False
+
+
+def preview_device_control(db: Session, app: App) -> dict:
+    """What enabling the gate would approve — inventory-first (v9 amendment A)."""
+    rows = (
+        db.query(ActiveSyncDevice)
+        .filter(ActiveSyncDevice.application_id == app.id)
+        .order_by(ActiveSyncDevice.first_seen_at.asc())
+        .all()
+    )
+    pending = [d for d in rows if d.status == ACTIVESYNC_DEVICE_PENDING]
+    approved = [d for d in rows if d.status == ACTIVESYNC_DEVICE_APPROVED]
+    blocked = [d for d in rows if d.status == ACTIVESYNC_DEVICE_BLOCKED]
+    rejected = [d for d in rows if d.status == ACTIVESYNC_DEVICE_REJECTED]
+    oldest = rows[0].first_seen_at if rows else None
+    users = sorted({d.user_key for d in rows if d.user_key})
+    return {
+        "app": app,
+        "total": len(rows),
+        "pending": pending,
+        "approved": approved,
+        "blocked": blocked,
+        "rejected": rejected,
+        "pending_count": len(pending),
+        "approved_count": len(approved),
+        "blocked_count": len(blocked),
+        "rejected_count": len(rejected),
+        "user_count": len(users),
+        "inventory_since": oldest,
+        "control_enabled": bool(app.activesync_device_control),
+        "control_enabled_at": getattr(app, "activesync_device_control_enabled_at", None),
+    }
+
+
+def enable_device_control(
+    db: Session, app: App, *, actor: str
+) -> dict:
+    """Approve inventory pending rows (idempotent) then arm the per-app gate."""
+    if not app.allow_activesync:
+        raise DeviceDecisionError(
+            "ActiveSync doit être autorisé avant d'activer le contrôle par appareil."
+        )
+    preview = preview_device_control(db, app)
+    approved_now = 0
+    for device in preview["pending"]:
+        # Never overwrite an admin lock or an existing decision beyond pending.
+        if device.blocked_by_admin or device.status != ACTIVESYNC_DEVICE_PENDING:
+            continue
+        device.status = ACTIVESYNC_DEVICE_APPROVED
+        device.source = "backfill"
+        device.decided_by = f"backfill:{actor}"
+        device.decided_at = _utcnow()
+        device.decision_note = None
+        approved_now += 1
+    now = _utcnow()
+    app.activesync_device_control = True
+    app.activesync_device_control_enabled_at = now
+    db.commit()
+    log_action(
+        db,
+        actor=actor,
+        action="activesync.device_control_enabled",
+        target=app.slug,
+        details={
+            "application_id": app.id,
+            "approved_from_pending": approved_now,
+            "already_approved": preview["approved_count"],
+            "blocked_left": preview["blocked_count"],
+            "rejected_left": preview["rejected_count"],
+            "inventory_total": preview["total"],
+            "user_count": preview["user_count"],
+        },
+    )
+    return {
+        "approved_from_pending": approved_now,
+        "already_approved": preview["approved_count"],
+        "inventory_total": preview["total"],
+    }
+
+
+def disable_device_control(db: Session, app: App, *, actor: str) -> None:
+    """Suspend enforcement only — keep inventory and decisions."""
+    if not app.activesync_device_control:
+        return
+    app.activesync_device_control = False
+    db.commit()
+    log_action(
+        db,
+        actor=actor,
+        action="activesync.device_control_enabled",
+        target=app.slug,
+        details={
+            "application_id": app.id,
+            "enabled": False,
+            "note": "control_suspended",
+        },
+    )
+
+
+def maybe_notify_owner_new_pending(
+    db: Session, *, device: ActiveSyncDevice, app: App, settings=None
+) -> None:
+    """Best-effort email on first pending when the gate is already armed."""
+    if not getattr(app, "activesync_device_control", False):
+        return
+    to_addr = (device.user_key or "").strip()
+    if "@" not in to_addr:
+        return
+    try:
+        from app.mail.smtp_service import send_email, smtp_configured
+        from app.portal_settings_service import ensure_portal_settings
+        from app.sso_settings import get_settings
+
+        if settings is None:
+            settings = get_settings()
+        row = ensure_portal_settings(db)
+        if not smtp_configured(row):
+            return
+        domain = (getattr(settings, "portal_domain", None) or "").strip()
+        profile = (
+            f"https://{domain}/profile#section-devices"
+            if domain
+            else "/profile#section-devices"
+        )
+        label = device.device_type or device.client_kind or "appareil"
+        subject = f"Nouvel appareil {label} — validation requise"
+        body_text = (
+            f"Un nouvel appareil ({label}) tente d'accéder à votre messagerie.\n\n"
+            f"Connectez-vous au portail pour l'approuver ou le refuser :\n{profile}\n\n"
+            "Aucun lien d'approbation directe n'est inclus dans ce message "
+            "(une session SSO est obligatoire).\n"
+        )
+        send_email(
+            row,
+            settings,
+            to_email=to_addr,
+            subject=subject,
+            body_text=body_text,
+        )
+    except Exception:
+        logger.exception(
+            "activesync pending notify failed device_id=%s", device.device_id
+        )
 
 
 def repair_domain_prefixed_user_keys(
