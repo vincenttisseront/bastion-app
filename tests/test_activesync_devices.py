@@ -867,7 +867,9 @@ def test_backfill_enable_is_idempotent(db_session, eas_app):
     db_session.add_all([pending, blocked])
     db_session.commit()
 
-    r1 = device_service.enable_device_control(db_session, eas_app, actor="admin")
+    r1 = device_service.enable_device_control(
+        db_session, eas_app, actor="admin", pending_device_ids=["BFILL1"]
+    )
     assert r1["approved_from_pending"] == 1
     assert eas_app.activesync_device_control is True
     db_session.refresh(pending)
@@ -876,11 +878,123 @@ def test_backfill_enable_is_idempotent(db_session, eas_app):
     assert pending.source == "backfill"
     assert blocked.status == "blocked"
 
-    r2 = device_service.enable_device_control(db_session, eas_app, actor="admin")
+    r2 = device_service.enable_device_control(
+        db_session, eas_app, actor="admin", pending_device_ids=["BFILL1"]
+    )
     assert r2["approved_from_pending"] == 0
     events = _audit(db_session, "activesync.device_control_enabled")
     assert len(events) >= 2
     assert events[0].event_code == "BST-AUTH-1003"
+
+
+def test_backfill_enable_uses_frozen_preview_list_not_live_pending(db_session, eas_app):
+    """TOCTOU: a pending row appearing after preview must not be auto-approved."""
+    seen = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="SEENATPREVIEW",
+        status="pending",
+        source="observed",
+        request_count=2,
+    )
+    db_session.add(seen)
+    db_session.commit()
+
+    freeze = [d.device_id for d in device_service.preview_device_control(db_session, eas_app)["pending"]]
+    assert freeze == ["SEENATPREVIEW"]
+
+    late = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key="late@example.fr",
+        device_id="APPEAREDAFTER",
+        status="pending",
+        source="observed",
+        request_count=1,
+    )
+    db_session.add(late)
+    db_session.commit()
+
+    result = device_service.enable_device_control(
+        db_session, eas_app, actor="admin", pending_device_ids=freeze
+    )
+    assert result["approved_from_pending"] == 1
+    assert result["left_pending"] == 1
+    db_session.refresh(seen)
+    db_session.refresh(late)
+    assert seen.status == "approved"
+    assert late.status == "pending"
+    assert eas_app.activesync_device_control is True
+
+
+def test_backfill_enable_does_not_resurrect_blocked_between_preview_and_confirm(
+    db_session, eas_app
+):
+    """Stolen phone: block between GET preview and POST must not be undone by freeze."""
+    phone = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="STOLENPHONE1",
+        status="pending",
+        source="observed",
+        request_count=5,
+    )
+    other = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key="ok@example.fr",
+        device_id="KEEPSYNC1",
+        status="pending",
+        source="observed",
+        request_count=2,
+    )
+    db_session.add_all([phone, other])
+    db_session.commit()
+
+    freeze = [
+        d.device_id
+        for d in device_service.preview_device_control(db_session, eas_app)["pending"]
+    ]
+    assert set(freeze) == {"STOLENPHONE1", "KEEPSYNC1"}
+
+    device_service.admin_block_device(
+        db_session, phone, actor="admin", reason="téléphone volé"
+    )
+    db_session.refresh(phone)
+    assert phone.status == "blocked"
+    assert phone.blocked_by_admin is True
+
+    result = device_service.enable_device_control(
+        db_session, eas_app, actor="admin", pending_device_ids=freeze
+    )
+    assert result["approved_from_pending"] == 1
+    assert result["skipped_not_pending"] >= 1
+    db_session.refresh(phone)
+    db_session.refresh(other)
+    assert phone.status == "blocked"
+    assert phone.blocked_by_admin is True
+    assert other.status == "approved"
+    assert eas_app.activesync_device_control is True
+
+
+def test_backfill_enable_rejects_missing_freeze_when_pending_exist(db_session, eas_app):
+    db_session.add(
+        ActiveSyncDevice(
+            application_id=eas_app.id,
+            user_key=EAS_USER,
+            device_id="NEEDFREEZE",
+            status="pending",
+            source="observed",
+        )
+    )
+    db_session.commit()
+    with pytest.raises(device_service.DeviceDecisionError):
+        device_service.enable_device_control(
+            db_session, eas_app, actor="admin", pending_device_ids=None
+        )
+    with pytest.raises(device_service.DeviceDecisionError):
+        device_service.enable_device_control(
+            db_session, eas_app, actor="admin", pending_device_ids=[]
+        )
+    assert eas_app.activesync_device_control is False
 
 
 def test_merge_never_promotes_different_device_id(db_session, eas_app):

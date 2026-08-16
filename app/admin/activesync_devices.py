@@ -378,21 +378,34 @@ def admin_activesync_control_enable(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
+    pending_device_id: list[str] = Form(default=[]),
 ):
     app = _app_or_404(db, slug)
     secret = settings.vault_portal_internal_token or "dev"
     dest = f"/admin/apps/{slug}/activesync/devices/preview"
     response = RedirectResponse(url=dest, status_code=302)
     try:
-        result = device_service.enable_device_control(db, app, actor=_actor(user))
+        result = device_service.enable_device_control(
+            db,
+            app,
+            actor=_actor(user),
+            pending_device_ids=pending_device_id,
+        )
     except DeviceDecisionError as exc:
         flash_redirect(response, str(exc), "error", secret)
         return response
+    left = result.get("left_pending") or 0
+    extra = (
+        f" {left} appareil(s) apparu(s) après la prévisualisation restent en attente."
+        if left
+        else ""
+    )
     flash_redirect(
         response,
         (
             f"Contrôle activé : {result['approved_from_pending']} appareil(s) "
-            f"approuvé(s) depuis l'inventaire ({result['inventory_total']} au total)."
+            f"approuvé(s) depuis la liste figée "
+            f"({result['inventory_total']} au total).{extra}"
         ),
         "success",
         secret,

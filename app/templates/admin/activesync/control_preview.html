@@ -81,7 +81,10 @@
   <div style="display:flex; gap:var(--sp-2); margin-top:var(--sp-4); flex-wrap:wrap;">
     {% if app.allow_activesync and not preview.control_enabled %}
     <form method="post" action="/admin/apps/{{ app.slug }}/activesync/devices/enable"
-          onsubmit="return confirm('Activer le contrôle ? Les appareils pending seront approuvés ; tout nouvel appareil sera refusé jusqu\'à validation portail.');">
+          onsubmit="return confirm('Activer le contrôle ? Seuls les appareils listés ci-dessus seront approuvés ; tout appareil apparu depuis (ou absent) restera en attente et sera refusé jusqu\'à validation portail.');">
+      {% for d in preview.pending %}
+      <input type="hidden" name="pending_device_id" value="{{ d.device_id }}">
+      {% endfor %}
       <button type="submit" class="btn btn-primary">Activer le contrôle des appareils</button>
     </form>
     {% elif preview.control_enabled %}

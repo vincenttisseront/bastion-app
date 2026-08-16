@@ -847,17 +847,60 @@ def preview_device_control(db: Session, app: App) -> dict:
 
 
 def enable_device_control(
-    db: Session, app: App, *, actor: str
+    db: Session,
+    app: App,
+    *,
+    actor: str,
+    pending_device_ids: list[str] | tuple[str, ...] | None = None,
 ) -> dict:
-    """Approve inventory pending rows (idempotent) then arm the per-app gate."""
+    """Approve freeze ∩ still-pending, then arm the per-app gate.
+
+    ``pending_device_ids`` is the DeviceId set shown by the preview (UI hidden
+    fields or CLI ``--pending-id``). Semantics at confirm time:
+
+    - **Intersection only**: a DeviceId is approved iff it is in the freeze list
+      **and** still ``pending`` with ``blocked_by_admin=False`` at POST time.
+    - A row that appeared after preview stays pending (``left_pending``) → gate denies it.
+    - A row that was **blocked** (or rejected) between preview and confirm is **not**
+      re-approved — freeze never overrides an admin lock / stolen-phone decision.
+    """
     if not app.allow_activesync:
         raise DeviceDecisionError(
             "ActiveSync doit être autorisé avant d'activer le contrôle par appareil."
         )
+    if pending_device_ids is None:
+        raise DeviceDecisionError(
+            "Liste figée manquante : confirmer depuis la prévisualisation "
+            "(ou passer --pending-id / --pending-ids)."
+        )
+    # Case-sensitive DeviceId set — never lowercase.
+    freeze = {d for d in pending_device_ids if (d or "").strip()}
     preview = preview_device_control(db, app)
+    live_pending_ids = {d.device_id for d in preview["pending"]}
+    if live_pending_ids and not freeze:
+        raise DeviceDecisionError(
+            "Des appareils pending existent : la confirmation doit renvoyer "
+            "exactement la liste affichée à la prévisualisation."
+        )
+
+    # Intersection: freeze ∩ (still pending, not admin-locked) at POST — never
+    # approve from freeze alone (would resurrect a stolen phone blocked mid-flight).
+    to_approve: list[ActiveSyncDevice] = []
+    if freeze:
+        to_approve = (
+            db.query(ActiveSyncDevice)
+            .filter(
+                ActiveSyncDevice.application_id == app.id,
+                ActiveSyncDevice.device_id.in_(sorted(freeze)),
+                ActiveSyncDevice.status == ACTIVESYNC_DEVICE_PENDING,
+                ActiveSyncDevice.blocked_by_admin.is_(False),
+            )
+            .all()
+        )
+    skipped_not_pending = len(freeze) - len({d.device_id for d in to_approve})
     approved_now = 0
-    for device in preview["pending"]:
-        # Never overwrite an admin lock or an existing decision beyond pending.
+    for device in to_approve:
+        # Defense in depth — status may race between query and write.
         if device.blocked_by_admin or device.status != ACTIVESYNC_DEVICE_PENDING:
             continue
         device.status = ACTIVESYNC_DEVICE_APPROVED
@@ -866,6 +909,18 @@ def enable_device_control(
         device.decided_at = _utcnow()
         device.decision_note = None
         approved_now += 1
+
+    db.flush()
+    # Pending that remain after the intersection pass (late arrivals / not in freeze).
+    left_pending = (
+        db.query(ActiveSyncDevice)
+        .filter(
+            ActiveSyncDevice.application_id == app.id,
+            ActiveSyncDevice.status == ACTIVESYNC_DEVICE_PENDING,
+            ActiveSyncDevice.blocked_by_admin.is_(False),
+        )
+        .count()
+    )
     now = _utcnow()
     app.activesync_device_control = True
     app.activesync_device_control_enabled_at = now
@@ -878,6 +933,9 @@ def enable_device_control(
         details={
             "application_id": app.id,
             "approved_from_pending": approved_now,
+            "freeze_count": len(freeze),
+            "left_pending": left_pending,
+            "skipped_not_pending": skipped_not_pending,
             "already_approved": preview["approved_count"],
             "blocked_left": preview["blocked_count"],
             "rejected_left": preview["rejected_count"],
@@ -889,6 +947,9 @@ def enable_device_control(
         "approved_from_pending": approved_now,
         "already_approved": preview["approved_count"],
         "inventory_total": preview["total"],
+        "left_pending": left_pending,
+        "freeze_count": len(freeze),
+        "skipped_not_pending": skipped_not_pending,
     }
 
 

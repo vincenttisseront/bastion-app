@@ -26,6 +26,8 @@ La documentation structurée pour publication dans Wiki.js vit dans
 | [`admin-logs-live-and-containers.md`](./admin-logs-live-and-containers.md) | Logs admin |
 | [`bff-oidc-native-session.md`](./bff-oidc-native-session.md) | Session OIDC native |
 | [`migrations.md`](./migrations.md) | Alembic |
+| [`activesync-devices-inventaire-approbation-user.md`](./activesync-devices-inventaire-approbation-user.md) | ActiveSync : inventaire, gate, portail, Lot 3 clone |
+| [`activesync-bascule-grommunio-checklist.md`](./activesync-bascule-grommunio-checklist.md) | Checklist ops bascule Grommunio (§16) |
 | `audit-*.md`, `fix-ux-*.md` | Audits / suivi interne (non wiki produit) |
 
 En cas de conflit, les pages **`wikijs/`** + SDD prévalent pour le narratif produit ;
