@@ -606,6 +606,64 @@ def test_user_view_shows_reset_for_sso_only(client, db_session):
 
 
 @respx.mock
+def test_user_view_with_vault_app(client, db_session):
+    """Fiche of a user holding a vault app — the shared-access block runs.
+
+    ``build_vault_apps_for_user`` returns dicts. Jinja hides the difference by
+    falling back to item access, so only the Python side breaks, and only once
+    the user actually has an app.
+    """
+    from app.models import App
+    from app.rbac.grants_service import AccessGrantCreate, create_grant
+
+    realm = _realm(db_session)
+    app = App(
+        slug="transfer",
+        label="Transfer",
+        upstream_url="https://crush.example/",
+        robotic_driver="crushftp",
+        enabled=True,
+    )
+    db_session.add(app)
+    db_session.commit()
+    db_session.refresh(app)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id="kc-sso-1",
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "tok"})
+    respx.get(f"{KC_ADMIN}/users/kc-sso-1").respond(
+        200,
+        json={
+            "id": "kc-sso-1",
+            "username": "sso.user",
+            "email": "sso@example.com",
+            "enabled": True,
+            "requiredActions": [],
+        },
+    )
+    respx.get(url__regex=rf"{re.escape(KC_ADMIN)}/users/kc-sso-1/groups.*").respond(
+        200, json=[]
+    )
+
+    resp = client.get(
+        f"/admin/rbac/users/view?realm_id={realm.id}&keycloak_user_id=kc-sso-1",
+        headers=ADMIN_HEADERS,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "Transfer" in resp.text
+
+
+@respx.mock
 def test_verify_email_endpoint(client, db_session):
     realm = _realm(db_session)
     account = BastionAccount(

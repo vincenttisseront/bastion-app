@@ -542,13 +542,13 @@ async def admin_rbac_user_view(
         for va in vault_apps:
             row, source = get_effective_credential(
                 db,
-                va.slug,
+                va["slug"],
                 keycloak_user_id,
                 group_names=group_names or None,
             )
             detail = {
-                "app_slug": va.slug,
-                "app_label": va.label,
+                "app_slug": va["slug"],
+                "app_label": va["label"],
                 "source": source,
                 "robotic_username": getattr(row, "robotic_username", None) if row else None,
                 "priority": getattr(row, "priority", None) if row else None,
