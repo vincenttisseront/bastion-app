@@ -318,14 +318,14 @@ def build_notification_feed(
                 "severity": "info",
                 "category": "identity",
                 "title": (
-                    f"{pending_device_count} téléphone"
+                    f"{pending_device_count} appareil"
                     f"{'s' if pending_device_count > 1 else ''} "
                     f"en attente"
                 ),
                 "body": (
                     f"Dernier : {latest_d.user_key}"
                     if latest_d.user_key
-                    else "Appareils ActiveSync à approuver"
+                    else "Clients ActiveSync à approuver"
                 ),
                 "href": "/admin/pending-devices?status=pending",
                 "time": _fmt_time(latest_d.last_seen_at) if latest_d else None,

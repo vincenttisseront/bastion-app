@@ -25,6 +25,7 @@ from app.models import (
     ACTIVESYNC_DEVICE_BLOCKED,
     ACTIVESYNC_DEVICE_MAX_SAMPLE_IPS,
     ACTIVESYNC_DEVICE_PENDING,
+    ACTIVESYNC_DEVICE_REJECTED,
     ActiveSyncDevice,
     App,
     RealmConfig,
@@ -143,27 +144,231 @@ def get_device(
     db: Session, *, application_id: int, user_key: str, device_id: str
 ) -> ActiveSyncDevice | None:
     """Resolve by clean key, then by a legacy ``DOMAIN\\user`` row for the same device."""
-    device = (
-        db.query(ActiveSyncDevice)
-        .filter(
-            ActiveSyncDevice.application_id == application_id,
-            ActiveSyncDevice.user_key == user_key,
-            ActiveSyncDevice.device_id == device_id,
-        )
-        .first()
+    candidates = list_device_siblings(
+        db, application_id=application_id, device_id=device_id
     )
-    if device is not None or not user_key:
-        return device
-    # Rows written before normalize_user_key stripped the NetBIOS / UPN prefix.
+    if not candidates:
+        return None
+    exact = [d for d in candidates if d.user_key == user_key]
+    if exact:
+        return _pick_device_winner(exact)
+    if user_key:
+        legacy = [
+            d
+            for d in candidates
+            if (d.user_key or "").endswith("\\" + user_key)
+        ]
+        if legacy:
+            return _pick_device_winner(legacy)
+    return None
+
+
+def list_device_siblings(
+    db: Session, *, application_id: int, device_id: str
+) -> list[ActiveSyncDevice]:
     return (
         db.query(ActiveSyncDevice)
         .filter(
             ActiveSyncDevice.application_id == application_id,
             ActiveSyncDevice.device_id == device_id,
-            ActiveSyncDevice.user_key.endswith("\\" + user_key),
         )
-        .first()
+        .all()
     )
+
+
+_STATUS_MERGE_RANK = {
+    ACTIVESYNC_DEVICE_BLOCKED: 4,
+    ACTIVESYNC_DEVICE_APPROVED: 3,
+    ACTIVESYNC_DEVICE_REJECTED: 2,
+    ACTIVESYNC_DEVICE_PENDING: 1,
+}
+
+
+def _pick_device_winner(devices: list[ActiveSyncDevice]) -> ActiveSyncDevice:
+    return max(devices, key=_device_merge_score)
+
+
+def _device_merge_score(device: ActiveSyncDevice) -> tuple:
+    """Higher wins: admin lock, stronger status, clean key, more hits, older row."""
+    clean = 1 if "\\" not in (device.user_key or "") else 0
+    return (
+        1 if device.blocked_by_admin else 0,
+        _STATUS_MERGE_RANK.get(device.status or "", 0),
+        clean,
+        int(device.request_count or 0),
+        -(int(device.id or 0)),
+    )
+
+
+def _absorb_device_into(winner: ActiveSyncDevice, loser: ActiveSyncDevice) -> None:
+    """Fold loser stats into winner. Does not delete."""
+    winner.request_count = int(winner.request_count or 0) + int(loser.request_count or 0)
+    if loser.first_seen_at and (
+        winner.first_seen_at is None or loser.first_seen_at < winner.first_seen_at
+    ):
+        winner.first_seen_at = loser.first_seen_at
+    if loser.last_seen_at and (
+        winner.last_seen_at is None or loser.last_seen_at > winner.last_seen_at
+    ):
+        winner.last_seen_at = loser.last_seen_at
+        if loser.last_ip:
+            winner.last_ip = loser.last_ip
+    if loser.device_type and not winner.device_type:
+        winner.device_type = loser.device_type
+    if loser.user_agent and (
+        not winner.user_agent or len(loser.user_agent) > len(winner.user_agent or "")
+    ):
+        winner.user_agent = loser.user_agent
+    if loser.client_kind and not winner.client_kind:
+        winner.client_kind = loser.client_kind
+    if loser.keycloak_user_id and not winner.keycloak_user_id:
+        winner.keycloak_user_id = loser.keycloak_user_id
+    if loser.realm_id and not winner.realm_id:
+        winner.realm_id = loser.realm_id
+    if loser.friendly_name and not winner.friendly_name:
+        winner.friendly_name = loser.friendly_name
+    if loser.blocked_by_admin:
+        winner.blocked_by_admin = True
+    # Keep the stronger decision fields when the loser outranks on status.
+    if _STATUS_MERGE_RANK.get(loser.status or "", 0) > _STATUS_MERGE_RANK.get(
+        winner.status or "", 0
+    ):
+        winner.status = loser.status
+        winner.source = loser.source
+        winner.decided_by = loser.decided_by
+        winner.decided_at = loser.decided_at
+        winner.decision_note = loser.decision_note
+    elif (
+        loser.decided_by
+        and not winner.decided_by
+        and winner.status == loser.status
+    ):
+        winner.decided_by = loser.decided_by
+        winner.decided_at = loser.decided_at
+        winner.decision_note = loser.decision_note
+    merged = list(winner.sample_source_ips or [])
+    for ip in loser.sample_source_ips or []:
+        if ip and ip not in merged and len(merged) < ACTIVESYNC_DEVICE_MAX_SAMPLE_IPS:
+            merged.append(ip)
+    winner.sample_source_ips = merged
+    clean = normalize_user_key(winner.user_key) or normalize_user_key(loser.user_key)
+    if clean:
+        winner.user_key = clean
+
+
+def merge_device_duplicates(
+    db: Session, devices: list[ActiveSyncDevice]
+) -> list[ActiveSyncDevice]:
+    """One physical phone = one row. Collapse ``(application_id, device_id)`` twins.
+
+    Outlook invents ``DOMAIN\\email`` and the bare email as two keys; before
+    normalization both were inserted. Repair rewrites collide on the unique
+    constraint and leave both — the fiche then lists the same DeviceId twice.
+    """
+    if not devices:
+        return []
+    groups: dict[tuple[int, str], list[ActiveSyncDevice]] = {}
+    for device in devices:
+        groups.setdefault((device.application_id, device.device_id), []).append(device)
+
+    survivors: list[ActiveSyncDevice] = []
+    changed = False
+    for group in groups.values():
+        if len(group) == 1:
+            only = group[0]
+            clean = normalize_user_key(only.user_key)
+            if clean and clean != only.user_key:
+                only.user_key = clean
+                changed = True
+            survivors.append(only)
+            continue
+        winner = _pick_device_winner(group)
+        for loser in group:
+            if loser is winner:
+                continue
+            _absorb_device_into(winner, loser)
+            db.delete(loser)
+            changed = True
+        survivors.append(winner)
+
+    if not changed:
+        return survivors
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        logger.exception("activesync duplicate merge failed")
+        try:
+            db.rollback()
+        except SQLAlchemyError:
+            logger.exception("activesync duplicate merge rollback failed")
+        # Fall back to an in-memory dedupe so the UI never double-lists.
+        seen: set[tuple[int, str]] = set()
+        unique: list[ActiveSyncDevice] = []
+        for device in sorted(devices, key=_device_merge_score, reverse=True):
+            key = (device.application_id, device.device_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(device)
+        return unique
+    return survivors
+
+
+def collapse_siblings_for_device(
+    db: Session, *, application_id: int, device_id: str, keep: ActiveSyncDevice
+) -> ActiveSyncDevice:
+    """After a sighting, absorb any other rows for the same physical DeviceId."""
+    siblings = list_device_siblings(
+        db, application_id=application_id, device_id=device_id
+    )
+    if len(siblings) <= 1:
+        only = siblings[0] if siblings else keep
+        clean = normalize_user_key(only.user_key)
+        if clean and clean != only.user_key:
+            only.user_key = clean
+            try:
+                db.commit()
+            except SQLAlchemyError:
+                logger.exception("activesync user_key rewrite failed")
+                try:
+                    db.rollback()
+                except SQLAlchemyError:
+                    pass
+        return only
+    merged = merge_device_duplicates(db, siblings)
+    return merged[0] if merged else keep
+
+
+def reconcile_duplicate_devices(db: Session, *, limit: int = 200) -> int:
+    """Scan the inventory for twin DeviceIds and collapse them.
+
+    Needed on the pending queue: a filter on ``status=pending`` only sees the
+    dirty twin, not the already-approved clean row, so list-local merge misses.
+    """
+    from sqlalchemy import func
+
+    dup_rows = (
+        db.query(
+            ActiveSyncDevice.application_id,
+            ActiveSyncDevice.device_id,
+        )
+        .group_by(ActiveSyncDevice.application_id, ActiveSyncDevice.device_id)
+        .having(func.count(ActiveSyncDevice.id) > 1)
+        .limit(limit)
+        .all()
+    )
+    if not dup_rows:
+        return 0
+    devices: list[ActiveSyncDevice] = []
+    for application_id, device_id in dup_rows:
+        devices.extend(
+            list_device_siblings(
+                db, application_id=application_id, device_id=device_id
+            )
+        )
+    before = len(devices)
+    survivors = merge_device_duplicates(db, devices)
+    return max(0, before - len(survivors))
 
 
 def _realm_id_for_app(db: Session, app: App) -> int | None:
@@ -211,6 +416,11 @@ def record_sighting(
             client_ip=client_ip,
         )
 
+    # Collapse DOMAIN\email twins before rewriting user_key (unique constraint).
+    device = collapse_siblings_for_device(
+        db, application_id=app.id, device_id=device_id, keep=device
+    )
+
     should_write, hits, ips = _claim_sighting(key, client_ip)
     if not should_write:
         return device
@@ -244,6 +454,9 @@ def record_sighting(
             db.rollback()
         except SQLAlchemyError:
             logger.exception("activesync sighting rollback failed")
+        device = collapse_siblings_for_device(
+            db, application_id=app.id, device_id=device_id, keep=device
+        )
     return device
 
 
@@ -258,6 +471,49 @@ def _create_device(
     client_kind: str | None,
     client_ip: str | None,
 ) -> ActiveSyncDevice | None:
+    # Same physical phone under a dirty key must not become a second row.
+    siblings = list_device_siblings(
+        db, application_id=app.id, device_id=device_id
+    )
+    if siblings:
+        device = collapse_siblings_for_device(
+            db, application_id=app.id, device_id=device_id, keep=siblings[0]
+        )
+        now = _utcnow()
+        try:
+            if device.user_key != user_key:
+                device.user_key = user_key
+            device.last_seen_at = now
+            device.request_count = int(device.request_count or 0) + 1
+            if client_ip:
+                device.last_ip = client_ip
+                sample = list(device.sample_source_ips or [])
+                if (
+                    client_ip not in sample
+                    and len(sample) < ACTIVESYNC_DEVICE_MAX_SAMPLE_IPS
+                ):
+                    sample.append(client_ip)
+                    device.sample_source_ips = sample
+            if device_type:
+                device.device_type = device_type
+            if user_agent:
+                device.user_agent = user_agent[:512]
+            if client_kind:
+                device.client_kind = client_kind
+            db.commit()
+        except SQLAlchemyError:
+            logger.exception(
+                "activesync sibling sighting failed device_id=%s", device_id
+            )
+            try:
+                db.rollback()
+            except SQLAlchemyError:
+                pass
+            device = collapse_siblings_for_device(
+                db, application_id=app.id, device_id=device_id, keep=device
+            )
+        return device
+
     now = _utcnow()
     device = ActiveSyncDevice(
         application_id=app.id,
@@ -289,8 +545,22 @@ def _create_device(
             db, application_id=app.id, user_key=user_key, device_id=device_id
         )
         if existing is None:
+            # Sibling under another key form — fold instead of failing open.
+            siblings = list_device_siblings(
+                db, application_id=app.id, device_id=device_id
+            )
+            if siblings:
+                return collapse_siblings_for_device(
+                    db,
+                    application_id=app.id,
+                    device_id=device_id,
+                    keep=siblings[0],
+                )
             logger.exception("activesync device insert failed device_id=%s", device_id)
-        return existing
+            return None
+        return collapse_siblings_for_device(
+            db, application_id=app.id, device_id=device_id, keep=existing
+        )
 
     identity = describe_eas_device(
         device_id=device_id,
@@ -464,24 +734,9 @@ def admin_approve_device(
 
 def repair_domain_prefixed_user_keys(
     db: Session, devices: list[ActiveSyncDevice]
-) -> None:
-    """Rewrite ``DOMAIN\\email`` rows onto the clean email (fiche / next sighting)."""
-    changed = False
-    for device in devices:
-        clean = normalize_user_key(device.user_key)
-        if clean and clean != device.user_key:
-            device.user_key = clean
-            changed = True
-    if not changed:
-        return
-    try:
-        db.commit()
-    except SQLAlchemyError:
-        logger.exception("activesync user_key repair failed")
-        try:
-            db.rollback()
-        except SQLAlchemyError:
-            logger.exception("activesync user_key repair rollback failed")
+) -> list[ActiveSyncDevice]:
+    """Rewrite dirty keys and collapse twin DeviceIds (fiche / pending queue)."""
+    return merge_device_duplicates(db, devices)
 
 
 def link_devices_to_keycloak_user(

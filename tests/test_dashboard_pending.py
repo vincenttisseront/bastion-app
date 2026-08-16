@@ -172,8 +172,8 @@ def test_dashboard_shows_pending_devices(client, db_session):
     resp = client.get("/dashboard", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert 'href="/admin/pending-devices?status=pending"' in resp.text
-    assert "Téléphones" in resp.text
-    assert 'data-nav-label="Téléphones"' in resp.text
+    assert "Appareils" in resp.text
+    assert 'data-nav-label="Appareils"' in resp.text
 
 
 def test_pending_devices_list_and_approve(client, db_session):
@@ -205,7 +205,12 @@ def test_pending_devices_list_and_approve(client, db_session):
     listing = client.get("/admin/pending-devices?status=pending", headers=ADMIN_HEADERS)
     assert listing.status_code == 200
     assert "herve@example.com" in listing.text
-    assert "ApplPHONE1" in listing.text or "ApplPHON" in listing.text
+    assert "ApplPHONE1" in listing.text or "iPhone" in listing.text
+    assert 'id="device-drawer"' in listing.text
+    assert "data-device=" in listing.text
+    assert "pending-device-row" in listing.text
+    # Dense row: no stacked form-hints under Appareil / Utilisateur.
+    assert listing.text.count('class="form-hint"') == 0
 
     approve = client.post(
         f"/admin/activesync/devices/{device.id}/approve",

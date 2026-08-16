@@ -159,11 +159,11 @@ def test_build_daily_recap_includes_hosts_users_alerts(db_session: Session):
 
     subject, text, html_body = format_recap_email(recap)
     assert "Récap 24h" in subject
-    assert "téléphone" in subject.lower()
+    assert "appareil" in subject.lower()
     assert "new-app.example.com" in text
     assert "alice@example.com" in text
     assert "bob@example.com" in text
-    assert "Téléphones ActiveSync" in text
+    assert "Appareils ActiveSync" in text
     assert "203.0.113.9" in text
     assert "discovery-probe" not in text
     assert "new-app.example.com" in html_body

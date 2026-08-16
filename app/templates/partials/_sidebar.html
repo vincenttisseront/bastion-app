@@ -131,8 +131,8 @@
           <span class="nav-badge">{{ pending_users_count }}</span>
           {% endif %}
         </a>
-        <a href="/admin/pending-devices" class="nav-item nav-item--sub{% if path.startswith('/admin/pending-devices') %} active{% endif %}" data-nav-label="Téléphones">
-          Téléphones
+        <a href="/admin/pending-devices" class="nav-item nav-item--sub{% if path.startswith('/admin/pending-devices') %} active{% endif %}" data-nav-label="Appareils">
+          Appareils
           {% if pending_devices_count and pending_devices_count > 0 %}
           <span class="nav-badge">{{ pending_devices_count }}</span>
           {% endif %}

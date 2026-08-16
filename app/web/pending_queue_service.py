@@ -196,7 +196,7 @@ def build_pending_action_items(db: Session) -> dict[str, Any]:
             }
         )
 
-    # --- Téléphones ActiveSync ---
+    # --- Appareils ActiveSync (téléphones, tablettes, …) ---
     device_rows = (
         db.query(ActiveSyncDevice)
         .filter(ActiveSyncDevice.status == "pending")
@@ -210,15 +210,15 @@ def build_pending_action_items(db: Session) -> dict[str, Any]:
         who = latest.user_key or "—"
         rel = _fmt_relative(latest.last_seen_at)
         if n == 1:
-            summary = "1 téléphone en attente"
+            summary = "1 appareil en attente"
         else:
-            summary = f"{n} téléphones en attente"
+            summary = f"{n} appareils en attente"
         if rel:
             summary = f"{summary} ({rel})"
         items.append(
             {
                 "key": "pending_devices",
-                "label": "Téléphones",
+                "label": "Appareils",
                 "summary": summary,
                 "detail": f"Dernier : {who}",
                 "count": n,

@@ -580,6 +580,110 @@ def test_sighting_with_domain_prefix_rewrites_legacy_row(client, db_session, eas
 
 
 @respx.mock
+def test_fiche_merges_duplicate_device_id_rows(client, db_session, eas_app):
+    """Same DeviceId under email and DOMAIN\\email must collapse to one row."""
+    realm = _realm(db_session)
+    _mock_keycloak_user()
+    approved = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key="herve@example.fr",
+        device_id="FBJV9GQUIC5K",
+        device_type="iPhone",
+        status="approved",
+        source="admin",
+        decided_by="admin",
+        request_count=10,
+    )
+    pending_twin = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=r"ar-systems.fr\herve@example.fr",
+        device_id="FBJV9GQUIC5K",
+        device_type="iPhone",
+        status="pending",
+        source="observed",
+        request_count=2,
+    )
+    db_session.add_all([approved, pending_twin])
+    db_session.commit()
+
+    resp = _fiche(client, realm)
+    assert resp.status_code == 200
+    assert "Approuvé" in resp.text
+    assert "Approuver" not in resp.text
+    # One row in the devices table (tbody), not a twin DeviceId under DOMAIN\email.
+    assert resp.text.count("/admin/activesync/devices/") == 1
+
+    devices = _devices(db_session)
+    assert len(devices) == 1
+    assert devices[0].user_key == "herve@example.fr"
+    assert devices[0].status == "approved"
+    assert devices[0].request_count == 12
+
+
+def test_merge_prefers_blocked_over_approved(db_session, eas_app):
+    blocked = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key="herve@example.fr",
+        device_id="DEVBLOCK1",
+        status="blocked",
+        source="admin",
+        blocked_by_admin=True,
+        request_count=1,
+    )
+    approved = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=r"DOMAIN\herve@example.fr",
+        device_id="DEVBLOCK1",
+        status="approved",
+        source="admin",
+        request_count=5,
+    )
+    db_session.add_all([blocked, approved])
+    db_session.commit()
+
+    survivors = device_service.merge_device_duplicates(
+        db_session, [blocked, approved]
+    )
+    assert len(survivors) == 1
+    assert survivors[0].status == "blocked"
+    assert survivors[0].blocked_by_admin is True
+    assert survivors[0].user_key == "herve@example.fr"
+    assert survivors[0].request_count == 6
+    assert len(_devices(db_session)) == 1
+
+
+@respx.mock
+def test_sighting_does_not_create_twin_when_sibling_exists(client, db_session, eas_app):
+    db_session.add(
+        ActiveSyncDevice(
+            application_id=eas_app.id,
+            user_key=r"AR-SYSTEMS\herve@example.fr",
+            device_id="ApplTWIN001",
+            status="approved",
+            source="admin",
+            request_count=3,
+        )
+    )
+    db_session.commit()
+
+    resp = _sync(
+        client,
+        user="herve@example.fr",
+        uri=(
+            f"/Microsoft-Server-ActiveSync?Cmd=Ping&User={EAS_USER}"
+            "&DeviceId=ApplTWIN001&DeviceType=iPhone"
+        ),
+    )
+    assert resp.status_code == 200
+
+    devices = _devices(db_session)
+    assert len(devices) == 1
+    assert devices[0].user_key == "herve@example.fr"
+    assert devices[0].status == "approved"
+    assert devices[0].request_count >= 4
+
+
+@respx.mock
 def test_fiche_hides_the_tab_without_any_activesync_app(client, db_session):
     realm = _realm(db_session)
     _mock_keycloak_user()
