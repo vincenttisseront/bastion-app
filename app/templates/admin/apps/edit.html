@@ -16,6 +16,11 @@
       <h1 class="page-title">Modifier {{ app.label }}</h1>
       <p class="page-sub">Slug interne : <span class="mono">{{ app.slug }}</span> (non modifiable)</p>
     </div>
+    {% if app.allow_activesync %}
+    <div class="page-header-actions">
+      <a class="btn btn-secondary btn-sm" href="/admin/apps/{{ app.slug }}/activesync/devices/preview">Contrôle des appareils</a>
+    </div>
+    {% endif %}
   </div>
 
   <form method="post" action="/admin/apps/{{ app.slug }}/edit" id="app-form">
@@ -192,12 +197,13 @@
           mot de passe messagerie (Basic), pas « Se connecter avec Microsoft ».
           Journalisé (<span class="mono">activesync.allowed</span> /
           <span class="mono">activesync.denied</span>).
-          {% if app.allow_activesync %}
-          <br>
-          <a href="/admin/apps/{{ app.slug }}/activesync/devices/preview">Contrôle des appareils ActiveSync</a>
-          — prévisualiser le backfill avant d’activer le refus des inconnus.
-          {% endif %}
         </p>
+        {% if app.allow_activesync %}
+        <div class="form-group" id="activesync-device-control-entry">
+          <a class="btn btn-secondary btn-sm" href="/admin/apps/{{ app.slug }}/activesync/devices/preview">Contrôle des appareils</a>
+          <p class="form-help">Prévisualiser le backfill, puis activer le refus des appareils inconnus.</p>
+        </div>
+        {% endif %}
 
         <label class="form-check" id="upstream-tls-verify-wrap" {% if app.access_mode == 'sso_gate' %}hidden{% endif %}>
           <input type="checkbox" name="upstream_tls_verify" id="upstream_tls_verify"{% if app.upstream_tls_verify %} checked{% endif %}>
