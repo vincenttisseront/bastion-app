@@ -75,3 +75,42 @@ def test_rbac_governance_page_has_tabs_and_single_sidebar_entry(client):
     _assert_single_rbac_nav(html)
     assert 'href="/admin/rbac/governance" class="tab active"' in html
     assert "Matrice de Permissions" in html
+
+
+def test_rbac_user_view_without_params_redirects_to_users_list(client):
+    """Bare /view (e.g. rd= after breakglass) must not return raw JSON 400."""
+    resp = client.get(
+        "/admin/rbac/users/view",
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert resp.headers.get("location") == "/admin/rbac/users"
+    assert b"realm_id ou account_id" not in (resp.content or b"")
+
+
+def test_rbac_user_view_realm_only_redirects_to_users_list(client, db_session):
+    from app.models import RealmConfig
+    from app.secret_crypto import encrypt_secret
+    from app.sso_settings import get_settings
+
+    s = get_settings()
+    realm = RealmConfig(
+        slug="rd-fix",
+        name="RD Fix",
+        issuer_url="https://idp.example/realms/rd-fix",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("secret", s),
+        redirect_uri="https://portal.test/oauth2/rd-fix/callback",
+        oauth2_proxy_port=4180,
+        enabled=True,
+    )
+    db_session.add(realm)
+    db_session.commit()
+    resp = client.get(
+        f"/admin/rbac/users/view?realm_id={realm.id}",
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert resp.headers.get("location") == f"/admin/rbac/users?realm_id={realm.id}"

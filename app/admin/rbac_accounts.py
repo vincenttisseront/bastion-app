@@ -325,7 +325,9 @@ async def admin_rbac_user_view(
             keycloak_user_id = account.keycloak_user_id
 
     if realm_id is None:
-        raise HTTPException(status_code=400, detail="realm_id ou account_id requis")
+        # Incomplete URL (bookmark, session restore, or rd= after login without
+        # query params) — never dump a raw FastAPI JSON 400 to the browser.
+        return RedirectResponse(url="/admin/rbac/users", status_code=302)
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
@@ -345,9 +347,9 @@ async def admin_rbac_user_view(
         )
 
     if not keycloak_user_id and account is None:
-        raise HTTPException(
-            status_code=400,
-            detail="keycloak_user_id ou account_id requis",
+        return RedirectResponse(
+            url=f"/admin/rbac/users?realm_id={realm_id}",
+            status_code=302,
         )
 
     kc_user = None
