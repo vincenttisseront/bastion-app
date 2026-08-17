@@ -1009,3 +1009,78 @@ def test_portal_approve_csrf_ownership_and_happy_path(client, db_session, eas_ap
     assert device.source == "user"
     approved = _audit(db_session, "activesync.device_approved")
     assert approved[-1].details.get("by") == "user"
+
+def test_app_edit_shows_device_control_link_only_when_activesync(client, db_session, eas_app):
+    preview_href = f"/admin/apps/{eas_app.slug}/activesync/devices/preview"
+    on = client.get(f"/admin/apps/{eas_app.slug}/edit", headers=ADMIN_HEADERS)
+    assert on.status_code == 200
+    assert 'class="page-header-actions"' in on.text
+    assert 'id="activesync-device-control-entry"' in on.text
+    assert on.text.count(preview_href) >= 2
+
+    eas_app.allow_activesync = False
+    db_session.commit()
+    off = client.get(f"/admin/apps/{eas_app.slug}/edit", headers=ADMIN_HEADERS)
+    assert off.status_code == 200
+    assert 'id="activesync-device-control-entry"' not in off.text
+    assert preview_href not in off.text
+
+
+def test_device_control_preview_is_app_scoped_and_lists_inventory(
+    client, db_session, eas_app
+):
+    pending = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key=EAS_USER,
+        device_id="PREVIEWIPHONE1",
+        device_type="iPhone",
+        status="pending",
+        source="observed",
+        request_count=4,
+    )
+    approved = ActiveSyncDevice(
+        application_id=eas_app.id,
+        user_key="vincent@example.fr",
+        device_id="PREVIEWIPHONE2",
+        device_type="iPhone",
+        status="approved",
+        source="admin",
+        request_count=9,
+    )
+    db_session.add_all([pending, approved])
+    db_session.commit()
+
+    page = client.get(
+        f"/admin/apps/{eas_app.slug}/activesync/devices/preview",
+        headers=ADMIN_HEADERS,
+    )
+    assert page.status_code == 200
+    assert 'class="page"' in page.text
+    assert "data-table" in page.text
+    assert EAS_USER in page.text
+    assert "vincent@example.fr" in page.text
+    assert "sera approuvé" in page.text
+    assert "Contrôle inactif" in page.text
+
+
+def test_device_control_preview_redirects_when_activesync_off(client, db_session, eas_app):
+    eas_app.allow_activesync = False
+    db_session.commit()
+    edit_url = f"/admin/apps/{eas_app.slug}/edit"
+    preview = client.get(
+        f"/admin/apps/{eas_app.slug}/activesync/devices/preview",
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert preview.status_code == 302
+    assert preview.headers.get("location") == edit_url
+    enable = client.post(
+        f"/admin/apps/{eas_app.slug}/activesync/devices/enable",
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert enable.status_code == 302
+    assert enable.headers.get("location") == edit_url
+    db_session.refresh(eas_app)
+    assert eas_app.activesync_device_control is not True
+

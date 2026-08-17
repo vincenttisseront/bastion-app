@@ -184,6 +184,18 @@ def _fmt_short_dt(value) -> str:
         return str(value)[:16]
 
 
+def _inventory_seen_key(row: dict):
+    """Sort key that never mixes datetime with 0 (TypeError on Py3)."""
+    from datetime import datetime, timezone
+
+    seen = row.get("first_seen_at")
+    if seen is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    if getattr(seen, "tzinfo", None) is None:
+        return seen.replace(tzinfo=timezone.utc)
+    return seen
+
+
 def _drawer_payload(row: dict) -> dict:
     """JSON-safe fields for the right-hand detail drawer."""
     return {
@@ -333,6 +345,21 @@ def _app_or_404(db: Session, slug: str) -> App:
     return app
 
 
+def _redirect_unless_activesync(app: App, settings: Settings) -> RedirectResponse | None:
+    """Device-control UI exists only on apps that actually proxy EAS."""
+    if app.allow_activesync:
+        return None
+    dest = f"/admin/apps/{app.slug}/edit"
+    response = RedirectResponse(url=dest, status_code=302)
+    flash_redirect(
+        response,
+        "Le contrôle des appareils n’est disponible que si ActiveSync est activé sur cette application.",
+        "error",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
 def _utcnow_days_since(when) -> int:
     from datetime import datetime, timezone
 
@@ -354,7 +381,21 @@ def admin_activesync_control_preview(
 ):
     """Simulate backfill + gate arming — does not change anything until confirm."""
     app = _app_or_404(db, slug)
+    blocked = _redirect_unless_activesync(app, settings)
+    if blocked is not None:
+        return blocked
     preview = device_service.preview_device_control(db, app)
+    inventory = []
+    for device in (
+        preview["pending"]
+        + preview["approved"]
+        + preview["blocked"]
+        + preview["rejected"]
+    ):
+        row = serialize_device(device, app)
+        row["first_seen_label"] = _fmt_short_dt(device.first_seen_at)
+        inventory.append(row)
+    inventory.sort(key=_inventory_seen_key)
     return render(
         "admin/activesync/control_preview.html",
         **base_template_context(
@@ -363,6 +404,7 @@ def admin_activesync_control_preview(
             APP_VERSION,
             app=app,
             preview=preview,
+            inventory=inventory,
             inventory_days=(
                 _utcnow_days_since(preview["inventory_since"])
                 if preview.get("inventory_since")
@@ -380,6 +422,9 @@ def admin_activesync_control_enable(
     user=Depends(require_admin),
 ):
     app = _app_or_404(db, slug)
+    blocked = _redirect_unless_activesync(app, settings)
+    if blocked is not None:
+        return blocked
     secret = settings.vault_portal_internal_token or "dev"
     dest = f"/admin/apps/{slug}/activesync/devices/preview"
     response = RedirectResponse(url=dest, status_code=302)
@@ -408,6 +453,9 @@ def admin_activesync_control_disable(
     user=Depends(require_admin),
 ):
     app = _app_or_404(db, slug)
+    blocked = _redirect_unless_activesync(app, settings)
+    if blocked is not None:
+        return blocked
     secret = settings.vault_portal_internal_token or "dev"
     dest = f"/admin/apps/{slug}/activesync/devices/preview"
     response = RedirectResponse(url=dest, status_code=302)
