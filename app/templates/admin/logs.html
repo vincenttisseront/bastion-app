@@ -212,7 +212,6 @@
               {% elif c == 'action' %}
                 <span class="audit-action-cell" title="{{ e.action }}{% if e.event_title_fr %} — {{ e.event_title_fr }}{% endif %}">
                   <code>{{ e.action }}</code>
-                  {% if e.event_title_fr %}<span class="audit-action-title">{{ e.event_title_fr }}</span>{% endif %}
                 </span>
               {% elif c == 'ip' %}{{ e.ip_address or "—" }}
               {% elif c == 'result' %}
@@ -260,18 +259,14 @@
           {% endfor %}
         </tbody>
       </table>
-    </div>
-
     {% if total_pages > 1 %}
-    <div class="logs-toolbar" id="audit-pagination">
-      {% if page > 1 %}
-      <a class="btn btn-secondary btn-sm" id="page-prev" href="#">← Précédent</a>
-      {% endif %}
-      <span>Page {{ page }} / {{ total_pages }}</span>
-      {% if page < total_pages %}
-      <a class="btn btn-secondary btn-sm" id="page-next" href="#">Suivant →</a>
-      {% endif %}
-    </div>
+    <nav class="logs-pager" id="audit-pagination" aria-label="Pagination des journaux">
+      <a class="btn btn-ghost btn-sm logs-pager-btn{% if page <= 1 %} is-disabled{% endif %}"
+         id="page-prev" href="#" aria-label="Page précédente"{% if page <= 1 %} aria-disabled="true"{% endif %}>←</a>
+      <span class="logs-pager-status">{{ page }} / {{ total_pages }}</span>
+      <a class="btn btn-ghost btn-sm logs-pager-btn{% if page >= total_pages %} is-disabled{% endif %}"
+         id="page-next" href="#" aria-label="Page suivante"{% if page >= total_pages %} aria-disabled="true"{% endif %}>→</a>
+    </nav>
     {% endif %}
   </div>
 
@@ -780,9 +775,7 @@
     if (c === 'action') {
       var title = e.action + (e.event_title_fr ? (' — ' + e.event_title_fr) : '');
       return '<span class="audit-action-cell" title="' + esc(title) + '">' +
-        '<code>' + esc(e.action) + '</code>' +
-        (e.event_title_fr ? '<span class="audit-action-title">' + esc(e.event_title_fr) + '</span>' : '') +
-        '</span>';
+        '<code>' + esc(e.action) + '</code></span>';
     }
     if (c === 'ip') return esc(e.ip_address || '—');
     if (c === 'result') return statusHtml(e);
