@@ -273,13 +273,17 @@ def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
         paths[path.name] = str(path)
 
     # Status snapshot for the admin UI (effective generated config).
+    active_exclusions = [e for e in exclusions if e.active]
     status = {
         "mode": profile.mode if profile.mode in VALID_MODES else MODE_ON,
         "anomaly_threshold": clamp_anomaly_threshold(profile.anomaly_threshold),
         "profile_name": profile.name,
         "ip_deny_count": len(ips),
         "ip_deny_min_occurrences": min_occ,
-        "exclusion_count": sum(1 for e in exclusions if e.active),
+        "exclusion_count": len(active_exclusions),
+        "exclusion_rule_ids": sorted(
+            int(e.crs_rule_id) for e in active_exclusions if e.crs_rule_id is not None
+        ),
         "portal_login_rate": int(profile.portal_login_rate or 3),
         "portal_api_rate": int(profile.portal_api_rate or 30),
         "portal_login_burst": int(profile.portal_login_burst or 5),

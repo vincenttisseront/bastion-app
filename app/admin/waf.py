@@ -8,12 +8,8 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from app.bastion.nginx_waf_export import (
-    ANOMALY_MAX,
-    ANOMALY_MIN,
-    VALID_MODES,
-    read_effective_status,
-)
+from app.bastion.nginx_waf_export import ANOMALY_MAX, ANOMALY_MIN, VALID_MODES
+from app.bastion.nginx_waf_reality import build_waf_ui_context
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.security.waf import service as waf_service
@@ -45,6 +41,8 @@ def admin_waf_page(
     settings: Settings = Depends(get_settings),
 ):
     profile = waf_service.ensure_active_profile(db)
+    exclusions = waf_service.list_exclusions(db)
+    waf_status = build_waf_ui_context(db, settings, profile, exclusions)
     return render(
         "admin/waf.html",
         **_ctx(
@@ -52,15 +50,11 @@ def admin_waf_page(
             settings,
             profile=profile,
             profiles=waf_service.list_profiles(db),
-            exclusions=waf_service.list_exclusions(db),
-            effective=read_effective_status(settings),
+            exclusions=exclusions,
             anomaly_min=ANOMALY_MIN,
             anomaly_max=ANOMALY_MAX,
             valid_modes=sorted(VALID_MODES),
-            security_headers_note=(
-                "HSTS / XFO / nosniff / Referrer / Permissions — toujours actifs "
-                "(security-headers.conf sur :443). Contrôle expert / CSP hors de ce commit."
-            ),
+            **waf_status,
         ),
     )
 
