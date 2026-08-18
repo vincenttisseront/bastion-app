@@ -886,6 +886,20 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
   .logs-filters-footer{width:100%;justify-content:space-between}
 }
 .logs-table-wrap{padding:0;overflow-x:auto}
+.logs-pager{
+  display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-1);
+  padding:var(--sp-2) var(--sp-3);
+  border-top:1px solid var(--border-muted);
+  background:var(--bg-card);
+}
+.logs-pager-status{
+  min-width:3.5rem;text-align:center;
+  font-size:var(--fs-xs);font-weight:600;color:var(--text-3);
+  font-variant-numeric:tabular-nums;letter-spacing:.04em;
+}
+.logs-pager-btn.is-disabled,.logs-pager-btn[aria-disabled="true"]{
+  opacity:.35;pointer-events:none;
+}
 .logs-table-wrap .data-table{table-layout:auto;width:max-content;min-width:100%}
 .logs-table-wrap .data-table tbody tr{cursor:pointer}
 .logs-table-wrap .data-table tbody tr.is-selected{background:var(--accent-muted)}
@@ -897,15 +911,11 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 }
 .logs-table-wrap .data-table td.font-mono{max-width:13.5rem}
 .logs-table-wrap .data-table .audit-action-cell{
-  display:inline-flex;align-items:baseline;gap:0.4rem;max-width:22rem;
+  display:inline-flex;align-items:baseline;gap:0.4rem;max-width:18rem;
   overflow:hidden;
 }
 .logs-table-wrap .data-table .audit-action-cell code{
   flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;
-}
-.logs-table-wrap .data-table .audit-action-title{
-  flex:0 1 auto;font-size:var(--fs-xs);color:var(--text-3);
-  overflow:hidden;text-overflow:ellipsis;max-width:12rem;
 }
 .logs-table-wrap .data-table .audit-result-cell{
   display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap;
@@ -917,7 +927,7 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
   display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom;
 }
 .logs-table-wrap .data-table td.audit-col-actor{max-width:14rem}
-.logs-table-wrap .data-table td.audit-col-action{max-width:24rem}
+.logs-table-wrap .data-table td.audit-col-action{max-width:16rem}
 .logs-table-wrap .data-table td.audit-col-result,
 .logs-table-wrap .data-table td.audit-col-code{max-width:none;overflow:visible}
 .logs-col-menu{position:relative}

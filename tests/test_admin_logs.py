@@ -50,6 +50,41 @@ def test_logs_shows_integrity_and_exports(client: TestClient):
     assert "/admin/logs" in (audit_redirect.headers.get("location") or "")
 
 
+def test_logs_table_hides_french_action_title(client: TestClient, db_session: Session):
+    log_action(
+        db_session,
+        actor="anonymous",
+        action="access_denied_unknown_host",
+        target="vmapps-mail01.ar-systems.fr",
+        details={"status": "error"},
+    )
+    resp = client.get(
+        "/admin/logs?action=access_denied_unknown_host", headers=ADMIN_HEADERS
+    )
+    assert resp.status_code == 200
+    assert "<code>access_denied_unknown_host</code>" in resp.text
+    assert "audit-action-title" not in resp.text
+
+
+def test_logs_pager_renders_when_multiple_pages(client: TestClient, db_session: Session):
+    db_session.add_all(
+        [
+            AuditLog(
+                actor="anon@ex.com",
+                action="pager.noise",
+                details={"status": "error"},
+            )
+            for _ in range(51)
+        ]
+    )
+    db_session.commit()
+    resp = client.get("/admin/logs?action=pager.noise", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert 'class="logs-pager"' in resp.text
+    assert "1 / 2" in resp.text
+    assert "Suivant →" not in resp.text
+
+
 def test_logs_filter_by_action_and_actor(client: TestClient, db_session: Session):
     log_action(db_session, actor="alice@ex.com", action="realm.test", target="r1", details={"status": "ok"})
     log_action(db_session, actor="bob@ex.com", action="health.probe", target="app", details={"status": "warn"})
