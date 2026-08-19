@@ -175,6 +175,38 @@ def test_waf_page_anti_bruteforce_is_link(client: TestClient, db_session: Sessio
     assert 'href="/admin/security#banning"' in resp.text
 
 
+def test_waf_page_last_apply_unknown_when_legacy_export(
+    client: TestClient, db_session: Session
+):
+    _seed_profile(db_session)
+    _write_export_status(mode=MODE_ON, include_exclusion_ids=False)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert "waf-last-apply" in resp.text
+    assert "inconnu" in resp.text.lower() or "antérieur" in resp.text.lower()
+
+
+def test_waf_page_last_apply_shown_when_stamped(
+    client: TestClient, db_session: Session
+):
+    from app.bastion.nginx_waf_export import record_waf_apply_metadata
+    from app.sso_settings import Settings
+
+    _seed_profile(db_session)
+    _write_export_status(mode=MODE_ON)
+    record_waf_apply_metadata(
+        Settings(environment="test", database_url="sqlite://"),
+        actor="admin@example.com",
+        nginx_t_ok=True,
+        nginx_t_detail="nginx -t ok",
+    )
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert "Dernier Appliquer réussi" in resp.text
+    assert "admin@example.com" in resp.text
+    assert "nginx -t OK" in resp.text
+
+
 def test_waf_threshold_rejected_out_of_bounds(client: TestClient, db_session: Session):
     _seed_profile(db_session)
     resp = client.post(

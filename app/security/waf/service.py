@@ -19,6 +19,7 @@ from app.bastion.nginx_waf_export import (
     ensure_active_profile,
     get_active_profile,
     read_effective_status,
+    record_waf_apply_metadata,
 )
 from app.models import WafExclusion, WafProfile
 from app.sso_settings import Settings
@@ -236,6 +237,13 @@ def apply_waf(
 ) -> dict[str, Any]:
     ensure_active_profile(db)
     result = apply_waf_exports(db, settings, validate=validate)
+    if result.get("ok"):
+        record_waf_apply_metadata(
+            settings,
+            actor=actor,
+            nginx_t_ok=True,
+            nginx_t_detail=result.get("validate_detail") or "nginx -t ok",
+        )
     log_action(
         db,
         actor=actor,

@@ -195,6 +195,10 @@ Ces trois couches **peuvent diverger** :
   des marqueurs « non appliqué en nginx » sur mode et seuil.
 - **Rate limits / IP deny / exclusions UI** : poussés par **Appliquer** ; le badge
   **En attente** / **Appliqué** compare DB vs export champ par champ.
+- **Dernier Appliquer** : depuis le lot 2, `waf-effective-status.json` enregistre
+  `last_apply_at`, `last_apply_by`, `last_apply_nginx_t_ok` et `last_apply_nginx_t_detail`
+  (uniquement après un Appliquer WAF réussi). Les exports antérieurs n'ont que la date
+  de dernière écriture du fichier (`export_file_mtime`).
 
 Le bandeau disparaît automatiquement lorsque le moteur nginx rejoint le mode enregistré
 (réactivation ops — voir runbook, pas via un simple Appliquer IHM tant que les includes

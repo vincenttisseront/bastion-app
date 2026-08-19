@@ -1305,6 +1305,8 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 @media(min-width:960px){.waf-status-columns{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .waf-status-col-title{font-size:var(--fs-sm);font-weight:600;margin:0 0 var(--sp-2);text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
 .waf-source-disclaimer{margin-bottom:var(--sp-3);font-size:var(--fs-sm)}
+.waf-last-apply{margin-bottom:var(--sp-4);font-size:var(--fs-sm)}
+.waf-last-apply-detail{margin:var(--sp-2) 0 0}
 .waf-not-applied{font-size:var(--fs-xs);vertical-align:middle;margin-left:var(--sp-1)}
 .waf-family-details{margin-top:var(--sp-3);font-size:var(--fs-sm)}
 .banning-global-status{margin-bottom:var(--sp-3)}

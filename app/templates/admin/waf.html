@@ -85,6 +85,31 @@
       </div>
     </div>
     <div class="form-body">
+      {% if generated.present %}
+      <div class="waf-last-apply {% if generated.last_apply_at %}alert alert-ok{% else %}alert alert-warn{% endif %}" role="status">
+        {% if generated.last_apply_at %}
+        <strong>Dernier Appliquer réussi</strong>
+        · <span class="mono">{{ generated.last_apply_at }}</span>
+        · par <span class="mono">{{ generated.last_apply_by or '—' }}</span>
+        {% if generated.last_apply_nginx_t_ok %}
+        <span class="badge badge-ok">nginx -t OK</span>
+        {% else %}
+        <span class="badge badge-err">nginx -t échec</span>
+        {% endif %}
+        {% if generated.last_apply_nginx_t_detail %}
+        <p class="form-help mono waf-last-apply-detail">{{ generated.last_apply_nginx_t_detail }}</p>
+        {% endif %}
+        {% else %}
+        <strong>Dernier Appliquer</strong> : inconnu (export antérieur à l'horodatage IHM — auteur et nginx -t non enregistrés).
+        {% if generated.export_file_mtime %}
+        Dernière écriture du fichier :
+        <span class="mono">{{ generated.export_file_mtime }}</span>
+        (peut être un export catalogue, pas forcément un Appliquer WAF).
+        {% endif %}
+        {% endif %}
+      </div>
+      {% endif %}
+
       <div class="waf-status-columns">
         <div class="waf-status-col">
           <h3 class="waf-status-col-title">Souhaité (DB)</h3>
