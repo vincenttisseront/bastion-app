@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Protection web{% endblock %}
+{% block breadcrumb %}Admin / Sécurité / Protection web{% endblock %}
+
+{% block content %}
+<div class="page" id="protection-page">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Protection web</h1>
+      <p class="page-sub">Bilan de la protection du portail et du trafic applicatif (lecture seule).</p>
+    </div>
+    <div class="page-header-actions">
+      <a href="/admin/security#banning" class="btn btn-ghost btn-sm waf-link-btn">
+        Règles anti-bruteforce
+      </a>
+      <a href="/admin/security/waf" class="btn btn-secondary btn-sm">
+        Configurer le WAF →
+      </a>
+    </div>
+  </div>
+
+  {% include "admin/_protection_dashboard.html" %}
+</div>
+{% endblock %}

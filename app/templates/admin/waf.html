@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Protection web{% endblock %}
+{% block title %}WAF — Configuration{% endblock %}
 {% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
 
 {% block content %}
@@ -14,17 +14,14 @@
   'off': 'Off'
 } %}
 {% set headers_panel = security_headers_panel %}
-{% set v = verdict %}
+{% set status_line = protection_status_line %}
 <div class="page" id="waf-page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Protection web</h1>
-      <p class="page-sub">Vue d'ensemble de la protection du portail et du trafic applicatif.</p>
+      <h1 class="page-title">WAF — Configuration</h1>
+      <p class="page-sub">Profil ModSecurity/CRS, exclusions et paramètres nginx (usage expert).</p>
     </div>
     <div class="page-header-actions waf-header-actions">
-      <a href="/admin/security#banning" class="btn btn-ghost btn-sm waf-link-btn">
-        Règles anti-bruteforce
-      </a>
       {% if export_pending %}
       <span class="badge badge-warn">En attente</span>
       {% else %}
@@ -39,6 +36,11 @@
     </div>
   </div>
 
+  <div class="alert {{ status_line.css }} waf-status-line" role="status">
+    <span>{{ status_line.text }}</span>
+    <a href="{{ status_line.href }}" class="btn btn-ghost btn-sm">Voir le bilan →</a>
+  </div>
+
   {% if export_pending and pending_diffs %}
   <div class="alert alert-warn waf-pending-alert">
     <strong>Changements non poussés vers nginx</strong>
@@ -50,120 +52,6 @@
   </div>
   {% endif %}
 
-  {# —— Verdict —— #}
-  <div class="alert {{ v.css }} waf-verdict" role="status">
-    <strong>{{ v.title }}</strong>
-    <p class="waf-verdict-message">{{ v.message }}</p>
-    {% if v.action_label %}
-    <p class="waf-verdict-action">
-      {% if v.action_apply %}
-      <button type="submit" form="waf-apply-form" class="btn btn-sm btn-primary">{{ v.action_label }}</button>
-      {% elif v.action_href %}
-      <a href="{{ v.action_href }}" class="btn btn-sm btn-secondary">{{ v.action_label }}</a>
-      {% endif %}
-      {% if v.action_hint %}
-      <span class="form-help muted">({{ v.action_hint }})</span>
-      {% endif %}
-    </p>
-    {% endif %}
-  </div>
-
-  {# —— Couches de protection —— #}
-  <div class="form-section">
-    <div class="form-section-header">
-      <div class="form-section-title">Ce qui vous protège aujourd'hui</div>
-    </div>
-    <div class="form-body">
-      <div class="data-table-wrapper">
-        <table class="data-table data-table-compact">
-          <thead>
-            <tr><th>Couche</th><th>État</th><th>Détail</th></tr>
-          </thead>
-          <tbody>
-            {% for layer in protection_layers %}
-            <tr{% if layer.alert %} class="waf-layer-alert"{% endif %}>
-              <td>{{ layer.name }}</td>
-              <td><span class="badge {{ layer.css }}">{{ layer.state }}</span></td>
-              <td>{{ layer.detail }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  {# —— Efficacité —— #}
-  <div class="form-section">
-    <div class="form-section-header">
-      <div class="form-section-title">Efficacité</div>
-      <div class="form-section-sub">Fenêtre glissante — compteurs pré-calculés (pas de lecture directe des logs à l'affichage).</div>
-    </div>
-    <div class="form-body">
-      {% if efficiency.present %}
-      <div class="wizard-summary-grid waf-efficiency-grid">
-        <div class="wizard-summary-item">
-          <span class="wizard-summary-label">Requêtes inspectées (24 h)</span>
-          <span class="wizard-summary-value mono">{{ efficiency.inspected }}</span>
-        </div>
-        <div class="wizard-summary-item">
-          <span class="wizard-summary-label">Détections (24 h)</span>
-          <span class="wizard-summary-value mono">{{ efficiency.detections }}</span>
-        </div>
-        <div class="wizard-summary-item">
-          <span class="wizard-summary-label">Blocages (24 h)</span>
-          <span class="wizard-summary-value mono">{{ efficiency.blocks }}</span>
-        </div>
-        <div class="wizard-summary-item">
-          <span class="wizard-summary-label">Taux de blocage</span>
-          <span class="wizard-summary-value mono">{{ efficiency.block_rate_pct }} %</span>
-        </div>
-      </div>
-      {% if efficiency.zero_explanation %}
-      <div class="alert alert-warn">{{ efficiency.zero_explanation }}</div>
-      {% endif %}
-      {% if efficiency.top_rules %}
-      <h4 class="waf-subheading">Top règles CRS (24 h)</h4>
-      <div class="data-table-wrapper">
-        <table class="data-table data-table-compact">
-          <thead><tr><th>Règle</th><th>Libellé</th><th>Nombre</th></tr></thead>
-          <tbody>
-            {% for r in efficiency.top_rules %}
-            <tr>
-              <td class="mono">{{ r.rule_id }}</td>
-              <td>{{ r.label }}</td>
-              <td class="mono">{{ r.count }}</td>
-            </tr>
-            {% else %}
-            <tr><td colspan="3" class="muted">Aucune détection sur la période</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% endif %}
-      {% if efficiency.top_hosts %}
-      <h4 class="waf-subheading">Top hôtes (24 h)</h4>
-      <ul class="waf-top-hosts">
-        {% for h in efficiency.top_hosts %}
-        <li><span class="mono">{{ h.host }}</span> — {{ h.count }}</li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-      {% if efficiency_7d.present %}
-      <p class="form-help muted">
-        7 jours : {{ efficiency_7d.inspected }} inspectées ·
-        {{ efficiency_7d.detections }} détections ·
-        {{ efficiency_7d.blocks }} blocages
-        {% if efficiency.generated_at %} · agrégé {{ efficiency.generated_at }}{% endif %}
-      </p>
-      {% endif %}
-      {% else %}
-      <div class="alert alert-warn">{{ efficiency.message or "Données d'efficacité indisponibles." }}</div>
-      {% endif %}
-    </div>
-  </div>
-
-  {# —— Détails techniques (replié) —— #}
   <details class="form-section waf-technical-details" id="technical-details">
     <summary class="form-section-header waf-technical-summary">
       <span class="form-section-title">Détails techniques</span>
@@ -238,7 +126,6 @@
     <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">En-têtes</a>
   </div>
 
-  {# —— Profil —— #}
   <div class="form-section waf-panel" id="profile" role="tabpanel" aria-labelledby="tab-profile">
     <div class="form-section-header">
       <div class="form-section-title">Profil actif</div>
@@ -288,7 +175,6 @@
     </div>
   </div>
 
-  {# —— Exclusions —— #}
   <div class="form-section waf-panel" id="exclusions" role="tabpanel" aria-labelledby="tab-exclusions" hidden>
     <div class="form-section-header">
       <div class="form-section-title">Exclusions CRS</div>
@@ -325,7 +211,6 @@
     </div>
   </div>
 
-  {# —— En-têtes —— #}
   <div class="form-section waf-panel" id="headers" role="tabpanel" aria-labelledby="tab-headers" hidden>
     <div class="form-section-header">
       <div class="form-section-title">En-têtes de sécurité</div>
@@ -354,6 +239,11 @@
 {% block scripts %}
 <script>
 (function () {
+  if (location.hash === '#status') {
+    location.replace('/admin/security/protection');
+    return;
+  }
+
   var VALID = ['profile', 'exclusions', 'headers'];
   var DEFAULT = 'profile';
   function currentTab() {
@@ -370,7 +260,13 @@
     });
   }
   activate(currentTab());
-  window.addEventListener('hashchange', function () { activate(currentTab()); });
+  window.addEventListener('hashchange', function () {
+    if (location.hash === '#status') {
+      location.replace('/admin/security/protection');
+      return;
+    }
+    activate(currentTab());
+  });
 
   function confirmSubmit(form, opts) {
     if (!form) return;
@@ -398,4 +294,3 @@
 })();
 </script>
 {% endblock %}
-

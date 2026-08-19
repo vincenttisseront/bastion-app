@@ -72,6 +72,7 @@ def test_efficiency_zero_explanation_when_engine_off(tmp_path: Path):
     )
     assert panel["present"] is True
     assert panel["inspected"] == 0
+    assert panel["status"] == "measured_zero"
     assert "moteur est arrêté" in (panel.get("zero_explanation") or "")
 
 

@@ -1,0 +1,128 @@
+{# Read-only protection dashboard — shared by /admin/security/protection #}
+{% set v = verdict %}
+<div class="alert {{ v.css }} waf-verdict" role="status">
+  <strong>{{ v.title }}</strong>
+  <p class="waf-verdict-message">{{ v.message }}</p>
+  {% if v.resolution %}
+  <p class="form-help waf-verdict-resolution">{{ v.resolution }}</p>
+  {% endif %}
+  {% if v.action_label %}
+  <p class="waf-verdict-action">
+    {% if v.action_apply %}
+    <a href="/admin/security/waf" class="btn btn-sm btn-primary">{{ v.action_label }}</a>
+    {% elif v.action_href %}
+    <a href="{{ v.action_href }}" class="btn btn-sm btn-secondary">{{ v.action_label }}</a>
+    {% endif %}
+    {% if v.action_hint %}
+    <span class="form-help muted">({{ v.action_hint }})</span>
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+
+<div class="form-section">
+  <div class="form-section-header">
+    <div class="form-section-title">Ce qui vous protège aujourd'hui</div>
+  </div>
+  <div class="form-body">
+    <div class="data-table-wrapper">
+      <table class="data-table data-table-compact">
+        <thead>
+          <tr><th>Couche</th><th>État</th><th>Détail</th></tr>
+        </thead>
+        <tbody>
+          {% for layer in protection_layers %}
+          <tr{% if layer.alert %} class="waf-layer-alert"{% endif %}>
+            <td>{{ layer.name }}</td>
+            <td><span class="badge {{ layer.css }}">{{ layer.state }}</span></td>
+            <td>{{ layer.detail }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="form-section">
+  <div class="form-section-header">
+    <div class="form-section-title">Efficacité</div>
+    <div class="form-section-sub">Fenêtre glissante — compteurs pré-calculés (pas de lecture directe des logs à l'affichage).</div>
+  </div>
+  <div class="form-body">
+    {% if efficiency.present %}
+    {% if efficiency.status == 'measured_zero' %}
+    <div class="alert alert-warn waf-efficiency-measured-zero" role="status">
+      <strong>Mesure effectuée — résultat nul</strong>
+      {% if efficiency.zero_explanation %}
+      <p>{{ efficiency.zero_explanation }}</p>
+      {% endif %}
+    </div>
+    {% endif %}
+    <div class="wizard-summary-grid waf-efficiency-grid">
+      <div class="wizard-summary-item">
+        <span class="wizard-summary-label">Requêtes inspectées (24 h)</span>
+        <span class="wizard-summary-value mono">{{ efficiency.inspected }}</span>
+      </div>
+      <div class="wizard-summary-item">
+        <span class="wizard-summary-label">Détections (24 h)</span>
+        <span class="wizard-summary-value mono">{{ efficiency.detections }}</span>
+      </div>
+      <div class="wizard-summary-item">
+        <span class="wizard-summary-label">Blocages (24 h)</span>
+        <span class="wizard-summary-value mono">{{ efficiency.blocks }}</span>
+      </div>
+      <div class="wizard-summary-item">
+        <span class="wizard-summary-label">Taux de blocage</span>
+        <span class="wizard-summary-value mono">{{ efficiency.block_rate_pct }} %</span>
+      </div>
+    </div>
+    {% if efficiency.status == 'ok' and efficiency.zero_explanation %}
+    <div class="alert alert-warn">{{ efficiency.zero_explanation }}</div>
+    {% endif %}
+    {% if efficiency.top_rules %}
+    <h4 class="waf-subheading">Top règles CRS (24 h)</h4>
+    <div class="data-table-wrapper">
+      <table class="data-table data-table-compact">
+        <thead><tr><th>Règle</th><th>Libellé</th><th>Nombre</th></tr></thead>
+        <tbody>
+          {% for r in efficiency.top_rules %}
+          <tr>
+            <td class="mono">{{ r.rule_id }}</td>
+            <td>{{ r.label }}</td>
+            <td class="mono">{{ r.count }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="muted">Aucune détection sur la période</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+    {% if efficiency.top_hosts %}
+    <h4 class="waf-subheading">Top hôtes (24 h)</h4>
+    <ul class="waf-top-hosts">
+      {% for h in efficiency.top_hosts %}
+      <li><span class="mono">{{ h.host }}</span> — {{ h.count }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if efficiency_7d.present %}
+    <p class="form-help muted">
+      7 jours : {{ efficiency_7d.inspected }} inspectées ·
+      {{ efficiency_7d.detections }} détections ·
+      {{ efficiency_7d.blocks }} blocages
+      {% if efficiency.generated_at %} · agrégé {{ efficiency.generated_at }}{% endif %}
+    </p>
+    {% endif %}
+    {% else %}
+    <div class="alert alert-warn waf-efficiency-unavailable" role="status">
+      <strong>Données indisponibles</strong>
+      <p>{{ efficiency.message or "Données d'efficacité indisponibles." }}</p>
+      {% if efficiency.resolution %}
+      <p class="form-help">{{ efficiency.resolution }}</p>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>

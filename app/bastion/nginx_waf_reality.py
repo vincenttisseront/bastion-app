@@ -620,6 +620,7 @@ def build_waf_ui_context(
     *,
     snapshot_path: Path | None = None,
     nginx_root: Path | None = None,
+    page: str = "dashboard",
 ) -> dict[str, Any]:
     """Bundle desired / generated / active + pending diffs for admin template."""
     desired = _profile_db_snapshot(profile, exclusions)
@@ -662,6 +663,7 @@ def build_waf_ui_context(
         active,
         headers,
         export_pending=export_pending,
+        page=page,
     )
 
     return {
@@ -677,6 +679,7 @@ def build_waf_ui_context(
         "reload_confirmed": reload_confirmed_after_apply(generated, active),
         "readability": readability,
         "verdict": readability["verdict"],
+        "protection_status_line": readability["protection_status_line"],
         "protection_layers": readability["protection_layers"],
         "efficiency": readability["efficiency"],
         "efficiency_7d": readability["efficiency_7d"],

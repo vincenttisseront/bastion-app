@@ -34,28 +34,52 @@ def _flash_secret(settings: Settings) -> str:
     return settings.vault_portal_internal_token or "dev"
 
 
+def _waf_page_context(
+    db: Session,
+    settings: Settings,
+    *,
+    page: str,
+) -> dict[str, Any]:
+    profile = waf_service.ensure_active_profile(db)
+    exclusions = waf_service.list_exclusions(db)
+    return {
+        "profile": profile,
+        "profiles": waf_service.list_profiles(db),
+        "exclusions": exclusions,
+        "anomaly_min": ANOMALY_MIN,
+        "anomaly_max": ANOMALY_MAX,
+        "valid_modes": sorted(VALID_MODES),
+        **build_waf_ui_context(db, settings, profile, exclusions, page=page),
+    }
+
+
+@router.get("/admin/security/protection")
+def admin_protection_page(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return render(
+        "admin/protection.html",
+        **_ctx(request, settings, **_waf_page_context(db, settings, page="dashboard")),
+    )
+
+
+@router.get("/admin/security/waf/status")
+def admin_waf_status_redirect():
+    """Legacy anchor /admin/security/waf#status → bilan."""
+    return RedirectResponse(url="/admin/security/protection", status_code=302)
+
+
 @router.get("/admin/security/waf")
 def admin_waf_page(
     request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    profile = waf_service.ensure_active_profile(db)
-    exclusions = waf_service.list_exclusions(db)
-    waf_status = build_waf_ui_context(db, settings, profile, exclusions)
     return render(
         "admin/waf.html",
-        **_ctx(
-            request,
-            settings,
-            profile=profile,
-            profiles=waf_service.list_profiles(db),
-            exclusions=exclusions,
-            anomaly_min=ANOMALY_MIN,
-            anomaly_max=ANOMALY_MAX,
-            valid_modes=sorted(VALID_MODES),
-            **waf_status,
-        ),
+        **_ctx(request, settings, **_waf_page_context(db, settings, page="config")),
     )
 
 
