@@ -60,6 +60,34 @@ def _rule_label(rule_id: str) -> str:
     return CRS_RULE_LABELS.get(rid, f"Règle CRS {rid}")
 
 
+def _rule_family(rule_id: str) -> str:
+    rid = str(rule_id).strip()
+    if not rid.isdigit():
+        return "autre"
+    prefix = rid[:3]
+    if prefix == "942":
+        return "sqli"
+    if prefix == "941":
+        return "xss"
+    if prefix in ("932", "933"):
+        return "rce"
+    if prefix == "930":
+        return "lfi"
+    if prefix == "913":
+        return "scanner"
+    return "autre"
+
+
+RULE_FAMILY_LABELS = {
+    "sqli": "SQLi",
+    "xss": "XSS",
+    "rce": "RCE",
+    "lfi": "LFI",
+    "scanner": "Scanner",
+    "autre": "Autre",
+}
+
+
 def _parse_audit_timestamp(raw: str | None) -> datetime | None:
     if not raw:
         return None
@@ -86,6 +114,7 @@ def _empty_bucket() -> dict[str, Any]:
         "blocks": 0,
         "rules": {},
         "hosts": {},
+        "families": {},
     }
 
 
@@ -188,6 +217,10 @@ def _merge_event_into_bucket(bucket: dict[str, Any], event: dict[str, Any]) -> N
     rules: dict[str, int] = bucket.setdefault("rules", {})
     for rid in event.get("rule_ids") or []:
         rules[rid] = int(rules.get(rid, 0)) + 1
+        if event.get("has_detection"):
+            fam = _rule_family(str(rid))
+            families: dict[str, int] = bucket.setdefault("families", {})
+            families[fam] = int(families.get(fam, 0)) + 1
     host = event.get("host") or "—"
     hosts: dict[str, int] = bucket.setdefault("hosts", {})
     hosts[host] = int(hosts.get(host, 0)) + 1
@@ -226,6 +259,18 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
         for rid, cnt in rules.most_common(TOP_N)
     ]
     top_hosts = [{"host": h, "count": cnt} for h, cnt in hosts.most_common(TOP_N)]
+    fam_counter: Counter[str] = Counter()
+    for key, bucket in hourly.items():
+        if key < cutoff_key:
+            continue
+        if not isinstance(bucket, dict):
+            continue
+        for fam, count in (bucket.get("families") or {}).items():
+            fam_counter[str(fam)] += int(count)
+    rule_families = [
+        {"family": fam, "label": RULE_FAMILY_LABELS.get(fam, fam), "count": cnt}
+        for fam, cnt in fam_counter.most_common()
+    ]
 
     return {
         "inspected": inspected,
@@ -234,7 +279,51 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
         "block_rate_pct": block_rate,
         "top_rules": top_rules,
         "top_hosts": top_hosts,
+        "rule_families": rule_families,
     }
+
+
+def _hourly_series(hourly: dict[str, Any], hours: int) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    series: list[dict[str, Any]] = []
+    for i in range(hours - 1, -1, -1):
+        dt = now - timedelta(hours=i)
+        key = _hour_key(dt)
+        bucket = hourly.get(key) or {}
+        series.append(
+            {
+                "key": key,
+                "label": dt.strftime("%Hh"),
+                "detections": int(bucket.get("detections") or 0),
+                "inspected": int(bucket.get("inspected") or 0),
+            }
+        )
+    return series
+
+
+def _daily_series(hourly: dict[str, Any], days: int) -> list[dict[str, Any]]:
+    now = datetime.now(timezone.utc)
+    series: list[dict[str, Any]] = []
+    for i in range(days - 1, -1, -1):
+        day = (now - timedelta(days=i)).date()
+        day_key = day.strftime("%Y%m%d")
+        detections = inspected = 0
+        for key, bucket in hourly.items():
+            if not str(key).startswith(day_key):
+                continue
+            if not isinstance(bucket, dict):
+                continue
+            detections += int(bucket.get("detections") or 0)
+            inspected += int(bucket.get("inspected") or 0)
+        series.append(
+            {
+                "key": day_key,
+                "label": day.strftime("%d/%m"),
+                "detections": detections,
+                "inspected": inspected,
+            }
+        )
+    return series
 
 
 def run_aggregation(settings: Settings) -> dict[str, Any]:
@@ -330,6 +419,8 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
 
     window_24h = _sum_window(hourly, 24)
     window_7d = _sum_window(hourly, 24 * 7)
+    series_24h = _hourly_series(hourly, 24)
+    series_7d = _daily_series(hourly, 7)
 
     summary = {
         "schema_version": SUMMARY_SCHEMA_VERSION,
@@ -337,12 +428,33 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
         "log_available": True,
         "log_path": str(log_path),
         "windows": {"24h": window_24h, "7d": window_7d},
+        "series": {"24h": series_24h, "7d": series_7d},
         "recent_events": list(recent[-20:]),
         "status": "ok",
         "status_message": None,
+        "aggregator": {
+            "state_path": str(state_path),
+            "summary_path": str(summary_path),
+            "log_offset": new_offset,
+            "log_size": size,
+            "log_inode": inode,
+        },
     }
     _save_json(summary_path, summary)
     return summary
+
+
+def read_aggregator_state(settings: Settings) -> dict[str, Any]:
+    path = resolve_aggregator_state_path(settings)
+    data = _load_json(path)
+    if not data:
+        return {"present": False}
+    data["present"] = True
+    data["path"] = str(path)
+    file_states = data.get("files") or {}
+    log_path = str(resolve_modsec_audit_log_path(settings))
+    data["log_file_state"] = file_states.get(log_path) or {}
+    return data
 
 
 def read_audit_summary(settings: Settings) -> dict[str, Any]:
