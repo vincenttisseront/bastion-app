@@ -15,6 +15,14 @@ from app.security.banning.service import list_active_bans, list_ban_rules, get_o
 from app.sso_settings import Settings
 
 CRS_INACTIVE_CAUSE = "Moteur ModSecurity arrêté depuis l'urgence du 2026-08-06."
+SNAPSHOT_UNAVAILABLE_RESOLUTION = (
+    "Le snapshot nginx (nginx-waf-snapshot.json) est absent ou illisible — "
+    "rebuild bastion-nginx et vérifiez le volume nginx-logs."
+)
+AGGREGATOR_UNAVAILABLE_RESOLUTION = (
+    "L'agrégateur n'a pas encore produit de résumé — vérifiez que bastion-app "
+    "tourne avec le job APScheduler (leader health probe, toutes les 5 min)."
+)
 
 
 def _count_unknown_host_refusals_24h(db: Session) -> int:
@@ -33,11 +41,38 @@ def _count_unknown_host_refusals_24h(db: Session) -> int:
         return 0
 
 
+def _verdict_action(
+    href: str | None,
+    *,
+    label: str | None,
+    apply: bool = False,
+    page: str = "dashboard",
+) -> dict[str, Any]:
+    """Map verdict actions to dashboard links or in-page anchors."""
+    if not label:
+        return {"action_label": None, "action_href": None, "action_apply": False}
+    if page == "dashboard":
+        if apply or not href:
+            return {
+                "action_label": label,
+                "action_href": "/admin/security/waf",
+                "action_apply": False,
+            }
+        if href.startswith("#"):
+            return {
+                "action_label": label,
+                "action_href": f"/admin/security/waf{href}",
+                "action_apply": False,
+            }
+    return {"action_label": label, "action_href": href, "action_apply": apply}
+
+
 def build_protection_verdict(
     profile: WafProfile,
     active: dict[str, Any],
     *,
     export_pending: bool,
+    page: str = "dashboard",
 ) -> dict[str, Any]:
     """Single admin-facing verdict from nginx reality + DB intent."""
     desired = profile.mode
@@ -49,11 +84,16 @@ def build_protection_verdict(
             "css": "alert-warn",
             "title": "État de protection : non vérifiable",
             "message": (
-                "Impossible de lire l'état réel du moteur nginx. "
-                "Les indicateurs ci-dessous peuvent être incomplets."
+                "Impossible de lire l'état réel du moteur nginx — la source de vérité "
+                "(snapshot) n'est pas disponible. Les indicateurs CRS ci-dessous restent "
+                "inconnus tant que le snapshot n'est pas produit."
             ),
-            "action_label": None,
-            "action_href": None,
+            "resolution": SNAPSHOT_UNAVAILABLE_RESOLUTION,
+            **_verdict_action(
+                "#technical-details",
+                label="Voir le diagnostic technique",
+                page=page,
+            ),
         }
 
     if real == MODE_OFF:
@@ -65,8 +105,11 @@ def build_protection_verdict(
                 "Aucune protection contre les injections (SQLi, XSS, RCE, LFI). "
                 f"{CRS_INACTIVE_CAUSE}"
             ),
-            "action_label": "Voir la procédure de réactivation",
-            "action_href": "#technical-details",
+            **_verdict_action(
+                "#technical-details",
+                label="Voir la procédure de réactivation",
+                page=page,
+            ),
             "action_hint": "docs/runbook-reactivation-crs-modsecurity.md",
         }
 
@@ -79,8 +122,7 @@ def build_protection_verdict(
                 "Les requêtes sont analysées par le CRS, mais aucune n'est bloquée "
                 "(DetectionOnly)."
             ),
-            "action_label": "Ajuster le profil",
-            "action_href": "#profile",
+            **_verdict_action("#profile", label="Ajuster le profil", page=page),
         }
 
     if desired != real or export_pending:
@@ -91,9 +133,16 @@ def build_protection_verdict(
             "message": (
                 "Ce que vous avez enregistré n'est pas ce qui tourne actuellement sur nginx."
             ),
-            "action_label": "Appliquer la configuration" if export_pending else "Vérifier le profil",
-            "action_href": "#profile" if not export_pending else None,
-            "action_apply": export_pending,
+            **_verdict_action(
+                "#profile" if not export_pending else None,
+                label=(
+                    "Appliquer la configuration"
+                    if export_pending
+                    else "Vérifier le profil"
+                ),
+                apply=export_pending,
+                page=page,
+            ),
         }
 
     if real == MODE_ON and desired == MODE_ON:
@@ -104,6 +153,7 @@ def build_protection_verdict(
             "message": "Requêtes malveillantes détectées par le CRS sont bloquées.",
             "action_label": None,
             "action_href": None,
+            "action_apply": False,
         }
 
     return {
@@ -111,8 +161,20 @@ def build_protection_verdict(
         "css": "alert-warn",
         "title": f"État nginx : {real or '—'}",
         "message": "Vérifiez l'alignement entre le profil enregistré et l'état réel.",
-        "action_label": "Voir les détails techniques",
-        "action_href": "#technical-details",
+        **_verdict_action(
+            "#technical-details",
+            label="Voir les détails techniques",
+            page=page,
+        ),
+    }
+
+
+def build_protection_status_line(verdict: dict[str, Any]) -> dict[str, Any]:
+    """One-line protection reminder for the configuration page."""
+    return {
+        "text": verdict.get("title") or "État de protection inconnu",
+        "css": verdict.get("css") or "alert-warn",
+        "href": "/admin/security/protection",
     }
 
 
@@ -146,7 +208,18 @@ def build_protection_layers(
         crs_state, crs_css = "inconnu", "badge-muted"
         crs_detail = "Non vérifiable"
 
-    header_count = len(headers_panel.get("headers") or []) if headers_panel.get("present") else 0
+    headers_verifiable = bool(active.get("verifiable") and headers_panel.get("present"))
+    if headers_verifiable:
+        header_count = len(headers_panel.get("headers") or [])
+        if header_count:
+            headers_state, headers_css = "actif", "badge-ok"
+            headers_detail = f"{header_count} en-tête(s) actif(s) sur :443"
+        else:
+            headers_state, headers_css = "aucun détecté", "badge-muted"
+            headers_detail = "0 en-tête(s) actif(s) sur :443 (mesuré)"
+    else:
+        headers_state, headers_css = "non vérifiable", "badge-muted"
+        headers_detail = SNAPSHOT_UNAVAILABLE_RESOLUTION
 
     anti_bruteforce_css = "badge-ok" if policy.enabled else "badge-err"
     anti_bruteforce_state = "actif" if policy.enabled else "désactivé (global)"
@@ -185,10 +258,10 @@ def build_protection_layers(
         },
         {
             "name": "En-têtes de sécurité",
-            "state": "actif" if header_count else "non vérifiable",
-            "css": "badge-ok" if header_count else "badge-muted",
-            "detail": f"{header_count} en-tête(s) actif(s) sur :443",
-            "alert": False,
+            "state": headers_state,
+            "css": headers_css,
+            "detail": headers_detail,
+            "alert": not headers_verifiable,
         },
         {
             "name": "Inspection CRS",
@@ -212,8 +285,11 @@ def build_efficiency_panel(
         return {
             "present": False,
             "status": "unavailable",
-            "message": summary.get("status_message")
-            or "Données d'efficacité indisponibles.",
+            "message": (
+                summary.get("status_message")
+                or "Données d'efficacité indisponibles — mesure jamais effectuée."
+            ),
+            "resolution": AGGREGATOR_UNAVAILABLE_RESOLUTION,
         }
 
     if not summary.get("log_available"):
@@ -221,6 +297,10 @@ def build_efficiency_panel(
             "present": False,
             "status": "unavailable",
             "message": "Journal d'audit ModSecurity absent — données indisponibles.",
+            "resolution": (
+                "Le fichier modsec_audit.log est absent du volume nginx-logs — "
+                "normal tant que le moteur CRS est arrêté."
+            ),
         }
 
     windows = summary.get("windows") or {}
@@ -229,7 +309,9 @@ def build_efficiency_panel(
     inspected = int(data.get("inspected") or 0)
 
     zero_explanation = None
+    status = "ok"
     if inspected == 0:
+        status = "measured_zero"
         if crs_mode == MODE_OFF:
             zero_explanation = (
                 "0 requête inspectée : le moteur est arrêté. "
@@ -237,17 +319,17 @@ def build_efficiency_panel(
             )
         elif crs_mode == MODE_DETECTION:
             zero_explanation = (
-                "Aucune inspection enregistrée sur la période — "
-                "vérifiez que l'audit ModSecurity est activé."
+                "Mesure effectuée — aucune inspection enregistrée sur la période. "
+                "Vérifiez que l'audit ModSecurity est activé."
             )
         else:
             zero_explanation = (
-                "Aucune activité CRS enregistrée sur la période sélectionnée."
+                "Mesure effectuée — aucune activité CRS enregistrée sur la période."
             )
 
     return {
         "present": True,
-        "status": "ok",
+        "status": status,
         "window": window,
         "generated_at": summary.get("generated_at"),
         "inspected": inspected,
@@ -269,13 +351,17 @@ def build_waf_readability_context(
     headers_panel: dict[str, Any],
     *,
     export_pending: bool,
+    page: str = "dashboard",
 ) -> dict[str, Any]:
-    verdict = build_protection_verdict(profile, active, export_pending=export_pending)
+    verdict = build_protection_verdict(
+        profile, active, export_pending=export_pending, page=page
+    )
     layers = build_protection_layers(db, profile, active, headers_panel)
     efficiency_24h = build_efficiency_panel(settings, active, window="24h")
     efficiency_7d = build_efficiency_panel(settings, active, window="7d")
     return {
         "verdict": verdict,
+        "protection_status_line": build_protection_status_line(verdict),
         "protection_layers": layers,
         "efficiency": efficiency_24h,
         "efficiency_7d": efficiency_7d,
