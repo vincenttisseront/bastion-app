@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -20,6 +21,52 @@ USER_HEADERS = {
     "X-Email": "alice@example.com",
     "X-Groups": "team-ops",
 }
+
+
+def _write_snapshot(path: Path, *, mode: str = MODE_OFF) -> None:
+    fam = {
+        "family": "portal",
+        "sec_rule_engine": mode,
+        "anomaly_threshold": 5,
+        "engine_mode_generated_loaded": False,
+        "crs_setup_generated_loaded": False,
+        "engine_file": "/etc/nginx/modsecurity/engine-portal.conf",
+    }
+    payload = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "nginx_version": "nginx/1.30.4",
+        "image_tag": "bastion-nginx:test",
+        "nginx_t_ok": True,
+        "families": {
+            "portal": {**fam, "family": "portal"},
+            "subdomain": {**fam, "family": "subdomain"},
+            "public": {**fam, "family": "public"},
+        },
+        "aggregate_mode": mode,
+        "aggregate_threshold": 5,
+        "engine_mode_generated_loaded": False,
+        "crs_setup_generated_loaded": False,
+        "security_headers": {
+            "path": "/etc/nginx/includes/security-headers.conf",
+            "headers": [
+                {"name": "Strict-Transport-Security", "value": "max-age=31536000"},
+            ],
+            "included_on_443": True,
+            "no_duplicate_8080": True,
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def _patch_snapshot(tmp_path: Path, *, mode: str = MODE_OFF):
+    snap = tmp_path / "nginx-waf-snapshot.json"
+    _write_snapshot(snap, mode=mode)
+    return patch(
+        "app.bastion.nginx_waf_reality.resolve_nginx_waf_snapshot_path",
+        return_value=snap,
+    )
 
 
 def _seed_profile(db_session: Session) -> None:
@@ -64,15 +111,14 @@ def test_waf_page_requires_admin(client: TestClient):
     assert resp.status_code in (302, 303, 401, 403)
 
 
-def test_waf_page_ok_as_admin(client: TestClient, db_session: Session):
+def test_waf_page_ok_as_admin(client: TestClient, db_session: Session, tmp_path: Path):
     _seed_profile(db_session)
-    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    with _patch_snapshot(tmp_path, mode=MODE_OFF):
+        resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "ModSecurity" in resp.text or "WAF" in resp.text
-    assert 'id="waf-tabs"' in resp.text
-    assert "Moteur CRS" in resp.text
-    assert "Souhaité (DB)" in resp.text
-    assert "non vérifié dans le conteneur" in resp.text
+    assert "Protection web" in resp.text
+    assert "Ce qui vous protège" in resp.text
+    assert "Souhaité (DB)" in resp.text or "Détails techniques" in resp.text
     assert 'class="form-input"' in resp.text
     assert 'class="form-select"' in resp.text
     assert "bastionConfirm" in resp.text
@@ -80,50 +126,28 @@ def test_waf_page_ok_as_admin(client: TestClient, db_session: Session):
 
 
 def test_waf_page_shows_reality_banner_when_engine_off(
-    client: TestClient, db_session: Session
+    client: TestClient, db_session: Session, tmp_path: Path
 ):
     _seed_profile(db_session)
     _write_export_status(mode=MODE_ON)
-    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    with _patch_snapshot(tmp_path, mode=MODE_OFF):
+        resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "waf-reality-banner" in resp.text
-    assert "EST PAS appliqué" in resp.text
+    assert "INACTIVE" in resp.text
+    assert "reactivation" in resp.text.lower()
     assert "non appliqué en nginx" in resp.text
 
 
-def test_waf_page_no_banner_when_engine_on_fixture(
-    client: TestClient, db_session: Session, tmp_path
+def test_waf_page_no_banner_when_engine_on_snapshot(
+    client: TestClient, db_session: Session, tmp_path: Path
 ):
     _seed_profile(db_session)
     _write_export_status(mode=MODE_ON)
-
-    mod = tmp_path / "modsecurity"
-    inc = tmp_path / "includes"
-    tpl = tmp_path / "templates"
-    mod.mkdir(parents=True)
-    inc.mkdir(parents=True)
-    tpl.mkdir(parents=True)
-    for fam in ("portal", "subdomain", "public"):
-        (mod / f"engine-{fam}.conf").write_text("SecRuleEngine On\n", encoding="utf-8")
-        (mod / f"main-{fam}.conf").write_text(
-            f"Include /etc/nginx/modsecurity/engine-{fam}.conf\n"
-            f"Include /etc/nginx/modsecurity/crs-setup.conf\n",
-            encoding="utf-8",
-        )
-    (mod / "crs-setup.conf").write_text(
-        'SecAction "id:900110,setvar:tx.inbound_anomaly_score_threshold=5"\n',
-        encoding="utf-8",
-    )
-    (inc / "security-headers.conf").write_text("", encoding="utf-8")
-    (tpl / "vhost_sso_portal.conf.template").write_text("", encoding="utf-8")
-    (tmp_path / "sync-acme-tls.sh").write_text("", encoding="utf-8")
-
-    with patch(
-        "app.bastion.nginx_waf_reality.resolve_nginx_docker_root", return_value=tmp_path
-    ):
+    with _patch_snapshot(tmp_path, mode=MODE_ON):
         resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "waf-reality-banner" not in resp.text
+    assert "Inspection ACTIVE" in resp.text
+    assert "INACTIVE" not in resp.text.split("Détails techniques")[0]
 
 
 def test_waf_page_applied_badge_when_db_matches_export(
@@ -159,19 +183,30 @@ def test_waf_page_pending_badge_after_profile_change(
     assert "waf-pending-list" in resp.text
 
 
-def test_waf_page_security_headers_tab(client: TestClient, db_session: Session):
+def test_waf_page_security_headers_tab(
+    client: TestClient, db_session: Session, tmp_path: Path
+):
     _seed_profile(db_session)
-    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    with _patch_snapshot(tmp_path, mode=MODE_OFF):
+        resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert 'data-tab="headers"' in resp.text
     assert "Strict-Transport-Security" in resp.text
-    assert "non défini — hors périmètre" in resp.text
+
+
+def test_waf_page_non_verifiable_without_snapshot(
+    client: TestClient, db_session: Session
+):
+    _seed_profile(db_session)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert "non vérifiable" in resp.text.lower() or "Non vérifiable" in resp.text
 
 
 def test_waf_page_anti_bruteforce_is_link(client: TestClient, db_session: Session):
     _seed_profile(db_session)
     resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
-    assert "Règles anti-bruteforce (Banning)" in resp.text
+    assert "R" in resp.text and "anti-bruteforce" in resp.text
     assert 'href="/admin/security#banning"' in resp.text
 
 
@@ -202,9 +237,77 @@ def test_waf_page_last_apply_shown_when_stamped(
     )
     resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "Dernier Appliquer réussi" in resp.text
+    assert "Dernier Appliquer" in resp.text
     assert "admin@example.com" in resp.text
     assert "nginx -t OK" in resp.text
+
+
+def test_waf_page_does_not_aggregate_audit_log_on_render(
+    client: TestClient, db_session: Session, tmp_path: Path
+):
+    """Page must read pre-computed summary only, never parse modsec_audit.log."""
+    _seed_profile(db_session)
+    logs = tmp_path / "nginx-logs"
+    logs.mkdir()
+    audit_log = logs / "modsec_audit.log"
+    audit_log.write_text("X" * 10_000_000, encoding="utf-8")
+    summary = {
+        "schema_version": 1,
+        "generated_at": "2026-08-19T12:00:00+00:00",
+        "log_available": True,
+        "windows": {
+            "24h": {
+                "inspected": 42,
+                "detections": 3,
+                "blocks": 1,
+                "block_rate_pct": 2.4,
+                "top_rules": [],
+                "top_hosts": [],
+            }
+        },
+    }
+    (logs / "waf-audit-summary.json").write_text(json.dumps(summary), encoding="utf-8")
+
+    def _forbid_log_read(path, *args, **kwargs):
+        if "modsec_audit.log" in str(path):
+            raise AssertionError("modsec_audit.log must not be read during page render")
+        from pathlib import Path as _Path
+
+        return _Path(path).open(*args, **kwargs)
+
+    with (
+        patch(
+            "app.bastion.modsec_audit_aggregator.resolve_modsec_audit_log_path",
+            return_value=audit_log,
+        ),
+        patch(
+            "app.bastion.modsec_audit_aggregator.resolve_audit_summary_path",
+            return_value=logs / "waf-audit-summary.json",
+        ),
+        patch("app.bastion.modsec_audit_aggregator.run_aggregation") as mock_agg,
+        patch("builtins.open", side_effect=_forbid_log_read),
+    ):
+        resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+
+    assert resp.status_code == 200
+    mock_agg.assert_not_called()
+    assert "42" in resp.text
+
+
+def test_waf_page_anti_bruteforce_alert_when_policy_disabled(
+    client: TestClient, db_session: Session
+):
+    from app.security.banning.service import get_or_create_policy
+
+    _seed_profile(db_session)
+    policy = get_or_create_policy(db_session)
+    policy.enabled = False
+    db_session.commit()
+
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert "désactivé (global)" in resp.text
+    assert 'class="badge badge-err"' in resp.text or "badge-err" in resp.text
 
 
 def test_waf_threshold_rejected_out_of_bounds(client: TestClient, db_session: Session):

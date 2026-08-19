@@ -1,15 +1,21 @@
-"""Read nginx ModSecurity / CRS files for WAF admin UI (Phase B lot 2).
+"""Read nginx ModSecurity / CRS effective state for WAF admin UI (Phase B lot 2.1).
 
-Parses the **repo build context** ``docker/nginx/`` (COPY'd into the nginx image
-at rebuild). There is **no bind mount** of that tree into ``bastion-nginx`` —
-this is not a live ``docker exec`` read of the running container.
+Production truth comes from a JSON snapshot written by ``bastion-nginx`` into the shared
+``nginx-logs`` volume (``nginx-waf-snapshot.json``). The app never reads ``docker/nginx``
+from the repo for the « réellement actif » column and never uses ``docker.sock``.
+
+Optional repo read (``BASTION_NGINX_CONF_ROOT``) is exposed separately as « Repo (intention) »
+for local dev — never as live nginx state.
 
 Never writes SecRuleEngine or include chains.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +29,11 @@ from app.bastion.nginx_waf_export import (
     read_effective_status,
 )
 from app.models import WafExclusion, WafProfile
+from app.sso_settings import Settings
 
 WAF_FAMILIES = ("portal", "subdomain", "public")
+SNAPSHOT_SCHEMA_VERSION = 1
+DEFAULT_STALE_MINUTES = 15
 
 _SEC_ENGINE_RE = re.compile(
     r"^\s*SecRuleEngine\s+(Off|On|DetectionOnly)\s*(?:#.*)?$",
@@ -47,6 +56,7 @@ _ENGINE_NORM = {
     "off": MODE_OFF,
     "on": MODE_ON,
     "detectiononly": MODE_DETECTION,
+    "detection_only": MODE_DETECTION,
 }
 
 _UNDEFINED_HEADERS = (
@@ -57,17 +67,37 @@ _UNDEFINED_HEADERS = (
 )
 
 
-def resolve_nginx_docker_root() -> Path | None:
-    """Locate ``docker/nginx`` in the git checkout (image build context, not a live mount)."""
-    here = Path(__file__).resolve()
-    candidates = [
-        here.parents[2] / "docker" / "nginx",
-        Path.cwd() / "docker" / "nginx",
-    ]
-    for root in candidates:
+def resolve_nginx_waf_snapshot_path(settings: Settings | None = None) -> Path:
+    """Absolute path to the nginx-produced WAF snapshot JSON."""
+    env = os.environ.get("BASTION_NGINX_WAF_SNAPSHOT_PATH", "").strip()
+    if env:
+        return Path(env)
+    if settings is not None:
+        logs_dir = (settings.nginx_app_logs_dir or "").strip()
+        if not logs_dir:
+            logs_dir = str(Path(settings.portal_data_dir) / "nginx-logs")
+        return Path(logs_dir) / "nginx-waf-snapshot.json"
+    return Path("/var/lib/sso-portal/nginx-logs/nginx-waf-snapshot.json")
+
+
+def resolve_nginx_conf_root() -> Path | None:
+    """Optional repo checkout root for dev « Repo (intention) » panel only."""
+    env = os.environ.get("BASTION_NGINX_CONF_ROOT", "").strip()
+    if env:
+        root = Path(env)
         if (root / "modsecurity" / "main-portal.conf").is_file():
             return root
     return None
+
+
+def snapshot_stale_minutes() -> int:
+    raw = os.environ.get("BASTION_NGINX_SNAPSHOT_STALE_MINUTES", "").strip()
+    if not raw:
+        return DEFAULT_STALE_MINUTES
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_STALE_MINUTES
 
 
 def _read_text(path: Path) -> str:
@@ -96,8 +126,30 @@ def parse_inbound_anomaly_threshold(text: str) -> int | None:
         return None
 
 
+def _parse_generated_at(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    text = raw.strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _freshness_minutes(generated_at: datetime | None) -> int | None:
+    if generated_at is None:
+        return None
+    delta = datetime.now(timezone.utc) - generated_at
+    return max(0, int(delta.total_seconds() // 60))
+
+
 def _docker_path_to_local(nginx_root: Path, docker_path: str) -> Path | None:
-    """Map ``/etc/nginx/modsecurity/...`` to files under ``docker/nginx``."""
+    """Map ``/etc/nginx/modsecurity/...`` to files under an explicit nginx conf root."""
     prefix = "/etc/nginx/modsecurity/"
     gen_prefix = "/etc/nginx/modsecurity/generated/"
     if docker_path.startswith(gen_prefix):
@@ -125,7 +177,7 @@ def _effective_engine_for_family(
     *,
     engine_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Walk main-{family}.conf include chain; last SecRuleEngine wins."""
+    """Walk main-{family}.conf include chain from an explicit repo root (dev only)."""
     main_path = nginx_root / "modsecurity" / f"main-{family}.conf"
     main_text = _read_text(main_path)
     includes = _includes_from_main(main_text)
@@ -142,7 +194,7 @@ def _effective_engine_for_family(
         local = _docker_path_to_local(nginx_root, inc)
         if local is None:
             if "engine-mode-generated.conf" in inc:
-                stub = 'SecRuleEngine Off\n'
+                stub = "SecRuleEngine Off\n"
                 if engine_overrides and family in engine_overrides:
                     stub = f"SecRuleEngine {engine_overrides[family]}\n"
                 combined += stub
@@ -174,9 +226,7 @@ def _effective_engine_for_family(
     return {
         "family": family,
         "main_conf": str(main_path) if main_path.is_file() else None,
-        "engine_file": str(
-            nginx_root / "modsecurity" / f"engine-{family}.conf"
-        ),
+        "engine_file": str(nginx_root / "modsecurity" / f"engine-{family}.conf"),
         "sec_rule_engine": mode,
         "sec_rule_engine_static": static_engine,
         "engine_source": engine_source,
@@ -187,19 +237,16 @@ def _effective_engine_for_family(
     }
 
 
-def read_nginx_waf_reality(
+def read_nginx_waf_reality_from_repo(
     *,
-    nginx_root: Path | None = None,
+    nginx_root: Path,
     engine_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    root = nginx_root or resolve_nginx_docker_root()
-    if root is None:
-        return {"present": False, "error": "docker/nginx introuvable"}
-
+    """Dev-only repo parse — never presented as live nginx state."""
     families: dict[str, dict[str, Any]] = {}
     for fam in WAF_FAMILIES:
         families[fam] = _effective_engine_for_family(
-            root, fam, engine_overrides=engine_overrides
+            nginx_root, fam, engine_overrides=engine_overrides
         )
 
     modes = {f["sec_rule_engine"] for f in families.values() if f.get("sec_rule_engine")}
@@ -213,37 +260,176 @@ def read_nginx_waf_reality(
         thresholds.pop() if len(thresholds) == 1 else ("mixed" if thresholds else None)
     )
 
-    any_engine_gen = any(
-        f.get("engine_mode_generated_loaded") for f in families.values()
-    )
-    any_crs_gen = any(f.get("crs_setup_generated_loaded") for f in families.values())
-
     return {
         "present": True,
-        "nginx_root": str(root),
-        "source_kind": "repo_build_context",
+        "verifiable": False,
+        "nginx_root": str(nginx_root),
+        "source_kind": "repo_intent",
+        "column_title": "Repo (intention)",
         "verified_in_container": False,
         "source_note": (
-            "Lu depuis docker/nginx du checkout (contexte de build de l'image), "
-            "pas depuis le filesystem du conteneur bastion-nginx. "
-            "Ces fichiers sont COPY au rebuild — pas de bind mount. "
-            "Équivalent au runtime seulement si l'image en cours a été construite "
-            "depuis ce même arbre."
+            "Lu depuis le checkout git (BASTION_NGINX_CONF_ROOT) — intention versionnée, "
+            "pas l'état du conteneur nginx."
         ),
         "families": families,
         "aggregate_mode": aggregate_mode,
         "aggregate_threshold": aggregate_threshold,
-        "engine_mode_generated_loaded": any_engine_gen,
-        "crs_setup_generated_loaded": any_crs_gen,
+        "engine_mode_generated_loaded": any(
+            f.get("engine_mode_generated_loaded") for f in families.values()
+        ),
+        "crs_setup_generated_loaded": any(
+            f.get("crs_setup_generated_loaded") for f in families.values()
+        ),
+        "freshness_minutes": None,
+        "stale": False,
+        "generated_at": None,
     }
 
 
-def read_security_headers_panel(*, nginx_root: Path | None = None) -> dict[str, Any]:
-    root = nginx_root or resolve_nginx_docker_root()
-    if root is None:
-        return {"present": False}
+def _snapshot_to_reality(data: dict[str, Any], *, path: Path) -> dict[str, Any]:
+    families_raw = data.get("families") or {}
+    families: dict[str, dict[str, Any]] = {}
+    for fam in WAF_FAMILIES:
+        entry = families_raw.get(fam)
+        if isinstance(entry, dict):
+            families[fam] = entry
 
-    headers_path = root / "includes" / "security-headers.conf"
+    generated_at = _parse_generated_at(data.get("generated_at"))
+    freshness = _freshness_minutes(generated_at)
+    stale_threshold = snapshot_stale_minutes()
+    stale = freshness is None or freshness > stale_threshold
+
+    return {
+        "present": True,
+        "verifiable": True,
+        "snapshot_path": str(path),
+        "source_kind": "nginx_container_snapshot",
+        "column_title": "Réellement actif (nginx)",
+        "verified_in_container": True,
+        "source_note": (
+            "Instantané produit par bastion-nginx (nginx -T + fichiers chargés) "
+            f"dans {path.name}."
+        ),
+        "families": families,
+        "aggregate_mode": data.get("aggregate_mode"),
+        "aggregate_threshold": data.get("aggregate_threshold"),
+        "engine_mode_generated_loaded": bool(data.get("engine_mode_generated_loaded")),
+        "crs_setup_generated_loaded": bool(data.get("crs_setup_generated_loaded")),
+        "generated_at": data.get("generated_at"),
+        "freshness_minutes": freshness,
+        "stale": stale,
+        "stale_threshold_minutes": stale_threshold,
+        "nginx_version": data.get("nginx_version"),
+        "image_tag": data.get("image_tag"),
+        "nginx_t_ok": data.get("nginx_t_ok"),
+        "schema_version": data.get("schema_version"),
+    }
+
+
+def read_nginx_waf_snapshot(
+    *,
+    snapshot_path: Path | None = None,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Read nginx-produced JSON snapshot; never falls back to repo."""
+    path = snapshot_path or resolve_nginx_waf_snapshot_path(settings)
+    if not path.is_file():
+        return {
+            "present": False,
+            "verifiable": False,
+            "source_kind": "missing_snapshot",
+            "column_title": "Réellement actif (nginx)",
+            "verified_in_container": False,
+            "snapshot_path": str(path),
+            "error": "snapshot nginx absent ou illisible",
+        }
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "present": False,
+            "verifiable": False,
+            "source_kind": "missing_snapshot",
+            "column_title": "Réellement actif (nginx)",
+            "verified_in_container": False,
+            "snapshot_path": str(path),
+            "error": f"snapshot illisible ({exc})",
+        }
+
+    if not isinstance(raw, dict):
+        return {
+            "present": False,
+            "verifiable": False,
+            "source_kind": "missing_snapshot",
+            "column_title": "Réellement actif (nginx)",
+            "snapshot_path": str(path),
+            "error": "snapshot JSON invalide",
+        }
+
+    schema = raw.get("schema_version")
+    if schema != SNAPSHOT_SCHEMA_VERSION:
+        return {
+            "present": False,
+            "verifiable": False,
+            "source_kind": "missing_snapshot",
+            "column_title": "Réellement actif (nginx)",
+            "snapshot_path": str(path),
+            "error": f"schema_version incompatible ({schema!r})",
+        }
+
+    return _snapshot_to_reality(raw, path=path)
+
+
+def read_nginx_waf_reality(
+    *,
+    settings: Settings | None = None,
+    snapshot_path: Path | None = None,
+) -> dict[str, Any]:
+    """Live nginx state via shared snapshot only (no repo fallback)."""
+    return read_nginx_waf_snapshot(snapshot_path=snapshot_path, settings=settings)
+
+
+def read_security_headers_from_snapshot(
+    reality: dict[str, Any],
+    raw_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not reality.get("verifiable"):
+        return {
+            "present": False,
+            "verifiable": False,
+            "source_kind": "missing_snapshot",
+            "source_note": "En-têtes non vérifiables — snapshot nginx absent.",
+        }
+
+    sec = (raw_snapshot or {}).get("security_headers") or {}
+    headers = sec.get("headers") or []
+    if not isinstance(headers, list):
+        headers = []
+
+    return {
+        "present": True,
+        "verifiable": True,
+        "path": sec.get("path") or "/etc/nginx/includes/security-headers.conf",
+        "source_kind": "nginx_container_snapshot",
+        "verified_in_container": True,
+        "source_note": "Lu depuis le snapshot bastion-nginx (configuration effective).",
+        "headers": headers,
+        "included_on_443": bool(sec.get("included_on_443")),
+        "portal_vhost_note": (
+            "Inclus via sync-acme-tls.sh sur les vhosts :443 (snapshot nginx)."
+            if sec.get("included_on_443")
+            else "Inclusion :443 non détectée dans le snapshot."
+        ),
+        "no_duplicate_8080": bool(sec.get("no_duplicate_8080")),
+        "undefined_headers": list(_UNDEFINED_HEADERS),
+        "freshness_minutes": reality.get("freshness_minutes"),
+        "stale": reality.get("stale"),
+    }
+
+
+def read_security_headers_from_repo(*, nginx_root: Path) -> dict[str, Any]:
+    headers_path = nginx_root / "includes" / "security-headers.conf"
     headers: list[dict[str, str]] = []
     if headers_path.is_file():
         for line in _read_text(headers_path).splitlines():
@@ -251,16 +437,18 @@ def read_security_headers_panel(*, nginx_root: Path | None = None) -> dict[str, 
             if m:
                 headers.append({"name": m.group(1), "value": m.group(2)})
 
-    portal_tpl = _read_text(root / "templates" / "vhost_sso_portal.conf.template")
-    acme_sync = _read_text(root / "sync-acme-tls.sh")
+    portal_tpl = _read_text(nginx_root / "templates" / "vhost_sso_portal.conf.template")
+    acme_sync = _read_text(nginx_root / "sync-acme-tls.sh")
     included_on_443 = "includes/security-headers.conf" in acme_sync
     portal_avoids_dup = "Do not re-add" in portal_tpl or "security-headers" in portal_tpl
 
     return {
         "present": True,
+        "verifiable": False,
         "path": str(headers_path),
-        "source_kind": "repo_build_context",
+        "source_kind": "repo_intent",
         "verified_in_container": False,
+        "source_note": "Lu depuis BASTION_NGINX_CONF_ROOT — intention repo, pas le conteneur.",
         "headers": headers,
         "included_on_443": included_on_443,
         "portal_vhost_note": (
@@ -271,6 +459,21 @@ def read_security_headers_panel(*, nginx_root: Path | None = None) -> dict[str, 
         "no_duplicate_8080": portal_avoids_dup,
         "undefined_headers": list(_UNDEFINED_HEADERS),
     }
+
+
+def _load_raw_snapshot(
+    *,
+    settings: Settings | None = None,
+    snapshot_path: Path | None = None,
+) -> dict[str, Any] | None:
+    path = snapshot_path or resolve_nginx_waf_snapshot_path(settings)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _profile_db_snapshot(profile: WafProfile, exclusions: list[WafExclusion]) -> dict[str, Any]:
@@ -333,7 +536,6 @@ def diff_db_vs_export(
                 }
             )
 
-    # Absent key = unknown (pre-lot-2 JSON). Do not treat as [] / divergent.
     if "exclusion_rule_ids" in effective:
         exp_ids = effective.get("exclusion_rule_ids") or []
         if db["exclusion_rule_ids"] != exp_ids:
@@ -366,33 +568,23 @@ def build_waf_reality_warnings(
     profile: WafProfile,
     reality: dict[str, Any],
 ) -> list[str]:
-    """Banner lines when nginx reality diverges from DB intent."""
-    if not reality.get("present"):
-        return [
-            "Configuration nginx introuvable — impossible de lire le moteur ModSecurity réel."
-        ]
+    """Technical warnings (stale snapshot, threshold drift) — verdict covers mode."""
+    if not reality.get("verifiable"):
+        return []
 
     warnings: list[str] = []
-    desired_mode = profile.mode
-    active_mode = reality.get("aggregate_mode")
-    if active_mode and desired_mode != active_mode:
+    if reality.get("stale"):
+        mins = reality.get("freshness_minutes")
+        threshold = reality.get("stale_threshold_minutes", snapshot_stale_minutes())
         warnings.append(
-            f"ModSecurity : moteur {_mode_label(active_mode)} en nginx. "
-            f"Le mode « {_mode_label(desired_mode)} » enregistré ici N'EST PAS appliqué. "
-            "Aucun blocage CRS n'est actif tant que le moteur est Off. "
-            "Voir docs/ops-modsecurity-crs.md."
+            f"Snapshot nginx lu il y a {mins} min (seuil {threshold} min)."
         )
 
     desired_thr = clamp_anomaly_threshold(profile.anomaly_threshold)
     active_thr = reality.get("aggregate_threshold")
-    if (
-        active_thr not in (None, "mixed")
-        and desired_thr != active_thr
-    ):
+    if active_thr not in (None, "mixed") and desired_thr != active_thr:
         warnings.append(
-            f"Seuil d'anomalie nginx : {active_thr} (statique). "
-            f"Le seuil {desired_thr} enregistré en base N'EST PAS appliqué "
-            "(overlay crs-setup-generated non chargé)."
+            f"Seuil nginx effectif : {active_thr} — seuil enregistré {desired_thr} non appliqué."
         )
 
     return warnings
@@ -400,7 +592,7 @@ def build_waf_reality_warnings(
 
 def nginx_control_effect(reality: dict[str, Any]) -> dict[str, bool]:
     """Which profile fields actually reach nginx today."""
-    if not reality.get("present"):
+    if not reality.get("verifiable"):
         return {"mode": False, "anomaly_threshold": False}
     return {
         "mode": bool(reality.get("engine_mode_generated_loaded")),
@@ -408,33 +600,84 @@ def nginx_control_effect(reality: dict[str, Any]) -> dict[str, bool]:
     }
 
 
+def reload_confirmed_after_apply(
+    generated: dict[str, Any],
+    reality: dict[str, Any],
+) -> bool | None:
+    """True when snapshot is newer than last Apply; None if unknown."""
+    apply_at = _parse_generated_at(generated.get("last_apply_at"))
+    snap_at = _parse_generated_at(reality.get("generated_at"))
+    if apply_at is None or snap_at is None or not reality.get("verifiable"):
+        return None
+    return snap_at >= apply_at
+
+
 def build_waf_ui_context(
     db: Session,
-    settings,
+    settings: Settings,
     profile: WafProfile,
     exclusions: list[WafExclusion],
     *,
+    snapshot_path: Path | None = None,
     nginx_root: Path | None = None,
-    engine_overrides: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Bundle desired / generated / active + pending diffs for admin template."""
     desired = _profile_db_snapshot(profile, exclusions)
     generated = read_effective_status(settings)
-    active = read_nginx_waf_reality(
-        nginx_root=nginx_root, engine_overrides=engine_overrides
+    active = read_nginx_waf_reality(settings=settings, snapshot_path=snapshot_path)
+    raw_snapshot = _load_raw_snapshot(settings=settings, snapshot_path=snapshot_path)
+
+    repo_root = nginx_root or resolve_nginx_conf_root()
+    repo_intent = (
+        read_nginx_waf_reality_from_repo(nginx_root=repo_root)
+        if repo_root is not None
+        else None
     )
+
+    if active.get("verifiable") and raw_snapshot is not None:
+        headers = read_security_headers_from_snapshot(active, raw_snapshot)
+    elif repo_root is not None:
+        headers = read_security_headers_from_repo(nginx_root=repo_root)
+    else:
+        headers = read_security_headers_from_snapshot(active, None)
+
     pending_diffs = diff_db_vs_export(profile, exclusions, generated)
+    export_pending = bool(pending_diffs)
     warnings = build_waf_reality_warnings(profile, active)
     control_effect = nginx_control_effect(active)
-    headers = read_security_headers_panel(nginx_root=nginx_root)
+
+    from app.bastion.nginx_waf_export import list_promoted_deny_ips
+    from app.bastion.waf_readability import build_waf_readability_context
+
+    desired["ip_deny_count"] = len(
+        list_promoted_deny_ips(
+            db, min_occurrences=int(profile.ip_deny_min_occurrences or 3)
+        )
+    )
+
+    readability = build_waf_readability_context(
+        db,
+        settings,
+        profile,
+        active,
+        headers,
+        export_pending=export_pending,
+    )
 
     return {
         "desired": desired,
         "generated": generated,
         "active": active,
+        "repo_intent": repo_intent,
         "pending_diffs": pending_diffs,
-        "export_pending": bool(pending_diffs),
+        "export_pending": export_pending,
         "reality_warnings": warnings,
         "control_effect": control_effect,
         "security_headers_panel": headers,
+        "reload_confirmed": reload_confirmed_after_apply(generated, active),
+        "readability": readability,
+        "verdict": readability["verdict"],
+        "protection_layers": readability["protection_layers"],
+        "efficiency": readability["efficiency"],
+        "efficiency_7d": readability["efficiency_7d"],
     }

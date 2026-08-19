@@ -49,6 +49,7 @@ while true; do
   echo "bastion-nginx: exports/certs changed (fp $LAST → $CUR) — sync + reload"
   if "$SYNC" && nginx -t && nginx -s reload; then
     LAST="$CUR"
+    /export-waf-snapshot.sh || echo "bastion-nginx: WARN export-waf-snapshot failed" >&2
     echo "bastion-nginx: reload ok — public_proxy TLS servers:"
     grep -E '^\s*server_name\s+' /etc/nginx/conf.d/nginx-acme-tls.conf 2>/dev/null \
       | sed 's/^/  /' || echo "  (none)"

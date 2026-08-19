@@ -165,7 +165,7 @@ def test_apply_restores_on_validate_failure(db_session, tmp_path):
     db_session.commit()
 
     def fail_validate(_settings):
-        return False, "nginx: [emerg] fake failure"
+        return False, "nginx: [emerg] fake failure", False
 
     result = apply_waf_exports(db_session, settings, validate=fail_validate)
     assert result["ok"] is False

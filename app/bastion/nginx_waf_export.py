@@ -54,6 +54,7 @@ _APPLY_METADATA_KEYS = (
     "last_apply_by",
     "last_apply_nginx_t_ok",
     "last_apply_nginx_t_detail",
+    "last_apply_nginx_t_skipped",
 )
 
 
@@ -93,6 +94,7 @@ def record_waf_apply_metadata(
     actor: str,
     nginx_t_ok: bool,
     nginx_t_detail: str,
+    nginx_t_skipped: bool = False,
 ) -> None:
     """Stamp waf-effective-status.json after a successful Admin → Appliquer."""
     path = _status_json_path(settings)
@@ -101,7 +103,8 @@ def record_waf_apply_metadata(
     data = _read_status_json(path)
     data["last_apply_at"] = datetime.now(timezone.utc).isoformat()
     data["last_apply_by"] = (actor or "admin").strip() or "admin"
-    data["last_apply_nginx_t_ok"] = bool(nginx_t_ok)
+    data["last_apply_nginx_t_skipped"] = bool(nginx_t_skipped)
+    data["last_apply_nginx_t_ok"] = bool(nginx_t_ok) and not nginx_t_skipped
     detail = (nginx_t_detail or "").strip()
     data["last_apply_nginx_t_detail"] = detail[:500] if detail else ""
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -399,7 +402,12 @@ def apply_waf_exports(
     """Write exports; on validation failure restore previous files (no reload of bad conf)."""
     paths = write_waf_exports(db, settings)
     validator = validate or default_nginx_validate
-    ok, detail = validator(settings)
+    result = validator(settings)
+    if len(result) == 2:
+        ok, detail = result
+        skipped = detail.lower().startswith("nginx -t skipped")
+    else:
+        ok, detail, skipped = result
     if not ok:
         restored = restore_waf_exports_previous(settings)
         return {
@@ -408,19 +416,24 @@ def apply_waf_exports(
             "restored": restored,
             "error": detail or "nginx -t failed",
         }
-    return {"ok": True, "paths": paths, "error": None, "validate_detail": detail}
+    return {
+        "ok": True,
+        "paths": paths,
+        "error": None,
+        "validate_detail": detail,
+        "validate_skipped": skipped,
+    }
 
 
-def default_nginx_validate(settings: Settings) -> tuple[bool, str]:
-    """Best-effort nginx -t via docker compose exec; skip (ok) if docker unavailable.
+def default_nginx_validate(settings: Settings) -> tuple[bool, str, bool]:
+    """Best-effort nginx -t via docker compose exec.
 
-    Production relies on bastion-nginx ``watch-exports-reload`` (sync + nginx -t + reload).
-    If docker is reachable from bastion-app, run an explicit test after write.
+    Returns (ok, detail, skipped). Production reload + snapshot are handled by
+    bastion-nginx ``watch-exports-reload`` (no docker.sock in bastion-app).
     """
     import subprocess
 
     compose_dir = Path(settings.compose_dir) if getattr(settings, "compose_dir", None) else None
-    # Settings may not expose compose_dir — try env / cwd heuristics.
     candidates = []
     if compose_dir:
         candidates.append(compose_dir)
@@ -448,9 +461,9 @@ def default_nginx_validate(settings: Settings) -> tuple[bool, str]:
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            return True, f"nginx -t skipped ({exc}); watcher will validate"
+            return True, f"nginx -t non exécuté depuis l'app ({exc}) — watcher nginx validera", True
         out = ((proc.stdout or "") + (proc.stderr or "")).strip()
         if proc.returncode != 0:
-            return False, out or f"nginx -t exit {proc.returncode}"
-        return True, out or "nginx -t ok"
-    return True, "nginx -t skipped (no docker-compose.yml); watcher will validate"
+            return False, out or f"nginx -t exit {proc.returncode}", False
+        return True, out or "nginx -t ok", False
+    return True, "nginx -t non exécuté depuis l'app (pas de docker-compose.yml) — watcher nginx validera", True

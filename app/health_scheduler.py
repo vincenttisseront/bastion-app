@@ -80,6 +80,25 @@ def start_health_scheduler(settings: Settings) -> None:
     )
     logger.info("Daily ops recap scheduled (hourly check at :05)")
 
+    from app.bastion.modsec_audit_aggregator import run_aggregation
+
+    def _modsec_audit_aggregate_job() -> None:
+        try:
+            run_aggregation(settings)
+        except Exception:
+            logger.exception("modsec audit aggregation failed")
+
+    scheduler.add_job(
+        _modsec_audit_aggregate_job,
+        "interval",
+        minutes=5,
+        id="modsec_audit_aggregate",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info("ModSec audit aggregator scheduled (every 5 min)")
+
 
 def stop_health_scheduler() -> None:
     if scheduler.running:
