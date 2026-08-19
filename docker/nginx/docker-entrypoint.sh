@@ -53,6 +53,7 @@ if ! grep -qE 'listen[[:space:]]+0\.0\.0\.0:8080[[:space:]]+default_server' \
 fi
 
 nginx -t
+/export-waf-snapshot.sh || echo "WARN: export-waf-snapshot failed" >&2
 
 # Daily logrotate for modsec_audit.log (alpine crond).
 if [[ "${BASTION_MODSEC_LOGROTATE:-1}" != "0" ]] && command -v crond >/dev/null 2>&1; then
@@ -62,6 +63,12 @@ if [[ "${BASTION_MODSEC_LOGROTATE:-1}" != "0" ]] && command -v crond >/dev/null 
 /usr/sbin/logrotate -f /etc/logrotate.d/modsecurity >/dev/null 2>&1 || true
 EOF
   chmod +x /etc/periodic/daily/modsecurity-logrotate
+  mkdir -p /etc/periodic/5min
+  cat > /etc/periodic/5min/waf-snapshot <<'EOF'
+#!/bin/sh
+/export-waf-snapshot.sh >/dev/null 2>&1 || true
+EOF
+  chmod +x /etc/periodic/5min/waf-snapshot
   crond -b -l 8 || echo "WARN: crond failed to start — modsec logrotate inactive" >&2
 fi
 

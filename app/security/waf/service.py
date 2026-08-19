@@ -238,11 +238,13 @@ def apply_waf(
     ensure_active_profile(db)
     result = apply_waf_exports(db, settings, validate=validate)
     if result.get("ok"):
+        skipped = bool(result.get("validate_skipped"))
         record_waf_apply_metadata(
             settings,
             actor=actor,
-            nginx_t_ok=True,
-            nginx_t_detail=result.get("validate_detail") or "nginx -t ok",
+            nginx_t_ok=not skipped,
+            nginx_t_detail=result.get("validate_detail") or "",
+            nginx_t_skipped=skipped,
         )
     log_action(
         db,

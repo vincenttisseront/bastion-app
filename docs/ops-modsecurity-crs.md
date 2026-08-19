@@ -180,15 +180,25 @@ La page **Admin → WAF** expose **trois lectures distinctes** (lot 2 Phase B) :
 |---------|--------|---------------|
 | **Souhaité (DB)** | `WafProfile` + exclusions SQLite | Ce que l'admin a enregistré — effet immédiat en base uniquement pour le profil. |
 | **Généré (export)** | `exports/modsecurity/waf-effective-status.json` | Dernier snapshot écrit par **Appliquer** (`nginx_waf_export.py`). |
-| **Moteur CRS (fichiers image / repo)** | Parse de `docker/nginx/modsecurity/main-*.conf` du **checkout git** | Intention de build : `SecRuleEngine`, seuil id:900110, overlays inclus ou non. **Pas** une lecture live du conteneur. |
+| **Réellement actif (nginx)** | Snapshot JSON `nginx-logs/nginx-waf-snapshot.json` produit par **bastion-nginx** | État effectif : `nginx -T` + fichiers ModSecurity réellement chargés. **Pas** de lecture repo ni `docker.sock` côté app. |
+| **Repo (intention)** *(dev)* | `BASTION_NGINX_CONF_ROOT` si défini | Checkout git local uniquement — jamais confondu avec l'état live. |
 
-**Limite (lot 2)** : `docker/nginx/` n'est **pas** bind-monté dans `bastion-nginx`. Le Dockerfile
-`COPY modsecurity/` et `COPY includes/` dans l'image. `bastion-app` n'a pas de `docker.sock`
-(reload via watcher exports). Donc l'IHM lit le **contexte de build du repo**, équivalent au
-runtime **seulement si** l'image en cours a été reconstruite depuis ce même arbre. Le stub
-`SecRuleEngine Off` écrit par `sync-exports-to-confd.sh` dans
-`/etc/nginx/modsecurity/generated/` n'est visible que dans le conteneur — et n'est de toute
-façon **pas** inclus par `main-*.conf` aujourd'hui.
+**Lot 2.1 (2026-08-19)** : `bastion-nginx` écrit le snapshot dans le volume partagé
+`nginx-logs/` (à chaque démarrage, reload exports, et toutes les 5 min via crond).
+`bastion-app` le lit en lecture seule (`BASTION_NGINX_WAF_SNAPSHOT_PATH`). Au-delà de
+15 min sans snapshot frais, l'IHM signale « état non vérifié récemment ».
+
+**Diagnostic déploiement** :
+
+| Composant | Chemin conteneur app | Chemin hôte (prod) | Monté dans bastion-app ? |
+|-----------|---------------------|--------------------|-------------------------|
+| Données / exports | `/var/lib/sso-portal/exports` | `/tools/portal/data/exports` | oui (rw) |
+| Snapshot WAF | `/var/lib/sso-portal/nginx-logs/nginx-waf-snapshot.json` | `…/data/nginx-logs/…` | oui (ro) |
+| Conf nginx build | — | `/tools/portal/docker/nginx` | **non** (absent de l'image app) |
+| Conf nginx live | — | baked dans image `bastion-nginx` | **non** (lu via snapshot) |
+
+**Limite historique (lot 2)** : avant 2.1, l'IHM parse le repo — échec en prod car
+`docker/nginx` n'est pas dans l'image `bastion-app`.
 
 Ces trois couches **peuvent diverger** :
 

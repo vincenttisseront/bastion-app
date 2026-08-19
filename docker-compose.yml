@@ -95,6 +95,7 @@ services:
       EXPORTS_DIR: /var/lib/sso-portal/exports
       PORTAL_DATA_DIR: /var/lib/sso-portal
       NGINX_APP_LOGS_DIR: /var/lib/sso-portal/nginx-logs
+      BASTION_NGINX_WAF_SNAPSHOT_PATH: /var/lib/sso-portal/nginx-logs/nginx-waf-snapshot.json
       FILES_STORAGE_DIR: /var/lib/sso-portal-files/private/files
       VAULT_KEYS_DIR: /var/lib/sso-portal/keys
       OAUTH2_PROXY_NETWORK_MODE: docker
