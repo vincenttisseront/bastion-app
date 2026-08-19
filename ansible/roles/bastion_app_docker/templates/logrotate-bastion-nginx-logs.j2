@@ -1,4 +1,7 @@
-{{ sso_portal_nginx_logs_dir }}/*.log {
+# Per-app nginx logs only — modsec_audit.log has its own stanza below (logrotate rejects duplicates).
+{{ sso_portal_nginx_logs_dir }}/*.access.log
+{{ sso_portal_nginx_logs_dir }}/*.error.log
+{
     daily
     maxsize 200M
     rotate 14

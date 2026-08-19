@@ -105,7 +105,8 @@ Fichier : `/etc/logrotate.d/bastion-nginx-logs` (template rôle `bastion_app_doc
 
 Points critiques :
 
-- `maxsize 200M` sur `*.log` — rotation **à la taille**, pas seulement quotidienne.
+- `maxsize 200M` sur `*.{access,error}.log` — rotation **à la taille**, pas seulement quotidienne
+  (stanza séparée de `modsec_audit.log` pour éviter l'erreur logrotate *duplicate log entry*).
 - Stanza séparée `modsec_audit.log` : `maxsize 100M`, `rotate 30`.
 - `postrotate` : `docker exec bastion-nginx nginx -s reopen`.
 
