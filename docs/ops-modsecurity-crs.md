@@ -31,8 +31,10 @@ accepté vs ancien `nginx:1.27-alpine`).
 | Core ModSec | `docker/nginx/modsecurity/modsecurity.conf` |
 | CRS setup (PL1, seuils 5/4) | `docker/nginx/modsecurity/crs-setup.conf` |
 | Exclusions custom | `docker/nginx/includes/waf-basic.conf` |
-| Audit log | `/var/log/nginx/apps/modsec_audit.log` (volume Compose `nginx-logs`) |
-| Rotation | `docker/nginx/logrotate.d/modsecurity` (crond dans l’entrypoint) |
+| Audit log (conteneur) | `/var/log/nginx/apps/modsec_audit.log` |
+| Audit log (hôte, bind mount) | `{SSO_PORTAL_DATA_DIR}/nginx-logs/modsec_audit.log` (prod : `/tools/portal/data/nginx-logs/…`) |
+| Rotation prod | `/etc/logrotate.d/bastion-nginx-logs` (hôte — voir [`ops-retention-donnees-froides-tools.md`](ops-retention-donnees-froides-tools.md)) |
+| Rotation conteneur (secours) | `docker/nginx/logrotate.d/modsecurity` (crond entrypoint — même inode audit via volume) |
 
 ## Smoke post-deploy (bloquant avant / après `On`)
 
@@ -56,18 +58,19 @@ Si faux positif : exclusion ciblée dans `waf-basic.conf`, rebuild/reload, re-sm
 
 ## Lire `modsec_audit.log`
 
-Sur l’hôte (volume data) :
+**Hôte** (bind mount `SSO_PORTAL_DATA_DIR/nginx-logs` — prod : `/tools/portal/data/nginx-logs/`) :
 
 ```bash
 sudo tail -f /tools/portal/data/nginx-logs/modsec_audit.log
-# ou chemin SSO_PORTAL_DATA_DIR/.../nginx-logs/modsec_audit.log
 ```
 
-Dans le conteneur :
+**Conteneur** (même inode, chemin interne) :
 
 ```bash
 docker exec bastion-nginx tail -n 50 /var/log/nginx/apps/modsec_audit.log
 ```
+
+> `/var/log/nginx/apps/modsec_audit.log` n'existe **pas** sur l'hôte hors de ce volume.
 
 Format : **JSON** (`SecAuditLogFormat JSON`). Filtrer une URI :
 

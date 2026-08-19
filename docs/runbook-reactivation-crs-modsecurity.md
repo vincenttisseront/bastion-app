@@ -36,7 +36,36 @@ sudo ls -l "${SSO_PORTAL_DATA_DIR:-/tools/portal/data}/nginx-logs/modsec_audit.l
 
 ---
 
-## 1. Ce que la réactivation n’est **pas**
+## 0.1 Prérequis bloquant — espace disque et rotation logs
+
+**Incident 2026-08-19** : déploiement bloqué à 98 % sur `/tools` (255 Mo libres). Réactiver CRS
+sur un disque plein provoquerait une panne edge — `modsec_audit.log` peut croître rapidement en
+`DetectionOnly`.
+
+| Check | Go ? |
+|-------|------|
+| `/tools` (ou LV data) **< 70 %** occupé | obligatoire |
+| **≥ 3 Go libres** sur la LV data | obligatoire |
+| Logrotate hôte actif sur `nginx-logs/` | obligatoire — voir [`ops-retention-donnees-froides-tools.md`](ops-retention-donnees-froides-tools.md) |
+| `logrotate -f /etc/logrotate.d/bastion-nginx-logs` produit un `.gz` | vérifié, pas supposé |
+| Débit `modsec_audit.log` mesuré (10 min) | obligatoire avant DetectionOnly |
+
+```bash
+df -h /tools
+df -Pm /tools | awk 'NR==2 {printf "use=%s free=%sMiB\n", $5, $4}'
+ls -lh /etc/logrotate.d/bastion-nginx-logs
+logrotate -d /etc/logrotate.d/bastion-nginx-logs
+
+f=/tools/portal/data/nginx-logs/modsec_audit.log
+s1=$(stat -c%s "$f"); sleep 600; s2=$(stat -c%s "$f")
+echo "$(( (s2-s1)/1024 )) Ko / 10 min  →  ~$(( (s2-s1)*144/1048576 )) Mo/jour"
+```
+
+**No-go** si `/tools` > 90 % ou si la rotation n'est pas effective (aucun `.gz` après forçage).
+
+---
+
+## 1. Ce que la réactivation n'est **pas**
 
 - Pas un clic **Appliquer** WAF.
 - Pas un changement de `WafProfile.mode` en base.
@@ -87,6 +116,7 @@ Rollback immédiat d’une famille : `SecRuleEngine Off` (ou `modsecurity off;` 
 | Condition | Go ? |
 |-----------|------|
 | §0 : error.log 06/08 (ou équivalent) lu, cause racine identifiée **ou** écartée avec test ciblé | obligatoire |
+| §0.1 : `/tools` < 70 %, ≥ 3 Go libres, logrotate nginx-logs OK, débit audit mesuré | obligatoire |
 | Overlay 901110 non inclus | déjà vrai aujourd’hui |
 | Smoke portal DetectionOnly vert | obligatoire avant On portal |
 | Stub sync toujours `SecRuleEngine Off` | OK tant que `engine-mode-generated` n’est pas dans `main-*.conf` |

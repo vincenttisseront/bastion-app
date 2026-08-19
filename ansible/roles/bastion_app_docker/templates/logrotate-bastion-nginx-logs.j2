@@ -1,0 +1,31 @@
+{{ sso_portal_nginx_logs_dir }}/*.log {
+    daily
+    maxsize 200M
+    rotate 14
+    compress
+    compresscmd /bin/gzip
+    compressoptions -9
+    delaycompress
+    missingok
+    notifempty
+    nocreate
+    su root root
+    sharedscripts
+    postrotate
+        docker exec bastion-nginx nginx -s reopen 2>/dev/null || true
+    endscript
+}
+
+{{ sso_portal_nginx_logs_dir }}/modsec_audit.log {
+    daily
+    maxsize 100M
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    su root root
+    postrotate
+        docker exec bastion-nginx nginx -s reopen 2>/dev/null || true
+    endscript
+}

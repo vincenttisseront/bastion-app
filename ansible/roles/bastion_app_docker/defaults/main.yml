@@ -76,6 +76,12 @@ sso_portal_files_storage_dir: "{{ bastion_app_docker_files_data_dir }}/private/f
 sso_portal_env_path: "{{ bastion_app_docker_compose_dir }}/.env"
 sso_portal_min_free_disk_mb: 512
 sso_portal_backup_retention_days: 14
+sso_portal_nginx_logs_dir: "{{ bastion_app_docker_data_dir }}/nginx-logs"
+sso_portal_db_backup_keep_count: 5
+sso_portal_db_backup_daily_days: 7
+# Runbook CRS §0.1 — documented thresholds (enforced manually before CRS re-enable).
+sso_portal_tools_disk_max_use_pct: 70
+sso_portal_tools_min_free_gb_crs: 3
 
 # Secrets (override via Vault / AWX extra-vars — never commit)
 # Bootstrap crypto + nginx Bearer only. HMAC (hop / breakglass JWT) are seeded

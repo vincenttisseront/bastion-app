@@ -17,6 +17,7 @@
     - "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
     - "{{ bastion_app_docker_data_dir }}/certs"
     - "{{ bastion_app_docker_data_dir }}/acme"
+    - "{{ sso_portal_nginx_logs_dir }}"
 
 # AWX Project=awx-playbook → ne contient pas le code app.
 # Si le playbook wrapper a déjà cloné bastion-app (bastion_app_root), on NE reclône PAS
