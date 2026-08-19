@@ -1295,6 +1295,22 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 
 /* Admin WAF */
 .waf-status-chip-row{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;margin-top:var(--sp-3)}
+.waf-reality-banner{margin-bottom:var(--sp-4)}
+.waf-reality-banner-line{margin:0}
+.waf-reality-banner-line+.waf-reality-banner-line{margin-top:var(--sp-2)}
+.waf-header-actions{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+.waf-pending-alert{margin-bottom:var(--sp-4)}
+.waf-pending-list{margin:var(--sp-2) 0 0;padding-left:1.25rem}
+.waf-status-columns{display:grid;gap:var(--sp-4);grid-template-columns:1fr}
+@media(min-width:960px){.waf-status-columns{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.waf-status-col-title{font-size:var(--fs-sm);font-weight:600;margin:0 0 var(--sp-2);text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+.waf-source-disclaimer{margin-bottom:var(--sp-3);font-size:var(--fs-sm)}
+.waf-last-apply{margin-bottom:var(--sp-4);font-size:var(--fs-sm)}
+.waf-last-apply-detail{margin:var(--sp-2) 0 0}
+.waf-not-applied{font-size:var(--fs-xs);vertical-align:middle;margin-left:var(--sp-1)}
+.waf-family-details{margin-top:var(--sp-3);font-size:var(--fs-sm)}
+.banning-global-status{margin-bottom:var(--sp-3)}
+.banning-apply-note{margin-bottom:var(--sp-4)}
 .waf-rate-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 @media (min-width:900px){
   .waf-rate-grid{grid-template-columns:repeat(4,minmax(0,1fr))}

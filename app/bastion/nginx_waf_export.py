@@ -16,8 +16,10 @@ regenerate nginx deny lists.
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -47,6 +49,12 @@ ENGINE_LINE = {
 
 WAF_EXPORT_SUBDIR = "modsecurity"
 PREV_SUFFIX = ".prev"
+_APPLY_METADATA_KEYS = (
+    "last_apply_at",
+    "last_apply_by",
+    "last_apply_nginx_t_ok",
+    "last_apply_nginx_t_detail",
+)
 
 
 def clamp_anomaly_threshold(value: int | None) -> int:
@@ -55,6 +63,48 @@ def clamp_anomaly_threshold(value: int | None) -> int:
     except (TypeError, ValueError):
         n = DEFAULT_ANOMALY
     return max(ANOMALY_MIN, min(ANOMALY_MAX, n))
+
+
+def _status_json_path(settings: Settings) -> Path:
+    return waf_exports_dir(settings) / "waf-effective-status.json"
+
+
+def _read_status_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _merge_apply_metadata(status: dict[str, Any], settings: Settings) -> None:
+    """Keep last successful Apply audit fields when regenerating export snapshots."""
+    existing = _read_status_json(_status_json_path(settings))
+    for key in _APPLY_METADATA_KEYS:
+        if key in existing:
+            status[key] = existing[key]
+
+
+def record_waf_apply_metadata(
+    settings: Settings,
+    *,
+    actor: str,
+    nginx_t_ok: bool,
+    nginx_t_detail: str,
+) -> None:
+    """Stamp waf-effective-status.json after a successful Admin → Appliquer."""
+    path = _status_json_path(settings)
+    if not path.is_file():
+        return
+    data = _read_status_json(path)
+    data["last_apply_at"] = datetime.now(timezone.utc).isoformat()
+    data["last_apply_by"] = (actor or "admin").strip() or "admin"
+    data["last_apply_nginx_t_ok"] = bool(nginx_t_ok)
+    detail = (nginx_t_detail or "").strip()
+    data["last_apply_nginx_t_detail"] = detail[:500] if detail else ""
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def waf_exports_dir(settings: Settings) -> Path:
@@ -273,19 +323,23 @@ def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
         paths[path.name] = str(path)
 
     # Status snapshot for the admin UI (effective generated config).
+    active_exclusions = [e for e in exclusions if e.active]
     status = {
         "mode": profile.mode if profile.mode in VALID_MODES else MODE_ON,
         "anomaly_threshold": clamp_anomaly_threshold(profile.anomaly_threshold),
         "profile_name": profile.name,
         "ip_deny_count": len(ips),
         "ip_deny_min_occurrences": min_occ,
-        "exclusion_count": sum(1 for e in exclusions if e.active),
+        "exclusion_count": len(active_exclusions),
+        "exclusion_rule_ids": sorted(
+            int(e.crs_rule_id) for e in active_exclusions if e.crs_rule_id is not None
+        ),
         "portal_login_rate": int(profile.portal_login_rate or 3),
         "portal_api_rate": int(profile.portal_api_rate or 30),
         "portal_login_burst": int(profile.portal_login_burst or 5),
         "portal_api_burst": int(profile.portal_api_burst or 60),
     }
-    import json
+    _merge_apply_metadata(status, settings)
 
     status_path = mod_dir / "waf-effective-status.json"
     _backup_file(status_path)
@@ -316,9 +370,7 @@ def restore_waf_exports_previous(settings: Settings) -> list[str]:
 
 
 def read_effective_status(settings: Settings) -> dict[str, Any]:
-    import json
-
-    path = waf_exports_dir(settings) / "waf-effective-status.json"
+    path = _status_json_path(settings)
     if not path.is_file():
         return {"present": False}
     try:
@@ -327,6 +379,14 @@ def read_effective_status(settings: Settings) -> dict[str, Any]:
         return {"present": False, "error": "unreadable"}
     data["present"] = True
     data["path"] = str(path)
+    if "last_apply_at" not in data:
+        try:
+            mtime = path.stat().st_mtime
+            data["export_file_mtime"] = datetime.fromtimestamp(
+                mtime, tz=timezone.utc
+            ).isoformat()
+        except OSError:
+            pass
     return data
 
 

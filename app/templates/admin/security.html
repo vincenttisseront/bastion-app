@@ -591,6 +591,7 @@
       <div class="form-section-sub">Protection des endpoints bastion (login, /admin/*, /api/admin/*)</div>
     </div>
     <div class="form-body banning-stack">
+      {% set policy_enabled = not security_policy or security_policy.enabled %}
       {% set hammer_on = not hammer or hammer.enabled %}
       {% set hammer_login_on = not hammer_login or hammer_login.enabled %}
       {% set failed_on = not failed or failed.enabled %}
@@ -601,6 +602,21 @@
       {% set rate_limit_login_on = rate_limit_login and rate_limit_login.enabled %}
       {% set bans_count = security_bans | length if security_bans else 0 %}
       {% set allow_count = security_allowlist | length if security_allowlist else 0 %}
+
+      <div class="alert {% if policy_enabled %}alert-ok{% else %}alert-warn{% endif %} banning-global-status" role="status">
+        <strong>Moteur anti-abus global</strong> (onglet Misc) :
+        {% if policy_enabled %}
+        <span class="badge badge-ok">activé</span>
+        {% else %}
+        <span class="badge badge-warn">désactivé</span>
+        — les règles cochées ci-dessous sont <strong>inopérantes</strong> tant que le toggle Misc n'est pas réactivé.
+        {% endif %}
+      </div>
+      <p class="form-help banning-apply-note">
+        L'enregistrement des règles de banning est <strong>immédiat</strong>.
+        La régénération des IP deny nginx (<span class="mono">waf-ip-deny.conf</span>) n'a lieu qu'au
+        <strong>Appliquer</strong> de la page <a href="/admin/security/waf">WAF</a> (ou export infra catalogue).
+      </p>
 
       <div class="card">
         <div class="card-header">

@@ -13,8 +13,16 @@
   'detection_only': 'DetectionOnly',
   'off': 'Off'
 } %}
-{% set eff_mode = effective.mode if effective.present else profile.mode %}
+{% set headers_panel = security_headers_panel %}
 <div class="page" id="waf-page">
+  {% if reality_warnings %}
+  <div class="alert alert-err waf-reality-banner" role="alert">
+    {% for msg in reality_warnings %}
+    <p class="waf-reality-banner-line">{{ msg }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="page-header">
     <div>
       <h1 class="page-title">WAF / ModSecurity CRS</h1>
@@ -23,13 +31,38 @@
         <span class="mono">engine-*.conf</span> / <span class="mono">waf-basic.conf</span> Phase A).
       </p>
     </div>
-    <div class="page-header-actions">
-      <a href="/admin/security#banning" class="btn btn-ghost btn-sm">Anti-bruteforce</a>
+    <div class="page-header-actions waf-header-actions">
+      <a href="/admin/security#banning" class="btn btn-ghost btn-sm waf-link-btn">
+        → Règles anti-bruteforce (Banning)
+      </a>
+      {% if export_pending %}
+      <span class="badge badge-warn">En attente</span>
+      {% else %}
+      <span class="badge badge-ok">Appliqué</span>
+      {% endif %}
       <form method="post" action="/admin/security/waf/apply" id="waf-apply-form" style="display:inline">
-        <button type="submit" class="btn btn-primary">Appliquer</button>
+        <button type="submit" class="btn {% if export_pending %}btn-primary{% else %}btn-secondary{% endif %}"
+                {% if not export_pending %}disabled aria-disabled="true"{% endif %}>
+          Appliquer
+        </button>
       </form>
     </div>
   </div>
+
+  {% if export_pending and pending_diffs %}
+  <div class="alert alert-warn waf-pending-alert">
+    <strong>Changements non poussés vers nginx</strong>
+    <ul class="waf-pending-list">
+      {% for d in pending_diffs %}
+      <li>
+        <span class="mono">{{ d.label }}</span> :
+        export <span class="mono">{{ d.export }}</span>
+        → souhaité <span class="mono">{{ d.db }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <div class="tabs" role="tablist" aria-label="Sections WAF" id="waf-tabs">
     <a href="#status" class="tab active" role="tab" data-tab="status" id="tab-status" aria-selected="true">Statut</a>
@@ -40,74 +73,212 @@
       <span class="badge badge-muted tab-badge">{{ exclusions|length }}</span>
       {% endif %}
     </a>
+    <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">En-têtes</a>
   </div>
 
   {# —— Statut —— #}
   <div class="form-section waf-panel" id="status" role="tabpanel" aria-labelledby="tab-status">
     <div class="form-section-header">
-      <div class="form-section-title">Statut effectif (exports générés)</div>
+      <div class="form-section-title">Statut WAF — trois lectures distinctes</div>
       <div class="form-section-sub">
-        Lecture seule —
-        <span class="mono">waf-effective-status.json</span>
-        après un <strong>Appliquer</strong> réussi.
+        Souhaité (SQLite) · Généré (exports) · Moteur CRS (fichiers image / repo, pas le conteneur live).
       </div>
     </div>
     <div class="form-body">
-      {% if effective.present %}
-      <div class="wizard-summary">
-        <div class="wizard-summary-grid waf-status-grid">
-          <div class="wizard-summary-item">
-            <span class="wizard-summary-label">Profil</span>
-            <span class="wizard-summary-value">{{ effective.profile_name }}</span>
-          </div>
-          <div class="wizard-summary-item">
-            <span class="wizard-summary-label">Mode</span>
-            <span class="wizard-summary-value">
-              <span class="badge {{ mode_badge.get(effective.mode, 'badge-muted') }}">
-                {{ mode_label.get(effective.mode, effective.mode) }}
-              </span>
-            </span>
-          </div>
-          <div class="wizard-summary-item">
-            <span class="wizard-summary-label">Seuil anomalie</span>
-            <span class="wizard-summary-value mono">{{ effective.anomaly_threshold }}</span>
-          </div>
-          <div class="wizard-summary-item">
-            <span class="wizard-summary-label">Exclusions actives</span>
-            <span class="wizard-summary-value mono">{{ effective.exclusion_count }}</span>
-          </div>
-          <div class="wizard-summary-item">
-            <span class="wizard-summary-label">IP deny (promues)</span>
-            <span class="wizard-summary-value">
-              <span class="mono">{{ effective.ip_deny_count }}</span>
-              <span class="muted"> · min occ.={{ effective.ip_deny_min_occurrences }}</span>
-            </span>
-          </div>
-          <div class="wizard-summary-item">
-            <span class="wizard-summary-label">Rate login / API</span>
-            <span class="wizard-summary-value mono">
-              {{ effective.portal_login_rate }}r/s · {{ effective.portal_api_rate }}r/s
-            </span>
-          </div>
-        </div>
-        <p class="form-help mono">{{ effective.path }}</p>
-      </div>
-      {% else %}
-      <div class="alert alert-warn mb-4">
-        <div class="alert-body">
-          Aucun export encore — cliquez <strong>Appliquer</strong> pour générer
-          (équivalent Phase A : mode On, seuil 5, exclusions vides).
-        </div>
+      {% if generated.present %}
+      <div class="waf-last-apply {% if generated.last_apply_at %}alert alert-ok{% else %}alert alert-warn{% endif %}" role="status">
+        {% if generated.last_apply_at %}
+        <strong>Dernier Appliquer réussi</strong>
+        · <span class="mono">{{ generated.last_apply_at }}</span>
+        · par <span class="mono">{{ generated.last_apply_by or '—' }}</span>
+        {% if generated.last_apply_nginx_t_ok %}
+        <span class="badge badge-ok">nginx -t OK</span>
+        {% else %}
+        <span class="badge badge-err">nginx -t échec</span>
+        {% endif %}
+        {% if generated.last_apply_nginx_t_detail %}
+        <p class="form-help mono waf-last-apply-detail">{{ generated.last_apply_nginx_t_detail }}</p>
+        {% endif %}
+        {% else %}
+        <strong>Dernier Appliquer</strong> : inconnu (export antérieur à l'horodatage IHM — auteur et nginx -t non enregistrés).
+        {% if generated.export_file_mtime %}
+        Dernière écriture du fichier :
+        <span class="mono">{{ generated.export_file_mtime }}</span>
+        (peut être un export catalogue, pas forcément un Appliquer WAF).
+        {% endif %}
+        {% endif %}
       </div>
       {% endif %}
 
-      <div class="waf-status-chip-row">
-        <span class="badge {{ mode_badge.get(eff_mode, 'badge-muted') }}">
-          Mode DB : {{ mode_label.get(eff_mode, eff_mode) }}
-        </span>
-        <span class="badge badge-info">Headers sécurité : actifs</span>
+      <div class="waf-status-columns">
+        <div class="waf-status-col">
+          <h3 class="waf-status-col-title">Souhaité (DB)</h3>
+          <div class="wizard-summary-grid waf-status-grid">
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Profil</span>
+              <span class="wizard-summary-value">{{ desired.profile_name }}</span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Mode</span>
+              <span class="wizard-summary-value">
+                <span class="badge {{ mode_badge.get(desired.mode, 'badge-muted') }}">
+                  {{ mode_label.get(desired.mode, desired.mode) }}
+                </span>
+              </span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Seuil anomalie</span>
+              <span class="wizard-summary-value mono">{{ desired.anomaly_threshold }}</span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Exclusions actives</span>
+              <span class="wizard-summary-value mono">{{ desired.exclusion_count }}</span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">IP deny (promues)</span>
+              <span class="wizard-summary-value mono">—</span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Rate login / API</span>
+              <span class="wizard-summary-value mono">
+                {{ desired.portal_login_rate }}r/s · {{ desired.portal_api_rate }}r/s
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="waf-status-col">
+          <h3 class="waf-status-col-title">Généré (export)</h3>
+          {% if generated.present %}
+          <div class="wizard-summary-grid waf-status-grid">
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Profil</span>
+              <span class="wizard-summary-value">{{ generated.profile_name }}</span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Mode</span>
+              <span class="wizard-summary-value">
+                <span class="badge {{ mode_badge.get(generated.mode, 'badge-muted') }}">
+                  {{ mode_label.get(generated.mode, generated.mode) }}
+                </span>
+              </span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Seuil anomalie</span>
+              <span class="wizard-summary-value mono">{{ generated.anomaly_threshold }}</span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Exclusions actives</span>
+              <span class="wizard-summary-value mono">{{ generated.exclusion_count }}</span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">IP deny (promues)</span>
+              <span class="wizard-summary-value">
+                <span class="mono">{{ generated.ip_deny_count }}</span>
+                <span class="muted"> · min occ.={{ generated.ip_deny_min_occurrences }}</span>
+              </span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Rate login / API</span>
+              <span class="wizard-summary-value mono">
+                {{ generated.portal_login_rate }}r/s · {{ generated.portal_api_rate }}r/s
+              </span>
+            </div>
+          </div>
+          <p class="form-help mono">{{ generated.path }}</p>
+          {% else %}
+          <div class="alert alert-warn">
+            Aucun export — cliquez <strong>Appliquer</strong> pour générer les fichiers nginx.
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="waf-status-col">
+          <h3 class="waf-status-col-title">Moteur CRS (fichiers image / repo)</h3>
+          {% if active.present %}
+          <div class="alert alert-warn waf-source-disclaimer" role="status">
+            Lu depuis le disque host (<span class="mono">docker/nginx</span> du checkout),
+            <strong>non vérifié dans le conteneur</strong>.
+            Ces fichiers sont <span class="mono">COPY</span> dans l'image au rebuild —
+            pas de bind mount vers <span class="mono">bastion-nginx</span>.
+          </div>
+          <div class="wizard-summary-grid waf-status-grid">
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Mode (agrégé)</span>
+              <span class="wizard-summary-value">
+                {% set am = active.aggregate_mode %}
+                <span class="badge {{ mode_badge.get(am, 'badge-muted') if am != 'mixed' else 'badge-warn' }}">
+                  {{ mode_label.get(am, am) if am != 'mixed' else 'Mixte par famille' }}
+                </span>
+              </span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">Seuil anomalie</span>
+              <span class="wizard-summary-value mono">
+                {{ active.aggregate_threshold if active.aggregate_threshold != 'mixed' else 'Mixte' }}
+              </span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">engine-mode-generated</span>
+              <span class="wizard-summary-value">
+                {% if active.engine_mode_generated_loaded %}
+                <span class="badge badge-ok">inclus</span>
+                {% else %}
+                <span class="badge badge-warn">non chargé</span>
+                {% endif %}
+              </span>
+            </div>
+            <div class="wizard-summary-item">
+              <span class="wizard-summary-label">crs-setup-generated</span>
+              <span class="wizard-summary-value">
+                {% if active.crs_setup_generated_loaded %}
+                <span class="badge badge-ok">inclus</span>
+                {% else %}
+                <span class="badge badge-warn">non chargé</span>
+                {% endif %}
+              </span>
+            </div>
+          </div>
+          <details class="waf-family-details">
+            <summary>Détail par famille (portal / subdomain / public)</summary>
+            <div class="data-table-wrapper">
+              <table class="data-table data-table-compact">
+                <thead>
+                  <tr>
+                    <th>Famille</th>
+                    <th>SecRuleEngine</th>
+                    <th>Seuil</th>
+                    <th>Source engine</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for fam, row in active.families.items() %}
+                  <tr>
+                    <td class="mono">{{ fam }}</td>
+                    <td>
+                      <span class="badge {{ mode_badge.get(row.sec_rule_engine, 'badge-muted') }}">
+                        {{ mode_label.get(row.sec_rule_engine, row.sec_rule_engine or '—') }}
+                      </span>
+                    </td>
+                    <td class="mono">{{ row.anomaly_threshold or '—' }}</td>
+                    <td class="mono form-help">{{ row.engine_file | replace('\\', '/') }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <p class="form-help mono">{{ active.nginx_root }}</p>
+          {% else %}
+          <div class="alert alert-warn">{{ active.error or 'docker/nginx introuvable' }}</div>
+          {% endif %}
+        </div>
       </div>
-      <p class="form-help mt-2">{{ security_headers_note }}</p>
+
+      <div class="waf-status-chip-row">
+        <span class="badge badge-info">Rate limits / IP deny / exclusions UI : via Appliquer</span>
+        <span class="badge badge-muted">En-têtes sécurité : voir onglet En-têtes</span>
+      </div>
     </div>
   </div>
 
@@ -116,7 +287,7 @@
     <div class="form-section-header">
       <div class="form-section-title">Profil actif</div>
       <div class="form-section-sub">
-        Enregistrement SQLite — puis <strong>Appliquer</strong> pour pousser vers nginx.
+        Enregistrement SQLite — puis <strong>Appliquer</strong> pour pousser vers nginx (rate limits, IP deny, exclusions).
       </div>
     </div>
     <div class="form-body">
@@ -132,12 +303,20 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="waf_mode">Mode <span class="req">*</span></label>
+            <label class="form-label" for="waf_mode">
+              Mode <span class="req">*</span>
+              {% if not control_effect.mode %}
+              <span class="badge badge-warn waf-not-applied">non appliqué en nginx</span>
+              {% endif %}
+            </label>
             <select id="waf_mode" name="mode" class="form-select" required>
               <option value="on" {% if profile.mode == 'on' %}selected{% endif %}>On (blocage)</option>
               <option value="detection_only" {% if profile.mode == 'detection_only' %}selected{% endif %}>DetectionOnly</option>
               <option value="off" {% if profile.mode == 'off' %}selected{% endif %}>Off</option>
             </select>
+            {% if not control_effect.mode %}
+            <p class="form-help">engine-mode-generated.conf n'est pas inclus dans main-*.conf — le mode CRS reste celui de engine-*.conf.</p>
+            {% endif %}
           </div>
         </div>
 
@@ -146,10 +325,16 @@
             <label class="form-label" for="waf_anomaly_threshold">
               Seuil d'anomalie inbound ({{ anomaly_min }}–{{ anomaly_max }})
               <span class="req">*</span>
+              {% if not control_effect.anomaly_threshold %}
+              <span class="badge badge-warn waf-not-applied">non appliqué en nginx</span>
+              {% endif %}
             </label>
             <input class="form-input" type="number" id="waf_anomaly_threshold" name="anomaly_threshold"
                    min="{{ anomaly_min }}" max="{{ anomaly_max }}"
                    value="{{ profile.anomaly_threshold }}" required>
+            {% if not control_effect.anomaly_threshold %}
+            <p class="form-help">Seuil effectif = crs-setup.conf statique (id:900110), pas l'overlay généré.</p>
+            {% endif %}
           </div>
           <div class="form-group">
             <label class="form-label" for="waf_ip_deny_min">
@@ -158,7 +343,11 @@
             </label>
             <input class="form-input" type="number" id="waf_ip_deny_min" name="ip_deny_min_occurrences"
                    min="1" max="100" value="{{ profile.ip_deny_min_occurrences }}" required>
-            <p class="form-help">Permanent → toujours ; sinon count(security_bans) ≥ N (défaut 3).</p>
+            <p class="form-help">
+              Une IP est promue en deny nginx si ban <strong>permanent</strong>
+              OU ≥ N occurrences dans l'historique <span class="mono">security_bans</span> (défaut 3).
+              « 0 IP promue » est normal tant qu'aucune IP ne remplit ce critère.
+            </p>
           </div>
         </div>
 
@@ -273,13 +462,55 @@
       </div>
     </div>
   </div>
+
+  {# —— En-têtes sécurité (lecture seule) —— #}
+  <div class="form-section waf-panel" id="headers" role="tabpanel" aria-labelledby="tab-headers" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">En-têtes de sécurité (lecture seule)</div>
+      <div class="form-section-sub">
+        Contenu de <span class="mono">docker/nginx/includes/security-headers.conf</span> — aucun contrôle IHM.
+      </div>
+    </div>
+    <div class="form-body">
+      {% if headers_panel.present %}
+      <p class="form-help">{{ headers_panel.portal_vhost_note }}</p>
+      {% if headers_panel.no_duplicate_8080 %}
+      <p class="form-help">Pas de duplication sur le vhost :8080 interne (commentaire explicite dans le template portal).</p>
+      {% endif %}
+      <div class="data-table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr><th>En-tête</th><th>Valeur</th></tr>
+          </thead>
+          <tbody>
+            {% for h in headers_panel.headers %}
+            <tr>
+              <td class="mono">{{ h.name }}</td>
+              <td class="mono">{{ h.value }}</td>
+            </tr>
+            {% endfor %}
+            {% for name in headers_panel.undefined_headers %}
+            <tr class="muted">
+              <td class="mono">{{ name }}</td>
+              <td><em>non défini — hors périmètre Phase B</em></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="form-help mono">{{ headers_panel.path }}</p>
+      {% else %}
+      <div class="alert alert-warn">Fichier security-headers.conf introuvable.</div>
+      {% endif %}
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 (function () {
-  var VALID = ['status', 'profile', 'exclusions'];
+  var VALID = ['status', 'profile', 'exclusions', 'headers'];
   var DEFAULT = 'status';
 
   function currentTab() {
@@ -327,8 +558,8 @@
   confirmSubmit(document.getElementById('waf-apply-form'), {
     title: 'Appliquer la configuration WAF ?',
     message:
-      'Génère les exports ModSecurity / nginx et exécute nginx -t. ' +
-      'En cas d’échec de validation, la config précédente est restaurée.',
+      "Génère les exports ModSecurity / nginx et exécute nginx -t. " +
+      "En cas d\u2019échec de validation, la config précédente est restaurée.",
     confirmLabel: 'Appliquer',
     danger: true,
   });
@@ -336,7 +567,7 @@
   document.querySelectorAll('.waf-disable-form').forEach(function (form) {
     confirmSubmit(form, {
       title: 'Désactiver cette exclusion ?',
-      message: 'L’historique est conservé. Pensez à Appliquer pour pousser vers nginx.',
+      message: "L\u2019historique est conservé. Pensez à Appliquer pour pousser vers nginx.",
       confirmLabel: 'Désactiver',
       danger: true,
     });

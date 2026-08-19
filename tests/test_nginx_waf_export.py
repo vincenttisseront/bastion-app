@@ -8,6 +8,8 @@ from app.bastion.nginx_waf_export import (
     apply_waf_exports,
     clamp_anomaly_threshold,
     list_promoted_deny_ips,
+    read_effective_status,
+    record_waf_apply_metadata,
     render_crs_setup_generated,
     render_engine_mode_generated,
     render_exclusions_generated,
@@ -172,6 +174,74 @@ def test_apply_restores_on_validate_failure(db_session, tmp_path):
         tmp_path / "exports" / "modsecurity" / "engine-mode-generated.conf"
     ).read_text(encoding="utf-8")
     assert "SecRuleEngine On" in restored
+
+
+def test_write_waf_exports_preserves_last_apply_metadata(db_session, tmp_path):
+    settings = _settings(tmp_path)
+    db_session.add(
+        WafProfile(
+            name="Production",
+            mode="on",
+            anomaly_threshold=5,
+            is_active=True,
+            created_by="test",
+        )
+    )
+    db_session.commit()
+    write_waf_exports(db_session, settings)
+    record_waf_apply_metadata(
+        settings,
+        actor="admin@example.com",
+        nginx_t_ok=True,
+        nginx_t_detail="nginx -t ok",
+    )
+    db_session.query(WafProfile).one().anomaly_threshold = 6
+    db_session.commit()
+    write_waf_exports(db_session, settings)
+    status = read_effective_status(settings)
+    assert status["last_apply_by"] == "admin@example.com"
+    assert status["last_apply_nginx_t_ok"] is True
+    assert status["anomaly_threshold"] == 6
+
+
+def test_record_waf_apply_metadata_after_success(db_session, tmp_path):
+    settings = _settings(tmp_path)
+    db_session.add(
+        WafProfile(
+            name="Production",
+            mode="on",
+            anomaly_threshold=5,
+            is_active=True,
+            created_by="test",
+        )
+    )
+    db_session.commit()
+    write_waf_exports(db_session, settings)
+    record_waf_apply_metadata(
+        settings,
+        actor="ops@vince",
+        nginx_t_ok=True,
+        nginx_t_detail="nginx: configuration file test is ok",
+    )
+    status = read_effective_status(settings)
+    assert status["last_apply_at"]
+    assert status["last_apply_by"] == "ops@vince"
+    assert status["last_apply_nginx_t_ok"] is True
+    assert "ok" in status["last_apply_nginx_t_detail"]
+
+
+def test_read_effective_status_legacy_export_file_mtime(db_session, tmp_path):
+    settings = _settings(tmp_path)
+    mod_dir = tmp_path / "exports" / "modsecurity"
+    mod_dir.mkdir(parents=True)
+    (mod_dir / "waf-effective-status.json").write_text(
+        '{"mode":"on","anomaly_threshold":5,"profile_name":"Production"}',
+        encoding="utf-8",
+    )
+    status = read_effective_status(settings)
+    assert status["present"] is True
+    assert "last_apply_at" not in status
+    assert status.get("export_file_mtime")
 
 
 def test_render_helpers_detection_only():

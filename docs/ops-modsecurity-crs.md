@@ -169,6 +169,41 @@ Un ban `SecurityBan` (`target_type=ip`) n’apparaît dans nginx que s’il est 
 (**permanent** OU historique `count >= ip_deny_min_occurrences`). Un seul échec de login
 ne régénère pas la liste deny.
 
+### Lire le statut WAF dans l'IHM
+
+La page **Admin → WAF** expose **trois lectures distinctes** (lot 2 Phase B) :
+
+| Lecture | Source | Signification |
+|---------|--------|---------------|
+| **Souhaité (DB)** | `WafProfile` + exclusions SQLite | Ce que l'admin a enregistré — effet immédiat en base uniquement pour le profil. |
+| **Généré (export)** | `exports/modsecurity/waf-effective-status.json` | Dernier snapshot écrit par **Appliquer** (`nginx_waf_export.py`). |
+| **Moteur CRS (fichiers image / repo)** | Parse de `docker/nginx/modsecurity/main-*.conf` du **checkout git** | Intention de build : `SecRuleEngine`, seuil id:900110, overlays inclus ou non. **Pas** une lecture live du conteneur. |
+
+**Limite (lot 2)** : `docker/nginx/` n'est **pas** bind-monté dans `bastion-nginx`. Le Dockerfile
+`COPY modsecurity/` et `COPY includes/` dans l'image. `bastion-app` n'a pas de `docker.sock`
+(reload via watcher exports). Donc l'IHM lit le **contexte de build du repo**, équivalent au
+runtime **seulement si** l'image en cours a été reconstruite depuis ce même arbre. Le stub
+`SecRuleEngine Off` écrit par `sync-exports-to-confd.sh` dans
+`/etc/nginx/modsecurity/generated/` n'est visible que dans le conteneur — et n'est de toute
+façon **pas** inclus par `main-*.conf` aujourd'hui.
+
+Ces trois couches **peuvent diverger** :
+
+- **Mode / seuil CRS** : depuis l'urgence 2026-08-06, engine-*.conf = SecRuleEngine Off et
+  engine-mode-generated.conf / crs-setup-generated.conf ne sont **pas** inclus dans
+  main-*.conf. L'IHM affiche alors un bandeau rouge si le souhaité DB ≠ moteur nginx, et
+  des marqueurs « non appliqué en nginx » sur mode et seuil.
+- **Rate limits / IP deny / exclusions UI** : poussés par **Appliquer** ; le badge
+  **En attente** / **Appliqué** compare DB vs export champ par champ.
+- **Dernier Appliquer** : depuis le lot 2, `waf-effective-status.json` enregistre
+  `last_apply_at`, `last_apply_by`, `last_apply_nginx_t_ok` et `last_apply_nginx_t_detail`
+  (uniquement après un Appliquer WAF réussi). Les exports antérieurs n'ont que la date
+  de dernière écriture du fichier (`export_file_mtime`).
+
+Le bandeau disparaît automatiquement lorsque le moteur nginx rejoint le mode enregistré
+(réactivation ops — voir runbook, pas via un simple Appliquer IHM tant que les includes
+Phase A ne sont pas rétablis).
+
 ## Notes d’exploitation
 
 - **`/healthz` subdomain_proxy** : absent de l’export Python (présent seulement dans le
