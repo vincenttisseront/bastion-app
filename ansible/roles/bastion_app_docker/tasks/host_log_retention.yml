@@ -1,0 +1,22 @@
+---
+# Host-side log rotation + nginx-logs directory (bind mount shared with bastion-nginx).
+
+- name: "RETENTION : ensure nginx-logs directory"
+  ansible.builtin.file:
+    path: "{{ sso_portal_nginx_logs_dir }}"
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0777"
+
+- name: "RETENTION : install logrotate config for nginx-logs"
+  ansible.builtin.template:
+    src: logrotate-bastion-nginx-logs.j2
+    dest: /etc/logrotate.d/bastion-nginx-logs
+    mode: "0644"
+
+- name: "RETENTION : logrotate dry-run (nginx-logs)"
+  ansible.builtin.command: logrotate -d /etc/logrotate.d/bastion-nginx-logs
+  register: _logrotate_dry
+  changed_when: false
+  failed_when: _logrotate_dry.rc != 0

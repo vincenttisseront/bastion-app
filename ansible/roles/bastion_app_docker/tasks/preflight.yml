@@ -16,8 +16,8 @@
 - name: "PREFLIGHT : espace disque data dir"
   ansible.builtin.shell: |
     set -o pipefail
-    df -Pm {{ bastion_app_docker_data_dir | dirname }} 2>/dev/null | awk 'NR==2 {print $4}' \
-      || df -Pm /var/lib | awk 'NR==2 {print $4}'
+    target="{{ bastion_app_docker_data_dir | dirname }}"
+    df -Pm "$target" 2>/dev/null | awk 'NR==2 {print $4, $5, $3}'
   args:
     executable: /bin/bash
   register: _disk_mb
@@ -26,8 +26,17 @@
 - name: "PREFLIGHT : assert disque"
   ansible.builtin.assert:
     that:
-      - (_disk_mb.stdout | trim | int) >= (sso_portal_min_free_disk_mb | int)
-    fail_msg: "Espace disque insuffisant ({{ _disk_mb.stdout }} Mo)"
+      - (_disk_free_mb | int) >= (sso_portal_min_free_disk_mb | int)
+    fail_msg: >-
+      Espace disque insuffisant sur {{ bastion_app_docker_data_dir | dirname }} :
+      {{ _disk_free_mb }} Mo libres ({{ _disk_use_pct }} utilisés, total {{ _disk_total_mb }} Mo),
+      seuil requis {{ sso_portal_min_free_disk_mb }} Mo.
+      Voir docs/ops-retention-donnees-froides-tools.md
+  vars:
+    _disk_parts: "{{ (_disk_mb.stdout | trim).split() }}"
+    _disk_free_mb: "{{ _disk_parts[0] | default('0') }}"
+    _disk_use_pct: "{{ _disk_parts[1] | default('?') }}"
+    _disk_total_mb: "{{ _disk_parts[2] | default('?') }}"
 
 - name: "PREFLIGHT : secrets non vides"
   ansible.builtin.assert:
@@ -73,6 +82,18 @@
     remote_src: true
     mode: "0600"
   when: _db_stat.stat.exists | default(false)
+
+- name: "PREFLIGHT : purge anciennes sauvegardes portal.db"
+  ansible.builtin.script: purge-portal-db-backups.py
+  environment:
+    DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+    KEEP_COUNT: "{{ sso_portal_db_backup_keep_count }}"
+    DAILY_DAYS: "{{ sso_portal_db_backup_daily_days }}"
+  register: _db_purge
+  changed_when: "'removed=' in (_db_purge.stdout | default('')) and 'removed=0' not in (_db_purge.stdout | default(''))"
+  failed_when: false
+
+- ansible.builtin.import_tasks: host_log_retention.yml
 
 - name: "PREFLIGHT : stat files data dir"
   ansible.builtin.stat:

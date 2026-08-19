@@ -1,6 +1,7 @@
 /var/log/nginx/apps/modsec_audit.log {
     daily
-    rotate 14
+    maxsize 100M
+    rotate 30
     missingok
     notifempty
     compress
