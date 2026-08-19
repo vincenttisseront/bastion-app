@@ -54,21 +54,15 @@ def _waf_page_context(
 
 
 @router.get("/admin/security/protection")
-def admin_protection_page(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    return render(
-        "admin/protection.html",
-        **_ctx(request, settings, **_waf_page_context(db, settings, page="dashboard")),
-    )
+def admin_protection_redirect():
+    """Lot 5 route — permanent redirect to unified WAF page (lot 6)."""
+    return RedirectResponse(url="/admin/security/waf#bilan", status_code=301)
 
 
 @router.get("/admin/security/waf/status")
 def admin_waf_status_redirect():
     """Legacy anchor /admin/security/waf#status → bilan."""
-    return RedirectResponse(url="/admin/security/protection", status_code=302)
+    return RedirectResponse(url="/admin/security/waf#bilan", status_code=301)
 
 
 @router.get("/admin/security/waf")
@@ -79,7 +73,7 @@ def admin_waf_page(
 ):
     return render(
         "admin/waf.html",
-        **_ctx(request, settings, **_waf_page_context(db, settings, page="config")),
+        **_ctx(request, settings, **_waf_page_context(db, settings, page="unified")),
     )
 
 

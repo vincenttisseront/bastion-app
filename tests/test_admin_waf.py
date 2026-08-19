@@ -116,14 +116,10 @@ def test_waf_page_ok_as_admin(client: TestClient, db_session: Session, tmp_path:
     with _patch_snapshot(tmp_path, mode=MODE_OFF):
         resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "WAF — Configuration" in resp.text
-    assert "Ce qui vous protège" not in resp.text
-    assert "Détails techniques" in resp.text
+    assert "Ce qui vous protège" in resp.text
+    assert 'data-tab="bilan"' in resp.text
     assert 'class="form-input"' in resp.text
-    assert 'class="form-select"' in resp.text
     assert "bastionConfirm" in resp.text
-    assert 'id="bastion-modal"' in resp.text or "bastion-modal" in resp.text
-    assert "Voir le bilan" in resp.text
 
 
 def test_waf_page_shows_reality_banner_when_engine_off(
@@ -135,9 +131,8 @@ def test_waf_page_shows_reality_banner_when_engine_off(
         resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
         assert resp.status_code == 200
         assert "INACTIVE" in resp.text
+        assert "reactivation" in resp.text.lower()
         assert "non appliqué en nginx" in resp.text
-        protection = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
-    assert "reactivation" in protection.text.lower()
 
 
 def test_waf_page_no_banner_when_engine_on_snapshot(
@@ -147,10 +142,8 @@ def test_waf_page_no_banner_when_engine_on_snapshot(
     _write_export_status(mode=MODE_ON)
     with _patch_snapshot(tmp_path, mode=MODE_ON):
         resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
-        assert resp.status_code == 200
-        assert "Inspection ACTIVE" in resp.text
-        protection = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
-    assert "INACTIVE" not in protection.text.split("Configurer le WAF")[0]
+    assert resp.status_code == 200
+    assert "Inspection ACTIVE" in resp.text
 
 
 def test_waf_page_applied_badge_when_db_matches_export(
@@ -171,7 +164,7 @@ def test_waf_page_applied_badge_with_legacy_export_json(
     _write_export_status(mode=MODE_ON, include_exclusion_ids=False)
     resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert 'badge badge-ok">Appliqué' in resp.text
+    assert ">Appliqué<" in resp.text
     assert 'badge badge-warn">En attente' not in resp.text
 
 
@@ -204,15 +197,7 @@ def test_waf_page_non_verifiable_without_snapshot(
     resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert "non vérifiable" in resp.text.lower() or "Non vérifiable" in resp.text
-    protection = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
-    assert "snapshot" in protection.text.lower()
-
-
-def test_waf_page_anti_bruteforce_is_link(client: TestClient, db_session: Session):
-    _seed_profile(db_session)
-    resp = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
-    assert "anti-bruteforce" in resp.text.lower()
-    assert 'href="/admin/security#banning"' in resp.text
+    assert "snapshot" in resp.text.lower()
 
 
 def test_waf_page_last_apply_unknown_when_legacy_export(
@@ -292,32 +277,18 @@ def test_waf_page_does_not_aggregate_audit_log_on_render(
         patch("app.bastion.modsec_audit_aggregator.run_aggregation") as mock_agg,
         patch("builtins.open", side_effect=_forbid_log_read),
     ):
-        resp = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
+        resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
 
     assert resp.status_code == 200
     mock_agg.assert_not_called()
     assert "42" in resp.text
 
 
-def test_waf_config_page_has_no_apply_on_protection_dashboard(
-    client: TestClient, db_session: Session
-):
-    _seed_profile(db_session)
-    resp = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
-    assert resp.status_code == 200
-    assert 'action="/admin/security/waf/apply"' not in resp.text
-    assert 'id="waf-profile-form"' not in resp.text
-    assert 'id="waf-exclusion-add-form"' not in resp.text
-    assert "Configurer le WAF" in resp.text
-
-
-def test_waf_status_hash_redirects_to_protection(client: TestClient, db_session: Session):
+def test_waf_status_redirects_to_bilan(client: TestClient, db_session: Session):
     _seed_profile(db_session)
     resp = client.get("/admin/security/waf/status", headers=ADMIN_HEADERS, follow_redirects=False)
-    assert resp.status_code == 302
-    assert resp.headers["location"] == "/admin/security/protection"
-    page = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
-    assert "location.replace('/admin/security/protection')" in page.text
+    assert resp.status_code == 301
+    assert resp.headers["location"] == "/admin/security/waf#bilan"
 
 
 def test_waf_page_anti_bruteforce_alert_when_policy_disabled(
@@ -330,7 +301,7 @@ def test_waf_page_anti_bruteforce_alert_when_policy_disabled(
     policy.enabled = False
     db_session.commit()
 
-    resp = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert "désactivé (global)" in resp.text
     assert 'class="badge badge-err"' in resp.text or "badge-err" in resp.text

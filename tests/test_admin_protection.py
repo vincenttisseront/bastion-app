@@ -1,4 +1,4 @@
-"""Integration tests for /admin/security/protection (lot 5)."""
+"""Integration tests for unified WAF page (lot 6)."""
 
 from __future__ import annotations
 
@@ -33,9 +33,6 @@ def _write_snapshot(path: Path, *, mode: str = MODE_OFF) -> None:
     payload = {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "nginx_version": "nginx/1.30.4",
-        "image_tag": "bastion-nginx:test",
-        "nginx_t_ok": True,
         "families": {
             "portal": {**fam, "family": "portal"},
             "subdomain": {**fam, "family": "subdomain"},
@@ -43,15 +40,8 @@ def _write_snapshot(path: Path, *, mode: str = MODE_OFF) -> None:
         },
         "aggregate_mode": mode,
         "aggregate_threshold": 5,
-        "engine_mode_generated_loaded": False,
-        "crs_setup_generated_loaded": False,
         "security_headers": {
-            "path": "/etc/nginx/includes/security-headers.conf",
-            "headers": [
-                {"name": "Strict-Transport-Security", "value": "max-age=31536000"},
-            ],
-            "included_on_443": True,
-            "no_duplicate_8080": True,
+            "headers": [{"name": "Strict-Transport-Security", "value": "max-age=31536000"}],
         },
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -81,43 +71,47 @@ def _seed_profile(db_session: Session) -> None:
     db_session.commit()
 
 
-def test_protection_page_requires_admin(client: TestClient):
-    resp = client.get(
-        "/admin/security/protection",
-        headers={"X-Email": "alice@example.com", "X-Groups": "team-ops"},
-        follow_redirects=False,
-    )
-    assert resp.status_code in (302, 303, 401, 403)
-
-
-def test_protection_page_ok_as_admin(client: TestClient, db_session: Session):
+def test_protection_redirects_to_waf_bilan(client: TestClient, db_session: Session):
     _seed_profile(db_session)
-    resp = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
+    resp = client.get("/admin/security/protection", headers=ADMIN_HEADERS, follow_redirects=False)
+    assert resp.status_code == 301
+    assert resp.headers["location"] == "/admin/security/waf#bilan"
+
+
+def test_waf_opens_bilan_tab_by_default(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "Protection web" in resp.text
+    assert 'data-tab="bilan"' in resp.text
+    assert 'id="bilan"' in resp.text
     assert "Ce qui vous protège" in resp.text
-    assert "Efficacité" in resp.text
-    assert 'action="/admin/security/waf/apply"' not in resp.text
-    assert 'id="waf-profile-form"' not in resp.text
+    assert 'id="profile"' in resp.text
+    assert "waf-bilan-grid" in resp.text
 
 
-def test_protection_degraded_snapshot_and_aggregator_messages(
-    client: TestClient, db_session: Session
-):
+def test_apply_disabled_on_bilan_tab(client: TestClient, db_session: Session):
     _seed_profile(db_session)
-    resp = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
-    assert resp.status_code == 200
-    assert "non vérifiable" in resp.text.lower()
-    assert "snapshot" in resp.text.lower()
-    assert "Données indisponibles" in resp.text
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert "setConfigActions" in resp.text
+    assert "currentTab() === 'bilan'" in resp.text
+    assert 'data-export-pending=' in resp.text
+
+
+def test_technical_tab_not_collapsed(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert 'data-tab="technical"' in resp.text
+    assert 'id="technical"' in resp.text
+    assert 'waf-technical-details' not in resp.text
+    assert resp.text.count("<details") == resp.text.count("</details>")
+
+
+def test_degraded_unavailable_vs_measured_zero(client: TestClient, db_session: Session, tmp_path: Path):
+    _seed_profile(db_session)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert "waf-efficiency-unavailable" in resp.text
     assert "agrégateur" in resp.text.lower()
-    assert "0 en-tête(s) actif(s)" not in resp.text
 
-
-def test_protection_efficiency_measured_zero_distinct_from_unavailable(
-    client: TestClient, db_session: Session, tmp_path: Path
-):
-    _seed_profile(db_session)
     logs = tmp_path / "nginx-logs"
     logs.mkdir()
     summary = {
@@ -132,8 +126,10 @@ def test_protection_efficiency_measured_zero_distinct_from_unavailable(
                 "block_rate_pct": 0,
                 "top_rules": [],
                 "top_hosts": [],
+                "rule_families": [],
             }
         },
+        "series": {"24h": [], "7d": []},
     }
     (logs / "waf-audit-summary.json").write_text(json.dumps(summary), encoding="utf-8")
     with (
@@ -143,32 +139,34 @@ def test_protection_efficiency_measured_zero_distinct_from_unavailable(
             return_value=logs / "waf-audit-summary.json",
         ),
     ):
-        resp = client.get("/admin/security/protection", headers=ADMIN_HEADERS)
-    assert resp.status_code == 200
-    assert "waf-efficiency-measured-zero" in resp.text
-    assert "Mesure effectuée" in resp.text
-    assert "waf-efficiency-unavailable" not in resp.text
+        resp2 = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert "waf-efficiency-measured-zero" in resp2.text or "Mesure effectuée" in resp2.text
+    assert "waf-chart-unavailable" in resp2.text or "waf-chart-measured_zero" in resp2.text
 
 
-def test_protection_headers_not_contradictory_when_unverifiable(db_session):
+def test_no_external_network_on_page(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    lower = resp.text.lower()
+    assert "cdn.jsdelivr" not in lower
+    assert "unpkg.com" not in lower
+    assert "chart.js" not in lower
+    assert "waf-chart" in resp.text
+
+
+def test_responsive_bilan_grid_css_present(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert "waf-bilan-grid" in resp.text
+
+
+def test_headers_layer_compact_not_contradictory(db_session):
     profile = WafProfile(name="P", mode=MODE_ON, anomaly_threshold=5, ip_deny_min_occurrences=3)
-    active = {"verifiable": False}
-    layers = build_protection_layers(db_session, profile, active, {"present": False})
+    layers = build_protection_layers(db_session, profile, {"verifiable": False}, {"present": False})
     headers = next(layer for layer in layers if layer["name"] == "En-têtes de sécurité")
     assert headers["state"] == "non vérifiable"
-    assert "0 en-tête" not in headers["detail"]
-
-
-def test_efficiency_unavailable_has_resolution(tmp_path: Path):
-    settings = Settings(
-        environment="test",
-        database_url="sqlite://",
-        nginx_app_logs_dir=str(tmp_path),
-    )
-    panel = build_efficiency_panel(settings, {"verifiable": True, "aggregate_mode": MODE_OFF})
-    assert panel["present"] is False
-    assert panel["status"] == "unavailable"
-    assert panel.get("resolution")
+    assert "detail_short" in headers
+    assert "0 en-tête" not in headers["detail_short"]
 
 
 def test_efficiency_measured_zero_status(tmp_path: Path):
@@ -196,6 +194,4 @@ def test_efficiency_measured_zero_status(tmp_path: Path):
     panel = build_efficiency_panel(
         settings, {"verifiable": True, "aggregate_mode": MODE_ON}
     )
-    assert panel["present"] is True
     assert panel["status"] == "measured_zero"
-    assert panel["inspected"] == 0

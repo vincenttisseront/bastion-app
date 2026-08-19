@@ -8,8 +8,21 @@ from typing import Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.bastion.modsec_audit_aggregator import read_audit_summary
+from app.bastion.modsec_audit_aggregator import (
+    read_aggregator_state,
+    read_audit_summary,
+    resolve_audit_summary_path,
+    resolve_aggregator_state_path,
+    resolve_modsec_audit_log_path,
+)
 from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_OFF, MODE_ON, list_promoted_deny_ips
+from app.bastion.nginx_waf_reality import resolve_nginx_waf_snapshot_path
+from app.bastion.waf_charts import (
+    render_family_breakdown,
+    render_horizontal_bars,
+    render_series_chart,
+    _empty_panel,
+)
 from app.models import AuditLog, SecurityBanRule, WafProfile
 from app.security.banning.service import list_active_bans, list_ban_rules, get_or_create_policy
 from app.sso_settings import Settings
@@ -23,6 +36,19 @@ AGGREGATOR_UNAVAILABLE_RESOLUTION = (
     "L'agrégateur n'a pas encore produit de résumé — vérifiez que bastion-app "
     "tourne avec le job APScheduler (leader health probe, toutes les 5 min)."
 )
+SNAPSHOT_CHECK_CMD = (
+    "ls -la ${SSO_PORTAL_DATA_DIR:-/tools/portal/data}/nginx-logs/nginx-waf-snapshot.json"
+)
+AGGREGATOR_CHECK_CMD = (
+    "ls -la ${SSO_PORTAL_DATA_DIR:-/tools/portal/data}/nginx-logs/waf-audit-summary.json"
+)
+
+
+def _compact_detail(text: str, max_len: int = 42) -> tuple[str, str]:
+    full = text.strip()
+    if len(full) <= max_len:
+        return full, full
+    return full[: max_len - 1].rstrip() + "…", full
 
 
 def _count_unknown_host_refusals_24h(db: Session) -> int:
@@ -55,7 +81,7 @@ def _verdict_action(
         if apply or not href:
             return {
                 "action_label": label,
-                "action_href": "/admin/security/waf",
+                "action_href": "/admin/security/waf#profile",
                 "action_apply": False,
             }
         if href.startswith("#"):
@@ -64,6 +90,8 @@ def _verdict_action(
                 "action_href": f"/admin/security/waf{href}",
                 "action_apply": False,
             }
+    if page == "unified" and href and href.startswith("#"):
+        return {"action_label": label, "action_href": href, "action_apply": apply}
     return {"action_label": label, "action_href": href, "action_apply": apply}
 
 
@@ -90,7 +118,7 @@ def build_protection_verdict(
             ),
             "resolution": SNAPSHOT_UNAVAILABLE_RESOLUTION,
             **_verdict_action(
-                "#technical-details",
+                "#technical",
                 label="Voir le diagnostic technique",
                 page=page,
             ),
@@ -106,7 +134,7 @@ def build_protection_verdict(
                 f"{CRS_INACTIVE_CAUSE}"
             ),
             **_verdict_action(
-                "#technical-details",
+                "#technical",
                 label="Voir la procédure de réactivation",
                 page=page,
             ),
@@ -162,19 +190,10 @@ def build_protection_verdict(
         "title": f"État nginx : {real or '—'}",
         "message": "Vérifiez l'alignement entre le profil enregistré et l'état réel.",
         **_verdict_action(
-            "#technical-details",
+            "#technical",
             label="Voir les détails techniques",
             page=page,
         ),
-    }
-
-
-def build_protection_status_line(verdict: dict[str, Any]) -> dict[str, Any]:
-    """One-line protection reminder for the configuration page."""
-    return {
-        "text": verdict.get("title") or "État de protection inconnu",
-        "css": verdict.get("css") or "alert-warn",
-        "href": "/admin/security/protection",
     }
 
 
@@ -224,7 +243,7 @@ def build_protection_layers(
     anti_bruteforce_css = "badge-ok" if policy.enabled else "badge-err"
     anti_bruteforce_state = "actif" if policy.enabled else "désactivé (global)"
 
-    return [
+    raw_layers = [
         {
             "name": "Anti-bruteforce",
             "state": anti_bruteforce_state,
@@ -271,6 +290,11 @@ def build_protection_layers(
             "alert": crs_mode in (MODE_OFF, None),
         },
     ]
+    compact: list[dict[str, Any]] = []
+    for layer in raw_layers:
+        short, full = _compact_detail(layer["detail"])
+        compact.append({**layer, "detail_short": short, "detail_full": full})
+    return compact
 
 
 def build_efficiency_panel(
@@ -343,6 +367,183 @@ def build_efficiency_panel(
     }
 
 
+def build_efficiency_visuals(
+    settings: Settings,
+    active: dict[str, Any],
+    efficiency: dict[str, Any],
+) -> dict[str, Any]:
+    """Pre-render SVG charts for the Bilan tab."""
+    if not efficiency.get("present"):
+        msg = efficiency.get("message") or "Données indisponibles"
+        res = efficiency.get("resolution") or AGGREGATOR_UNAVAILABLE_RESOLUTION
+        panel = _empty_panel(
+            title="Données indisponibles",
+            message=msg,
+            resolution=res,
+            variant="unavailable",
+            width=360,
+            height=180,
+        )
+        return {
+            "status": "unavailable",
+            "detections_hourly_svg": panel,
+            "detections_daily_svg": panel,
+            "top_rules_svg": panel,
+            "top_hosts_svg": panel,
+            "families_svg": panel,
+        }
+
+    if not active.get("verifiable"):
+        panel = _empty_panel(
+            title="Non vérifiable",
+            message="Snapshot nginx absent — séries temporelles non interprétables.",
+            resolution=SNAPSHOT_UNAVAILABLE_RESOLUTION,
+            variant="unverifiable",
+            width=360,
+            height=180,
+        )
+        return {
+            "status": "unverifiable",
+            "detections_hourly_svg": panel,
+            "detections_daily_svg": panel,
+            "top_rules_svg": panel,
+            "top_hosts_svg": panel,
+            "families_svg": panel,
+        }
+
+    summary = read_audit_summary(settings)
+    series = summary.get("series") or {}
+    window = (summary.get("windows") or {}).get("24h") or {}
+    series_24h = series.get("24h") or []
+    series_7d = series.get("7d") or []
+    measured_zero = efficiency.get("status") == "measured_zero"
+
+    top_rules = [
+        {"label": f"{r.get('rule_id')} · {r.get('label')}", "count": r.get("count")}
+        for r in (window.get("top_rules") or [])
+    ]
+    top_hosts = [
+        {"label": h.get("host"), "count": h.get("count")} for h in (window.get("top_hosts") or [])
+    ]
+    families = window.get("rule_families") or []
+
+    empty_variant = "measured_zero" if measured_zero else "measured_zero"
+    return {
+        "status": efficiency.get("status") or "ok",
+        "detections_hourly_svg": render_series_chart(
+            series_24h,
+            title="Détections / heure (24 h)",
+            empty_variant=empty_variant,
+            empty_message="Aucune détection sur 24 h",
+        ),
+        "detections_daily_svg": render_series_chart(
+            series_7d,
+            title="Détections / jour (7 j)",
+            empty_variant=empty_variant,
+            empty_message="Aucune détection sur 7 j",
+        ),
+        "top_rules_svg": render_horizontal_bars(
+            top_rules,
+            label_key="label",
+            title="Top 5 règles CRS",
+        ),
+        "top_hosts_svg": render_horizontal_bars(
+            top_hosts,
+            label_key="label",
+            title="Top 5 hosts",
+        ),
+        "families_svg": render_family_breakdown(families),
+    }
+
+
+def build_diagnostic_panel(
+    settings: Settings,
+    active: dict[str, Any],
+    generated: dict[str, Any],
+    headers_panel: dict[str, Any],
+) -> dict[str, Any]:
+    snap_path = resolve_nginx_waf_snapshot_path(settings)
+    snap_present = snap_path.is_file()
+    snap_age = None
+    snap_generated_at = None
+    if snap_present:
+        try:
+            import json as _json
+            from datetime import datetime as _dt
+
+            raw = _json.loads(snap_path.read_text(encoding="utf-8"))
+            snap_generated_at = raw.get("generated_at")
+            if snap_generated_at:
+                ts = _dt.fromisoformat(str(snap_generated_at).replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                snap_age = int((datetime.now(timezone.utc) - ts).total_seconds() // 60)
+        except (OSError, ValueError, TypeError):
+            pass
+
+    agg_state = read_aggregator_state(settings)
+    summary_path = resolve_audit_summary_path(settings)
+    summary = read_audit_summary(settings)
+    log_path = resolve_modsec_audit_log_path(settings)
+
+    checks = [
+        {
+            "name": "Snapshot nginx",
+            "status": "ok" if active.get("verifiable") else "warn",
+            "detail": (
+                f"Présent — généré {snap_generated_at} ({snap_age} min)"
+                if snap_present and snap_generated_at
+                else ("Fichier présent mais illisible" if snap_present else "Absent")
+            ),
+            "path": str(snap_path),
+            "action": SNAPSHOT_CHECK_CMD if not active.get("verifiable") else None,
+            "resolution": SNAPSHOT_UNAVAILABLE_RESOLUTION if not active.get("verifiable") else None,
+        },
+        {
+            "name": "Agrégateur audit",
+            "status": "ok" if summary.get("present") else "warn",
+            "detail": (
+                f"Dernier résumé : {summary.get('generated_at') or '—'}"
+                if summary.get("present")
+                else "Jamais exécuté"
+            ),
+            "path": str(summary_path),
+            "action": AGGREGATOR_CHECK_CMD if not summary.get("present") else None,
+            "resolution": AGGREGATOR_UNAVAILABLE_RESOLUTION if not summary.get("present") else None,
+        },
+        {
+            "name": "Journal modsec_audit.log",
+            "status": "ok" if log_path.is_file() else "muted",
+            "detail": "Présent" if log_path.is_file() else "Absent (normal si CRS arrêté)",
+            "path": str(log_path),
+            "action": None,
+            "resolution": None,
+        },
+        {
+            "name": "En-têtes de sécurité",
+            "status": "ok" if headers_panel.get("present") else "warn",
+            "detail": (
+                f"{len(headers_panel.get('headers') or [])} en-tête(s) lus"
+                if headers_panel.get("present")
+                else "Non vérifiable sans snapshot"
+            ),
+            "path": headers_panel.get("path") or "—",
+            "action": SNAPSHOT_CHECK_CMD if not headers_panel.get("present") else None,
+            "resolution": SNAPSHOT_UNAVAILABLE_RESOLUTION if not headers_panel.get("present") else None,
+        },
+    ]
+
+    offset = (agg_state.get("log_file_state") or {}).get("offset")
+    return {
+        "checks": checks,
+        "aggregator_state_path": str(resolve_aggregator_state_path(settings)),
+        "aggregator_offset": offset,
+        "aggregator_state_present": agg_state.get("present"),
+        "summary_path": str(summary_path),
+        "last_apply_at": generated.get("last_apply_at"),
+    }
+
+
 def build_waf_readability_context(
     db: Session,
     settings: Settings,
@@ -351,7 +552,8 @@ def build_waf_readability_context(
     headers_panel: dict[str, Any],
     *,
     export_pending: bool,
-    page: str = "dashboard",
+    page: str = "unified",
+    generated: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     verdict = build_protection_verdict(
         profile, active, export_pending=export_pending, page=page
@@ -359,10 +561,15 @@ def build_waf_readability_context(
     layers = build_protection_layers(db, profile, active, headers_panel)
     efficiency_24h = build_efficiency_panel(settings, active, window="24h")
     efficiency_7d = build_efficiency_panel(settings, active, window="7d")
+    visuals = build_efficiency_visuals(settings, active, efficiency_24h)
+    diagnostic = build_diagnostic_panel(
+        settings, active, generated or {}, headers_panel
+    )
     return {
         "verdict": verdict,
-        "protection_status_line": build_protection_status_line(verdict),
         "protection_layers": layers,
         "efficiency": efficiency_24h,
         "efficiency_7d": efficiency_7d,
+        "efficiency_visuals": visuals,
+        "diagnostic": diagnostic,
     }

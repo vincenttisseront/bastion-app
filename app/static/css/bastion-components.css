@@ -1317,6 +1317,17 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 }
 #waf-page .form-section{margin-top:0}
 #waf-page .inline-form{display:inline}
+.waf-bilan-grid{display:grid;gap:var(--sp-4);grid-template-columns:1fr}
+@media(min-width:960px){.waf-bilan-grid{grid-template-columns:1fr 1fr}}
+.waf-bilan-left,.waf-bilan-right{min-width:0}
+.waf-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.waf-chart-slot{margin:var(--sp-3) 0}
+.waf-subheading{font-size:var(--fs-sm);font-weight:600;margin:0 0 var(--sp-2)}
+.waf-layers-compact td,.waf-layers-compact th{padding:.35rem .5rem;font-size:var(--fs-sm)}
+.waf-layer-detail{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.waf-config-actions-disabled{opacity:.45;pointer-events:none}
+.waf-config-actions-disabled .waf-apply-btn{pointer-events:none}
+.waf-diag-path{font-size:var(--fs-xs);word-break:break-all}
 
 @media (max-width:720px){
   .wizard-stepper{
