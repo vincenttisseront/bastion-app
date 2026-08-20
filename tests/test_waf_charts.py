@@ -16,3 +16,14 @@ def test_series_chart_measured_zero():
         empty_variant="measured_zero",
     )
     assert "waf-chart-measured_zero" in svg or "Mesure effectuée" in svg
+
+
+def test_donut_chart_renders():
+    from app.bastion.waf_charts import render_donut_chart
+
+    svg = render_donut_chart(
+        [{"label": "SQLi", "count": 5}, {"label": "XSS", "count": 3}],
+        title="Familles",
+    )
+    assert "waf-chart-donut" in svg
+    assert "8" in svg  # total

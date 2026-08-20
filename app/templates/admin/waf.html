@@ -60,35 +60,27 @@
 
 
 
-  <div class="alert {{ v.css }} waf-verdict" role="status">
-
-    <strong>{{ v.title }}</strong>
-
-    <p class="waf-verdict-message">{{ v.message }}</p>
-
-    {% if v.resolution %}<p class="form-help waf-verdict-resolution">{{ v.resolution }}</p>{% endif %}
-
+  <div class="waf-status-strip alert {{ v.css }}" role="status">
+    <div class="waf-status-strip-main">
+      <span class="waf-status-strip-title">{{ v.title }}</span>
+      <span class="waf-status-strip-msg">{{ v.message }}</span>
+    </div>
     {% if v.action_label %}
-
-    <p class="waf-verdict-action">
-
+    <div class="waf-status-strip-action">
       {% if v.action_apply %}
-
       <button type="submit" form="waf-apply-form" class="btn btn-sm btn-primary waf-apply-btn">{{ v.action_label }}</button>
-
       {% elif v.action_href %}
-
       <a href="{{ v.action_href }}" class="btn btn-sm btn-secondary">{{ v.action_label }}</a>
-
       {% endif %}
-
-      {% if v.action_hint %}<span class="form-help muted">({{ v.action_hint }})</span>{% endif %}
-
-    </p>
-
+    </div>
     {% endif %}
-
   </div>
+  {% if v.resolution or v.action_hint %}
+  <p class="waf-status-resolution">
+    {% if v.resolution %}{{ v.resolution }}{% endif %}
+    {% if v.action_hint %}<span class="muted">{% if v.resolution %} · {% endif %}{{ v.action_hint }}</span>{% endif %}
+  </p>
+  {% endif %}
 
 
 
@@ -128,108 +120,86 @@
 
   {# —— Bilan —— #}
 
-  <div class="form-section waf-panel" id="bilan" role="tabpanel" aria-labelledby="tab-bilan">
-
-    <div class="form-body waf-bilan-grid">
-
-      <div class="waf-bilan-left">
-
-        <h3 class="waf-subheading">Ce qui vous protège aujourd'hui</h3>
-
-        <div class="data-table-wrapper">
-
-          <table class="data-table data-table-compact waf-layers-compact">
-
-            <thead><tr><th>Couche</th><th>État</th><th>Détail</th></tr></thead>
-
-            <tbody>
-
-              {% for layer in protection_layers %}
-
-              <tr{% if layer.alert %} class="waf-layer-alert"{% endif %}>
-
-                <td>{{ layer.name }}</td>
-
-                <td><span class="badge {{ layer.css }}">{{ layer.state }}</span></td>
-
-                <td class="waf-layer-detail" title="{{ layer.detail_full }}">{{ layer.detail_short }}</td>
-
-              </tr>
-
-              {% endfor %}
-
-            </tbody>
-
-          </table>
-
+  <div class="form-section waf-panel waf-panel-bilan" id="bilan" role="tabpanel" aria-labelledby="tab-bilan">
+    <div class="form-body waf-dashboard">
+      <div class="waf-kpi-row">
+        <div class="waf-kpi-card">
+          <span class="waf-kpi-label">Requêtes inspectées</span>
+          <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.inspected }}{% else %}—{% endif %}</span>
+          <span class="waf-kpi-sub">24 h</span>
         </div>
-
-        {% if efficiency.present and efficiency.top_rules %}
-
-        <h4 class="waf-subheading">Top règles (24 h)</h4>
-
-        <div class="waf-chart-slot">{{ visuals.top_rules_svg | safe }}</div>
-
-        {% endif %}
-
+        <div class="waf-kpi-card waf-kpi-card--warn">
+          <span class="waf-kpi-label">Détections</span>
+          <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.detections }}{% else %}—{% endif %}</span>
+          <span class="waf-kpi-sub">CRS</span>
+        </div>
+        <div class="waf-kpi-card waf-kpi-card--err">
+          <span class="waf-kpi-label">Blocages</span>
+          <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.blocks }}{% else %}—{% endif %}</span>
+          <span class="waf-kpi-sub">24 h</span>
+        </div>
+        <div class="waf-kpi-card">
+          <span class="waf-kpi-label">Taux de blocage</span>
+          <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.block_rate_pct }} %{% else %}—{% endif %}</span>
+          <span class="waf-kpi-sub">{% if efficiency.generated_at %}agrégé {{ efficiency.generated_at[:16] }}{% else %}indisponible{% endif %}</span>
+        </div>
       </div>
 
-      <div class="waf-bilan-right">
+      {% if not efficiency.present %}
+      <div class="waf-dash-notice waf-dash-notice--unavailable">
+        <strong>Données indisponibles</strong>
+        <p>{{ efficiency.message }}</p>
+        {% if efficiency.resolution %}<p class="waf-dash-notice-hint">{{ efficiency.resolution }}</p>{% endif %}
+      </div>
+      {% elif efficiency.status == 'measured_zero' %}
+      <div class="waf-dash-notice waf-dash-notice--zero">
+        <strong>Mesure effectuée — résultat nul</strong>
+        <p>{{ efficiency.zero_explanation }}</p>
+      </div>
+      {% endif %}
 
-        <h3 class="waf-subheading">Indicateurs clés (24 h)</h3>
-
-        {% if efficiency.present %}
-
-        <div class="wizard-summary-grid waf-kpi-grid">
-
-          <div class="wizard-summary-item"><span class="wizard-summary-label">Requêtes inspectées</span><span class="wizard-summary-value mono">{{ efficiency.inspected }}</span></div>
-
-          <div class="wizard-summary-item"><span class="wizard-summary-label">Détections</span><span class="wizard-summary-value mono">{{ efficiency.detections }}</span></div>
-
-          <div class="wizard-summary-item"><span class="wizard-summary-label">Blocages</span><span class="wizard-summary-value mono">{{ efficiency.blocks }}</span></div>
-
-          <div class="wizard-summary-item"><span class="wizard-summary-label">Taux de blocage</span><span class="wizard-summary-value mono">{{ efficiency.block_rate_pct }} %</span></div>
-
+      <div class="waf-dash-grid">
+        <div class="waf-dash-card waf-dash-card--layers">
+          <div class="waf-dash-card-header">
+            <h3 class="waf-dash-card-title">Couches de protection</h3>
+            <span class="waf-dash-card-meta">Temps réel</span>
+          </div>
+          <ul class="waf-layer-list">
+            {% for layer in protection_layers %}
+            <li class="waf-layer-item{% if layer.alert %} waf-layer-item--alert{% endif %}">
+              <span class="waf-layer-dot waf-layer-dot--{{ layer.css | replace('badge-', '') }}"></span>
+              <span class="waf-layer-name">{{ layer.name }}</span>
+              <span class="badge {{ layer.css }} waf-layer-badge">{{ layer.state }}</span>
+              <span class="waf-layer-meta" title="{{ layer.detail_full }}">{{ layer.detail_short }}</span>
+            </li>
+            {% endfor %}
+          </ul>
         </div>
 
-        {% if efficiency.status == 'measured_zero' %}
-
-        <div class="alert alert-warn waf-efficiency-measured-zero">{{ efficiency.zero_explanation }}</div>
-
-        {% endif %}
-
-        {% else %}
-
-        <div class="alert alert-warn waf-efficiency-unavailable">
-
-          <strong>Données indisponibles</strong>
-
-          <p>{{ efficiency.message }}</p>
-
-          {% if efficiency.resolution %}<p class="form-help">{{ efficiency.resolution }}</p>{% endif %}
-
+        <div class="waf-dash-card waf-dash-card--chart">
+          <div class="waf-chart-slot">{{ visuals.detections_hourly_svg | safe }}</div>
         </div>
 
-        {% endif %}
+        <div class="waf-dash-card waf-dash-card--chart">
+          <div class="waf-chart-slot">{{ visuals.families_svg | safe }}</div>
+        </div>
 
-        <div class="waf-chart-slot">{{ visuals.detections_hourly_svg | safe }}</div>
+        <div class="waf-dash-card waf-dash-card--chart">
+          <div class="waf-chart-slot">{{ visuals.top_rules_svg | safe }}</div>
+        </div>
 
-        <div class="waf-chart-slot">{{ visuals.top_hosts_svg | safe }}</div>
-
-        <div class="waf-chart-slot">{{ visuals.families_svg | safe }}</div>
+        <div class="waf-dash-card waf-dash-card--chart">
+          <div class="waf-chart-slot">{{ visuals.top_hosts_svg | safe }}</div>
+        </div>
 
         {% if efficiency_7d.present %}
-
-        <div class="waf-chart-slot">{{ visuals.detections_daily_svg | safe }}</div>
-
-        <p class="form-help muted">7 j : {{ efficiency_7d.inspected }} inspectées · {{ efficiency_7d.detections }} détections · {{ efficiency_7d.blocks }} blocages</p>
-
+        <div class="waf-dash-card waf-dash-card--chart waf-dash-card--wide">
+          <div class="waf-chart-slot">{{ visuals.detections_daily_svg | safe }}</div>
+          <p class="waf-dash-footnote">7 j · {{ efficiency_7d.inspected }} inspectées · {{ efficiency_7d.detections }} détections · {{ efficiency_7d.blocks }} blocages</p>
+        </div>
         {% endif %}
-
       </div>
-
     </div>
-
   </div>
 
 
