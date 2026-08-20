@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -542,6 +543,167 @@ def build_diagnostic_panel(
         "summary_path": str(summary_path),
         "last_apply_at": generated.get("last_apply_at"),
     }
+
+
+def _json_safe(value: Any) -> Any:
+    """Recursively make a value JSON-serializable (no secrets, no ORM objects)."""
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    return str(value)
+
+
+def build_waf_diagnostic_export(
+    *,
+    desired: dict[str, Any],
+    generated: dict[str, Any],
+    active: dict[str, Any],
+    pending_diffs: list[dict[str, Any]],
+    export_pending: bool,
+    control_effect: dict[str, Any],
+    security_headers_panel: dict[str, Any],
+    diagnostic: dict[str, Any],
+    verdict: dict[str, Any],
+    reality_warnings: list[str] | None = None,
+    reload_confirmed: bool | None = None,
+) -> dict[str, Any]:
+    """Full diagnostic payload: expected (DB) vs generated vs real nginx.
+
+    Safe to paste into a support chat — no secrets, paths and modes only.
+    """
+    expected_mode = desired.get("mode")
+    real_mode = active.get("aggregate_mode") if active.get("verifiable") else None
+    export_mode = generated.get("mode") if generated.get("present") else None
+
+    mismatches: list[dict[str, Any]] = []
+    if expected_mode and real_mode and expected_mode != real_mode:
+        mismatches.append(
+            {
+                "field": "mode",
+                "expected": expected_mode,
+                "actual": real_mode,
+                "source": "db_vs_nginx",
+            }
+        )
+    if (
+        desired.get("anomaly_threshold") is not None
+        and active.get("verifiable")
+        and active.get("aggregate_threshold") is not None
+        and int(desired["anomaly_threshold"]) != int(active["aggregate_threshold"])
+    ):
+        mismatches.append(
+            {
+                "field": "anomaly_threshold",
+                "expected": desired.get("anomaly_threshold"),
+                "actual": active.get("aggregate_threshold"),
+                "source": "db_vs_nginx",
+            }
+        )
+    for d in pending_diffs or []:
+        mismatches.append(
+            {
+                "field": d.get("field") or d.get("label"),
+                "expected": d.get("db"),
+                "actual": d.get("export"),
+                "source": "db_vs_export",
+            }
+        )
+
+    payload = {
+        "schema_version": 1,
+        "kind": "bastion-waf-diagnostic",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "purpose": (
+            "Export de diagnostic WAF : configuration attendue (DB) vs export généré "
+            "vs état réellement actif (snapshot nginx). À coller pour le debug."
+        ),
+        "verdict": {
+            "level": verdict.get("level"),
+            "title": verdict.get("title"),
+            "message": verdict.get("message"),
+            "resolution": verdict.get("resolution"),
+        },
+        "alignment": {
+            "export_pending": bool(export_pending),
+            "reload_confirmed": reload_confirmed,
+            "control_effect": _json_safe(control_effect),
+            "mismatches": mismatches,
+            "reality_warnings": list(reality_warnings or []),
+        },
+        "expected": {
+            "source": "database_waf_profile",
+            "profile": _json_safe(desired),
+        },
+        "generated": {
+            "source": "exports/modsecurity/waf-effective-status.json",
+            "present": bool(generated.get("present")),
+            "status": _json_safe(
+                {
+                    k: generated.get(k)
+                    for k in (
+                        "present",
+                        "path",
+                        "mode",
+                        "anomaly_threshold",
+                        "profile_name",
+                        "ip_deny_count",
+                        "ip_deny_min_occurrences",
+                        "exclusion_count",
+                        "exclusion_rule_ids",
+                        "portal_login_rate",
+                        "portal_api_rate",
+                        "portal_login_burst",
+                        "portal_api_burst",
+                        "last_apply_at",
+                        "last_apply_by",
+                        "last_apply_nginx_t_ok",
+                        "last_apply_nginx_t_skipped",
+                        "last_apply_nginx_t_detail",
+                    )
+                    if k in generated or k in ("present", "path", "mode")
+                }
+            ),
+        },
+        "actual": {
+            "source": "nginx-waf-snapshot.json",
+            "verifiable": bool(active.get("verifiable")),
+            "error": active.get("error"),
+            "snapshot_path": active.get("snapshot_path"),
+            "generated_at": active.get("generated_at"),
+            "aggregate_mode": active.get("aggregate_mode"),
+            "aggregate_threshold": active.get("aggregate_threshold"),
+            "engine_mode_generated_loaded": active.get("engine_mode_generated_loaded"),
+            "crs_setup_generated_loaded": active.get("crs_setup_generated_loaded"),
+            "families": _json_safe(active.get("families")),
+            "column_title": active.get("column_title"),
+        },
+        "security_headers": _json_safe(
+            {
+                "present": security_headers_panel.get("present"),
+                "path": security_headers_panel.get("path"),
+                "header_count": len(security_headers_panel.get("headers") or []),
+                "headers": security_headers_panel.get("headers") or [],
+                "source_note": security_headers_panel.get("source_note"),
+            }
+        ),
+        "sources": {
+            "checks": _json_safe(diagnostic.get("checks") or []),
+            "aggregator_state_path": diagnostic.get("aggregator_state_path"),
+            "aggregator_offset": diagnostic.get("aggregator_offset"),
+            "aggregator_state_present": diagnostic.get("aggregator_state_present"),
+            "summary_path": diagnostic.get("summary_path"),
+        },
+    }
+    return payload
+
+
+def format_waf_diagnostic_export_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
 
 def build_waf_readability_context(
