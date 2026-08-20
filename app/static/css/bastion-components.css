@@ -1317,14 +1317,114 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 }
 #waf-page .form-section{margin-top:0}
 #waf-page .inline-form{display:inline}
+
+/* WAF dashboard — enterprise-style layout */
+.waf-status-strip{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-4);
+  padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-3);border-radius:var(--r-lg);
+  border-width:1px;border-style:solid;
+}
+.waf-status-strip.alert-ok{border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.08)}
+.waf-status-strip.alert-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.08)}
+.waf-status-strip.alert-err{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08)}
+.waf-status-strip-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.waf-status-strip-title{font-weight:600;font-size:var(--fs-sm)}
+.waf-status-strip-msg{font-size:var(--fs-sm);color:var(--text-2);margin:0}
+.waf-status-resolution{font-size:var(--fs-xs);color:var(--text-muted);margin:0 0 var(--sp-3);padding:0 var(--sp-1)}
+
+.waf-panel-bilan{border:none;box-shadow:none;background:transparent}
+.waf-panel-bilan .form-body{padding:0}
+.waf-dashboard{display:flex;flex-direction:column;gap:var(--sp-4)}
+
+.waf-kpi-row{
+  display:grid;gap:var(--sp-3);
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+@media(min-width:768px){.waf-kpi-row{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.waf-kpi-card{
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:var(--sp-4) var(--sp-5);box-shadow:var(--sh-card);
+  display:flex;flex-direction:column;gap:var(--sp-1);min-height:5.5rem;
+  border-top:3px solid var(--accent);
+}
+.waf-kpi-card--warn{border-top-color:#f59e0b}
+.waf-kpi-card--err{border-top-color:#ef4444}
+.waf-kpi-label{font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
+.waf-kpi-value{font-size:1.75rem;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--text)}
+.waf-kpi-sub{font-size:var(--fs-xs);color:var(--text-muted)}
+
+.waf-dash-notice{
+  padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);font-size:var(--fs-sm);
+  border:1px solid var(--border);
+}
+.waf-dash-notice--unavailable{background:var(--bg-tertiary);border-color:rgba(245,158,11,.3)}
+.waf-dash-notice--zero{background:rgba(16,185,129,.06);border-color:rgba(16,185,129,.25)}
+.waf-dash-notice p{margin:var(--sp-1) 0 0}
+.waf-dash-notice-hint{font-size:var(--fs-xs);color:var(--text-muted)}
+
+.waf-dash-grid{
+  display:grid;gap:var(--sp-4);
+  grid-template-columns:1fr;
+}
+@media(min-width:960px){
+  .waf-dash-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .waf-dash-card--layers{grid-row:span 2}
+  .waf-dash-card--wide{grid-column:1/-1}
+}
+
+.waf-dash-card{
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-xl);
+  box-shadow:var(--sh-card);overflow:hidden;
+}
+.waf-dash-card-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border-muted);
+  background:var(--bg-tertiary);
+}
+.waf-dash-card-title{margin:0;font-size:var(--fs-sm);font-weight:600}
+.waf-dash-card-meta{font-size:var(--fs-xs);color:var(--text-muted)}
+.waf-dash-card--chart .waf-chart-slot{padding:var(--sp-2) var(--sp-3) var(--sp-3)}
+.waf-dash-footnote{font-size:var(--fs-xs);color:var(--text-muted);padding:0 var(--sp-4) var(--sp-3);margin:0}
+
+.waf-layer-list{list-style:none;margin:0;padding:var(--sp-2) 0}
+.waf-layer-item{
+  display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto auto;
+  gap:0 var(--sp-3);align-items:center;padding:var(--sp-3) var(--sp-4);
+  border-bottom:1px solid var(--border-muted);font-size:var(--fs-sm);
+}
+.waf-layer-item:last-child{border-bottom:none}
+.waf-layer-item--alert{background:rgba(239,68,68,.04)}
+.waf-layer-dot{width:8px;height:8px;border-radius:50%;grid-row:span 2}
+.waf-layer-dot--ok{background:#10b981}
+.waf-layer-dot--warn{background:#f59e0b}
+.waf-layer-dot--err{background:#ef4444}
+.waf-layer-dot--muted{background:#94a3b8}
+.waf-layer-name{font-weight:600;color:var(--text)}
+.waf-layer-badge{justify-self:end;font-size:var(--fs-xs)}
+.waf-layer-meta{grid-column:2/4;font-size:var(--fs-xs);color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* SVG charts — theme-aware */
+.waf-chart-slot .waf-chart{display:block;max-width:100%}
+.waf-chart-bg{fill:var(--bg-tertiary);stroke:var(--border-muted);stroke-width:1}
+.waf-chart-title{fill:var(--text-muted);font-size:11px;font-weight:600}
+.waf-chart-grid{stroke:var(--border-muted);stroke-width:1;opacity:.6}
+.waf-chart-bar{fill:var(--accent)}
+.waf-chart-axis{fill:var(--text-muted);font-size:9px}
+.waf-chart-hbar-label{fill:var(--text-2);font-size:10px}
+.waf-chart-hbar{fill:#6366f1}
+.waf-chart-hbar-val{fill:var(--text-muted);font-size:10px;font-weight:600}
+.waf-chart-legend{fill:var(--text-2);font-size:10px}
+.waf-chart-donut-center{fill:var(--text);font-size:18px;font-weight:700}
+.waf-chart-donut-sub{fill:var(--text-muted);font-size:9px}
+.waf-chart-empty-title{fill:var(--text);font-size:12px;font-weight:600}
+.waf-chart-empty-msg{fill:var(--text-muted);font-size:10px}
+.waf-chart-empty-hint{fill:var(--text-muted);font-size:9px;opacity:.85}
+.waf-chart-unavailable .waf-chart-bg{fill:rgba(245,158,11,.06);stroke:rgba(245,158,11,.25)}
+.waf-chart-measured_zero .waf-chart-bg{fill:rgba(16,185,129,.05);stroke:rgba(16,185,129,.2)}
+.waf-chart-unverifiable .waf-chart-bg{fill:rgba(99,102,241,.06);stroke:rgba(99,102,241,.2)}
+
 .waf-bilan-grid{display:grid;gap:var(--sp-4);grid-template-columns:1fr}
 @media(min-width:960px){.waf-bilan-grid{grid-template-columns:1fr 1fr}}
-.waf-bilan-left,.waf-bilan-right{min-width:0}
-.waf-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.waf-chart-slot{margin:var(--sp-3) 0}
-.waf-subheading{font-size:var(--fs-sm);font-weight:600;margin:0 0 var(--sp-2)}
-.waf-layers-compact td,.waf-layers-compact th{padding:.35rem .5rem;font-size:var(--fs-sm)}
-.waf-layer-detail{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .waf-config-actions-disabled{opacity:.45;pointer-events:none}
 .waf-config-actions-disabled .waf-apply-btn{pointer-events:none}
 .waf-diag-path{font-size:var(--fs-xs);word-break:break-all}

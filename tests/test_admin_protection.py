@@ -84,9 +84,9 @@ def test_waf_opens_bilan_tab_by_default(client: TestClient, db_session: Session)
     assert resp.status_code == 200
     assert 'data-tab="bilan"' in resp.text
     assert 'id="bilan"' in resp.text
-    assert "Ce qui vous protège" in resp.text
+    assert "Couches de protection" in resp.text
     assert 'id="profile"' in resp.text
-    assert "waf-bilan-grid" in resp.text
+    assert "waf-dash-grid" in resp.text
 
 
 def test_apply_disabled_on_bilan_tab(client: TestClient, db_session: Session):
@@ -109,7 +109,7 @@ def test_technical_tab_not_collapsed(client: TestClient, db_session: Session):
 def test_degraded_unavailable_vs_measured_zero(client: TestClient, db_session: Session, tmp_path: Path):
     _seed_profile(db_session)
     resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
-    assert "waf-efficiency-unavailable" in resp.text
+    assert "waf-dash-notice--unavailable" in resp.text
     assert "agrégateur" in resp.text.lower()
 
     logs = tmp_path / "nginx-logs"
@@ -140,7 +140,7 @@ def test_degraded_unavailable_vs_measured_zero(client: TestClient, db_session: S
         ),
     ):
         resp2 = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
-    assert "waf-efficiency-measured-zero" in resp2.text or "Mesure effectuée" in resp2.text
+    assert "waf-dash-notice--zero" in resp2.text or "Mesure effectuée" in resp2.text
     assert "waf-chart-unavailable" in resp2.text or "waf-chart-measured_zero" in resp2.text
 
 
@@ -157,7 +157,7 @@ def test_no_external_network_on_page(client: TestClient, db_session: Session):
 def test_responsive_bilan_grid_css_present(client: TestClient, db_session: Session):
     _seed_profile(db_session)
     resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
-    assert "waf-bilan-grid" in resp.text
+    assert "waf-dash-grid" in resp.text
 
 
 def test_headers_layer_compact_not_contradictory(db_session):

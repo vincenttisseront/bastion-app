@@ -116,7 +116,7 @@ def test_waf_page_ok_as_admin(client: TestClient, db_session: Session, tmp_path:
     with _patch_snapshot(tmp_path, mode=MODE_OFF):
         resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "Ce qui vous protège" in resp.text
+    assert "Couches de protection" in resp.text
     assert 'data-tab="bilan"' in resp.text
     assert 'class="form-input"' in resp.text
     assert "bastionConfirm" in resp.text
