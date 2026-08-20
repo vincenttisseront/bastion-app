@@ -1428,6 +1428,16 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .waf-config-actions-disabled{opacity:.45;pointer-events:none}
 .waf-config-actions-disabled .waf-apply-btn{pointer-events:none}
 .waf-diag-path{font-size:var(--fs-xs);word-break:break-all}
+.waf-diagnostic-export{
+  margin-top:var(--sp-4);background:var(--bg-card);border:1px solid var(--border);
+  border-radius:var(--r-xl);box-shadow:var(--sh-card);overflow:hidden;
+}
+.waf-diagnostic-export-body{padding:var(--sp-4)}
+.waf-diagnostic-export-actions{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3)}
+.waf-diagnostic-json{
+  width:100%;min-height:16rem;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:var(--fs-xs);line-height:1.45;resize:vertical;white-space:pre;
+}
 
 @media (max-width:720px){
   .wizard-stepper{

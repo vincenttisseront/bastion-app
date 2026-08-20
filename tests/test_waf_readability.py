@@ -95,3 +95,28 @@ def test_protection_layers_anti_bruteforce_alert_when_policy_disabled(db_session
     assert anti["alert"] is True
     assert anti["css"] == "badge-err"
     assert "désactivé" in anti["state"]
+
+
+def test_diagnostic_export_expected_vs_actual():
+    from app.bastion.waf_readability import build_waf_diagnostic_export
+
+    payload = build_waf_diagnostic_export(
+        desired={"mode": "on", "anomaly_threshold": 5, "profile_name": "Production"},
+        generated={"present": True, "mode": "on", "path": "/tmp/export.json"},
+        active={
+            "verifiable": True,
+            "aggregate_mode": "off",
+            "aggregate_threshold": 5,
+            "snapshot_path": "/tmp/snap.json",
+        },
+        pending_diffs=[],
+        export_pending=False,
+        control_effect={"mode": False},
+        security_headers_panel={"present": False, "headers": []},
+        diagnostic={"checks": [], "summary_path": "/tmp/summary.json"},
+        verdict={"level": "inactive", "title": "INACTIVE", "message": "off"},
+    )
+    assert payload["kind"] == "bastion-waf-diagnostic"
+    assert payload["expected"]["profile"]["mode"] == "on"
+    assert payload["actual"]["aggregate_mode"] == "off"
+    assert any(m["field"] == "mode" for m in payload["alignment"]["mismatches"])

@@ -307,6 +307,31 @@ def test_waf_page_anti_bruteforce_alert_when_policy_disabled(
     assert 'class="badge badge-err"' in resp.text or "badge-err" in resp.text
 
 
+def test_waf_diagnostic_json_download(client: TestClient, db_session: Session, tmp_path: Path):
+    _seed_profile(db_session)
+    _write_export_status(mode=MODE_ON)
+    with _patch_snapshot(tmp_path, mode=MODE_OFF):
+        resp = client.get("/admin/security/waf/diagnostic.json", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert "application/json" in resp.headers.get("content-type", "")
+    assert "attachment" in resp.headers.get("content-disposition", "")
+    data = resp.json()
+    assert data["kind"] == "bastion-waf-diagnostic"
+    assert data["expected"]["profile"]["mode"] == "on"
+    assert data["actual"]["verifiable"] is True
+    assert data["actual"]["aggregate_mode"] == MODE_OFF
+    assert "schema_version" in data
+
+
+def test_waf_page_embeds_diagnostic_export(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert 'id="waf-diagnostic-json"' in resp.text
+    assert "bastion-waf-diagnostic" in resp.text
+    assert 'href="/admin/security/waf/diagnostic.json"' in resp.text
+
+
 def test_waf_threshold_rejected_out_of_bounds(client: TestClient, db_session: Session):
     _seed_profile(db_session)
     resp = client.post(

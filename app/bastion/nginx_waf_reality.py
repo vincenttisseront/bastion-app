@@ -648,7 +648,11 @@ def build_waf_ui_context(
     control_effect = nginx_control_effect(active)
 
     from app.bastion.nginx_waf_export import list_promoted_deny_ips
-    from app.bastion.waf_readability import build_waf_readability_context
+    from app.bastion.waf_readability import (
+        build_waf_diagnostic_export,
+        build_waf_readability_context,
+        format_waf_diagnostic_export_json,
+    )
 
     desired["ip_deny_count"] = len(
         list_promoted_deny_ips(
@@ -656,6 +660,7 @@ def build_waf_ui_context(
         )
     )
 
+    reload_ok = reload_confirmed_after_apply(generated, active)
     readability = build_waf_readability_context(
         db,
         settings,
@@ -665,6 +670,19 @@ def build_waf_ui_context(
         export_pending=export_pending,
         page=page,
         generated=generated,
+    )
+    diagnostic_export = build_waf_diagnostic_export(
+        desired=desired,
+        generated=generated,
+        active=active,
+        pending_diffs=pending_diffs,
+        export_pending=export_pending,
+        control_effect=control_effect,
+        security_headers_panel=headers,
+        diagnostic=readability["diagnostic"],
+        verdict=readability["verdict"],
+        reality_warnings=warnings,
+        reload_confirmed=reload_ok,
     )
 
     return {
@@ -677,7 +695,7 @@ def build_waf_ui_context(
         "reality_warnings": warnings,
         "control_effect": control_effect,
         "security_headers_panel": headers,
-        "reload_confirmed": reload_confirmed_after_apply(generated, active),
+        "reload_confirmed": reload_ok,
         "readability": readability,
         "verdict": readability["verdict"],
         "protection_layers": readability["protection_layers"],
@@ -685,4 +703,6 @@ def build_waf_ui_context(
         "efficiency_7d": readability["efficiency_7d"],
         "efficiency_visuals": readability["efficiency_visuals"],
         "diagnostic": readability["diagnostic"],
+        "diagnostic_export": diagnostic_export,
+        "diagnostic_export_json": format_waf_diagnostic_export_json(diagnostic_export),
     }

@@ -538,6 +538,25 @@
 
       </div>
 
+      <div class="waf-diagnostic-export" id="waf-diagnostic-export">
+        <div class="waf-dash-card-header" style="border-radius:var(--r-lg) var(--r-lg) 0 0;margin-top:var(--sp-4)">
+          <h3 class="waf-dash-card-title">Export JSON diagnostic</h3>
+          <span class="waf-dash-card-meta">Attendu (DB) · généré · réel nginx</span>
+        </div>
+        <div class="waf-diagnostic-export-body">
+          <p class="form-help">
+            Copiez ou téléchargez ce fichier pour un diagnostic complet de la mise en place
+            (aucun secret — modes, seuils, chemins, écarts).
+          </p>
+          <div class="waf-diagnostic-export-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="waf-diag-copy-btn">Copier le JSON</button>
+            <a class="btn btn-secondary btn-sm" href="/admin/security/waf/diagnostic.json" download>Télécharger .json</a>
+            <span class="form-help muted" id="waf-diag-copy-status" aria-live="polite"></span>
+          </div>
+          <textarea id="waf-diagnostic-json" class="form-input is-mono waf-diagnostic-json" readonly rows="18" spellcheck="false">{{ diagnostic_export_json }}</textarea>
+        </div>
+      </div>
+
     </div>
 
   </div>
@@ -709,6 +728,25 @@
     confirmSubmit(form, { title: 'Désactiver cette exclusion ?', confirmLabel: 'Désactiver', danger: true });
 
   });
+
+  var copyBtn = document.getElementById('waf-diag-copy-btn');
+  var diagTa = document.getElementById('waf-diagnostic-json');
+  var copyStatus = document.getElementById('waf-diag-copy-status');
+  if (copyBtn && diagTa) {
+    copyBtn.addEventListener('click', function () {
+      var text = diagTa.value || '';
+      var done = function (ok) {
+        if (copyStatus) copyStatus.textContent = ok ? 'Copié.' : 'Échec copie — sélectionnez manuellement.';
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
+      } else {
+        diagTa.focus();
+        diagTa.select();
+        try { done(document.execCommand('copy')); } catch (e) { done(false); }
+      }
+    });
+  }
 
 })();
 

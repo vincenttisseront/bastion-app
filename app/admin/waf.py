@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session
 
 from app.bastion.nginx_waf_export import ANOMALY_MAX, ANOMALY_MIN, VALID_MODES
 from app.bastion.nginx_waf_reality import build_waf_ui_context
+from app.bastion.waf_readability import format_waf_diagnostic_export_json
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.security.waf import service as waf_service
@@ -74,6 +75,26 @@ def admin_waf_page(
     return render(
         "admin/waf.html",
         **_ctx(request, settings, **_waf_page_context(db, settings, page="unified")),
+    )
+
+
+@router.get("/admin/security/waf/diagnostic.json")
+def admin_waf_diagnostic_json(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Download expected vs actual WAF config for support / debug."""
+    ctx = _waf_page_context(db, settings, page="unified")
+    payload = ctx["diagnostic_export"]
+    body = format_waf_diagnostic_export_json(payload)
+    stamp = (payload.get("generated_at") or "now")[:19].replace(":", "").replace("-", "")
+    return Response(
+        content=body,
+        media_type="application/json; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="bastion-waf-diagnostic-{stamp}.json"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
