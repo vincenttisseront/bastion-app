@@ -155,9 +155,10 @@ jq -n \
   --argjson included_on_443 "$included_on_443" \
   --argjson no_duplicate_8080 "$no_dup_8080" \
   '
-  def fam_mode(f): f.sec_rule_engine;
-  def fam_thr(f): f.anomaly_threshold;
-  ($portal, $subdomain, $public) as $fs |
+  def fam_mode(f): (f | type) as $t | if $t == "object" then f.sec_rule_engine else null end;
+  def fam_thr(f): (f | type) as $t | if $t == "object" then f.anomaly_threshold else null end;
+  def fam_flag(f; key): (f | type) as $t | if $t == "object" then (f[key] // false) else false end;
+  ([$portal, $subdomain, $public]) as $fs |
   ([$fs[] | fam_mode(.)] | map(select(. != null)) | unique) as $modes |
   ([$fs[] | fam_thr(.)] | map(select(. != null)) | unique) as $thrs |
   {
@@ -182,8 +183,8 @@ jq -n \
       elif ($thrs | length) == 1 then $thrs[0]
       else "mixed" end
     ),
-    engine_mode_generated_loaded: ([$fs[] | .engine_mode_generated_loaded] | any),
-    crs_setup_generated_loaded: ([$fs[] | .crs_setup_generated_loaded] | any),
+    engine_mode_generated_loaded: ([$fs[] | fam_flag(.; "engine_mode_generated_loaded")] | any),
+    crs_setup_generated_loaded: ([$fs[] | fam_flag(.; "crs_setup_generated_loaded")] | any),
     security_headers: {
       path: $security_headers_path,
       headers: $security_headers,

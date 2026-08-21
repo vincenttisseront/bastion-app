@@ -103,8 +103,8 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
       - ${SSO_PORTAL_FILES_DATA_DIR:-./data/sso-portal-files}:/var/lib/sso-portal-files
-      # Per-app nginx access logs (Admin → Logs → Accès apps)
-      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/lib/sso-portal/nginx-logs:ro
+      # Per-app nginx access logs + WAF snapshot / audit aggregator JSON (rw: aggregator writes summaries)
+      - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/lib/sso-portal/nginx-logs
     networks:
       vpcbr:
         aliases:
