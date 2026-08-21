@@ -192,12 +192,23 @@ def sync_and_reload(settings: Settings) -> tuple[bool, str]:
     return ok, detail
 
 
-def wait_for_nginx_edge(*, attempts: int = 12, delay_sec: float = 1.5) -> dict[str, Any]:
-    """Poll nginx until edge responds (watcher reload lag)."""
+def wait_for_nginx_edge(
+    settings: Settings | None = None,
+    *,
+    attempts: int = 12,
+    delay_sec: float = 1.5,
+) -> dict[str, Any]:
+    """Poll nginx until edge responds (watcher reload lag).
+
+    Must send a known Host (portal domain or 127.0.0.1). Without it, urllib
+    uses Host ``nginx`` → ``$bastion_unknown_host`` → neutral 403.
+    """
+    host = _smoke_host(settings)
     last: dict[str, Any] = {"ok": False}
     for i in range(attempts):
         last = _http_probe(
             "http://nginx:8080/_portal_nginx_ok",
+            host=host,
             expect_status=200,
             expect_not_5xx=True,
         )
@@ -207,6 +218,14 @@ def wait_for_nginx_edge(*, attempts: int = 12, delay_sec: float = 1.5) -> dict[s
         time.sleep(delay_sec)
     last["attempts"] = attempts
     return last
+
+
+def _smoke_host(settings: Settings | None) -> str:
+    if settings is not None:
+        domain = (settings.portal_domain or "").strip()
+        if domain:
+            return domain
+    return "127.0.0.1"
 
 
 def _http_probe(
@@ -258,8 +277,11 @@ def smoke_portal_probes(settings: Settings) -> dict[str, Any]:
 
     Fail closed on ModSec-protected paths. External HTTPS is informational only —
     hairpin/DNS from bastion-app often fails and must not alone trigger rollback.
+
+    All :8080 probes use the portal Host header. Host ``nginx`` is unknown and
+    yields HTTP 403 via ``/__bastion_unknown_host`` (false smoke failure).
     """
-    domain = (settings.portal_domain or "portal.localhost").strip()
+    domain = _smoke_host(settings)
     base = "http://nginx:8080"
     probes: list[dict[str, Any]] = []
 
@@ -267,6 +289,7 @@ def smoke_portal_probes(settings: Settings) -> dict[str, Any]:
     for attempt in range(SMOKE_RETRIES):
         p = _http_probe(
             f"{base}/_portal_nginx_ok",
+            host=domain,
             expect_status=200,
             expect_not_5xx=True,
         )
@@ -378,7 +401,7 @@ def disarm_engine(
     )
     ok, detail = sync_and_reload(settings)
     if ok and "watcher" in detail.lower():
-        wait_for_nginx_edge()
+        wait_for_nginx_edge(settings)
     smoke = smoke_portal_probes(settings) if ok else {"ok": False, "probes": [], "failed": []}
     return {
         "ok": bool(ok and smoke.get("ok")),
@@ -467,7 +490,7 @@ def reactivate_engine(
 
     # Wait for watcher reload when docker exec was skipped (prod).
     if smoke is None and sync_reload is None:
-        edge = wait_for_nginx_edge()
+        edge = wait_for_nginx_edge(settings)
         if not edge.get("ok"):
             time.sleep(RELOAD_WAIT_SEC)
 
