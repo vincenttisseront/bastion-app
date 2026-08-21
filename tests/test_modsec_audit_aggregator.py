@@ -14,9 +14,15 @@ from app.bastion.modsec_audit_aggregator import (
 from app.sso_settings import Settings
 
 
-def _sample_audit_line(*, rule_id: str = "942100", host: str = "portal.example.com") -> str:
+def _sample_audit_line(
+    *,
+    rule_id: str = "942100",
+    host: str = "portal.example.com",
+    client_ip: str = "203.0.113.10",
+) -> str:
     payload = {
         "transaction": {
+            "client_ip": client_ip,
             "time_stamp": datetime.now(timezone.utc).isoformat(),
             "request": {
                 "uri": "/api/test",
@@ -55,7 +61,12 @@ def test_aggregator_counts_detections(tmp_path: Path):
     assert w24["inspected"] == 2
     assert w24["detections"] == 2
     assert w24["blocks"] == 2
+    assert w24["critical"] == 2
     assert len(w24["top_rules"]) >= 1
+    assert w24["top_attackers"][0]["ip"] == "203.0.113.10"
+    assert w24["top_attackers"][0]["count"] == 2
+    assert summary["recent_events"][-1]["client_ip"] == "203.0.113.10"
+    assert summary["recent_events"][-1]["critical"] is True
 
     read_back = read_audit_summary(settings)
     assert read_back["present"] is True

@@ -702,6 +702,7 @@ def build_waf_ui_context(
         "efficiency": readability["efficiency"],
         "efficiency_7d": readability["efficiency_7d"],
         "efficiency_visuals": readability["efficiency_visuals"],
+        "attack_controls": readability["attack_controls"],
         "diagnostic": readability["diagnostic"],
         "diagnostic_export": diagnostic_export,
         "diagnostic_export_json": format_waf_diagnostic_export_json(diagnostic_export),

@@ -10,6 +10,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.bastion.modsec_audit_aggregator import (
+    RULE_FAMILY_LABELS,
+    _rule_family,
     read_aggregator_state,
     read_audit_summary,
     resolve_audit_summary_path,
@@ -363,8 +365,92 @@ def build_efficiency_panel(
         "block_rate_pct": data.get("block_rate_pct") or 0,
         "top_rules": data.get("top_rules") or [],
         "top_hosts": data.get("top_hosts") or [],
+        "top_attackers": data.get("top_attackers") or [],
+        "critical": int(data.get("critical") or 0),
         "zero_explanation": zero_explanation,
         "windows_available": list(windows.keys()),
+    }
+
+
+def build_attack_controls(settings: Settings, db: Session | None = None) -> dict[str, Any]:
+    """Attack monitoring + actionable security controls (ban / exclude)."""
+    summary = read_audit_summary(settings)
+    if not summary.get("present") or not summary.get("log_available"):
+        return {
+            "present": False,
+            "recent": [],
+            "critical_recent": [],
+            "top_attackers": [],
+            "critical_24h": 0,
+        }
+
+    banned_ips: set[str] = set()
+    if db is not None:
+        for ban in list_active_bans(db):
+            if ban.target_type == "ip" and ban.target:
+                banned_ips.add(str(ban.target).strip())
+
+    window = (summary.get("windows") or {}).get("24h") or {}
+    recent_raw = summary.get("recent_events") or []
+    recent: list[dict[str, Any]] = []
+    for ev in reversed(recent_raw[-30:]):
+        if not isinstance(ev, dict):
+            continue
+        if not ev.get("rule_id") or ev.get("rule_id") == "—":
+            if not ev.get("blocked") and not ev.get("critical"):
+                continue
+        families = ev.get("families") or []
+        if not families and ev.get("rule_id"):
+            fam = _rule_family(str(ev.get("rule_id")))
+            families = [fam]
+
+        fam_labels = [
+            RULE_FAMILY_LABELS.get(str(f), str(f).upper()) for f in families if f
+        ]
+        client_ip = str(ev.get("client_ip") or "—").strip() or "—"
+        row = {
+            "timestamp": (ev.get("timestamp") or "")[:19].replace("T", " "),
+            "client_ip": client_ip,
+            "host": ev.get("host") or "—",
+            "uri": (ev.get("uri") or "—")[:80],
+            "rule_id": ev.get("rule_id") or "—",
+            "message": (ev.get("message") or "")[:80],
+            "blocked": bool(ev.get("blocked")),
+            "critical": bool(ev.get("critical"))
+            or any(f in ("sqli", "xss", "rce", "lfi") for f in families),
+            "families": fam_labels,
+            "score": ev.get("score") or 0,
+            "banned": client_ip in banned_ips,
+            "can_ban": bool(client_ip and client_ip != "—"),
+            "can_exclude": str(ev.get("rule_id") or "").isdigit(),
+        }
+        recent.append(row)
+
+    critical_recent = [r for r in recent if r.get("critical")][:15]
+    attacks = [r for r in recent if r.get("rule_id") != "—" or r.get("blocked")][:15]
+    if not attacks:
+        attacks = recent[:15]
+
+    top_attackers = []
+    for atk in window.get("top_attackers") or []:
+        if not isinstance(atk, dict):
+            continue
+        ip = str(atk.get("ip") or "—").strip() or "—"
+        top_attackers.append(
+            {
+                "ip": ip,
+                "count": int(atk.get("count") or 0),
+                "banned": ip in banned_ips,
+                "can_ban": bool(ip and ip != "—"),
+            }
+        )
+
+    return {
+        "present": True,
+        "recent": attacks,
+        "critical_recent": critical_recent,
+        "top_attackers": top_attackers,
+        "critical_24h": int(window.get("critical") or 0),
     }
 
 
@@ -724,6 +810,7 @@ def build_waf_readability_context(
     efficiency_24h = build_efficiency_panel(settings, active, window="24h")
     efficiency_7d = build_efficiency_panel(settings, active, window="7d")
     visuals = build_efficiency_visuals(settings, active, efficiency_24h)
+    attack_controls = build_attack_controls(settings, db)
     diagnostic = build_diagnostic_panel(
         settings, active, generated or {}, headers_panel
     )
@@ -733,5 +820,6 @@ def build_waf_readability_context(
         "efficiency": efficiency_24h,
         "efficiency_7d": efficiency_7d,
         "efficiency_visuals": visuals,
+        "attack_controls": attack_controls,
         "diagnostic": diagnostic,
     }

@@ -115,6 +115,8 @@ def _empty_bucket() -> dict[str, Any]:
         "rules": {},
         "hosts": {},
         "families": {},
+        "attackers": {},
+        "critical": 0,
     }
 
 
@@ -164,9 +166,23 @@ def _parse_audit_line(line: str) -> dict[str, Any] | None:
                 host = val[0] if isinstance(val, list) and val else str(val)
                 break
 
+    client_ip = ""
+    for key in ("client_ip", "remote_address", "remote_addr"):
+        raw = tx.get(key)
+        if raw:
+            client_ip = str(raw).strip()
+            break
+    if not client_ip and isinstance(headers, dict):
+        for key, val in headers.items():
+            if str(key).lower() in ("x-forwarded-for", "x-real-ip", "cf-connecting-ip"):
+                v = val[0] if isinstance(val, list) and val else str(val)
+                client_ip = v.split(",")[0].strip()
+                break
+
     messages = tx.get("messages") or []
     rule_ids: list[str] = []
     max_score = 0
+    msg_text = ""
     if isinstance(messages, list):
         for msg in messages:
             if not isinstance(msg, dict):
@@ -181,6 +197,8 @@ def _parse_audit_line(line: str) -> dict[str, Any] | None:
                     max_score = max(max_score, int(sev))
             except (TypeError, ValueError):
                 pass
+            if not msg_text and msg.get("message"):
+                msg_text = str(msg.get("message"))[:200]
 
     response = tx.get("response") or {}
     http_code = response.get("http_code") if isinstance(response, dict) else None
@@ -196,15 +214,21 @@ def _parse_audit_line(line: str) -> dict[str, Any] | None:
     )
 
     ts = _parse_audit_timestamp(tx.get("time_stamp") or tx.get("timestamp"))
+    families = [_rule_family(rid) for rid in rule_ids]
+    critical = any(f in ("sqli", "xss", "rce", "lfi") for f in families)
 
     return {
         "timestamp": ts,
+        "client_ip": client_ip or "—",
         "host": host.strip().lower() or "—",
         "uri": (req.get("uri") or "—") if isinstance(req, dict) else "—",
         "rule_ids": rule_ids,
         "score": max_score,
         "blocked": blocked,
         "has_detection": bool(rule_ids),
+        "message": msg_text,
+        "critical": critical,
+        "families": families,
     }
 
 
@@ -214,6 +238,8 @@ def _merge_event_into_bucket(bucket: dict[str, Any], event: dict[str, Any]) -> N
         bucket["detections"] += 1
     if event.get("blocked"):
         bucket["blocks"] += 1
+    if event.get("critical"):
+        bucket["critical"] = int(bucket.get("critical") or 0) + 1
     rules: dict[str, int] = bucket.setdefault("rules", {})
     for rid in event.get("rule_ids") or []:
         rules[rid] = int(rules.get(rid, 0)) + 1
@@ -224,6 +250,10 @@ def _merge_event_into_bucket(bucket: dict[str, Any], event: dict[str, Any]) -> N
     host = event.get("host") or "—"
     hosts: dict[str, int] = bucket.setdefault("hosts", {})
     hosts[host] = int(hosts.get(host, 0)) + 1
+    if event.get("has_detection"):
+        ip = event.get("client_ip") or "—"
+        attackers: dict[str, int] = bucket.setdefault("attackers", {})
+        attackers[ip] = int(attackers.get(ip, 0)) + 1
 
 
 def _prune_hourly(hourly: dict[str, Any], *, keep_days: int = 7) -> None:
@@ -237,9 +267,11 @@ def _prune_hourly(hourly: dict[str, Any], *, keep_days: int = 7) -> None:
 def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     cutoff_key = _hour_key(cutoff)
-    inspected = detections = blocks = 0
+    inspected = detections = blocks = critical = 0
     rules: Counter[str] = Counter()
     hosts: Counter[str] = Counter()
+    attackers: Counter[str] = Counter()
+    fam_counter: Counter[str] = Counter()
     for key, bucket in hourly.items():
         if key < cutoff_key:
             continue
@@ -248,10 +280,15 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
         inspected += int(bucket.get("inspected") or 0)
         detections += int(bucket.get("detections") or 0)
         blocks += int(bucket.get("blocks") or 0)
+        critical += int(bucket.get("critical") or 0)
         for rid, count in (bucket.get("rules") or {}).items():
             rules[str(rid)] += int(count)
         for host, count in (bucket.get("hosts") or {}).items():
             hosts[str(host)] += int(count)
+        for ip, count in (bucket.get("attackers") or {}).items():
+            attackers[str(ip)] += int(count)
+        for fam, count in (bucket.get("families") or {}).items():
+            fam_counter[str(fam)] += int(count)
 
     block_rate = round((blocks / inspected) * 100, 1) if inspected else 0.0
     top_rules = [
@@ -259,14 +296,7 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
         for rid, cnt in rules.most_common(TOP_N)
     ]
     top_hosts = [{"host": h, "count": cnt} for h, cnt in hosts.most_common(TOP_N)]
-    fam_counter: Counter[str] = Counter()
-    for key, bucket in hourly.items():
-        if key < cutoff_key:
-            continue
-        if not isinstance(bucket, dict):
-            continue
-        for fam, count in (bucket.get("families") or {}).items():
-            fam_counter[str(fam)] += int(count)
+    top_attackers = [{"ip": ip, "count": cnt} for ip, cnt in attackers.most_common(TOP_N)]
     rule_families = [
         {"family": fam, "label": RULE_FAMILY_LABELS.get(fam, fam), "count": cnt}
         for fam, cnt in fam_counter.most_common()
@@ -276,9 +306,11 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
         "inspected": inspected,
         "detections": detections,
         "blocks": blocks,
+        "critical": critical,
         "block_rate_pct": block_rate,
         "top_rules": top_rules,
         "top_hosts": top_hosts,
+        "top_attackers": top_attackers,
         "rule_families": rule_families,
     }
 
@@ -400,11 +432,15 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
         recent.append(
             {
                 "timestamp": ts.isoformat(),
+                "client_ip": event.get("client_ip"),
                 "host": event.get("host"),
                 "uri": event.get("uri"),
                 "rule_id": (event.get("rule_ids") or ["—"])[0],
                 "score": event.get("score") or 0,
                 "blocked": bool(event.get("blocked")),
+                "critical": bool(event.get("critical")),
+                "message": event.get("message") or "",
+                "families": list(event.get("families") or []),
             }
         )
 

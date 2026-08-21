@@ -194,6 +194,106 @@ def admin_waf_exclusion_disable(
     return response
 
 
+@router.post("/admin/security/waf/actions/ban-ip")
+def admin_waf_ban_ip(
+    request: Request,
+    ip: str = Form(...),
+    ban_mode: str = Form("temporary"),
+    ban_minutes: int = Form(1440),
+    confirm_permanent: str | None = Form(None),
+    reason: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Security action: ban an attacker IP seen in WAF audit (→ SecurityBan / nginx deny)."""
+    from app.security.banning.service import apply_manual_ban
+
+    response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
+    target = (ip or "").strip()
+    if not target or target == "—" or any(c.isspace() for c in target):
+        flash_redirect(response, "IP invalide.", "error", _flash_secret(settings))
+        return response
+
+    permanent = ban_mode == "permanent"
+    ban = apply_manual_ban(
+        db,
+        target_type="ip",
+        target=target,
+        reason=(reason or "").strip() or f"WAF — ban depuis bilan ({target})",
+        permanent=permanent,
+        ban_minutes=max(1, int(ban_minutes)),
+        confirm_permanent=confirm_permanent == "on",
+        actor=_actor(user),
+        ip_address=client_ip_from_request(request) or None,
+    )
+    if ban is None and permanent and confirm_permanent != "on":
+        flash_redirect(
+            response,
+            "Ban permanent refusé : cochez la confirmation.",
+            "error",
+            _flash_secret(settings),
+        )
+    elif ban is None:
+        flash_redirect(
+            response,
+            "Ban non appliqué (allowlist ou déjà banni).",
+            "error",
+            _flash_secret(settings),
+        )
+    elif permanent:
+        flash_redirect(
+            response,
+            f"IP {target} bannie (permanent). Cliquez Appliquer pour pousser le deny nginx.",
+            "success",
+            _flash_secret(settings),
+        )
+    else:
+        flash_redirect(
+            response,
+            f"IP {target} bannie ({ban_minutes} min). "
+            "Deny nginx seulement si permanent ou seuil d’occurrences atteint — Appliquer si besoin.",
+            "success",
+            _flash_secret(settings),
+        )
+    return response
+
+
+@router.post("/admin/security/waf/actions/exclude-rule")
+def admin_waf_exclude_from_event(
+    request: Request,
+    crs_rule_id: int = Form(...),
+    host: str = Form(""),
+    uri_pattern: str = Form(""),
+    reason: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Security tuning: create a CRS exclusion from a detected event (false positive path)."""
+    response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
+    try:
+        waf_service.add_exclusion(
+            db,
+            reason=(reason or "").strip()
+            or f"Exclusion depuis détection WAF (règle {crs_rule_id})",
+            crs_rule_id=int(crs_rule_id),
+            uri_pattern=uri_pattern,
+            host=host,
+            actor=_actor(user),
+            ip_address=client_ip_from_request(request) or None,
+        )
+        flash_redirect(
+            response,
+            f"Exclusion règle {crs_rule_id} enregistrée — Appliquer pour nginx.",
+            "success",
+            _flash_secret(settings),
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", _flash_secret(settings))
+    return response
+
+
 @router.post("/admin/security/waf/apply")
 def admin_waf_apply(
     request: Request,
