@@ -409,3 +409,87 @@ def test_waf_apply_nginx_t_failure(client: TestClient, db_session: Session):
             follow_redirects=False,
         )
     assert resp.status_code == 302
+
+
+def test_waf_ban_ip_from_bilan(client: TestClient, db_session: Session):
+    from app.models import SecurityBan
+
+    _seed_profile(db_session)
+    resp = client.post(
+        "/admin/security/waf/actions/ban-ip",
+        headers=ADMIN_HEADERS,
+        data={
+            "ip": "198.51.100.50",
+            "ban_mode": "temporary",
+            "ban_minutes": "1440",
+            "reason": "WAF test ban",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "#bilan" in (resp.headers.get("location") or "")
+    ban = (
+        db_session.query(SecurityBan)
+        .filter_by(target_type="ip", target="198.51.100.50")
+        .one()
+    )
+    assert ban.lifted_at is None
+    assert ban.permanent is False
+
+
+def test_waf_ban_ip_permanent_requires_confirm(client: TestClient, db_session: Session):
+    from app.models import SecurityBan
+
+    _seed_profile(db_session)
+    resp = client.post(
+        "/admin/security/waf/actions/ban-ip",
+        headers=ADMIN_HEADERS,
+        data={
+            "ip": "198.51.100.51",
+            "ban_mode": "permanent",
+            "reason": "WAF permanent",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert (
+        db_session.query(SecurityBan)
+        .filter_by(target="198.51.100.51")
+        .count()
+        == 0
+    )
+
+    resp2 = client.post(
+        "/admin/security/waf/actions/ban-ip",
+        headers=ADMIN_HEADERS,
+        data={
+            "ip": "198.51.100.51",
+            "ban_mode": "permanent",
+            "confirm_permanent": "on",
+            "reason": "WAF permanent",
+        },
+        follow_redirects=False,
+    )
+    assert resp2.status_code == 302
+    ban = db_session.query(SecurityBan).filter_by(target="198.51.100.51").one()
+    assert ban.permanent is True
+
+
+def test_waf_exclude_rule_from_event(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.post(
+        "/admin/security/waf/actions/exclude-rule",
+        headers=ADMIN_HEADERS,
+        data={
+            "crs_rule_id": "942100",
+            "host": "portal.example.com",
+            "uri_pattern": "/api/test",
+            "reason": "FP depuis bilan",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    row = db_session.query(WafExclusion).one()
+    assert row.crs_rule_id == 942100
+    assert row.host == "portal.example.com"
+    assert row.active is True

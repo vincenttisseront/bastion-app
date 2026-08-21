@@ -1341,6 +1341,7 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
   grid-template-columns:repeat(2,minmax(0,1fr));
 }
 @media(min-width:768px){.waf-kpi-row{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(min-width:1100px){.waf-kpi-row{grid-template-columns:repeat(5,minmax(0,1fr))}}
 .waf-kpi-card{
   background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-lg);
   padding:var(--sp-4) var(--sp-5);box-shadow:var(--sh-card);
@@ -1428,6 +1429,23 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .waf-config-actions-disabled{opacity:.45;pointer-events:none}
 .waf-config-actions-disabled .waf-apply-btn{pointer-events:none}
 .waf-diag-path{font-size:var(--fs-xs);word-break:break-all}
+.waf-sources-wrap{width:100%;max-width:none}
+.waf-sources-table{width:100%;max-width:none;table-layout:fixed}
+.waf-sources-table th:nth-child(1),.waf-sources-table td:nth-child(1){width:14rem}
+.waf-sources-table th:nth-child(2),.waf-sources-table td:nth-child(2){width:6rem}
+.waf-sources-table th:nth-child(3),.waf-sources-table td:nth-child(3){width:14rem}
+.waf-sources-table th:nth-child(4),.waf-sources-table td:nth-child(4){width:auto}
+.waf-sources-table .waf-diag-path code{display:block;white-space:pre-wrap;word-break:break-all}
+.waf-attack-controls{display:grid;gap:var(--sp-4);margin-top:var(--sp-2)}
+@media(min-width:960px){.waf-attack-controls{grid-template-columns:1.4fr 1fr}}
+.waf-attack-table td,.waf-attack-table th{font-size:var(--fs-xs);padding:var(--sp-2) var(--sp-3)}
+.waf-attack-critical{border-left:3px solid #ef4444}
+.waf-attacker-list{list-style:none;margin:0;padding:0}
+.waf-attacker-item{display:flex;justify-content:space-between;gap:var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--border-muted);font-size:var(--fs-sm);align-items:center;flex-wrap:wrap}
+.waf-attacker-item:last-child{border-bottom:none}
+.waf-attacker-meta{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
+.waf-attack-actions{display:flex;flex-wrap:wrap;gap:var(--sp-1);align-items:center}
+.waf-action-form{display:inline}
 .waf-diagnostic-export{
   margin-top:var(--sp-4);background:var(--bg-card);border:1px solid var(--border);
   border-radius:var(--r-xl);box-shadow:var(--sh-card);overflow:hidden;
