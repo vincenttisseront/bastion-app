@@ -138,11 +138,49 @@ def test_reactivate_success_arms_detection_only(db_session, tmp_path: Path):
 
 def test_smoke_portal_probes_structure(monkeypatch, tmp_path: Path):
     settings = _settings(tmp_path)
+    calls: list[str] = []
 
-    def fake_probe(*_a, **_k):
-        return {"ok": True, "status": 200, "url": "x", "reason": "ok"}
+    def fake_probe(url, **kwargs):
+        calls.append(url)
+        return {"ok": True, "status": 200, "url": url, "reason": "ok"}
 
     monkeypatch.setattr("app.bastion.waf_reactivation._http_probe", fake_probe)
     out = smoke_portal_probes(settings)
     assert out["ok"] is True
-    assert len(out["probes"]) >= 3
+    assert len(out["probes"]) >= 4
+    assert any("8080/auth/login" in u for u in calls)
+    # Public HTTPS is optional — must not be required for ok
+    assert any(p.get("optional") for p in out["probes"])
+
+
+def test_smoke_ignores_optional_https_failure(monkeypatch, tmp_path: Path):
+    settings = _settings(tmp_path)
+
+    def fake_probe(url, **kwargs):
+        if url.startswith("https://"):
+            return {"ok": False, "error": "SSL", "url": url, "status": None}
+        return {"ok": True, "status": 200, "url": url, "reason": "ok"}
+
+    monkeypatch.setattr("app.bastion.waf_reactivation._http_probe", fake_probe)
+    out = smoke_portal_probes(settings)
+    assert out["ok"] is True
+    assert out["failed"] == []
+
+
+def test_smoke_fails_on_internal_login_500(monkeypatch, tmp_path: Path):
+    settings = _settings(tmp_path)
+
+    def fake_probe(url, **kwargs):
+        if "/auth/login" in url and "8080" in url:
+            return {
+                "ok": False,
+                "status": 500,
+                "url": url,
+                "reason": "HTTP 500",
+            }
+        return {"ok": True, "status": 200, "url": url, "reason": "ok"}
+
+    monkeypatch.setattr("app.bastion.waf_reactivation._http_probe", fake_probe)
+    out = smoke_portal_probes(settings)
+    assert out["ok"] is False
+    assert "500" in (out.get("failed_summary") or "")

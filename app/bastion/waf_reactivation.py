@@ -254,59 +254,85 @@ def _http_probe(
 
 
 def smoke_portal_probes(settings: Settings) -> dict[str, Any]:
-    """Reliable post-reload checks. Fail closed if probes cannot run."""
+    """Reliable post-reload checks via the internal nginx edge (not public HTTPS).
+
+    Fail closed on ModSec-protected paths. External HTTPS is informational only —
+    hairpin/DNS from bastion-app often fails and must not alone trigger rollback.
+    """
     domain = (settings.portal_domain or "portal.localhost").strip()
+    base = "http://nginx:8080"
     probes: list[dict[str, Any]] = []
 
-    # Local nginx health (modsecurity off on this location) — connectivity.
+    # Connectivity (modsecurity off on this location).
     for attempt in range(SMOKE_RETRIES):
         p = _http_probe(
-            "http://nginx:8080/_portal_nginx_ok",
+            f"{base}/_portal_nginx_ok",
             expect_status=200,
             expect_not_5xx=True,
         )
+        p["critical"] = True
         probes.append(p)
         if p.get("ok"):
             break
         time.sleep(1 + attempt)
 
-    # App health via portal edge (location also modsecurity off).
-    probes.append(
-        _http_probe(
-            "http://nginx:8080/api/health",
-            host=domain,
-            expect_not_5xx=True,
-        )
-    )
-
-    # Request-time ModSec path — this is what broke on 2026-08-06.
-    login = _http_probe(
-        f"https://{domain}/auth/login",
-        expect_not_5xx=True,
-    )
-    if not login.get("ok") and login.get("error"):
-        # Fallback: HTTP via nginx alias (TLS may fail in lab).
-        login = _http_probe(
-            "http://nginx:80/auth/login",
-            host=domain,
-            expect_not_5xx=True,
-        )
-    probes.append(login)
-
-    # Soft home probe (redirects OK, 5xx not OK).
-    home = _http_probe(
-        "http://nginx:80/",
+    # App health via portal edge (location modsecurity off).
+    health = _http_probe(
+        f"{base}/api/health",
         host=domain,
         expect_not_5xx=True,
     )
+    health["critical"] = True
+    probes.append(health)
+
+    # Request-time ModSec path — incident 2026-08-06 signature (internal edge only).
+    login = _http_probe(
+        f"{base}/auth/login",
+        host=domain,
+        expect_not_5xx=True,
+    )
+    login["critical"] = True
+    probes.append(login)
+
+    home = _http_probe(
+        f"{base}/",
+        host=domain,
+        expect_not_5xx=True,
+    )
+    home["critical"] = True
     probes.append(home)
 
-    ok = all(bool(p.get("ok")) for p in probes)
+    # Optional public HTTPS — recorded but not required for pass/fail.
+    ext = _http_probe(
+        f"https://{domain}/auth/login",
+        expect_not_5xx=True,
+    )
+    ext["critical"] = False
+    ext["optional"] = True
+    probes.append(ext)
+
+    critical = [p for p in probes if p.get("critical")]
+    failed_critical = [p for p in critical if not p.get("ok")]
+    ok = not failed_critical
     return {
         "ok": ok,
         "probes": probes,
-        "failed": [p for p in probes if not p.get("ok")],
+        "failed": failed_critical,
+        "failed_summary": _format_failed_probes(failed_critical),
     }
+
+
+def _format_failed_probes(failed: list[dict[str, Any]]) -> str:
+    if not failed:
+        return ""
+    parts = []
+    for p in failed:
+        url = p.get("url") or "?"
+        if p.get("status") is not None:
+            parts.append(f"{url} → HTTP {p.get('status')} ({p.get('reason') or 'fail'})")
+        else:
+            parts.append(f"{url} → {p.get('error') or p.get('reason') or 'injoignable'}")
+    return "; ".join(parts)
 
 
 def _force_disarmed_files(settings: Settings) -> None:
@@ -458,16 +484,19 @@ def reactivate_engine(
             sync_reload=sync_fn,
         )
         failed = smoke_result.get("failed") or []
+        summary = smoke_result.get("failed_summary") or _format_failed_probes(failed)
+        err = (
+            "Smoke post-reload en échec — rollback automatique vers Off."
+            + (f" Détail : {summary}" if summary else "")
+        )
         return {
             "ok": False,
-            "error": (
-                "Smoke post-reload en échec (HTTP 5xx ou sonde injoignable) — "
-                "rollback automatique vers Off."
-            ),
+            "error": err,
             "rolled_back": True,
             "paths": paths,
             "smoke": smoke_result,
             "failed_probes": failed,
+            "failed_summary": summary,
             "sync_detail": sync_detail,
         }
 
