@@ -1,15 +1,25 @@
 # Runbook — réactivation ModSecurity / OWASP CRS
 
-**Statut** : brouillon lancé 2026-08-18. **Ne pas exécuter** tant que le prérequis §0 n’est pas tranché.
-**Ne pas** confondre avec l’IHM WAF (Phase B) : Enregistrer / Appliquer ne réactive **pas** le moteur.
+**Statut** : opérationnel IHM (portal) depuis 2026-08-21 — smoke HTTP + rollback auto.
+**Prérequis §0 / §0.1** restent recommandés avant la **première** réactivation prod.
 
-Liens : [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md) · conception §9 · PR IHM honnête [#151](https://github.com/vincenttisseront/bastion-app/pull/151) · lecture live conteneur [#152](https://github.com/vincenttisseront/bastion-app/issues/152).
+| Action | Où | Effet |
+|--------|-----|--------|
+| **Réactiver** | `/admin/security/waf#reactivation` | DetectionOnly portal + smoke + armement |
+| **Couper** | même panneau | Off immédiat + désarmement |
+| **Appliquer** | en-tête WAF | Overlays (exclusions, deny, rates) ; mode moteur **seulement si armé** |
+
+Code : `app/bastion/waf_reactivation.py` · sync : `docker/nginx/sync-exports-to-confd.sh`.
+
+Liens : [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md) · [`04-05-waf-modsecurity.md`](wikijs/04-administrateur/04-05-waf-modsecurity.md) · conception §9.
 
 ---
 
 ## 0. Prérequis bloquant — `error.log` du 2026-08-06
 
-Cause racine du 500 **non levée**. L’urgence a coupé `modsecurity` + `SecRuleEngine Off` + retiré l’Include `engine-mode-generated`. Rejouer `On` sans diag = rejouer l’incident.
+Cause racine du 500 **non levée** historiquement. L’urgence a coupé `modsecurity` +
+`SecRuleEngine Off`. La réactivation IHM **mitige** le risque (DetectionOnly + smoke +
+rollback), mais ne remplace pas un diag si le 500 se reproduit.
 
 | Fichier | Monté sur l’hôte ? | Conséquence |
 |---------|--------------------|-------------|
@@ -17,20 +27,17 @@ Cause racine du 500 **non levée**. L’urgence a coupé `modsecurity` + `SecRul
 | `/var/log/nginx/apps/modsec_audit.log` | Oui (`SSO_PORTAL_DATA_DIR/nginx-logs`) | Peut encore être là si le volume n’a pas été rotaté / vidé |
 | stdout `docker logs bastion-nginx` | Journal Docker hôte | Peut contenir des lignes `error_log` **seulement** si quelqu’un a redirigé ; par défaut **non** |
 
-**Question ouverte (à trancher avant toute bascule)** :
+**Avant la première réactivation prod** :
 
 1. Le conteneur `bastion-nginx` a-t-il été **recréé** depuis le 06/08 soir ?
-2. Si non : `docker exec bastion-nginx ls -l /var/log/nginx/error.log` + copie hors conteneur **maintenant**.
-3. Si oui : reste-t-il une copie (sauvegarde hôte, ticket, `docker logs` de l’époque, `modsec_audit.log` volume) ?
-
-Sans au moins **une** de ces sources, on ne réactive pas : on n’a que des hypothèses (collision id 901110 déjà écartée après #113 ; autre règle CRS / connecteur / `/tmp/modsecurity`).
+2. Si non : `docker exec bastion-nginx ls -l /var/log/nginx/error.log` + copie hors conteneur.
+3. Si oui : reste-t-il une copie (sauvegarde hôte, ticket, `docker logs`, `modsec_audit.log`) ?
 
 Commandes de récupération (lecture seule) :
 
 ```bash
 docker exec bastion-nginx ls -l /var/log/nginx/error.log /var/log/nginx/apps/modsec_audit.log
 docker exec bastion-nginx sh -c 'wc -l /var/log/nginx/error.log; grep -E "2026/08/06|ModSecurity|modsecurity" /var/log/nginx/error.log | tail -n 200'
-# Volume hôte (audit, pas error.log global) :
 sudo ls -l "${SSO_PORTAL_DATA_DIR:-/tools/portal/data}/nginx-logs/modsec_audit.log"
 ```
 
@@ -38,7 +45,7 @@ sudo ls -l "${SSO_PORTAL_DATA_DIR:-/tools/portal/data}/nginx-logs/modsec_audit.l
 
 ## 0.1 Prérequis bloquant — espace disque et rotation logs
 
-**Incident 2026-08-19** : déploiement bloqué à 98 % sur `/tools` (255 Mo libres). Réactiver CRS
+**Incident 2026-08-19** : déploiement bloqué à 98 % sur `/tools`. Réactiver CRS
 sur un disque plein provoquerait une panne edge — `modsec_audit.log` peut croître rapidement en
 `DetectionOnly`.
 
@@ -65,49 +72,79 @@ echo "$(( (s2-s1)/1024 )) Ko / 10 min  →  ~$(( (s2-s1)*144/1048576 )) Mo/jour"
 
 ---
 
-## 1. Ce que la réactivation n'est **pas**
+## 1. Réactivation IHM (portal)
 
-- Pas un clic **Appliquer** WAF.
-- Pas un changement de `WafProfile.mode` en base.
-- Pas un rebranchement à l’aveugle de `crs-setup-generated.conf` (id 901110 → 500).
-- Pas les 3 familles en `On` le même soir.
+### Déploiement requis
+
+Rebuild **bastion-nginx** (template vhost + `main-portal.conf` + sync) puis redeploy **bastion-app**.
+
+### Étapes admin
+
+1. Vérifier §0.1 (disque / rotation).
+2. Admin → **WAF** → bandeau ou ancre `#reactivation`.
+3. Cocher la confirmation → **Réactiver le moteur (DetectionOnly)**.
+4. Attendre le flash succès (smoke OK) ou erreur (rollback auto).
+5. Observer `modsec_audit.log` / détections Bilan.
+6. Plus tard : profil **On** + **Appliquer** (moteur déjà armé) — pas le soir de la 1ʳᵉ réactivation.
+7. Urgence : **Couper le moteur** (même panneau).
+
+### Ce que fait le code
+
+1. Écrit `exports/modsecurity/waf-engine-arm.json` (`armed: true`)
+2. Écrit `exports/modsecurity-portal-switch.conf` → `modsecurity on;`
+3. Profil DB → `detection_only` ; `engine-mode-generated.conf` → `SecRuleEngine DetectionOnly`
+4. `docker compose exec nginx` : sync + `nginx -t` + reload + snapshot
+5. **Smoke HTTP** (échec → rollback) :
+   - `http://nginx:8080/_portal_nginx_ok` → 200
+   - `http://nginx:8080/api/health` (Host portal) → pas de 5xx
+   - `/auth/login` → pas de 5xx *(panne type 2026-08-06)*
+6. Succès → armement `phase: active` ; échec → Off + switch off + `armed: false`
+
+### Garde-fous sync
+
+Sans `armed: true`, `sync-exports-to-confd.sh` **force** `SecRuleEngine Off` même si
+l’export profil dit On — un simple Appliquer ne peut plus brick l’edge.
+
+Subdomain / public restent **Off** (hors IHM pour l’instant).
 
 ---
 
-## 2. Ordre une fois le diag §0 disponible
+## 1bis. Ce que la réactivation n'est **pas**
 
-Hypothèse de travail (à infirmer/confirmer avec les logs) : le 500 survient **au moment de l’évaluation CRS** (chemins `modsecurity on`), pas sur `/api/health` (`modsecurity off`).
+- Pas un simple **Appliquer** WAF sans armement / smoke.
+- Pas un rebranchement à l’aveugle de `crs-setup-generated.conf` (id 901110 → 500).
+- Pas les 3 familles en `On` le même soir.
+- Pas un contournement des prérequis disque §0.1.
 
-Ordre :
+---
 
-1. **Une famille**, portal d’abord (plus de fumée, rollback le plus simple).
+## 2. Ordre ops manuel (si IHM indisponible)
+
+1. **Une famille**, portal d’abord.
 2. `SecRuleEngine DetectionOnly` **avant** `On`.
 3. Smoke §3 **avant** la famille suivante.
-4. Rebrancher `engine-mode-generated.conf` **seulement** quand `engine-portal.conf` est déjà stable en DetectionOnly/On **et** que le stub sync n’écrase plus Off. Sinon l’IHM `mode=on` force On en dernier — c’est exactement le 06/08.
-5. `crs-setup-generated.conf` : **ne pas** Include tant que l’id overlay n’est pas hors plage CRS 9xxxxx (déjà `1000900110` en export ; Include toujours retiré).
+4. Armer via IHM de préférence ; sinon aligner `waf-engine-arm.json` + switch + sync.
+5. `crs-setup-generated.conf` : **ne pas** Include (seuils = static `crs-setup.conf`).
 
-Fichiers à toucher **dans l’image / rebuild**, pas via l’IHM :
+Fichiers image concernés :
 
-- `docker/nginx/modsecurity/engine-portal.conf` (puis subdomain, public)
-- éventuellement `modsecurity on;` dans les vhosts si encore `off` en dur
-- `docker/nginx/sync-exports-to-confd.sh` (stub `SecRuleEngine Off`) — **après** smoke, pas avant
-- `docker/nginx/modsecurity/main-*.conf` — Include `engine-mode-generated` en dernier, **après** smoke
+- `docker/nginx/includes/modsecurity-portal-switch.conf` (défaut `off`)
+- `docker/nginx/modsecurity/main-portal.conf` — Include `engine-mode-generated` (gated by arm)
+- `docker/nginx/sync-exports-to-confd.sh`
+- `docker/nginx/templates/vhost_sso_portal.conf.template` — include du switch
 
 ---
 
 ## 3. Smoke (bloquant)
 
-Après **chaque** bascule d’une famille :
+Après **chaque** bascule portal (IHM ou manuel) :
 
-1. `docker exec bastion-nginx nginx -t && docker exec bastion-nginx nginx -s reload`
-2. Login SSO → dashboard (`/auth/login` **200**, pas 500)
-3. Un flux `subdomain_proxy` (ex. CrushFTP) si cette famille est déjà rebranchée
-4. Un flux `public_proxy` idem
-5. `POST /admin/apps/analyze-login-form` URL légitime
-6. Locations `modsecurity off` : **aucune** ligne correspondante dans `modsec_audit.log`
-7. `tail` `error.log` **pendant** le smoke (copier hors conteneur : ce fichier n’est pas persisté)
+1. `nginx -t` + reload (fait par IHM / watcher)
+2. Login SSO → dashboard (`/auth/login` **pas 500**)
+3. Locations `modsecurity off` : health inchangé
+4. `tail` `error.log` **pendant** le smoke (copier hors conteneur)
 
-Rollback immédiat d’une famille : `SecRuleEngine Off` (ou `modsecurity off;` vhost) + `nginx -t` + reload. Ne pas attendre un rebuild si le 500 est là.
+Rollback immédiat : bouton **Couper le moteur** ou désarmer + Off + reload.
 
 ---
 
@@ -115,11 +152,10 @@ Rollback immédiat d’une famille : `SecRuleEngine Off` (ou `modsecurity off;` 
 
 | Condition | Go ? |
 |-----------|------|
-| §0 : error.log 06/08 (ou équivalent) lu, cause racine identifiée **ou** écartée avec test ciblé | obligatoire |
-| §0.1 : `/tools` < 70 %, ≥ 3 Go libres, logrotate nginx-logs OK, débit audit mesuré | obligatoire |
-| Overlay 901110 non inclus | déjà vrai aujourd’hui |
-| Smoke portal DetectionOnly vert | obligatoire avant On portal |
-| Stub sync toujours `SecRuleEngine Off` | OK tant que `engine-mode-generated` n’est pas dans `main-*.conf` |
-| IHM affiche encore l’écart DB vs fichiers image | attendu ; le bandeau disparaît quand les `engine-*.conf` **de l’image déployée** rejoignent le mode DB — lecture live conteneur = [#152](https://github.com/vincenttisseront/bastion-app/issues/152) |
+| §0.1 : `/tools` < 70 %, ≥ 3 Go libres, logrotate OK | obligatoire avant 1ʳᵉ réactivation |
+| Overlay 901110 non inclus | déjà vrai |
+| Smoke IHM vert (probes ci-dessus) | obligatoire |
+| Subdomain / public encore Off | attendu en phase 1 |
+| Passage On | seulement après observation DetectionOnly |
 
-**No-go** si le 500 se reproduit sur `/auth/login` avec CRS On/DetectionOnly, même « juste une requête de test ».
+**No-go** si le 500 se reproduit sur `/auth/login` — l’IHM doit avoir rollback ; ne pas réarmer sans diag.

@@ -4,7 +4,8 @@
 > `/dev/mapper/vg0-lv_tools` 11 G, **255 Mo libres (98 %)**. Il manquait 1 Mo pour déployer.
 >
 > Lié : [`runbook-reactivation-crs-modsecurity.md`](runbook-reactivation-crs-modsecurity.md)
-> (prérequis disque avant réactivation CRS) · [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md).
+> (prérequis disque §0.1 avant **Réactiver** IHM ; DetectionOnly augmente le volume
+> `modsec_audit.log`) · [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md).
 
 ---
 
@@ -146,10 +147,11 @@ echo "$(( (s2-s1)/1024 )) Ko / 10 min  →  ~$(( (s2-s1)*144/1048576 )) Mo/jour"
 
 ---
 
-## 5. Prérequis runbook CRS
+## 5. Prérequis runbook CRS / réactivation IHM
 
-Voir [`runbook-reactivation-crs-modsecurity.md`](runbook-reactivation-crs-modsecurity.md) §0.1 :
+Avant **Admin → WAF → Réactiver le moteur**, vérifier
+[`runbook-reactivation-crs-modsecurity.md`](runbook-reactivation-crs-modsecurity.md) §0.1 :
 
 - `/tools` < 70 % occupé, ≥ 3 Go libres.
 - Logrotate hôte vérifié (présence de `.gz` après `logrotate -f`).
-- Débit `modsec_audit.log` mesuré.
+- Débit `modsec_audit.log` mesuré (DetectionOnly augmente le volume).

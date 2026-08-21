@@ -18,16 +18,44 @@ from app.sso_settings import Settings
 
 def test_verdict_inactive_when_engine_off():
     profile = WafProfile(name="P", mode=MODE_ON, anomaly_threshold=5)
-    active = {"verifiable": True, "aggregate_mode": MODE_OFF}
-    v = build_protection_verdict(profile, active, export_pending=False)
+    active = {
+        "verifiable": True,
+        "aggregate_mode": MODE_OFF,
+        "engine_mode_generated_loaded": False,
+    }
+    v = build_protection_verdict(profile, active, export_pending=False, page="unified")
     assert v["level"] == "inactive"
     assert "INACTIVE" in v["title"]
     assert v["css"] == "alert-err"
+    assert v["action_apply"] is False
+    assert v["action_href"] == "#reactivation"
+    assert v["mode_pilotable"] is False
+    assert "Réactiver" in (v.get("action_label") or "")
+    assert "rollback" in (v.get("resolution") or "").lower() or "DetectionOnly" in (
+        v.get("resolution") or ""
+    )
+
+
+def test_verdict_inactive_pilotable_offers_apply():
+    profile = WafProfile(name="P", mode=MODE_ON, anomaly_threshold=5)
+    active = {
+        "verifiable": True,
+        "aggregate_mode": MODE_OFF,
+        "engine_mode_generated_loaded": True,
+    }
+    v = build_protection_verdict(profile, active, export_pending=False, page="unified")
+    assert v["level"] == "inactive"
+    assert v["action_apply"] is True
+    assert v["mode_pilotable"] is True
 
 
 def test_verdict_active_when_aligned():
     profile = WafProfile(name="P", mode=MODE_ON, anomaly_threshold=5)
-    active = {"verifiable": True, "aggregate_mode": MODE_ON}
+    active = {
+        "verifiable": True,
+        "aggregate_mode": MODE_ON,
+        "engine_mode_generated_loaded": True,
+    }
     v = build_protection_verdict(profile, active, export_pending=False)
     assert v["level"] == "active"
     assert v["css"] == "alert-ok"

@@ -116,7 +116,9 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 | Export | Rôle |
 |--------|------|
 | `exports/modsecurity/crs-setup-generated.conf` | Seuil anomalie (id **1000900110**) — **non chargé** par `main-*.conf` (seuils = static `crs-setup.conf` id 900110). Filet anti-500 si export stale `901110`. |
-| `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil (inclus en dernier) |
+| `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil — inclus en dernier dans **main-portal.conf** seulement si `waf-engine-arm.json` est armé |
+| `exports/modsecurity/waf-engine-arm.json` | Armement IHM (`armed`) — sans armement le sync force `SecRuleEngine Off` |
+| `exports/modsecurity-portal-switch.conf` | `modsecurity on\|off;` serveur portal (include vhost) |
 | `exports/modsecurity/bastion-exclusions-generated.conf` | Exclusions UI après `waf-basic.conf` |
 | `exports/waf-ip-deny.conf` | `deny` IP promues depuis `SecurityBan` |
 | `exports/nginx-portal-rate-limits.conf` | Zones `portal_login` / `portal_api` |
@@ -129,7 +131,10 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 2. Ajouter exclusions (raison + ID règle CRS + host ou URI) — désactivation soft (historique).
 3. **Appliquer** : génère les exports → `nginx -t` (docker exec si dispo) → en échec,
    restauration des `*.prev` (pas de reload de conf cassée). Sinon le watcher nginx
-   (`watch-exports-reload`) synchronise et reload.
+   (`watch-exports-reload`) synchronise et reload. **N’arme pas** le moteur CRS.
+4. **Réactiver le moteur** (`#reactivation`) : DetectionOnly portal + smoke HTTP + rollback auto
+   — voir [`runbook-reactivation-crs-modsecurity.md`](runbook-reactivation-crs-modsecurity.md).
+5. **Couper le moteur** : désarmement immédiat (Off + `modsecurity off`).
 
 ### Incident — HTTP 500 partout sauf `/api/health`
 
@@ -138,7 +143,10 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 2. Après #113 : stub généré OK, **pas** d’Include `crs-setup-generated`, export déjà
    `1000900110` — **`/auth/login` toujours 500**. Donc pas (seulement) l’overlay seuil.
 3. Mitigation : **`modsecurity off`** serveur + `SecRuleEngine Off` + ne plus Inclure
-   `engine-mode-generated` (le profil WAF DB `mode=on` forçait On en dernier).
+   `engine-mode-generated` sans garde-fou (le profil WAF DB `mode=on` forçait On en dernier).
+
+**Depuis 2026-08-21** : réactivation IHM portal avec armement + smoke + rollback
+(`waf_reactivation.py`). Subdomain / public restent Off.
 
 **Contournement immédiat (sans rebuild)** :
 
@@ -163,8 +171,9 @@ docker exec bastion-nginx ls -la /tmp/modsecurity /var/log/nginx/apps/modsec_aud
 
 ### Rollback via IHM
 
-Profil WAF → mode **Off** (ou DetectionOnly), **Enregistrer**, puis **Appliquer**.
-Ne pas repasser en **On** tant que le smoke `/auth/login` n’est pas vert avec ModSec on.
+1. **Couper le moteur** (`#reactivation`) — désarme + `modsecurity off` + `SecRuleEngine Off` + smoke.
+2. Ou profil → mode **Off**, **Enregistrer**, **Appliquer** (si déjà armé ; sinon Couper d’abord).
+3. Ne pas repasser en **On** tant que le smoke `/auth/login` n’est pas vert avec ModSec on.
 
 ### Promotion IP deny
 
@@ -202,10 +211,11 @@ La page **Admin → WAF** expose **trois lectures distinctes** (lot 2 Phase B) :
 
 Ces trois couches **peuvent diverger** :
 
-- **Mode / seuil CRS** : depuis l'urgence 2026-08-06, engine-*.conf = SecRuleEngine Off et
-  engine-mode-generated.conf / crs-setup-generated.conf ne sont **pas** inclus dans
-  main-*.conf. L'IHM affiche alors un bandeau rouge si le souhaité DB ≠ moteur nginx, et
-  des marqueurs « non appliqué en nginx » sur mode et seuil.
+- **Mode / seuil CRS** : sans armement IHM (`waf-engine-arm.json`), le sync force
+  `SecRuleEngine Off` même si le profil DB est On. `main-portal.conf` Inclut
+  `engine-mode-generated` **seulement** quand armé ; le switch vhost
+  (`modsecurity-portal-switch.conf`) reste `off` par défaut. L’IHM affiche un bandeau
+  si le souhaité DB ≠ moteur nginx, avec CTA **Réactiver** (`#reactivation`).
 - **Rate limits / IP deny / exclusions UI** : poussés par **Appliquer** ; le badge
   **En attente** / **Appliqué** compare DB vs export champ par champ.
 - **Dernier Appliquer** : depuis le lot 2, `waf-effective-status.json` enregistre
@@ -213,9 +223,9 @@ Ces trois couches **peuvent diverger** :
   (uniquement après un Appliquer WAF réussi). Les exports antérieurs n'ont que la date
   de dernière écriture du fichier (`export_file_mtime`).
 
-Le bandeau disparaît automatiquement lorsque le moteur nginx rejoint le mode enregistré
-(réactivation ops — voir runbook, pas via un simple Appliquer IHM tant que les includes
-Phase A ne sont pas rétablis).
+Le bandeau disparaît lorsque le moteur nginx rejoint le mode enregistré après
+**Réactiver** (DetectionOnly) puis éventuellement profil On + Appliquer — voir
+[`runbook-reactivation-crs-modsecurity.md`](runbook-reactivation-crs-modsecurity.md).
 
 ## Notes d’exploitation
 

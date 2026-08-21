@@ -1,14 +1,10 @@
-﻿> **Format :** Markdown (source Wiki.js).  
-> **Fichier dépôt d’origine :** `docs/ops-modsecurity-crs.md` — garder les deux synchronisés (voir `docs/wikijs/MAINTENANCE.md`).
-
----
-# Ops â€” ModSecurity v3 + OWASP CRS (nginx-bastion)
+# Ops — ModSecurity v3 + OWASP CRS (nginx-bastion)
 
 **Statut (2026-08-06 soir)** : **EMERGENCY Off** sur les 3 familles
 (`modsecurity off` + `SecRuleEngine Off`). Cause : HTTP **500** sur tout chemin ModSec
-(`/auth/login`, `/`, â€¦) alors que `/api/health` (`modsecurity off`) restait 200.
-`crs-setup-generated` a Ã©tÃ© Ã©cartÃ© (#113) â€” le 500 persistait avec CRS + engine On.
-Re-activer uniquement aprÃ¨s root cause (`error.log` nginx / debug ModSec).
+(`/auth/login`, `/`, …) alors que `/api/health` (`modsecurity off`) restait 200.
+`crs-setup-generated` a été écarté (#113) — le 500 persistait avec CRS + engine On.
+Re-activer uniquement après root cause (`error.log` nginx / debug ModSec).
 
 | Famille | Fichier | Engine | Date |
 |---------|---------|--------|------|
@@ -16,36 +12,38 @@ Re-activer uniquement aprÃ¨s root cause (`error.log` nginx / debug ModSec).
 | subdomain_proxy | `engine-subdomain.conf` | **Off** | 2026-08-06 emergency |
 | public_proxy | `engine-public.conf` | **Off** | 2026-08-06 emergency |
 
-Exclusions custom : aucune (`waf-basic.conf` vide) tant quâ€™aucun faux positif nâ€™est
-confirmÃ© en prod. Ajouter uniquement des `SecRuleRemoveById` /
-`SecRuleUpdateTargetById` ciblÃ©s â€” jamais dÃ©sactiver une catÃ©gorie CRS entiÃ¨re.
+Exclusions custom : aucune (`waf-basic.conf` vide) tant qu’aucun faux positif n’est
+confirmé en prod. Ajouter uniquement des `SecRuleRemoveById` /
+`SecRuleUpdateTargetById` ciblés — jamais désactiver une catégorie CRS entière.
 
-PrÃ©requis audit : [`audit-preintegration-modsecurity-crs-nginx-bastion.md`](audit-preintegration-modsecurity-crs-nginx-bastion.md).
-Conception (Phase A livrÃ©e / Phase B) :
+Prérequis audit : [`audit-preintegration-modsecurity-crs-nginx-bastion.md`](audit-preintegration-modsecurity-crs-nginx-bastion.md).
+Conception (Phase A livrée / Phase B) :
 [`conception-modsecurity-crs-nginx-bastion.md`](conception-modsecurity-crs-nginx-bastion.md).
-Image : `owasp/modsecurity-crs:4.28.0-nginx-alpine-202607160307` (nginx **1.30.4**, Ã©cart
-acceptÃ© vs ancien `nginx:1.27-alpine`).
+Image : `owasp/modsecurity-crs:4.28.0-nginx-alpine-202607160307` (nginx **1.30.4**, écart
+accepté vs ancien `nginx:1.27-alpine`).
 
-## Emplacements clÃ©s
+## Emplacements clés
 
-| Ã‰lÃ©ment | Chemin |
+| Élément | Chemin |
 |---------|--------|
 | Rules files par famille | `docker/nginx/modsecurity/main-{portal,subdomain,public}.conf` |
 | Bascule engine | `docker/nginx/modsecurity/engine-{portal,subdomain,public}.conf` |
 | Core ModSec | `docker/nginx/modsecurity/modsecurity.conf` |
 | CRS setup (PL1, seuils 5/4) | `docker/nginx/modsecurity/crs-setup.conf` |
 | Exclusions custom | `docker/nginx/includes/waf-basic.conf` |
-| Audit log | `/var/log/nginx/apps/modsec_audit.log` (volume Compose `nginx-logs`) |
-| Rotation | `docker/nginx/logrotate.d/modsecurity` (crond dans lâ€™entrypoint) |
+| Audit log (conteneur) | `/var/log/nginx/apps/modsec_audit.log` |
+| Audit log (hôte, bind mount) | `{SSO_PORTAL_DATA_DIR}/nginx-logs/modsec_audit.log` (prod : `/tools/portal/data/nginx-logs/…`) |
+| Rotation prod | `/etc/logrotate.d/bastion-nginx-logs` (hôte — voir [`ops-retention-donnees-froides-tools.md`](ops-retention-donnees-froides-tools.md)) |
+| Rotation conteneur (secours) | `docker/nginx/logrotate.d/modsecurity` (crond entrypoint — même inode audit via volume) |
 
-## Smoke post-deploy (bloquant avant / aprÃ¨s `On`)
+## Smoke post-deploy (bloquant avant / après `On`)
 
-Sur docker01, aprÃ¨s rebuild/reload `bastion-nginx` :
+Sur docker01, après rebuild/reload `bastion-nginx` :
 
-1. Login SSO â†’ dashboard
+1. Login SSO → dashboard
 2. Un flux `subdomain_proxy` (ex. CrushFTP)
 3. Un flux `public_proxy`
-4. `POST /admin/apps/analyze-login-form` avec une URL lÃ©gitime
+4. `POST /admin/apps/analyze-login-form` avec une URL légitime
 5. Locations `modsecurity off` : **aucune** ligne correspondante dans
    `/var/log/nginx/apps/modsec_audit.log` (health, hops cookie, auth internes,
    oauth2/static, `/.bastion/session-cookies`, `/healthz` public)
@@ -55,23 +53,24 @@ docker exec bastion-nginx nginx -t
 docker exec bastion-nginx tail -n 100 /var/log/nginx/apps/modsec_audit.log
 ```
 
-Si faux positif : exclusion ciblÃ©e dans `waf-basic.conf`, rebuild/reload, re-smoke â€”
-**ne pas** repasser toute une famille en `DetectionOnly` sauf rollback dâ€™urgence.
+Si faux positif : exclusion ciblée dans `waf-basic.conf`, rebuild/reload, re-smoke —
+**ne pas** repasser toute une famille en `DetectionOnly` sauf rollback d’urgence.
 
 ## Lire `modsec_audit.log`
 
-Sur lâ€™hÃ´te (volume data) :
+**Hôte** (bind mount `SSO_PORTAL_DATA_DIR/nginx-logs` — prod : `/tools/portal/data/nginx-logs/`) :
 
 ```bash
 sudo tail -f /tools/portal/data/nginx-logs/modsec_audit.log
-# ou chemin SSO_PORTAL_DATA_DIR/.../nginx-logs/modsec_audit.log
 ```
 
-Dans le conteneur :
+**Conteneur** (même inode, chemin interne) :
 
 ```bash
 docker exec bastion-nginx tail -n 50 /var/log/nginx/apps/modsec_audit.log
 ```
+
+> `/var/log/nginx/apps/modsec_audit.log` n'existe **pas** sur l'hôte hors de ce volume.
 
 Format : **JSON** (`SecAuditLogFormat JSON`). Filtrer une URI :
 
@@ -79,7 +78,7 @@ Format : **JSON** (`SecAuditLogFormat JSON`). Filtrer une URI :
 docker exec bastion-nginx grep '"uri":"/apps"' /var/log/nginx/apps/modsec_audit.log | tail
 ```
 
-## Rollback immÃ©diat (une famille)
+## Rollback immédiat (une famille)
 
 Remettre **un seul** `engine-*.conf` en `SecRuleEngine DetectionOnly`, rebuild/reload :
 
@@ -87,61 +86,69 @@ Remettre **un seul** `engine-*.conf` en `SecRuleEngine DetectionOnly`, rebuild/r
 docker exec bastion-nginx nginx -t && docker exec bastion-nginx nginx -s reload
 ```
 
-Ordre de re-activation aprÃ¨s exclusion : portal â†’ subdomain â†’ public_proxy.
+Ordre de re-activation après exclusion : portal → subdomain → public_proxy.
 
 Ne pas utiliser un unique `SecRuleEngine` global dans `modsecurity.conf` (volontairement
-absent) : cela empÃªcherait la bascule / le rollback progressifs.
+absent) : cela empêcherait la bascule / le rollback progressifs.
 
 ## Ajouter une exclusion dans `waf-basic.conf`
 
-Fichier inclus **aprÃ¨s** les rÃ¨gles CRS (syntaxe ModSecurity uniquement â€” ne pas
+Fichier inclus **après** les règles CRS (syntaxe ModSecurity uniquement — ne pas
 `include` nginx ce fichier).
 
 Exemples :
 
 ```
-# DÃ©sactiver une rÃ¨gle CRS prÃ©cise
+# Désactiver une règle CRS précise
 SecRuleRemoveById 942100
 
-# Retirer une cible dâ€™argument sensible dâ€™une rÃ¨gle
+# Retirer une cible d’argument sensible d’une règle
 SecRuleUpdateTargetById 942100 "!ARGS:password"
 ```
 
-Puis rebuild ou monter le fichier + `nginx -s reload` selon le mode de dÃ©ploiement.
+Puis rebuild ou monter le fichier + `nginx -s reload` selon le mode de déploiement.
 
-## IHM Phase B â€” `/admin/security/waf`
+## IHM Phase B — `/admin/security/waf`
 
-Pilotage des **overlays gÃ©nÃ©rÃ©s** uniquement (ne remplace pas `engine-*.conf`,
+Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`,
 `crs-setup.conf` paranoia, ni `waf-basic.conf` manuel) :
 
-| Export | RÃ´le |
+| Export | Rôle |
 |--------|------|
-| `exports/modsecurity/crs-setup-generated.conf` | Seuil anomalie (id **1000900110**) â€” **non chargÃ©** par `main-*.conf` (seuils = static `crs-setup.conf` id 900110). Filet anti-500 si export stale `901110`. |
-| `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil (inclus en dernier) |
-| `exports/modsecurity/bastion-exclusions-generated.conf` | Exclusions UI aprÃ¨s `waf-basic.conf` |
+| `exports/modsecurity/crs-setup-generated.conf` | Seuil anomalie (id **1000900110**) — **non chargé** par `main-*.conf` (seuils = static `crs-setup.conf` id 900110). Filet anti-500 si export stale `901110`. |
+| `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil — inclus en dernier dans **main-portal.conf** seulement si `waf-engine-arm.json` est armé |
+| `exports/modsecurity/waf-engine-arm.json` | Armement IHM (`armed`) — sans armement le sync force `SecRuleEngine Off` |
+| `exports/modsecurity-portal-switch.conf` | `modsecurity on\|off;` serveur portal (include vhost) |
+| `exports/modsecurity/bastion-exclusions-generated.conf` | Exclusions UI après `waf-basic.conf` |
 | `exports/waf-ip-deny.conf` | `deny` IP promues depuis `SecurityBan` |
 | `exports/nginx-portal-rate-limits.conf` | Zones `portal_login` / `portal_api` |
-| `exports/modsecurity/waf-effective-status.json` | Statut lu par lâ€™IHM |
+| `exports/modsecurity/waf-effective-status.json` | Statut lu par l’IHM |
 
 ### Utilisation
 
-1. Admin â†’ **WAF** : choisir profil (Production / PrÃ©production / DÃ©veloppement / Custom),
-   mode, seuil (3â€“10), min. occurrences IP deny (dÃ©faut **3**).
-2. Ajouter exclusions (raison + ID rÃ¨gle CRS + host ou URI) â€” dÃ©sactivation soft (historique).
-3. **Appliquer** : gÃ©nÃ¨re les exports â†’ `nginx -t` (docker exec si dispo) â†’ en Ã©chec,
-   restauration des `*.prev` (pas de reload de conf cassÃ©e). Sinon le watcher nginx
-   (`watch-exports-reload`) synchronise et reload.
+1. Admin → **WAF** : choisir profil (Production / Préproduction / Développement / Custom),
+   mode, seuil (3–10), min. occurrences IP deny (défaut **3**).
+2. Ajouter exclusions (raison + ID règle CRS + host ou URI) — désactivation soft (historique).
+3. **Appliquer** : génère les exports → `nginx -t` (docker exec si dispo) → en échec,
+   restauration des `*.prev` (pas de reload de conf cassée). Sinon le watcher nginx
+   (`watch-exports-reload`) synchronise et reload. **N’arme pas** le moteur CRS.
+4. **Réactiver le moteur** (`#reactivation`) : DetectionOnly portal + smoke HTTP + rollback auto
+   — voir [`runbook-reactivation-crs-modsecurity.md`](runbook-reactivation-crs-modsecurity.md).
+5. **Couper le moteur** : désarmement immédiat (Off + `modsecurity off`).
 
-### Incident â€” HTTP 500 partout sauf `/api/health`
+### Incident — HTTP 500 partout sauf `/api/health`
 
 **Chronologie 2026-08-06 :**
-1. Overlay `id:901110` (collision CRS) â€” fix #111/#112/#113 (Include retirÃ©).
-2. AprÃ¨s #113 : stub gÃ©nÃ©rÃ© OK, **pas** dâ€™Include `crs-setup-generated`, export dÃ©jÃ 
-   `1000900110` â€” **`/auth/login` toujours 500**. Donc pas (seulement) lâ€™overlay seuil.
+1. Overlay `id:901110` (collision CRS) — fix #111/#112/#113 (Include retiré).
+2. Après #113 : stub généré OK, **pas** d’Include `crs-setup-generated`, export déjà
+   `1000900110` — **`/auth/login` toujours 500**. Donc pas (seulement) l’overlay seuil.
 3. Mitigation : **`modsecurity off`** serveur + `SecRuleEngine Off` + ne plus Inclure
-   `engine-mode-generated` (le profil WAF DB `mode=on` forÃ§ait On en dernier).
+   `engine-mode-generated` sans garde-fou (le profil WAF DB `mode=on` forçait On en dernier).
 
-**Contournement immÃ©diat (sans rebuild)** :
+**Depuis 2026-08-21** : réactivation IHM portal avec armement + smoke + rollback
+(`waf_reactivation.py`). Subdomain / public restent Off.
+
+**Contournement immédiat (sans rebuild)** :
 
 ```bash
 docker exec bastion-nginx sh -c '
@@ -155,7 +162,7 @@ docker exec bastion-nginx wget -S -O /dev/null \
   --header="Host: portal.ar-systems.fr" http://127.0.0.1:8080/auth/login 2>&1 | head
 ```
 
-Diag utile si 500 revient aprÃ¨s re-enable :
+Diag utile si 500 revient après re-enable :
 
 ```bash
 docker exec bastion-nginx tail -n 80 /var/log/nginx/error.log
@@ -164,24 +171,70 @@ docker exec bastion-nginx ls -la /tmp/modsecurity /var/log/nginx/apps/modsec_aud
 
 ### Rollback via IHM
 
-Profil WAF â†’ mode **Off** (ou DetectionOnly), **Enregistrer**, puis **Appliquer**.
-Ne pas repasser en **On** tant que le smoke `/auth/login` nâ€™est pas vert avec ModSec on.
+1. **Couper le moteur** (`#reactivation`) — désarme + `modsecurity off` + `SecRuleEngine Off` + smoke.
+2. Ou profil → mode **Off**, **Enregistrer**, **Appliquer** (si déjà armé ; sinon Couper d’abord).
+3. Ne pas repasser en **On** tant que le smoke `/auth/login` n’est pas vert avec ModSec on.
 
 ### Promotion IP deny
 
-Un ban `SecurityBan` (`target_type=ip`) nâ€™apparaÃ®t dans nginx que sâ€™il est **actif** et
-(**permanent** OU historique `count >= ip_deny_min_occurrences`). Un seul Ã©chec de login
-ne rÃ©gÃ©nÃ¨re pas la liste deny.
+Un ban `SecurityBan` (`target_type=ip`) n’apparaît dans nginx que s’il est **actif** et
+(**permanent** OU historique `count >= ip_deny_min_occurrences`). Un seul échec de login
+ne régénère pas la liste deny.
 
-## Notes dâ€™exploitation
+### Lire le statut WAF dans l'IHM
 
-- **`/healthz` subdomain_proxy** : absent de lâ€™export Python (prÃ©sent seulement dans le
-  j2 DMZ legacy). Ne pas ajouter une sonde sans `modsecurity off;` dÃ©diÃ©.
-- **Headers sÃ©curitÃ©** (HSTS/XFO/â€¦) : edge TLS nginx-bastion `:443` (`security-headers.conf`)
-  â€” lecture seule dans lâ€™IHM WAF pour lâ€™instant.
+La page **Admin → WAF** expose **trois lectures distinctes** (lot 2 Phase B) :
+
+| Lecture | Source | Signification |
+|---------|--------|---------------|
+| **Souhaité (DB)** | `WafProfile` + exclusions SQLite | Ce que l'admin a enregistré — effet immédiat en base uniquement pour le profil. |
+| **Généré (export)** | `exports/modsecurity/waf-effective-status.json` | Dernier snapshot écrit par **Appliquer** (`nginx_waf_export.py`). |
+| **Réellement actif (nginx)** | Snapshot JSON `nginx-logs/nginx-waf-snapshot.json` produit par **bastion-nginx** | État effectif : `nginx -T` + fichiers ModSecurity réellement chargés. **Pas** de lecture repo ni `docker.sock` côté app. |
+| **Repo (intention)** *(dev)* | `BASTION_NGINX_CONF_ROOT` si défini | Checkout git local uniquement — jamais confondu avec l'état live. |
+
+**Lot 2.1 (2026-08-19)** : `bastion-nginx` écrit le snapshot dans le volume partagé
+`nginx-logs/` (à chaque démarrage, reload exports, et toutes les 5 min via crond).
+`bastion-app` le lit en lecture seule (`BASTION_NGINX_WAF_SNAPSHOT_PATH`). Au-delà de
+15 min sans snapshot frais, l'IHM signale « état non vérifié récemment ».
+
+**Diagnostic déploiement** :
+
+| Composant | Chemin conteneur app | Chemin hôte (prod) | Monté dans bastion-app ? |
+|-----------|---------------------|--------------------|-------------------------|
+| Données / exports | `/var/lib/sso-portal/exports` | `/tools/portal/data/exports` | oui (rw) |
+| Snapshot WAF | `/var/lib/sso-portal/nginx-logs/nginx-waf-snapshot.json` | `…/data/nginx-logs/…` | oui (ro) |
+| Conf nginx build | — | `/tools/portal/docker/nginx` | **non** (absent de l'image app) |
+| Conf nginx live | — | baked dans image `bastion-nginx` | **non** (lu via snapshot) |
+
+**Limite historique (lot 2)** : avant 2.1, l'IHM parse le repo — échec en prod car
+`docker/nginx` n'est pas dans l'image `bastion-app`.
+
+Ces trois couches **peuvent diverger** :
+
+- **Mode / seuil CRS** : sans armement IHM (`waf-engine-arm.json`), le sync force
+  `SecRuleEngine Off` même si le profil DB est On. `main-portal.conf` Inclut
+  `engine-mode-generated` **seulement** quand armé ; le switch vhost
+  (`modsecurity-portal-switch.conf`) reste `off` par défaut. L’IHM affiche un bandeau
+  si le souhaité DB ≠ moteur nginx, avec CTA **Réactiver** (`#reactivation`).
+- **Rate limits / IP deny / exclusions UI** : poussés par **Appliquer** ; le badge
+  **En attente** / **Appliqué** compare DB vs export champ par champ.
+- **Dernier Appliquer** : depuis le lot 2, `waf-effective-status.json` enregistre
+  `last_apply_at`, `last_apply_by`, `last_apply_nginx_t_ok` et `last_apply_nginx_t_detail`
+  (uniquement après un Appliquer WAF réussi). Les exports antérieurs n'ont que la date
+  de dernière écriture du fichier (`export_file_mtime`).
+
+Le bandeau disparaît lorsque le moteur nginx rejoint le mode enregistré après
+**Réactiver** (DetectionOnly) puis éventuellement profil On + Appliquer — voir
+[`runbook-reactivation-crs-modsecurity.md`](runbook-reactivation-crs-modsecurity.md).
+
+## Notes d’exploitation
+
+- **`/healthz` subdomain_proxy** : absent de l’export Python (présent seulement dans le
+  j2 DMZ legacy). Ne pas ajouter une sonde sans `modsecurity off;` dédié.
+- **Headers sécurité** (HSTS/XFO/…) : edge TLS nginx-bastion `:443` (`security-headers.conf`)
+  — lecture seule dans l’IHM WAF pour l’instant.
 - **Rate limiting** portal : zones `portal_login` / `portal_api` pilotables via IHM (taux) ;
-  burst location encore dans le template portal (hors gÃ©nÃ©ration).
-- **nginx 1.30+** : le portal dÃ©clare des `set $bastion_* ""` pour les variables utilisÃ©es
-  par les maps subdomain / `log_format app` (sinon `nginx -t` Ã©choue tant quâ€™aucun vhost
-  subdomain nâ€™est chargÃ©).
-
+  burst location encore dans le template portal (hors génération).
+- **nginx 1.30+** : le portal déclare des `set $bastion_* ""` pour les variables utilisées
+  par les maps subdomain / `log_format app` (sinon `nginx -t` échoue tant qu’aucun vhost
+  subdomain n’est chargé).

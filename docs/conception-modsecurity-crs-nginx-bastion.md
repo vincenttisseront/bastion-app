@@ -235,6 +235,14 @@ tâche séparée).
 Identique à `apply-infra-docker.sh` : générer → `nginx -t` → reload ; pas de restart complet ;
 rollback si `nginx -t` échoue.
 
+### 9.8 Réactivation IHM (2026-08-21)
+
+Portal seulement : bouton **Réactiver** (`waf_reactivation.py`) arme
+`waf-engine-arm.json` + switch `modsecurity on` + DetectionOnly, puis smoke HTTP
+(`/_portal_nginx_ok`, `/api/health`, `/auth/login`). Échec → rollback Off automatique.
+Sans armement, le sync force `SecRuleEngine Off`. Voir
+[`runbook-reactivation-crs-modsecurity.md`](runbook-reactivation-crs-modsecurity.md).
+
 ---
 
 ## 10. Points ouverts (post Phase A)
@@ -243,6 +251,8 @@ rollback si `nginx -t` échoue.
 2. Contenu CSP / COOP / COEP / CORP — à définir avant contrôle IHM.
 3. ~~Blacklist IP WAF vs anti-bruteforce~~ — **tranché** (§9.6).
 4. ~~Durée DetectionOnly~~ — compressée / close (smoke On OK).
+5. Réactivation subdomain / public via IHM — **ouvert** (portal livré).
+6. Passage DetectionOnly → On guidé IHM avec smoke — **ouvert** (On manuel après armement).
 
 ---
 
@@ -266,4 +276,5 @@ rollback si `nginx -t` échoue.
 | real_ip CF | `docker/nginx/includes/cloudflare-ips.conf`, `nginx.conf` |
 | Headers edge | `docker/nginx/includes/security-headers.conf`, `sync-acme-tls.sh` |
 | Ban IP existant | `app/models.py` (`SecurityBanRule`, `SecurityBan`), `app/security/banning/` |
+| Réactivation IHM | `app/bastion/waf_reactivation.py`, `docs/runbook-reactivation-crs-modsecurity.md` |
 | Ops | `docs/ops-modsecurity-crs.md` |

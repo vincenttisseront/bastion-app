@@ -43,11 +43,10 @@ server {
     error_page 404 = /__portal_err/404;
     error_page 500 502 503 504 = /__portal_err/500;
     error_page 429 = @portal_rate_limited;
-    # ModSecurity CRS — EMERGENCY Off (2026-08-06): request-time HTTP 500 on ModSec paths
-    # (/auth/login, /, …) while locations with « modsecurity off » (health) stayed 200.
-    # crs-setup-generated was ruled out (#113); engine-mode On + CRS still 500. Re-enable
-    # only after error.log / modsec root cause is fixed (see docs/ops-modsecurity-crs.md).
-    modsecurity off;
+    # ModSecurity CRS — server-level switch (default off). IHM reactivation writes
+    # exports/modsecurity-portal-switch.conf (on) then smoke-tests; rollback restores off.
+    # Location-level « modsecurity off » below stay for health / auth_request / errors.
+    include /etc/nginx/includes/modsecurity-portal-switch.conf;
     modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;
 
     # Unknown Host discovery (bastion-nginx): Hosts not in nginx-known-hosts.map
