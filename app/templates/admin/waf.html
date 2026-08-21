@@ -304,7 +304,11 @@
                   <input type="hidden" name="reason" value="WAF top attaquant ({{ atk.count }} détections / 24 h)">
                   <button type="submit" class="btn btn-ghost btn-sm">Bannir 24h</button>
                 </form>
-                <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form" onsubmit="return confirm('Ban permanent de {{ atk.ip }} ? Puis Appliquer pour deny nginx.');">
+                <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form"
+                      data-confirm-title="Ban permanent ?"
+                      data-confirm="Ban permanent de {{ atk.ip }} ? Cliquez Appliquer ensuite pour pousser le deny nginx."
+                      data-confirm-label="Ban permanent"
+                      data-confirm-danger="1">
                   <input type="hidden" name="ip" value="{{ atk.ip }}">
                   <input type="hidden" name="ban_mode" value="permanent">
                   <input type="hidden" name="confirm_permanent" value="on">
@@ -423,7 +427,10 @@
         <strong>Moteur portal armé</strong>
         <p class="muted">Pour couper immédiatement ModSecurity (Off + désarmement) :</p>
         <form method="post" action="/admin/security/waf/actions/disarm" class="stack"
-              onsubmit="return confirm('Couper immédiatement ModSecurity portal (Off) ?');">
+              data-confirm-title="Couper le moteur ModSecurity ?"
+              data-confirm="Coupe immédiatement le connecteur portal (modsecurity off) et SecRuleEngine Off, puis smoke de contrôle."
+              data-confirm-label="Couper le moteur"
+              data-confirm-danger="1">
           <label class="form-check">
             <input type="checkbox" name="confirm_disarm" value="on" required>
             Je confirme la coupure immédiate du moteur portal
@@ -716,7 +723,7 @@
       <div class="waf-reactivation-actions">
         {% if reactivation.can_reactivate %}
         <form method="post" action="/admin/security/waf/actions/reactivate" class="stack waf-reactivate-form"
-              onsubmit="return confirm('Réactiver ModSecurity portal en DetectionOnly ? Un smoke HTTP sera exécuté ; en cas d’échec (5xx), rollback automatique vers Off.');">
+              id="waf-reactivate-form">
           <label class="form-check">
             <input type="checkbox" name="confirm_reactivate" value="on" required>
             Je confirme la réactivation portal (DetectionOnly) avec smoke + rollback auto
@@ -911,6 +918,19 @@
 
     danger: true,
 
+  });
+
+  confirmSubmit(document.getElementById('waf-reactivate-form'), {
+    title: 'Réactiver ModSecurity portal ?',
+    message: 'Passage en DetectionOnly, sync nginx, puis smoke HTTP. Rollback auto vers Off si une sonde échoue.',
+    list: [
+      'nginx -t + reload',
+      '/_portal_nginx_ok → 200',
+      '/api/health → pas de 5xx',
+      '/auth/login → pas de 5xx',
+    ],
+    confirmLabel: 'Réactiver',
+    danger: true,
   });
 
   document.querySelectorAll('.waf-disable-form').forEach(function (form) {
