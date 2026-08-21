@@ -76,7 +76,11 @@ echo "$(( (s2-s1)/1024 )) Ko / 10 min  →  ~$(( (s2-s1)*144/1048576 )) Mo/jour"
 
 ### Déploiement requis
 
-Rebuild **bastion-nginx** (template vhost + `main-portal.conf` + sync) puis redeploy **bastion-app**.
+- Rebuild **bastion-nginx** (template vhost + `main-portal.conf` + sync + watcher)
+  puis redeploy **bastion-app**.
+- En prod, `bastion-app` **n’a pas** `docker.sock` : la réactivation écrit les exports ;
+  `watch-exports-reload` synchronise + `nginx -t` + reload ; la **smoke HTTP** décide
+  du succès ou du rollback (pas `docker compose exec`).
 
 ### Étapes admin
 

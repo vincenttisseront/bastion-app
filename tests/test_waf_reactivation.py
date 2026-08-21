@@ -91,6 +91,17 @@ def test_reactivate_smoke_failure_rolls_back(db_session, tmp_path: Path):
     assert "modsecurity off;" in switch
 
 
+def test_sync_and_reload_without_compose_delegates_to_watcher(tmp_path: Path):
+    settings = _settings(tmp_path)
+    (tmp_path / "exports" / "modsecurity").mkdir(parents=True)
+    from app.bastion.waf_reactivation import sync_and_reload, write_arm_state
+
+    write_arm_state(settings, {"armed": True, "family": "portal"})
+    ok, detail = sync_and_reload(settings)
+    assert ok is True
+    assert "watcher" in detail.lower()
+
+
 def test_reactivate_success_arms_detection_only(db_session, tmp_path: Path):
     settings = _settings(tmp_path)
     db_session.add(
