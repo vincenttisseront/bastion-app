@@ -325,6 +325,10 @@ def admin_waf_reactivate(
             "rolled_back": result.get("rolled_back"),
             "error": result.get("error"),
             "mode": result.get("mode"),
+            "sync_detail": result.get("sync_detail"),
+            "failed_summary": result.get("failed_summary"),
+            "failed_probes": result.get("failed_probes") or [],
+            "smoke_ok": (result.get("smoke") or {}).get("ok"),
         },
         ip_address=client_ip_from_request(request) or None,
     )
