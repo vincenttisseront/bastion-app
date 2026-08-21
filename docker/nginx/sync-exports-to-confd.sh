@@ -81,15 +81,36 @@ cat > /etc/nginx/modsecurity/generated/crs-setup-generated.conf <<'EOF'
 # Not loaded by main-*.conf — anomaly thresholds come from ../crs-setup.conf (id:900110).
 # Export may still be written by Admin → WAF for a future safe re-Include (id:1000900110).
 EOF
-# if [[ -f "$EXPORTS/modsecurity/engine-mode-generated.conf" ]]; then
-#   # Not copied into the live Include chain (main-*.conf) during emergency Off.
-#   cp -a "$EXPORTS/modsecurity/engine-mode-generated.conf" \
-#     /etc/nginx/modsecurity/generated/engine-mode-generated.conf
-# fi
-cat > /etc/nginx/modsecurity/generated/engine-mode-generated.conf <<'EOF'
-# Not loaded by main-*.conf — emergency Off 2026-08-06 (see ops-modsecurity-crs.md).
+
+# Portal ModSecurity connector switch (IHM reactivation / rollback).
+if [[ -f "$EXPORTS/modsecurity-portal-switch.conf" ]]; then
+  cp -a "$EXPORTS/modsecurity-portal-switch.conf" \
+    /etc/nginx/includes/modsecurity-portal-switch.conf
+else
+  cat > /etc/nginx/includes/modsecurity-portal-switch.conf <<'EOF'
+# Default safe state — no export yet.
+modsecurity off;
+EOF
+fi
+
+# Engine mode overlay: copy export only when IHM armed (waf-engine-arm.json).
+# Otherwise force Off so a DB profile mode=on cannot brick the edge.
+ARMED=0
+if [[ -f "$EXPORTS/modsecurity/waf-engine-arm.json" ]]; then
+  if grep -Eq '"armed"[[:space:]]*:[[:space:]]*true' "$EXPORTS/modsecurity/waf-engine-arm.json" 2>/dev/null; then
+    ARMED=1
+  fi
+fi
+if [[ "$ARMED" -eq 1 && -f "$EXPORTS/modsecurity/engine-mode-generated.conf" ]]; then
+  cp -a "$EXPORTS/modsecurity/engine-mode-generated.conf" \
+    /etc/nginx/modsecurity/generated/engine-mode-generated.conf
+else
+  cat > /etc/nginx/modsecurity/generated/engine-mode-generated.conf <<'EOF'
+# Not armed — IHM must run Réactiver (DetectionOnly + smoke). See waf_reactivation.
 SecRuleEngine Off
 EOF
+fi
+
 if [[ -f "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" ]]; then
   cp -a "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" \
     /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf

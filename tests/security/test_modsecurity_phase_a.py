@@ -11,8 +11,8 @@ def test_docker_portal_keeps_modsecurity_wiring_but_off():
     text = (ROOT / "docker/nginx/templates/vhost_sso_portal.conf.template").read_text(
         encoding="utf-8"
     )
-    # Emergency Off — connector still wired for a safe re-enable later.
-    assert "modsecurity off;" in text
+    # Server-level switch is an include (default off); locations keep explicit off.
+    assert "include /etc/nginx/includes/modsecurity-portal-switch.conf;" in text
     assert "modsecurity on;" not in [
         ln.strip()
         for ln in text.splitlines()
@@ -30,6 +30,19 @@ def test_docker_portal_keeps_modsecurity_wiring_but_off():
     )[0]
     assert "modsecurity off;" in hop
 
+
+def test_main_portal_includes_engine_mode_generated_for_ihm_arm():
+    text = (ROOT / "docker/nginx/modsecurity/main-portal.conf").read_text(encoding="utf-8")
+    assert (
+        "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf" in text
+    )
+    # Subdomain / public stay emergency-off (no IHM arm yet).
+    for name in ("main-subdomain.conf", "main-public.conf"):
+        other = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")
+        assert (
+            "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
+            not in other
+        )
 
 def test_docker_nginx_loads_modsecurity_module_after_real_ip_order():
     conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
@@ -84,16 +97,22 @@ def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
             "Include /etc/nginx/modsecurity/generated/crs-setup-generated.conf"
             not in text
         )
-        # Emergency: do not load engine-mode-generated (DB mode=on forced On → 500).
-        assert (
-            "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
-            not in text
-        )
         assert "Include /etc/nginx/includes/waf-basic.conf" in text
         assert (
             "Include /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf"
             in text
         )
+        # Portal only: engine-mode-generated Included (gated by waf-engine-arm.json in sync).
+        if name == "main-portal.conf":
+            assert (
+                "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
+                in text
+            )
+        else:
+            assert (
+                "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
+                not in text
+            )
 
 
 def test_auth_snippets_disable_modsecurity():

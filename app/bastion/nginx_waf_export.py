@@ -363,8 +363,10 @@ def restore_waf_exports_previous(settings: Settings) -> list[str]:
         mod_dir / "engine-mode-generated.conf",
         mod_dir / "bastion-exclusions-generated.conf",
         mod_dir / "waf-effective-status.json",
+        mod_dir / "waf-engine-arm.json",
         exports / "waf-ip-deny.conf",
         exports / "nginx-portal-rate-limits.conf",
+        exports / "modsecurity-portal-switch.conf",
     ]
     for path in candidates:
         if _restore_file(path):

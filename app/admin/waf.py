@@ -294,6 +294,109 @@ def admin_waf_exclude_from_event(
     return response
 
 
+@router.post("/admin/security/waf/actions/reactivate")
+def admin_waf_reactivate(
+    request: Request,
+    confirm_reactivate: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Réactive ModSecurity portal (DetectionOnly) avec smoke + rollback auto."""
+    from app.bastion.waf_reactivation import reactivate_engine
+    from app.audit import log_action
+
+    response = RedirectResponse(url="/admin/security/waf#reactivation", status_code=302)
+    result = reactivate_engine(
+        db,
+        settings,
+        actor=_actor(user),
+        confirm=confirm_reactivate == "on",
+    )
+    log_action(
+        db,
+        actor=_actor(user),
+        action="security.waf.reactivate",
+        target="portal",
+        details={
+            "ok": result.get("ok"),
+            "rolled_back": result.get("rolled_back"),
+            "error": result.get("error"),
+            "mode": result.get("mode"),
+        },
+        ip_address=client_ip_from_request(request) or None,
+    )
+    db.commit()
+    if result.get("ok"):
+        flash_redirect(
+            response,
+            result.get("message") or "Moteur réactivé (DetectionOnly), smoke OK.",
+            "success",
+            _flash_secret(settings),
+        )
+    else:
+        flash_redirect(
+            response,
+            result.get("error") or "Réactivation échouée.",
+            "error",
+            _flash_secret(settings),
+        )
+    return response
+
+
+@router.post("/admin/security/waf/actions/disarm")
+def admin_waf_disarm(
+    request: Request,
+    confirm_disarm: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Coupe immédiatement ModSecurity portal (Off + connector off)."""
+    from app.bastion.waf_reactivation import disarm_engine
+    from app.audit import log_action
+    from app.bastion.nginx_waf_export import MODE_OFF, ensure_active_profile
+
+    response = RedirectResponse(url="/admin/security/waf#reactivation", status_code=302)
+    if confirm_disarm != "on":
+        flash_redirect(
+            response,
+            "Coupure refusée : confirmation requise.",
+            "error",
+            _flash_secret(settings),
+        )
+        return response
+
+    profile = ensure_active_profile(db)
+    profile.mode = MODE_OFF
+    db.commit()
+    result = disarm_engine(settings, actor=_actor(user), reason="ihm_disarm")
+    log_action(
+        db,
+        actor=_actor(user),
+        action="security.waf.disarm",
+        target="portal",
+        details={"ok": result.get("ok"), "sync": result.get("sync_detail")},
+        ip_address=client_ip_from_request(request) or None,
+    )
+    db.commit()
+    if result.get("ok"):
+        flash_redirect(
+            response,
+            "Moteur portal coupé (Off). Smoke post-coupure OK.",
+            "success",
+            _flash_secret(settings),
+        )
+    else:
+        flash_redirect(
+            response,
+            f"Coupure tentée mais sync/smoke imperfect: {result.get('sync_detail')}",
+            "error",
+            _flash_secret(settings),
+        )
+    return response
+
+
 @router.post("/admin/security/waf/apply")
 def admin_waf_apply(
     request: Request,

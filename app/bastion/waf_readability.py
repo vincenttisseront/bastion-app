@@ -31,6 +31,10 @@ from app.security.banning.service import list_active_bans, list_ban_rules, get_o
 from app.sso_settings import Settings
 
 CRS_INACTIVE_CAUSE = "Moteur ModSecurity arrêté depuis l'urgence du 2026-08-06."
+CRS_INACTIVE_RESOLUTION = (
+    "Utilisez « Réactiver le moteur (DetectionOnly) » : sync + nginx -t + smoke HTTP, "
+    "avec rollback automatique vers Off si une sonde échoue (échec type 2026-08-06)."
+)
 SNAPSHOT_UNAVAILABLE_RESOLUTION = (
     "Le snapshot nginx (nginx-waf-snapshot.json) est absent ou illisible — "
     "rebuild bastion-nginx et vérifiez le volume nginx-logs."
@@ -45,6 +49,108 @@ SNAPSHOT_CHECK_CMD = (
 AGGREGATOR_CHECK_CMD = (
     "ls -la ${SSO_PORTAL_DATA_DIR:-/tools/portal/data}/nginx-logs/waf-audit-summary.json"
 )
+
+REACTIVATION_STEPS = [
+    {
+        "id": "diag",
+        "title": "Diagnostiquer la cause du 500 (2026-08-06)",
+        "detail": (
+            "Récupérer error.log / docker logs / modsec_audit avant toute bascule. "
+            "Sans cause racine, réactiver = rejouer l'incident."
+        ),
+    },
+    {
+        "id": "disk",
+        "title": "Vérifier disque & rotation des logs",
+        "detail": (
+            "LV data < 70 %, ≥ 3 Go libres, logrotate actif sur nginx-logs "
+            "(sinon DetectionOnly remplit le disque)."
+        ),
+    },
+    {
+        "id": "detection",
+        "title": "Passer en DetectionOnly côté static (pas via IHM seule)",
+        "detail": (
+            "Ajuster engine-*.conf / crs-setup.conf, smoke-test, seulement ensuite "
+            "envisager On."
+        ),
+    },
+    {
+        "id": "include",
+        "title": "Rebrancher engine-mode-generated (après smoke)",
+        "detail": (
+            "Ré-Include dans main-*.conf + lever le stub Off dans "
+            "sync-exports-to-confd.sh — alors le profil IHM redevient pilotable."
+        ),
+    },
+]
+
+
+def mode_pilotable_from_reality(active: dict[str, Any]) -> bool:
+    """True when nginx actually loads the generated SecRuleEngine overlay."""
+    if not active.get("verifiable"):
+        return False
+    return bool(active.get("engine_mode_generated_loaded"))
+
+
+def mode_pilotable(active: dict[str, Any], settings: Settings | None = None) -> bool:
+    if mode_pilotable_from_reality(active):
+        return True
+    if settings is None:
+        return False
+    from app.bastion.waf_reactivation import read_arm_state
+
+    return bool(read_arm_state(settings).get("armed"))
+
+
+def build_reactivation_panel(
+    profile: WafProfile,
+    active: dict[str, Any],
+    settings: Settings,
+    *,
+    export_pending: bool,
+) -> dict[str, Any]:
+    """Ops checklist + IHM reactivate/disarm controls."""
+    from app.bastion.waf_reactivation import read_arm_state
+
+    real = active.get("aggregate_mode") if active.get("verifiable") else None
+    pilotable = mode_pilotable_from_reality(active)
+    arm = read_arm_state(settings)
+    armed = bool(arm.get("armed"))
+    blocked = bool(active.get("verifiable") and real == MODE_OFF and not armed)
+    desired_on = profile.mode in (MODE_ON, MODE_DETECTION)
+    return {
+        "show": True,
+        "blocked": blocked,
+        "pilotable": pilotable or armed,
+        "armed": armed,
+        "arm": arm,
+        "desired_mode": profile.mode,
+        "real_mode": real,
+        "export_pending": bool(export_pending),
+        "apply_can_change_mode": bool(armed),
+        "can_reactivate": not armed,
+        "can_disarm": armed,
+        "apply_still_useful_for": [
+            "Exclusions CRS (bastion-exclusions-generated.conf)",
+            "Deny IP promus (waf-ip-deny.conf)",
+            "Rate-limits portail",
+        ],
+        "title": "Réactivation du moteur CRS (portal)",
+        "summary": (
+            "Réactivation IHM : DetectionOnly + sync/nginx -t + smoke HTTP "
+            "(/_portal_nginx_ok, /api/health, /auth/login). "
+            "Si une sonde renvoie 5xx ou est injoignable → rollback auto vers Off."
+            if not armed
+            else (
+                "Moteur portal armé. Appliquer pousse le mode du profil. "
+                "Utilisez « Couper le moteur » pour revenir immédiatement à Off."
+            )
+        ),
+        "runbook_path": "docs/runbook-reactivation-crs-modsecurity.md",
+        "steps": list(REACTIVATION_STEPS),
+        "desired_on": desired_on,
+    }
 
 
 def _compact_detail(text: str, max_len: int = 42) -> tuple[str, str]:
@@ -128,20 +234,56 @@ def build_protection_verdict(
         }
 
     if real == MODE_OFF:
+        pilotable = mode_pilotable_from_reality(active)
+        if not pilotable:
+            return {
+                "level": "inactive",
+                "css": "alert-err",
+                "title": "Inspection du contenu : INACTIVE",
+                "message": (
+                    "Aucune protection contre les injections (SQLi, XSS, RCE, LFI). "
+                    f"{CRS_INACTIVE_CAUSE} "
+                    "Le profil DB / export peuvent afficher « en blocage » : "
+                    "nginx n'applique pas ce mode tant que l'Include généré est coupé."
+                ),
+                "resolution": CRS_INACTIVE_RESOLUTION,
+                **_verdict_action(
+                    "#reactivation",
+                    label="Réactiver le moteur (DetectionOnly)",
+                    page=page,
+                ),
+                "action_hint": None,
+                "mode_pilotable": False,
+            }
+        if profile.mode != MODE_OFF or export_pending:
+            return {
+                "level": "inactive",
+                "css": "alert-err",
+                "title": "Inspection du contenu : INACTIVE",
+                "message": (
+                    "Le moteur est Off sur nginx alors que le profil demande "
+                    f"{profile.mode}. Appliquer pousse engine-mode-generated.conf."
+                ),
+                "resolution": None,
+                **_verdict_action(
+                    None,
+                    label="Appliquer pour réactiver le moteur",
+                    apply=True,
+                    page=page,
+                ),
+                "mode_pilotable": True,
+            }
         return {
             "level": "inactive",
-            "css": "alert-err",
+            "css": "alert-warn",
             "title": "Inspection du contenu : INACTIVE",
-            "message": (
-                "Aucune protection contre les injections (SQLi, XSS, RCE, LFI). "
-                f"{CRS_INACTIVE_CAUSE}"
-            ),
+            "message": "Profil et nginx sont tous deux Off.",
             **_verdict_action(
-                "#technical",
-                label="Voir la procédure de réactivation",
+                "#profile",
+                label="Choisir un mode de protection",
                 page=page,
             ),
-            "action_hint": "docs/runbook-reactivation-crs-modsecurity.md",
+            "mode_pilotable": True,
         }
 
     if real == MODE_DETECTION:
@@ -811,8 +953,14 @@ def build_waf_readability_context(
     efficiency_7d = build_efficiency_panel(settings, active, window="7d")
     visuals = build_efficiency_visuals(settings, active, efficiency_24h)
     attack_controls = build_attack_controls(settings, db)
+    reactivation = build_reactivation_panel(
+        profile, active, settings, export_pending=export_pending
+    )
     diagnostic = build_diagnostic_panel(
         settings, active, generated or {}, headers_panel
+    )
+    apply_enabled = bool(export_pending) or bool(
+        verdict.get("action_apply") and reactivation.get("pilotable")
     )
     return {
         "verdict": verdict,
@@ -821,5 +969,8 @@ def build_waf_readability_context(
         "efficiency_7d": efficiency_7d,
         "efficiency_visuals": visuals,
         "attack_controls": attack_controls,
+        "reactivation": reactivation,
+        "apply_enabled": apply_enabled,
+        "mode_pilotable": reactivation.get("pilotable"),
         "diagnostic": diagnostic,
     }
