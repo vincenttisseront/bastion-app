@@ -108,6 +108,7 @@ def docker_nginx_sh(settings: Settings, script: str, *, timeout: int = 90) -> tu
     """Run a shell script inside the nginx compose service.
 
     Returns (ok, detail, skipped).
+    ``skipped=True`` when docker/compose is unavailable (normal in bastion-app prod).
     """
     for base in _compose_bases(settings):
         compose = base / "docker-compose.yml"
@@ -132,21 +133,80 @@ def docker_nginx_sh(settings: Settings, script: str, *, timeout: int = 90) -> tu
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            return False, f"docker compose exec nginx failed: {exc}", False
+            return (
+                True,
+                f"docker compose exec nginx non exécuté ({exc}) — watcher nginx validera",
+                True,
+            )
         out = ((proc.stdout or "") + (proc.stderr or "")).strip()
         if proc.returncode != 0:
+            lower = out.lower()
+            # Docker daemon / binary missing → same as Appliquer: watcher path.
+            docker_unavailable = any(
+                token in lower
+                for token in (
+                    "cannot connect",
+                    "error during connect",
+                    "docker daemon",
+                    "permission denied while trying to connect",
+                    "executable file not found",
+                    "docker: command not found",
+                    "no such file or directory",
+                    "the system cannot find",
+                )
+            ) or proc.returncode in (127, 125, 126)
+            if docker_unavailable:
+                return (
+                    True,
+                    "docker compose exec indisponible — watcher bastion-nginx validera",
+                    True,
+                )
             return False, out or f"exit {proc.returncode}", False
         return True, out or "ok", False
-    return False, "docker-compose.yml introuvable — sync/smoke obligatoire pour réactiver", False
+    return (
+        True,
+        "sync/reload délégué au watcher bastion-nginx (pas de docker-compose.yml / docker.sock)",
+        True,
+    )
 
 
 def sync_and_reload(settings: Settings) -> tuple[bool, str]:
-    ok, detail, _ = docker_nginx_sh(
+    """Trigger nginx sync+reload when possible; otherwise rely on watch-exports-reload.
+
+    Production bastion-app has no docker.sock — writing exports is enough; the nginx
+    container polls the shared volume and runs sync + nginx -t + reload.
+    """
+    ok, detail, skipped = docker_nginx_sh(
         settings,
         "/sync-exports-to-confd.sh && nginx -t && nginx -s reload && /export-waf-snapshot.sh",
         timeout=120,
     )
+    if skipped:
+        # Nudge mtime so watcher always sees a change even if content identical.
+        try:
+            arm = arm_state_path(settings)
+            if arm.is_file():
+                arm.touch()
+        except OSError:
+            pass
     return ok, detail
+
+
+def wait_for_nginx_edge(*, attempts: int = 12, delay_sec: float = 1.5) -> dict[str, Any]:
+    """Poll nginx until edge responds (watcher reload lag)."""
+    last: dict[str, Any] = {"ok": False}
+    for i in range(attempts):
+        last = _http_probe(
+            "http://nginx:8080/_portal_nginx_ok",
+            expect_status=200,
+            expect_not_5xx=True,
+        )
+        if last.get("ok"):
+            last["attempts"] = i + 1
+            return last
+        time.sleep(delay_sec)
+    last["attempts"] = attempts
+    return last
 
 
 def _http_probe(
@@ -291,6 +351,8 @@ def disarm_engine(
         },
     )
     ok, detail = sync_and_reload(settings)
+    if ok and "watcher" in detail.lower():
+        wait_for_nginx_edge()
     smoke = smoke_portal_probes(settings) if ok else {"ok": False, "probes": [], "failed": []}
     return {
         "ok": bool(ok and smoke.get("ok")),
@@ -377,8 +439,12 @@ def reactivate_engine(
             "sync_detail": sync_detail,
         }
 
+    # Wait for watcher reload when docker exec was skipped (prod).
     if smoke is None and sync_reload is None:
-        time.sleep(RELOAD_WAIT_SEC)
+        edge = wait_for_nginx_edge()
+        if not edge.get("ok"):
+            time.sleep(RELOAD_WAIT_SEC)
+
     smoke_result = smoke_fn(settings)
     if not smoke_result.get("ok"):
         _rollback(
