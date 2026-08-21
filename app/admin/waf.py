@@ -306,13 +306,15 @@ def admin_waf_reactivate(
     from app.bastion.waf_reactivation import reactivate_engine
     from app.audit import log_action
 
-    response = RedirectResponse(url="/admin/security/waf#reactivation", status_code=302)
     result = reactivate_engine(
         db,
         settings,
         actor=_actor(user),
         confirm=confirm_reactivate == "on",
     )
+    # Succès → bilan (onglet Réactivation disparaît) ; échec → rester sur l'onglet.
+    anchor = "#bilan" if result.get("ok") else "#reactivation"
+    response = RedirectResponse(url=f"/admin/security/waf{anchor}", status_code=302)
     log_action(
         db,
         actor=_actor(user),
@@ -357,7 +359,7 @@ def admin_waf_disarm(
     from app.audit import log_action
     from app.bastion.nginx_waf_export import MODE_OFF, ensure_active_profile
 
-    response = RedirectResponse(url="/admin/security/waf#reactivation", status_code=302)
+    response = RedirectResponse(url="/admin/security/waf#profile", status_code=302)
     if confirm_disarm != "on":
         flash_redirect(
             response,
