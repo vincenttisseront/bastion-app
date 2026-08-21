@@ -138,17 +138,19 @@ def test_reactivate_success_arms_detection_only(db_session, tmp_path: Path):
 
 def test_smoke_portal_probes_structure(monkeypatch, tmp_path: Path):
     settings = _settings(tmp_path)
-    calls: list[str] = []
+    calls: list[tuple[str, str | None]] = []
 
     def fake_probe(url, **kwargs):
-        calls.append(url)
-        return {"ok": True, "status": 200, "url": url, "reason": "ok"}
+        calls.append((url, kwargs.get("host")))
+        return {"ok": True, "status": 200, "url": url, "reason": "ok", "host": kwargs.get("host")}
 
     monkeypatch.setattr("app.bastion.waf_reactivation._http_probe", fake_probe)
     out = smoke_portal_probes(settings)
     assert out["ok"] is True
     assert len(out["probes"]) >= 4
-    assert any("8080/auth/login" in u for u in calls)
+    assert any("8080/auth/login" in u for u, _h in calls)
+    # Must not probe :8080 with Host=nginx (unknown → 403).
+    assert all(h == "portal.example.fr" for u, h in calls if "nginx:8080" in u)
     # Public HTTPS is optional — must not be required for ok
     assert any(p.get("optional") for p in out["probes"])
 
