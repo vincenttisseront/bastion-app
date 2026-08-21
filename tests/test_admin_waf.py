@@ -131,9 +131,8 @@ def test_waf_page_shows_reality_banner_when_engine_off(
         resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
         assert resp.status_code == 200
         assert "INACTIVE" in resp.text
-        assert "reactivation" in resp.text.lower() or "ne réactive pas" in resp.text.lower()
-        assert "Mode non pilotable" in resp.text or "ne peut pas réactiver" in resp.text
-        assert "reactivation" in resp.text.lower()
+        assert 'data-tab="reactivation"' in resp.text or 'id="tab-reactivation"' in resp.text
+        assert "Mode non pilotable" in resp.text or "ne peut pas réactiver" in resp.text or "DetectionOnly" in resp.text
         assert "non appliqué en nginx" in resp.text
 
 

@@ -119,8 +119,12 @@ def build_reactivation_panel(
     armed = bool(arm.get("armed"))
     blocked = bool(active.get("verifiable") and real == MODE_OFF and not armed)
     desired_on = profile.mode in (MODE_ON, MODE_DETECTION)
+    can_reactivate = not armed
+    can_disarm = armed
+    # Onglet Réactivation : uniquement si on peut réactiver (moteur désarmé).
+    show_tab = can_reactivate
     return {
-        "show": True,
+        "show": show_tab,
         "blocked": blocked,
         "pilotable": pilotable or armed,
         "armed": armed,
@@ -129,8 +133,8 @@ def build_reactivation_panel(
         "real_mode": real,
         "export_pending": bool(export_pending),
         "apply_can_change_mode": bool(armed),
-        "can_reactivate": not armed,
-        "can_disarm": armed,
+        "can_reactivate": can_reactivate,
+        "can_disarm": can_disarm,
         "apply_still_useful_for": [
             "Exclusions CRS (bastion-exclusions-generated.conf)",
             "Deny IP promus (waf-ip-deny.conf)",
@@ -144,7 +148,7 @@ def build_reactivation_panel(
             if not armed
             else (
                 "Moteur portal armé. Appliquer pousse le mode du profil. "
-                "Utilisez « Couper le moteur » pour revenir immédiatement à Off."
+                "Utilisez « Couper le moteur » (onglet Profil) pour revenir à Off."
             )
         ),
         "runbook_path": "docs/runbook-reactivation-crs-modsecurity.md",
@@ -249,7 +253,7 @@ def build_protection_verdict(
                 "resolution": CRS_INACTIVE_RESOLUTION,
                 **_verdict_action(
                     "#reactivation",
-                    label="Réactiver le moteur (DetectionOnly)",
+                    label="Onglet Réactivation",
                     page=page,
                 ),
                 "action_hint": None,

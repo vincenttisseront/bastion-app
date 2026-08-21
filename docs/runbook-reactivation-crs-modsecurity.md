@@ -5,8 +5,8 @@
 
 | Action | Où | Effet |
 |--------|-----|--------|
-| **Réactiver** | `/admin/security/waf#reactivation` | DetectionOnly portal + smoke + armement |
-| **Couper** | même panneau | Off immédiat + désarmement |
+| **Réactiver** | Onglet **Réactivation** (visible seulement si désarmé) | DetectionOnly portal + smoke + armement |
+| **Couper** | Onglet **Profil** (si armé) | Off immédiat + désarmement |
 | **Appliquer** | en-tête WAF | Overlays (exclusions, deny, rates) ; mode moteur **seulement si armé** |
 
 Code : `app/bastion/waf_reactivation.py` · sync : `docker/nginx/sync-exports-to-confd.sh`.

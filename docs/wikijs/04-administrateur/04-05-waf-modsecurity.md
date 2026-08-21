@@ -16,7 +16,8 @@ Admin → **WAF** (`/admin/security/waf`) :
 | **Exclusions** | Désactivation soft de règles CRS |
 | **En-têtes** | Lecture snapshot nginx |
 | **Détails techniques** | Sources, diagnostic JSON |
-| **`#reactivation`** | Réactiver / Couper le moteur portal |
+| **`Réactivation`** (onglet conditionnel) | Visible seulement si le moteur est désarmé — Réactiver DetectionOnly |
+| **Profil** | Mode, seuil ; **Couper le moteur** si armé |
 
 ### Appliquer vs Réactiver
 

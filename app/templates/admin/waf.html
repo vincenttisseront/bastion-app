@@ -91,73 +91,6 @@
   </p>
   {% endif %}
 
-  {% if reactivation and reactivation.show %}
-  <div class="form-section waf-reactivation" id="reactivation">
-    <div class="form-section-header">
-      <div class="form-section-title">{{ reactivation.title }}</div>
-      <div class="form-section-sub">
-        {% if reactivation.armed %}
-        Moteur armé — Appliquer pilote le mode · Couper pour rollback immédiat
-        {% else %}
-        Réactivation IHM avec smoke HTTP et rollback auto
-        {% endif %}
-      </div>
-    </div>
-    <div class="form-body">
-      <div class="alert {% if reactivation.armed %}alert-ok{% else %}alert-err{% endif %}">
-        <strong>{% if reactivation.armed %}Moteur portal armé{% else %}Moteur portal désarmé{% endif %}</strong>
-        <p>{{ reactivation.summary }}</p>
-        <p class="muted">Souhaité (DB) : <code>{{ reactivation.desired_mode }}</code>
-          · Réel (nginx) : <code>{{ reactivation.real_mode or '—' }}</code>
-          · Armé : <strong>{% if reactivation.armed %}oui{% else %}non{% endif %}</strong></p>
-      </div>
-
-      <div class="waf-reactivation-actions">
-        {% if reactivation.can_reactivate %}
-        <form method="post" action="/admin/security/waf/actions/reactivate" class="stack waf-reactivate-form"
-              onsubmit="return confirm('Réactiver ModSecurity portal en DetectionOnly ? Un smoke HTTP sera exécuté ; en cas d’échec (5xx), rollback automatique vers Off.');">
-          <label class="form-check">
-            <input type="checkbox" name="confirm_reactivate" value="on" required>
-            Je confirme la réactivation portal (DetectionOnly) avec smoke + rollback auto
-          </label>
-          <button type="submit" class="btn btn-primary">Réactiver le moteur (DetectionOnly)</button>
-        </form>
-        {% endif %}
-        {% if reactivation.can_disarm %}
-        <form method="post" action="/admin/security/waf/actions/disarm" class="stack"
-              onsubmit="return confirm('Couper immédiatement ModSecurity portal (Off) ?');">
-          <label class="form-check">
-            <input type="checkbox" name="confirm_disarm" value="on" required>
-            Je confirme la coupure immédiate du moteur portal
-          </label>
-          <button type="submit" class="btn btn-secondary">Couper le moteur</button>
-        </form>
-        {% endif %}
-      </div>
-
-      <ol class="waf-reactivation-steps">
-        {% for step in reactivation.steps %}
-        <li>
-          <strong>{{ step.title }}</strong>
-          <p class="muted">{{ step.detail }}</p>
-        </li>
-        {% endfor %}
-      </ol>
-      <p class="form-help">Runbook : <code>{{ reactivation.runbook_path }}</code> · Familles subdomain/public restent Off jusqu’à une étape ultérieure.</p>
-      <div class="alert alert-warn">
-        <strong>Détection de succès (obligatoire)</strong>
-        <ul class="waf-pending-list">
-          <li><code>nginx -t</code> + reload après sync exports</li>
-          <li>HTTP <code>/_portal_nginx_ok</code> → 200</li>
-          <li>HTTP <code>/api/health</code> → pas de 5xx</li>
-          <li>HTTP <code>/auth/login</code> → pas de 5xx (échec type 06/08)</li>
-        </ul>
-        <p class="muted">Si une sonde échoue ou est injoignable → rollback Off automatique. nginx -t seul ne suffit pas.</p>
-      </div>
-    </div>
-  </div>
-  {% endif %}
-
 
 
   {% if export_pending and pending_diffs %}
@@ -189,6 +122,10 @@
     <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">En-têtes</a>
 
     <a href="#technical" class="tab" role="tab" data-tab="technical" id="tab-technical" aria-selected="false">Détails techniques</a>
+
+    {% if reactivation and reactivation.show %}
+    <a href="#reactivation" class="tab" role="tab" data-tab="reactivation" id="tab-reactivation" aria-selected="false">Réactivation</a>
+    {% endif %}
 
   </div>
 
@@ -481,6 +418,21 @@
 
       </form>
 
+      {% if reactivation and reactivation.can_disarm %}
+      <div class="waf-disarm-block alert alert-warn" style="margin-top:var(--sp-4)">
+        <strong>Moteur portal armé</strong>
+        <p class="muted">Pour couper immédiatement ModSecurity (Off + désarmement) :</p>
+        <form method="post" action="/admin/security/waf/actions/disarm" class="stack"
+              onsubmit="return confirm('Couper immédiatement ModSecurity portal (Off) ?');">
+          <label class="form-check">
+            <input type="checkbox" name="confirm_disarm" value="on" required>
+            Je confirme la coupure immédiate du moteur portal
+          </label>
+          <button type="submit" class="btn btn-secondary">Couper le moteur</button>
+        </form>
+      </div>
+      {% endif %}
+
     </div>
 
   </div>
@@ -746,6 +698,57 @@
 
   </div>
 
+  {% if reactivation and reactivation.show %}
+  <div class="form-section waf-panel waf-reactivation" id="reactivation" role="tabpanel" aria-labelledby="tab-reactivation" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">{{ reactivation.title }}</div>
+      <div class="form-section-sub">Réactivation IHM avec smoke HTTP et rollback auto</div>
+    </div>
+    <div class="form-body">
+      <div class="alert alert-err">
+        <strong>Moteur portal désarmé</strong>
+        <p>{{ reactivation.summary }}</p>
+        <p class="muted">Souhaité (DB) : <code>{{ reactivation.desired_mode }}</code>
+          · Réel (nginx) : <code>{{ reactivation.real_mode or '—' }}</code>
+          · Armé : <strong>non</strong></p>
+      </div>
+
+      <div class="waf-reactivation-actions">
+        {% if reactivation.can_reactivate %}
+        <form method="post" action="/admin/security/waf/actions/reactivate" class="stack waf-reactivate-form"
+              onsubmit="return confirm('Réactiver ModSecurity portal en DetectionOnly ? Un smoke HTTP sera exécuté ; en cas d’échec (5xx), rollback automatique vers Off.');">
+          <label class="form-check">
+            <input type="checkbox" name="confirm_reactivate" value="on" required>
+            Je confirme la réactivation portal (DetectionOnly) avec smoke + rollback auto
+          </label>
+          <button type="submit" class="btn btn-primary">Réactiver le moteur (DetectionOnly)</button>
+        </form>
+        {% endif %}
+      </div>
+
+      <ol class="waf-reactivation-steps">
+        {% for step in reactivation.steps %}
+        <li>
+          <strong>{{ step.title }}</strong>
+          <p class="muted">{{ step.detail }}</p>
+        </li>
+        {% endfor %}
+      </ol>
+      <p class="form-help">Runbook : <code>{{ reactivation.runbook_path }}</code> · Familles subdomain/public restent Off jusqu’à une étape ultérieure.</p>
+      <div class="alert alert-warn">
+        <strong>Détection de succès (obligatoire)</strong>
+        <ul class="waf-pending-list">
+          <li><code>nginx -t</code> + reload après sync exports</li>
+          <li>HTTP <code>/_portal_nginx_ok</code> → 200</li>
+          <li>HTTP <code>/api/health</code> → pas de 5xx</li>
+          <li>HTTP <code>/auth/login</code> → pas de 5xx (échec type 06/08)</li>
+        </ul>
+        <p class="muted">Si une sonde échoue ou est injoignable → rollback Off automatique. nginx -t seul ne suffit pas.</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
 </div>
 
 {% endblock %}
@@ -758,11 +761,11 @@
 
 (function () {
 
-  var VALID = ['bilan', 'profile', 'exclusions', 'headers', 'technical'];
+  var VALID = ['bilan', 'profile', 'exclusions', 'headers', 'technical', 'reactivation'];
 
   var DEFAULT = 'bilan';
 
-  var CONFIG_TABS = ['profile', 'exclusions', 'headers', 'technical'];
+  var CONFIG_TABS = ['profile', 'exclusions', 'headers', 'technical', 'reactivation'];
 
 
 
@@ -771,6 +774,8 @@
     var h = (location.hash || '').replace(/^#/, '');
 
     if (h === 'status' || h === 'technical-details') return 'bilan';
+
+    if (h === 'reactivation' && !document.getElementById('tab-reactivation')) return DEFAULT;
 
     return VALID.indexOf(h) >= 0 ? h : DEFAULT;
 

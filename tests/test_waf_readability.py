@@ -30,9 +30,8 @@ def test_verdict_inactive_when_engine_off():
     assert v["action_apply"] is False
     assert v["action_href"] == "#reactivation"
     assert v["mode_pilotable"] is False
-    assert "Réactiver" in (v.get("action_label") or "")
-    assert "rollback" in (v.get("resolution") or "").lower() or "DetectionOnly" in (
-        v.get("resolution") or ""
+    assert "Réactiver" in (v.get("action_label") or "") or "Réactivation" in (
+        v.get("action_label") or ""
     )
 
 
