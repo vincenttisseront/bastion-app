@@ -259,6 +259,7 @@ def apply_waf(
         smoke_portal_probes,
         sync_and_reload,
         wait_for_nginx_edge,
+        wait_for_portal_engine_mode,
     )
 
     ensure_active_profile(db)
@@ -267,19 +268,18 @@ def apply_waf(
     if result.get("ok"):
         arm = read_arm_state(settings)
         armed = bool(arm.get("armed"))
-        needs_smoke = armed and profile and profile.mode in (MODE_ON, MODE_DETECTION)
+        target_mode = profile.mode if profile else MODE_OFF
+        needs_smoke = armed and target_mode in (MODE_ON, MODE_DETECTION)
         if needs_smoke:
             if result.get("validate_skipped"):
                 wait_for_nginx_edge(settings)
-            smoke = smoke_portal_probes(settings)
-            result["smoke"] = smoke
-            if not smoke.get("ok"):
+            engine_wait = wait_for_portal_engine_mode(settings, target_mode)
+            result["engine_wait"] = engine_wait
+            if not engine_wait.get("ok"):
                 restored = restore_waf_exports_previous(settings)
                 sync_ok, sync_detail = sync_and_reload(settings)
                 if sync_ok and "watcher" in sync_detail.lower():
                     wait_for_nginx_edge(settings)
-                failed = smoke.get("failed") or []
-                summary = smoke.get("failed_summary") or ""
                 result.update(
                     {
                         "ok": False,
@@ -287,12 +287,35 @@ def apply_waf(
                         "restored": restored,
                         "sync_detail": sync_detail,
                         "error": (
-                            "Smoke post-apply en échec — exports précédents restaurés."
-                            + (f" Détail : {summary}" if summary else "")
+                            f"nginx n'a pas basculé en {target_mode} avant smoke "
+                            f"(snapshot={engine_wait.get('mode')!r}). Apply annulé."
                         ),
-                        "failed_probes": failed,
                     }
                 )
+            else:
+                smoke = smoke_portal_probes(settings)
+                result["smoke"] = smoke
+                if not smoke.get("ok"):
+                    restored = restore_waf_exports_previous(settings)
+                    sync_ok, sync_detail = sync_and_reload(settings)
+                    if sync_ok and "watcher" in sync_detail.lower():
+                        wait_for_nginx_edge(settings)
+                    failed = smoke.get("failed") or []
+                    summary = smoke.get("failed_summary") or ""
+                    result.update(
+                        {
+                            "ok": False,
+                            "rolled_back": True,
+                            "restored": restored,
+                            "sync_detail": sync_detail,
+                            "error": (
+                                "Smoke post-apply en échec — exports précédents restaurés."
+                                + (f" Détail : {summary}" if summary else "")
+                            ),
+                            "failed_probes": failed,
+                            "failed_summary": summary,
+                        }
+                    )
         if result.get("ok"):
             skipped = bool(result.get("validate_skipped"))
             record_waf_apply_metadata(
