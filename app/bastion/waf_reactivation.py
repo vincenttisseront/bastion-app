@@ -358,6 +358,26 @@ def _format_failed_probes(failed: list[dict[str, Any]]) -> str:
     return "; ".join(parts)
 
 
+def wait_for_portal_engine_mode(
+    settings: Settings,
+    expected: str,
+    *,
+    attempts: int = 15,
+    delay_sec: float = 2.0,
+) -> dict[str, Any]:
+    """Poll nginx WAF snapshot until portal SecRuleEngine matches (watcher lag)."""
+    from app.bastion.nginx_waf_reality import portal_engine_mode, read_nginx_waf_reality
+
+    last: str | None = None
+    for i in range(attempts):
+        active = read_nginx_waf_reality(settings=settings)
+        last = portal_engine_mode(active)
+        if last == expected:
+            return {"ok": True, "mode": last, "attempts": i + 1}
+        time.sleep(delay_sec)
+    return {"ok": False, "mode": last, "attempts": attempts}
+
+
 def _force_disarmed_files(settings: Settings) -> None:
     """Write Off switch + Off engine + armed=false (rollback target)."""
     exports = Path(settings.exports_dir)
@@ -493,6 +513,31 @@ def reactivate_engine(
         edge = wait_for_nginx_edge(settings)
         if not edge.get("ok"):
             time.sleep(RELOAD_WAIT_SEC)
+        engine_wait = wait_for_portal_engine_mode(settings, MODE_DETECTION)
+        if not engine_wait.get("ok"):
+            _rollback(
+                db,
+                settings,
+                profile=profile,
+                previous_mode=previous_mode,
+                prev_arm=prev_arm,
+                actor=actor,
+                reason="engine_mode_not_applied",
+                sync_reload=sync_fn,
+            )
+            return {
+                "ok": False,
+                "error": (
+                    "nginx n'a pas basculé en DetectionOnly après reload "
+                    f"(mode snapshot={engine_wait.get('mode')!r}). "
+                    "Vérifier le watcher bastion-nginx ou forcer "
+                    "sync-exports-to-confd.sh + reload."
+                ),
+                "rolled_back": True,
+                "paths": paths,
+                "engine_wait": engine_wait,
+                "sync_detail": sync_detail,
+            }
 
     smoke_result = smoke_fn(settings)
     if not smoke_result.get("ok"):
