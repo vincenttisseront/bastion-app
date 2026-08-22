@@ -590,6 +590,25 @@ def build_waf_reality_warnings(
     return warnings
 
 
+def portal_engine_mode(active: dict[str, Any]) -> str | None:
+    """SecRuleEngine for the portal family — scope of the WAF admin UI.
+
+    ``aggregate_mode`` mixes portal + subdomain + public; subdomain/public stay
+    Off by design and must not trigger a false « configuration non appliquée ».
+    """
+    if not active.get("verifiable"):
+        return None
+    fam = (active.get("families") or {}).get("portal")
+    if isinstance(fam, dict):
+        mode = fam.get("sec_rule_engine")
+        if mode:
+            return str(mode)
+    agg = active.get("aggregate_mode")
+    if agg and agg != "mixed":
+        return str(agg)
+    return None
+
+
 def nginx_control_effect(reality: dict[str, Any]) -> dict[str, bool]:
     """Which profile fields actually reach nginx today."""
     if not reality.get("verifiable"):
@@ -626,6 +645,8 @@ def build_waf_ui_context(
     desired = _profile_db_snapshot(profile, exclusions)
     generated = read_effective_status(settings)
     active = read_nginx_waf_reality(settings=settings, snapshot_path=snapshot_path)
+    if active.get("verifiable"):
+        active = {**active, "portal_mode": portal_engine_mode(active)}
     raw_snapshot = _load_raw_snapshot(settings=settings, snapshot_path=snapshot_path)
 
     repo_root = nginx_root or resolve_nginx_conf_root()

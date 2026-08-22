@@ -668,7 +668,7 @@
 
           <div class="wizard-summary-grid waf-status-grid">
 
-            <div class="wizard-summary-item"><span class="wizard-summary-label">Mode</span><span class="wizard-summary-value"><span class="badge {{ mode_badge.get(active.aggregate_mode, 'badge-muted') }}">{{ mode_label.get(active.aggregate_mode, active.aggregate_mode) }}</span></span></div>
+            <div class="wizard-summary-item"><span class="wizard-summary-label">Mode portal</span><span class="wizard-summary-value"><span class="badge {{ mode_badge.get(active.portal_mode or active.aggregate_mode, 'badge-muted') }}">{{ mode_label.get(active.portal_mode or active.aggregate_mode, active.portal_mode or active.aggregate_mode) }}</span></span></div>
 
             <div class="wizard-summary-item"><span class="wizard-summary-label">Seuil</span><span class="wizard-summary-value mono">{{ active.aggregate_threshold }}</span></div>
 

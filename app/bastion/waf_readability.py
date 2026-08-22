@@ -19,7 +19,7 @@ from app.bastion.modsec_audit_aggregator import (
     resolve_modsec_audit_log_path,
 )
 from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_OFF, MODE_ON, list_promoted_deny_ips
-from app.bastion.nginx_waf_reality import resolve_nginx_waf_snapshot_path
+from app.bastion.nginx_waf_reality import portal_engine_mode, resolve_nginx_waf_snapshot_path
 from app.bastion.waf_charts import (
     render_family_breakdown,
     render_horizontal_bars,
@@ -113,7 +113,7 @@ def build_reactivation_panel(
     """Ops checklist + IHM reactivate/disarm controls."""
     from app.bastion.waf_reactivation import read_arm_state
 
-    real = active.get("aggregate_mode") if active.get("verifiable") else None
+    real = portal_engine_mode(active)
     pilotable = mode_pilotable_from_reality(active)
     arm = read_arm_state(settings)
     armed = bool(arm.get("armed"))
@@ -217,7 +217,7 @@ def build_protection_verdict(
 ) -> dict[str, Any]:
     """Single admin-facing verdict from nginx reality + DB intent."""
     desired = profile.mode
-    real = active.get("aggregate_mode") if active.get("verifiable") else None
+    real = portal_engine_mode(active)
 
     if not active.get("verifiable"):
         return {
@@ -362,7 +362,7 @@ def build_protection_layers(
     )
     unknown_refusals = _count_unknown_host_refusals_24h(db)
 
-    crs_mode = active.get("aggregate_mode") if active.get("verifiable") else None
+    crs_mode = portal_engine_mode(active)
     if crs_mode == MODE_ON:
         crs_state, crs_css = "active", "badge-ok"
         crs_detail = "Blocage actif"
@@ -478,7 +478,7 @@ def build_efficiency_panel(
 
     windows = summary.get("windows") or {}
     data = windows.get(window) or windows.get("24h") or {}
-    crs_mode = active.get("aggregate_mode") if active.get("verifiable") else None
+    crs_mode = portal_engine_mode(active)
     inspected = int(data.get("inspected") or 0)
 
     zero_explanation = None
@@ -809,7 +809,7 @@ def build_waf_diagnostic_export(
     Safe to paste into a support chat — no secrets, paths and modes only.
     """
     expected_mode = desired.get("mode")
-    real_mode = active.get("aggregate_mode") if active.get("verifiable") else None
+    real_mode = portal_engine_mode(active)
     export_mode = generated.get("mode") if generated.get("present") else None
 
     mismatches: list[dict[str, Any]] = []
@@ -908,6 +908,7 @@ def build_waf_diagnostic_export(
             "snapshot_path": active.get("snapshot_path"),
             "generated_at": active.get("generated_at"),
             "aggregate_mode": active.get("aggregate_mode"),
+            "portal_mode": portal_engine_mode(active),
             "aggregate_threshold": active.get("aggregate_threshold"),
             "engine_mode_generated_loaded": active.get("engine_mode_generated_loaded"),
             "crs_setup_generated_loaded": active.get("crs_setup_generated_loaded"),
