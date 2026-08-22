@@ -17,9 +17,10 @@ Liens : [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md) · [`04-05-waf-modsec
 
 ## 0. Prérequis bloquant — `error.log` du 2026-08-06
 
-Cause racine du 500 **non levée** historiquement. L’urgence a coupé `modsecurity` +
-`SecRuleEngine Off`. La réactivation IHM **mitige** le risque (DetectionOnly + smoke +
-rollback), mais ne remplace pas un diag si le 500 se reproduit.
+Cause racine du 500 **On** identifiée (2026-08-22) : `crs-setup.conf` sans
+`tx.crs_setup_version=4280` → règle CRS **901001** (`deny,status:500`). En
+**DetectionOnly** le deny n’est pas appliqué (smoke vert) ; en **On** chaque requête
+ModSec renvoie 500. Rebuild/reload nginx après merge du fix statique.
 
 | Fichier | Monté sur l’hôte ? | Conséquence |
 |---------|--------------------|-------------|
