@@ -50,6 +50,24 @@ def list_profiles(db: Session) -> list[WafProfile]:
     return db.query(WafProfile).order_by(WafProfile.name).all()
 
 
+def profiles_for_ui(db: Session) -> dict[str, dict[str, Any]]:
+    """Serialize named profiles for the preset picker (JS + server)."""
+    out: dict[str, dict[str, Any]] = {}
+    for row in list_profiles(db):
+        out[row.name] = {
+            "mode": row.mode,
+            "anomaly_threshold": int(row.anomaly_threshold),
+            "ip_deny_min_occurrences": int(row.ip_deny_min_occurrences),
+            "portal_login_rate": int(row.portal_login_rate),
+            "portal_login_burst": int(row.portal_login_burst),
+            "portal_api_rate": int(row.portal_api_rate),
+            "portal_api_burst": int(row.portal_api_burst),
+        }
+    for name, preset in PRESET_VALUES.items():
+        out.setdefault(name, dict(preset))
+    return out
+
+
 def list_exclusions(db: Session, *, active_only: bool = False) -> list[WafExclusion]:
     q = db.query(WafExclusion).order_by(WafExclusion.id.desc())
     if active_only:

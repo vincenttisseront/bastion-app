@@ -78,6 +78,19 @@ def test_verdict_observe_when_portal_detection_only_despite_mixed_aggregate():
     assert "observation" in v["title"].lower()
 
 
+def test_verdict_profile_on_nginx_detection_is_not_observe():
+    profile = WafProfile(name="Production", mode=MODE_ON, anomaly_threshold=5)
+    active = {
+        "verifiable": True,
+        "families": {"portal": {"sec_rule_engine": MODE_DETECTION}},
+        "engine_mode_generated_loaded": True,
+    }
+    v = build_protection_verdict(profile, active, export_pending=False, page="unified")
+    assert v["level"] == "mismatch"
+    assert v["title"] == "Profil On — nginx encore en observation"
+    assert v["action_apply"] is True
+
+
 def test_diagnostic_no_mode_mismatch_when_portal_aligned_mixed_aggregate():
     from app.bastion.waf_readability import build_waf_diagnostic_export
 

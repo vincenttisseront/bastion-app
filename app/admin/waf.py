@@ -46,6 +46,7 @@ def _waf_page_context(
     return {
         "profile": profile,
         "profiles": waf_service.list_profiles(db),
+        "waf_profiles_map": waf_service.profiles_for_ui(db),
         "exclusions": exclusions,
         "anomaly_min": ANOMALY_MIN,
         "anomaly_max": ANOMALY_MAX,
