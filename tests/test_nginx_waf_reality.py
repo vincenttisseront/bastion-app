@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON
+from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_OFF, MODE_ON
 from app.bastion.nginx_waf_reality import (
     build_waf_reality_warnings,
     build_waf_ui_context,
@@ -115,6 +115,20 @@ def _write_snapshot(
 def test_last_sec_rule_engine_last_wins():
     text = "SecRuleEngine On\n# comment\nSecRuleEngine Off\n"
     assert last_sec_rule_engine(text) == MODE_OFF
+
+
+def test_portal_engine_mode_ignores_mixed_aggregate():
+    from app.bastion.nginx_waf_reality import portal_engine_mode
+
+    active = {
+        "verifiable": True,
+        "aggregate_mode": "mixed",
+        "families": {
+            "portal": {"sec_rule_engine": MODE_DETECTION},
+            "subdomain": {"sec_rule_engine": MODE_OFF},
+        },
+    }
+    assert portal_engine_mode(active) == MODE_DETECTION
 
 
 def test_read_snapshot_present(tmp_path: Path):

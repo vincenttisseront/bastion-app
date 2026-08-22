@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON
+from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON, MODE_DETECTION
 from app.bastion.waf_readability import (
     build_efficiency_panel,
     build_protection_layers,
@@ -52,12 +52,58 @@ def test_verdict_active_when_aligned():
     profile = WafProfile(name="P", mode=MODE_ON, anomaly_threshold=5)
     active = {
         "verifiable": True,
-        "aggregate_mode": MODE_ON,
+        "aggregate_mode": "mixed",
+        "families": {"portal": {"sec_rule_engine": MODE_ON}},
         "engine_mode_generated_loaded": True,
     }
     v = build_protection_verdict(profile, active, export_pending=False)
     assert v["level"] == "active"
     assert v["css"] == "alert-ok"
+
+
+def test_verdict_observe_when_portal_detection_only_despite_mixed_aggregate():
+    profile = WafProfile(name="P", mode=MODE_DETECTION, anomaly_threshold=5)
+    active = {
+        "verifiable": True,
+        "aggregate_mode": "mixed",
+        "families": {
+            "portal": {"sec_rule_engine": MODE_DETECTION},
+            "subdomain": {"sec_rule_engine": MODE_OFF},
+            "public": {"sec_rule_engine": MODE_OFF},
+        },
+        "engine_mode_generated_loaded": True,
+    }
+    v = build_protection_verdict(profile, active, export_pending=False, page="unified")
+    assert v["level"] == "observe"
+    assert "observation" in v["title"].lower()
+
+
+def test_diagnostic_no_mode_mismatch_when_portal_aligned_mixed_aggregate():
+    from app.bastion.waf_readability import build_waf_diagnostic_export
+
+    payload = build_waf_diagnostic_export(
+        desired={"mode": MODE_DETECTION, "anomaly_threshold": 5, "profile_name": "Production"},
+        generated={"present": True, "mode": MODE_DETECTION, "path": "/tmp/export.json"},
+        active={
+            "verifiable": True,
+            "aggregate_mode": "mixed",
+            "aggregate_threshold": 5,
+            "families": {
+                "portal": {"sec_rule_engine": MODE_DETECTION},
+                "subdomain": {"sec_rule_engine": MODE_OFF},
+            },
+            "snapshot_path": "/tmp/snap.json",
+        },
+        pending_diffs=[],
+        export_pending=False,
+        control_effect={"mode": True, "anomaly_threshold": False},
+        security_headers_panel={"present": False, "headers": []},
+        diagnostic={"checks": [], "summary_path": "/tmp/summary.json"},
+        verdict={"level": "observe", "title": "observe", "message": "ok"},
+    )
+    mode_mismatches = [m for m in payload["alignment"]["mismatches"] if m.get("field") == "mode"]
+    assert mode_mismatches == []
+    assert payload["actual"]["portal_mode"] == MODE_DETECTION
 
 
 def test_efficiency_unavailable_without_summary(tmp_path: Path):
@@ -134,6 +180,7 @@ def test_diagnostic_export_expected_vs_actual():
             "verifiable": True,
             "aggregate_mode": "off",
             "aggregate_threshold": 5,
+            "families": {"portal": {"sec_rule_engine": "off"}},
             "snapshot_path": "/tmp/snap.json",
         },
         pending_diffs=[],

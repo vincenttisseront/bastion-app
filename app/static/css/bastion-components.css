@@ -1351,7 +1351,7 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .waf-kpi-card--warn{border-top-color:#f59e0b}
 .waf-kpi-card--err{border-top-color:#ef4444}
 .waf-kpi-label{font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
-.waf-kpi-value{font-size:1.75rem;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--text)}
+.waf-kpi-value{font-size:var(--fs-2xl);font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--text)}
 .waf-kpi-sub{font-size:var(--fs-xs);color:var(--text-muted)}
 
 .waf-dash-notice{
