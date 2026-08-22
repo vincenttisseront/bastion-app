@@ -49,6 +49,19 @@ def test_log_action_explicit_code(db_session: Session):
     assert entry.severity == Severity.CRITICAL.value
 
 
+def test_serialize_audit_row_maps_details_ok_to_error_result():
+    row = AuditLog(
+        actor="admin",
+        action="security.waf.apply_failed",
+        details={"ok": False, "error": "rollback"},
+        event_code="BST-WAF-2013",
+        severity="WARNING",
+    )
+    ser = serialize_audit_row(row)
+    assert ser["result"] == "error"
+    assert ser["event_label"] == "WAF_CONFIG_APPLY_ROLLBACK"
+
+
 def test_historical_row_without_event_code(db_session: Session):
     row = AuditLog(
         actor="legacy",

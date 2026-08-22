@@ -88,6 +88,13 @@ def test_modsecurity_audit_engine_off_emergency():
     assert any(ln == "SecAuditEngine Off" for ln in live)
 
 
+def test_crs_setup_declares_crs_setup_version_for_blocking_mode():
+    """CRS 901001 returns HTTP 500 in On mode when crs_setup_version is missing."""
+    text = (ROOT / "docker/nginx/modsecurity/crs-setup.conf").read_text(encoding="utf-8")
+    assert "crs_setup_version=4280" in text
+    assert 'SecDefaultAction "phase:1,log,auditlog,pass"' in text
+
+
 def test_modsecurity_main_includes_generated_overlays_not_replacing_static():
     for name in ("main-portal.conf", "main-subdomain.conf", "main-public.conf"):
         text = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")

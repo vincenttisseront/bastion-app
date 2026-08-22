@@ -454,7 +454,7 @@ def default_nginx_validate(settings: Settings) -> tuple[bool, str, bool]:
                     "nginx",
                     "sh",
                     "-c",
-                    "/sync-exports-to-confd.sh && nginx -t",
+                    "/sync-exports-to-confd.sh && nginx -t && nginx -s reload && /export-waf-snapshot.sh",
                 ],
                 cwd=str(base),
                 capture_output=True,

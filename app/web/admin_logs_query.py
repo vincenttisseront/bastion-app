@@ -145,6 +145,8 @@ def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
         status = str(details.get("status"))
     elif "success" in details:
         status = "ok" if details.get("success") else "error"
+    elif "ok" in details and isinstance(details.get("ok"), bool):
+        status = "ok" if details.get("ok") else "error"
     legacy_severity = derive_severity(row.action)
     result = result_bucket(status, legacy_severity)
     catalog_sev, historical = effective_catalog_severity(row, result)
