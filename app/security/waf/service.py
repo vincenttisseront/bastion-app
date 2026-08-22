@@ -271,8 +271,9 @@ def apply_waf(
         target_mode = profile.mode if profile else MODE_OFF
         needs_smoke = armed and target_mode in (MODE_ON, MODE_DETECTION)
         if needs_smoke:
-            if result.get("validate_skipped"):
-                wait_for_nginx_edge(settings)
+            sync_ok, sync_detail = sync_and_reload(settings)
+            result["sync_after_export"] = {"ok": sync_ok, "detail": sync_detail}
+            wait_for_nginx_edge(settings)
             engine_wait = wait_for_portal_engine_mode(settings, target_mode)
             result["engine_wait"] = engine_wait
             if not engine_wait.get("ok"):
@@ -325,16 +326,19 @@ def apply_waf(
                 nginx_t_detail=result.get("validate_detail") or "",
                 nginx_t_skipped=skipped,
             )
+    apply_ok = bool(result.get("ok"))
     log_action(
         db,
         actor=actor,
-        action="security.waf.apply",
+        action="security.waf.apply" if apply_ok else "security.waf.apply_failed",
         target=get_active_profile(db).name if get_active_profile(db) else None,
         details={
-            "ok": result.get("ok"),
+            "ok": apply_ok,
+            "success": apply_ok,
             "error": result.get("error"),
             "rolled_back": result.get("rolled_back"),
             "paths": list((result.get("paths") or {}).keys()),
+            "engine_wait": result.get("engine_wait"),
             "failed_summary": result.get("failed_summary") or (result.get("smoke") or {}).get("failed_summary"),
         },
         ip_address=ip_address,
