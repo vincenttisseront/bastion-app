@@ -20,6 +20,7 @@ from app.bastion.nginx_waf_export import (
     get_active_profile,
     read_effective_status,
     record_waf_apply_metadata,
+    restore_waf_exports_previous,
 )
 from app.models import WafExclusion, WafProfile
 from app.sso_settings import Settings
@@ -253,17 +254,54 @@ def apply_waf(
     ip_address: str | None = None,
     validate: Callable[[Settings], tuple[bool, str]] | None = None,
 ) -> dict[str, Any]:
+    from app.bastion.waf_reactivation import (
+        read_arm_state,
+        smoke_portal_probes,
+        sync_and_reload,
+        wait_for_nginx_edge,
+    )
+
     ensure_active_profile(db)
+    profile = get_active_profile(db)
     result = apply_waf_exports(db, settings, validate=validate)
     if result.get("ok"):
-        skipped = bool(result.get("validate_skipped"))
-        record_waf_apply_metadata(
-            settings,
-            actor=actor,
-            nginx_t_ok=not skipped,
-            nginx_t_detail=result.get("validate_detail") or "",
-            nginx_t_skipped=skipped,
-        )
+        arm = read_arm_state(settings)
+        armed = bool(arm.get("armed"))
+        needs_smoke = armed and profile and profile.mode in (MODE_ON, MODE_DETECTION)
+        if needs_smoke:
+            if result.get("validate_skipped"):
+                wait_for_nginx_edge(settings)
+            smoke = smoke_portal_probes(settings)
+            result["smoke"] = smoke
+            if not smoke.get("ok"):
+                restored = restore_waf_exports_previous(settings)
+                sync_ok, sync_detail = sync_and_reload(settings)
+                if sync_ok and "watcher" in sync_detail.lower():
+                    wait_for_nginx_edge(settings)
+                failed = smoke.get("failed") or []
+                summary = smoke.get("failed_summary") or ""
+                result.update(
+                    {
+                        "ok": False,
+                        "rolled_back": True,
+                        "restored": restored,
+                        "sync_detail": sync_detail,
+                        "error": (
+                            "Smoke post-apply en échec — exports précédents restaurés."
+                            + (f" Détail : {summary}" if summary else "")
+                        ),
+                        "failed_probes": failed,
+                    }
+                )
+        if result.get("ok"):
+            skipped = bool(result.get("validate_skipped"))
+            record_waf_apply_metadata(
+                settings,
+                actor=actor,
+                nginx_t_ok=not skipped,
+                nginx_t_detail=result.get("validate_detail") or "",
+                nginx_t_skipped=skipped,
+            )
     log_action(
         db,
         actor=actor,
@@ -272,7 +310,9 @@ def apply_waf(
         details={
             "ok": result.get("ok"),
             "error": result.get("error"),
+            "rolled_back": result.get("rolled_back"),
             "paths": list((result.get("paths") or {}).keys()),
+            "failed_summary": result.get("failed_summary") or (result.get("smoke") or {}).get("failed_summary"),
         },
         ip_address=ip_address,
     )

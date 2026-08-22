@@ -426,6 +426,14 @@ def admin_waf_apply(
             "success",
             _flash_secret(settings),
         )
+    elif result.get("rolled_back"):
+        err = result.get("error") or "smoke en échec"
+        flash_redirect(
+            response,
+            f"Apply annulé — rollback exports. {err}",
+            "error",
+            _flash_secret(settings),
+        )
     else:
         err = result.get("error") or "échec apply"
         flash_redirect(
