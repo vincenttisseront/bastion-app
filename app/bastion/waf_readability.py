@@ -291,15 +291,62 @@ def build_protection_verdict(
         }
 
     if real == MODE_DETECTION:
+        if desired == MODE_DETECTION and not export_pending:
+            return {
+                "level": "observe",
+                "css": "alert-warn",
+                "title": "Inspection ACTIVE, mode observation",
+                "message": (
+                    "Les requêtes sont analysées par le CRS, mais aucune n'est bloquée "
+                    "(DetectionOnly)."
+                ),
+                **_verdict_action("#profile", label="Ajuster le profil", page=page),
+            }
+        if desired == MODE_ON:
+            return {
+                "level": "mismatch",
+                "css": "alert-warn",
+                "title": "Profil On — nginx encore en observation",
+                "message": (
+                    "Le profil enregistré demande le blocage (On), mais le moteur portal "
+                    "tourne encore en DetectionOnly. Enregistrez si besoin, puis "
+                    "Appliquer pour activer le blocage CRS."
+                ),
+                **_verdict_action(
+                    None,
+                    label="Appliquer le blocage",
+                    apply=True,
+                    page=page,
+                ),
+            }
+        # desired Off or export drift while nginx observes
+        if desired != real or export_pending:
+            return {
+                "level": "mismatch",
+                "css": "alert-err",
+                "title": "Configuration non appliquée",
+                "message": (
+                    "Ce que vous avez enregistré n'est pas ce qui tourne actuellement "
+                    "sur nginx (profil "
+                    f"{desired} vs nginx {real})."
+                ),
+                **_verdict_action(
+                    None,
+                    label="Appliquer la configuration",
+                    apply=True,
+                    page=page,
+                ),
+            }
+
+    if real == MODE_ON and desired == MODE_ON and not export_pending:
         return {
-            "level": "observe",
-            "css": "alert-warn",
-            "title": "Inspection ACTIVE, mode observation",
-            "message": (
-                "Les requêtes sont analysées par le CRS, mais aucune n'est bloquée "
-                "(DetectionOnly)."
-            ),
-            **_verdict_action("#profile", label="Ajuster le profil", page=page),
+            "level": "active",
+            "css": "alert-ok",
+            "title": "Inspection ACTIVE",
+            "message": "Requêtes malveillantes détectées par le CRS sont bloquées.",
+            "action_label": None,
+            "action_href": None,
+            "action_apply": False,
         }
 
     if desired != real or export_pending:
@@ -320,17 +367,6 @@ def build_protection_verdict(
                 apply=export_pending,
                 page=page,
             ),
-        }
-
-    if real == MODE_ON and desired == MODE_ON:
-        return {
-            "level": "active",
-            "css": "alert-ok",
-            "title": "Inspection ACTIVE",
-            "message": "Requêtes malveillantes détectées par le CRS sont bloquées.",
-            "action_label": None,
-            "action_href": None,
-            "action_apply": False,
         }
 
     return {

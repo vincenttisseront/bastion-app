@@ -352,7 +352,7 @@
 
             <label class="form-label" for="waf_profile_preset">Préréglage</label>
 
-            <select id="waf_profile_preset" name="profile_preset" class="form-select">
+            <select id="waf_profile_preset" name="profile_preset" class="form-select" aria-describedby="waf-preset-hint">
 
               <option value="Production" {% if profile.name == 'Production' %}selected{% endif %}>Production</option>
 
@@ -363,6 +363,8 @@
               <option value="Custom" {% if profile.name not in ['Production','Préproduction','Développement'] %}selected{% endif %}>Custom</option>
 
             </select>
+
+            <p class="form-help" id="waf-preset-hint">Changer le préréglage remplit le formulaire avec les valeurs enregistrées de ce profil. Cliquez <strong>Enregistrer le profil</strong>, puis <strong>Appliquer</strong>.</p>
 
           </div>
 
@@ -955,6 +957,33 @@
         diagTa.select();
         try { done(document.execCommand('copy')); } catch (e) { done(false); }
       }
+    });
+  }
+
+  var presetSelect = document.getElementById('waf_profile_preset');
+  var profilesMap = {{ waf_profiles_map | tojson }};
+  if (presetSelect && profilesMap) {
+    var fields = {
+      mode: document.getElementById('waf_mode'),
+      anomaly_threshold: document.getElementById('waf_anomaly_threshold'),
+      ip_deny_min_occurrences: document.getElementById('waf_ip_deny_min'),
+      portal_login_rate: document.getElementById('waf_portal_login_rate'),
+      portal_login_burst: document.getElementById('waf_portal_login_burst'),
+      portal_api_rate: document.getElementById('waf_portal_api_rate'),
+      portal_api_burst: document.getElementById('waf_portal_api_burst'),
+    };
+    presetSelect.addEventListener('change', function () {
+      var name = presetSelect.value;
+      if (name === 'Custom' && !profilesMap['Custom']) return;
+      var p = profilesMap[name];
+      if (!p) return;
+      if (fields.mode) fields.mode.value = p.mode || 'on';
+      if (fields.anomaly_threshold) fields.anomaly_threshold.value = String(p.anomaly_threshold ?? 5);
+      if (fields.ip_deny_min_occurrences) fields.ip_deny_min_occurrences.value = String(p.ip_deny_min_occurrences ?? 3);
+      if (fields.portal_login_rate) fields.portal_login_rate.value = String(p.portal_login_rate ?? 3);
+      if (fields.portal_login_burst) fields.portal_login_burst.value = String(p.portal_login_burst ?? 5);
+      if (fields.portal_api_rate) fields.portal_api_rate.value = String(p.portal_api_rate ?? 30);
+      if (fields.portal_api_burst) fields.portal_api_burst.value = String(p.portal_api_burst ?? 60);
     });
   }
 
