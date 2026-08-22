@@ -214,10 +214,17 @@ def build_protection_verdict(
     *,
     export_pending: bool,
     page: str = "dashboard",
+    settings: Settings | None = None,
 ) -> dict[str, Any]:
     """Single admin-facing verdict from nginx reality + DB intent."""
     desired = profile.mode
     real = portal_engine_mode(active)
+
+    armed = False
+    if settings is not None:
+        from app.bastion.waf_reactivation import read_arm_state
+
+        armed = bool(read_arm_state(settings).get("armed"))
 
     if not active.get("verifiable"):
         return {
@@ -238,25 +245,22 @@ def build_protection_verdict(
         }
 
     if real == MODE_OFF:
-        pilotable = mode_pilotable_from_reality(active)
-        if not pilotable:
+        if not armed:
             return {
                 "level": "inactive",
                 "css": "alert-err",
                 "title": "Inspection du contenu : INACTIVE",
                 "message": (
-                    "Aucune protection contre les injections (SQLi, XSS, RCE, LFI). "
-                    f"{CRS_INACTIVE_CAUSE} "
-                    "Le profil DB / export peuvent afficher « en blocage » : "
-                    "nginx n'applique pas ce mode tant que l'Include généré est coupé."
+                    "Moteur portal désarmé (SecRuleEngine Off). "
+                    "Appliquer seul ne réactive pas ModSecurity — "
+                    "utilisez l'onglet Réactivation (DetectionOnly + smoke HTTP)."
                 ),
                 "resolution": CRS_INACTIVE_RESOLUTION,
                 **_verdict_action(
                     "#reactivation",
-                    label="Onglet Réactivation",
+                    label="Réactiver le moteur",
                     page=page,
                 ),
-                "action_hint": None,
                 "mode_pilotable": False,
             }
         if profile.mode != MODE_OFF or export_pending:
@@ -265,13 +269,14 @@ def build_protection_verdict(
                 "css": "alert-err",
                 "title": "Inspection du contenu : INACTIVE",
                 "message": (
-                    "Le moteur est Off sur nginx alors que le profil demande "
-                    f"{profile.mode}. Appliquer pousse engine-mode-generated.conf."
+                    "Moteur armé en base mais nginx est encore Off "
+                    f"(profil {desired}). Attendre le watcher (≈30 s) ou forcer "
+                    "sync-exports-to-confd.sh + reload sur bastion-nginx, puis Appliquer."
                 ),
                 "resolution": None,
                 **_verdict_action(
                     None,
-                    label="Appliquer pour réactiver le moteur",
+                    label="Appliquer / synchroniser",
                     apply=True,
                     page=page,
                 ),
@@ -987,7 +992,7 @@ def build_waf_readability_context(
     generated: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     verdict = build_protection_verdict(
-        profile, active, export_pending=export_pending, page=page
+        profile, active, export_pending=export_pending, page=page, settings=settings
     )
     layers = build_protection_layers(db, profile, active, headers_panel)
     efficiency_24h = build_efficiency_panel(settings, active, window="24h")
@@ -1001,7 +1006,7 @@ def build_waf_readability_context(
         settings, active, generated or {}, headers_panel
     )
     apply_enabled = bool(export_pending) or bool(
-        verdict.get("action_apply") and reactivation.get("pilotable")
+        verdict.get("action_apply") and reactivation.get("armed")
     )
     return {
         "verdict": verdict,

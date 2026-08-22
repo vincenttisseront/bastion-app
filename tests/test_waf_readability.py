@@ -35,17 +35,55 @@ def test_verdict_inactive_when_engine_off():
     )
 
 
-def test_verdict_inactive_pilotable_offers_apply():
+def test_verdict_inactive_pilotable_offers_apply(tmp_path: Path):
+    settings = Settings(
+        portal_domain="portal.example.fr",
+        exports_dir=str(tmp_path / "exports"),
+        portal_data_dir=str(tmp_path / "data"),
+        nginx_app_logs_dir=str(tmp_path / "nginx-logs"),
+    )  # type: ignore[call-arg]
+    arm = tmp_path / "exports" / "modsecurity" / "waf-engine-arm.json"
+    arm.parent.mkdir(parents=True)
+    arm.write_text('{"armed": true}', encoding="utf-8")
+
     profile = WafProfile(name="P", mode=MODE_ON, anomaly_threshold=5)
     active = {
         "verifiable": True,
         "aggregate_mode": MODE_OFF,
+        "families": {"portal": {"sec_rule_engine": MODE_OFF}},
         "engine_mode_generated_loaded": True,
     }
-    v = build_protection_verdict(profile, active, export_pending=False, page="unified")
+    v = build_protection_verdict(
+        profile, active, export_pending=False, settings=settings, page="unified"
+    )
     assert v["level"] == "inactive"
     assert v["action_apply"] is True
-    assert v["mode_pilotable"] is True
+
+
+def test_verdict_disarmed_suggests_reactivation_not_apply(tmp_path: Path):
+    settings = Settings(
+        portal_domain="portal.example.fr",
+        exports_dir=str(tmp_path / "exports"),
+        portal_data_dir=str(tmp_path / "data"),
+        nginx_app_logs_dir=str(tmp_path / "nginx-logs"),
+    )  # type: ignore[call-arg]
+    arm = tmp_path / "exports" / "modsecurity" / "waf-engine-arm.json"
+    arm.parent.mkdir(parents=True)
+    arm.write_text('{"armed": false}', encoding="utf-8")
+
+    profile = WafProfile(name="P", mode=MODE_DETECTION, anomaly_threshold=5)
+    active = {
+        "verifiable": True,
+        "families": {"portal": {"sec_rule_engine": MODE_OFF}},
+        "engine_mode_generated_loaded": True,
+    }
+    v = build_protection_verdict(
+        profile, active, export_pending=False, settings=settings, page="unified"
+    )
+    assert v["level"] == "inactive"
+    assert v.get("action_apply") is False
+    assert v.get("action_href") == "#reactivation"
+    assert "Appliquer seul" in v["message"]
 
 
 def test_verdict_active_when_aligned():
