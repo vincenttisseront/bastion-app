@@ -254,6 +254,31 @@ def test_docker_portal_has_unknown_host_rewrite():
     assert "proxy_intercept_errors off" in text
 
 
+def test_docker_portal_admin_403_nostore_and_error_page():
+    """ModSec/auth 403 must not be the bare nginx page nor stick in browser cache."""
+    from pathlib import Path
+
+    text = (
+        Path(__file__).resolve().parents[1]
+        / "docker/nginx/templates/vhost_sso_portal.conf.template"
+    ).read_text(encoding="utf-8")
+    assert "error_page 403 = /__portal_err/403;" in text
+    assert "location = /__portal_err/403" in text
+    assert 'proxy_pass http://$bastion_app_upstream/errors/403;' in text
+    # Unknown-host discovery stays unbranded (must keep intercept off).
+    unknown = text.split("location = /__bastion_unknown_host", 1)[1].split(
+        "location = /internal/unknown-host", 1
+    )[0]
+    assert "proxy_intercept_errors off;" in unknown
+    admin = text.split("location ^~ /admin {", 1)[1].split("location = /api/internal", 1)[
+        0
+    ]
+    assert 'add_header Cache-Control "no-store" always;' in admin
+    api_admin = text.split("location ^~ /api/admin {", 1)[1].split(
+        "location ^~ /admin {", 1
+    )[0]
+    assert 'add_header Cache-Control "no-store" always;' in api_admin
+
 def test_compose_has_traefik_catchall_labels():
     from pathlib import Path
 
