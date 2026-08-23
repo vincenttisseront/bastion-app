@@ -40,6 +40,7 @@ server {
     # Keep only cache/rate headers in locations.
 
     include /etc/nginx/snippets/error_pages.conf;
+    error_page 403 = /__portal_err/403;
     error_page 404 = /__portal_err/404;
     error_page 500 502 503 504 = /__portal_err/500;
     error_page 429 = @portal_rate_limited;
@@ -83,6 +84,18 @@ server {
         default_type text/html;
         add_header X-Rate-Limited-By "portal-nginx" always;
         return 429 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Trop de requêtes</title></head><body><h1>Trop de requêtes (429)</h1></body></html>';
+    }
+
+    location = /__portal_err/403 {
+        internal;
+        auth_request off;
+        modsecurity off;
+        # Avoid browser/CDN caching ModSec or auth_request 403 (Ctrl+F5 symptom).
+        add_header Cache-Control "no-store" always;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://$bastion_app_upstream/errors/403;
     }
 
     location = /__portal_err/404 {
@@ -334,6 +347,7 @@ server {
         limit_req zone=portal_api burst=60 nodelay;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        add_header Cache-Control "no-store" always;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
         auth_request_set $auth_email     $upstream_http_x_auth_request_email;
@@ -358,6 +372,8 @@ server {
         limit_req zone=portal_api burst=60 nodelay;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        # Soft navigation must not reuse a cached ModSec/auth 403 (Ctrl+F5 workaround).
+        add_header Cache-Control "no-store" always;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
         auth_request_set $auth_email     $upstream_http_x_auth_request_email;

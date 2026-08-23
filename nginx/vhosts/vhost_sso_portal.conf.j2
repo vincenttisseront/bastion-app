@@ -46,6 +46,7 @@ server {
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self';" always;
 
     include /etc/nginx/snippets/error_pages.conf;
+    error_page 403 = /__portal_err/403;
     error_page 404 = /__portal_err/404;
     error_page 500 502 503 504 = /__portal_err/500;
     error_page 429 = @portal_rate_limited;
@@ -58,6 +59,17 @@ server {
 
     # Pages d'erreur portail — servies par FastAPI (templates Jinja2).
     # URI internes (pas de named location + proxy_pass : directives interdites après proxy_pass).
+    location = /__portal_err/403 {
+        internal;
+        auth_request off;
+        # Avoid browser/CDN caching ModSec or auth_request 403 (Ctrl+F5 symptom).
+        add_header Cache-Control "no-store" always;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/403;
+    }
+
     location = /__portal_err/404 {
         internal;
         auth_request off;
@@ -315,11 +327,13 @@ server {
     }
 
     location ^~ /api/admin {
+        add_header Cache-Control "no-store" always;
         {% include 'snippets/proxy_portal_admin_location.conf.j2' %}
     }
 
     location ^~ /admin {
         add_header X-Frame-Options "DENY" always;
+        add_header Cache-Control "no-store" always;
         {% include 'snippets/proxy_portal_admin_location.conf.j2' %}
     }
 
