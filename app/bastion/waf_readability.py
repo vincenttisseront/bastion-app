@@ -701,7 +701,7 @@ def build_efficiency_visuals(
     ]
     families = window.get("rule_families") or []
 
-    empty_variant = "measured_zero" if measured_zero else "measured_zero"
+    empty_variant = "measured_zero" if measured_zero else "empty"
     return {
         "status": efficiency.get("status") or "ok",
         "detections_hourly_svg": render_series_chart(

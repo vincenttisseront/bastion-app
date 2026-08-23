@@ -55,7 +55,10 @@ fi
 nginx -t
 /export-waf-snapshot.sh || echo "WARN: export-waf-snapshot failed" >&2
 
-# Daily logrotate for modsec_audit.log (alpine crond).
+# Daily logrotate + 5-min WAF snapshot (alpine busybox crond).
+# Alpine's default crontab only runs /etc/periodic/{15min,hourly,daily,...}.
+# Without an explicit */5 line, /etc/periodic/5min is never executed → IHM
+# « Snapshot nginx lu il y a N min » after boot (stale threshold 15 min).
 if [[ "${BASTION_MODSEC_LOGROTATE:-1}" != "0" ]] && command -v crond >/dev/null 2>&1; then
   mkdir -p /etc/periodic/daily
   cat > /etc/periodic/daily/modsecurity-logrotate <<'EOF'
@@ -69,7 +72,10 @@ EOF
 /export-waf-snapshot.sh >/dev/null 2>&1 || true
 EOF
   chmod +x /etc/periodic/5min/waf-snapshot
-  crond -b -l 8 || echo "WARN: crond failed to start — modsec logrotate inactive" >&2
+  if ! grep -qF 'run-parts /etc/periodic/5min' /etc/crontabs/root 2>/dev/null; then
+    echo '*/5 * * * * run-parts /etc/periodic/5min' >> /etc/crontabs/root
+  fi
+  crond -b -l 8 || echo "WARN: crond failed to start — modsec logrotate / waf-snapshot inactive" >&2
 fi
 
 # Watch App catalogue exports → conf.d + reload (approve/edit without apply-infra-docker).
