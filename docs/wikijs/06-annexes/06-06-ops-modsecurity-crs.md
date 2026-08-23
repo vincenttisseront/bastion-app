@@ -193,9 +193,12 @@ La page **Admin → WAF** expose **trois lectures distinctes** (lot 2 Phase B) :
 | **Repo (intention)** *(dev)* | `BASTION_NGINX_CONF_ROOT` si défini | Checkout git local uniquement — jamais confondu avec l'état live. |
 
 **Lot 2.1 (2026-08-19)** : `bastion-nginx` écrit le snapshot dans le volume partagé
-`nginx-logs/` (à chaque démarrage, reload exports, et toutes les 5 min via crond).
-`bastion-app` le lit en lecture seule (`BASTION_NGINX_WAF_SNAPSHOT_PATH`). Au-delà de
-15 min sans snapshot frais, l'IHM signale « état non vérifié récemment ».
+`nginx-logs/` (démarrage, reload exports, et toutes les **5 min** via crond).
+L’entrypoint enregistre `*/5 … run-parts /etc/periodic/5min` dans `/etc/crontabs/root`
+(Alpine n’exécute pas ce dossier par défaut — sans cette ligne le snapshot restait
+figé au boot → alerte IHM « Snapshot nginx lu il y a N min »).
+`bastion-app` lit le fichier en lecture seule (`BASTION_NGINX_WAF_SNAPSHOT_PATH`).
+Au-delà de 15 min sans snapshot frais, l'IHM signale « état non vérifié récemment ».
 
 **Diagnostic déploiement** :
 

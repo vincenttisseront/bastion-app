@@ -70,6 +70,16 @@ def test_entrypoint_copies_infra_proxy_export():
     assert "sync-exports-to-confd.sh" in entry
 
 
+def test_entrypoint_registers_alpine_crontab_for_5min_waf_snapshot():
+    """Alpine crond never runs /etc/periodic/5min unless crontab is patched."""
+    entry = (ROOT / "docker" / "nginx" / "docker-entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "/etc/periodic/5min/waf-snapshot" in entry
+    assert "run-parts /etc/periodic/5min" in entry
+    assert "*/5 * * * * run-parts /etc/periodic/5min" in entry
+
+
 def test_traefik_catchall_example_present():
     path = ROOT / "docker" / "traefik" / "bastion-catchall.example.yml"
     assert path.is_file()

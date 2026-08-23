@@ -72,11 +72,11 @@ def test_modsecurity_engine_files_off_emergency():
         assert live == ["SecRuleEngine Off"]
 
 
-def test_modsecurity_audit_engine_off_emergency():
+def test_modsecurity_audit_engine_relevant_only_for_waf_bilan():
+    """Audit must hit the shared volume so the WAF bilan aggregator can chart CRS hits."""
     text = (ROOT / "docker/nginx/modsecurity/modsecurity.conf").read_text(
         encoding="utf-8"
     )
-    assert "SecAuditEngine Off" in text
     assert "SecResponseBodyAccess Off" in text
     assert "SecRequestBodyAccess On" in text
     live = [
@@ -85,7 +85,12 @@ def test_modsecurity_audit_engine_off_emergency():
         if ln.strip() and not ln.strip().startswith("#")
     ]
     assert not any(ln.startswith("SecRuleEngine") for ln in live)
-    assert any(ln == "SecAuditEngine Off" for ln in live)
+    assert any(ln == "SecAuditEngine RelevantOnly" for ln in live)
+    assert any(
+        ln == "SecAuditLog /var/log/nginx/apps/modsec_audit.log" for ln in live
+    )
+    assert not any(ln == "SecAuditEngine Off" for ln in live)
+    assert not any(ln.endswith("/dev/null") and "SecAuditLog" in ln for ln in live)
 
 
 def test_crs_setup_declares_crs_setup_version_for_blocking_mode():
