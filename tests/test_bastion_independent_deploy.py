@@ -58,6 +58,17 @@ def test_nginx_http_forwarded_proto_map():
     assert '""      https' in conf
 
 
+def test_nginx_worker_fd_limits_above_default():
+    """Avoid accept4 EMFILE / bare nginx 403 under portal+auth_request load."""
+    conf = (ROOT / "docker" / "nginx" / "nginx.conf").read_text(encoding="utf-8")
+    assert "worker_rlimit_nofile 65535;" in conf
+    assert "worker_connections 8192;" in conf
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    assert "ulimits:" in compose
+    assert "nofile:" in compose
+    assert "65535" in compose
+
+
 def test_entrypoint_copies_infra_proxy_export():
     sync = (ROOT / "docker" / "nginx" / "sync-exports-to-confd.sh").read_text(
         encoding="utf-8"

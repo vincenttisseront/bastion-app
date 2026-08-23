@@ -142,6 +142,11 @@ services:
     build: ./docker/nginx
     image: bastion-nginx:local
     container_name: bastion-nginx
+    # Match worker_rlimit_nofile in docker/nginx/nginx.conf (default Docker soft=1024 → EMFILE).
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     environment:
       PORTAL_INTERNAL_TOKEN: ${VAULT_PORTAL_INTERNAL_TOKEN:-${PORTAL_INTERNAL_TOKEN:-}}
       PORTAL_DOMAIN: ${PORTAL_DOMAIN:-portal.ar-systems.fr}
