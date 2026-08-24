@@ -123,8 +123,10 @@ server {
     }
 
     # Assets publics — jamais auth_request (évite rd=/favicon.ico → oauth2-proxy 400)
+    # ni ModSec (évite 403 CRS / bruit console sur favicon après une page d'erreur).
     location ^~ /static/ {
         auth_request off;
+        modsecurity off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -135,6 +137,7 @@ server {
 
     location ^~ /media/app-logos/ {
         auth_request off;
+        modsecurity off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -145,6 +148,7 @@ server {
 
     location ^~ /media/branding/ {
         auth_request off;
+        modsecurity off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }};
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -155,6 +159,7 @@ server {
 
     location = /favicon.ico {
         auth_request off;
+        modsecurity off;
         log_not_found off;
         access_log off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;

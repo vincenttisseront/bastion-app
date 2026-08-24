@@ -73,6 +73,39 @@ def test_aggregator_counts_detections(tmp_path: Path):
     assert read_back["windows"]["24h"]["inspected"] == 2
 
 
+def test_aggregator_skips_loopback_host_noise(tmp_path: Path):
+    """Host 127.0.0.1 / :8080 is health-smoke noise (CRS 920350), not attack signal."""
+    logs = tmp_path / "nginx-logs"
+    logs.mkdir()
+    log_file = logs / "modsec_audit.log"
+    log_file.write_text(
+        "\n".join(
+            [
+                _sample_audit_line(rule_id="920350", host="127.0.0.1"),
+                _sample_audit_line(rule_id="920350", host="127.0.0.1:8080"),
+                _sample_audit_line(rule_id="920350", host="localhost"),
+                _sample_audit_line(
+                    rule_id="942100", host="portal.ar-systems.fr", client_ip="198.51.100.9"
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    settings = Settings(
+        environment="test", database_url="sqlite://", nginx_app_logs_dir=str(logs)
+    )
+    summary = run_aggregation(settings)
+    w24 = summary["windows"]["24h"]
+    assert w24["inspected"] == 1
+    assert w24["detections"] == 1
+    assert w24["top_hosts"] == [{"host": "portal.ar-systems.fr", "count": 1}]
+    assert w24["top_rules"][0]["rule_id"] == "942100"
+    assert all(
+        not str(h.get("host", "")).startswith("127.") for h in w24["top_hosts"]
+    )
+
+
 def test_rotation_resets_offset_without_double_count(tmp_path: Path):
     logs = tmp_path / "nginx-logs"
     logs.mkdir()
