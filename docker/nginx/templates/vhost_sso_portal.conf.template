@@ -157,6 +157,7 @@ server {
 
     location ^~ /static/ {
         auth_request off;
+        modsecurity off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -167,6 +168,7 @@ server {
 
     location ^~ /media/app-logos/ {
         auth_request off;
+        modsecurity off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -177,6 +179,7 @@ server {
 
     location ^~ /media/branding/ {
         auth_request off;
+        modsecurity off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         proxy_pass http://$bastion_app_upstream;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
@@ -187,6 +190,7 @@ server {
 
     location = /favicon.ico {
         auth_request off;
+        modsecurity off;
         log_not_found off;
         access_log off;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;

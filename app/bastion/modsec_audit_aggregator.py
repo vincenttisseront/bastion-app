@@ -18,8 +18,8 @@ from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
 
-SUMMARY_SCHEMA_VERSION = 1
-STATE_SCHEMA_VERSION = 1
+SUMMARY_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 2
 MAX_RECENT_EVENTS = 100
 TOP_N = 5
 
@@ -31,7 +31,9 @@ CRS_RULE_LABELS: dict[str, str] = {
     "930100": "Traversée de répertoire",
     "932100": "Injection commande OS",
     "913100": "Scanner / sonde",
-    "920350": "Méthode HTTP anormale",
+    "920350": "Host est une adresse IP",
+    "920540": "En-tête Restricted",
+    "949110": "Score d'anomalie (blocage)",
 }
 
 
@@ -58,6 +60,29 @@ def resolve_audit_summary_path(settings: Settings) -> Path:
 def _rule_label(rule_id: str) -> str:
     rid = str(rule_id).strip()
     return CRS_RULE_LABELS.get(rid, f"Règle CRS {rid}")
+
+
+def _host_without_port(host: str) -> str:
+    text = (host or "").strip().lower()
+    if not text or text == "—":
+        return ""
+    # Strip :port (IPv6 in brackets not used by our probes).
+    if text.count(":") == 1 and not text.startswith("["):
+        return text.split(":", 1)[0]
+    if text.startswith("[") and "]" in text:
+        return text[1 : text.index("]")]
+    return text
+
+
+def is_loopback_audit_host(host: str) -> bool:
+    """Health/smoke probes hit nginx with Host 127.0.0.1(:port) — not attack signal."""
+    name = _host_without_port(host)
+    return name in {"127.0.0.1", "::1", "localhost"}
+
+
+def is_audit_noise_event(event: dict[str, Any]) -> bool:
+    """Drop internal probe noise from WAF bilan (top hosts / rules / charts)."""
+    return is_loopback_audit_host(str(event.get("host") or ""))
 
 
 def _rule_family(rule_id: str) -> str:
@@ -421,6 +446,8 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
     for line in lines:
         event = _parse_audit_line(line)
         if event is None:
+            continue
+        if is_audit_noise_event(event):
             continue
         ts = event.get("timestamp") or datetime.now(timezone.utc)
         if not isinstance(ts, datetime):
