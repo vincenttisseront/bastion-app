@@ -352,6 +352,8 @@ server {
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
         add_header Cache-Control "no-store" always;
+        # Control plane: SSO still required; CRS must not lock admins out of WAF IHM.
+        modsecurity off;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
         auth_request_set $auth_email     $upstream_http_x_auth_request_email;
@@ -378,6 +380,8 @@ server {
         error_page 401 = @portal_oauth2_signin;
         # Soft navigation must not reuse a cached ModSec/auth 403 (Ctrl+F5 workaround).
         add_header Cache-Control "no-store" always;
+        # Control plane: SSO still required; CRS must not lock admins out of WAF IHM.
+        modsecurity off;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
         auth_request_set $auth_email     $upstream_http_x_auth_request_email;

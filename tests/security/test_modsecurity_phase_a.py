@@ -33,6 +33,14 @@ def test_docker_portal_keeps_modsecurity_wiring_but_off():
     assert "modsecurity off;" in favicon
     static = text.split("location ^~ /static/ {", 1)[1].split("}", 1)[0]
     assert "modsecurity off;" in static
+    admin = text.split("location ^~ /admin {", 1)[1].split("location = /api/internal", 1)[
+        0
+    ]
+    assert "modsecurity off;" in admin
+    api_admin = text.split("location ^~ /api/admin {", 1)[1].split(
+        "location ^~ /admin {", 1
+    )[0]
+    assert "modsecurity off;" in api_admin
 
 
 def test_main_portal_includes_engine_mode_generated_for_ihm_arm():

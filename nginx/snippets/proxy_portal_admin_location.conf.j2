@@ -1,6 +1,8 @@
         limit_req zone=portal_api burst=60 nodelay;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
+        # Control plane: SSO still required; CRS must not lock admins out of WAF IHM.
+        modsecurity off;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
         auth_request_set $auth_email     $upstream_http_x_auth_request_email;
