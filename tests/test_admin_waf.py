@@ -144,7 +144,7 @@ def test_waf_page_no_banner_when_engine_on_snapshot(
     with _patch_snapshot(tmp_path, mode=MODE_ON):
         resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
-    assert "Inspection ACTIVE" in resp.text
+    assert "Inspection active" in resp.text
 
 
 def test_waf_page_applied_badge_when_db_matches_export(

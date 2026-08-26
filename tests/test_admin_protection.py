@@ -140,7 +140,7 @@ def test_degraded_unavailable_vs_measured_zero(client: TestClient, db_session: S
         ),
     ):
         resp2 = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
-    assert "waf-dash-notice--zero" in resp2.text or "Mesure effectuée" in resp2.text
+    assert "waf-kpi-quiet" in resp2.text or "aucune activité CRS" in resp2.text
     assert "waf-chart-unavailable" in resp2.text or "waf-chart-measured_zero" in resp2.text
 
 

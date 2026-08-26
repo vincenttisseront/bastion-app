@@ -300,7 +300,7 @@ def build_protection_verdict(
             return {
                 "level": "observe",
                 "css": "alert-warn",
-                "title": "Inspection ACTIVE, mode observation",
+                "title": "Inspection active — observation",
                 "message": (
                     "Les requêtes sont analysées par le CRS, mais aucune n'est bloquée "
                     "(DetectionOnly)."
@@ -347,8 +347,8 @@ def build_protection_verdict(
         return {
             "level": "active",
             "css": "alert-ok",
-            "title": "Inspection ACTIVE",
-            "message": "Requêtes malveillantes détectées par le CRS sont bloquées.",
+            "title": "Inspection active",
+            "message": "Blocage CRS des requêtes malveillantes.",
             "action_label": None,
             "action_href": None,
             "action_apply": False,
@@ -533,13 +533,11 @@ def build_efficiency_panel(
             )
         elif crs_mode == MODE_DETECTION:
             zero_explanation = (
-                "Mesure effectuée — aucune inspection enregistrée sur la période. "
+                "Aucune inspection enregistrée sur la période. "
                 "Vérifiez que l'audit ModSecurity est activé."
             )
         else:
-            zero_explanation = (
-                "Mesure effectuée — aucune activité CRS enregistrée sur la période."
-            )
+            zero_explanation = "Aucune activité CRS enregistrée sur la période."
 
     return {
         "present": True,

@@ -86,7 +86,12 @@ def render_series_chart(
     chart_h = height - pad_t - pad_b
     max_v = max(values) or 1
     gap = 2
-    bar_w = max(3, (chart_w // max(len(values), 1)) - gap)
+    n = max(len(values), 1)
+    # Cap bar width so sparse series (e.g. 7 daily points) stay readable when SVG scales.
+    bar_w = min(28, max(3, (chart_w // n) - gap))
+    # Center the bar group when capped width leaves unused horizontal space.
+    used_w = n * bar_w + (n - 1) * gap
+    offset_x = pad_l + max(0, (chart_w - used_w) // 2)
 
     parts = [
         f'<svg class="waf-chart waf-chart-series" viewBox="0 0 {width} {height}" '
@@ -101,7 +106,7 @@ def render_series_chart(
             f'<line class="waf-chart-grid" x1="{pad_l}" y1="{gy}" x2="{width - pad_r}" y2="{gy}"/>'
         )
     for i, (point, val) in enumerate(zip(series, values)):
-        x = pad_l + i * (bar_w + gap)
+        x = offset_x + i * (bar_w + gap)
         h = int((val / max_v) * chart_h) if val else 0
         y = pad_t + chart_h - h
         parts.append(
