@@ -1,0 +1,26 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Normalize ModSecurity audit JSON for Wazuh (Bastion portal)
+Documentation=file:///usr/local/sbin/modsec-wazuh-normalizer
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-{{ modsec_wazuh_environment_file }}
+ExecStart={{ modsec_wazuh_program }}
+Restart=on-failure
+RestartSec=5
+Nice=10
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths={{ modsec_wazuh_output | dirname }} {{ modsec_wazuh_state | dirname }}
+
+[Install]
+WantedBy=multi-user.target

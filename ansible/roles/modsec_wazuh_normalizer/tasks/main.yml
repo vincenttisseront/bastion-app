@@ -1,0 +1,86 @@
+---
+# Deploy host-side ModSecurity → Wazuh NDJSON normalizer (Bastion docker host).
+# Does not restart Docker / containers. Restarts systemd units only on conf change.
+
+- name: "Skip when disabled"
+  ansible.builtin.meta: end_host
+  when: not (modsec_wazuh_normalizer_enabled | default(true) | bool)
+
+- name: "Import preflight checks"
+  ansible.builtin.import_tasks: preflight.yml
+  tags:
+    - modsec_wazuh
+    - preflight
+
+- name: "Install normalizer Python program"
+  ansible.builtin.copy:
+    src: modsec-wazuh-normalizer.py
+    dest: "{{ modsec_wazuh_program }}"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart modsec-wazuh-normalizer
+
+- name: "Install environment file"
+  ansible.builtin.template:
+    src: modsec-wazuh-normalizer.default.j2
+    dest: "{{ modsec_wazuh_environment_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart modsec-wazuh-normalizer
+
+- name: "Ensure NDJSON output file exists with Wazuh-readable mode"
+  ansible.builtin.file:
+    path: "{{ modsec_wazuh_output }}"
+    state: touch
+    owner: "{{ modsec_wazuh_output_owner }}"
+    group: "{{ modsec_wazuh_output_group }}"
+    mode: "{{ modsec_wazuh_output_mode }}"
+    modification_time: preserve
+    access_time: preserve
+  when: not ansible_check_mode
+
+- name: "Install systemd unit"
+  ansible.builtin.template:
+    src: modsec-wazuh-normalizer.service.j2
+    dest: "/etc/systemd/system/{{ modsec_wazuh_service_name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd daemon
+    - Restart modsec-wazuh-normalizer
+
+- name: "Enable and start normalizer service"
+  ansible.builtin.systemd:
+    name: "{{ modsec_wazuh_service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: not ansible_check_mode
+
+- name: "Install logrotate for NDJSON output"
+  ansible.builtin.template:
+    src: logrotate-modsec-wazuh.j2
+    dest: /etc/logrotate.d/modsec-wazuh-normalizer
+    owner: root
+    group: root
+    mode: "0644"
+  when: modsec_wazuh_logrotate_enabled | bool
+
+- name: "Validate logrotate config"
+  ansible.builtin.command: logrotate -d /etc/logrotate.d/modsec-wazuh-normalizer
+  register: _modsec_wazuh_logrotate
+  changed_when: false
+  failed_when: _modsec_wazuh_logrotate.rc != 0
+  when:
+    - modsec_wazuh_logrotate_enabled | bool
+    - not ansible_check_mode
+
+- name: "Configure Wazuh agent localfile"
+  ansible.builtin.import_tasks: wazuh_agent.yml
+  when: modsec_wazuh_configure_agent | bool
+  tags:
+    - modsec_wazuh
+    - wazuh

@@ -1,0 +1,18 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart modsec-wazuh-normalizer
+  ansible.builtin.systemd:
+    name: "{{ modsec_wazuh_service_name }}"
+    state: restarted
+  when: not ansible_check_mode
+
+- name: Restart wazuh-agent
+  ansible.builtin.systemd:
+    name: "{{ modsec_wazuh_agent_service }}"
+    state: restarted
+  when:
+    - modsec_wazuh_configure_agent | bool
+    - not ansible_check_mode

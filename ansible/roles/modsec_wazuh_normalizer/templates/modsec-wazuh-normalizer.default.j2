@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+# Environment for modsec-wazuh-normalizer (no secrets).
+
+MODSEC_WAZUH_SOURCE={{ modsec_wazuh_source }}
+MODSEC_WAZUH_OUTPUT={{ modsec_wazuh_output }}
+MODSEC_WAZUH_STATE={{ modsec_wazuh_state }}
+MODSEC_WAZUH_START_AT_END={{ 'true' if modsec_wazuh_start_at_end | bool else 'false' }}
+MODSEC_WAZUH_POLL_SECONDS={{ modsec_wazuh_poll_seconds }}
+MODSEC_WAZUH_MAX_STRING={{ modsec_wazuh_max_string }}
+MODSEC_WAZUH_MAX_TAGS={{ modsec_wazuh_max_tags }}
+MODSEC_WAZUH_DEDUP_MAX={{ modsec_wazuh_dedup_max }}
+MODSEC_WAZUH_DEDUP_SECONDS={{ modsec_wazuh_dedup_seconds }}
+MODSEC_WAZUH_EXCLUDE_LOOPBACK={{ 'true' if modsec_wazuh_exclude_loopback | bool else 'false' }}
+MODSEC_WAZUH_LOG_LEVEL={{ modsec_wazuh_log_level }}
