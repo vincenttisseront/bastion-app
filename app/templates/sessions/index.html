@@ -101,7 +101,7 @@
           <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} session(s)</span>
           {% if is_admin and first.show_disconnect %}
           <button type="button" class="btn btn-danger btn-sm"
-                  title="Révoque sessions robotic/vault + logout Keycloak. Hors break-glass. Délai résiduel cookie ~1h possible."
+                  title="Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible."
                   onclick="disconnectUser({{ first.user_email | tojson }}, {{ first.realm | tojson }})">Déconnecter cet utilisateur</button>
           {% elif is_admin and first.has_breakglass and not first.has_oidc and not first.has_app %}
           <span class="form-hint" title="Break-glass n’a pas de session Keycloak">Utiliser « Révoquer » sur la session break-glass</span>

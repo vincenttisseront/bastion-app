@@ -217,6 +217,55 @@ def revoke_oidc_jti(
     return row
 
 
+def revoke_oidc_sessions_for_identity(
+    db: Session,
+    *,
+    realm_slug: str | None,
+    emails: set[str] | None = None,
+    usernames: set[str] | None = None,
+    keycloak_subs: set[str] | None = None,
+    revoked_by: str,
+    reason: str = "admin_disconnect",
+) -> int:
+    """Revoke native ``bastion_session`` rows for an identity (admin disconnect).
+
+    Keycloak Admin logout alone does not invalidate local JWT jtis — without this,
+    the portal cookie stays valid until expiry.
+    """
+    emails = {e.strip().lower() for e in (emails or set()) if e and str(e).strip()}
+    usernames = {u.strip().lower() for u in (usernames or set()) if u and str(u).strip()}
+    subs = {s.strip() for s in (keycloak_subs or set()) if s and str(s).strip()}
+    if not emails and not usernames and not subs:
+        return 0
+
+    q = db.query(OidcSession).filter(OidcSession.revoked.is_(False))
+    slug = (realm_slug or "").strip()
+    if slug:
+        q = q.filter(OidcSession.realm == slug)
+
+    rows = q.all()
+    now = utcnow()
+    count = 0
+    for row in rows:
+        uname = (row.username or "").strip().lower()
+        sub = (row.sub or "").strip()
+        match = False
+        if sub and sub in subs:
+            match = True
+        elif uname and (uname in usernames or uname in emails):
+            match = True
+        if not match:
+            continue
+        row.revoked = True
+        row.revoked_at = now
+        row.revoked_by = revoked_by
+        row.revoked_reason = reason
+        count += 1
+    if count:
+        db.flush()
+    return count
+
+
 def set_oidc_session_cookie(
     response: Response,
     token: str,

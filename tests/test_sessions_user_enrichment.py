@@ -149,6 +149,7 @@ def test_sessions_page_includes_user_filter_and_family_chips(client, db_session:
 
 
 def test_sso_logout_badge_after_revoke_sso(client, db_session: Session):
+    """revoke-sso drops portal registry rows; badge is no longer needed on the card."""
     settings = _test_settings()
     realm = _make_realm(db_session, settings)
     _portal_row(
@@ -183,13 +184,16 @@ def test_sso_logout_badge_after_revoke_sso(client, db_session: Session):
             headers={**ADMIN_HEADERS, "accept": "application/json"},
         )
     assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body.get("portal_rows_removed", 0) >= 1
 
     api = client.get("/api/sessions?kind=user", headers=ADMIN_HEADERS).json()
-    alice = next(g for g in api["groups"] if g["user_email"] == "alice@example.com")
-    assert alice["sso_logout"] is not None
-    assert "Déconnexion demandée" in alice["sso_logout"]["label"]
-    oidc_sess = next(s for s in alice["sessions"] if s["auth_family"] == "oidc")
-    assert oidc_sess["sso_logout"] is not None
+    emails = {g["user_email"] for g in api["groups"]}
+    assert "alice@example.com" not in emails
+    assert (
+        db_session.query(ActiveSession).filter_by(id="oidc-alice").first() is None
+    )
 
 
 def test_sso_logout_badge_expires_after_residual_window(db_session: Session):

@@ -154,6 +154,42 @@ def mark_sso_logout_requested(
     return updated
 
 
+def remove_portal_sessions_for_identity(
+    db: Session,
+    *,
+    emails: set[str] | None = None,
+    usernames: set[str] | None = None,
+    realm_slug: str | None = None,
+) -> int:
+    """Drop kind=user portal registry rows so /sessions updates immediately after disconnect."""
+    emails = {e.strip().lower() for e in (emails or set()) if e and e.strip()}
+    usernames = {u.strip().lower() for u in (usernames or set()) if u and u.strip()}
+    if not emails and not usernames:
+        return 0
+    clauses = []
+    if emails:
+        clauses.append(ActiveSession.user_email.in_(emails))
+        clauses.append(ActiveSession.username.in_(emails))
+    if usernames:
+        clauses.append(ActiveSession.username.in_(usernames))
+        clauses.append(ActiveSession.user_email.in_(usernames))
+    q = db.query(ActiveSession).filter(
+        ActiveSession.kind == KIND_USER,
+        ActiveSession.target == "portal",
+        ActiveSession.protocol != _PROTOCOL_BREAKGLASS,
+        or_(*clauses),
+    )
+    slug = (realm_slug or "").strip()
+    if slug:
+        q = q.filter(ActiveSession.realm == slug)
+    rows = q.all()
+    for row in rows:
+        db.delete(row)
+    if rows:
+        db.commit()
+    return len(rows)
+
+
 def recent_sso_logout_by_identity(
     db: Session, *, now: datetime | None = None
 ) -> dict[str, dict[str, Any]]:
