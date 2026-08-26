@@ -7,6 +7,25 @@ export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.ar-systems.fr}"
 export SSO_PORTAL_DEFAULT_REALM_SLUG="${SSO_PORTAL_DEFAULT_REALM_SLUG:-ar-systems}"
 export EXPORTS_DIR="${EXPORTS_DIR:-/var/lib/sso-portal/exports}"
 
+# Portal + auth_request open many FDs. Docker default soft=1024 → accept4 EMFILE
+# and clients see bare "403 Forbidden / nginx". Compose sets ulimits.nofile=65535;
+# raise soft to hard here so a forgotten recreate still recovers when hard allows.
+if soft=$(ulimit -n 2>/dev/null); then
+  hard=$(ulimit -H -n 2>/dev/null || echo "$soft")
+  if [[ "$hard" =~ ^[0-9]+$ ]] && [[ "$soft" =~ ^[0-9]+$ ]] && [[ "$soft" -lt "$hard" ]]; then
+    ulimit -n "$hard" 2>/dev/null || true
+    soft=$(ulimit -n 2>/dev/null || echo "$soft")
+  fi
+  echo "INFO: nginx process nofile soft=${soft} hard=${hard}"
+  if [[ "$soft" =~ ^[0-9]+$ ]] && [[ "$soft" -lt 4096 ]]; then
+    echo "ERROR: nofile soft=${soft} < 4096 — expect intermittent bare nginx 403 (EMFILE)." >&2
+    echo "ERROR: set docker-compose ulimits.nofile soft/hard 65535 and recreate bastion-nginx." >&2
+    if [[ "${BASTION_REQUIRE_HIGH_NOFILE:-1}" != "0" ]]; then
+      exit 1
+    fi
+  fi
+fi
+
 if [[ -z "${PORTAL_INTERNAL_TOKEN}" ]]; then
   echo "WARN: PORTAL_INTERNAL_TOKEN empty — FastAPI internal auth may fail" >&2
 fi

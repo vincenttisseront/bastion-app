@@ -67,6 +67,12 @@ def test_nginx_worker_fd_limits_above_default():
     assert "ulimits:" in compose
     assert "nofile:" in compose
     assert "65535" in compose
+    entry = (ROOT / "docker" / "nginx" / "docker-entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "ulimit -n" in entry
+    assert "BASTION_REQUIRE_HIGH_NOFILE" in entry
+    assert "EMFILE" in entry
 
 
 def test_entrypoint_copies_infra_proxy_export():
