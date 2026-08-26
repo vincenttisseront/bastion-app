@@ -11,13 +11,13 @@
 # Pas besoin des groupes sso_portal_docker / nginx_dmz (optionnels).
 #
 # Tags :
-#   --tags docker | edge | smoke | preflight | validate_purge
+#   --tags docker | edge | smoke | preflight | validate_purge | modsec_wazuh
 #
 # Extra-vars :
 #   bastion_edge_catchall_enabled: true   # cutover edge sur reverse01
 #   bastion_docker_play_hosts / bastion_edge_play_hosts  # override si besoin
 #     (défaut: all — laisser AWX Limit faire le filtre)
-
+#   modsec_wazuh_normalizer_enabled: true  # host normalizer ModSec→Wazuh (docker01)
 - name: "PREFLIGHT Docker stack"
   hosts: "{{ bastion_docker_play_hosts | default('all') }}"
   become: true
@@ -97,3 +97,14 @@
         name: bastion_edge_dmz
         tasks_from: smoke.yml
       when: bastion_edge_catchall_enabled | default(false) | bool
+
+- name: "Deploy ModSecurity → Wazuh host normalizer"
+  hosts: "{{ bastion_docker_play_hosts | default('all') }}"
+  become: true
+  gather_facts: true
+  tags:
+    - modsec_wazuh
+    - wazuh
+  roles:
+    - role: modsec_wazuh_normalizer
+      when: modsec_wazuh_normalizer_enabled | default(true) | bool

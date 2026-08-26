@@ -1,0 +1,40 @@
+---
+# ModSecurity audit → Wazuh NDJSON normalizer (host-side on Bastion docker host).
+# Semantics aligned with app/bastion/modsec_audit_aggregator.py (families, loopback).
+
+modsec_wazuh_normalizer_enabled: true
+
+# Safety: only BastionPro docker host (override via inventory / extra-vars if needed).
+modsec_wazuh_allowed_hosts:
+  - vmdmz-docker01
+  - vmdmz-docker01.ar-systems.fr
+modsec_wazuh_forbidden_hosts:
+  - vmtools-wazuhlogsfw01
+  - vmtools-wazuhlogsfw01.ar-systems.fr
+
+modsec_wazuh_source: /tools/portal/data/nginx-logs/modsec_audit.log
+modsec_wazuh_output: /tools/portal/data/nginx-logs/modsec_wazuh.jsonl
+modsec_wazuh_state: /tools/portal/data/modsec-wazuh-normalizer-state.json
+modsec_wazuh_program: /usr/local/sbin/modsec-wazuh-normalizer
+modsec_wazuh_environment_file: /etc/default/modsec-wazuh-normalizer
+modsec_wazuh_service_name: modsec-wazuh-normalizer
+
+modsec_wazuh_start_at_end: true
+modsec_wazuh_poll_seconds: 0.5
+modsec_wazuh_max_string: 1024
+modsec_wazuh_max_tags: 32
+modsec_wazuh_dedup_max: 10000
+modsec_wazuh_dedup_seconds: 3600
+modsec_wazuh_exclude_loopback: true
+modsec_wazuh_log_level: INFO
+
+modsec_wazuh_output_owner: root
+modsec_wazuh_output_group: wazuh
+modsec_wazuh_output_mode: "0640"
+
+modsec_wazuh_configure_agent: true
+modsec_wazuh_agent_config: /var/ossec/etc/ossec.conf
+modsec_wazuh_agent_service: wazuh-agent
+
+modsec_wazuh_logrotate_enabled: true
+modsec_wazuh_logrotate_retention: 14

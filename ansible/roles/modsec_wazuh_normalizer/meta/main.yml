@@ -1,0 +1,15 @@
+---
+galaxy_info:
+  role_name: modsec_wazuh_normalizer
+  description: >-
+    Host-side ModSecurity audit log → NDJSON for Wazuh agent (Bastion docker host).
+  license: proprietary
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Debian
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+dependencies: []

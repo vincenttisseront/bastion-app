@@ -1,0 +1,15 @@
+---
+# Idempotent <localfile> for Wazuh agent (ossec.conf).
+
+- name: "WAZUH : install localfile block before </ossec_config>"
+  ansible.builtin.blockinfile:
+    path: "{{ modsec_wazuh_agent_config }}"
+    marker: "<!-- {mark} ANSIBLE MANAGED BLOCK modsec_wazuh_normalizer -->"
+    insertbefore: "</ossec_config>"
+    block: |2
+          <localfile>
+            <log_format>json</log_format>
+            <location>{{ modsec_wazuh_output }}</location>
+          </localfile>
+    backup: true
+  notify: Restart wazuh-agent

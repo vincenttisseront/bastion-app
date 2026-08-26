@@ -1,0 +1,100 @@
+---
+# Preflight for ModSecurity → Wazuh host normalizer.
+
+- name: "PREFLIGHT : refuse forbidden Wazuh log shipper hosts"
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname not in (modsec_wazuh_forbidden_hosts | default([]))
+      - inventory_hostname_short not in (modsec_wazuh_forbidden_hosts | default([]))
+    fail_msg: >-
+      Ce rôle ne doit PAS tourner sur {{ inventory_hostname }}.
+      Le normaliseur lit le volume Docker ModSecurity sur l'hôte Bastion
+      (attendu : vmdmz-docker01), pas sur vmtools-wazuhlogsfw01.
+      Chemin source attendu : {{ modsec_wazuh_source }}
+
+- name: "PREFLIGHT : limit to BastionPro docker hosts"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (inventory_hostname in (modsec_wazuh_allowed_hosts | default([])))
+        or (inventory_hostname_short in (modsec_wazuh_allowed_hosts | default([])))
+        or (inventory_hostname == (bastion_docker_host | default('')))
+        or (inventory_hostname_short == (bastion_docker_host | default('')))
+    fail_msg: >-
+      Hôte {{ inventory_hostname }} hors périmètre BastionPro docker.
+      Autorisés : {{ modsec_wazuh_allowed_hosts | default([]) | join(', ') }}.
+      Override : modsec_wazuh_allowed_hosts / bastion_docker_host.
+
+- name: "PREFLIGHT : OS family Debian/Ubuntu"
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == 'Debian'
+    fail_msg: "OS non supporté ({{ ansible_os_family }}) — Debian/Ubuntu requis."
+
+- name: "PREFLIGHT : systemd available"
+  ansible.builtin.command: systemctl --version
+  register: _modsec_wazuh_systemd
+  changed_when: false
+  check_mode: false
+
+- name: "PREFLIGHT : Python 3 available"
+  ansible.builtin.command: python3 --version
+  register: _modsec_wazuh_python
+  changed_when: false
+  check_mode: false
+
+- name: "PREFLIGHT : source parent directory exists"
+  ansible.builtin.stat:
+    path: "{{ modsec_wazuh_source | dirname }}"
+  register: _modsec_wazuh_src_dir
+
+- name: "PREFLIGHT : fail if nginx-logs dir missing"
+  ansible.builtin.assert:
+    that:
+      - _modsec_wazuh_src_dir.stat.exists | default(false)
+      - _modsec_wazuh_src_dir.stat.isdir | default(false)
+    fail_msg: >-
+      Répertoire parent absent : {{ modsec_wazuh_source | dirname }}.
+      Vérifier le volume Docker ModSecurity
+      (bind {{ bastion_app_docker_data_dir | default('/tools/portal/data') }}/nginx-logs
+      → /var/log/nginx/apps dans bastion-nginx).
+      Ne pas lancer ce rôle sur vmtools-wazuhlogsfw01.
+
+- name: "PREFLIGHT : ModSecurity audit source file"
+  ansible.builtin.stat:
+    path: "{{ modsec_wazuh_source }}"
+  register: _modsec_wazuh_src
+
+- name: "PREFLIGHT : fail if modsec_audit.log missing"
+  ansible.builtin.assert:
+    that:
+      - _modsec_wazuh_src.stat.exists | default(false)
+      - _modsec_wazuh_src.stat.isreg | default(false)
+    fail_msg: >-
+      Fichier source ModSecurity introuvable ou non régulier :
+      {{ modsec_wazuh_source }}
+      Attendu sur l'hôte via volume Docker du conteneur bastion-nginx
+      (/var/log/nginx/apps/modsec_audit.log).
+      Vérifier SecAuditEngine / montage nginx-logs.
+      Ce rôle cible vmdmz-docker01 — pas vmtools-wazuhlogsfw01.
+
+- name: "PREFLIGHT : wazuh group exists"
+  ansible.builtin.getent:
+    database: group
+    key: "{{ modsec_wazuh_output_group }}"
+  when: not ansible_check_mode
+
+- name: "PREFLIGHT : Wazuh agent present when configuring localfile"
+  ansible.builtin.stat:
+    path: "{{ modsec_wazuh_agent_config }}"
+  register: _modsec_wazuh_agent_conf
+  when: modsec_wazuh_configure_agent | bool
+
+- name: "PREFLIGHT : fail if Wazuh agent config missing"
+  ansible.builtin.assert:
+    that:
+      - _modsec_wazuh_agent_conf.stat.exists | default(false)
+    fail_msg: >-
+      Agent Wazuh attendu mais {{ modsec_wazuh_agent_config }} absent.
+      Installer wazuh-agent ou fixer modsec_wazuh_configure_agent: false.
+  when: modsec_wazuh_configure_agent | bool

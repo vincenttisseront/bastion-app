@@ -78,7 +78,33 @@ reverse01 n’est pas la source de découverte (passe-plat temporaire).
 |------|------|------|
 | `bastion_app_docker` | docker01 | Compose, migrate, infra proxy exports, apply-infra |
 | `bastion_edge_dmz` | reverse01 | TLS catch-all (opt-in) |
+| `modsec_wazuh_normalizer` | docker01 | ModSec audit → NDJSON Wazuh (systemd hôte) |
 | `bastion_app_docker_phase7` | — | Alias historique → `bastion_app_docker` |
+
+### ModSecurity → Wazuh (hôte docker01)
+
+Lit `/tools/portal/data/nginx-logs/modsec_audit.log` (volume nginx), écrit
+`modsec_wazuh.jsonl`, configure l’agent Wazuh local. **Pas** dans le conteneur.
+
+```bash
+# AWX
+#   Project  = bastion-app
+#   Playbook = ansible/linux_sso_portal_docker.yml
+#   Limit    = vmdmz-docker01
+#   Job tags = modsec_wazuh
+#   Extra-vars (optionnel) : modsec_wazuh_configure_agent: true
+
+ansible-playbook ansible/linux_sso_portal_docker.yml \
+  -i ansible/inventory/inventory_sso_portal.ini.example \
+  --tags modsec_wazuh --syntax-check
+
+# Validation sur l'hôte après deploy
+systemctl status modsec-wazuh-normalizer
+tail -n 3 /tools/portal/data/nginx-logs/modsec_wazuh.jsonl
+grep -A3 modsec_wazuh /var/ossec/etc/ossec.conf
+```
+
+Hors périmètre : rebuild nginx, règles manager Wazuh, hôte `vmtools-wazuhlogsfw01`.
 
 Le playbook applique notamment :
 - `.env` avec `RFC1918_BYPASS_ENABLED=false`
