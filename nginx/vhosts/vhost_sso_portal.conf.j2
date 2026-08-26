@@ -292,7 +292,7 @@ server {
         # Default post-login home is /apps (end-user portal). /dashboard is admin-only
         # and must not be baked into OIDC state for ARSYSTEMS-Users.
         set $portal_login_rd /apps;
-        if ($uri ~ ^/admin) {
+        if ($uri ~ ^/(admin|dashboard)) {
             set $portal_login_rd $uri;
         }
         return 302 /auth/login?rd=$portal_login_rd;
@@ -338,6 +338,12 @@ server {
 
     location ^~ /admin {
         add_header X-Frame-Options "DENY" always;
+        add_header Cache-Control "no-store" always;
+        {% include 'snippets/proxy_portal_admin_location.conf.j2' %}
+    }
+
+    # Admin home at /dashboard (outside /admin) — CRS must not return bare nginx 403.
+    location = /dashboard {
         add_header Cache-Control "no-store" always;
         {% include 'snippets/proxy_portal_admin_location.conf.j2' %}
     }

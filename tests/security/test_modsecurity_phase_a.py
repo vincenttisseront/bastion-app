@@ -33,14 +33,20 @@ def test_docker_portal_keeps_modsecurity_wiring_but_off():
     assert "modsecurity off;" in favicon
     static = text.split("location ^~ /static/ {", 1)[1].split("}", 1)[0]
     assert "modsecurity off;" in static
-    admin = text.split("location ^~ /admin {", 1)[1].split("location = /api/internal", 1)[
+    admin = text.split("location ^~ /admin {", 1)[1].split("location = /dashboard", 1)[
         0
     ]
     assert "modsecurity off;" in admin
+    dashboard = text.split("location = /dashboard {", 1)[1].split(
+        "location = /api/internal/session-cookie-hop", 1
+    )[0]
+    assert "modsecurity off;" in dashboard
+    assert "auth_request /portal_auth_check;" in dashboard
     api_admin = text.split("location ^~ /api/admin {", 1)[1].split(
         "location ^~ /admin {", 1
     )[0]
     assert "modsecurity off;" in api_admin
+    assert "if ($uri ~ ^/(admin|dashboard))" in text
 
 
 def test_main_portal_includes_engine_mode_generated_for_ihm_arm():

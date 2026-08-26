@@ -77,163 +77,211 @@
   </div>
 
   <div class="group-fiche-panel" id="panel-comptes" data-panel="comptes" hidden>
-    <details class="rbac-help" open>
-      <summary>Comment fonctionnent les comptes partagés ?</summary>
-      <p style="margin:0 0 var(--sp-2);">
-        Un compte Crush / robotic est partagé par <strong>tous les membres</strong> du groupe
-        pour une application. Si un utilisateur appartient à plusieurs groupes ayant un compte
-        pour la même app, la <strong>priorité la plus haute</strong> gagne.
-        Un membre <strong>exclu</strong> n’utilise pas ce compte ; sans override individuel,
-        l’ouverture de l’app est bloquée.
-      </p>
-      <div class="rbac-help-example">
-        Exemple : vtisseront ∈ groupe A (prio 100, compte <code>sdis81</code>) et groupe B (prio 50, compte <code>partenaire</code>)
-        pour l’app <code>transfer</code> → il utilisera <strong>sdis81</strong> (prio 100).
-      </div>
-    </details>
-
-    <section class="form-section">
-      <div class="form-section-header">
-        <div>
-          <div class="form-section-title">Comptes configurés</div>
-          <div class="form-section-sub">{{ group_credentials | length }} compte{% if group_credentials | length != 1 %}s{% endif %} pour ce groupe</div>
+    <section class="sa-panel" aria-labelledby="sa-panel-title">
+      <div class="sa-toolbar">
+        <div class="sa-toolbar-lead">
+          <h2 id="sa-panel-title" class="sa-title">
+            Comptes partagés
+            <span class="sa-help-wrap">
+              <button type="button" class="sa-help" aria-describedby="sa-help-tip" aria-label="Aide comptes partagés">
+                <span aria-hidden="true">?</span>
+              </button>
+              <span id="sa-help-tip" class="sa-help-tip" role="tooltip">
+                Compte Crush/robotic commun à tous les membres non exclus.
+                Priorité la plus haute gagne si plusieurs groupes couvrent la même app.
+              </span>
+            </span>
+          </h2>
+          <p class="sa-sub">
+            <span id="sa-count">{{ group_credentials | length }}</span>
+            compte{% if group_credentials | length != 1 %}s{% endif %}
+            · <a href="/admin/rbac/matrix">Matrice</a>
+          </p>
         </div>
-        <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Voir matrice</a>
+        <div class="sa-toolbar-actions">
+          {% if vault_apps %}
+          <button type="button" class="btn btn-primary btn-sm" data-sa-modal-open="add">
+            + Ajouter un compte
+          </button>
+          {% endif %}
+        </div>
       </div>
-      <div class="form-body group-cred-list">
-        {% if group_credentials %}
-          {% for cred in group_credentials %}
-          {% set excl = cred.exclusions or [] %}
-          {% set excl_ids = excl | map(attribute='keycloak_user_id') | list %}
-          <article class="group-cred-card">
-            <header class="group-cred-card-head">
-              <div class="group-cred-card-identity">
-                <span class="badge badge-muted mono">{{ cred.app_slug }}</span>
-                <span class="group-cred-username mono">{{ cred.robotic_username }}</span>
-                <span class="badge badge-muted" title="Priorité multi-groupes">Prio {{ cred.priority }}</span>
-              </div>
-              <form method="post"
-                    action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete"
-                    class="group-cred-delete">
-                <button type="submit" class="btn btn-ghost btn-sm"
-                        data-confirm="Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?">
-                  Supprimer
-                </button>
-              </form>
-            </header>
 
-            <div class="group-cred-exclusions">
-              <div class="group-cred-exclusions-label">Membres qui utiliseront ce compte</div>
-              <ul class="group-cred-excl-chips">
-                {% for m in members if m.id and m.id not in excl_ids %}
-                <li class="group-cred-excl-chip">
-                  <a class="mono" href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ m.id }}">{{ m.username or m.email or m.id }}</a>
-                </li>
-                {% else %}
-                <li class="group-cred-excl-empty" style="list-style:none;border:0;background:transparent;padding:0;">Personne n’utilisera ce compte (tous exclus ou aucun membre).</li>
-                {% endfor %}
-              </ul>
-            </div>
-
-            <div class="group-cred-exclusions">
-              <div class="group-cred-exclusions-label">Exclusions</div>
-              {% if excl %}
-              <ul class="group-cred-excl-chips">
-                {% for e in excl %}
-                <li class="group-cred-excl-chip">
-                  <span class="mono">
-                    {% for m in members if m.id == e.keycloak_user_id %}
-                      {{ m.username or m.email or e.keycloak_user_id }}
+      {% if not vault_apps %}
+      <div class="alert alert-warn">Aucune application vault disponible.</div>
+      {% else %}
+      <div class="sa-card">
+        <div class="sa-search-row">
+          <label class="visually-hidden" for="sa-search">Rechercher un compte</label>
+          <input type="search" id="sa-search" class="form-input sa-search"
+                 placeholder="Rechercher application, compte, membre…"
+                 autocomplete="off">
+        </div>
+        <div class="table-wrap sa-table-wrap">
+          <table class="data-table sa-table" id="sa-table">
+            <thead>
+              <tr>
+                <th>Application</th>
+                <th>Compte</th>
+                <th>Priorité</th>
+                <th>Membres</th>
+                <th class="sa-col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for cred in group_credentials %}
+              {% set excl = cred.exclusions or [] %}
+              {% set excl_ids = excl | map(attribute='keycloak_user_id') | list %}
+              {% set app_obj = vault_apps | selectattr('slug', 'equalto', cred.app_slug) | first %}
+              {% set member_labels = [] %}
+              {% for m in members if m.id and m.id not in excl_ids %}
+                {% if member_labels.append(m.username or m.email or m.id) %}{% endif %}
+              {% endfor %}
+              <tr class="sa-row"
+                  data-sa-search="{{ cred.app_slug }} {{ app_obj.label if app_obj else '' }} {{ cred.robotic_username }} {{ member_labels | join(' ') }}">
+                <td>
+                  <div class="sa-app">
+                    {% if app_obj and app_obj.logo_path %}
+                    <img class="sa-app-icon" src="/media/app-logos/{{ app_obj.logo_path }}" alt="" width="24" height="24">
                     {% else %}
-                      {{ e.keycloak_user_id }}
+                    <span class="sa-app-icon sa-app-icon--fallback" aria-hidden="true">{{ (app_obj.label if app_obj else cred.app_slug)[:1] | upper }}</span>
+                    {% endif %}
+                    <div class="sa-app-text">
+                      <span class="sa-app-label">{{ app_obj.label if app_obj else cred.app_slug }}</span>
+                      <span class="sa-app-slug mono">{{ cred.app_slug }}</span>
+                    </div>
+                  </div>
+                </td>
+                <td class="mono sa-account">{{ cred.robotic_username }}</td>
+                <td>
+                  <span class="sa-prio-badge" title="Priorité multi-groupes">{{ cred.priority }}</span>
+                </td>
+                <td>
+                  {% if member_labels %}
+                  <div class="sa-avatars" title="{{ member_labels | join(', ') }}">
+                    {% for label in member_labels[:4] %}
+                    <span class="sa-avatar" aria-hidden="true">{{ label[:2] | upper }}</span>
                     {% endfor %}
+                    {% if member_labels | length > 4 %}
+                    <span class="sa-avatar sa-avatar--more">+{{ member_labels | length - 4 }}</span>
+                    {% endif %}
+                    <span class="sa-avatar-count">{{ member_labels | length }}</span>
+                  </div>
+                  {% else %}
+                  <span class="muted">0</span>
+                  {% endif %}
+                  {% if excl %}
+                  <span class="sa-excl-hint" title="{% for e in excl %}{% for m in members if m.id == e.keycloak_user_id %}{{ m.username or m.email }}{% else %}{{ e.keycloak_user_id }}{% endfor %}{% if not loop.last %}, {% endif %}{% endfor %}">
+                    {{ excl | length }} exclu{% if excl | length != 1 %}s{% endif %}
                   </span>
-                  <form method="post"
-                        action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/exclusions/{{ e.keycloak_user_id }}/delete">
-                    <button type="submit" class="btn btn-ghost btn-sm group-cred-excl-remove"
-                            data-confirm="Retirer cette exclusion ?"
-                            aria-label="Retirer l’exclusion"
-                            title="Retirer">×</button>
-                  </form>
-                </li>
-                {% endfor %}
-              </ul>
+                  {% endif %}
+                </td>
+                <td class="sa-col-actions">
+                  <div class="sa-row-actions">
+                    <button type="button" class="btn btn-ghost btn-sm"
+                            data-sa-modal-open="edit"
+                            data-cred-id="{{ cred.id }}"
+                            data-app-slug="{{ cred.app_slug }}"
+                            data-username="{{ cred.robotic_username }}"
+                            data-priority="{{ cred.priority }}"
+                            data-excl='[{% for e in excl %}"{{ e.keycloak_user_id }}"{% if not loop.last %},{% endif %}{% endfor %}]'>
+                      Éditer
+                    </button>
+                    <form method="post"
+                          action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete"
+                          class="inline-form">
+                      <button type="submit" class="btn btn-ghost btn-sm sa-btn-danger"
+                              data-confirm="Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?">
+                        Supprimer
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
               {% else %}
-              <p class="group-cred-excl-empty">Aucun membre exclu — tous les membres non exclus utilisent ce compte.</p>
-              {% endif %}
-
-              {% if members %}
-              <form method="post"
-                    action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/exclusions"
-                    class="group-cred-excl-add">
-                <label class="visually-hidden" for="excl-{{ cred.id }}">Exclure un membre</label>
-                <select id="excl-{{ cred.id }}" name="keycloak_user_id" class="form-select" required>
-                  <option value="">Exclure un membre…</option>
-                  {% for m in members if m.id %}
-                  <option value="{{ m.id }}">{{ m.username or m.email or m.id }}</option>
-                  {% endfor %}
-                </select>
-                <button type="submit" class="btn btn-ghost btn-sm">Exclure</button>
-              </form>
-              {% endif %}
-            </div>
-          </article>
-          {% endfor %}
-        {% else %}
-          <div class="empty-state" style="padding:var(--sp-4) 0;">
-            <div class="empty-desc" style="max-width:none;">Aucun compte partagé pour l’instant. Ajoutez-en un ci-dessous.</div>
-          </div>
-        {% endif %}
+              <tr class="sa-empty-row">
+                <td colspan="5">
+                  <div class="empty-desc" style="padding:var(--sp-5);">
+                    Aucun compte partagé. Utilisez « Ajouter un compte ».
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="sa-filter-empty" id="sa-filter-empty" hidden>Aucun compte ne correspond à la recherche.</p>
       </div>
+      {% endif %}
     </section>
 
     {% if vault_apps %}
-    <section class="form-section form-section-gap">
-      <div class="form-section-header">
-        <div>
-          <div class="form-section-title">Ajouter un compte partagé</div>
-          <div class="form-section-sub">Identifiants Crush / robotic communs aux membres du groupe</div>
+    <div id="sa-cred-modal" class="bastion-modal" hidden aria-hidden="true">
+      <div class="bastion-modal-backdrop" data-sa-modal-dismiss></div>
+      <div class="bastion-modal-dialog bastion-modal-dialog--form sa-modal-dialog"
+           role="dialog" aria-modal="true" aria-labelledby="sa-modal-title" tabindex="-1">
+        <div class="bastion-modal-header">
+          <h2 id="sa-modal-title" class="bastion-modal-title">Ajouter un compte partagé</h2>
         </div>
-      </div>
-      <form method="post" action="/admin/rbac/groups/{{ group.id }}/credentials">
-        <div class="form-body">
-          <div class="form-row">
+        <div class="bastion-modal-body">
+          <form id="sa-cred-form" method="post" action="/admin/rbac/groups/{{ group.id }}/credentials">
             <div class="form-group">
-              <label class="form-label" for="group-cred-app">Application <span class="req">*</span></label>
-              <select id="group-cred-app" name="app_slug" class="form-select" required>
+              <label class="form-label" for="sa-app">Application <span class="req">*</span></label>
+              <select id="sa-app" name="app_slug" class="form-select" required>
                 <option value="">Choisir…</option>
                 {% for a in vault_apps %}
-                <option value="{{ a.slug }}">{{ a.label }}</option>
+                <option value="{{ a.slug }}">{{ a.label }} ({{ a.slug }})</option>
                 {% endfor %}
               </select>
             </div>
-            <div class="form-group">
-              <label class="form-label" for="group-cred-prio">Priorité</label>
-              <input id="group-cred-prio" type="number" name="priority" class="form-input" value="100" step="1"
-                     title="Plus haute = retenue en cas de multi-groupes">
-              <p class="form-hint">Défaut 100. Plus haute priorité gagne si le membre est dans plusieurs groupes.</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" for="sa-user">Compte <span class="req">*</span></label>
+                <input id="sa-user" type="text" name="robotic_username" class="form-input" required
+                       autocomplete="off" placeholder="ex. sdis81">
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="sa-prio">
+                  Priorité
+                  <span class="sa-field-hint" title="Plus haute = retenue si le membre est dans plusieurs groupes">?</span>
+                </label>
+                <input id="sa-prio" type="number" name="priority" class="form-input" value="100" step="1">
+              </div>
             </div>
-          </div>
-          <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="group-cred-user">Compte <span class="req">*</span></label>
-              <input id="group-cred-user" type="text" name="robotic_username" class="form-input" required
-                     autocomplete="off" placeholder="ex. sdis81">
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="group-cred-pass">Mot de passe <span class="req">*</span></label>
-              <input id="group-cred-pass" type="password" name="password" class="form-input" required
+              <label class="form-label" for="sa-pass">
+                Mot de passe <span class="req" id="sa-pass-req">*</span>
+              </label>
+              <input id="sa-pass" type="password" name="password" class="form-input"
                      autocomplete="new-password">
+              <p class="form-hint" id="sa-pass-hint" hidden>Laisser vide pour conserver le mot de passe actuel.</p>
             </div>
+          </form>
+
+          <div id="sa-excl-panel" class="sa-excl-panel" hidden>
+            <div class="sa-excl-head">
+              <span class="sa-excl-title">Exclusions</span>
+              <span class="muted" style="font-size:var(--fs-xs);">Ces membres n’utilisent pas ce compte</span>
+            </div>
+            <ul id="sa-excl-chips" class="sa-chips"></ul>
+            <form id="sa-excl-add-form" method="post" class="sa-excl-add">
+              <label class="visually-hidden" for="sa-excl-select">Exclure un membre</label>
+              <select id="sa-excl-select" name="keycloak_user_id" class="form-select" required>
+                <option value="">Exclure un membre…</option>
+                {% for m in members if m.id %}
+                <option value="{{ m.id }}" data-label="{{ m.username or m.email or m.id }}">{{ m.username or m.email or m.id }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="btn btn-ghost btn-sm">Exclure</button>
+            </form>
           </div>
         </div>
-        <div class="form-footer">
-          <button type="submit" class="btn btn-primary">Enregistrer le compte</button>
+        <div class="bastion-modal-footer">
+          <button type="button" class="btn btn-ghost" data-sa-modal-dismiss>Annuler</button>
+          <button type="submit" form="sa-cred-form" class="btn btn-primary" id="sa-cred-submit">Enregistrer</button>
         </div>
-      </form>
-    </section>
-    {% else %}
-    <div class="alert alert-warn" style="margin-top:var(--sp-4);">Aucune application vault disponible.</div>
+      </div>
+    </div>
     {% endif %}
   </div>
 
@@ -285,6 +333,159 @@
   var hash = (location.hash || '#membres').replace(/^#/, '');
   if (!document.querySelector('[data-panel="' + hash + '"]')) hash = 'membres';
   activate(hash);
+
+  /* Shared accounts — search + modal */
+  var groupId = {{ group.id }};
+  var search = document.getElementById('sa-search');
+  var filterEmpty = document.getElementById('sa-filter-empty');
+  if (search) {
+    search.addEventListener('input', function () {
+      var q = (search.value || '').trim().toLowerCase();
+      var rows = document.querySelectorAll('#sa-table tbody .sa-row');
+      var visible = 0;
+      rows.forEach(function (row) {
+        var hay = (row.getAttribute('data-sa-search') || '').toLowerCase();
+        var show = !q || hay.indexOf(q) !== -1;
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      if (filterEmpty) filterEmpty.hidden = visible !== 0 || !q;
+    });
+  }
+
+  var modal = document.getElementById('sa-cred-modal');
+  if (!modal) return;
+  var form = document.getElementById('sa-cred-form');
+  var titleEl = document.getElementById('sa-modal-title');
+  var appSelect = document.getElementById('sa-app');
+  var userInput = document.getElementById('sa-user');
+  var prioInput = document.getElementById('sa-prio');
+  var passInput = document.getElementById('sa-pass');
+  var passReq = document.getElementById('sa-pass-req');
+  var passHint = document.getElementById('sa-pass-hint');
+  var exclPanel = document.getElementById('sa-excl-panel');
+  var exclChips = document.getElementById('sa-excl-chips');
+  var exclAddForm = document.getElementById('sa-excl-add-form');
+  var exclSelect = document.getElementById('sa-excl-select');
+  var memberOpts = exclSelect
+    ? Array.prototype.map.call(exclSelect.options, function (o) {
+        return { id: o.value, label: o.getAttribute('data-label') || o.textContent };
+      }).filter(function (o) { return o.id; })
+    : [];
+
+  function openModal() {
+    modal.hidden = false;
+    modal.setAttribute('aria-hidden', 'false');
+    modal.classList.add('is-open');
+    document.body.classList.add('bastion-modal-open');
+    var focusEl = modal.querySelector('select:not([disabled]), input:not([disabled]), button');
+    if (focusEl) focusEl.focus();
+  }
+  function closeModal() {
+    modal.hidden = true;
+    modal.setAttribute('aria-hidden', 'true');
+    modal.classList.remove('is-open');
+    document.body.classList.remove('bastion-modal-open');
+  }
+
+  function renderExclChips(credId, exclIds) {
+    if (!exclChips) return;
+    exclChips.innerHTML = '';
+    (exclIds || []).forEach(function (uid) {
+      var label = uid;
+      memberOpts.forEach(function (m) {
+        if (m.id === uid) label = m.label;
+      });
+      var li = document.createElement('li');
+      li.className = 'sa-chip';
+      var span = document.createElement('span');
+      span.className = 'mono';
+      span.textContent = label;
+      li.appendChild(span);
+      var f = document.createElement('form');
+      f.method = 'post';
+      f.action = '/admin/rbac/groups/' + groupId + '/credentials/' + credId +
+        '/exclusions/' + encodeURIComponent(uid) + '/delete';
+      var btn = document.createElement('button');
+      btn.type = 'submit';
+      btn.className = 'btn btn-ghost btn-sm sa-chip-remove';
+      btn.setAttribute('data-confirm', 'Retirer cette exclusion ?');
+      btn.setAttribute('aria-label', 'Retirer');
+      btn.textContent = '×';
+      f.appendChild(btn);
+      li.appendChild(f);
+      exclChips.appendChild(li);
+    });
+    if (!(exclIds || []).length) {
+      var empty = document.createElement('li');
+      empty.className = 'sa-chip-empty';
+      empty.textContent = 'Aucun membre exclu';
+      exclChips.appendChild(empty);
+    }
+  }
+
+  function setupAdd() {
+    titleEl.textContent = 'Ajouter un compte partagé';
+    form.reset();
+    appSelect.disabled = false;
+    var mirror = form.querySelector('input[name="app_slug"][data-sa-mirror]');
+    if (mirror) mirror.remove();
+    passInput.required = true;
+    if (passReq) passReq.hidden = false;
+    if (passHint) passHint.hidden = true;
+    if (exclPanel) exclPanel.hidden = true;
+    if (prioInput) prioInput.value = '100';
+  }
+
+  function setupEdit(btn) {
+    var credId = btn.getAttribute('data-cred-id');
+    var excl = [];
+    try { excl = JSON.parse(btn.getAttribute('data-excl') || '[]'); } catch (e) { excl = []; }
+    titleEl.textContent = 'Éditer le compte partagé';
+    form.reset();
+    appSelect.value = btn.getAttribute('data-app-slug') || '';
+    appSelect.disabled = true;
+    // Disabled fields are not submitted — mirror into a hidden if needed
+    var hiddenApp = form.querySelector('input[name="app_slug"][data-sa-mirror]');
+    if (!hiddenApp) {
+      hiddenApp = document.createElement('input');
+      hiddenApp.type = 'hidden';
+      hiddenApp.name = 'app_slug';
+      hiddenApp.setAttribute('data-sa-mirror', '1');
+      form.appendChild(hiddenApp);
+    }
+    hiddenApp.value = appSelect.value;
+    userInput.value = btn.getAttribute('data-username') || '';
+    prioInput.value = btn.getAttribute('data-priority') || '100';
+    passInput.value = '';
+    passInput.required = false;
+    if (passReq) passReq.hidden = true;
+    if (passHint) passHint.hidden = false;
+    if (exclPanel) {
+      exclPanel.hidden = false;
+      exclAddForm.action = '/admin/rbac/groups/' + groupId + '/credentials/' + credId + '/exclusions';
+      renderExclChips(credId, excl);
+      Array.prototype.forEach.call(exclSelect.options, function (o) {
+        if (!o.value) return;
+        o.hidden = excl.indexOf(o.value) !== -1;
+      });
+    }
+  }
+
+  document.querySelectorAll('[data-sa-modal-open]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var mode = btn.getAttribute('data-sa-modal-open');
+      if (mode === 'edit') setupEdit(btn);
+      else setupAdd();
+      openModal();
+    });
+  });
+  modal.querySelectorAll('[data-sa-modal-dismiss]').forEach(function (el) {
+    el.addEventListener('click', closeModal);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && modal.classList.contains('is-open')) closeModal();
+  });
 })();
 </script>
 {% endblock %}

@@ -312,7 +312,7 @@ server {
         # Default post-login home is /apps (end-user portal). /dashboard is admin-only
         # and must not be baked into OIDC state for ARSYSTEMS-Users.
         set $portal_login_rd /apps;
-        if ($uri ~ ^/admin) {
+        if ($uri ~ ^/(admin|dashboard)) {
             set $portal_login_rd $uri;
         }
         return 302 /auth/login?rd=$portal_login_rd;
@@ -381,6 +381,35 @@ server {
         # Soft navigation must not reuse a cached ModSec/auth 403 (Ctrl+F5 workaround).
         add_header Cache-Control "no-store" always;
         # Control plane: SSO still required; CRS must not lock admins out of WAF IHM.
+        modsecurity off;
+
+        auth_request_set $auth_user      $upstream_http_x_auth_request_user;
+        auth_request_set $auth_email     $upstream_http_x_auth_request_email;
+        auth_request_set $auth_groups    $upstream_http_x_auth_request_groups;
+        auth_request_set $auth_preferred $upstream_http_x_auth_request_preferred_username;
+
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        proxy_pass http://$bastion_app_upstream;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+
+        proxy_set_header X-User $auth_preferred;
+        proxy_set_header X-User-Id $auth_user;
+        proxy_set_header X-Email $auth_email;
+        proxy_set_header X-Groups $auth_groups;
+        proxy_set_header X-Preferred-Username $auth_preferred;
+        proxy_set_header X-Portal-Realm-Slug $cookie_portal_realm_slug;
+        proxy_set_header X-Portal-Auth-Source $portal_x_auth_source;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+    }
+
+    # Admin home lives at /dashboard (not under /admin). Without this, CRS On on
+    # location / returns bare nginx 403 while /admin/* stays reachable — classic
+    # "WAF IHM OK, dashboard mort" after Appliquer Inspection ACTIVE.
+    location = /dashboard {
+        limit_req zone=portal_api burst=60 nodelay;
+        auth_request /portal_auth_check;
+        error_page 401 = @portal_oauth2_signin;
+        add_header Cache-Control "no-store" always;
         modsecurity off;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
