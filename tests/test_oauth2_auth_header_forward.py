@@ -276,6 +276,7 @@ def test_oauth2_auth_bastion_session_alone_valid(client, db_session):
     assert resp.headers.get("x-auth-request-preferred-username") == "alice@example.com"
     assert resp.headers.get("x-auth-request-email") == "alice@example.com"
     assert resp.headers.get("x-auth-request-groups") == "ARSYSTEMS-Users,portal-admins"
+    assert resp.headers.get("x-auth-request-realm") == "ar-systems"
 
 
 @respx.mock

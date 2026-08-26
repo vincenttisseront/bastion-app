@@ -26,8 +26,9 @@ router = APIRouter()
 #   $upstream_http_x_auth_request_email
 #   $upstream_http_x_auth_request_groups
 #   $upstream_http_x_auth_request_preferred_username
+#   $upstream_http_x_auth_request_realm
 # Whitelist by prefix — never relay Set-Cookie or other oauth2-proxy headers.
-# Native bastion_session must emit the same set (incl. groups) for AccessGrant parity.
+# Native bastion_session must emit the same set (incl. groups + realm) for AccessGrant parity.
 _AUTH_REQUEST_HEADER_PREFIX = "x-auth-request-"
 
 
@@ -185,6 +186,10 @@ def _native_oidc_auth_response(
         headers["X-Auth-Request-Email"] = username
     if claims.groups:
         headers["X-Auth-Request-Groups"] = ",".join(claims.groups)
+    realm = (claims.realm or "").strip()
+    if realm:
+        # Cookie portal_realm_slug was retired — realm lives in bastion_session JWT.
+        headers["X-Auth-Request-Realm"] = realm
     return Response(status_code=200, headers=headers)
 
 
@@ -213,9 +218,12 @@ async def _oauth2_proxy_auth_response(
             )
         # Preserve oauth2-proxy status (often 202 Accepted on success with set_xauthrequest).
         # Forward identity headers so Nginx auth_request_set can inject X-User / X-Email / …
+        headers = _forward_auth_request_headers(resp.headers)
+        if realm_slug and "X-Auth-Request-Realm" not in headers:
+            headers["X-Auth-Request-Realm"] = realm_slug
         return Response(
             status_code=resp.status_code,
-            headers=_forward_auth_request_headers(resp.headers),
+            headers=headers,
         )
     except httpx.RequestError:
         return Response(status_code=503)
