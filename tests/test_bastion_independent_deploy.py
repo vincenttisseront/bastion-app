@@ -67,6 +67,21 @@ def test_nginx_worker_fd_limits_above_default():
     assert "ulimits:" in compose
     assert "nofile:" in compose
     assert "65535" in compose
+
+
+def test_nginx_portal_realm_map_prefers_auth_request():
+    conf = (ROOT / "docker" / "nginx" / "nginx.conf").read_text(encoding="utf-8")
+    assert "nginx-portal-realm.map.conf" in conf
+    mapping = (
+        ROOT / "docker" / "nginx" / "includes" / "nginx-portal-realm.map.conf"
+    ).read_text(encoding="utf-8")
+    assert "map $auth_realm $portal_x_realm_slug" in mapping
+    portal = (
+        ROOT / "docker" / "nginx" / "templates" / "vhost_sso_portal.conf.template"
+    ).read_text(encoding="utf-8")
+    assert "auth_request_set $auth_realm" in portal
+    assert "X-Portal-Realm-Slug $portal_x_realm_slug" in portal
+    assert "X-Portal-Realm-Slug $cookie_portal_realm_slug" not in portal
     entry = (ROOT / "docker" / "nginx" / "docker-entrypoint.sh").read_text(
         encoding="utf-8"
     )

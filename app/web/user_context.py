@@ -163,6 +163,47 @@ def is_breakglass_email(email: str | None) -> bool:
     return text.endswith(f"@{BREAKGLASS_EMAIL_DOMAIN}")
 
 
+def _realm_from_bastion_session(
+    request: Request,
+    settings: Settings,
+    db: Session | None,
+) -> str:
+    """Realm claim from native ``bastion_session`` JWT (cookie portal_realm_slug retired)."""
+    if db is None:
+        return ""
+    try:
+        from app.auth import extract_oidc_session_cookie_raw
+        from app.oidc_bff import validate_oidc_session_cookie
+    except Exception:
+        return ""
+    raw = extract_oidc_session_cookie_raw(request, settings)
+    if not raw:
+        return ""
+    claims = validate_oidc_session_cookie(raw, db=db, settings=settings)
+    if claims is None:
+        return ""
+    return (claims.realm or "").strip()
+
+
+def _resolve_portal_realm_slug(
+    request: Request,
+    settings: Settings,
+    db: Session | None,
+) -> str:
+    """Prefer non-empty nginx header, then JWT realm, then portal default.
+
+    Empty ``X-Portal-Realm-Slug`` (missing ``portal_realm_slug`` cookie) must not
+    win over the default via ``dict.get`` — nginx always sends the header.
+    """
+    header = (request.headers.get("X-Portal-Realm-Slug") or "").strip()
+    if header:
+        return header
+    from_jwt = _realm_from_bastion_session(request, settings, db)
+    if from_jwt:
+        return from_jwt
+    return (settings.sso_portal_default_realm_slug or "").strip() or "ar-systems"
+
+
 def get_user_context(
     request: Request,
     settings: Settings | None = None,
@@ -177,9 +218,7 @@ def get_user_context(
     # Prefer explicit subject UUID when Nginx/oauth2-proxy forwards it.
     keycloak_user_id = request.headers.get("X-User-Id", "").strip() or None
     groups = _parse_groups(request.headers.get("X-Groups"))
-    realm_slug = request.headers.get(
-        "X-Portal-Realm-Slug", settings.sso_portal_default_realm_slug
-    )
+    realm_slug = _resolve_portal_realm_slug(request, settings, db)
     auth_source = request.headers.get("X-Portal-Auth-Source", "sso")
     given_name = (
         request.headers.get("X-Given-Name", "").strip()

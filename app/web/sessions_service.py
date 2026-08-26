@@ -313,6 +313,33 @@ def _portal_session_id(email: str, realm: str) -> str:
     return f"portal:{email.lower()}:{realm}"
 
 
+def _drop_misattributed_default_portal_row(
+    db: Session,
+    *,
+    email: str,
+    correct_realm: str,
+    keep_id: str,
+) -> None:
+    """Remove portal registry row stamped with the default realm when the real one differs.
+
+    Happened when ``portal_realm_slug`` cookie was absent and every native OIDC
+    session was keyed as ``ar-systems``.
+    """
+    default = (get_settings().sso_portal_default_realm_slug or "ar-systems").strip()
+    correct = (correct_realm or "").strip()
+    if not correct or correct == default:
+        return
+    wrong_id = _portal_session_id(email, default)
+    if wrong_id == keep_id:
+        return
+    legacy = db.query(ActiveSession).filter_by(id=wrong_id).first()
+    if legacy is None:
+        return
+    if legacy.kind != KIND_USER or (legacy.target or "") != "portal":
+        return
+    db.delete(legacy)
+
+
 def _app_session_id(email: str, slug: str) -> str:
     return f"app:{email.lower()}:{slug}"
 
@@ -627,6 +654,11 @@ def _touch_portal_session(
     row = db.query(ActiveSession).filter_by(id=session_id).first()
     is_new = row is None
     if is_new:
+        # Drop mis-keyed portal row under the default realm when JWT/header
+        # now reports the real IdP realm (legacy empty portal_realm_slug cookie).
+        _drop_misattributed_default_portal_row(
+            db, email=email, correct_realm=realm, keep_id=session_id
+        )
         row = ActiveSession(
             id=session_id,
             kind=KIND_USER,
