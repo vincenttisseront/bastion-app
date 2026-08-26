@@ -283,3 +283,30 @@ def test_individual_required_exclusion_still_needs_setup(db_session: Session):
         )
         is True
     )
+
+
+def test_set_group_credential_keeps_password_when_blank_on_update(db_session: Session):
+    _make_app(db_session)
+    group = _make_group(db_session)
+    settings = _settings()
+    cred = set_group_credential(
+        db_session,
+        rbac_group_id=group.id,
+        app_slug="transfer",
+        robotic_username="sdis81-generic",
+        plain_password=SECRET_GROUP,
+        settings=settings,
+    )
+    old_cipher = cred.encrypted_password
+    updated = set_group_credential(
+        db_session,
+        rbac_group_id=group.id,
+        app_slug="transfer",
+        robotic_username="sdis81-renamed",
+        plain_password="",
+        settings=settings,
+        priority=50,
+    )
+    assert updated.robotic_username == "sdis81-renamed"
+    assert updated.priority == 50
+    assert updated.encrypted_password == old_cipher

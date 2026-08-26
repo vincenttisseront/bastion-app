@@ -62,24 +62,25 @@ def set_group_credential(
     rbac_group_id: int,
     app_slug: str,
     robotic_username: str,
-    plain_password: str,
+    plain_password: str | None,
     settings: Settings,
     priority: int = 100,
     actor: str = "system",
     ip_address: str | None = None,
 ) -> GroupAppCredential:
-    """Create or update the group shared credential for one app."""
+    """Create or update the group shared credential for one app.
+
+    On update, an empty ``plain_password`` keeps the existing ciphertext.
+    """
     _require_encryption(settings)
     slug = (app_slug or "").strip()
     username = (robotic_username or "").strip()
+    password = (plain_password or "").strip()
     if not slug:
         raise VaultError("Application requise")
     if not username:
         raise VaultError("Nom d'utilisateur robotic requis")
-    if not (plain_password or "").strip():
-        raise VaultError("Mot de passe requis")
 
-    ciphertext = encrypt_secret(plain_password, settings)
     now = utcnow()
     cred = (
         db.query(GroupAppCredential)
@@ -87,6 +88,9 @@ def set_group_credential(
         .first()
     )
     if cred is None:
+        if not password:
+            raise VaultError("Mot de passe requis")
+        ciphertext = encrypt_secret(password, settings)
         cred = GroupAppCredential(
             rbac_group_id=rbac_group_id,
             app_slug=slug,
@@ -100,11 +104,12 @@ def set_group_credential(
         db.add(cred)
     else:
         cred.robotic_username = username
-        cred.encrypted_password = ciphertext
         cred.priority = int(priority)
         cred.is_active = True
         cred.updated_at = now
-        cred.rotated_at = now
+        if password:
+            cred.encrypted_password = encrypt_secret(password, settings)
+            cred.rotated_at = now
     db.commit()
     db.refresh(cred)
     log_action(
@@ -117,6 +122,7 @@ def set_group_credential(
             "app_slug": slug,
             "robotic_username": username,
             "priority": int(priority),
+            "password_rotated": bool(password),
         },
         ip_address=ip_address,
     )

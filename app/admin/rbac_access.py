@@ -330,7 +330,7 @@ async def admin_rbac_group_credential_set(
     user=Depends(require_admin),
     app_slug: str = Form(...),
     robotic_username: str = Form(...),
-    password: str = Form(...),
+    password: str = Form(""),
     priority: int = Form(100),
 ):
     group, _realm = _realm_for_group(db, group_id)
