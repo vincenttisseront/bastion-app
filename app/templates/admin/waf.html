@@ -69,6 +69,15 @@
 
 
 
+  {% if v.level in ('active',) and not v.action_label %}
+  <div class="waf-status-chip-row" role="status">
+    <span class="waf-status-chip waf-status-chip--ok" title="{{ v.message }}">
+      <span class="waf-status-chip-dot"></span>
+      {{ v.title }}
+    </span>
+    {% if v.message %}<span class="waf-status-chip-hint">{{ v.message }}</span>{% endif %}
+  </div>
+  {% else %}
   <div class="waf-status-strip alert {{ v.css }}" role="status">
     <div class="waf-status-strip-main">
       <span class="waf-status-strip-title">{{ v.title }}</span>
@@ -89,6 +98,7 @@
     {% if v.resolution %}{{ v.resolution }}{% endif %}
     {% if v.action_hint %}<span class="muted">{% if v.resolution %} · {% endif %}{{ v.action_hint }}</span>{% endif %}
   </p>
+  {% endif %}
   {% endif %}
 
 
@@ -170,10 +180,9 @@
         {% if efficiency.resolution %}<p class="waf-dash-notice-hint">{{ efficiency.resolution }}</p>{% endif %}
       </div>
       {% elif efficiency.status == 'measured_zero' %}
-      <div class="waf-dash-notice waf-dash-notice--zero">
-        <strong>Mesure effectuée — résultat nul</strong>
-        <p>{{ efficiency.zero_explanation }}</p>
-      </div>
+      <p class="waf-kpi-quiet" title="{{ efficiency.zero_explanation or '' }}">
+        24 h · aucune activité CRS enregistrée
+      </p>
       {% endif %}
 
       <div class="waf-dash-grid">
@@ -211,7 +220,7 @@
         </div>
 
         {% if efficiency_7d.present %}
-        <div class="waf-dash-card waf-dash-card--chart waf-dash-card--wide">
+        <div class="waf-dash-card waf-dash-card--chart waf-dash-card--daily">
           <div class="waf-chart-slot">{{ visuals.detections_daily_svg | safe }}</div>
           <p class="waf-dash-footnote">7 j · {{ efficiency_7d.inspected }} inspectées · {{ efficiency_7d.detections }} détections · {{ efficiency_7d.blocks }} blocages</p>
         </div>
@@ -220,64 +229,51 @@
 
       {% if ac.present %}
       <div class="waf-attack-controls">
-        <div class="waf-dash-card">
+        <div class="waf-dash-card waf-dash-card--attacks">
           <div class="waf-dash-card-header">
             <h3 class="waf-dash-card-title">Attaques récentes</h3>
             <span class="waf-dash-card-meta">journal audit</span>
           </div>
-          <div class="data-table-wrapper">
-            <table class="data-table waf-attack-table">
-              <thead>
-                <tr>
-                  <th>Heure</th>
-                  <th>IP</th>
-                  <th>Hôte</th>
-                  <th>URI</th>
-                  <th>Famille</th>
-                  <th>Règle</th>
-                  <th>État</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for a in ac.recent %}
-                <tr class="{% if a.critical %}waf-attack-critical{% endif %}">
-                  <td class="mono">{{ a.timestamp }}</td>
-                  <td class="mono">{{ a.client_ip }}</td>
-                  <td class="mono">{{ a.host }}</td>
-                  <td class="mono" title="{{ a.uri }}">{{ a.uri }}</td>
-                  <td>{% for f in a.families %}<span class="badge badge-muted">{{ f }}</span> {% else %}—{% endfor %}</td>
-                  <td class="mono">{{ a.rule_id }}</td>
-                  <td>{% if a.blocked %}<span class="badge badge-err">bloqué</span>{% else %}<span class="badge badge-warn">détecté</span>{% endif %}</td>
-                  <td class="waf-attack-actions">
-                    {% if a.banned %}
-                    <span class="badge badge-ok">banni</span>
-                    {% elif a.can_ban %}
-                    <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form">
-                      <input type="hidden" name="ip" value="{{ a.client_ip }}">
-                      <input type="hidden" name="ban_mode" value="temporary">
-                      <input type="hidden" name="ban_minutes" value="1440">
-                      <input type="hidden" name="reason" value="WAF détection {{ a.families|join('/') if a.families else a.rule_id }} — {{ a.host }}{{ a.uri }}">
-                      <button type="submit" class="btn btn-ghost btn-sm" title="Bannir 24 h">Bannir 24h</button>
-                    </form>
-                    {% endif %}
-                    {% if a.can_exclude %}
-                    <form method="post" action="/admin/security/waf/actions/exclude-rule" class="inline-form waf-action-form">
-                      <input type="hidden" name="crs_rule_id" value="{{ a.rule_id }}">
-                      <input type="hidden" name="host" value="{{ a.host if a.host != '—' else '' }}">
-                      <input type="hidden" name="uri_pattern" value="{{ a.uri if a.uri != '—' else '' }}">
-                      <input type="hidden" name="reason" value="Faux positif — exclusion depuis bilan WAF">
-                      <button type="submit" class="btn btn-ghost btn-sm" title="Exclure cette règle CRS (hôte/URI)">Exclure règle</button>
-                    </form>
-                    {% endif %}
-                  </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="8" class="muted">Aucune détection récente.</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
+          <ul class="waf-attack-list">
+            {% for a in ac.recent %}
+            <li class="waf-attack-row{% if a.critical %} waf-attack-row--critical{% endif %}">
+              <div class="waf-attack-row-main">
+                <time class="waf-attack-time mono" datetime="{{ a.timestamp }}">{{ a.timestamp }}</time>
+                {% if a.blocked %}<span class="badge badge-err">bloqué</span>{% else %}<span class="badge badge-warn">détecté</span>{% endif %}
+                {% for f in a.families %}<span class="badge badge-muted">{{ f }}</span>{% endfor %}
+                <span class="waf-attack-ip mono">{{ a.client_ip }}</span>
+              </div>
+              <div class="waf-attack-row-path">
+                <span class="mono" title="{{ a.host }}{{ a.uri }}">{{ a.host }}{{ a.uri }}</span>
+                <span class="waf-attack-rule mono">règle {{ a.rule_id }}</span>
+              </div>
+              <div class="waf-attack-actions">
+                {% if a.banned %}
+                <span class="badge badge-ok">banni</span>
+                {% elif a.can_ban %}
+                <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form">
+                  <input type="hidden" name="ip" value="{{ a.client_ip }}">
+                  <input type="hidden" name="ban_mode" value="temporary">
+                  <input type="hidden" name="ban_minutes" value="1440">
+                  <input type="hidden" name="reason" value="WAF détection {{ a.families|join('/') if a.families else a.rule_id }} — {{ a.host }}{{ a.uri }}">
+                  <button type="submit" class="btn btn-ghost btn-sm" title="Bannir 24 h">Bannir 24h</button>
+                </form>
+                {% endif %}
+                {% if a.can_exclude %}
+                <form method="post" action="/admin/security/waf/actions/exclude-rule" class="inline-form waf-action-form">
+                  <input type="hidden" name="crs_rule_id" value="{{ a.rule_id }}">
+                  <input type="hidden" name="host" value="{{ a.host if a.host != '—' else '' }}">
+                  <input type="hidden" name="uri_pattern" value="{{ a.uri if a.uri != '—' else '' }}">
+                  <input type="hidden" name="reason" value="Faux positif — exclusion depuis bilan WAF">
+                  <button type="submit" class="btn btn-ghost btn-sm" title="Exclure cette règle CRS (hôte/URI)">Exclure</button>
+                </form>
+                {% endif %}
+              </div>
+            </li>
+            {% else %}
+            <li class="waf-attack-empty muted">Aucune détection récente.</li>
+            {% endfor %}
+          </ul>
           {% if ac.critical_recent %}
           <p class="waf-dash-footnote">{{ ac.critical_recent|length }} critique(s) dans les événements récents (SQLi / XSS / RCE / LFI). Bannir pousse vers SecurityBan ; deny nginx après <strong>Appliquer</strong> si permanent ou seuil d’occurrences.</p>
           {% endif %}
