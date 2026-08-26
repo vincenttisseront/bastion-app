@@ -235,6 +235,109 @@ def test_keycloak_logout_success_calls_exact_endpoint(client, db_session: Sessio
 
 
 @respx.mock
+def test_disconnect_kc_user_missing_still_clears_native_and_portal(
+    client, db_session: Session
+):
+    """Even when Keycloak lookup fails, disconnect must revoke bastion_session + drop portal rows."""
+    from datetime import timedelta
+
+    from app.models import OidcSession
+
+    settings = _test_settings()
+    realm = _make_realm(db_session, settings)
+    now = datetime.now(timezone.utc)
+    email = "l.guyot@bastia.aeroport.fr"
+
+    db_session.add(
+        ActiveSession(
+            id="portal-guyot",
+            kind="user",
+            user_email=email,
+            username="l.guyot",
+            realm=realm.slug,
+            protocol="OIDC",
+            target="portal",
+            status="active",
+            started_at=now,
+            last_seen_at=now,
+        )
+    )
+    db_session.add(
+        OidcSession(
+            jti="jti-guyot-1",
+            sub="kc-sub-guyot",
+            username=email,
+            realm=realm.slug,
+            issued_at=now,
+            expires_at=now + timedelta(hours=8),
+            revoked=False,
+        )
+    )
+    db_session.commit()
+
+    token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
+    respx.post(token_url).respond(
+        200, json={"access_token": "t"}, headers={"content-type": "application/json"}
+    )
+    # fetch by id (email as path) → 404; exact email/username → []; search → []
+    respx.get(url__regex=r".*/admin/realms/demo/users.*").respond(200, json=[])
+    respx.get(
+        f"https://kc.example.com/admin/realms/demo/users/{email}"
+    ).respond(404)
+
+    resp = client.post(
+        f"/admin/users/{email}/sessions/disconnect?realm_id={realm.id}",
+        headers={**ADMIN_HEADERS, "accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["sso"]["ok"] is False
+    assert "introuvable" in body["sso"]["error"].lower()
+    assert body["sso"]["native_oidc_revoked"] >= 1
+    assert body["sso"]["portal_rows_removed"] >= 1
+
+    oidc = db_session.query(OidcSession).filter_by(jti="jti-guyot-1").one()
+    assert oidc.revoked is True
+    assert oidc.revoked_reason == "admin_disconnect"
+    assert (
+        db_session.query(ActiveSession).filter_by(id="portal-guyot").first() is None
+    )
+
+
+@respx.mock
+def test_revoke_sso_exact_email_lookup(client, db_session: Session):
+    settings = _test_settings()
+    realm = _make_realm(db_session, settings)
+    email = "alice@example.com"
+
+    token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
+    respx.post(token_url).respond(
+        200, json={"access_token": "t"}, headers={"content-type": "application/json"}
+    )
+    # UUID fetch of email string → 404
+    respx.get(
+        f"https://kc.example.com/admin/realms/demo/users/{email}"
+    ).respond(404)
+    respx.get(
+        url__regex=r".*/admin/realms/demo/users\?email=.*exact=true.*"
+    ).respond(
+        200,
+        json=[{"id": "kc-alice", "username": "alice", "email": email}],
+    )
+    logout_route = respx.post(
+        "https://kc.example.com/admin/realms/demo/users/kc-alice/logout"
+    ).respond(204)
+
+    resp = client.post(
+        f"/admin/users/{email}/sessions/revoke-sso?realm_id={realm.id}",
+        headers={**ADMIN_HEADERS, "accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert logout_route.called
+
+
+@respx.mock
 def test_disconnect_revoke_all_ok_keycloak_logout_fail_separate_results(
     client, db_session: Session
 ):

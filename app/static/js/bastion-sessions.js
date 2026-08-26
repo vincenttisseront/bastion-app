@@ -714,7 +714,7 @@
     if (isAdmin && g.show_disconnect !== false && (g.has_oidc || g.has_app)) {
       disconnectBtn =
         '<button type="button" class="btn btn-danger btn-sm" ' +
-        'title="Révoque sessions robotic/vault + logout Keycloak. Hors break-glass. Délai résiduel cookie ~1h possible." ' +
+        'title="Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible." ' +
         'data-session-action="disconnect-user" data-user-email="' +
         escapeHtml(g.user_email) +
         '" data-realm="' +
@@ -796,8 +796,9 @@
       ? await window.bastionConfirm({
           title: 'Déconnecter cet utilisateur ?',
           message:
-            'Révoque les sessions robotic/vault puis logout Keycloak Admin. ' +
-            'Le break-glass n’est pas concerné. Le cookie portail peut rester ' +
+            'Révoque les sessions robotic/vault, la session native portail ' +
+            '(bastion_session) et demande le logout Keycloak. Le break-glass ' +
+            'n’est pas concerné. Un éventuel cookie oauth2-proxy peut rester ' +
             'valide jusqu’à ~1 h (cookie_refresh).',
           confirmLabel: 'Déconnecter',
           danger: true,
@@ -845,6 +846,20 @@
       var ssoLine = sso.ok
         ? 'SSO Keycloak : logout OK'
         : 'SSO Keycloak : échec — ' + (sso.error || data.error || 'erreur');
+      var localBits = [];
+      if (sso.native_oidc_revoked != null) {
+        localBits.push(
+          'JWT natif : ' + (sso.native_oidc_revoked || 0) + ' révoqué(s)'
+        );
+      }
+      if (sso.portal_rows_removed != null) {
+        localBits.push(
+          'registre portail : ' + (sso.portal_rows_removed || 0) + ' retiré(s)'
+        );
+      }
+      var localLine = localBits.length
+        ? '<div style="margin-top:8px;">' + escapeHtml(localBits.join(' · ')) + '</div>'
+        : '';
       var residual = sso.residual_note
         ? '<p class="form-hint" style="margin-top:8px;">' +
           escapeHtml(sso.residual_note) +
@@ -859,6 +874,7 @@
           '</div><div style="margin-top:8px;">' +
           escapeHtml(ssoLine) +
           '</div>' +
+          localLine +
           residual +
           '</div>';
       }

@@ -59,9 +59,10 @@ USER_CONFLICT_MESSAGE = "Un compte avec cet identifiant existe déjà dans ce re
 # Residual window after Admin API logout: oauth2-proxy keeps its local cookie until
 # cookie_refresh (~1h) or an active revalidation. Documented for UI honesty.
 SSO_LOGOUT_RESIDUAL_NOTE = (
-    "Sessions Keycloak invalidées côté IdP. Le cookie oauth2-proxy local peut rester "
-    "valide jusqu'au prochain refresh (cookie_refresh ≈ 1 h avec la config actuelle) "
-    "ou jusqu'à une revalidation active — la coupure portail n'est pas instantanée."
+    "Sessions Keycloak invalidées côté IdP ; session native bastion_session "
+    "révoquée immédiatement. Si l'utilisateur était encore sur oauth2-proxy, "
+    "le cookie local peut rester valide jusqu'au prochain refresh "
+    "(cookie_refresh ≈ 1 h) ou jusqu'à une revalidation active."
 )
 
 
