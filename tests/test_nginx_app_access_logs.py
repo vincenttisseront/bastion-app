@@ -62,6 +62,17 @@ def test_app_access_logs_tab_lists_apps(client, db_session, tmp_path, monkeypatc
         assert "Accès apps" in page.text
         assert "overseerr" in page.text
         assert 'id="app-access-table"' in page.text
+        # Panels must be siblings — nesting app-access/containers inside #audit
+        # hides them when the Audit tab sets hidden on the parent.
+        audit_open = page.text.index('id="audit"')
+        audit_close_marker = 'id="app-access"'
+        app_open = page.text.index(audit_close_marker)
+        assert audit_open < app_open
+        between = page.text[audit_open:app_open]
+        # The audit panel must close before app-access opens (not nest it).
+        assert between.rstrip().endswith("</div>") or "</div>" in between[-80:]
+        # Crude: count logs-panel opens before app-access — only audit
+        assert between.count('class="logs-panel"') == 1
 
         resp = client.get(
             "/admin/logs/apps/overseerr/access",
