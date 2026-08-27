@@ -1248,6 +1248,57 @@ def admin_apps_list(
     )
 
 
+@admin_router.post("/admin/apps/{slug}/delete")
+def admin_apps_delete(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Hard-delete an application (grants, vault credentials, devices, nginx export)."""
+    from app.admin.app_delete import purge_application
+
+    app = db.query(App).filter_by(slug=slug).first()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application introuvable")
+    label = app.label
+    summary = purge_application(db, app, settings=settings)
+    db.commit()
+    exported = export_app_catalogue_files(db, settings)
+    apply_req = request_host_apply(settings, exported_files=len(exported))
+    log_action(
+        db,
+        actor=user.email,
+        action="app.delete",
+        target=slug,
+        details={
+            **summary,
+            "host_apply_requested": bool(apply_req.get("ok")),
+        },
+        ip_address=_client_ip(request),
+    )
+    secret = settings.vault_portal_internal_token or "dev"
+    if not apply_req.get("ok"):
+        response = RedirectResponse(url="/admin/apps", status_code=302)
+        flash_redirect(
+            response,
+            (
+                f"Application « {label} » supprimée, mais signal apply hôte en échec : "
+                f"{apply_req.get('message')}. Voir Admin → Infrastructure."
+            ),
+            "error",
+            secret,
+        )
+        return response
+    return host_apply_wait_redirect(
+        next_path="/admin/apps",
+        context_label=f"Application « {label} » supprimée.",
+        audit_target=slug,
+        audit_source="app.delete",
+    )
+
+
 @admin_router.get("/admin/pending-hosts")
 def admin_pending_hosts_list(
     request: Request,

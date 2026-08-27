@@ -300,10 +300,12 @@ def delete_app(
     slug: str,
     request: Request,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
+    from app.admin.app_delete import purge_application
+
     app = _get_app_or_404(db, slug)
-    app.enabled = False
-    app.updated_at = datetime.now(timezone.utc)
+    summary = purge_application(db, app, settings=settings)
     db.commit()
 
     log_action(
@@ -311,5 +313,6 @@ def delete_app(
         actor="system",
         action="app.delete",
         target=f"app:{slug}",
+        details=summary,
         ip_address=_client_ip(request),
     )
