@@ -122,6 +122,8 @@ def _log_activesync(
         "client_kind": client_kind or classify_mobile_client(user_agent),
         "activesync": True,
     }
+    if client_ip:
+        details["source_ip"] = client_ip
     if auth_source:
         details["auth_source"] = auth_source
     if reason:

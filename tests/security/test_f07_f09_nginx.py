@@ -178,6 +178,17 @@ def test_subdomain_auth_snippet_still_internal():
     assert "X-Bastion-Session-Cookie $bastion_pass_session" in activesync
     assert "X-Bastion-Session-From-Jar $bastion_session_from_jar" in activesync
     assert "proxy_set_header Cookie          $bastion_auth_cookie;" in activesync
+    # Audit / anti-bruteforce need the real client, not :8080 loopback.
+    assert "X-Real-IP       $portal_client_real_ip" in activesync
+    assert "X-Forwarded-For $portal_client_real_ip" in activesync
+    assert "X-Portal-Client-IP $portal_client_real_ip" in activesync
+    assert "X-Real-IP       $remote_addr" not in activesync
+
+    subdomain_auth = (
+        ROOT / "docker/nginx/snippets/subdomain_auth_common.conf"
+    ).read_text(encoding="utf-8")
+    assert "X-Real-IP       $portal_client_real_ip" in subdomain_auth
+    assert "X-Forwarded-For $portal_client_real_ip" in subdomain_auth
 
 
 def test_login_alias_bypasses_portal_auth_request():
