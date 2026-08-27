@@ -57,6 +57,10 @@
               <td>
                 <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2);">
                   <a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">Modifier</a>
+                  <form method="post" action="/admin/apps/{{ app.slug }}/delete" class="inline-form" data-app-delete
+                        data-app-label="{{ app.label }}">
+                    <button type="submit" class="btn btn-danger btn-sm">Supprimer</button>
+                  </form>
                   {% if crush_ready and realms %}
                   <button type="button"
                           class="btn btn-ghost btn-sm"
@@ -143,6 +147,31 @@ document.addEventListener('DOMContentLoaded', function () {
   var modeFilter = 'all';
   var chips = document.querySelectorAll('#admin-apps-mode-filter .filter-chip');
   var rows = document.querySelectorAll('#apps-table tbody tr[data-searchable]');
+
+  document.querySelectorAll('form[data-app-delete]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      if (form.dataset.confirmed === '1') return;
+      e.preventDefault();
+      var label = form.getAttribute('data-app-label') || 'cette application';
+      var run = function (ok) {
+        if (!ok) return;
+        form.dataset.confirmed = '1';
+        form.requestSubmit();
+      };
+      if (window.bastionConfirm) {
+        window.bastionConfirm({
+          title: 'Supprimer l’application ?',
+          message:
+            'Supprime définitivement « ' + label + ' » (droits RBAC, credentials vault, ' +
+            'appareils ActiveSync) et régénère la config nginx. Irréversible.',
+          confirmLabel: 'Supprimer',
+          danger: true,
+        }).then(run);
+      } else if (window.confirm('Supprimer « ' + label + ' » ?')) {
+        run(true);
+      }
+    });
+  });
 
   function applyFilters() {
     var q = (document.getElementById('apps-search') || {}).value || '';

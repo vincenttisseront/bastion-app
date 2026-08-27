@@ -356,6 +356,23 @@
       </div>
     </div>
   </form>
+
+  <div class="card" style="margin-top:var(--sp-6); border-color:var(--err);">
+    <div class="card-header">
+      <span class="card-title" style="color:var(--err);">Zone dangereuse</span>
+    </div>
+    <div class="card-body">
+      <p class="form-help" style="margin-top:0;">
+        Supprime définitivement cette application, ses droits d’accès, credentials vault
+        et appareils ActiveSync, puis régénère nginx. Préférez décocher
+        « Application activée » pour un retrait temporaire.
+      </p>
+      <form method="post" action="/admin/apps/{{ app.slug }}/delete" data-app-delete
+            data-app-label="{{ app.label }}">
+        <button type="submit" class="btn btn-danger">Supprimer l’application</button>
+      </form>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
@@ -363,6 +380,31 @@
 <script>
 (function () {
   var appSlug = {{ app.slug | tojson if app is defined else 'null' }};
+
+  document.querySelectorAll('form[data-app-delete]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      if (form.dataset.confirmed === '1') return;
+      e.preventDefault();
+      var label = form.getAttribute('data-app-label') || 'cette application';
+      var run = function (ok) {
+        if (!ok) return;
+        form.dataset.confirmed = '1';
+        form.requestSubmit();
+      };
+      if (window.bastionConfirm) {
+        window.bastionConfirm({
+          title: 'Supprimer l’application ?',
+          message:
+            'Supprime définitivement « ' + label + ' » (droits RBAC, credentials vault, ' +
+            'appareils ActiveSync) et régénère la config nginx. Irréversible.',
+          confirmLabel: 'Supprimer',
+          danger: true,
+        }).then(run);
+      } else if (window.confirm('Supprimer « ' + label + ' » ?')) {
+        run(true);
+      }
+    });
+  });
 
   function initAuthModeForm() {
     // Access/auth toggles live in bastion.js (initAccessModeForm).
