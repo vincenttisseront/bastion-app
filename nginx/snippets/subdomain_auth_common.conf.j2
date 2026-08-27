@@ -27,8 +27,10 @@ location = /internal/subdomain-auth {
     proxy_set_header Host            $bastion_vhost_fqdn;
     proxy_set_header X-Original-URI  $request_uri;
     proxy_set_header X-Original-Host $bastion_vhost_fqdn;
-    proxy_set_header X-Real-IP       $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Same resolved client as portal (CF real_ip + X-Portal-Client-IP fallback).
+    proxy_set_header X-Real-IP       $portal_client_real_ip;
+    proxy_set_header X-Forwarded-For $portal_client_real_ip;
+    proxy_set_header X-Portal-Client-IP $portal_client_real_ip;
     proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
     proxy_set_header Cookie          $bastion_auth_cookie;
     proxy_set_header X-Bastion-Session-Cookie $bastion_pass_session;
@@ -51,8 +53,10 @@ location = /internal/activesync-auth {
     # OPTIONS protocol negotiation (no DeviceId) from a real sync command.
     proxy_set_header X-Original-Method $request_method;
     proxy_set_header X-Original-Host $bastion_vhost_fqdn;
-    proxy_set_header X-Real-IP       $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Same resolved client as portal (CF real_ip + X-Portal-Client-IP fallback).
+    proxy_set_header X-Real-IP       $portal_client_real_ip;
+    proxy_set_header X-Forwarded-For $portal_client_real_ip;
+    proxy_set_header X-Portal-Client-IP $portal_client_real_ip;
     proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;
     proxy_set_header Cookie          $bastion_auth_cookie;
     proxy_set_header X-Bastion-Session-Cookie $bastion_pass_session;
