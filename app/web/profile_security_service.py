@@ -23,15 +23,15 @@ from app.rbac.keycloak_admin import (
     delete_keycloak_session,
     list_keycloak_user_sessions,
     logout_keycloak_user,
-    provisioning_configured,
+    manage_users_configured,
     reset_keycloak_password,
 )
 from app.sso_settings import Settings
+from app.web.password_policy import MIN_PASSWORD_LEN, validate_password_policy
 from app.web.user_context import UserContext
 
 logger = logging.getLogger(__name__)
 
-MIN_PASSWORD_LEN = 12
 _GENERIC_FORGOT_OK = (
     "Si un compte correspond à ces informations, un email avec un nouveau mot de passe "
     "temporaire vous a été envoyé. Consultez votre boîte mail (et les spams)."
@@ -60,13 +60,35 @@ def resolve_user_realm(
     )
 
 
+def password_self_service_available(
+    db: Session, user: UserContext, settings: Settings
+) -> bool:
+    """Native password change form (verify current password + apply new one)."""
+    if user.is_breakglass or not (user.keycloak_user_id or "").strip():
+        return False
+    realm = resolve_user_realm(db, user, settings)
+    if realm is None or not (realm.issuer_url or "").strip():
+        return False
+    if manage_users_configured(realm):
+        return True
+    from app.oidc_bff_config_service import get_headless_oidc_config
+
+    return get_headless_oidc_config(db, realm.slug, settings) is not None
+
+
 def self_service_security_available(
     db: Session, user: UserContext, settings: Settings
 ) -> bool:
     if user.is_breakglass or not (user.keycloak_user_id or "").strip():
         return False
     realm = resolve_user_realm(db, user, settings)
-    return realm is not None and provisioning_configured(realm)
+    if realm is None:
+        return False
+    if manage_users_configured(realm):
+        return True
+    from app.rbac.keycloak_admin import admin_client_configured
+
+    return admin_client_configured(realm)
 
 
 def _validate_new_password(
@@ -75,15 +97,78 @@ def _validate_new_password(
     new_password: str,
     confirm: str,
 ) -> None:
-    if len(new_password) < MIN_PASSWORD_LEN:
-        raise ProfileSecurityError(
-            f"Le nouveau mot de passe doit contenir au moins {MIN_PASSWORD_LEN} caractères."
-        )
+    try:
+        validate_password_policy(new_password)
+    except ValueError as exc:
+        raise ProfileSecurityError(str(exc)) from exc
     if new_password != confirm:
         raise ProfileSecurityError("La confirmation ne correspond pas au nouveau mot de passe.")
     if new_password == current:
         raise ProfileSecurityError(
             "Le nouveau mot de passe doit être différent de l'actuel."
+        )
+
+
+async def _change_password_via_account_api(
+    db: Session,
+    *,
+    realm: RealmConfig,
+    user: UserContext,
+    settings: Settings,
+    current_password: str,
+    new_password: str,
+) -> None:
+    import httpx
+
+    from app.oidc_bff_client import InvalidCredentialsError, start_headless_login
+
+    login_id = (user.username or user.email or "").strip()
+    result = await start_headless_login(
+        realm.slug,
+        login_id,
+        current_password,
+        settings=settings,
+        db=db,
+    )
+    if result.status == "otp_required":
+        raise ProfileSecurityError(
+            "Authentification MFA active — changez le mot de passe via la console identité."
+        )
+    if result.status == "totp_setup_required":
+        raise ProfileSecurityError(
+            "Configuration MFA requise — utilisez la console identité."
+        )
+    if result.status != "success" or result.tokens is None:
+        raise ProfileSecurityError("Mot de passe actuel incorrect.")
+
+    url = f"{realm.issuer_url.rstrip('/')}/account/credentials/password"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            url,
+            json={
+                "currentPassword": current_password,
+                "newPassword": new_password,
+                "confirmation": new_password,
+            },
+            headers={
+                "Authorization": f"Bearer {result.tokens.access_token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+        )
+    if resp.status_code in {401, 403}:
+        raise ProfileSecurityError("Mot de passe actuel incorrect.")
+    if resp.status_code == 404:
+        raise ProfileSecurityError(
+            "Changement de mot de passe indisponible sur ce realm — configurez un "
+            "compte de service Keycloak (admin ou provisioning) ou utilisez la "
+            "console identité."
+        )
+    if resp.status_code >= 400:
+        body = " ".join((resp.text or "").split())[:160]
+        raise ProfileSecurityError(
+            f"Keycloak a refusé le changement de mot de passe (HTTP {resp.status_code}). "
+            f"{body}".strip()
         )
 
 
@@ -203,9 +288,9 @@ async def change_own_password(
         raise ProfileSecurityError(
             "Changement de mot de passe indisponible pour ce type de compte."
         )
-    if not provisioning_configured(realm):
+    if not password_self_service_available(db, user, settings):
         raise ProfileSecurityError(
-            "Le compte de service Keycloak (provisioning) n'est pas configuré pour ce realm."
+            "Changement de mot de passe indisponible pour ce compte."
         )
     _validate_new_password(
         current=current_password,
@@ -215,24 +300,35 @@ async def change_own_password(
     login_id = (user.username or user.email or "").strip()
     if not login_id:
         raise ProfileSecurityError("Identifiant de connexion introuvable pour ce compte.")
-    try:
-        await verify_keycloak_password(
-            db,
-            realm_slug=realm.slug,
-            username=login_id,
-            password=current_password,
-            settings=settings,
-        )
-    except InvalidCredentialsError as exc:
-        raise ProfileSecurityError("Mot de passe actuel incorrect.") from exc
 
-    await reset_keycloak_password(
-        realm,
-        settings,
-        keycloak_user_id=uid,
-        new_password=new_password,
-        temporary=False,
-    )
+    if manage_users_configured(realm):
+        try:
+            await verify_keycloak_password(
+                db,
+                realm_slug=realm.slug,
+                username=login_id,
+                password=current_password,
+                settings=settings,
+            )
+        except InvalidCredentialsError as exc:
+            raise ProfileSecurityError("Mot de passe actuel incorrect.") from exc
+
+        await reset_keycloak_password(
+            realm,
+            settings,
+            keycloak_user_id=uid,
+            new_password=new_password,
+            temporary=False,
+        )
+    else:
+        await _change_password_via_account_api(
+            db,
+            realm=realm,
+            user=user,
+            settings=settings,
+            current_password=current_password,
+            new_password=new_password,
+        )
     log_action(
         db,
         actor=actor,

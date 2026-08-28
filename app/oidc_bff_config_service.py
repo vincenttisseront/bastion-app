@@ -245,3 +245,49 @@ async def ping_oidc_discovery(base_url: str, keycloak_realm: str) -> dict[str, s
         return {"ok": False, "error": "réponse non-JSON", "url": url}
     issuer = (data.get("issuer") or "") if isinstance(data, dict) else ""
     return {"ok": True, "url": url, "issuer": issuer}
+
+
+def get_headless_oidc_config(
+    db: Session,
+    realm_slug: str,
+    settings: Settings,
+) -> OidcBffConfig | None:
+    """BFF client config, or fallback to the portal oauth2-proxy OIDC client."""
+    cfg = get_oidc_bff_config(db, realm_slug, settings)
+    if cfg is not None:
+        return cfg
+
+    slug = (realm_slug or "").strip()
+    if not slug:
+        return None
+    realm = db.query(RealmConfig).filter_by(slug=slug).first()
+    if realm is None:
+        realm = db.query(RealmConfig).filter(RealmConfig.slug.ilike(slug)).first()
+    if realm is None:
+        return None
+
+    client_id = (realm.client_id or "").strip()
+    redirect_uri = (realm.redirect_uri or "").strip()
+    enc = (realm.client_secret_encrypted or "").strip()
+    base = _normalize_base_url(
+        realm.oidc_keycloak_base_url or (realm.issuer_url or "").split("/realms/")[0]
+    )
+    if not (base and client_id and redirect_uri and enc):
+        return None
+    if not encryption_configured(settings):
+        return None
+    try:
+        client_secret = decrypt_secret(enc, settings).strip()
+    except ValueError:
+        return None
+    if not client_secret:
+        return None
+    kc_realm = keycloak_realm_from_issuer(realm.issuer_url or "") or realm.slug
+    return OidcBffConfig(
+        realm_slug=realm.slug,
+        keycloak_realm=kc_realm,
+        keycloak_base_url=base,
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )

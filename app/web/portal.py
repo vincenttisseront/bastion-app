@@ -223,12 +223,15 @@ async def user_profile(
     tiles = _effective_tiles(db, user)
     account_url = _account_console_url(db, user, settings)
     as_ctx = _portal_activesync_context(db, user)
+    from app.web.password_policy import MIN_PASSWORD_LEN, PASSWORD_POLICY_RULES
     from app.web.profile_security_service import (
         current_native_jti,
         list_user_sso_sessions,
+        password_self_service_available,
         self_service_security_available,
     )
 
+    password_change_available = password_self_service_available(db, user, settings)
     security_available = self_service_security_available(db, user, settings)
     current_jti = current_native_jti(request, db, settings)
     sso_sessions: list = []
@@ -250,9 +253,11 @@ async def user_profile(
             apps_preview=tiles[:6],
             account_url=account_url,
             role_label="Administrateur" if portal_admin else "Utilisateur",
+            password_change_available=password_change_available,
             security_available=security_available,
             sso_sessions=sso_sessions,
-            min_password_len=12,
+            min_password_len=MIN_PASSWORD_LEN,
+            password_policy_rules=PASSWORD_POLICY_RULES,
             **as_ctx,
         ),
     )
@@ -384,13 +389,13 @@ async def profile_change_password(
     from app.web.profile_security_service import (
         ProfileSecurityError,
         change_own_password,
-        self_service_security_available,
+        password_self_service_available,
     )
 
     _require_portal_csrf(request, settings, csrf_token)
     secret = settings.vault_portal_internal_token or "dev"
     response = RedirectResponse(url="/profile#section-security", status_code=302)
-    if not self_service_security_available(db, user, settings):
+    if not password_self_service_available(db, user, settings):
         flash_redirect(response, "Changement de mot de passe indisponible.", "error", secret)
         return response
     actor = user.email or user.username or "user"

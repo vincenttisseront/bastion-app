@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260724-stitch-apps">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260828-profile-password">
 {% endblock %}
 
 {% block content %}
@@ -207,12 +207,13 @@
             Ce compte d'urgence est géré localement et n'utilise pas le portail d'identité.
             Le mot de passe et les sessions ne sont pas modifiables ici.
           </p>
-          {% elif security_available | default(false) %}
+          {% elif password_change_available | default(false) or security_available | default(false) %}
           <div class="portal-security-stack">
+            {% if password_change_available | default(false) %}
             <div class="portal-security-card">
               <div class="form-label">Mot de passe</div>
               <p class="text-2">Modifiez votre mot de passe sans quitter le portail.</p>
-              <form method="post" action="/profile/password" class="form-body" style="margin-top:var(--sp-3); max-width:28rem;">
+              <form method="post" action="/profile/password" class="form-body portal-password-form" style="margin-top:var(--sp-3); max-width:28rem;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group">
                   <label class="form-label" for="profile-current-password">Mot de passe actuel</label>
@@ -220,17 +221,26 @@
                 </div>
                 <div class="form-group">
                   <label class="form-label" for="profile-new-password">Nouveau mot de passe</label>
-                  <input type="password" id="profile-new-password" name="new_password" class="form-input" required minlength="{{ min_password_len | default(12) }}" autocomplete="new-password">
-                  <p class="form-hint">Au moins {{ min_password_len | default(12) }} caractères.</p>
+                  <input type="password" id="profile-new-password" name="new_password" class="form-input" required minlength="{{ min_password_len | default(12) }}" autocomplete="new-password" data-password-policy-input>
+                  <ul class="password-policy-checklist" id="profile-password-policy" aria-live="polite">
+                    {% for rule in password_policy_rules %}
+                    <li class="password-policy-item" data-rule="{{ rule.id }}">
+                      <span class="password-policy-icon" aria-hidden="true"></span>
+                      <span>{{ rule.label }}</span>
+                    </li>
+                    {% endfor %}
+                  </ul>
                 </div>
                 <div class="form-group">
                   <label class="form-label" for="profile-confirm-password">Confirmer</label>
                   <input type="password" id="profile-confirm-password" name="confirm_password" class="form-input" required minlength="{{ min_password_len | default(12) }}" autocomplete="new-password">
                 </div>
-                <button type="submit" class="btn btn-secondary btn-sm">Mettre à jour le mot de passe</button>
+                <button type="submit" class="btn btn-secondary btn-sm" id="profile-password-submit">Mettre à jour le mot de passe</button>
               </form>
             </div>
+            {% endif %}
 
+            {% if security_available | default(false) %}
             <div class="portal-security-card">
               <div class="form-label">Sessions connectées</div>
               <p class="text-2">Révoquez vos sessions SSO et portail (sauf la session en cours).</p>
@@ -286,6 +296,7 @@
               <p class="text-2" style="margin-top:var(--sp-2);">Aucune session active détectée.</p>
               {% endif %}
             </div>
+            {% endif %}
 
             {% if account_url %}
             <div class="portal-security-card">
@@ -353,6 +364,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/js/bastion-password-policy.js?v=20260828"></script>
 <script>
 (function () {
   var prefs = document.querySelectorAll('[data-theme-pref]');
@@ -372,6 +384,12 @@
       });
     });
   });
+
+  if (window.BastionPasswordPolicy) {
+    window.BastionPasswordPolicy.bind('#profile-new-password', '#profile-password-policy', {
+      submitButton: '#profile-password-submit'
+    });
+  }
 })();
 </script>
 {% endblock %}

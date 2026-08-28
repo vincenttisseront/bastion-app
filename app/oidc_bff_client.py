@@ -516,9 +516,9 @@ def _resolve_bff_creds(
             raise OidcBffConfigError(
                 f"OIDC natif non configuré pour le realm '{realm}'"
             )
-        from app.oidc_bff_config_service import get_oidc_bff_config
+        from app.oidc_bff_config_service import get_headless_oidc_config
 
-        cfg = get_oidc_bff_config(db, realm, settings)
+        cfg = get_headless_oidc_config(db, realm, settings)
         if cfg is None:
             raise OidcBffConfigError(
                 f"OIDC natif non configuré pour le realm '{realm}'"
