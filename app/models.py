@@ -1073,6 +1073,8 @@ class WafProfile(Base):
     portal_login_burst = Column(Integer, nullable=False, default=5)
     portal_api_rate = Column(Integer, nullable=False, default=30)
     portal_api_burst = Column(Integer, nullable=False, default=60)
+    # Dashboard Sentinel: ip-api.com geolocation (toggle from Admin WAF).
+    ip_geoloc_enabled = Column(Boolean, nullable=False, default=True)
     is_active = Column(Boolean, nullable=False, default=False, index=True)
     created_by = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utcnow)

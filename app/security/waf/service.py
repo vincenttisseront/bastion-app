@@ -346,3 +346,26 @@ def apply_waf(
     db.commit()
     result["effective"] = read_effective_status(settings)
     return result
+
+
+def set_ip_geoloc_enabled(
+    db: Session,
+    *,
+    enabled: bool,
+    actor: str,
+    ip_address: str | None = None,
+) -> WafProfile:
+    profile = ensure_active_profile(db)
+    profile.ip_geoloc_enabled = bool(enabled)
+    db.commit()
+    db.refresh(profile)
+    log_action(
+        db,
+        actor=actor,
+        action="security.waf.geoloc_toggled",
+        target=profile.name,
+        details={"enabled": profile.ip_geoloc_enabled},
+        ip_address=ip_address,
+    )
+    db.commit()
+    return profile

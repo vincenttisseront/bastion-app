@@ -14,6 +14,7 @@ from app.bastion.ip_geolocation import (
     is_public_ip,
     lookup_ip_origins,
     origin_from_geoloc,
+    resolve_ip_geoloc_enabled,
 )
 from app.sso_settings import Settings
 
@@ -108,3 +109,16 @@ def test_lookup_skips_when_disabled(tmp_path, monkeypatch):
     )
     assert lookup_ip_origins(settings, ["8.8.8.8"]) == {}
     assert route.call_count == 0
+
+
+def test_resolve_ip_geoloc_enabled_profile_toggle():
+    settings = Settings(portal_domain="portal.example.fr", ip_geoloc_enabled=True)  # type: ignore[call-arg]
+
+    class _Profile:
+        ip_geoloc_enabled = False
+
+    assert resolve_ip_geoloc_enabled(settings, _Profile()) is False
+    assert resolve_ip_geoloc_enabled(settings, None) is True
+
+    settings_off = Settings(portal_domain="portal.example.fr", ip_geoloc_enabled=False)  # type: ignore[call-arg]
+    assert resolve_ip_geoloc_enabled(settings_off, _Profile()) is False

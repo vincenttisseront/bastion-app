@@ -342,6 +342,27 @@ def admin_waf_quick_toggle(
                 "success",
                 _flash_secret(settings),
             )
+        elif toggle == "geoloc":
+            if not settings.ip_geoloc_enabled:
+                flash_redirect(
+                    response,
+                    "Géolocalisation verrouillée par configuration serveur.",
+                    "error",
+                    _flash_secret(settings),
+                )
+            else:
+                waf_service.set_ip_geoloc_enabled(
+                    db,
+                    enabled=turn_on,
+                    actor=actor,
+                    ip_address=ip,
+                )
+                flash_redirect(
+                    response,
+                    f"Géolocalisation IP {'activée' if turn_on else 'désactivée'}.",
+                    "success",
+                    _flash_secret(settings),
+                )
         else:
             flash_redirect(response, "Contrôle inconnu.", "error", _flash_secret(settings))
     except ValueError as exc:

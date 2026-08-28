@@ -15,6 +15,7 @@ from app.bastion.ip_geolocation import (
     country_flag,
     lookup_ip_origins,
     origin_from_geoloc,
+    resolve_ip_geoloc_enabled,
 )
 from app.bastion.modsec_audit_aggregator import (
     RULE_FAMILY_LABELS,
@@ -1018,10 +1019,13 @@ def build_quick_controls(
     db: Session,
     profile: WafProfile,
     active: dict[str, Any],
+    settings: Settings,
 ) -> list[dict[str, Any]]:
     policy = get_or_create_policy(db)
     crs_mode = portal_engine_mode(active)
     crs_on = crs_mode == MODE_ON
+    geoloc_on = resolve_ip_geoloc_enabled(settings, profile)
+    env_geoloc = bool(getattr(settings, "ip_geoloc_enabled", True))
     return [
         {
             "id": "crs",
@@ -1038,6 +1042,18 @@ def build_quick_controls(
             "detail": "Moteur de banning applicatif",
             "toggle": "bruteforce",
             "readonly": False,
+        },
+        {
+            "id": "geoloc",
+            "label": "Géolocalisation IP",
+            "enabled": geoloc_on,
+            "detail": (
+                "ip-api.com · drapeaux et heatmap par pays"
+                if env_geoloc
+                else "Verrouillée (IP_GEOLOC_ENABLED=false)"
+            ),
+            "toggle": "geoloc" if env_geoloc else None,
+            "readonly": not env_geoloc,
         },
         {
             "id": "rate_limit",
@@ -1060,6 +1076,7 @@ def build_threat_intel_visuals(
     db: Session | None = None,
     *,
     geo_map: dict[str, dict[str, Any]] | None = None,
+    geoloc_enabled: bool = True,
 ) -> dict[str, Any]:
     """Threat intelligence charts for Sentinel dashboard."""
     if not efficiency.get("present"):
@@ -1088,7 +1105,7 @@ def build_threat_intel_visuals(
     )
     heatmap_title = (
         "Origine des attaques (pays × heure)"
-        if getattr(settings, "ip_geoloc_enabled", True)
+        if geoloc_enabled
         else "Origine des attaques (réseaux /24 × heure)"
     )
     measured_zero = efficiency.get("status") == "measured_zero"
@@ -1470,7 +1487,12 @@ def build_waf_readability_context(
     efficiency_7d = build_efficiency_panel(settings, active, window="7d")
     audit_summary = read_audit_summary(settings)
     dashboard_ips = collect_waf_dashboard_ips(settings, db, summary=audit_summary)
-    geo_map = lookup_ip_origins(settings, dashboard_ips)
+    geoloc_enabled = resolve_ip_geoloc_enabled(settings, profile)
+    geo_map = (
+        lookup_ip_origins(settings, dashboard_ips, profile=profile)
+        if geoloc_enabled
+        else {}
+    )
     visuals = build_efficiency_visuals(settings, active, efficiency_24h)
     attack_controls = build_attack_controls(settings, db, geo_map=geo_map)
     unknown_host_panel = attack_controls.get("unknown_host") or build_unknown_host_panel(
@@ -1486,10 +1508,15 @@ def build_waf_readability_context(
         settings, active, efficiency_24h, attack_controls, unknown_host_panel, layers
     )
     threat_intel = build_threat_intel_visuals(
-        settings, active, efficiency_24h, db, geo_map=geo_map
+        settings,
+        active,
+        efficiency_24h,
+        db,
+        geo_map=geo_map,
+        geoloc_enabled=geoloc_enabled,
     )
     quarantine = build_quarantine_panel(db, geo_map=geo_map)
-    quick_controls = build_quick_controls(db, profile, active)
+    quick_controls = build_quick_controls(db, profile, active, settings)
     apply_enabled = bool(export_pending) or bool(
         verdict.get("action_apply") and reactivation.get("armed")
     )
@@ -1506,7 +1533,9 @@ def build_waf_readability_context(
         "quarantine_panel": quarantine,
         "quick_controls": quick_controls,
         "ip_geolocation": {
-            "enabled": bool(getattr(settings, "ip_geoloc_enabled", True)),
+            "enabled": geoloc_enabled,
+            "profile_enabled": bool(getattr(profile, "ip_geoloc_enabled", True)),
+            "env_locked": not bool(getattr(settings, "ip_geoloc_enabled", True)),
             "resolved": len(geo_map),
             "provider": "ip-api.com",
         },

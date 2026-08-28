@@ -118,6 +118,7 @@ def test_waf_page_ok_as_admin(client: TestClient, db_session: Session, tmp_path:
     assert resp.status_code == 200
     assert "Couches de protection" in resp.text
     assert "Derniers blocages" in resp.text
+    assert "Géolocalisation IP" in resp.text
     assert "waf-sentinel.css" in resp.text
     assert 'data-tab="bilan"' in resp.text
     assert 'class="form-input"' in resp.text
@@ -476,6 +477,41 @@ def test_waf_ban_ip_permanent_requires_confirm(client: TestClient, db_session: S
     assert resp2.status_code == 302
     ban = db_session.query(SecurityBan).filter_by(target="198.51.100.51").one()
     assert ban.permanent is True
+
+
+def test_waf_toggle_geoloc_from_dashboard(
+    client: TestClient, db_session: Session, monkeypatch
+):
+    from app.models import WafProfile
+    from app.sso_settings import get_settings
+
+    monkeypatch.setenv("IP_GEOLOC_ENABLED", "true")
+    get_settings.cache_clear()
+    _seed_profile(db_session)
+    profile = db_session.query(WafProfile).filter_by(name="Production").one()
+    assert profile.ip_geoloc_enabled is True
+
+    resp = client.post(
+        "/admin/security/waf/actions/quick-toggle",
+        headers=ADMIN_HEADERS,
+        data={"toggle": "geoloc", "enabled": "off"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert "#bilan" in (resp.headers.get("location") or "")
+    db_session.refresh(profile)
+    assert profile.ip_geoloc_enabled is False
+
+    resp2 = client.post(
+        "/admin/security/waf/actions/quick-toggle",
+        headers=ADMIN_HEADERS,
+        data={"toggle": "geoloc", "enabled": "on"},
+        follow_redirects=False,
+    )
+    assert resp2.status_code == 302
+    db_session.refresh(profile)
+    assert profile.ip_geoloc_enabled is True
+    get_settings.cache_clear()
 
 
 def test_waf_exclude_rule_from_event(client: TestClient, db_session: Session):
