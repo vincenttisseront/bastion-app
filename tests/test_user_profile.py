@@ -119,7 +119,7 @@ def test_user_profile_security_native_when_provisioning(
     assert resp.status_code == 200
     assert "Mettre à jour le mot de passe" in resp.text
     assert "password-policy-checklist" in resp.text
-    assert "Sessions connectées" in resp.text
+    assert "Connexions actives" in resp.text
     assert 'action="/profile/password"' in resp.text
     assert "Gérer la sécurité du compte" not in resp.text
 

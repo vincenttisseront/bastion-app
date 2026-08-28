@@ -42,6 +42,14 @@ from app.web.templates import render
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
 router = APIRouter(tags=["oidc-bff"])
 
 _GENERIC_AUTH_FAILURE = "Identifiants invalides."
@@ -196,15 +204,42 @@ def issue_oidc_session(
     return token, jti
 
 
+def purge_expired_oidc_sessions(db: Session) -> int:
+    """Mark expired native sessions as revoked (housekeeping — JWT already invalid)."""
+    now = utcnow()
+    rows = (
+        db.query(OidcSession)
+        .filter(OidcSession.revoked.is_(False))
+        .all()
+    )
+    purged = 0
+    for row in rows:
+        exp = _coerce_utc(row.expires_at)
+        if exp is not None and exp <= now:
+            row.revoked = True
+            row.revoked_at = now
+            row.revoked_by = "system"
+            row.revoked_reason = "expired"
+            purged += 1
+    if purged:
+        db.flush()
+    return purged
+
+
 def is_oidc_jti_revoked(db: Session, jti: str) -> bool:
-    """True if this jti must not authenticate (missing or revoked)."""
+    """True if this jti must not authenticate (missing, revoked, or expired)."""
     if not jti:
         return True
     row = db.query(OidcSession).filter_by(jti=jti).first()
     if row is None:
         # Native sessions always register a row at issue time.
         return True
-    return bool(row.revoked)
+    if row.revoked:
+        return True
+    exp = _coerce_utc(row.expires_at)
+    if exp is not None and exp <= utcnow():
+        return True
+    return False
 
 
 def revoke_oidc_jti(
