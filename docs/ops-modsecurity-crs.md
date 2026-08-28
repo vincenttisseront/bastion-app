@@ -123,6 +123,8 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 | `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil — inclus en dernier dans **main-portal.conf** seulement si `waf-engine-arm.json` est armé |
 | `exports/modsecurity/waf-engine-arm.json` | Armement IHM (`armed`) — sans armement le sync force `SecRuleEngine Off` |
 | `exports/modsecurity-portal-switch.conf` | `modsecurity on\|off;` serveur portal (include vhost) |
+| `exports/modsecurity-subdomain-switch.conf` | Connecteur subdomain (défaut off ; bascule export avant réactivation) |
+| `exports/modsecurity-public-switch.conf` | Connecteur public_proxy (défaut off ; bascule export avant réactivation) |
 | `exports/modsecurity/bastion-exclusions-generated.conf` | Exclusions UI après `waf-basic.conf` |
 | `exports/waf-ip-deny.conf` | `deny` IP promues depuis `SecurityBan` |
 | `exports/nginx-portal-rate-limits.conf` | Zones `portal_login` / `portal_api` |
