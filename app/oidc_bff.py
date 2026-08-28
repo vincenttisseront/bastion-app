@@ -16,6 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.database import get_db
+from app.jwt_audience import (
+    DEFAULT_OIDC_SESSION_JWT_AUDIENCE,
+    jwt_audience_matches,
+    resolve_oidc_session_jwt_audience,
+)
 from app.models import OidcSession, utcnow
 from app.oidc_bff_client import (
     InvalidCredentialsError,
@@ -108,8 +113,9 @@ def create_oidc_session_token(
     max_age: int,
     groups: list[str] | tuple[str, ...] | None = None,
     email: str | None = None,
+    audience: str | None = None,
 ) -> str:
-    """Build a native bastion OIDC session JWT (type=oidc, includes jti)."""
+    """Build a native bastion OIDC session JWT (type=oidc, includes jti + aud)."""
     now = datetime.now(timezone.utc)
     group_list = [g for g in (groups or ()) if (g or "").strip()]
     payload: dict[str, Any] = {
@@ -120,6 +126,7 @@ def create_oidc_session_token(
         "iat": now,
         "exp": now + timedelta(seconds=max_age),
         "type": "oidc",
+        "aud": (audience or DEFAULT_OIDC_SESSION_JWT_AUDIENCE).strip(),
         "groups": group_list,
     }
     if email:
@@ -161,6 +168,7 @@ def issue_oidc_session(
     max_age: int,
     groups: list[str] | tuple[str, ...] | None = None,
     email: str | None = None,
+    audience: str | None = None,
 ) -> tuple[str, str]:
     """Create JWT + OidcSession row. Returns ``(token, jti)``."""
     jti = str(uuid4())
@@ -173,6 +181,7 @@ def issue_oidc_session(
         max_age=max_age,
         groups=groups,
         email=email,
+        audience=audience,
     )
     now = datetime.now(timezone.utc)
     register_oidc_session(
@@ -343,7 +352,7 @@ def revoke_oidc_session_from_request(
                     raw,
                     secret,
                     algorithms=["HS256"],
-                    options={"verify_exp": False},
+                    options={"verify_exp": False, "verify_aud": False},
                 )
                 if payload.get("type") == "oidc":
                     actor = str(
@@ -386,10 +395,19 @@ def validate_oidc_session_cookie(
     if not key:
         return None
     try:
-        payload = jwt.decode(cookie_value, key, algorithms=["HS256"])
+        payload = jwt.decode(
+            cookie_value,
+            key,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
     except jwt.PyJWTError:
         return None
     if payload.get("type") != "oidc":
+        return None
+    expected_aud = resolve_oidc_session_jwt_audience(settings)
+    strict_aud = bool(getattr(settings, "oidc_session_jwt_audience_strict", False))
+    if not jwt_audience_matches(payload, expected_aud, strict=strict_aud):
         return None
     jti = payload.get("jti")
     sub = payload.get("sub")
@@ -1042,6 +1060,7 @@ async def oidc_login(
         max_age=settings.oidc_session_max_age,
         groups=session_groups,
         email=session_email,
+        audience=resolve_oidc_session_jwt_audience(settings),
     )
     db.commit()
     _clear_login_failures(client_ip, username)

@@ -21,7 +21,9 @@ SECRET = "test-breakglass-secret-for-pytest"
 
 def test_create_token_has_exp_and_last():
     token = create_breakglass_token("admin", SECRET)
-    payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+    payload = jwt.decode(
+        token, SECRET, algorithms=["HS256"], options={"verify_aud": False}
+    )
     assert payload["sub"] == "admin"
     assert payload["type"] == "bg"
     assert "exp" in payload
@@ -87,7 +89,9 @@ def test_refresh_slides_last_without_extending_exp():
     )
     refreshed = maybe_refresh_breakglass_cookie(token, SECRET)
     assert refreshed is not None
-    payload = jwt.decode(refreshed, SECRET, algorithms=["HS256"])
+    payload = jwt.decode(
+        refreshed, SECRET, algorithms=["HS256"], options={"verify_aud": False}
+    )
     assert payload["sub"] == "admin"
     assert payload["jti"] == "refresh-jti"
     # Absolute exp preserved (within 2s)

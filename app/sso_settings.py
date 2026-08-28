@@ -130,6 +130,34 @@ class Settings(BaseSettings):
             "oidc_session_max_age",
         ),
     )
+    oidc_session_jwt_audience: str = Field(
+        default="bastion-portal",
+        validation_alias=AliasChoices(
+            "OIDC_SESSION_JWT_AUDIENCE",
+            "oidc_session_jwt_audience",
+        ),
+    )
+    oidc_session_jwt_audience_strict: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "OIDC_SESSION_JWT_AUDIENCE_STRICT",
+            "oidc_session_jwt_audience_strict",
+        ),
+    )
+    breakglass_jwt_audience: str = Field(
+        default="bastion-breakglass",
+        validation_alias=AliasChoices(
+            "BREAKGLASS_JWT_AUDIENCE",
+            "breakglass_jwt_audience",
+        ),
+    )
+    breakglass_jwt_audience_strict: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "BREAKGLASS_JWT_AUDIENCE_STRICT",
+            "breakglass_jwt_audience_strict",
+        ),
+    )
     # Progressive cutover — prefer Admin UI toggle on RealmConfig; CSV is ops bootstrap.
     # Example: OIDC_NATIVE_SESSION_ENABLED_REALMS=pilot-clients,sandbox
     oidc_native_session_enabled_realms: str = Field(
