@@ -201,6 +201,96 @@
             Ce compte d'urgence est géré localement et n'utilise pas le portail d'identité.
             Le mot de passe et les sessions ne sont pas modifiables ici.
           </p>
+          {% elif security_available | default(false) %}
+          <div class="portal-security-stack">
+            <div class="portal-security-card">
+              <div class="form-label">Mot de passe</div>
+              <p class="text-2">Modifiez votre mot de passe sans quitter le portail.</p>
+              <form method="post" action="/profile/password" class="form-body" style="margin-top:var(--sp-3); max-width:28rem;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <div class="form-group">
+                  <label class="form-label" for="profile-current-password">Mot de passe actuel</label>
+                  <input type="password" id="profile-current-password" name="current_password" class="form-input" required autocomplete="current-password">
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="profile-new-password">Nouveau mot de passe</label>
+                  <input type="password" id="profile-new-password" name="new_password" class="form-input" required minlength="{{ min_password_len | default(12) }}" autocomplete="new-password">
+                  <p class="form-hint">Au moins {{ min_password_len | default(12) }} caractères.</p>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="profile-confirm-password">Confirmer</label>
+                  <input type="password" id="profile-confirm-password" name="confirm_password" class="form-input" required minlength="{{ min_password_len | default(12) }}" autocomplete="new-password">
+                </div>
+                <button type="submit" class="btn btn-secondary btn-sm">Mettre à jour le mot de passe</button>
+              </form>
+            </div>
+
+            <div class="portal-security-card">
+              <div class="form-label">Sessions connectées</div>
+              <p class="text-2">Révoquez vos sessions SSO et portail (sauf la session en cours).</p>
+              {% if sso_sessions %}
+              <div class="table-wrap" style="border:none; margin-top:var(--sp-3);">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>Session</th>
+                      <th>IP</th>
+                      <th>Dernière activité</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for s in sso_sessions %}
+                    <tr>
+                      <td>
+                        {{ s.label }}
+                        {% if s.is_current %}<span class="badge badge-ok" style="margin-left:var(--sp-2);">Actuelle</span>{% endif %}
+                        {% if s.clients %}
+                        <div class="form-hint">{{ s.clients | join(', ') }}</div>
+                        {% endif %}
+                      </td>
+                      <td class="mono form-hint">{{ s.ip or '—' }}</td>
+                      <td class="form-hint">
+                        {% if s.last_access %}{{ s.last_access.strftime('%d/%m/%Y %H:%M') }}{% else %}—{% endif %}
+                      </td>
+                      <td>
+                        {% if not s.is_current %}
+                        <form method="post" action="/profile/sessions/revoke" style="display:inline;"
+                              onsubmit="return confirm('Révoquer cette session ?');">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                          <input type="hidden" name="session_kind" value="{{ s.kind }}">
+                          <input type="hidden" name="session_id" value="{{ s.id }}">
+                          <button type="submit" class="btn btn-ghost btn-sm">Révoquer</button>
+                        </form>
+                        {% else %}
+                        —
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <form method="post" action="/profile/sessions/revoke-others" style="margin-top:var(--sp-3);"
+                    onsubmit="return confirm('Révoquer toutes les autres sessions ?');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn btn-ghost btn-sm">Révoquer toutes les autres sessions</button>
+              </form>
+              {% else %}
+              <p class="text-2" style="margin-top:var(--sp-2);">Aucune session active détectée.</p>
+              {% endif %}
+            </div>
+
+            {% if account_url %}
+            <div class="portal-security-card">
+              <div class="form-label">MFA &amp; profil identité</div>
+              <p class="text-2">Authenticator (OTP) et coordonnées avancées restent dans la console compte.</p>
+              <a href="{{ account_url }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer">
+                Ouvrir la console identité
+              </a>
+            </div>
+            {% endif %}
+          </div>
           {% elif account_url %}
           <div class="portal-security-grid">
             <div class="portal-security-card">

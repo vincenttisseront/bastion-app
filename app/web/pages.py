@@ -64,7 +64,7 @@ from app.web.app_logos import (
     save_app_logo,
 )
 from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context, flash_redirect
+from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
 from app.web.metrics_service import get_dashboard_metrics
 from app.request_client_ip import client_ip_from_request
 from app.web.sessions_service import (
@@ -1168,6 +1168,129 @@ def access_request_post(
             "organization": form_values["organization"],
             "message": form_values["message"],
         },
+    )
+
+
+def _forgot_password_realms(db: Session) -> list[RealmConfig]:
+    from app.rbac.account_service import realm_provisioning_ready
+
+    rows = (
+        db.query(RealmConfig)
+        .filter(RealmConfig.enabled.is_(True))
+        .order_by(RealmConfig.slug.asc())
+        .all()
+    )
+    return [row for row in rows if realm_provisioning_ready(row)]
+
+
+def _forgot_password_page(
+    request: Request,
+    settings: Settings,
+    db: Session,
+    *,
+    form_error: str | None = None,
+    form_success: str | None = None,
+    form_values: dict | None = None,
+    selected_realm: str | None = None,
+):
+    realms = _forgot_password_realms(db)
+    want = (selected_realm or request.query_params.get("realm") or "").strip().lower()
+    slug = want
+    if not slug and realms:
+        slug = realms[0].slug
+    options = [
+        {"slug": row.slug, "label": _login_audience_label(row)} for row in realms
+    ]
+    return render(
+        "auth/forgot_password.html",
+        **_ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            forgot_password_available=bool(realms),
+            realm_options=options,
+            selected_realm_slug=slug,
+            show_realm_chooser=len(options) > 1,
+            form_error=form_error,
+            form_success=form_success,
+            form_values=form_values or {},
+        ),
+    )
+
+
+@router.get("/auth/forgot-password")
+def forgot_password_get(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return _forgot_password_page(request, settings, db)
+
+
+@router.post("/auth/forgot-password")
+async def forgot_password_post(
+    request: Request,
+    csrf_token: str = Form(""),
+    identity: str = Form(""),
+    realm: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    from app.security.access_request_throttle import check_forgot_password_post_rate
+    from app.web.profile_security_service import request_forgot_password
+
+    secret = settings.vault_portal_internal_token or "dev-insecure"
+    if not verify_csrf_token(request, secret, csrf_token):
+        return _forgot_password_page(
+            request,
+            settings,
+            db,
+            form_error="Jeton CSRF invalide — rechargez la page.",
+            form_values={"identity": identity},
+            selected_realm=realm,
+        )
+
+    ip = _client_ip(request)
+    retry = check_forgot_password_post_rate(ip)
+    if retry is not None:
+        return _forgot_password_page(
+            request,
+            settings,
+            db,
+            form_error="Trop de tentatives — réessayez dans quelques minutes.",
+            form_values={"identity": identity},
+            selected_realm=realm,
+        )
+
+    realms = _forgot_password_realms(db)
+    if not realms:
+        return _forgot_password_page(
+            request,
+            settings,
+            db,
+            form_error="Réinitialisation indisponible pour le moment.",
+            form_values={"identity": identity},
+            selected_realm=realm,
+        )
+
+    realm_slug = (realm or "").strip()
+    if not realm_slug:
+        realm_slug = realms[0].slug
+
+    message = await request_forgot_password(
+        db,
+        settings=settings,
+        realm_slug=realm_slug,
+        identity=identity,
+        ip_address=ip or None,
+    )
+    return _forgot_password_page(
+        request,
+        settings,
+        db,
+        form_success=message,
+        form_values={"identity": identity},
+        selected_realm=realm_slug,
     )
 
 

@@ -1596,3 +1596,25 @@ async def _interpret_post_password_response(
     if hint:
         detail = f"{detail}: {hint}"
     raise OidcBffError(detail)
+
+
+async def verify_keycloak_password(
+    db: Any,
+    *,
+    realm_slug: str,
+    username: str,
+    password: str,
+    settings: Settings | None = None,
+) -> None:
+    """Verify credentials via headless KC login without issuing a portal session."""
+    settings = settings or get_settings()
+    result = await start_headless_login(
+        (realm_slug or "").strip(),
+        (username or "").strip(),
+        password,
+        settings=settings,
+        db=db,
+    )
+    if result.status in ("success", "otp_required", "totp_setup_required"):
+        return
+    raise InvalidCredentialsError("Identifiants Keycloak invalides")
