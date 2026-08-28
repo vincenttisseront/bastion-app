@@ -149,6 +149,34 @@ def test_profile_password_post_success(client: TestClient, db_session: Session):
     change_pw.assert_awaited_once()
 
 
+def test_profile_expired_native_sessions_hidden(client: TestClient, db_session: Session):
+    _realm(db_session)
+    expired = OidcSession(
+        jti="expired-jti",
+        sub="kc-user-alice",
+        username="alice",
+        realm="ar-systems",
+        expires_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        revoked=False,
+    )
+    active = OidcSession(
+        jti="active-jti",
+        sub="kc-user-alice",
+        username="alice",
+        realm="ar-systems",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
+        revoked=False,
+    )
+    db_session.add_all([expired, active])
+    db_session.commit()
+
+    resp = client.get("/profile", headers=USER_HEADERS)
+    assert resp.status_code == 200
+    assert "expired-jti" not in resp.text
+    db_session.refresh(expired)
+    assert expired.revoked is True
+
+
 def test_profile_revoke_native_session(client: TestClient, db_session: Session):
     _realm(db_session)
     row = OidcSession(

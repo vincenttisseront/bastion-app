@@ -11,7 +11,8 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.models import OidcSession, RealmConfig
+from app.models import OidcSession, RealmConfig, utcnow
+from app.oidc_bff import _coerce_utc, purge_expired_oidc_sessions
 from app.oidc_bff import revoke_oidc_jti, validate_oidc_session_cookie
 from app.oidc_bff_client import (
     InvalidCredentialsError,
@@ -187,6 +188,8 @@ def list_portal_native_sessions(
 ) -> list[dict[str, Any]]:
     if not user.keycloak_user_id and not user.email and not user.username:
         return []
+    purge_expired_oidc_sessions(db)
+    now = utcnow()
     subs = {user.keycloak_user_id.strip()} if user.keycloak_user_id else set()
     names = set()
     for ident in (user.email, user.username):
@@ -201,19 +204,23 @@ def list_portal_native_sessions(
         clauses.append(OidcSession.username.in_(names))
     if not clauses:
         return []
-    rows = q.filter(or_(*clauses)).order_by(OidcSession.issued_at.desc()).limit(20).all()
+    rows = q.filter(or_(*clauses)).order_by(OidcSession.issued_at.desc()).limit(10).all()
     out: list[dict[str, Any]] = []
     for row in rows:
+        exp = _coerce_utc(row.expires_at)
+        if exp is not None and exp <= now:
+            continue
         out.append(
             {
                 "kind": "portal_native",
                 "id": row.jti,
-                "label": "Session portail (bastion_session)",
+                "label": "Portail Bastion",
                 "ip": row.ip_subnet or "—",
                 "started_at": row.issued_at,
                 "last_access": row.issued_at,
+                "expires_at": row.expires_at,
                 "is_current": bool(current_jti and row.jti == current_jti),
-                "clients": ["Portail Bastion"],
+                "clients": [],
             }
         )
     return out
@@ -252,15 +259,27 @@ async def list_user_sso_sessions(
             {
                 "kind": "keycloak",
                 "id": sid,
-                "label": "Session SSO Keycloak",
+                "label": "SSO Keycloak",
                 "ip": (sess.get("ipAddress") or "—").strip() or "—",
                 "started_at": _ms_to_dt(started_ms),
                 "last_access": _ms_to_dt(last_ms),
+                "expires_at": None,
                 "is_current": False,
-                "clients": client_names or ["SSO"],
+                "clients": client_names or [],
             }
         )
     return rows
+
+
+def session_list_summary(sessions: list[dict[str, Any]]) -> dict[str, Any]:
+    """UI hints: only current, count of revokable others."""
+    current = [s for s in sessions if s.get("is_current")]
+    others = [s for s in sessions if not s.get("is_current")]
+    return {
+        "total": len(sessions),
+        "others_count": len(others),
+        "only_current": bool(sessions) and not others,
+    }
 
 
 def _ms_to_dt(value: Any) -> datetime | None:
@@ -389,6 +408,8 @@ def revoke_own_native_session(
     row = db.query(OidcSession).filter_by(jti=token, revoked=False).first()
     if row is None:
         raise ProfileSecurityError("Session introuvable ou déjà expirée.")
+    if row.expires_at and _coerce_utc(row.expires_at) <= utcnow():
+        raise ProfileSecurityError("Session expirée.")
     uname = (row.username or "").strip().lower()
     sub = (row.sub or "").strip()
     owned = False
@@ -437,7 +458,9 @@ async def revoke_all_other_sessions(
         except ValueError:
             await logout_keycloak_user(realm, uid, settings)
             count += 1
-    # Native sessions except current
+    purge_expired_oidc_sessions(db)
+    now = utcnow()
+    # Native sessions except current (active only)
     names = set()
     for ident in (user.email, user.username):
         v = (ident or "").strip().lower()
@@ -453,6 +476,9 @@ async def revoke_all_other_sessions(
     if clauses:
         for row in q.filter(or_(*clauses)).all():
             if current_jti and row.jti == current_jti:
+                continue
+            exp = _coerce_utc(row.expires_at)
+            if exp is not None and exp <= now:
                 continue
             revoke_oidc_jti(db, row.jti, revoked_by=actor, reason="profile_revoke_others")
             count += 1

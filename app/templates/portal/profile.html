@@ -242,15 +242,23 @@
 
             {% if security_available | default(false) %}
             <div class="portal-security-card">
-              <div class="form-label">Sessions connectées</div>
-              <p class="text-2">Révoquez vos sessions SSO et portail (sauf la session en cours).</p>
-              {% if sso_sessions %}
+              <div class="form-label">Connexions actives</div>
+              {% if session_summary.only_current | default(false) %}
+              <p class="text-2">
+                Vous êtes connecté sur cet appareil.
+                Les connexions au portail expirent automatiquement après {{ session_ttl_hours }} h.
+              </p>
+              {% elif sso_sessions %}
+              <p class="text-2">
+                {{ session_summary.others_count }} autre{{ 's' if session_summary.others_count != 1 else '' }}
+                connexion{{ 's' if session_summary.others_count != 1 else '' }} active{{ 's' if session_summary.others_count != 1 else '' }}.
+                Révoquez celles que vous ne reconnaissez pas — les sessions expirent aussi après {{ session_ttl_hours }} h.
+              </p>
               <div class="table-wrap" style="border:none; margin-top:var(--sp-3);">
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Session</th>
-                      <th>IP</th>
+                      <th>Connexion</th>
                       <th>Dernière activité</th>
                       <th></th>
                     </tr>
@@ -260,23 +268,22 @@
                     <tr>
                       <td>
                         {{ s.label }}
-                        {% if s.is_current %}<span class="badge badge-ok" style="margin-left:var(--sp-2);">Actuelle</span>{% endif %}
+                        {% if s.is_current %}<span class="badge badge-ok" style="margin-left:var(--sp-2);">Cet appareil</span>{% endif %}
                         {% if s.clients %}
                         <div class="form-hint">{{ s.clients | join(', ') }}</div>
                         {% endif %}
                       </td>
-                      <td class="mono form-hint">{{ s.ip or '—' }}</td>
                       <td class="form-hint">
                         {% if s.last_access %}{{ s.last_access.strftime('%d/%m/%Y %H:%M') }}{% else %}—{% endif %}
                       </td>
                       <td>
                         {% if not s.is_current %}
                         <form method="post" action="/profile/sessions/revoke" style="display:inline;"
-                              onsubmit="return confirm('Révoquer cette session ?');">
+                              onsubmit="return confirm('Couper cette connexion ?');">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                           <input type="hidden" name="session_kind" value="{{ s.kind }}">
                           <input type="hidden" name="session_id" value="{{ s.id }}">
-                          <button type="submit" class="btn btn-ghost btn-sm">Révoquer</button>
+                          <button type="submit" class="btn btn-ghost btn-sm">Couper</button>
                         </form>
                         {% else %}
                         —
@@ -287,13 +294,15 @@
                   </tbody>
                 </table>
               </div>
+              {% if session_summary.others_count > 0 %}
               <form method="post" action="/profile/sessions/revoke-others" style="margin-top:var(--sp-3);"
-                    onsubmit="return confirm('Révoquer toutes les autres sessions ?');">
+                    onsubmit="return confirm('Couper toutes les autres connexions ?');">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="btn btn-ghost btn-sm">Révoquer toutes les autres sessions</button>
+                <button type="submit" class="btn btn-ghost btn-sm">Couper toutes les autres connexions</button>
               </form>
+              {% endif %}
               {% else %}
-              <p class="text-2" style="margin-top:var(--sp-2);">Aucune session active détectée.</p>
+              <p class="text-2" style="margin-top:var(--sp-2);">Aucune autre connexion active détectée.</p>
               {% endif %}
             </div>
             {% endif %}

@@ -229,6 +229,7 @@ async def user_profile(
         list_user_sso_sessions,
         password_self_service_available,
         self_service_security_available,
+        session_list_summary,
     )
 
     password_change_available = password_self_service_available(db, user, settings)
@@ -242,6 +243,8 @@ async def user_profile(
             settings=settings,
             current_jti=current_jti,
         )
+    max_age = int(getattr(settings, "oidc_session_max_age", 43200) or 43200)
+    session_ttl_hours = max(1, round(max_age / 3600))
     return render(
         "portal/profile.html",
         **_portal_page_ctx(
@@ -256,6 +259,8 @@ async def user_profile(
             password_change_available=password_change_available,
             security_available=security_available,
             sso_sessions=sso_sessions,
+            session_summary=session_list_summary(sso_sessions),
+            session_ttl_hours=session_ttl_hours,
             min_password_len=MIN_PASSWORD_LEN,
             password_policy_rules=PASSWORD_POLICY_RULES,
             **as_ctx,
