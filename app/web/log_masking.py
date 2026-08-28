@@ -111,13 +111,14 @@ def format_details_for_display(
     ``summarize_details_for_table`` — not a truncated JSON dump.
     When ``target`` is set (e.g. app slug on ``app_launch``), it is shown first
     so the launched app is visible without opening the drawer.
-    ``max_len`` / ``action`` kept for call-site compatibility.
+    Hostname targets for ``access_denied_unknown_host`` are omitted here (IP column).
+    ``max_len`` kept for call-site compatibility.
     """
     del max_len
-    del action
     summary = summarize_details_for_table(details) if details is not None else ""
     tgt = (target or "").strip()
-    if tgt and tgt.lower() not in summary.lower():
+    skip_target = (action or "") == "access_denied_unknown_host"
+    if tgt and not skip_target and tgt.lower() not in summary.lower():
         summary = f"{tgt} · {summary}" if summary else tgt
     if isinstance(details, (dict, list)):
         masked = mask_secrets(details)

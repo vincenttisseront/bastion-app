@@ -11,6 +11,7 @@
 {% set visible_columns = visible_columns | default(['timestamp','actor','code','action','ip','result','detail']) %}
 {% set all_columns = all_columns | default(visible_columns) %}
 {% set saved_views = saved_views | default([]) %}
+{% set active_view_id = active_view_id | default(none) %}
 {% set active_chips = active_chips | default([]) %}
 {% set filters = filters | default({}) %}
 {% set uncatalogued_count = uncatalogued_count | default(0) %}
@@ -66,9 +67,9 @@
     </div>
     {% endif %}
     <div class="logs-views">
-      <a class="btn btn-secondary btn-sm" href="/admin/logs#audit">Tout</a>
+      <a class="btn btn-sm{% if not active_view_id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs#audit"{% if not active_view_id %} aria-current="true"{% endif %}>Tout</a>
       {% for v in saved_views %}
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?view={{ v.id }}#audit">{{ v.name }}{% if v.is_system %} ★{% endif %}</a>
+      <a class="btn btn-sm{% if active_view_id == v.id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs?view={{ v.id }}#audit"{% if active_view_id == v.id %} aria-current="true"{% endif %}>{{ v.name }}{% if v.is_system %} ★{% endif %}</a>
       {% if not v.is_system %}
       <form method="post" action="/admin/logs/views/{{ v.id }}/delete" class="inline-form">
         <button type="submit" class="btn btn-ghost btn-sm" title="Supprimer la vue">×</button>
@@ -201,7 +202,7 @@
           <tr data-audit-id="{{ e.id }}" tabindex="0"
               data-entry='{{ e | tojson }}'>
             {% for c in visible_columns %}
-            <td class="{% if c in ['timestamp','ip'] %}font-mono{% endif %}{% if c == 'action' %} audit-col-action{% elif c == 'result' %} audit-col-result{% elif c == 'code' %} audit-col-code{% elif c == 'actor' %} audit-col-actor{% endif %}">
+            <td class="{% if c in ['timestamp','ip','target'] %}font-mono{% endif %}{% if c == 'action' %} audit-col-action{% elif c == 'result' %} audit-col-result{% elif c == 'code' %} audit-col-code{% elif c == 'actor' %} audit-col-actor{% elif c == 'target' %} audit-col-target{% elif c == 'detail' %} audit-col-detail{% endif %}">
               {% if c == 'timestamp' %}{{ e.timestamp }}
               {% elif c == 'actor' %}<span class="audit-cell-text" title="{{ e.actor }}">{{ e.actor }}</span>
               {% elif c == 'code' %}
@@ -230,7 +231,7 @@
                   <span class="audit-detail-summary">{{ e.detail_short or "—" }}</span>
                   <span class="audit-detail-hint" aria-hidden="true">↗</span>
                 </button>
-              {% elif c == 'target' %}<span class="audit-cell-text" title="{{ e.target or '' }}">{{ e.target or "—" }}</span>
+              {% elif c == 'target' %}<span class="audit-cell-text" title="{{ e.target_title or e.target or '' }}">{{ e.target_display or e.target or "—" }}</span>
               {% else %}{{ e.extras.get(c, "—") if e.extras else "—" }}
               {% endif %}
             </td>
@@ -478,6 +479,17 @@
   }
 
   function buildPageHref(pageNum) {
+    var urlParams = new URLSearchParams(window.location.search);
+    var viewId = urlParams.get('view');
+    if (viewId) {
+      var vp = new URLSearchParams();
+      vp.set('view', viewId);
+      vp.set('page', String(pageNum));
+      var colsFromUrl = urlParams.get('columns');
+      if (colsFromUrl) vp.set('columns', colsFromUrl);
+      else vp.set('columns', COLS.join(','));
+      return '/admin/logs?' + vp.toString() + '#audit';
+    }
     var p = new URLSearchParams(auditFilterQuery());
     p.set('page', String(pageNum));
     p.set('columns', COLS.join(','));
@@ -518,6 +530,7 @@
         keepS.forEach(function (x) { p.append('severity', x); });
       } else if (key === 'severity_min') {
         p.delete('severity_min');
+        p.delete('view');
       } else if (key) {
         p.delete(key);
       }
@@ -683,8 +696,15 @@
         '<dt>Domaine</dt><dd>' + esc(entry.domain || '—') + '</dd>' +
         '<dt>Action</dt><dd><code>' + esc(entry.action) + '</code></dd>' +
         '<dt>IP</dt><dd class="font-mono">' + esc(entry.ip_address || '—') + '</dd>' +
-        '<dt>Résultat</dt><dd>' + esc(entry.result || entry.status || entry.severity || '—') + '</dd>' +
-        '<dt>Cible</dt><dd>' + esc(entry.target || '—') + '</dd>' +
+        '<dt>Résultat</dt><dd>' + esc(entry.result || entry.status || entry.severity || '—') + '</dd>';
+      if (entry.action === 'access_denied_unknown_host') {
+        meta +=
+          '<dt>Hôte HTTP</dt><dd class="font-mono">' + esc(entry.target || '—') + '</dd>' +
+          (entry.target_uri ? '<dt>URI</dt><dd class="font-mono">' + esc(entry.target_uri) + '</dd>' : '');
+      } else {
+        meta += '<dt>Cible</dt><dd>' + esc(entry.target || '—') + '</dd>';
+      }
+      meta +=
         (entry.runbook ? '<dt>Runbook</dt><dd>' + esc(entry.runbook) + '</dd>' : '') +
         '</dl>';
       json = entry.detail_full || '—';
@@ -787,7 +807,7 @@
         '<span class="audit-detail-hint" aria-hidden="true">↗</span></button>';
     }
     if (c === 'target') {
-      return '<span class="audit-cell-text" title="' + esc(e.target || '') + '">' + esc(e.target || '—') + '</span>';
+      return '<span class="audit-cell-text" title="' + esc(e.target_title || e.target || '') + '">' + esc(e.target_display || e.target || '—') + '</span>';
     }
     var extras = e.extras || {};
     return esc(extras[c] != null ? extras[c] : '—');
@@ -806,6 +826,8 @@
       if (c === 'result') extra += ' audit-col-result';
       if (c === 'code') extra += ' audit-col-code';
       if (c === 'actor') extra += ' audit-col-actor';
+      if (c === 'target') extra += ' audit-col-target';
+      if (c === 'detail') extra += ' audit-col-detail';
       var cls = extra ? (' class="' + extra.trim() + '"') : '';
       return '<td' + cls + '>' + cellHtml(c, e) + '</td>';
     }).join('');
@@ -829,6 +851,12 @@
   function startAuditLive() {
     stopAuditLive();
     var q = auditFilterQuery();
+    var viewId = new URLSearchParams(window.location.search).get('view');
+    if (viewId) {
+      var p = new URLSearchParams(q);
+      p.set('view', viewId);
+      q = p.toString();
+    }
     auditEs = new EventSource('/admin/logs/stream' + (q ? ('?' + q) : ''));
     if (auditBtn) { auditBtn.setAttribute('aria-pressed', 'true'); auditBtn.textContent = '● Live ON'; }
     if (auditStatus) auditStatus.hidden = false;

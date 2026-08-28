@@ -177,6 +177,118 @@ def _filter_dict(
     }
 
 
+def _merge_saved_view_filters(
+    db: Session,
+    user_key: str,
+    view: int | None,
+    *,
+    action: str | None,
+    actor: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    ip: str | None,
+    q: str | None,
+    detail: str | None,
+    status: list[str] | None,
+    domain: list[str] | None,
+    severity: list[str] | None,
+    severity_min: str | None,
+    event_code: str | None,
+    columns: str | None = None,
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    list[str] | None,
+    list[str] | None,
+    list[str] | None,
+    str | None,
+    str | None,
+    int | None,
+    str | None,
+]:
+    """Apply saved view defaults; explicit query params take precedence."""
+    active_view_id: int | None = None
+    if not view:
+        return (
+            action,
+            actor,
+            date_from,
+            date_to,
+            ip,
+            q,
+            detail,
+            status,
+            domain,
+            severity,
+            severity_min,
+            event_code,
+            active_view_id,
+            columns,
+        )
+    saved = (
+        db.query(SavedLogView)
+        .filter_by(id=view, user_email=user_key)
+        .first()
+    )
+    if not saved or not isinstance(saved.filters_json, dict):
+        return (
+            action,
+            actor,
+            date_from,
+            date_to,
+            ip,
+            q,
+            detail,
+            status,
+            domain,
+            severity,
+            severity_min,
+            event_code,
+            active_view_id,
+            columns,
+        )
+    active_view_id = int(saved.id)
+    f = saved.filters_json
+    action = action or f.get("action") or None
+    actor = actor or f.get("actor") or None
+    date_from = date_from or f.get("date_from") or None
+    date_to = date_to or f.get("date_to") or None
+    ip = ip or f.get("ip") or None
+    q = q or f.get("q") or None
+    detail = detail or f.get("detail") or None
+    event_code = event_code or f.get("event_code") or None
+    severity_min = severity_min or f.get("severity_min") or None
+    if not status and isinstance(f.get("status"), list):
+        status = f.get("status")
+    if not domain and isinstance(f.get("domain"), list):
+        domain = f.get("domain")
+    if not severity and isinstance(f.get("severity"), list):
+        severity = f.get("severity")
+    if not columns and isinstance(saved.columns_json, list):
+        columns = ",".join(str(c) for c in saved.columns_json)
+    return (
+        action,
+        actor,
+        date_from,
+        date_to,
+        ip,
+        q,
+        detail,
+        status,
+        domain,
+        severity,
+        severity_min,
+        event_code,
+        active_view_id,
+        columns,
+    )
+
+
 def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:
     chips: list[dict[str, str]] = []
     if filters.get("id"):
@@ -247,31 +359,39 @@ def admin_logs_page(
 
     user_key = _user_key(user)
     _ensure_system_views(db, user_key)
-    if view:
-        saved = (
-            db.query(SavedLogView)
-            .filter_by(id=view, user_email=user_key)
-            .first()
-        )
-        if saved and isinstance(saved.filters_json, dict):
-            f = saved.filters_json
-            action = action or f.get("action") or None
-            actor = actor or f.get("actor") or None
-            date_from = date_from or f.get("date_from") or None
-            date_to = date_to or f.get("date_to") or None
-            ip = ip or f.get("ip") or None
-            q = q or f.get("q") or None
-            detail = detail or f.get("detail") or None
-            event_code = event_code or f.get("event_code") or None
-            severity_min = severity_min or f.get("severity_min") or None
-            if not status and isinstance(f.get("status"), list):
-                status = f.get("status")
-            if not domain and isinstance(f.get("domain"), list):
-                domain = f.get("domain")
-            if not severity and isinstance(f.get("severity"), list):
-                severity = f.get("severity")
-            if not columns and isinstance(saved.columns_json, list):
-                columns = ",".join(str(c) for c in saved.columns_json)
+    (
+        action,
+        actor,
+        date_from,
+        date_to,
+        ip,
+        q,
+        detail,
+        status,
+        domain,
+        severity,
+        severity_min,
+        event_code,
+        active_view_id,
+        columns,
+    ) = _merge_saved_view_filters(
+        db,
+        user_key,
+        view,
+        action=action,
+        actor=actor,
+        date_from=date_from,
+        date_to=date_to,
+        ip=ip,
+        q=q,
+        detail=detail,
+        status=status,
+        domain=domain,
+        severity=severity,
+        severity_min=severity_min,
+        event_code=event_code,
+        columns=columns,
+    )
 
     statuses = parse_status_list(status)
     domains = parse_domain_list(domain)
@@ -359,6 +479,7 @@ def admin_logs_page(
         all_columns=DEFAULT_COLUMNS
         + ["reason", "x_real_ip", "x_forwarded_for", "peer", "resolved", "target"],
         saved_views=_list_views(db, user_key),
+        active_view_id=active_view_id,
         docker_logs_enabled=docker_logs_enabled(docker_cfg),
         docker_containers=docker_logs_whitelist(docker_cfg),
         docker_logs_tail_lines=docker_cfg.tail_lines,
@@ -388,11 +509,48 @@ async def admin_logs_stream(
     severity: list[str] | None = Query(None),
     severity_min: str | None = None,
     event_code: str | None = None,
+    view: int | None = None,
     settings: Settings = Depends(get_settings),
-    _user=Depends(require_admin),
+    user=Depends(require_admin),
+    db: Session = Depends(get_db),
 ):
     """SSE: push new audit rows matching filters (poll DB)."""
     from app.web.admin_logs_query import entry_matches_live_filters
+
+    user_key = _user_key(user)
+    _ensure_system_views(db, user_key)
+    (
+        action,
+        actor,
+        date_from,
+        date_to,
+        ip,
+        q,
+        detail,
+        status,
+        domain,
+        severity,
+        severity_min,
+        event_code,
+        _active_view_id,
+        _columns,
+    ) = _merge_saved_view_filters(
+        db,
+        user_key,
+        view,
+        action=action,
+        actor=actor,
+        date_from=date_from,
+        date_to=date_to,
+        ip=ip,
+        q=q,
+        detail=detail,
+        status=status,
+        domain=domain,
+        severity=severity,
+        severity_min=severity_min,
+        event_code=event_code,
+    )
 
     statuses = parse_status_list(status)
     domains = parse_domain_list(domain)
