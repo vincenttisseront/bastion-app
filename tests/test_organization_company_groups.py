@@ -146,9 +146,11 @@ def test_create_account_with_variant_org_reuses_group(client, db_session):
         headers=JSON_HEADERS,
         data={
             "realm_id": str(realm.id),
-            "username": "jdoe",
-            "email": "jdoe@example.com",
-            "organization_pick": "__new__",
+            "username": "john.doe",
+            "email": "john.doe@example.com",
+            "first_name": "John",
+            "last_name": "Doe",
+            "organization_pick": "",
             "organization": "SDIS 81",
             "reveal_password": "on",
         },
@@ -158,7 +160,7 @@ def test_create_account_with_variant_org_reuses_group(client, db_session):
     assert body["ok"] is True
     account = (
         db_session.query(BastionAccount)
-        .filter_by(realm_id=realm.id, username="jdoe")
+        .filter_by(realm_id=realm.id, username="john.doe")
         .first()
     )
     assert account is not None
@@ -183,7 +185,7 @@ def test_create_account_picks_existing_company_group(client, db_session):
     db_session.commit()
 
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
-    _mock_no_duplicate(username="ada", email="ada@example.com")
+    _mock_no_duplicate(username="ada.test", email="ada@example.com")
     respx.post(f"{KC_ADMIN}/users").respond(
         201, headers={"Location": f"{KC_ADMIN}/users/kc-ada"}
     )
@@ -194,8 +196,10 @@ def test_create_account_picks_existing_company_group(client, db_session):
         headers=JSON_HEADERS,
         data={
             "realm_id": str(realm.id),
-            "username": "ada",
+            "username": "ada.test",
             "email": "ada@example.com",
+            "first_name": "Ada",
+            "last_name": "Test",
             "organization_pick": str(existing.id),
             "organization": "",
             "reveal_password": "on",
@@ -204,7 +208,7 @@ def test_create_account_picks_existing_company_group(client, db_session):
     assert resp.status_code == 200, resp.text
     account = (
         db_session.query(BastionAccount)
-        .filter_by(realm_id=realm.id, username="ada")
+        .filter_by(realm_id=realm.id, username="ada.test")
         .first()
     )
     assert account is not None
@@ -227,5 +231,6 @@ def test_new_user_form_lists_company_groups(client, db_session):
     resp = client.get("/admin/rbac/users/new", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert 'name="organization_pick"' in resp.text
-    assert "Créer une nouvelle société" in resp.text
+    assert "Nouvelle société" in resp.text
+    assert "Société existante" in resp.text
     assert "SDIS81" in resp.text

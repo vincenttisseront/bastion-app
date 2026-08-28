@@ -15,6 +15,11 @@ from app.breakglass import (
 )
 from app.database import get_db
 from app.rbac.effective_access_service import user_has_portal_admin_role
+from app.rbac.user_identity import (
+    format_identity_first_name,
+    format_identity_last_name,
+    parse_identity_from_username,
+)
 from app.sso_settings import Settings, get_settings
 
 # Keycloak subject UUIDs must never be shown as a display name.
@@ -50,10 +55,19 @@ class UserContext:
     is_admin: bool
     keycloak_user_id: str | None = None
     given_name: str | None = None
+    family_name: str | None = None
+    identity_first_name: str | None = None
+    identity_last_name: str | None = None
 
     @property
     def display_name(self) -> str:
-        return _human_label(self.username, self.email, self.given_name) or (
+        first = (self.identity_first_name or "").strip()
+        last = (self.identity_last_name or "").strip()
+        if first and last:
+            return f"{first} {last}"
+        if first or last:
+            return first or last
+        return _human_label(self.given_name, self.username, self.email) or (
             self.email or self.username or "?"
         )
 
@@ -76,7 +90,11 @@ class UserContext:
 
     @property
     def initials(self) -> str:
-        """Two-letter avatar initials from display name / email."""
+        """Two-letter avatar initials from identity or display name / email."""
+        first = (self.identity_first_name or "").strip()
+        last = (self.identity_last_name or "").strip()
+        if first and last:
+            return (first[0] + last[0]).upper()
         source = self.display_name
         if source == "?" or looks_like_uuid(source):
             source = (self.email or self.username or "?").strip()
@@ -117,6 +135,62 @@ def _is_admin_via_groups(groups: list[str], auth_source: str, settings: Settings
     return any(g in admin_groups for g in groups)
 
 
+def _bastion_identity_names(
+    db: Session, user: UserContext
+) -> tuple[str | None, str | None]:
+    from app.models import BastionAccount, RealmConfig
+
+    base = db.query(BastionAccount.first_name, BastionAccount.last_name)
+    if user.keycloak_user_id:
+        row = (
+            base.filter(BastionAccount.keycloak_user_id == user.keycloak_user_id)
+            .order_by(BastionAccount.updated_at.desc())
+            .first()
+        )
+        if row and (row[0] or row[1]):
+            return (row[0] or None, row[1] or None)
+
+    if user.username and user.realm_slug:
+        realm_id = (
+            db.query(RealmConfig.id).filter(RealmConfig.slug == user.realm_slug).scalar()
+        )
+        if realm_id:
+            row = (
+                base.filter(
+                    BastionAccount.realm_id == realm_id,
+                    BastionAccount.username == user.username,
+                )
+                .order_by(BastionAccount.updated_at.desc())
+                .first()
+            )
+            if row and (row[0] or row[1]):
+                return (row[0] or None, row[1] or None)
+    return None, None
+
+
+def _resolve_identity_names(user: UserContext, db: Session | None) -> None:
+    """Fill ``identity_first_name`` / ``identity_last_name`` for portal display."""
+    first: str | None = None
+    last: str | None = None
+
+    if db is not None:
+        first, last = _bastion_identity_names(db, user)
+
+    if not first and user.given_name and not looks_like_uuid(user.given_name):
+        first = format_identity_first_name(user.given_name)
+    if not last and user.family_name and not looks_like_uuid(user.family_name):
+        last = format_identity_last_name(user.family_name)
+
+    if not first or not last:
+        parsed = parse_identity_from_username(user.username)
+        if parsed:
+            first = first or parsed[0]
+            last = last or parsed[1]
+
+    user.identity_first_name = (first or "").strip() or None
+    user.identity_last_name = (last or "").strip() or None
+
+
 def _display_cache_for_user(db: Session, keycloak_user_id: str | None) -> str | None:
     if not keycloak_user_id:
         return None
@@ -142,6 +216,7 @@ def _display_cache_for_user(db: Session, keycloak_user_id: str | None) -> str | 
 def enrich_user_identity(user: UserContext, db: Session | None) -> UserContext:
     """Prefer human labels over Keycloak subject UUIDs; fill from grant cache if needed."""
     if db is None:
+        _resolve_identity_names(user, None)
         return user
 
     cache = _display_cache_for_user(db, user.keycloak_user_id)
@@ -151,6 +226,7 @@ def enrich_user_identity(user: UserContext, db: Session | None) -> UserContext:
         user.email = _human_label(cache, user.username, user.given_name) or user.email
     if cache and looks_like_uuid(user.username) and looks_like_uuid(user.email):
         user.username = cache
+    _resolve_identity_names(user, db)
     return user
 
 
@@ -225,6 +301,11 @@ def get_user_context(
         or request.headers.get("X-Auth-Request-Given-Name", "").strip()
         or None
     )
+    family_name = (
+        request.headers.get("X-Family-Name", "").strip()
+        or request.headers.get("X-Auth-Request-Family-Name", "").strip()
+        or None
+    )
 
     if not email and not username:
         bg_cookie = request.cookies.get(COOKIE_NAME)
@@ -275,6 +356,7 @@ def get_user_context(
         is_admin=is_admin,
         keycloak_user_id=keycloak_user_id,
         given_name=given_name,
+        family_name=family_name,
     )
     if db is not None:
         if not user.is_admin and user_has_portal_admin_role(

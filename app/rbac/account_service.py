@@ -917,6 +917,8 @@ async def create_bastion_account(
 
     if not username or not email:
         raise AccountCreationError("Identifiant et email sont requis")
+    if not first_name or not last_name:
+        raise AccountCreationError("Prénom et nom sont requis")
     if "@" not in email:
         raise AccountCreationError("Email invalide")
     if not organization:

@@ -74,18 +74,24 @@
           </div>
           <div class="portal-field-row">
             <div>
+              <div class="form-label">Prénom</div>
+              <div class="portal-field-value">{{ portal_user.identity_first_name or '—' }}</div>
+            </div>
+          </div>
+          <div class="portal-field-row">
+            <div>
+              <div class="form-label">Nom</div>
+              <div class="portal-field-value">{{ portal_user.identity_last_name or '—' }}</div>
+            </div>
+          </div>
+          <div class="portal-field-row">
+            <div>
               <div class="form-label">Email</div>
               <div class="portal-field-value mono">{{ portal_user.email }}</div>
             </div>
             {% if account_url %}
             <a class="btn btn-ghost btn-sm" href="{{ account_url }}" target="_blank" rel="noopener noreferrer">Modifier</a>
             {% endif %}
-          </div>
-          <div class="portal-field-row">
-            <div>
-              <div class="form-label">Identifiant</div>
-              <div class="portal-field-value mono">{{ portal_user.username }}</div>
-            </div>
           </div>
         </div>
       </section>
