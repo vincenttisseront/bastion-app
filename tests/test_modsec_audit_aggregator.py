@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.bastion.modsec_audit_aggregator import (
+    is_audit_noise_event,
     read_audit_summary,
     resolve_modsec_audit_log_path,
     run_aggregation,
@@ -103,6 +104,43 @@ def test_aggregator_skips_loopback_host_noise(tmp_path: Path):
     assert w24["top_rules"][0]["rule_id"] == "942100"
     assert all(
         not str(h.get("host", "")).startswith("127.") for h in w24["top_hosts"]
+    )
+
+
+def test_aggregator_skips_loopback_client_ip_smoke(tmp_path: Path):
+    """CRS smoke from docker01: Host=portal FQDN, client_ip=127.0.0.1 — not attack signal."""
+    logs = tmp_path / "nginx-logs"
+    logs.mkdir()
+    log_file = logs / "modsec_audit.log"
+    log_file.write_text(
+        "\n".join(
+            [
+                _sample_audit_line(
+                    rule_id="942180",
+                    host="portal.ar-systems.fr",
+                    client_ip="127.0.0.1",
+                ),
+                _sample_audit_line(
+                    rule_id="942100",
+                    host="portal.ar-systems.fr",
+                    client_ip="198.51.100.9",
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    settings = Settings(
+        environment="test", database_url="sqlite://", nginx_app_logs_dir=str(logs)
+    )
+    summary = run_aggregation(settings)
+    w24 = summary["windows"]["24h"]
+    assert w24["inspected"] == 1
+    assert w24["detections"] == 1
+    assert w24["top_attackers"] == [{"ip": "198.51.100.9", "count": 1}]
+    assert all(e["client_ip"] != "127.0.0.1" for e in summary["recent_events"])
+    assert is_audit_noise_event(
+        {"host": "portal.ar-systems.fr", "client_ip": "127.0.0.1"}
     )
 
 
