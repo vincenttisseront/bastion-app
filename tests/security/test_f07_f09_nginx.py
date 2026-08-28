@@ -47,6 +47,11 @@ def test_docker_portal_unknown_host_location_is_internal():
     assert "internal;" in text[idx : idx + 200]
     assert "location = /__bastion_unknown_host" in text
     assert "$bastion_unknown_host" in text
+    assert "limit_req zone=portal_unknown_host" in text
+    unknown = text.split("location = /__bastion_unknown_host", 1)[1].split(
+        "location = /internal/unknown-host", 1
+    )[0]
+    assert "portal_api" not in unknown
 
 
 def test_docker_portal_vhost_is_default_server_on_8080():

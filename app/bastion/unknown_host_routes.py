@@ -15,6 +15,7 @@ from app.bastion.pending_host_service import record_unknown_host
 from app.database import get_db
 from app.request_client_ip import client_ip_from_request
 from app.security import require_nginx_internal_token
+from app.security.banning.engine import find_active_ban
 
 router = APIRouter(tags=["unknown-host"])
 
@@ -84,10 +85,17 @@ def unknown_host_gateway(
         or ""
     )
     uri = request.headers.get("x-original-uri") or request.url.path
+    client_ip = client_ip_from_request(request)
+    if client_ip and find_active_ban(db, ip=client_ip) is not None:
+        return HTMLResponse(
+            content=render_unknown_host_page(),
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+        )
     record_unknown_host(
         db,
         hostname=hostname,
-        client_ip=client_ip_from_request(request),
+        client_ip=client_ip,
         user_agent=request.headers.get("user-agent"),
         uri=uri,
     )

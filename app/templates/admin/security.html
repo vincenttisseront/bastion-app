@@ -508,6 +508,7 @@
   {% set security_ban_rules = security_ban_rules | default({}) %}
   {% set security_bans = security_bans | default([]) %}
   {% set security_allowlist = security_allowlist | default([]) %}
+  {% set unknown_host = security_ban_rules.get('unknown_host_hammering') if security_ban_rules else none %}
   {% set hammer = security_ban_rules.get('hammering') if security_ban_rules else none %}
   {% set hammer_login = security_ban_rules.get('hammering_login') if security_ban_rules else none %}
   {% set failed = security_ban_rules.get('failed_login') if security_ban_rules else none %}
@@ -592,6 +593,7 @@
     </div>
     <div class="form-body banning-stack">
       {% set policy_enabled = not security_policy or security_policy.enabled %}
+      {% set unknown_host_on = not unknown_host or unknown_host.enabled %}
       {% set hammer_on = not hammer or hammer.enabled %}
       {% set hammer_login_on = not hammer_login or hammer_login.enabled %}
       {% set failed_on = not failed or failed.enabled %}
@@ -693,6 +695,42 @@
                     </div>
                     <label class="check-row"><input type="checkbox" name="hammering_login_ban_permanent" data-banning-field="permanent" {% if hammer_login and hammer_login.ban_permanent %}checked{% endif %}> Ban permanent</label>
                     <label class="check-row"><input type="checkbox" name="hammering_login_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="banning-rule" data-banning-rule data-summary-kind="unknown_host_hammering">
+                <div class="banning-rule-head" data-banning-rule-toggle>
+                  <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-unknown-host" tabindex="-1">▸</button>
+                  <span class="banning-rule-title">Hôtes inconnus (scanners)</span>
+                  <label class="check-row banning-rule-enable" data-banning-enable-stop>
+                    <input type="checkbox" name="unknown_host_enabled" data-banning-enabled {% if unknown_host_on %}checked{% endif %}> Activé
+                  </label>
+                  <span class="banning-rule-summary{% if not unknown_host_on %} is-off{% endif %}" data-banning-summary>
+                    {% if unknown_host_on %}
+                    Actif · {{ unknown_host.threshold if unknown_host else 50 }} refus / {{ unknown_host.window_seconds if unknown_host else 300 }}s · ban IP {% if unknown_host and unknown_host.ban_permanent %}permanent{% else %}{{ unknown_host.ban_minutes if unknown_host else 1440 }} min{% endif %}
+                    {% else %}Désactivé{% endif %}
+                  </span>
+                </div>
+                <div class="banning-rule-panel" id="banning-panel-unknown-host" hidden>
+                  <div class="stack">
+                    <p class="form-help">Compte les refus <code class="mono">access_denied_unknown_host</code> par IP (PerplexityBot, apex non enregistré, etc.). Ban applicatif immédiat ; deny nginx après seuil d'occurrences WAF + <strong>Appliquer</strong>.</p>
+                    <div class="form-grid">
+                      <div>
+                        <label class="form-label" for="unknown_host_threshold">Seuil (refus)</label>
+                        <input class="form-input" type="number" min="1" id="unknown_host_threshold" name="unknown_host_threshold" data-banning-field="threshold" value="{{ unknown_host.threshold if unknown_host else 50 }}">
+                      </div>
+                      <div>
+                        <label class="form-label" for="unknown_host_window_seconds">Fenêtre (s)</label>
+                        <input class="form-input" type="number" min="1" id="unknown_host_window_seconds" name="unknown_host_window_seconds" data-banning-field="window" value="{{ unknown_host.window_seconds if unknown_host else 300 }}">
+                      </div>
+                      <div>
+                        <label class="form-label" for="unknown_host_ban_minutes">Durée ban (min)</label>
+                        <input class="form-input" type="number" min="1" id="unknown_host_ban_minutes" name="unknown_host_ban_minutes" data-banning-field="minutes" value="{{ unknown_host.ban_minutes if unknown_host else 1440 }}">
+                      </div>
+                    </div>
+                    <label class="check-row"><input type="checkbox" name="unknown_host_ban_permanent" data-banning-field="permanent" {% if unknown_host and unknown_host.ban_permanent %}checked{% endif %}> Ban permanent</label>
+                    <label class="check-row"><input type="checkbox" name="unknown_host_confirm_permanent"> Je confirme le ban permanent (requis)</label>
                   </div>
                 </div>
               </div>
@@ -1252,6 +1290,10 @@
         summary.textContent = perm
           ? ('Actif · ' + thr + ' requêtes / ' + win + 's · ban permanent')
           : ('Actif · ' + thr + ' requêtes / ' + win + 's · ban ' + min + ' min');
+      } else if (kind === 'unknown_host_hammering') {
+        summary.textContent = perm
+          ? ('Actif · ' + thr + ' refus / ' + win + 's · ban permanent')
+          : ('Actif · ' + thr + ' refus / ' + win + 's · ban IP ' + min + ' min');
       } else if (kind === 'failed_login') {
         var alsoUser = val(rule, 'ban_username');
         var base = perm

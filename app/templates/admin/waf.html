@@ -166,8 +166,13 @@
           <span class="waf-kpi-value">{% if ac.present %}{{ ac.critical_24h }}{% else %}—{% endif %}</span>
           <span class="waf-kpi-sub">SQLi / XSS / RCE / LFI</span>
         </div>
+        <div class="waf-kpi-card waf-kpi-card--warn">
+          <span class="waf-kpi-label">Refus hôte inconnu</span>
+          <span class="waf-kpi-value">{% if unknown_host_panel.present %}{{ unknown_host_panel.hits_24h }}{% else %}—{% endif %}</span>
+          <span class="waf-kpi-sub">24 h · filtrage d'hôtes</span>
+        </div>
         <div class="waf-kpi-card">
-          <span class="waf-kpi-label">Taux de blocage</span>
+          <span class="waf-kpi-label">Taux de blocage CRS</span>
           <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.block_rate_pct }} %{% else %}—{% endif %}</span>
           <span class="waf-kpi-sub">{% if efficiency.generated_at %}agrégé {{ efficiency.generated_at[:16] }}{% else %}indisponible{% endif %}</span>
         </div>
@@ -232,7 +237,7 @@
         <div class="waf-dash-card waf-dash-card--attacks">
           <div class="waf-dash-card-header">
             <h3 class="waf-dash-card-title">Attaques récentes</h3>
-            <span class="waf-dash-card-meta">journal audit</span>
+            <span class="waf-dash-card-meta">CRS + hôtes inconnus</span>
           </div>
           <ul class="waf-attack-list">
             {% for a in ac.recent %}
@@ -240,12 +245,13 @@
               <div class="waf-attack-row-main">
                 <time class="waf-attack-time mono" datetime="{{ a.timestamp }}">{{ a.timestamp }}</time>
                 {% if a.blocked %}<span class="badge badge-err">bloqué</span>{% else %}<span class="badge badge-warn">détecté</span>{% endif %}
+                {% if a.source == 'unknown_host' %}<span class="badge badge-warn">hôte inconnu</span>{% endif %}
                 {% for f in a.families %}<span class="badge badge-muted">{{ f }}</span>{% endfor %}
                 <span class="waf-attack-ip mono">{{ a.client_ip }}</span>
               </div>
               <div class="waf-attack-row-path">
                 <span class="mono" title="{{ a.host }}{{ a.uri }}">{{ a.host }}{{ a.uri }}</span>
-                <span class="waf-attack-rule mono">règle {{ a.rule_id }}</span>
+                <span class="waf-attack-rule mono">{% if a.source == 'unknown_host' %}filtrage hôte{% else %}règle {{ a.rule_id }}{% endif %}</span>
               </div>
               <div class="waf-attack-actions">
                 {% if a.banned %}
@@ -282,7 +288,7 @@
         <div class="waf-dash-card">
           <div class="waf-dash-card-header">
             <h3 class="waf-dash-card-title">Top attaquants</h3>
-            <span class="waf-dash-card-meta">24 h · actions</span>
+            <span class="waf-dash-card-meta">24 h · CRS + scanners</span>
           </div>
           <ul class="waf-attacker-list">
             {% for atk in ac.top_attackers %}

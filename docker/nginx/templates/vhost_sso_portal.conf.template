@@ -63,7 +63,7 @@ server {
         auth_request off;
         modsecurity off;
         proxy_intercept_errors off;
-        limit_req zone=portal_api burst=20 nodelay;
+        limit_req zone=portal_unknown_host burst=10 nodelay;
         include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
         include /etc/nginx/snippets/proxy_portal_fastapi.conf;
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;

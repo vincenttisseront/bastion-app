@@ -225,6 +225,34 @@ def test_internal_unknown_host_records(client, db_session):
     assert (audit.details or {}).get("uri") == "/web/"
 
 
+def test_internal_unknown_host_skips_recording_when_ip_banned(client, db_session):
+    from app.security.banning.engine import apply_ban
+
+    apply_ban(
+        db_session,
+        target_type="ip",
+        target="203.0.113.55",
+        reason="scanner",
+        rule_type="unknown_host_hammering",
+        permanent=False,
+        ban_minutes=60,
+        actor="test",
+    )
+    before = db_session.query(PendingHost).count()
+    r = client.get(
+        "/internal/unknown-host",
+        headers={
+            "Host": "scanner.example.fr",
+            "X-Portal-Internal-Token": "test-secret",
+            "X-Discovered-Host": "scanner.example.fr",
+            "X-Original-URI": "/api/",
+            "X-Forwarded-For": "203.0.113.55",
+        },
+    )
+    assert r.status_code == 403
+    assert db_session.query(PendingHost).count() == before
+
+
 def test_render_unknown_host_page_is_identity_free():
     from app.bastion.unknown_host_routes import render_unknown_host_page
 
