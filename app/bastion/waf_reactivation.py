@@ -1,8 +1,7 @@
-"""IHM-driven ModSecurity reactivation with smoke probes and auto-rollback.
+"""Réactivation ModSecurity depuis l'admin : DetectionOnly, sondes HTTP, rollback.
 
-Portal family first; subdomain family after portal is armed (DetectionOnly + smoke).
-Success = nginx -t + HTTP smoke (not nginx -t alone): the 2026-08-06 failure mode was
-request-time HTTP 500 while /api/health stayed 200.
+Portail d'abord, sous-domaines ensuite. nginx -t seul ne suffit pas : les sondes
+HTTP doivent passer (un 500 à la requête peut coexister avec /api/health = 200).
 """
 
 from __future__ import annotations
@@ -44,6 +43,16 @@ SUBDOMAIN_SMOKE_HOST_LIMIT = 5
 SMOKE_TIMEOUT_SEC = 8
 RELOAD_WAIT_SEC = 6
 SMOKE_RETRIES = 3
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Probes must not follow 302 (subdomain /auth/login nesting)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        return None
+
+
+_PROBE_OPENER = urllib.request.build_opener(_NoRedirectHandler())
 
 
 def arm_state_path(settings: Settings) -> Path:
@@ -301,7 +310,7 @@ def _http_probe(
         headers["Host"] = host
     req = urllib.request.Request(url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=SMOKE_TIMEOUT_SEC) as resp:
+        with _PROBE_OPENER.open(req, timeout=SMOKE_TIMEOUT_SEC) as resp:
             code = int(resp.status)
             body_len = len(resp.read(4096) or b"")
     except urllib.error.HTTPError as exc:
@@ -322,7 +331,7 @@ def _http_probe(
         reason = f"expected {expect_status}, got {code}"
     elif expect_not_5xx and code >= 500:
         ok = False
-        reason = f"HTTP {code} (échec type incident 2026-08-06)"
+        reason = f"HTTP {code}"
     return {
         "url": url,
         "host": host,
@@ -369,7 +378,7 @@ def smoke_portal_probes(settings: Settings) -> dict[str, Any]:
     health["critical"] = True
     probes.append(health)
 
-    # Request-time ModSec path — incident 2026-08-06 signature (internal edge only).
+    # Chemin inspecté par ModSecurity (login) — edge interne uniquement.
     login = _http_probe(
         f"{base}/auth/login",
         host=domain,
@@ -526,7 +535,7 @@ def reactivate_engine(
         }
 
     mode = target_mode if target_mode in {MODE_DETECTION, MODE_ON} else MODE_DETECTION
-    # First IHM reactivation always prefers DetectionOnly even if profile says On.
+    # Première réactivation : toujours DetectionOnly, même si le profil est On.
     if mode == MODE_ON:
         mode = MODE_DETECTION
 
@@ -714,7 +723,7 @@ def smoke_subdomain_probes(db: Session, settings: Settings) -> dict[str, Any]:
     base = "http://nginx:8080"
     probes: list[dict[str, Any]] = []
     for host in hosts:
-        probe = _http_probe(f"{base}/", host=host, expect_not_5xx=True)
+        probe = _http_probe(f"{base}/healthz", host=host, expect_not_5xx=True)
         probe["critical"] = True
         probe["subdomain_host"] = host
         probes.append(probe)

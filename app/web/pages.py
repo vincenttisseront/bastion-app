@@ -620,8 +620,12 @@ def login_page(
         raw_session = extract_oidc_session_cookie_raw(request, settings)
 
     rd_host = (urlparse(rd).hostname or "").lower() if rd.startswith("https://") else ""
+    rd_path = (urlparse(rd).path or "").lower() if rd.startswith("https://") else ""
     portal_host = (settings.portal_domain or "").strip().lower()
     rd_is_absolute_subdomain = bool(rd_host and rd_host != portal_host)
+    if "/auth/login" in rd_path or rd_path.rstrip("/") == "/login":
+        rd_is_absolute_subdomain = False
+        rd = "/apps"
     # Set by subdomain @portal_redirect after auth_request 401. Never bounce back
     # to that Host — FastAPI would_allow can be true while nginx still 401s.
     sub_auth_denied = (request.query_params.get("bastion_sub") or "").strip() == "1"

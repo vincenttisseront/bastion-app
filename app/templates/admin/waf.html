@@ -76,7 +76,7 @@
                 id="waf-apply-btn" data-export-pending="{{ 'true' if export_pending else 'false' }}"
                 data-apply-enabled="{{ 'true' if apply_enabled else 'false' }}"
                 {% if not apply_enabled %}disabled aria-disabled="true"{% endif %}
-                title="{% if apply_enabled %}Pousser exports vers nginx{% elif not mode_pilotable %}Le mode CRS n'est pas pilotable (urgence) — Appliquer sert encore pour exclusions / deny / rate-limits une fois qu'il y a un diff{% else %}Aucun changement en attente{% endif %}">
+                title="{% if apply_enabled %}Pousser les exports vers nginx{% elif not mode_pilotable %}Moteur désarmé : Appliquer pousse encore exclusions, deny IP et rate-limits{% else %}Aucun changement en attente{% endif %}">
 
           Appliquer
 
@@ -507,16 +507,16 @@
 
       {% if reactivation and reactivation.can_disarm %}
       <div class="waf-disarm-block alert alert-warn" style="margin-top:var(--sp-4)">
-        <strong>Moteur portal armé</strong>
-        <p class="muted">Pour couper immédiatement ModSecurity (Off + désarmement) :</p>
+        <strong>Moteur portail armé</strong>
+        <p class="muted">Pour couper immédiatement ModSecurity (Off) :</p>
         <form method="post" action="/admin/security/waf/actions/disarm" class="stack"
               data-confirm-title="Couper le moteur ModSecurity ?"
-              data-confirm="Coupe immédiatement le connecteur portal (modsecurity off) et SecRuleEngine Off, puis smoke de contrôle."
+              data-confirm="Coupe le connecteur portail (modsecurity off) et SecRuleEngine Off, puis contrôles HTTP."
               data-confirm-label="Couper le moteur"
               data-confirm-danger="1">
           <label class="form-check">
             <input type="checkbox" name="confirm_disarm" value="on" required>
-            Je confirme la coupure immédiate du moteur portal
+            Je confirme la coupure immédiate du moteur portail
           </label>
           <button type="submit" class="btn btn-secondary">Couper le moteur</button>
         </form>
@@ -792,7 +792,7 @@
   <div class="form-section waf-panel waf-reactivation" id="reactivation" role="tabpanel" aria-labelledby="tab-reactivation" hidden>
     <div class="form-section-header">
       <div class="form-section-title">{{ reactivation.title }}</div>
-      <div class="form-section-sub">Réactivation IHM avec smoke HTTP et rollback auto</div>
+      <div class="form-section-sub">DetectionOnly, contrôles HTTP, retour automatique à Off en cas d'échec</div>
     </div>
     <div class="form-body">
       {% if reactivation.can_reactivate_portal %}
@@ -809,9 +809,9 @@
               id="waf-reactivate-form">
           <label class="form-check">
             <input type="checkbox" name="confirm_reactivate" value="on" required>
-            Je confirme la réactivation portal (DetectionOnly) avec smoke + rollback auto
+            Je confirme l'activation portail (DetectionOnly) et les contrôles HTTP
           </label>
-          <button type="submit" class="btn btn-primary">Réactiver le moteur portal (DetectionOnly)</button>
+          <button type="submit" class="btn btn-primary">Réactiver le portail (DetectionOnly)</button>
         </form>
       </div>
       {% elif reactivation.armed %}
@@ -827,7 +827,7 @@
       <div class="alert alert-warn" style="margin-top:1rem">
         <strong>Sous-domaines (subdomain_proxy)</strong>
         <p>{{ reactivation.subdomain_summary }}</p>
-        <p class="muted">FQDN testés :
+        <p class="muted">FQDN contrôlés :
           {% for h in reactivation.subdomain_apps %}
           <code class="mono">{{ h }}</code>{% if not loop.last %}, {% endif %}
           {% endfor %}
@@ -838,7 +838,7 @@
               id="waf-reactivate-subdomain-form">
           <label class="form-check">
             <input type="checkbox" name="confirm_reactivate_subdomain" value="on" required>
-            Je confirme la réactivation subdomain (DetectionOnly) avec smoke + rollback auto
+            Je confirme l'activation sous-domaines (DetectionOnly) et les contrôles HTTP
           </label>
           <button type="submit" class="btn btn-primary">Réactiver subdomain (DetectionOnly)</button>
         </form>
@@ -859,15 +859,15 @@
         </li>
         {% endfor %}
       </ol>
-      <p class="form-help">Runbook : <code>{{ reactivation.runbook_path }}</code> · Portal d'abord, puis subdomain. Public proxy : étape ultérieure.</p>
+      <p class="form-help">Ordre : portail, puis sous-domaines. Le proxy public n'est pas activé ici.</p>
       <div class="alert alert-warn">
-        <strong>Détection de succès (obligatoire)</strong>
+        <strong>Contrôles après activation</strong>
         <ul class="waf-pending-list">
-          <li><code>nginx -t</code> + reload après sync exports</li>
-          <li>Portal : <code>/_portal_nginx_ok</code>, <code>/api/health</code>, <code>/auth/login</code> → pas de 5xx</li>
-          <li>Subdomain : GET <code>/</code> sur chaque FQDN <code>subdomain_proxy</code> → pas de 5xx</li>
+          <li><code>nginx -t</code> puis reload des exports</li>
+          <li>Portail : <code>/_portal_nginx_ok</code>, <code>/api/health</code>, <code>/auth/login</code> — pas de 5xx</li>
+          <li>Sous-domaines : GET <code>/</code> sur chaque FQDN — pas de 5xx</li>
         </ul>
-        <p class="muted">Si une sonde échoue ou est injoignable → rollback Off automatique (famille concernée). nginx -t seul ne suffit pas.</p>
+        <p class="muted">Si une sonde échoue, le moteur de la famille concernée revient à Off. nginx -t seul ne suffit pas.</p>
       </div>
     </div>
   </div>
@@ -1039,7 +1039,7 @@
 
   confirmSubmit(document.getElementById('waf-reactivate-form'), {
     title: 'Réactiver ModSecurity portal ?',
-    message: 'Passage en DetectionOnly, sync nginx, puis smoke HTTP. Rollback auto vers Off si une sonde échoue.',
+    message: 'DetectionOnly, sync nginx, contrôles HTTP. Retour à Off si une sonde échoue.',
     list: [
       'nginx -t + reload',
       '/_portal_nginx_ok → 200',
@@ -1052,7 +1052,7 @@
 
   confirmSubmit(document.getElementById('waf-reactivate-subdomain-form'), {
     title: 'Réactiver ModSecurity subdomain ?',
-    message: 'DetectionOnly sur les vhosts subdomain_proxy, smoke GET / par FQDN. Rollback auto si 5xx.',
+    message: 'DetectionOnly sur les vhosts subdomain_proxy, GET / par FQDN. Retour à Off si 5xx.',
     confirmLabel: 'Réactiver subdomain',
     danger: true,
   });

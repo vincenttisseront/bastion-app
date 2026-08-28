@@ -1,4 +1,4 @@
-"""Admin HTML routes for ModSecurity / CRS Phase B pilotage."""
+"""Admin HTML routes for ModSecurity / CRS."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def _waf_page_context(
 
 @router.get("/admin/security/protection")
 def admin_protection_redirect():
-    """Lot 5 route — permanent redirect to unified WAF page (lot 6)."""
+    """Redirect legacy URL to the unified WAF page."""
     return RedirectResponse(url="/admin/security/waf#bilan", status_code=301)
 
 

@@ -190,6 +190,22 @@ def test_login_native_session_without_transfer_grant_goes_to_apps(
     assert resp.headers.get("location") == "/apps"
 
 
+def test_login_nested_auth_login_rd_goes_to_apps(
+    client: TestClient, db_session: Session
+):
+    settings = _native_settings()
+    get_settings.cache_clear()
+    client.app.dependency_overrides[get_settings] = lambda: settings
+    _add_default_idp(db_session)
+    nested = (
+        "https://transfer.ar-systems.fr/auth/login?rd="
+        "https://transfer.ar-systems.fr/WebInterface/new-ui/index.html"
+    )
+    resp = client.get(f"/auth/login?rd={nested}", follow_redirects=False)
+    assert resp.status_code == 200
+    assert "/auth/login?rd=https://transfer" not in resp.text
+
+
 def test_login_injected_user_without_subdomain_cookie_goes_to_apps(
     client: TestClient, db_session: Session
 ):

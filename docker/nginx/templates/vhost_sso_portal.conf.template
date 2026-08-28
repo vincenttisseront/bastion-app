@@ -44,9 +44,9 @@ server {
     error_page 404 = /__portal_err/404;
     error_page 500 502 503 504 = /__portal_err/500;
     error_page 429 = @portal_rate_limited;
-    # ModSecurity CRS — server-level switch (default off). IHM reactivation writes
-    # exports/modsecurity-portal-switch.conf (on) then smoke-tests; rollback restores off.
-    # Location-level « modsecurity off » below stay for health / auth_request / errors.
+    # ModSecurity CRS — switch serveur (défaut off). Réactiver écrit
+    # exports/modsecurity-portal-switch.conf (on) ; Couper / rollback → off.
+    # Les « modsecurity off » ci-dessous restent pour health / auth / erreurs.
     include /etc/nginx/includes/modsecurity-portal-switch.conf;
     modsecurity_rules_file /etc/nginx/modsecurity/main-portal.conf;
 
@@ -353,7 +353,7 @@ server {
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
         add_header Cache-Control "no-store" always;
-        # Control plane: SSO still required; CRS must not lock admins out of WAF IHM.
+        # SSO requis ; CRS off pour ne pas bloquer l'administration.
         modsecurity off;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
@@ -380,9 +380,9 @@ server {
         limit_req zone=portal_api burst=60 nodelay;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
-        # Soft navigation must not reuse a cached ModSec/auth 403 (Ctrl+F5 workaround).
+        # no-store : éviter de réutiliser un 403 CRS/auth en cache.
         add_header Cache-Control "no-store" always;
-        # Control plane: SSO still required; CRS must not lock admins out of WAF IHM.
+        # SSO requis ; CRS off pour ne pas bloquer l'administration.
         modsecurity off;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
@@ -405,9 +405,8 @@ server {
         include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
     }
 
-    # Admin home lives at /dashboard (not under /admin). Without this, CRS On on
-    # location / returns bare nginx 403 while /admin/* stays reachable — classic
-    # "WAF IHM OK, dashboard mort" after Appliquer Inspection ACTIVE.
+    # Accueil admin : /dashboard (hors /admin). CRS off ici pour rester joignable
+    # quand le moteur est en On sur location /.
     location = /dashboard {
         limit_req zone=portal_api burst=60 nodelay;
         auth_request /portal_auth_check;
