@@ -1189,12 +1189,66 @@ button.app-tile:focus-visible {
   color: var(--text);
 }
 
-.portal-security-note {
-  margin: 0 0 var(--sp-3);
-}
-
 .portal-security-actions {
   margin-top: var(--sp-4);
+}
+
+.password-policy-checklist {
+  list-style: none;
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.password-policy-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.35;
+}
+
+.password-policy-icon {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.1rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  position: relative;
+}
+
+.password-policy-item.is-met {
+  color: var(--text);
+}
+
+.password-policy-item.is-met .password-policy-icon {
+  border-color: var(--color-ok, #16a34a);
+  background: var(--color-ok, #16a34a);
+}
+
+.password-policy-item.is-met .password-policy-icon::after {
+  content: "";
+  position: absolute;
+  left: 0.32rem;
+  top: 0.15rem;
+  width: 0.28rem;
+  height: 0.55rem;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.portal-password-form button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.portal-security-note {
+  margin: 0 0 var(--sp-3);
 }
 
 .app-tile-logo {

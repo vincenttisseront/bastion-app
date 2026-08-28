@@ -82,7 +82,7 @@ async def test_change_own_password_rejects_short_password(db_session: Session):
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
     )
-    with pytest.raises(ProfileSecurityError, match="12"):
+    with pytest.raises(ProfileSecurityError, match="complexe"):
         await change_own_password(
             db_session,
             user=_user(),
@@ -117,8 +117,8 @@ async def test_change_own_password_happy_path(db_session: Session):
             user=_user(),
             settings=settings,
             current_password="Current-Pass-1234",
-            new_password="New-Secure-Pass-99",
-            confirm_password="New-Secure-Pass-99",
+            new_password="New-Secure-Pass-99!",
+            confirm_password="New-Secure-Pass-99!",
             actor="alice@example.com",
             ip_address="127.0.0.1",
         )
@@ -138,8 +138,8 @@ def test_profile_password_post_success(client: TestClient, db_session: Session):
             data={
                 "csrf_token": csrf,
                 "current_password": "Current-Pass-1234",
-                "new_password": "New-Secure-Pass-99",
-                "confirm_password": "New-Secure-Pass-99",
+                "new_password": "New-Secure-Pass-99!",
+                "confirm_password": "New-Secure-Pass-99!",
             },
             headers=USER_HEADERS,
             follow_redirects=False,

@@ -118,9 +118,21 @@ def test_user_profile_security_native_when_provisioning(
     resp = client.get("/profile", headers=USER_HEADERS)
     assert resp.status_code == 200
     assert "Mettre à jour le mot de passe" in resp.text
+    assert "password-policy-checklist" in resp.text
     assert "Sessions connectées" in resp.text
     assert 'action="/profile/password"' in resp.text
     assert "Gérer la sécurité du compte" not in resp.text
+
+
+def test_user_profile_password_form_with_portal_oidc_client_only(
+    client: TestClient, db_session: Session
+):
+    _default_realm(db_session)
+    resp = client.get("/profile", headers=USER_HEADERS)
+    assert resp.status_code == 200
+    assert 'action="/profile/password"' in resp.text
+    assert "password-policy-checklist" in resp.text
+    assert "Au moins 12 caractères" in resp.text
 
 
 def test_user_profile_security_links_keycloak_account_fallback(
@@ -130,7 +142,8 @@ def test_user_profile_security_links_keycloak_account_fallback(
     resp = client.get("/profile", headers=USER_HEADERS)
     assert resp.status_code == 200
     assert 'href="https://kc.example.com/realms/AR-SYSTEMS/account/"' in resp.text
-    assert "Gérer la sécurité du compte" in resp.text
+    assert 'action="/profile/password"' in resp.text
+    assert "Ouvrir la console identité" in resp.text
 
 
 def test_user_profile_apps_summary_matches_grants(

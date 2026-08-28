@@ -602,7 +602,7 @@ async def reset_keycloak_password(
         raise ValueError("Identifiant utilisateur Keycloak manquant")
     if not (new_password or "").strip():
         raise ValueError("Mot de passe requis")
-    token = token or await get_provision_token(realm, settings)
+    token = token or await get_manage_users_token(realm, settings)
     payload = {
         "type": "password",
         "value": new_password,
@@ -933,6 +933,24 @@ def provisioning_configured(realm: RealmConfig) -> bool:
         getattr(realm, "keycloak_provision_client_id", None)
         and getattr(realm, "keycloak_provision_client_secret_encrypted", None)
     )
+
+
+def admin_client_configured(realm: RealmConfig) -> bool:
+    return bool(
+        (realm.keycloak_admin_client_id or "").strip()
+        and (realm.keycloak_admin_client_secret_encrypted or "").strip()
+    )
+
+
+def manage_users_configured(realm: RealmConfig) -> bool:
+    """Service account that can reset user passwords via Admin API."""
+    return provisioning_configured(realm) or admin_client_configured(realm)
+
+
+async def get_manage_users_token(realm: RealmConfig, settings: Settings) -> str:
+    if provisioning_configured(realm):
+        return await get_provision_token(realm, settings)
+    return await get_admin_token(realm, settings)
 
 
 async def get_provision_token(realm: RealmConfig, settings: Settings) -> str:
