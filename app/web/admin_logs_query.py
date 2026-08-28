@@ -130,15 +130,38 @@ def effective_catalog_severity(row: AuditLog, result: str) -> tuple[str, bool]:
     return historical_severity_from_result(result).value, True
 
 
+def resolve_audit_target_display(
+    action: str | None,
+    target: str | None,
+    ip_address: str | None,
+    details: dict[str, Any] | None,
+) -> tuple[str, str]:
+    """Compact target for table; tooltip may include HTTP Host / URI."""
+    act = (action or "").strip()
+    host = (target or "").strip()
+    ip = (ip_address or "").strip()
+    uri = str((details or {}).get("uri") or "").strip()
+    if act == "access_denied_unknown_host" and host:
+        title = f"Hôte HTTP : {host}"
+        if uri:
+            title = f"{title} · {uri}"
+        return ip or "—", title
+    if host and len(host) > 48:
+        return host[:47] + "…", host
+    return host or "—", host or ""
+
+
 def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
     from app.audit import normalize_audit_actor
 
     raw_details = row.details if isinstance(row.details, dict) else {}
     display_actor, details = normalize_audit_actor(row.actor, raw_details)
+    action = row.action or ""
+    summary_target = "" if action == "access_denied_unknown_host" else (row.target or "")
     detail_short, detail_full = format_details_for_display(
         details,
-        target=row.target or "",
-        action=row.action or "",
+        target=summary_target,
+        action=action,
     )
     status = None
     if "status" in details:
@@ -181,11 +204,21 @@ def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
             domain = parse_event_code(event_code)[0]
         except ValueError:
             domain = ""
+    target_display, target_title = resolve_audit_target_display(
+        action,
+        row.target,
+        row.ip_address,
+        details if isinstance(details, dict) else None,
+    )
+    target_uri = str(details.get("uri") or "").strip() if isinstance(details, dict) else ""
     return {
         "id": row.id,
         "action": row.action,
         "actor": display_actor,
         "target": row.target or "",
+        "target_display": target_display,
+        "target_title": target_title,
+        "target_uri": target_uri or None,
         "ip_address": row.ip_address or "",
         "severity": legacy_severity,
         "status": status,

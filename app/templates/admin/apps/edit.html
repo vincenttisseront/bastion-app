@@ -10,7 +10,7 @@
 } %}
 {% set show_vault_step = vault_enabled | default(false) or app.robotic_driver %}
 {% set wizard_embed = true %}
-<div class="page page-form">
+<div class="page page-form page-form--wide">
   <div class="page-header">
     <div>
       <h1 class="page-title">Modifier {{ app.label }}</h1>
@@ -357,19 +357,19 @@
     </div>
   </form>
 
-  <div class="card" style="margin-top:var(--sp-6); border-color:var(--err);">
+  <div class="card card-danger-zone">
     <div class="card-header">
-      <span class="card-title" style="color:var(--err);">Zone dangereuse</span>
+      <span class="card-title">Zone dangereuse</span>
     </div>
     <div class="card-body">
-      <p class="form-help" style="margin-top:0;">
+      <p class="form-help card-danger-zone-lead">
         Supprime définitivement cette application, ses droits d’accès, credentials vault
         et appareils ActiveSync, puis régénère nginx. Préférez décocher
         « Application activée » pour un retrait temporaire.
       </p>
       <form method="post" action="/admin/apps/{{ app.slug }}/delete" data-app-delete
             data-app-label="{{ app.label }}">
-        <button type="submit" class="btn btn-danger">Supprimer l’application</button>
+        <button type="submit" class="btn btn-danger btn-sm">Supprimer l’application</button>
       </form>
     </div>
   </div>

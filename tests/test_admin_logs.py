@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.models import AuditLog, SavedLogView
+from app.web.admin_logs_query import resolve_audit_target_display
 from app.web.log_masking import mask_secrets, mask_secrets_text
 
 ADMIN_HEADERS = {
@@ -50,19 +51,34 @@ def test_logs_shows_integrity_and_exports(client: TestClient):
     assert "/admin/logs" in (audit_redirect.headers.get("location") or "")
 
 
+def test_resolve_audit_target_display_unknown_host_shows_ip():
+    display, title = resolve_audit_target_display(
+        "access_denied_unknown_host",
+        "lm0ntsouris.wanadoo.fr",
+        "86.65.1.85",
+        {"uri": "/simple.php"},
+    )
+    assert display == "86.65.1.85"
+    assert "wanadoo" in title
+    assert "/simple.php" in title
+
+
 def test_logs_table_hides_french_action_title(client: TestClient, db_session: Session):
     log_action(
         db_session,
         actor="anonymous",
         action="access_denied_unknown_host",
-        target="vmapps-mail01.ar-systems.fr",
-        details={"status": "error"},
+        target="lm0ntsouris-657-1-66-85.w80-11.abo.wanadoo.fr",
+        details={"status": "error", "uri": "/simple.php", "reason": "unknown_host"},
+        ip_address="86.65.1.85",
     )
     resp = client.get(
         "/admin/logs?action=access_denied_unknown_host", headers=ADMIN_HEADERS
     )
     assert resp.status_code == 200
     assert "<code>access_denied_unknown_host</code>" in resp.text
+    assert "86.65.1.85" in resp.text
+    assert "wanadoo.fr" not in resp.text.split("audit-tbody")[1].split("</tbody>")[0]
     assert "audit-action-title" not in resp.text
 
 
@@ -348,6 +364,20 @@ def test_logs_saved_view_roundtrip(client: TestClient, db_session: Session):
     assert "Erreurs Alice" in applied.text
     assert ">reason<" in applied.text or "reason" in applied.text
     assert "Sécurité" in applied.text  # system default view seeded
+
+
+def test_logs_security_view_highlights_active_button(client: TestClient, db_session: Session):
+    client.get("/admin/logs", headers=ADMIN_HEADERS)
+    security = (
+        db_session.query(SavedLogView)
+        .filter_by(user_email="admin@example.com", name="Sécurité")
+        .one()
+    )
+    resp = client.get(f"/admin/logs?view={security.id}", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert f'href="/admin/logs?view={security.id}#audit" aria-current="true"' in resp.text
+    assert 'href="/admin/logs#audit" aria-current="true"' not in resp.text
+    assert "Criticité ≥ WARNING" in resp.text
 
 
 def test_logs_columns_prefs_persist(client: TestClient, db_session: Session):
