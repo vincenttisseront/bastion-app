@@ -27,12 +27,11 @@ GRANT_ADMIN_HEADERS = {
 def _assert_profile_dropdown(html: str) -> None:
     assert "portal-user-menu" in html
     assert "portal-user-dropdown" in html
-    assert 'href="/profile"' in html
-    assert "Mon profil" in html
+    dropdown_body = html.split("portal-user-dropdown", 1)[1].split("</details>", 1)[0]
+    assert 'href="/profile"' in dropdown_body
+    assert "Mon profil" in dropdown_body
     assert 'href="/logout"' in html
     assert "portal-avatar" in html
-    # Profile link lives inside the dropdown, not as a stray topbar link.
-    assert html.index("portal-user-dropdown") < html.index('href="/profile"')
 
 
 def _grant_portal_admin(db: Session, *, keycloak_user_id: str, display: str) -> None:
@@ -55,7 +54,7 @@ def test_topbar_profile_dropdown_on_admin_dashboard(client: TestClient):
     resp = client.get("/dashboard", headers=GROUP_ADMIN_HEADERS)
     assert resp.status_code == 200
     _assert_profile_dropdown(resp.text)
-    assert "group.admin" in resp.text
+    assert "Group ADMIN" in resp.text
 
 
 def test_topbar_profile_dropdown_on_portal_apps(client: TestClient):
@@ -73,7 +72,7 @@ def test_topbar_profile_dropdown_grant_admin_on_dashboard(
     resp = client.get("/dashboard", headers=GRANT_ADMIN_HEADERS)
     assert resp.status_code == 200
     _assert_profile_dropdown(resp.text)
-    assert "grant.admin" in resp.text
+    assert "Grant ADMIN" in resp.text
 
 
 def test_topbar_no_plain_logout_button_on_admin_dashboard(client: TestClient):

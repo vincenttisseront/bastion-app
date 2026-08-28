@@ -56,66 +56,58 @@
         </div>
         <div class="form-row">
           <div class="form-group">
+            <label class="form-label" for="first_name">Prénom <span class="req">*</span></label>
+            <input type="text" id="first_name" name="first_name" class="form-input" value="{{ form_values.first_name or '' }}" required autocomplete="off" placeholder="Laurent" data-identity-first>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="last_name">Nom <span class="req">*</span></label>
+            <input type="text" id="last_name" name="last_name" class="form-input" value="{{ form_values.last_name or '' }}" required autocomplete="off" placeholder="Vervier" data-identity-last>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
             <label class="form-label" for="username">Identifiant <span class="req">*</span></label>
-            <div style="display:flex; gap:var(--sp-2); align-items:stretch;">
-              <input type="text" id="username" name="username" class="form-input" value="{{ form_values.username or '' }}" required autocomplete="off" placeholder="prenom.nom" style="flex:1; min-width:0;">
-              <button type="button" class="btn btn-ghost btn-sm" data-fill-name-from-username
-                      title="Remplit Prénom / Nom depuis l’identifiant (ex. franck.gros → Franck / GROS)"
-                      style="white-space:nowrap; flex-shrink:0;">
-                → Prénom / Nom
-              </button>
-            </div>
-            <p class="form-help">Format attendu : <span class="mono">prenom.nom</span> — le bouton dérive Prénom (capitale) et Nom (MAJUSCULES).</p>
+            <input type="text" id="username" name="username" class="form-input mono" value="{{ form_values.username or '' }}" required readonly autocomplete="off" placeholder="prenom.nom" data-identity-username aria-describedby="username-help">
+            <p class="form-help" id="username-help">Généré automatiquement depuis le prénom et le nom (<span class="mono">prenom.nom</span>, sans accents).</p>
           </div>
           <div class="form-group">
             <label class="form-label" for="email">Email <span class="req">*</span></label>
             <input type="email" id="email" name="email" class="form-input" value="{{ form_values.email or '' }}" required autocomplete="off" placeholder="prenom.nom@example.com">
           </div>
         </div>
-        <div class="form-row">
+        <div class="form-row form-row--org-pick">
           <div class="form-group">
-            <label class="form-label" for="first_name">Prénom</label>
-            <input type="text" id="first_name" name="first_name" class="form-input" value="{{ form_values.first_name or '' }}" autocomplete="off">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="last_name">Nom</label>
-            <input type="text" id="last_name" name="last_name" class="form-input" value="{{ form_values.last_name or '' }}" autocomplete="off">
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="organization_pick">Société / organisation <span class="req">*</span></label>
-          {% set org_pick = form_values.organization_pick|default('__new__') %}
-          <select id="organization_pick" name="organization_pick" class="form-select" required data-org-pick>
-            <option value="__new__"{% if org_pick == '__new__' or not org_pick %} selected{% endif %}>
-              Créer une nouvelle société…
-            </option>
-            {% for g in company_groups %}
-            <option value="{{ g.id }}"
-                    data-realm-id="{{ g.realm_id }}"
-                    data-org-name="{{ g.name }}"
-                    {% if org_pick == g.id|string %} selected{% endif %}>
-              {{ g.name }}{% if g.path %} — {{ g.path }}{% endif %}
-            </option>
-            {% endfor %}
-          </select>
-          <div data-org-new-wrap style="margin-top:var(--sp-3);"{% if org_pick and org_pick != '__new__' %} hidden{% endif %}>
-            <label class="form-label" for="organization">Nom de la nouvelle société <span class="req">*</span></label>
-            <input type="text" id="organization" name="organization" class="form-input"
-                   value="{{ form_values.organization or '' }}" autocomplete="off"
-                   placeholder="SDIS 999" data-org-new-input
-                   {% if not org_pick or org_pick == '__new__' %}required{% endif %}>
-            <p class="form-help">
-              Les variantes (espace, underscore, tiret — ex. <span class="mono">SDIS 81</span> /
-              <span class="mono">SDIS81</span> / <span class="mono">SDIS_81</span>) sont
-              rapprochées d’un groupe existant du même realm ; aucun doublon n’est créé.
+            <label class="form-label" for="organization_pick">Société existante</label>
+            {% set org_pick = form_values.organization_pick|default('') %}
+            <select id="organization_pick" name="organization_pick" class="form-select" data-org-pick>
+              <option value=""{% if not org_pick or org_pick == '__new__' %} selected{% endif %}>— Choisir une société —</option>
+              {% for g in company_groups %}
+              <option value="{{ g.id }}"
+                      data-realm-id="{{ g.realm_id }}"
+                      data-org-name="{{ g.name }}"
+                      {% if org_pick == g.id|string %} selected{% endif %}>
+                {{ g.name }}{% if g.path %} — {{ g.path }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+            <p class="form-help" data-org-existing-help{% if not org_pick or org_pick == '__new__' %} hidden{% endif %}>
+              Rattache au groupe société Keycloak/RBAC (provisioning CrushFTP, droits hérités).
             </p>
           </div>
-          <p class="form-help" data-org-existing-help{% if not org_pick or org_pick == '__new__' %} hidden{% endif %}>
-            Rattache l’utilisateur au groupe société sélectionné (Keycloak/RBAC) et synchronise
-            vers les apps de provisioning (ex. CrushFTP). Les droits AccessGrant sont hérités
-            par tous les membres.
-          </p>
+          <div class="form-group">
+            <label class="form-label" for="organization">Nouvelle société</label>
+            <input type="text" id="organization" name="organization" class="form-input"
+                   value="{{ form_values.organization or '' }}" autocomplete="off"
+                   placeholder="SDIS 95" data-org-new-input>
+            <p class="form-help" data-org-new-help>
+              Si aucune société existante ne convient. Variantes (<span class="mono">SDIS 81</span>,
+              <span class="mono">SDIS81</span>) sont fusionnées avec un groupe existant du même realm.
+            </p>
+          </div>
         </div>
+        <p class="form-help" style="margin-top:calc(-1 * var(--sp-2));">
+          <span class="req">*</span> Société requise — renseignez l'une des deux colonnes ci-dessus.
+        </p>
         <div class="alert alert-info" style="margin:0;">
           Mot de passe initial généré automatiquement (temporaire —
           <span class="mono">UPDATE_PASSWORD</span> à la 1<sup>re</sup> connexion).
@@ -247,13 +239,26 @@
     var sendCred = document.querySelector("[data-send-credentials]");
     var revealPw = document.querySelector("[data-reveal-password]");
     var orgPick = document.querySelector("[data-org-pick]");
-    var orgNewWrap = document.querySelector("[data-org-new-wrap]");
     var orgNewInput = document.querySelector("[data-org-new-input]");
     var orgExistingHelp = document.querySelector("[data-org-existing-help]");
     var usernameInput = document.getElementById("username");
     var firstNameInput = document.getElementById("first_name");
     var lastNameInput = document.getElementById("last_name");
-    var fillNameBtn = document.querySelector("[data-fill-name-from-username]");
+    var formEl = document.getElementById("user-new-form");
+
+    function foldAscii(value) {
+      return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase();
+    }
+
+    function usernamePart(raw) {
+      return foldAscii(raw)
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9-]+/g, "")
+        .replace(/^-+|-+$/g, "");
+    }
 
     function titleCaseToken(token) {
       if (!token) return "";
@@ -262,35 +267,52 @@
 
     function titleCaseName(raw) {
       return String(raw || "")
-        .split("-")
-        .map(titleCaseToken)
-        .join("-");
+        .split(/(\s+|-)/)
+        .map(function (part) {
+          if (!part || part === "-" || /^\s+$/.test(part)) return part;
+          return titleCaseToken(part);
+        })
+        .join("")
+        .trim();
     }
 
-    function fillNameFromUsername() {
+    function syncUsernameFromIdentity() {
       if (!usernameInput || !firstNameInput || !lastNameInput) return;
-      var raw = String(usernameInput.value || "").trim();
-      var dot = raw.indexOf(".");
-      if (dot <= 0 || dot >= raw.length - 1) {
-        if (window.bastionToast) {
-          window.bastionToast("Identifiant attendu au format prenom.nom", "warn");
-        } else if (window.bastionAlert) {
-          window.bastionAlert({
-            title: "Identifiant invalide",
-            message: "Identifiant attendu au format prenom.nom (ex. franck.gros).",
-          });
-        }
-        usernameInput.focus();
-        return;
-      }
-      firstNameInput.value = titleCaseName(raw.slice(0, dot));
-      lastNameInput.value = raw.slice(dot + 1).toUpperCase();
-      lastNameInput.focus();
+      var first = usernamePart(firstNameInput.value);
+      var last = usernamePart(lastNameInput.value);
+      usernameInput.value = first && last ? first + "." + last : "";
     }
 
-    if (fillNameBtn) {
-      fillNameBtn.addEventListener("click", fillNameFromUsername);
+    function formatIdentityFields() {
+      if (firstNameInput && firstNameInput.value.trim()) {
+        firstNameInput.value = titleCaseName(firstNameInput.value.trim());
+      }
+      if (lastNameInput && lastNameInput.value.trim()) {
+        lastNameInput.value = String(lastNameInput.value || "").trim().toUpperCase();
+      }
+      syncUsernameFromIdentity();
     }
+
+    if (firstNameInput) {
+      firstNameInput.addEventListener("input", syncUsernameFromIdentity);
+      firstNameInput.addEventListener("blur", function () {
+        if (firstNameInput.value.trim()) {
+          firstNameInput.value = titleCaseName(firstNameInput.value.trim());
+        }
+      });
+    }
+    if (lastNameInput) {
+      lastNameInput.addEventListener("input", syncUsernameFromIdentity);
+      lastNameInput.addEventListener("blur", function () {
+        if (lastNameInput.value.trim()) {
+          lastNameInput.value = String(lastNameInput.value || "").trim().toUpperCase();
+        }
+      });
+    }
+    if (formEl) {
+      formEl.addEventListener("submit", formatIdentityFields);
+    }
+    syncUsernameFromIdentity();
 
     function syncRevealDefault() {
       if (!sendCred || !revealPw) return;
@@ -312,9 +334,9 @@
       if (!orgPick) return;
       var realmId = String(select.value || "");
       var selectedValue = orgPick.value;
-      var stillValid = selectedValue === "__new__";
+      var stillValid = !selectedValue;
       Array.prototype.forEach.call(orgPick.options, function (opt) {
-        if (opt.value === "__new__") {
+        if (!opt.value) {
           opt.hidden = false;
           opt.disabled = false;
           return;
@@ -325,16 +347,29 @@
         if (match && opt.value === selectedValue) stillValid = true;
       });
       if (!stillValid) {
-        orgPick.value = "__new__";
+        orgPick.value = "";
       }
-      var isNew = orgPick.value === "__new__";
-      if (orgNewWrap) orgNewWrap.hidden = !isNew;
-      if (orgExistingHelp) orgExistingHelp.hidden = isNew;
+      var hasExisting = !!orgPick.value;
+      if (orgExistingHelp) orgExistingHelp.hidden = !hasExisting;
       if (orgNewInput) {
-        orgNewInput.required = isNew;
-        if (!isNew) orgNewInput.removeAttribute("required");
-        else orgNewInput.setAttribute("required", "required");
+        orgNewInput.readOnly = hasExisting;
+        orgNewInput.classList.toggle("is-readonly", hasExisting);
+        if (hasExisting) orgNewInput.value = "";
       }
+    }
+
+    function onOrgPickChange() {
+      if (orgPick && orgPick.value && orgNewInput) {
+        orgNewInput.value = "";
+      }
+      syncOrgPicker();
+    }
+
+    function onOrgNewInput() {
+      if (orgNewInput && orgNewInput.value.trim() && orgPick) {
+        orgPick.value = "";
+      }
+      syncOrgPicker();
     }
 
     function syncGroups() {
@@ -371,7 +406,8 @@
       syncOrgPicker();
       syncGroups();
     });
-    if (orgPick) orgPick.addEventListener("change", syncOrgPicker);
+    if (orgPick) orgPick.addEventListener("change", onOrgPickChange);
+    if (orgNewInput) orgNewInput.addEventListener("input", onOrgNewInput);
     if (filterInput) filterInput.addEventListener("input", syncGroups);
     syncRevealDefault();
     syncOrgPicker();

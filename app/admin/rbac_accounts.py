@@ -41,6 +41,11 @@ from app.rbac.account_service import (
     send_account_credentials_email,
     update_bastion_account_identity,
 )
+from app.rbac.user_identity import (
+    derive_username_from_names,
+    format_identity_first_name,
+    format_identity_last_name,
+)
 from app.rbac.grants_service import (
     ACCESS_LEVELS,
     SYSTEM_ROLES,
@@ -213,10 +218,12 @@ def _resolve_organization_from_form(
 ) -> str:
     """Map the société picker to a canonical organization name.
 
-    ``organization_pick`` is either ``__new__`` (free text) or an RBAC group id.
+    ``organization_pick`` is an RBAC group id, or empty when creating a new société.
+    Legacy ``__new__`` is treated as empty pick + free-text ``organization``.
     """
     pick = (organization_pick or "").strip()
-    if pick and pick != "__new__":
+    org_text = (organization or "").strip()
+    if pick and pick not in ("__new__", ""):
         try:
             group_id = int(pick)
         except ValueError as exc:
@@ -236,7 +243,12 @@ def _resolve_organization_from_form(
                 "ou créez une nouvelle société."
             )
         return (group.name or "").strip()
-    return (organization or "").strip()
+    if org_text:
+        return org_text
+    raise AccountCreationError(
+        "Société requise — choisissez une société existante ou saisissez le nom "
+        "d'une nouvelle société."
+    )
 
 
 def _form_context(db: Session) -> dict:
@@ -658,12 +670,12 @@ async def admin_rbac_users_new_submit(
 ):
     form = await request.form()
     realm_id_raw = (str(form.get("realm_id") or "")).strip()
-    username = str(form.get("username") or "")
+    username_raw = str(form.get("username") or "")
     email = str(form.get("email") or "")
-    first_name = str(form.get("first_name") or "")
-    last_name = str(form.get("last_name") or "")
+    first_name_raw = str(form.get("first_name") or "")
+    last_name_raw = str(form.get("last_name") or "")
     organization_raw = str(form.get("organization") or "")
-    organization_pick = str(form.get("organization_pick") or "__new__").strip() or "__new__"
+    organization_pick = str(form.get("organization_pick") or "").strip()
     group_ids = _parse_int_list([str(v) for v in form.getlist("group_ids")])
     application_ids = _parse_int_list([str(v) for v in form.getlist("application_ids")])
     send_credentials = str(form.get("send_credentials") or "").strip().lower() in (
@@ -681,10 +693,10 @@ async def admin_rbac_users_new_submit(
 
     form_values = {
         "realm_id": realm_id_raw,
-        "username": username,
+        "username": (username_raw or "").strip(),
         "email": email,
-        "first_name": first_name,
-        "last_name": last_name,
+        "first_name": first_name_raw,
+        "last_name": last_name_raw,
         "organization": organization_raw,
         "organization_pick": organization_pick,
         "group_ids": group_ids,
@@ -710,6 +722,23 @@ async def admin_rbac_users_new_submit(
             ),
             status_code=status_code,
         )
+
+    if not (first_name_raw or "").strip() or not (last_name_raw or "").strip():
+        return _form_error("Prénom et nom sont requis.")
+
+    first_name = format_identity_first_name(first_name_raw)
+    last_name = format_identity_last_name(last_name_raw)
+    try:
+        username = derive_username_from_names(first_name_raw, last_name_raw)
+    except ValueError as exc:
+        return _form_error(str(exc))
+
+    if not (email or "").strip():
+        return _form_error("Email requis.")
+
+    form_values["username"] = username
+    form_values["first_name"] = first_name
+    form_values["last_name"] = last_name
 
     try:
         realm_id = int(realm_id_raw)

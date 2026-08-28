@@ -89,6 +89,9 @@ def test_user_profile_accessible_authenticated(client: TestClient, db_session: S
     assert "portal-avatar" in resp.text
     assert "portal-identity-name" in resp.text
     assert "Nom affiché" in resp.text
+    assert "Prénom" in resp.text
+    assert "Nom" in resp.text
+    assert "Identifiant" not in resp.text
     assert "access_mode" not in resp.text
     assert "slug" not in resp.text
     assert "grant" not in resp.text.lower()
@@ -170,6 +173,31 @@ def test_user_profile_admin_role_and_menu(client: TestClient, db_session: Sessio
     assert 'href="/dashboard"' in resp.text
     assert "Mon profil" in resp.text
     assert "Déconnexion" in resp.text
+
+
+def test_user_profile_identity_from_username(client: TestClient, db_session: Session):
+    _default_realm(db_session)
+    headers = {
+        **USER_HEADERS,
+        "X-Preferred-Username": "laurent.vervier",
+        "X-User": "laurent.vervier",
+    }
+    resp = client.get("/profile", headers=headers)
+    assert resp.status_code == 200
+    assert "Laurent VERVIER" in resp.text
+    assert "laurent.vervier" not in resp.text
+
+
+def test_user_profile_identity_from_oidc_headers(client: TestClient, db_session: Session):
+    _default_realm(db_session)
+    headers = {
+        **USER_HEADERS,
+        "X-Given-Name": "Vincent",
+        "X-Family-Name": "Tisseront",
+    }
+    resp = client.get("/profile", headers=headers)
+    assert resp.status_code == 200
+    assert "Vincent TISSERONT" in resp.text
 
 
 def test_user_profile_given_name_greeting_on_apps(

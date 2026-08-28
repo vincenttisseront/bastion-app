@@ -70,15 +70,18 @@ ORG = "ARSYSTEMS-Users"  # reuse fixture group name → ensure_company_group is 
 def _create_payload(realm_id: int, **extra) -> dict:
     data = {
         "realm_id": str(realm_id),
-        "username": "jdoe",
-        "email": "jdoe@example.com",
+        "username": "john.doe",
+        "email": "john.doe@example.com",
+        "first_name": "John",
+        "last_name": "Doe",
         "organization": ORG,
+        "organization_pick": "",
     }
     data.update(extra)
     return data
 
 
-def _mock_no_duplicate(username: str = "jdoe", email: str = "jdoe@example.com"):
+def _mock_no_duplicate(username: str = "john.doe", email: str = "john.doe@example.com"):
     respx.get(
         f"{KC_ADMIN}/users",
         params={"username": username, "exact": "true", "max": "2"},
@@ -118,7 +121,7 @@ def test_bastion_account_creation_success_with_group(client, db_session):
     assert body["keycloak_user_id"] == "kc-new-1"
     assert body["errors"] == []
 
-    account = db_session.query(BastionAccount).filter_by(username="jdoe").first()
+    account = db_session.query(BastionAccount).filter_by(username="john.doe").first()
     assert account is not None
     assert account.status == "keycloak_created"
     assert account.keycloak_user_id == "kc-new-1"
@@ -144,8 +147,8 @@ def test_bastion_account_duplicate_detected_before_write(client, db_session):
     _group(db_session, realm)
 
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
-    respx.get(f"{KC_ADMIN}/users", params={"username": "jdoe", "exact": "true"}).respond(
-        200, json=[{"id": "existing-1", "username": "jdoe"}]
+    respx.get(f"{KC_ADMIN}/users", params={"username": "john.doe", "exact": "true"}).respond(
+        200, json=[{"id": "existing-1", "username": "john.doe"}]
     )
     create_route = respx.post(f"{KC_ADMIN}/users").respond(201)
 
@@ -160,7 +163,7 @@ def test_bastion_account_duplicate_detected_before_write(client, db_session):
     assert "existe déjà" in body["errors"][0]
 
     assert not create_route.called  # write call avoided (spec §4/§7)
-    account = db_session.query(BastionAccount).filter_by(username="jdoe").first()
+    account = db_session.query(BastionAccount).filter_by(username="john.doe").first()
     assert account.status == "pending"
     assert account.keycloak_user_id is None
     assert "existe déjà" in account.last_error
@@ -185,7 +188,7 @@ def test_bastion_account_keycloak_failure_no_phantom(client, db_session):
     assert body["ok"] is False
     assert body["status"] == "pending"
 
-    account = db_session.query(BastionAccount).filter_by(username="jdoe").first()
+    account = db_session.query(BastionAccount).filter_by(username="john.doe").first()
     assert account.status == "pending"
     assert account.keycloak_user_id is None  # no phantom account
     assert "HTTP 500" in account.last_error
@@ -210,8 +213,8 @@ def test_bastion_account_creation_duplicate_internal(client, db_session):
     db_session.add(
         BastionAccount(
             realm_id=realm.id,
-            username="jdoe",
-            email="jdoe@example.com",
+            username="john.doe",
+            email="john.doe@example.com",
             status="keycloak_created",
             keycloak_user_id="kc-old",
             created_by="admin@example.com",
@@ -236,8 +239,10 @@ def test_bastion_account_creation_requires_organization(client, db_session):
         headers=JSON_HEADERS,
         data={
             "realm_id": str(realm.id),
-            "username": "jdoe",
-            "email": "jdoe@example.com",
+            "username": "john.doe",
+            "email": "john.doe@example.com",
+            "first_name": "John",
+            "last_name": "Doe",
         },
     )
     assert resp.status_code == 400
@@ -285,7 +290,7 @@ def test_bastion_account_creates_company_group_when_missing(client, db_session):
     )
     assert company is not None
     assert company.keycloak_group_id == "g-sdis"
-    account = db_session.query(BastionAccount).filter_by(username="jdoe").first()
+    account = db_session.query(BastionAccount).filter_by(username="john.doe").first()
     assert account.organization == "SDIS 999"
     assert company.id in (account.pending_group_ids or [])
 
@@ -397,11 +402,11 @@ def test_bastion_account_creation_assigns_foreign_realm_group(client, db_session
     _mock_no_duplicate()
     respx.get(
         f"{other_admin}/users",
-        params={"username": "jdoe", "exact": "true", "max": "2"},
+        params={"username": "john.doe", "exact": "true", "max": "2"},
     ).respond(200, json=[])
     respx.get(
         f"{other_admin}/users",
-        params={"email": "jdoe@example.com", "exact": "true", "max": "2"},
+        params={"email": "john.doe@example.com", "exact": "true", "max": "2"},
     ).respond(200, json=[])
     respx.post(f"{KC_ADMIN}/users").respond(
         201, headers={"Location": f"{KC_ADMIN}/users/kc-new-1"}
@@ -427,7 +432,7 @@ def test_bastion_account_creation_assigns_foreign_realm_group(client, db_session
     assert company_group_route.called
     linked = (
         db_session.query(BastionAccount)
-        .filter_by(realm_id=other.id, username="jdoe")
+        .filter_by(realm_id=other.id, username="john.doe")
         .first()
     )
     assert linked is not None
@@ -493,7 +498,7 @@ def test_bastion_account_retry_keycloak_after_failure(client, db_session):
     group = _group(db_session, realm)
 
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
-    _mock_no_duplicate(username="toto", email="toto@example.com")
+    _mock_no_duplicate(username="toto.test", email="toto@example.com")
     respx.post(f"{KC_ADMIN}/users").respond(403, text="missing view-users")
 
     fail = client.post(
@@ -501,13 +506,15 @@ def test_bastion_account_retry_keycloak_after_failure(client, db_session):
         headers=JSON_HEADERS,
         data=_create_payload(
             realm.id,
-            username="toto",
+            username="toto.test",
             email="toto@example.com",
+            first_name="Toto",
+            last_name="Test",
             group_ids=str(group.id),
         ),
     )
     assert fail.status_code == 502
-    account = db_session.query(BastionAccount).filter_by(username="toto").first()
+    account = db_session.query(BastionAccount).filter_by(username="toto.test").first()
     assert account is not None
     assert account.status == "pending"
     assert account.origin == "bastion"
@@ -516,7 +523,7 @@ def test_bastion_account_retry_keycloak_after_failure(client, db_session):
 
     respx.reset()
     respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
-    _mock_no_duplicate(username="toto", email="toto@example.com")
+    _mock_no_duplicate(username="toto.test", email="toto@example.com")
     respx.post(f"{KC_ADMIN}/users").respond(
         201, headers={"Location": f"{KC_ADMIN}/users/kc-toto"}
     )
