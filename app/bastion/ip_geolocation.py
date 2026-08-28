@@ -198,9 +198,23 @@ def _fetch_batch(
     return out
 
 
-def lookup_ip_origins(settings: Settings, ips: list[str]) -> dict[str, dict[str, Any]]:
-    """Resolve public IPs to ip-api.com records (cached, batch)."""
+def resolve_ip_geoloc_enabled(settings: Settings, profile: object | None = None) -> bool:
+    """Env IP_GEOLOC_ENABLED=false is a hard kill switch; else WafProfile flag."""
     if not getattr(settings, "ip_geoloc_enabled", True):
+        return False
+    if profile is not None:
+        return bool(getattr(profile, "ip_geoloc_enabled", True))
+    return True
+
+
+def lookup_ip_origins(
+    settings: Settings,
+    ips: list[str],
+    *,
+    profile: object | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve public IPs to ip-api.com records (cached, batch)."""
+    if not resolve_ip_geoloc_enabled(settings, profile):
         return {}
 
     unique: list[str] = []

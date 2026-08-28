@@ -214,7 +214,7 @@
         <div class="sentinel-panel">
           <div class="sentinel-panel-head">
             <h3 class="sentinel-panel-title">Origine des attaques</h3>
-            <span class="sentinel-panel-meta">{% if ip_geolocation.enabled %}pays × heure · {{ ip_geolocation.provider }}{% else %}géoloc désactivée{% endif %}</span>
+            <span class="sentinel-panel-meta">{% if ip_geolocation.enabled %}pays × heure · {{ ip_geolocation.provider }}{% elif ip_geolocation.env_locked %}verrouillée (serveur){% else %}désactivée{% endif %}</span>
           </div>
           <div class="sentinel-chart-slot">{{ ti.origin_heatmap_svg | safe }}</div>
         </div>
@@ -246,8 +246,9 @@
                   <input type="hidden" name="toggle" value="{{ ctrl.toggle }}">
                   <input type="hidden" name="enabled" value="{{ 'off' if ctrl.enabled else 'on' }}">
                   <button type="submit" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}"
-                          title="{{ 'Désactiver' if ctrl.enabled else 'Activer' }} {{ ctrl.label }}"
-                          aria-pressed="{{ 'true' if ctrl.enabled else 'false' }}"></button>
+                          title="{% if ctrl.enabled %}Désactiver{% else %}Activer{% endif %} {{ ctrl.label }}"
+                          aria-pressed="{{ 'true' if ctrl.enabled else 'false' }}"
+                          aria-label="{{ ctrl.label }}"></button>
                 </form>
                 {% elif ctrl.readonly %}
                 <button type="button" class="sentinel-switch is-on" disabled title="Configuré dans Profil"></button>
