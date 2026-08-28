@@ -5,12 +5,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sqlalchemy.orm import Session
+
 from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON, MODE_DETECTION
 from app.bastion.waf_readability import (
+    build_attack_controls,
     build_efficiency_panel,
     build_protection_layers,
     build_protection_verdict,
+    build_unknown_host_panel,
 )
+from app.bastion.pending_host_service import record_unknown_host
 from app.models import WafProfile
 from app.security.banning.service import get_or_create_policy
 from app.sso_settings import Settings
@@ -245,3 +250,44 @@ def test_diagnostic_export_expected_vs_actual():
     assert payload["expected"]["profile"]["mode"] == "on"
     assert payload["actual"]["aggregate_mode"] == "off"
     assert any(m["field"] == "mode" for m in payload["alignment"]["mismatches"])
+
+
+def test_build_unknown_host_panel_counts_pending_hosts(db_session: Session):
+    record_unknown_host(
+        db_session,
+        hostname="ar-systems.fr",
+        client_ip="34.155.98.34",
+        uri="/api/v2/settings",
+        user_agent="PerplexityBot/1.0",
+    )
+    record_unknown_host(
+        db_session,
+        hostname="ar-systems.fr",
+        client_ip="34.155.98.34",
+        uri="/robots.txt",
+        user_agent="PerplexityBot/1.0",
+    )
+    panel = build_unknown_host_panel(db_session, hours=24)
+    assert panel["hits_24h"] >= 2
+    assert len(panel["top_ips"]) >= 1
+    assert panel["top_ips"][0]["ip"] == "34.155.98.34"
+
+
+def test_build_attack_controls_merges_unknown_host(db_session: Session):
+    settings = Settings(
+        portal_domain="portal.example.fr",
+        exports_dir="/tmp/waf-test",
+    )  # type: ignore[call-arg]
+    record_unknown_host(
+        db_session,
+        hostname="evil.example",
+        client_ip="198.51.100.9",
+        uri="/",
+        user_agent="scanner",
+    )
+    controls = build_attack_controls(settings, db=db_session)
+    assert controls["present"] is True
+    assert any(a.get("source") == "unknown_host" for a in controls["recent"])
+    assert any(
+        a.get("ip") == "198.51.100.9" for a in controls["top_attackers"]
+    )

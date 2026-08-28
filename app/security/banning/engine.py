@@ -33,6 +33,7 @@ RULE_HACK_USERNAME = "hack_username"
 RULE_CONCURRENT = "concurrent_connections"
 RULE_RATE_LIMIT = "rate_limit"
 RULE_RATE_LIMIT_LOGIN = "rate_limit_login"
+RULE_UNKNOWN_HOST = "unknown_host_hammering"
 
 TARGET_IP = "ip"
 TARGET_USERNAME = "username"
@@ -101,6 +102,14 @@ DEFAULT_RULES: dict[str, dict] = {
         "threshold": 20,
         "window_seconds": 60,
         "ban_minutes": 0,
+        "ban_permanent": False,
+        "config_json": None,
+    },
+    RULE_UNKNOWN_HOST: {
+        "enabled": True,
+        "threshold": 50,
+        "window_seconds": 300,
+        "ban_minutes": 1440,
         "ban_permanent": False,
         "config_json": None,
     },
@@ -553,6 +562,71 @@ def record_sensitive_request(
             db.commit()
         except Exception:
             db.rollback()
+    return ban
+
+
+def record_unknown_host_refusal(
+    db: Session,
+    *,
+    ip: str,
+    hostname: str | None = None,
+    uri: str | None = None,
+) -> SecurityBan | None:
+    """Count unknown-Host refusals per IP; ban aggressive scanners (PerplexityBot, etc.)."""
+    policy = get_policy(db)
+    if not policy.enabled:
+        return None
+    ip_n = (ip or "").strip()
+    if not ip_n or is_allowlisted(db, ip=ip_n):
+        return None
+
+    existing = find_active_ban(db, ip=ip_n)
+    if existing is not None:
+        return None
+
+    rule = get_rule(db, RULE_UNKNOWN_HOST)
+    if not rule or not rule.enabled or int(rule.threshold or 0) <= 0:
+        return None
+
+    count = _prune_and_count(
+        db, "unknown_host", ip_n, int(rule.window_seconds or 300)
+    )
+    if count < int(rule.threshold):
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+        return None
+
+    ban = apply_ban(
+        db,
+        target_type=TARGET_IP,
+        target=ip_n,
+        reason=(
+            f"Unknown host hammering: {count} refusals in {rule.window_seconds}s"
+        ),
+        rule_type=RULE_UNKNOWN_HOST,
+        permanent=bool(rule.ban_permanent),
+        ban_minutes=int(rule.ban_minutes or 1440),
+        actor="system",
+        ip_address=ip_n,
+        confirm_permanent=bool(rule.ban_permanent),
+    )
+    if ban is not None:
+        log_action(
+            db,
+            actor="system",
+            action="security.unknown_host_hammering.detected",
+            target=f"ip:{ip_n}",
+            details={
+                "count": count,
+                "window_seconds": int(rule.window_seconds or 300),
+                "hostname": (hostname or "")[:253] or None,
+                "uri": (uri or "")[:1024] or None,
+                "ban_id": ban.id,
+            },
+            ip_address=ip_n,
+        )
     return ban
 
 

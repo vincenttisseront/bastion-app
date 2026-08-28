@@ -724,6 +724,7 @@ def build_waf_ui_context(
         "efficiency_7d": readability["efficiency_7d"],
         "efficiency_visuals": readability["efficiency_visuals"],
         "attack_controls": readability["attack_controls"],
+        "unknown_host_panel": readability.get("unknown_host_panel") or {},
         "reactivation": readability["reactivation"],
         "apply_enabled": readability["apply_enabled"],
         "mode_pilotable": readability["mode_pilotable"],

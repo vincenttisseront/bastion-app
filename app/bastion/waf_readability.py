@@ -26,7 +26,7 @@ from app.bastion.waf_charts import (
     render_series_chart,
     _empty_panel,
 )
-from app.models import AuditLog, SecurityBanRule, WafProfile
+from app.models import AuditLog, PendingHost, SecurityBanRule, WafProfile
 from app.security.banning.service import list_active_bans, list_ban_rules, get_or_create_policy
 from app.sso_settings import Settings
 
@@ -165,19 +165,109 @@ def _compact_detail(text: str, max_len: int = 42) -> tuple[str, str]:
 
 
 def _count_unknown_host_refusals_24h(db: Session) -> int:
+    """Total unknown-Host hits (PendingHost) in the last 24 h — closer to real volume than throttled audit."""
     since = datetime.now(timezone.utc) - timedelta(hours=24)
     try:
-        return (
-            db.query(func.count(AuditLog.id))
+        total = (
+            db.query(func.coalesce(func.sum(PendingHost.hit_count), 0))
+            .filter(PendingHost.last_seen_at >= since)
+            .scalar()
+        )
+        return int(total or 0)
+    except Exception:
+        return 0
+
+
+def build_unknown_host_panel(db: Session, *, hours: int = 24) -> dict[str, Any]:
+    """Scanner / unknown-Host activity from app audit + PendingHost (not ModSec)."""
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    try:
+        hits_24h = _count_unknown_host_refusals_24h(db)
+        top_rows = (
+            db.query(
+                PendingHost.last_client_ip,
+                func.sum(PendingHost.hit_count).label("hits"),
+            )
+            .filter(
+                PendingHost.last_seen_at >= since,
+                PendingHost.last_client_ip.isnot(None),
+                PendingHost.last_client_ip != "",
+            )
+            .group_by(PendingHost.last_client_ip)
+            .order_by(func.sum(PendingHost.hit_count).desc())
+            .limit(5)
+            .all()
+        )
+        audit_rows = (
+            db.query(AuditLog)
             .filter(
                 AuditLog.action == "access_denied_unknown_host",
                 AuditLog.created_at >= since,
             )
-            .scalar()
-            or 0
+            .order_by(AuditLog.created_at.desc())
+            .limit(25)
+            .all()
         )
     except Exception:
-        return 0
+        return {
+            "present": False,
+            "hits_24h": 0,
+            "top_ips": [],
+            "recent": [],
+        }
+
+    banned_ips: set[str] = set()
+    for ban in list_active_bans(db):
+        if ban.target_type == "ip" and ban.target:
+            banned_ips.add(str(ban.target).strip())
+
+    top_ips = [
+        {
+            "ip": str(row.last_client_ip),
+            "count": int(row.hits or 0),
+            "banned": str(row.last_client_ip) in banned_ips,
+            "can_ban": bool(row.last_client_ip),
+        }
+        for row in top_rows
+        if row.last_client_ip
+    ]
+
+    recent: list[dict[str, Any]] = []
+    for row in audit_rows:
+        details = row.details if isinstance(row.details, dict) else {}
+        client_ip = str(row.ip_address or "—").strip() or "—"
+        host = str(row.target or "—")
+        uri = str(details.get("uri") or "/")[:80]
+        recent.append(
+            {
+                "timestamp": (
+                    row.created_at.isoformat()[:19].replace("T", " ")
+                    if row.created_at
+                    else ""
+                ),
+                "client_ip": client_ip,
+                "host": host,
+                "uri": uri,
+                "rule_id": "unknown_host",
+                "message": (details.get("user_agent") or "")[:80],
+                "blocked": True,
+                "critical": False,
+                "families": ["Scanner"],
+                "score": int(details.get("hit_count") or 0),
+                "banned": client_ip in banned_ips,
+                "can_ban": bool(client_ip and client_ip != "—"),
+                "can_exclude": False,
+                "source": "unknown_host",
+            }
+        )
+
+    return {
+        "present": True,
+        "hits_24h": hits_24h,
+        "audit_events_24h": len(audit_rows),
+        "top_ips": top_ips,
+        "recent": recent,
+    }
 
 
 def _verdict_action(
@@ -463,7 +553,7 @@ def build_protection_layers(
             "state": "actif",
             "css": "badge-ok",
             "detail": f"{unknown_refusals} refus / 24 h (hôtes non enregistrés)",
-            "alert": False,
+            "alert": unknown_refusals >= 100,
         },
         {
             "name": "En-têtes de sécurité",
@@ -557,16 +647,24 @@ def build_efficiency_panel(
     }
 
 
-def build_attack_controls(settings: Settings, db: Session | None = None) -> dict[str, Any]:
-    """Attack monitoring + actionable security controls (ban / exclude)."""
+def build_attack_controls(
+    settings: Settings, db: Session | None = None
+) -> dict[str, Any]:
+    """Attack monitoring + actionable security controls (CRS + unknown host)."""
+    unknown_panel: dict[str, Any] = (
+        build_unknown_host_panel(db) if db is not None else {"present": False}
+    )
+
     summary = read_audit_summary(settings)
-    if not summary.get("present") or not summary.get("log_available"):
+    crs_present = bool(summary.get("present") and summary.get("log_available"))
+    if not crs_present and not unknown_panel.get("present"):
         return {
             "present": False,
             "recent": [],
             "critical_recent": [],
             "top_attackers": [],
             "critical_24h": 0,
+            "unknown_host": unknown_panel,
         }
 
     banned_ips: set[str] = set()
@@ -575,8 +673,8 @@ def build_attack_controls(settings: Settings, db: Session | None = None) -> dict
             if ban.target_type == "ip" and ban.target:
                 banned_ips.add(str(ban.target).strip())
 
-    window = (summary.get("windows") or {}).get("24h") or {}
-    recent_raw = summary.get("recent_events") or []
+    window = (summary.get("windows") or {}).get("24h") or {} if crs_present else {}
+    recent_raw = summary.get("recent_events") or [] if crs_present else []
     recent: list[dict[str, Any]] = []
     for ev in reversed(recent_raw[-30:]):
         if not isinstance(ev, dict):
@@ -608,23 +706,48 @@ def build_attack_controls(settings: Settings, db: Session | None = None) -> dict
             "banned": client_ip in banned_ips,
             "can_ban": bool(client_ip and client_ip != "—"),
             "can_exclude": str(ev.get("rule_id") or "").isdigit(),
+            "source": "crs",
         }
         recent.append(row)
 
+    for row in unknown_panel.get("recent") or []:
+        if isinstance(row, dict):
+            recent.append(row)
+
+    recent.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
+    recent = recent[:30]
+
     critical_recent = [r for r in recent if r.get("critical")][:15]
-    attacks = [r for r in recent if r.get("rule_id") != "—" or r.get("blocked")][:15]
+    attacks = [
+        r
+        for r in recent
+        if r.get("source") == "unknown_host"
+        or r.get("rule_id") != "—"
+        or r.get("blocked")
+    ][:15]
     if not attacks:
         attacks = recent[:15]
 
-    top_attackers = []
+    merged_attackers: dict[str, int] = {}
     for atk in window.get("top_attackers") or []:
         if not isinstance(atk, dict):
             continue
         ip = str(atk.get("ip") or "—").strip() or "—"
+        if ip != "—":
+            merged_attackers[ip] = merged_attackers.get(ip, 0) + int(atk.get("count") or 0)
+    for atk in unknown_panel.get("top_ips") or []:
+        if not isinstance(atk, dict):
+            continue
+        ip = str(atk.get("ip") or "—").strip() or "—"
+        if ip != "—":
+            merged_attackers[ip] = merged_attackers.get(ip, 0) + int(atk.get("count") or 0)
+
+    top_attackers = []
+    for ip, count in sorted(merged_attackers.items(), key=lambda x: -x[1])[:5]:
         top_attackers.append(
             {
                 "ip": ip,
-                "count": int(atk.get("count") or 0),
+                "count": count,
                 "banned": ip in banned_ips,
                 "can_ban": bool(ip and ip != "—"),
             }
@@ -636,6 +759,7 @@ def build_attack_controls(settings: Settings, db: Session | None = None) -> dict
         "critical_recent": critical_recent,
         "top_attackers": top_attackers,
         "critical_24h": int(window.get("critical") or 0),
+        "unknown_host": unknown_panel,
     }
 
 
@@ -997,6 +1121,7 @@ def build_waf_readability_context(
     efficiency_7d = build_efficiency_panel(settings, active, window="7d")
     visuals = build_efficiency_visuals(settings, active, efficiency_24h)
     attack_controls = build_attack_controls(settings, db)
+    unknown_host_panel = attack_controls.get("unknown_host") or build_unknown_host_panel(db)
     reactivation = build_reactivation_panel(
         profile, active, settings, export_pending=export_pending
     )
@@ -1013,6 +1138,7 @@ def build_waf_readability_context(
         "efficiency_7d": efficiency_7d,
         "efficiency_visuals": visuals,
         "attack_controls": attack_controls,
+        "unknown_host_panel": unknown_host_panel,
         "reactivation": reactivation,
         "apply_enabled": apply_enabled,
         "mode_pilotable": reactivation.get("pilotable"),

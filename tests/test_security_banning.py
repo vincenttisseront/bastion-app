@@ -16,6 +16,7 @@ from app.security.banning.engine import (
     RULE_HAMMERING,
     RULE_HAMMERING_LOGIN,
     RULE_SUCCESSFUL_LOGIN,
+    RULE_UNKNOWN_HOST,
     apply_ban,
     check_request_allowed,
     clear_counters_for_tests,
@@ -27,6 +28,7 @@ from app.security.banning.engine import (
     lift_expired_bans,
     record_sensitive_request,
     record_successful_login,
+    record_unknown_host_refusal,
 )
 from app.security.banning.service import add_allowlist_entry, update_ban_rules
 
@@ -64,6 +66,42 @@ def test_security_hammering_threshold_triggers_ban(db_session: Session):
     assert ban.rule_type == RULE_HAMMERING
     assert ban.permanent is False
     assert ban.expires_at is not None
+
+
+def test_unknown_host_hammering_bans_scanner_ip(db_session: Session):
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_UNKNOWN_HOST: {
+                "enabled": True,
+                "threshold": 5,
+                "window_seconds": 300,
+                "ban_minutes": 60,
+            }
+        },
+        actor="test",
+    )
+    ip = "34.155.98.34"
+    for _ in range(4):
+        assert (
+            record_unknown_host_refusal(
+                db_session, ip=ip, hostname="ar-systems.fr", uri="/api/v2/settings"
+            )
+            is None
+        )
+    ban = record_unknown_host_refusal(
+        db_session, ip=ip, hostname="ar-systems.fr", uri="/api/v2/settings"
+    )
+    assert ban is not None
+    assert ban.target == ip
+    assert ban.rule_type == RULE_UNKNOWN_HOST
+    assert find_active_ban(db_session, ip=ip) is not None
+    audit = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "security.unknown_host_hammering.detected")
+        .one()
+    )
+    assert audit.ip_address == ip
 
 
 def test_security_hack_username_immediate_ban(db_session: Session):
@@ -626,6 +664,8 @@ def test_security_banning_page_accordion_and_modals(client: TestClient, db_sessi
     assert "Ajouter un ban manuel" not in body
     assert "Enregistrer les règles" in body
     assert "hammering_login_enabled" in body
+    assert "unknown_host_enabled" in body
+    assert "Hôtes inconnus" in body
     assert "successful_login_enabled" in body
     assert "rate_limit_enabled" in body
     assert "rate_limit_login_enabled" in body

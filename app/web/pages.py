@@ -3352,6 +3352,13 @@ def admin_security_banning_rules(
     hammering_login_ban_minutes: int = Form(60),
     hammering_login_ban_permanent: str | None = Form(None),
     hammering_login_confirm_permanent: str | None = Form(None),
+    # unknown_host_hammering
+    unknown_host_enabled: str | None = Form(None),
+    unknown_host_threshold: int = Form(50),
+    unknown_host_window_seconds: int = Form(300),
+    unknown_host_ban_minutes: int = Form(1440),
+    unknown_host_ban_permanent: str | None = Form(None),
+    unknown_host_confirm_permanent: str | None = Form(None),
     # failed_login
     failed_login_enabled: str | None = Form(None),
     failed_login_threshold: int = Form(15),
@@ -3405,6 +3412,14 @@ def admin_security_banning_rules(
                 "ban_minutes": hammering_login_ban_minutes,
                 "ban_permanent": hammering_login_ban_permanent == "on",
                 "confirm_permanent": hammering_login_confirm_permanent == "on",
+            },
+            "unknown_host_hammering": {
+                "enabled": unknown_host_enabled == "on",
+                "threshold": unknown_host_threshold,
+                "window_seconds": unknown_host_window_seconds,
+                "ban_minutes": unknown_host_ban_minutes,
+                "ban_permanent": unknown_host_ban_permanent == "on",
+                "confirm_permanent": unknown_host_confirm_permanent == "on",
             },
             "failed_login": {
                 "enabled": failed_login_enabled == "on",

@@ -276,6 +276,7 @@ def render_rate_limits_conf(profile: WafProfile) -> str:
         "# Pilots EXISTING zone names portal_login / portal_api (no new zone names).\n"
         f"limit_req_zone $binary_remote_addr zone=portal_login:10m rate={login_rate}r/s;\n"
         f"limit_req_zone $binary_remote_addr zone=portal_api:10m rate={api_rate}r/s;\n"
+        "limit_req_zone $binary_remote_addr zone=portal_unknown_host:10m rate=5r/s;\n"
     )
 
 

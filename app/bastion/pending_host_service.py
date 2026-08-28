@@ -10,6 +10,7 @@ from app.admin.export import export_app_catalogue_files
 from app.audit import log_action
 from app.bastion.nginx_known_hosts_export import normalize_hostname
 from app.models import App, PendingHost, utcnow
+from app.security.banning.engine import find_active_ban, record_unknown_host_refusal
 from app.sso_settings import Settings
 
 _SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
@@ -125,6 +126,13 @@ def record_unknown_host(
                 "user_agent": (user_agent or row.last_user_agent or "")[:256] or None,
             },
             ip_address=client_ip or row.last_client_ip,
+        )
+    if client_ip:
+        record_unknown_host_refusal(
+            db,
+            ip=client_ip,
+            hostname=host,
+            uri=uri or row.last_uri,
         )
     return row
 
