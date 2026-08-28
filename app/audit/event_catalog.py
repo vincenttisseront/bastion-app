@@ -526,8 +526,13 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
     _e('BST-WAF-1011', 'WAF_ENGINE_REACTIVATED', 'Réactivation moteur CRS portal (DetectionOnly + smoke)', ('intrusion_detection', 'configuration',),
        legacy_action='security.waf.reactivate',
        runbook='Si ok=false et rolled_back : lire failed_probes ; diag error.log nginx ; disque ; réessayer après fix.'),
+    _e('BST-WAF-1014', 'WAF_SUBDOMAIN_REACTIVATED', 'Réactivation moteur CRS subdomain (DetectionOnly + smoke)', ('intrusion_detection', 'configuration',),
+       legacy_action='security.waf.reactivate_subdomain',
+       runbook='Portal armé requis. smoke_hosts = FQDN testés. Rollback auto si 5xx sur GET / vhost.'),
     _e('BST-WAF-1012', 'WAF_ENGINE_DISARMED', 'Coupure moteur CRS portal (Off)', ('intrusion_detection', 'configuration',),
        legacy_action='security.waf.disarm'),
+    _e('BST-WAF-1013', 'WAF_GEOLOC_TOGGLED', 'Géolocalisation IP WAF activée/désactivée', ('intrusion_detection', 'configuration',),
+       legacy_action='security.waf.geoloc_toggled'),
     _e('BST-WAF-2001', 'CRS_RULE_TRIGGERED', 'Règle ModSecurity/CRS déclenchée (mode détection)', ('intrusion_detection',)),
     _e('BST-WAF-2002', 'BRUTE_FORCE_ATTEMPT', "Rafale d'échecs d'authentification détectée", ('intrusion_detection', 'authentication',)),
     _e('BST-WAF-2003', 'SURFACE_PROBING', 'Sondage de surfaces protégées', ('intrusion_detection',)),
@@ -535,6 +540,9 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
     _e('BST-WAF-2005', 'AUTHORIZED_REDTEAM_TEST', 'Activité de test red-team autorisée', ('intrusion_detection',)),
     _e('BST-WAF-2006', 'RATE_LIMITED', 'Requête limitée en débit', ('intrusion_detection',),
        legacy_action='security.rate_limited'),
+    _e('BST-WAF-2007', 'UNKNOWN_HOST_HAMMERING_DETECTED', 'Rafale de refus hôte inconnu détectée', ('intrusion_detection',),
+       legacy_action='security.unknown_host_hammering.detected',
+       runbook='Vérifier IP / scanner ; ban auto si légitime. Corréler avec Admin → WAF → quarantaine.'),
     _e('BST-WAF-4001', 'IP_BANNED', 'IP bannie automatiquement', ('intrusion_detection',),
        legacy_action='security.ban.applied', runbook='Vérifier si légitime ; lever le ban si faux positif.'),
     _e('BST-WAF-4002', 'HACK_ATTEMPT_DETECTED', "Tentative d'intrusion caractérisée", ('intrusion_detection',),
@@ -626,6 +634,7 @@ _ACTION_DOMAIN_PREFIXES: tuple[tuple[str, str], ...] = tuple(
             ("security.waf", "WAF"),
             ("security.hack", "WAF"),
             ("security.rate", "WAF"),
+            ("security.unknown_host", "WAF"),
             ("security.siem", "SIEM"),
             ("siem.", "SIEM"),
             ("account.", "PROV"),
@@ -704,6 +713,9 @@ def resolve_event(
         try:
             _domain, num = parse_event_code(code)
             if num == 0:
+                act = (action or "").strip()
+                if act and act in ACTION_TO_CODE:
+                    return EVENTS[ACTION_TO_CODE[act]]
                 return uncatalogued_event(action or "")
         except ValueError:
             pass

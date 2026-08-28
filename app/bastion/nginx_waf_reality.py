@@ -590,6 +590,22 @@ def build_waf_reality_warnings(
     return warnings
 
 
+def family_engine_mode(active: dict[str, Any], family: str) -> str | None:
+    """SecRuleEngine for one nginx WAF family (portal / subdomain / public)."""
+    if not active.get("verifiable"):
+        return None
+    fam = (active.get("families") or {}).get(family)
+    if isinstance(fam, dict):
+        mode = fam.get("sec_rule_engine")
+        if mode:
+            return str(mode)
+    return None
+
+
+def subdomain_engine_mode(active: dict[str, Any]) -> str | None:
+    return family_engine_mode(active, "subdomain")
+
+
 def portal_engine_mode(active: dict[str, Any]) -> str | None:
     """SecRuleEngine for the portal family — scope of the WAF admin UI.
 

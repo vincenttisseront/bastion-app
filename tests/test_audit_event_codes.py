@@ -49,6 +49,25 @@ def test_log_action_explicit_code(db_session: Session):
     assert entry.severity == Severity.CRITICAL.value
 
 
+def test_serialize_remaps_historical_sentinel_code(db_session: Session):
+    row = AuditLog(
+        actor="system",
+        action="security.unknown_host_hammering.detected",
+        target="ip:203.0.113.50",
+        details={"count": 50},
+        ip_address="203.0.113.50",
+        event_code="BST-SYS-0000",
+        severity="WARNING",
+    )
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+    ser = serialize_audit_row(row)
+    assert ser["event_code"] == "BST-WAF-2007"
+    assert ser["event_label"] == "UNKNOWN_HOST_HAMMERING_DETECTED"
+    assert "UNCATALOGUED" not in (ser.get("event_title_fr") or "")
+
+
 def test_serialize_audit_row_maps_details_ok_to_error_result():
     row = AuditLog(
         actor="admin",

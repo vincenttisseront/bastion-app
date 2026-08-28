@@ -179,6 +179,8 @@ def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
         ev = get_event_by_code(event_code)
         if ev is None and event_code.endswith("-0000"):
             ev = resolve_event(action=row.action, code=event_code)
+            if ev is not None and ev.code != event_code:
+                event_code = ev.code
     extras: dict[str, str] = {}
     for key in OPTIONAL_DETAIL_COLUMNS:
         if key == "target":

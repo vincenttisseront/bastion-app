@@ -38,7 +38,7 @@ from app.bastion.waf_charts import (
     render_series_chart,
     _empty_panel,
 )
-from app.models import AuditLog, PendingHost, SecurityBanRule, WafProfile
+from app.models import App, AuditLog, PendingHost, SecurityBanRule, WafProfile
 from app.security.banning.service import list_active_bans, list_ban_rules, get_or_create_policy
 from app.sso_settings import Settings
 
@@ -47,6 +47,41 @@ CRS_INACTIVE_RESOLUTION = (
     "Utilisez « Réactiver le moteur (DetectionOnly) » : sync + nginx -t + smoke HTTP, "
     "avec rollback automatique vers Off si une sonde échoue (échec type 2026-08-06)."
 )
+UNKNOWN_HOST_FEED_RULE_LABEL = "Host HTTP non enregistré"
+UNKNOWN_HOST_FEED_RULE_TITLE = (
+    "Requête refusée : l'en-tête Host ne correspond à aucun domaine portail "
+    "connu (scan IP direct, bot, apex non configuré)."
+)
+BAN_RULE_TYPE_LABELS: dict[str, str] = {
+    "unknown_host_hammering": "Rafale host non enregistré",
+    "hammering": "Rafale requêtes",
+    "hammering_login": "Rafale login",
+    "failed_login": "Échecs login",
+    "successful_login": "Connexions suspectes",
+    "hack_username": "Usernames invalides",
+    "concurrent_connections": "Connexions simultanées",
+    "rate_limit": "Rate limit",
+    "rate_limit_login": "Rate limit login",
+    "manual": "Manuel",
+}
+FEED_SOURCE_META: dict[str, dict[str, str]] = {
+    "crs": {
+        "kind": "modsecurity",
+        "label": "CRS",
+        "title": "Interception ModSecurity / OWASP CRS",
+    },
+    "unknown_host": {
+        "kind": "host_filter",
+        "label": "Filtrage",
+        "title": "Refus nginx — en-tête Host absent du portail (hors ModSecurity)",
+    },
+}
+VHOST_FAMILY_LABELS: dict[str, str] = {
+    "portal": "Portail",
+    "subdomain": "Sous-domaine",
+    "public": "Public",
+}
+
 SNAPSHOT_UNAVAILABLE_RESOLUTION = (
     "Le snapshot nginx (nginx-waf-snapshot.json) est absent ou illisible — "
     "rebuild bastion-nginx et vérifiez le volume nginx-logs."
@@ -119,49 +154,72 @@ def build_reactivation_panel(
     profile: WafProfile,
     active: dict[str, Any],
     settings: Settings,
+    db: Session | None,
     *,
     export_pending: bool,
 ) -> dict[str, Any]:
-    """Ops checklist + IHM reactivate/disarm controls."""
-    from app.bastion.waf_reactivation import read_arm_state
+    """Ops checklist + IHM reactivate/disarm controls (portal + subdomain)."""
+    from app.bastion.nginx_waf_reality import subdomain_engine_mode
+    from app.bastion.waf_reactivation import list_subdomain_smoke_hosts, read_arm_state, read_subdomain_armed
 
     real = portal_engine_mode(active)
+    subdomain_real = subdomain_engine_mode(active)
     pilotable = mode_pilotable_from_reality(active)
     arm = read_arm_state(settings)
-    armed = bool(arm.get("armed"))
-    blocked = bool(active.get("verifiable") and real == MODE_OFF and not armed)
+    portal_armed = bool(arm.get("armed"))
+    subdomain_armed = read_subdomain_armed(settings)
+    subdomain_apps = list_subdomain_smoke_hosts(db) if db is not None else []
+    blocked = bool(active.get("verifiable") and real == MODE_OFF and not portal_armed)
     desired_on = profile.mode in (MODE_ON, MODE_DETECTION)
-    can_reactivate = not armed
-    can_disarm = armed
-    # Onglet Réactivation : uniquement si on peut réactiver (moteur désarmé).
-    show_tab = can_reactivate
+    can_reactivate_portal = not portal_armed
+    can_reactivate_subdomain = bool(
+        portal_armed
+        and real in (MODE_DETECTION, MODE_ON)
+        and not subdomain_armed
+        and subdomain_apps
+    )
+    show_tab = can_reactivate_portal or can_reactivate_subdomain or subdomain_armed
     return {
         "show": show_tab,
         "blocked": blocked,
-        "pilotable": pilotable or armed,
-        "armed": armed,
+        "pilotable": pilotable or portal_armed,
+        "armed": portal_armed,
+        "subdomain_armed": subdomain_armed,
         "arm": arm,
         "desired_mode": profile.mode,
         "real_mode": real,
+        "subdomain_real_mode": subdomain_real,
+        "subdomain_apps": subdomain_apps,
         "export_pending": bool(export_pending),
-        "apply_can_change_mode": bool(armed),
-        "can_reactivate": can_reactivate,
-        "can_disarm": can_disarm,
+        "apply_can_change_mode": bool(portal_armed),
+        "can_reactivate": can_reactivate_portal,
+        "can_reactivate_portal": can_reactivate_portal,
+        "can_reactivate_subdomain": can_reactivate_subdomain,
+        "can_disarm": portal_armed,
         "apply_still_useful_for": [
             "Exclusions CRS (bastion-exclusions-generated.conf)",
             "Deny IP promus (waf-ip-deny.conf)",
             "Rate-limits portail",
         ],
-        "title": "Réactivation du moteur CRS (portal)",
+        "title": "Réactivation ModSecurity (portal + sous-domaines)",
         "summary": (
-            "Réactivation IHM : DetectionOnly + sync/nginx -t + smoke HTTP "
+            "Réactivation IHM portal : DetectionOnly + sync/nginx -t + smoke HTTP "
             "(/_portal_nginx_ok, /api/health, /auth/login). "
             "Si une sonde renvoie 5xx ou est injoignable → rollback auto vers Off."
-            if not armed
+            if not portal_armed
             else (
-                "Moteur portal armé. Appliquer pousse le mode du profil. "
-                "Utilisez « Couper le moteur » (onglet Profil) pour revenir à Off."
+                "Moteur portal armé. "
+                + (
+                    "Subdomain en DetectionOnly — smoke OK."
+                    if subdomain_armed
+                    else "Vous pouvez activer ModSecurity sur les apps subdomain_proxy ci-dessous."
+                )
             )
+        ),
+        "subdomain_summary": (
+            "DetectionOnly sur chaque FQDN subdomain_proxy actif "
+            f"({len(subdomain_apps)} app(s)) : GET / sur le vhost (pas de 5xx). "
+            "Rollback auto si une sonde échoue."
         ),
         "runbook_path": "docs/runbook-reactivation-crs-modsecurity.md",
         "steps": list(REACTIVATION_STEPS),
@@ -272,6 +330,8 @@ def build_unknown_host_panel(
                 "host": host,
                 "uri": uri,
                 "rule_id": "unknown_host",
+                "rule_label": UNKNOWN_HOST_FEED_RULE_LABEL,
+                "rule_title": UNKNOWN_HOST_FEED_RULE_TITLE,
                 "message": (details.get("user_agent") or "")[:80],
                 "blocked": True,
                 "critical": False,
@@ -767,8 +827,9 @@ def build_attack_controls(
         row["origin_country_code"] = origin.get("country_code") or ""
         row["severity"] = _event_severity(row)
         row["action_label"] = "Bloqué" if row["blocked"] else "Alerté"
-        row["inspect_b64"] = _encode_inspect_payload(row)
         _apply_feed_target(row)
+        _enrich_feed_source(row, settings=settings, db=db)
+        row["inspect_b64"] = _encode_inspect_payload(row)
         recent.append(row)
 
     for row in unknown_panel.get("recent") or []:
@@ -785,8 +846,9 @@ def build_attack_controls(
             enriched.setdefault("origin_country_code", origin.get("country_code") or "")
             enriched.setdefault("severity", _event_severity(enriched))
             enriched.setdefault("action_label", "Bloqué" if enriched.get("blocked") else "Refusé")
-            enriched.setdefault("inspect_b64", _encode_inspect_payload(enriched))
             _apply_feed_target(enriched)
+            _enrich_feed_source(enriched, settings=settings, db=db)
+            enriched.setdefault("inspect_b64", _encode_inspect_payload(enriched))
             recent.append(enriched)
 
     recent.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
@@ -850,6 +912,69 @@ def _heatmap_row_key(ip: str, geo_map: dict[str, dict[str, Any]] | None) -> str:
     return origin.get("network") or ip
 
 
+def _feed_host_key(host: str) -> str:
+    text = (host or "").strip().lower().rstrip(".")
+    if not text or text == "—":
+        return ""
+    if text.startswith("[") and "]" in text:
+        return text.split("]", 1)[0] + "]"
+    if text.count(":") == 1 and not text.startswith("["):
+        left, right = text.rsplit(":", 1)
+        if right.isdigit():
+            text = left
+    return text
+
+
+def _resolve_vhost_family(
+    host: str,
+    settings: Settings,
+    db: Session | None,
+) -> str | None:
+    name = _feed_host_key(host)
+    if not name:
+        return None
+    portal = _feed_host_key(settings.portal_domain or "")
+    if portal and (name == portal or name.endswith("." + portal)):
+        return "portal"
+    if db is None:
+        return None
+    try:
+        rows = (
+            db.query(App.public_fqdn, App.access_mode)
+            .filter(App.enabled.is_(True), App.public_fqdn.isnot(None))
+            .all()
+        )
+    except Exception:
+        return None
+    for fqdn, access_mode in rows:
+        if _feed_host_key(str(fqdn or "")) == name:
+            mode = str(access_mode or "")
+            if mode == "subdomain_proxy":
+                return "subdomain"
+            if mode == "public_proxy":
+                return "public"
+            return "portal"
+    return None
+
+
+def _enrich_feed_source(
+    row: dict[str, Any],
+    *,
+    settings: Settings | None = None,
+    db: Session | None = None,
+) -> None:
+    source = str(row.get("source") or "crs")
+    meta = FEED_SOURCE_META.get(source, FEED_SOURCE_META["crs"])
+    row["source_kind"] = meta["kind"]
+    row["source_label"] = meta["label"]
+    row["source_title"] = meta["title"]
+    if source == "crs" and settings is not None:
+        fam = _resolve_vhost_family(str(row.get("host") or ""), settings, db)
+        if fam:
+            row["vhost_family"] = fam
+            row["vhost_family_label"] = VHOST_FAMILY_LABELS.get(fam, fam)
+
+
 def _apply_feed_target(row: dict[str, Any]) -> None:
     """Human-readable target column — unknown Host shows IP+path, not reverse-DNS hostname."""
     host = str(row.get("host") or "—").strip() or "—"
@@ -867,10 +992,10 @@ def _apply_feed_target(row: dict[str, Any]) -> None:
 def _event_severity(row: dict[str, Any]) -> str:
     if row.get("critical"):
         return "critical"
-    if row.get("blocked"):
-        return "high"
     if row.get("source") == "unknown_host":
         return "medium"
+    if row.get("blocked"):
+        return "high"
     return "low"
 
 
@@ -881,12 +1006,18 @@ def _encode_inspect_payload(row: dict[str, Any]) -> str:
         "host": row.get("host"),
         "uri": row.get("uri"),
         "rule_id": row.get("rule_id"),
+        "rule_label": row.get("rule_label"),
+        "rule_title": row.get("rule_title"),
         "message": row.get("message"),
         "blocked": row.get("blocked"),
         "critical": row.get("critical"),
         "families": row.get("families"),
         "score": row.get("score"),
         "source": row.get("source"),
+        "source_kind": row.get("source_kind"),
+        "source_label": row.get("source_label"),
+        "vhost_family": row.get("vhost_family"),
+        "vhost_family_label": row.get("vhost_family_label"),
         "origin_country": row.get("origin_country"),
         "origin_city": row.get("origin_hint"),
     }
@@ -1054,6 +1185,9 @@ def build_quarantine_panel(
                 "id": ban.id,
                 "ip": str(ban.target),
                 "rule_type": ban.rule_type or "manual",
+                "rule_type_label": BAN_RULE_TYPE_LABELS.get(
+                    ban.rule_type or "manual", ban.rule_type or "manual"
+                ),
                 "reason": (ban.reason or "")[:80],
                 "expires_at": (
                     ban.expires_at.isoformat()[:16].replace("T", " ")
@@ -1553,7 +1687,7 @@ def build_waf_readability_context(
         db, geo_map=geo_map
     )
     reactivation = build_reactivation_panel(
-        profile, active, settings, export_pending=export_pending
+        profile, active, settings, db, export_pending=export_pending
     )
     diagnostic = build_diagnostic_panel(
         settings, active, generated or {}, headers_panel

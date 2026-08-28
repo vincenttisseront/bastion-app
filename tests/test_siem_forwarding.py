@@ -592,6 +592,74 @@ def test_connectivity_test_json_failure(client: TestClient, db_session: Session)
     assert any("désactivé" in line.lower() or line.startswith("✗") for line in data["lines"])
 
 
+def test_siem_enqueues_catalogued_unknown_host_hammering(db_session: Session):
+    update_siem_settings(
+        db_session,
+        get_settings(),
+        enabled=True,
+        protocol="webhook_https",
+        syslog_host="",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="https://siem.test/ingest",
+        webhook_auth_type="none",
+        webhook_auth_secret=None,
+        clear_webhook_secret=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        actor="admin@example.com",
+    )
+    entry = log_action(
+        db_session,
+        actor="system",
+        action="security.unknown_host_hammering.detected",
+        target="ip:203.0.113.50",
+        details={"count": 50, "window_seconds": 300},
+        ip_address="203.0.113.50",
+    )
+    assert entry is not None
+    assert entry.event_code == "BST-WAF-2007"
+    rows = (
+        db_session.query(SiemOutboxEntry)
+        .filter_by(audit_log_id=entry.id)
+        .order_by(SiemOutboxEntry.id.desc())
+        .all()
+    )
+    assert rows
+    row = rows[0]
+    assert row.payload_json["event_code"] == "BST-WAF-2007"
+    assert row.payload_json["event_label"] == "UNKNOWN_HOST_HAMMERING_DETECTED"
+
+
+def test_siem_waf_allowlist_includes_new_hammering_event():
+    from app.siem.settings_service import SiemForwardingConfig, event_passes_filter
+
+    allow = SiemForwardingConfig(
+        enabled=True,
+        protocol="webhook_https",
+        syslog_host="",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="https://example.test/h",
+        webhook_auth_type="none",
+        webhook_auth_configured=False,
+        filter_mode="allowlist",
+        filter_actions=["BST-WAF-*"],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        last_success_at=None,
+    )
+    assert event_passes_filter(
+        allow,
+        action="security.unknown_host_hammering.detected",
+        event_code="BST-WAF-2007",
+        catalog_severity="WARNING",
+        domain="WAF",
+    )
+
+
 def test_siem_disabled_by_default_no_enqueue(db_session: Session):
     ensure_siem_settings(db_session)
     cfg = get_siem_config(db_session)

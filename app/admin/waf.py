@@ -447,6 +447,61 @@ def admin_waf_reactivate(
     return response
 
 
+@router.post("/admin/security/waf/actions/reactivate-subdomain")
+def admin_waf_reactivate_subdomain(
+    request: Request,
+    confirm_reactivate_subdomain: str | None = Form(None),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Réactive ModSecurity subdomain (DetectionOnly) avec smoke + rollback auto."""
+    from app.bastion.waf_reactivation import reactivate_subdomain_engine
+    from app.audit import log_action
+
+    result = reactivate_subdomain_engine(
+        db,
+        settings,
+        actor=_actor(user),
+        confirm=confirm_reactivate_subdomain == "on",
+    )
+    anchor = "#bilan" if result.get("ok") else "#reactivation"
+    response = RedirectResponse(url=f"/admin/security/waf{anchor}", status_code=302)
+    log_action(
+        db,
+        actor=_actor(user),
+        action="security.waf.reactivate_subdomain",
+        target="subdomain",
+        details={
+            "ok": result.get("ok"),
+            "rolled_back": result.get("rolled_back"),
+            "error": result.get("error"),
+            "mode": result.get("mode"),
+            "sync_detail": result.get("sync_detail"),
+            "failed_summary": result.get("failed_summary"),
+            "smoke_hosts": result.get("smoke_hosts") or [],
+            "smoke_ok": (result.get("smoke") or {}).get("ok"),
+        },
+        ip_address=client_ip_from_request(request) or None,
+    )
+    db.commit()
+    if result.get("ok"):
+        flash_redirect(
+            response,
+            result.get("message") or "Subdomain réactivé (DetectionOnly), smoke OK.",
+            "success",
+            _flash_secret(settings),
+        )
+    else:
+        flash_redirect(
+            response,
+            result.get("error") or "Réactivation subdomain échouée.",
+            "error",
+            _flash_secret(settings),
+        )
+    return response
+
+
 @router.post("/admin/security/waf/actions/disarm")
 def admin_waf_disarm(
     request: Request,

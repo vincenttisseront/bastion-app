@@ -54,13 +54,16 @@ def test_main_portal_includes_engine_mode_generated_for_ihm_arm():
     assert (
         "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf" in text
     )
-    # Subdomain / public stay emergency-off (no IHM arm yet).
-    for name in ("main-subdomain.conf", "main-public.conf"):
-        other = (ROOT / "docker/nginx/modsecurity" / name).read_text(encoding="utf-8")
-        assert (
-            "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
-            not in other
-        )
+    sub = (ROOT / "docker/nginx/modsecurity/main-subdomain.conf").read_text(encoding="utf-8")
+    assert (
+        "Include /etc/nginx/modsecurity/generated/engine-subdomain-mode-generated.conf"
+        in sub
+    )
+    public = (ROOT / "docker/nginx/modsecurity/main-public.conf").read_text(encoding="utf-8")
+    assert (
+        "Include /etc/nginx/modsecurity/generated/engine-mode-generated.conf"
+        not in public
+    )
 
 def test_docker_nginx_loads_modsecurity_module_after_real_ip_order():
     conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
