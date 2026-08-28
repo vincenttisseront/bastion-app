@@ -1,4 +1,4 @@
-"""Read nginx ModSecurity / CRS effective state for WAF admin UI (Phase B lot 2.1).
+"""Read nginx ModSecurity / CRS effective state for WAF admin UI.
 
 Production truth comes from a JSON snapshot written by ``bastion-nginx`` into the shared
 ``nginx-logs`` volume (``nginx-waf-snapshot.json``). The app never reads ``docker/nginx``
@@ -609,8 +609,8 @@ def subdomain_engine_mode(active: dict[str, Any]) -> str | None:
 def portal_engine_mode(active: dict[str, Any]) -> str | None:
     """SecRuleEngine for the portal family — scope of the WAF admin UI.
 
-    ``aggregate_mode`` mixes portal + subdomain + public; subdomain/public stay
-    Off by design and must not trigger a false « configuration non appliquée ».
+    ``aggregate_mode`` mixes portal + subdomain + public; do not treat a mixed
+    aggregate as a failed apply when only the portal overlay is armed.
     """
     if not active.get("verifiable"):
         return None

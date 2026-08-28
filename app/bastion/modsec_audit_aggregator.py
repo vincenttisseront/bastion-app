@@ -1,4 +1,4 @@
-"""Incremental ModSecurity audit log aggregator for WAF UI (lot 4 / lot 3 shared).
+"""Incremental ModSecurity audit log aggregator for WAF UI.
 
 Reads ``modsec_audit.log`` incrementally (offset + inode), maintains hourly buckets,
 writes pre-computed ``waf-audit-summary.json``. Never invoked per HTTP request.
@@ -24,7 +24,7 @@ STATE_SCHEMA_VERSION = 3
 MAX_RECENT_EVENTS = 100
 TOP_N = 5
 
-# Short CRS labels for common rules (lot 4 readability; extend over time).
+# Short CRS labels for common rules.
 CRS_RULE_LABELS: dict[str, str] = {
     "942100": "Injection SQL",
     "941100": "XSS (tag)",

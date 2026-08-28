@@ -66,10 +66,10 @@ else
   echo "# deprecated — see nginx-acme-tls.conf" > /etc/nginx/conf.d/nginx-public-proxy-apps-tls.conf
 fi
 
-# --- WAF Phase B overlays (never overwrite Phase A static crs-setup / waf-basic / engine-*) ---
+# --- WAF overlays (ne pas écraser crs-setup / waf-basic / engine-* statiques) ---
 mkdir -p /etc/nginx/modsecurity/generated
-# crs-setup-generated.conf is NOT Included by main-*.conf (stale id:901110 → HTTP 500).
-# Still sanitize the on-disk export + image copy so a future re-Include cannot brick prod.
+# crs-setup-generated.conf n'est pas chargé par main-*.conf (collision d'id CRS 901).
+# Nettoyage de l'export au cas où il serait réinclus plus tard.
 if [[ -f "$EXPORTS/modsecurity/crs-setup-generated.conf" ]]; then
   if grep -qE 'id:901[0-9]{3},' "$EXPORTS/modsecurity/crs-setup-generated.conf" 2>/dev/null; then
     echo "WARN: sanitizing exports/modsecurity/crs-setup-generated.conf (CRS 901xxx rule id)" >&2
@@ -82,7 +82,7 @@ cat > /etc/nginx/modsecurity/generated/crs-setup-generated.conf <<'EOF'
 # Export may still be written by Admin → WAF for a future safe re-Include (id:1000900110).
 EOF
 
-# Portal ModSecurity connector switch (IHM reactivation / rollback).
+# Portal ModSecurity connector (Admin → WAF → Réactiver / Couper).
 if [[ -f "$EXPORTS/modsecurity-portal-switch.conf" ]]; then
   cp -a "$EXPORTS/modsecurity-portal-switch.conf" \
     /etc/nginx/includes/modsecurity-portal-switch.conf
@@ -107,8 +107,8 @@ EOF
   fi
 done
 
-# Engine mode overlay: copy export only when IHM armed (waf-engine-arm.json).
-# Otherwise force Off so a DB profile mode=on cannot brick the edge.
+# Engine overlay: copy export only when armed (waf-engine-arm.json).
+# Otherwise force Off so a DB profile mode=on cannot enable CRS before Réactiver.
 ARMED=0
 if [[ -f "$EXPORTS/modsecurity/waf-engine-arm.json" ]]; then
   if grep -Eq '"armed"[[:space:]]*:[[:space:]]*true' "$EXPORTS/modsecurity/waf-engine-arm.json" 2>/dev/null; then
@@ -120,7 +120,7 @@ if [[ "$ARMED" -eq 1 && -f "$EXPORTS/modsecurity/engine-mode-generated.conf" ]];
     /etc/nginx/modsecurity/generated/engine-mode-generated.conf
 else
   cat > /etc/nginx/modsecurity/generated/engine-mode-generated.conf <<'EOF'
-# Not armed — IHM must run Réactiver (DetectionOnly + smoke). See waf_reactivation.
+# Not armed — Admin → WAF → Réactiver (DetectionOnly + contrôles HTTP).
 SecRuleEngine Off
 EOF
 fi
@@ -136,7 +136,7 @@ if [[ "$SUBDOMAIN_ARMED" -eq 1 && -f "$EXPORTS/modsecurity/engine-subdomain-mode
     /etc/nginx/modsecurity/generated/engine-subdomain-mode-generated.conf
 else
   cat > /etc/nginx/modsecurity/generated/engine-subdomain-mode-generated.conf <<'EOF'
-# Subdomain not armed — IHM WAF → Réactiver subdomain (DetectionOnly + smoke).
+# Subdomain not armed — Admin → WAF → Réactiver subdomain.
 SecRuleEngine Off
 EOF
 fi

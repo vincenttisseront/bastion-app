@@ -1,1 +1,1 @@
-"""Phase B WAF package."""
+"""WAF admin services (profiles, exclusions, apply)."""

@@ -1,4 +1,4 @@
-"""Tests for WAF readability (lot 4)."""
+"""Tests for WAF readability."""
 
 from __future__ import annotations
 

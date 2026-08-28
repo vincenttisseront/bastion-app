@@ -1,4 +1,4 @@
-﻿"""ModSecurity CRS — docker nginx wiring (emergency Off 2026-08-06)."""
+﻿"""ModSecurity CRS — docker nginx wiring."""
 
 from __future__ import annotations
 

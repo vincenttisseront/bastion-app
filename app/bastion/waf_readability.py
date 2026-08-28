@@ -1,4 +1,4 @@
-"""WAF admin page readability — verdict, protection layers, efficiency (lot 4)."""
+"""WAF admin page readability — verdict, protection layers, efficiency."""
 
 from __future__ import annotations
 
@@ -42,10 +42,10 @@ from app.models import App, AuditLog, PendingHost, SecurityBanRule, WafProfile
 from app.security.banning.service import list_active_bans, list_ban_rules, get_or_create_policy
 from app.sso_settings import Settings
 
-CRS_INACTIVE_CAUSE = "Moteur ModSecurity arrêté depuis l'urgence du 2026-08-06."
+CRS_INACTIVE_CAUSE = "Moteur ModSecurity désarmé (Off)."
 CRS_INACTIVE_RESOLUTION = (
-    "Utilisez « Réactiver le moteur (DetectionOnly) » : sync + nginx -t + smoke HTTP, "
-    "avec rollback automatique vers Off si une sonde échoue (échec type 2026-08-06)."
+    "Utilisez « Réactiver » : DetectionOnly, sync nginx, contrôles HTTP. "
+    "Rollback automatique vers Off si une sonde échoue."
 )
 UNKNOWN_HOST_FEED_RULE_LABEL = "Host HTTP non enregistré"
 UNKNOWN_HOST_FEED_RULE_TITLE = (
@@ -99,35 +99,27 @@ AGGREGATOR_CHECK_CMD = (
 
 REACTIVATION_STEPS = [
     {
-        "id": "diag",
-        "title": "Diagnostiquer la cause du 500 (2026-08-06)",
+        "id": "order",
+        "title": "Portail, puis sous-domaines",
         "detail": (
-            "Récupérer error.log / docker logs / modsec_audit avant toute bascule. "
-            "Sans cause racine, réactiver = rejouer l'incident."
-        ),
-    },
-    {
-        "id": "disk",
-        "title": "Vérifier disque & rotation des logs",
-        "detail": (
-            "LV data < 70 %, ≥ 3 Go libres, logrotate actif sur nginx-logs "
-            "(sinon DetectionOnly remplit le disque)."
+            "Activer d'abord le moteur du portail. Les apps subdomain_proxy "
+            "ensuite. Le proxy public reste Off tant qu'il n'est pas armé ici."
         ),
     },
     {
         "id": "detection",
-        "title": "Passer en DetectionOnly côté static (pas via IHM seule)",
+        "title": "DetectionOnly avant le blocage",
         "detail": (
-            "Ajuster engine-*.conf / crs-setup.conf, smoke-test, seulement ensuite "
-            "envisager On."
+            "Observer les faux positifs dans le bilan et les journaux CRS, "
+            "ajouter des exclusions ciblées, puis passer le profil en On + Appliquer."
         ),
     },
     {
-        "id": "include",
-        "title": "Rebrancher engine-mode-generated (après smoke)",
+        "id": "disk",
+        "title": "Espace disque des journaux",
         "detail": (
-            "Ré-Include dans main-*.conf + lever le stub Off dans "
-            "sync-exports-to-confd.sh — alors le profil IHM redevient pilotable."
+            "Laisser de la marge sur le volume nginx-logs : DetectionOnly écrit "
+            "l'audit ModSecurity. Vérifier logrotate."
         ),
     },
 ]
@@ -158,7 +150,7 @@ def build_reactivation_panel(
     *,
     export_pending: bool,
 ) -> dict[str, Any]:
-    """Ops checklist + IHM reactivate/disarm controls (portal + subdomain)."""
+    """Réactivation / coupure moteur CRS (portail + sous-domaines)."""
     from app.bastion.nginx_waf_reality import subdomain_engine_mode
     from app.bastion.waf_reactivation import list_subdomain_smoke_hosts, read_arm_state, read_subdomain_armed
 
@@ -201,27 +193,26 @@ def build_reactivation_panel(
             "Deny IP promus (waf-ip-deny.conf)",
             "Rate-limits portail",
         ],
-        "title": "Réactivation ModSecurity (portal + sous-domaines)",
+        "title": "Réactivation ModSecurity",
         "summary": (
-            "Réactivation IHM portal : DetectionOnly + sync/nginx -t + smoke HTTP "
-            "(/_portal_nginx_ok, /api/health, /auth/login). "
-            "Si une sonde renvoie 5xx ou est injoignable → rollback auto vers Off."
+            "Active le moteur du portail en DetectionOnly, recharge nginx, "
+            "puis contrôle /_portal_nginx_ok, /api/health et /auth/login. "
+            "En cas d'échec : retour automatique à Off."
             if not portal_armed
             else (
-                "Moteur portal armé. "
+                "Moteur portail armé. "
                 + (
-                    "Subdomain en DetectionOnly — smoke OK."
+                    "Sous-domaines en DetectionOnly."
                     if subdomain_armed
-                    else "Vous pouvez activer ModSecurity sur les apps subdomain_proxy ci-dessous."
+                    else "Vous pouvez activer ModSecurity sur les applications en sous-domaine."
                 )
             )
         ),
         "subdomain_summary": (
-            "DetectionOnly sur chaque FQDN subdomain_proxy actif "
-            f"({len(subdomain_apps)} app(s)) : GET / sur le vhost (pas de 5xx). "
-            "Rollback auto si une sonde échoue."
+            "DetectionOnly sur les FQDN subdomain_proxy actifs "
+            f"({len(subdomain_apps)} app(s)) : GET / (pas de 5xx). "
+            "Retour à Off si une sonde échoue."
         ),
-        "runbook_path": "docs/runbook-reactivation-crs-modsecurity.md",
         "steps": list(REACTIVATION_STEPS),
         "desired_on": desired_on,
     }

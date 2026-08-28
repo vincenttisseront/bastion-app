@@ -74,10 +74,8 @@ fi
 nginx -t
 /export-waf-snapshot.sh || echo "WARN: export-waf-snapshot failed" >&2
 
-# Daily logrotate + 5-min WAF snapshot (alpine busybox crond).
-# Alpine's default crontab only runs /etc/periodic/{15min,hourly,daily,...}.
-# Without an explicit */5 line, /etc/periodic/5min is never executed → IHM
-# « Snapshot nginx lu il y a N min » after boot (stale threshold 15 min).
+# Daily logrotate + snapshot WAF toutes les 5 min (crond Alpine).
+# Le crontab Alpine n'exécute pas /etc/periodic/5min sans ligne */5.
 if [[ "${BASTION_MODSEC_LOGROTATE:-1}" != "0" ]] && command -v crond >/dev/null 2>&1; then
   mkdir -p /etc/periodic/daily
   cat > /etc/periodic/daily/modsecurity-logrotate <<'EOF'

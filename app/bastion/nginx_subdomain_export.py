@@ -76,17 +76,9 @@ _AUTH_REQUEST_DIAG_LINES = (
 )
 
 # Capture client Cookie in location / BEFORE auth_request.
-# Do NOT also set these at server{} — server rewrite re-runs on auth and wipes.
-#
-# HAR stack 2026-08-03:
-# - ck=90: sticky if{} / map pick←pass (404 / 500)
-# - 500: map $pick ← $pass + set $pass ← $pick (circular → nginx 500)
-# - 401 bare nginx HTML after #38: return 418 → @gate then auth 401 — nested
-#   error_page does not run @portal_redirect (client sees 401 Authorization Required)
-#
-# Fix: snapshot from $cookie_bastion_session (stable client cookie module) +
-# $http_cookie jar; auth_request + error_page 401 + try_files/proxy stay in the
-# SAME location / (no 418 handoff). No if{}, no self-referential maps.
+# Do not also set these at server{} — rewrite on auth would wipe them.
+# Snapshot from $cookie_bastion_session + $http_cookie. Keep auth_request,
+# error_page 401 and proxy in the same location / (no if{}, no circular maps).
 _AUTH_COOKIE_CAPTURE_LINES = (
     "        # Snapshot from cookie module — no if{} / map cycle / 418 gate.",
     "        set $bastion_pass_session $cookie_bastion_session;",
@@ -402,6 +394,19 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_read_timeout 60s;",
         "        proxy_send_timeout 60s;",
         *ssl_lines,
+        "    }",
+        "",
+        "    # Never run auth_request on /auth/login here — 401 would 302 to",
+        "    # /auth/login?rd=… on this Host and nest until the URL explodes.",
+        "    location = /auth/login {",
+        "        auth_request off;",
+        "        modsecurity off;",
+        f"        return 302 https://{portal_esc}/auth/login;",
+        "    }",
+        "    location = /login {",
+        "        auth_request off;",
+        "        modsecurity off;",
+        f"        return 302 https://{portal_esc}/auth/login;",
         "    }",
         "",
     ]

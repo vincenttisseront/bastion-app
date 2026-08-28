@@ -1051,10 +1051,10 @@ class SecurityBan(Base):
 
 
 class WafProfile(Base):
-    """Active ModSecurity/CRS pilot profile (Phase B IHM).
+    """Profil ModSecurity/CRS (Admin → WAF).
 
-    Does not replace static Phase A files (engine-*.conf / crs-setup.conf /
-    waf-basic.conf). Exports write *generated* overlays only.
+    N'écrase pas les fichiers statiques (engine-*.conf / crs-setup.conf /
+    waf-basic.conf). Les exports n'écrivent que des overlays générés.
     """
 
     __tablename__ = "waf_profiles"
