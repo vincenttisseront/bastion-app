@@ -15,6 +15,7 @@ from app.bastion.waf_readability import (
     build_protection_layers,
     build_protection_verdict,
     build_unknown_host_panel,
+    _apply_feed_target,
 )
 from app.bastion.pending_host_service import record_unknown_host
 from app.models import WafProfile
@@ -315,4 +316,34 @@ def test_build_executive_summary_four_kpis(db_session: Session):
     assert summary["blocks"] == 5
     assert 0 <= summary["health_score"] <= 100
     assert "health_gauge_svg" in summary
+    assert "health_breakdown" in summary
     assert summary["live_suspicious"] >= 12
+
+
+def test_health_score_breakdown_filtrage_alert():
+    settings = Settings(portal_domain="portal.example.fr", exports_dir="/tmp/waf-exec")  # type: ignore[call-arg]
+    active = {"verifiable": True, "aggregate_mode": "on", "families": {"portal": {"sec_rule_engine": "on"}}}
+    efficiency = {"present": True, "inspected": 100, "blocks": 0, "critical": 0, "status": "ok"}
+    layers = [
+        {
+            "name": "Filtrage d'hôtes",
+            "alert": True,
+            "detail": "500 refus / 24 h (hôtes non enregistrés)",
+        }
+    ]
+    summary = build_executive_summary(settings, active, efficiency, {}, {"present": True}, layers)
+    assert summary["health_score"] == 92
+    assert len(summary["health_breakdown"]) == 1
+    assert summary["health_breakdown"][0]["points"] == -8
+
+
+def test_apply_feed_target_unknown_host_uses_ip_not_reverse_dns():
+    row = {
+        "source": "unknown_host",
+        "host": "lm0ntsouris-657-1-66-85.w80-11.abo.wanadoo.fr",
+        "uri": "/simple.php",
+        "client_ip": "86.65.1.85",
+    }
+    _apply_feed_target(row)
+    assert row["target_display"] == "86.65.1.85/simple.php"
+    assert "wanadoo" in row["target_title"]

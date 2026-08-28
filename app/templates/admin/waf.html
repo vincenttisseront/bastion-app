@@ -3,7 +3,7 @@
 {% block title %}WAF{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260828-sentinel">
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260828-health-deny">
 {% endblock %}
 
 {% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
@@ -189,6 +189,25 @@
         <article class="sentinel-kpi sentinel-kpi--ok sentinel-kpi--gauge">
           <span class="sentinel-kpi-label">Score de santé WAF</span>
           {{ exec.health_gauge_svg | safe }}
+          {% if exec.health_breakdown %}
+          <details class="sentinel-health-breakdown">
+            <summary>Détail du score</summary>
+            <ul class="sentinel-health-list">
+              <li class="sentinel-health-item sentinel-health-item--base">
+                <span>Base</span><span class="sentinel-health-pts">100</span>
+              </li>
+              {% for item in exec.health_breakdown %}
+              <li class="sentinel-health-item"{% if item.detail %} title="{{ item.detail }}"{% endif %}>
+                <span>{{ item.label }}</span>
+                <span class="sentinel-health-pts sentinel-health-pts--neg">{{ item.points }}</span>
+              </li>
+              {% endfor %}
+              <li class="sentinel-health-item sentinel-health-item--total">
+                <span>Score final</span><span class="sentinel-health-pts">{{ exec.health_score }}</span>
+              </li>
+            </ul>
+          </details>
+          {% endif %}
         </article>
         <article class="sentinel-kpi sentinel-kpi--warn">
           <span class="sentinel-kpi-label">Requêtes suspectes</span>
@@ -260,7 +279,7 @@
             </div>
             <ul class="sentinel-layers" aria-label="Couches de protection">
               {% for layer in protection_layers %}
-              <li class="sentinel-layer">
+              <li class="sentinel-layer" title="{{ layer.detail_full or layer.detail }}">
                 <span class="sentinel-layer-dot sentinel-layer-dot--{{ layer.css | replace('badge-', '') }}"></span>
                 <span>{{ layer.name }}</span>
                 <span class="badge {{ layer.css }}" style="margin-left:auto;font-size:.65rem">{{ layer.state }}</span>
@@ -306,7 +325,7 @@
               <tr>
                 <th>Horodatage</th>
                 <th>IP source</th>
-                <th>URI cible</th>
+                <th>Cible</th>
                 <th>Règle</th>
                 <th>Action</th>
                 <th></th>
@@ -320,7 +339,7 @@
                   <span class="sentinel-mono" title="{{ a.origin_hint }}{% if a.origin_country %} · {{ a.origin_country }}{% endif %}">{{ a.origin_flag }}</span>
                   <span class="sentinel-mono">{{ a.client_ip }}</span>
                 </td>
-                <td class="sentinel-mono" title="{{ a.host }}{{ a.uri }}">{{ a.host }}{{ a.uri }}</td>
+                <td class="sentinel-mono" title="{{ a.target_title or (a.host ~ a.uri) }}">{{ a.target_display or (a.host ~ a.uri) }}</td>
                 <td>
                   <span class="sentinel-sev sentinel-sev--{{ a.severity }}">{{ a.severity }}</span>
                   <span class="sentinel-mono">{% if a.source == 'unknown_host' %}hôte inconnu{% else %}{{ a.rule_id }}{% endif %}</span>
