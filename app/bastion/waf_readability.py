@@ -511,6 +511,9 @@ def build_protection_layers(
     ban_rules = list_ban_rules(db)
     active_rules = [r for r in ban_rules if r.enabled]
     active_bans = list_active_bans(db)
+    ip_ban_count = sum(
+        1 for b in active_bans if b.target_type == "ip" and (b.target or "").strip()
+    )
     promoted_ips = list_promoted_deny_ips(
         db, min_occurrences=int(profile.ip_deny_min_occurrences or 3)
     )
@@ -566,9 +569,26 @@ def build_protection_layers(
         },
         {
             "name": "Blocage IP (deny)",
-            "state": "actif" if promoted_ips else "aucune IP",
-            "css": "badge-ok" if promoted_ips else "badge-muted",
-            "detail": f"{len(promoted_ips)} IP promue(s) vers nginx",
+            "state": (
+                "actif"
+                if promoted_ips
+                else ("app seul" if ip_ban_count else "aucune IP")
+            ),
+            "css": (
+                "badge-ok"
+                if promoted_ips
+                else ("badge-warn" if ip_ban_count else "badge-muted")
+            ),
+            "detail": (
+                f"{len(promoted_ips)} IP promue(s) vers nginx (waf-ip-deny.conf)"
+                if promoted_ips
+                else (
+                    f"{ip_ban_count} IP en quarantaine · 0 promue(s) nginx "
+                    f"(≥{int(profile.ip_deny_min_occurrences or 3)} occ. WAF ou permanent, puis Appliquer)"
+                    if ip_ban_count
+                    else "Aucune IP bannie"
+                )
+            ),
             "alert": False,
         },
         {
@@ -748,6 +768,7 @@ def build_attack_controls(
         row["severity"] = _event_severity(row)
         row["action_label"] = "Bloqué" if row["blocked"] else "Alerté"
         row["inspect_b64"] = _encode_inspect_payload(row)
+        _apply_feed_target(row)
         recent.append(row)
 
     for row in unknown_panel.get("recent") or []:
@@ -763,10 +784,9 @@ def build_attack_controls(
             enriched.setdefault("origin_country", origin.get("country") or "")
             enriched.setdefault("origin_country_code", origin.get("country_code") or "")
             enriched.setdefault("severity", _event_severity(enriched))
-            enriched.setdefault(
-                "action_label", "Bloqué" if enriched.get("blocked") else "Refusé"
-            )
+            enriched.setdefault("action_label", "Bloqué" if enriched.get("blocked") else "Refusé")
             enriched.setdefault("inspect_b64", _encode_inspect_payload(enriched))
+            _apply_feed_target(enriched)
             recent.append(enriched)
 
     recent.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
@@ -830,6 +850,20 @@ def _heatmap_row_key(ip: str, geo_map: dict[str, dict[str, Any]] | None) -> str:
     return origin.get("network") or ip
 
 
+def _apply_feed_target(row: dict[str, Any]) -> None:
+    """Human-readable target column — unknown Host shows IP+path, not reverse-DNS hostname."""
+    host = str(row.get("host") or "—").strip() or "—"
+    uri = str(row.get("uri") or "/").strip() or "/"
+    client_ip = str(row.get("client_ip") or "—").strip() or "—"
+    if row.get("source") == "unknown_host":
+        row["target_display"] = f"{client_ip}{uri}"
+        row["target_title"] = f"Hôte HTTP : {host} · {uri}"
+    else:
+        combined = f"{host}{uri}" if host != "—" else uri
+        row["target_display"] = combined[:120]
+        row["target_title"] = combined
+
+
 def _event_severity(row: dict[str, Any]) -> str:
     if row.get("critical"):
         return "critical"
@@ -864,21 +898,40 @@ def _compute_health_score(
     active: dict[str, Any],
     efficiency: dict[str, Any],
     layers: list[dict[str, Any]],
-) -> int:
+) -> tuple[int, list[dict[str, Any]]]:
     score = 100
+    breakdown: list[dict[str, Any]] = []
     crs_mode = portal_engine_mode(active)
     if crs_mode == MODE_OFF:
         score -= 45
+        breakdown.append({"label": "CRS arrêté", "points": -45})
     elif crs_mode == MODE_DETECTION:
         score -= 18
+        breakdown.append({"label": "CRS en observation (DetectionOnly)", "points": -18})
     elif crs_mode is None:
         score -= 25
+        breakdown.append({"label": "CRS non vérifiable", "points": -25})
     critical = int(efficiency.get("critical") or 0)
-    score -= min(25, critical * 4)
+    if critical:
+        delta = min(25, critical * 4)
+        score -= delta
+        breakdown.append(
+            {
+                "label": f"{critical} alerte(s) critique(s) · 24 h",
+                "points": -delta,
+            }
+        )
     for layer in layers:
         if layer.get("alert"):
             score -= 8
-    return max(0, min(100, score))
+            breakdown.append(
+                {
+                    "label": layer["name"],
+                    "points": -8,
+                    "detail": layer.get("detail_full") or layer.get("detail"),
+                }
+            )
+    return max(0, min(100, score)), breakdown
 
 
 def _blocks_trend_pct(series_24h: list[dict[str, Any]], blocks: int) -> float | None:
@@ -916,13 +969,14 @@ def build_executive_summary(
     trend = _blocks_trend_pct(series_24h, blocks)
     unknown_hits = int(unknown_host_panel.get("hits_24h") or 0)
     live_suspicious = _live_suspicious_count(series_24h, unknown_hits) if efficiency.get("present") else unknown_hits
-    health = _compute_health_score(active, efficiency, layers)
+    health, health_breakdown = _compute_health_score(active, efficiency, layers)
     return {
         "present": efficiency.get("present") or unknown_host_panel.get("present"),
         "inspected": inspected,
         "blocks": blocks,
         "blocks_trend_pct": trend,
         "health_score": health,
+        "health_breakdown": health_breakdown,
         "health_gauge_svg": render_health_gauge(health),
         "live_suspicious": live_suspicious,
         "generated_at": efficiency.get("generated_at"),
