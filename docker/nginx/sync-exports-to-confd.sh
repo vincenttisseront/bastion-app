@@ -125,6 +125,22 @@ SecRuleEngine Off
 EOF
 fi
 
+SUBDOMAIN_ARMED=0
+if [[ -f "$EXPORTS/modsecurity/waf-engine-arm.json" ]]; then
+  if grep -Eq '"subdomain_armed"[[:space:]]*:[[:space:]]*true' "$EXPORTS/modsecurity/waf-engine-arm.json" 2>/dev/null; then
+    SUBDOMAIN_ARMED=1
+  fi
+fi
+if [[ "$SUBDOMAIN_ARMED" -eq 1 && -f "$EXPORTS/modsecurity/engine-subdomain-mode-generated.conf" ]]; then
+  cp -a "$EXPORTS/modsecurity/engine-subdomain-mode-generated.conf" \
+    /etc/nginx/modsecurity/generated/engine-subdomain-mode-generated.conf
+else
+  cat > /etc/nginx/modsecurity/generated/engine-subdomain-mode-generated.conf <<'EOF'
+# Subdomain not armed — IHM WAF → Réactiver subdomain (DetectionOnly + smoke).
+SecRuleEngine Off
+EOF
+fi
+
 if [[ -f "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" ]]; then
   cp -a "$EXPORTS/modsecurity/bastion-exclusions-generated.conf" \
     /etc/nginx/modsecurity/generated/bastion-exclusions-generated.conf

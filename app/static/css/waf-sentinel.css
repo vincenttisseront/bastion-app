@@ -164,6 +164,22 @@
 #waf-page .sentinel-sev--high{background:var(--warn-bg);color:var(--warn)}
 #waf-page .sentinel-sev--medium{background:var(--info-bg);color:var(--info)}
 #waf-page .sentinel-sev--low{background:var(--status-unknown-bg);color:var(--text-2)}
+#waf-page .sentinel-feed-source-cell{white-space:nowrap}
+#waf-page .sentinel-feed-source{
+  display:inline-flex;align-items:center;gap:.25rem;padding:.12rem .4rem;border-radius:var(--r-sm);
+  font-size:.62rem;font-weight:700;letter-spacing:.02em;vertical-align:middle;
+}
+#waf-page .sentinel-feed-source--modsecurity{
+  background:color-mix(in srgb,var(--warn) 14%,var(--bg-tertiary));
+  color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 28%,transparent);
+}
+#waf-page .sentinel-feed-source--host{
+  background:var(--info-bg);color:var(--info);border:1px solid color-mix(in srgb,var(--info) 24%,transparent);
+}
+#waf-page .sentinel-feed-source-icon{display:block;flex-shrink:0}
+#waf-page .sentinel-feed-family{
+  display:block;margin-top:.2rem;font-size:.62rem;font-weight:600;color:var(--sentinel-muted);
+}
 #waf-page .sentinel-action-ok{color:var(--err);font-weight:600}
 #waf-page .sentinel-action-warn{color:var(--warn);font-weight:600}
 

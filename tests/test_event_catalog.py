@@ -72,7 +72,19 @@ def test_resolve_explicit_code():
 def test_uncatalogued_guess_domain():
     assert uncatalogued_event("breakglass.foo").code == "BST-BGL-0000"
     assert uncatalogued_event("file.upload").code == "BST-FILE-0000"
+    assert uncatalogued_event("security.unknown_host_hammering.detected").code == "BST-WAF-0000"
     assert uncatalogued_event("weird").code == "BST-SYS-0000"
+
+
+def test_resolve_sentinel_code_when_action_now_catalogued():
+    ev = resolve_event(
+        action="security.unknown_host_hammering.detected",
+        code="BST-SYS-0000",
+    )
+    assert ev.code == "BST-WAF-2007"
+    assert ev.label == "UNKNOWN_HOST_HAMMERING_DETECTED"
+    ev2 = resolve_event(action="security.waf.geoloc_toggled", code="BST-SYS-0000")
+    assert ev2.code == "BST-WAF-1013"
 
 
 def test_all_literal_log_actions_are_catalogued():

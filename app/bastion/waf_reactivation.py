@@ -1,7 +1,8 @@
 """IHM-driven ModSecurity reactivation with smoke probes and auto-rollback.
 
-Portal family only (runbook §2). Success = nginx -t + HTTP smoke (not nginx -t alone):
-the 2026-08-06 failure mode was request-time HTTP 500 while /api/health stayed 200.
+Portal family first; subdomain family after portal is armed (DetectionOnly + smoke).
+Success = nginx -t + HTTP smoke (not nginx -t alone): the 2026-08-06 failure mode was
+request-time HTTP 500 while /api/health stayed 200.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from app.bastion.nginx_waf_export import (
     waf_exports_dir,
     write_waf_exports,
 )
-from app.models import WafProfile
+from app.models import App, WafProfile
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ ARM_FILENAME = "waf-engine-arm.json"
 PORTAL_SWITCH_FILENAME = "modsecurity-portal-switch.conf"
 SUBDOMAIN_SWITCH_FILENAME = "modsecurity-subdomain-switch.conf"
 PUBLIC_SWITCH_FILENAME = "modsecurity-public-switch.conf"
+ENGINE_SUBDOMAIN_MODE_FILENAME = "engine-subdomain-mode-generated.conf"
+SUBDOMAIN_SMOKE_HOST_LIMIT = 5
 SMOKE_TIMEOUT_SEC = 8
 RELOAD_WAIT_SEC = 6
 SMOKE_RETRIES = 3
@@ -57,6 +60,37 @@ def subdomain_switch_export_path(settings: Settings) -> Path:
 
 def public_switch_export_path(settings: Settings) -> Path:
     return Path(settings.exports_dir) / PUBLIC_SWITCH_FILENAME
+
+
+def subdomain_engine_mode_path(settings: Settings) -> Path:
+    return waf_exports_dir(settings) / ENGINE_SUBDOMAIN_MODE_FILENAME
+
+
+def read_subdomain_armed(settings: Settings) -> bool:
+    arm = read_arm_state(settings)
+    sub = arm.get("subdomain")
+    if isinstance(sub, dict) and "armed" in sub:
+        return bool(sub.get("armed"))
+    return bool(arm.get("subdomain_armed"))
+
+
+def list_subdomain_smoke_hosts(db: Session) -> list[str]:
+    rows = (
+        db.query(App.public_fqdn)
+        .filter(
+            App.enabled.is_(True),
+            App.access_mode == "subdomain_proxy",
+            App.public_fqdn.isnot(None),
+        )
+        .order_by(App.slug)
+        .all()
+    )
+    hosts: list[str] = []
+    for (fqdn,) in rows:
+        host = str(fqdn or "").strip().lower()
+        if host and host not in hosts:
+            hosts.append(host)
+    return hosts
 
 
 def read_arm_state(settings: Settings) -> dict[str, Any]:
@@ -405,6 +439,16 @@ def wait_for_portal_engine_mode(
     return {"ok": False, "mode": last, "attempts": attempts}
 
 
+def _force_disarmed_subdomain_files(settings: Settings) -> None:
+    """Write Off subdomain connector + Off engine overlay."""
+    subdomain_switch_export_path(settings).write_text(
+        render_subdomain_switch(enabled=False), encoding="utf-8"
+    )
+    subdomain_engine_mode_path(settings).write_text(
+        render_engine_mode_line(MODE_OFF), encoding="utf-8"
+    )
+
+
 def _force_disarmed_files(settings: Settings) -> None:
     """Write Off switch + Off engine + armed=false (rollback target)."""
     exports = Path(settings.exports_dir)
@@ -421,11 +465,13 @@ def _force_disarmed_files(settings: Settings) -> None:
         settings,
         {
             "armed": False,
+            "subdomain_armed": False,
             "family": "portal",
             "target_mode": MODE_OFF,
             "reason": "disarmed",
         },
     )
+    _force_disarmed_subdomain_files(settings)
 
 
 def disarm_engine(
@@ -440,12 +486,14 @@ def disarm_engine(
         settings,
         {
             "armed": False,
+            "subdomain_armed": False,
             "family": "portal",
             "target_mode": MODE_OFF,
             "reason": reason,
             "actor": actor,
         },
     )
+    _force_disarmed_subdomain_files(settings)
     ok, detail = sync_and_reload(settings)
     if ok and "watcher" in detail.lower():
         wait_for_nginx_edge(settings)
@@ -630,6 +678,275 @@ def reactivate_engine(
             "Passer en On seulement après période d'observation."
         ),
     }
+
+
+def wait_for_subdomain_engine_mode(
+    settings: Settings,
+    expected: str,
+    *,
+    attempts: int = 15,
+    delay_sec: float = 2.0,
+) -> dict[str, Any]:
+    """Poll nginx WAF snapshot until subdomain SecRuleEngine matches."""
+    from app.bastion.nginx_waf_reality import read_nginx_waf_reality, subdomain_engine_mode
+
+    last: str | None = None
+    for i in range(attempts):
+        active = read_nginx_waf_reality(settings=settings)
+        last = subdomain_engine_mode(active)
+        if last == expected:
+            return {"ok": True, "mode": last, "attempts": i + 1}
+        time.sleep(delay_sec)
+    return {"ok": False, "mode": last, "attempts": attempts}
+
+
+def smoke_subdomain_probes(db: Session, settings: Settings) -> dict[str, Any]:
+    """HTTP smoke on each enabled subdomain_proxy Host (edge :8080, no 5xx)."""
+    hosts = list_subdomain_smoke_hosts(db)[:SUBDOMAIN_SMOKE_HOST_LIMIT]
+    if not hosts:
+        return {
+            "ok": False,
+            "probes": [],
+            "failed": [{"reason": "Aucune app subdomain_proxy activée avec FQDN."}],
+            "failed_summary": "Aucune app subdomain_proxy activée avec FQDN.",
+        }
+
+    base = "http://nginx:8080"
+    probes: list[dict[str, Any]] = []
+    for host in hosts:
+        probe = _http_probe(f"{base}/", host=host, expect_not_5xx=True)
+        probe["critical"] = True
+        probe["subdomain_host"] = host
+        probes.append(probe)
+
+    failed_critical = [p for p in probes if p.get("critical") and not p.get("ok")]
+    ok = not failed_critical
+    return {
+        "ok": ok,
+        "probes": probes,
+        "failed": failed_critical,
+        "failed_summary": _format_failed_probes(failed_critical),
+        "hosts": hosts,
+    }
+
+
+def reactivate_subdomain_engine(
+    db: Session,
+    settings: Settings,
+    *,
+    actor: str,
+    confirm: bool,
+    validate: Callable[[Settings], tuple[bool, str]] | None = None,
+    smoke: Callable[[Session, Settings], dict[str, Any]] | None = None,
+    sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
+) -> dict[str, Any]:
+    """Arm subdomain ModSecurity (DetectionOnly) after portal is armed; smoke + rollback."""
+    if not confirm:
+        return {
+            "ok": False,
+            "error": "Confirmation requise pour réactiver ModSecurity subdomain.",
+            "rolled_back": False,
+        }
+
+    arm = read_arm_state(settings)
+    if not arm.get("armed"):
+        return {
+            "ok": False,
+            "error": (
+                "Le moteur portal doit être armé (DetectionOnly) avant les sous-domaines."
+            ),
+            "rolled_back": False,
+        }
+    if read_subdomain_armed(settings):
+        return {
+            "ok": False,
+            "error": "ModSecurity subdomain déjà armé.",
+            "rolled_back": False,
+        }
+
+    hosts = list_subdomain_smoke_hosts(db)
+    if not hosts:
+        return {
+            "ok": False,
+            "error": "Aucune application subdomain_proxy activée avec FQDN.",
+            "rolled_back": False,
+        }
+
+    prev_arm = dict(arm)
+    mod_dir = waf_exports_dir(settings)
+    mod_dir.mkdir(parents=True, exist_ok=True)
+    switch_path = subdomain_switch_export_path(settings)
+    engine_path = subdomain_engine_mode_path(settings)
+
+    from app.bastion.nginx_waf_export import _backup_file
+
+    _backup_file(switch_path)
+    _backup_file(engine_path)
+    _backup_file(arm_state_path(settings))
+
+    switch_path.write_text(render_subdomain_switch(enabled=True), encoding="utf-8")
+    engine_path.write_text(render_engine_mode_line(MODE_DETECTION), encoding="utf-8")
+
+    body = dict(prev_arm)
+    body.update(
+        {
+            "subdomain_armed": True,
+            "subdomain": {
+                "armed": True,
+                "target_mode": MODE_DETECTION,
+                "actor": actor,
+                "phase": "arming",
+                "smoke_hosts": hosts[:SUBDOMAIN_SMOKE_HOST_LIMIT],
+            },
+        }
+    )
+    write_arm_state(settings, body)
+
+    paths = {
+        SUBDOMAIN_SWITCH_FILENAME: str(switch_path),
+        ENGINE_SUBDOMAIN_MODE_FILENAME: str(engine_path),
+        ARM_FILENAME: str(arm_state_path(settings)),
+    }
+
+    sync_fn = sync_reload or sync_and_reload
+    smoke_fn = smoke or smoke_subdomain_probes
+
+    sync_ok, sync_detail = sync_fn(settings)
+    if not sync_ok:
+        _rollback_subdomain(
+            settings,
+            prev_arm=prev_arm,
+            actor=actor,
+            reason=f"sync/nginx -t failed: {sync_detail}",
+            sync_reload=sync_fn,
+        )
+        return {
+            "ok": False,
+            "error": f"Sync/reload échoué — rollback subdomain. {sync_detail}",
+            "rolled_back": True,
+            "paths": paths,
+            "sync_detail": sync_detail,
+        }
+
+    if smoke is None and sync_reload is None:
+        edge = wait_for_nginx_edge(settings)
+        if not edge.get("ok"):
+            time.sleep(RELOAD_WAIT_SEC)
+        engine_wait = wait_for_subdomain_engine_mode(settings, MODE_DETECTION)
+        if not engine_wait.get("ok"):
+            _rollback_subdomain(
+                settings,
+                prev_arm=prev_arm,
+                actor=actor,
+                reason="subdomain_engine_mode_not_applied",
+                sync_reload=sync_fn,
+            )
+            return {
+                "ok": False,
+                "error": (
+                    "nginx n'a pas basculé subdomain en DetectionOnly après reload "
+                    f"(mode snapshot={engine_wait.get('mode')!r})."
+                ),
+                "rolled_back": True,
+                "paths": paths,
+                "engine_wait": engine_wait,
+                "sync_detail": sync_detail,
+            }
+
+    smoke_result = smoke_fn(db, settings)
+    if not smoke_result.get("ok"):
+        _rollback_subdomain(
+            settings,
+            prev_arm=prev_arm,
+            actor=actor,
+            reason="subdomain_smoke_failed",
+            sync_reload=sync_fn,
+        )
+        summary = smoke_result.get("failed_summary") or _format_failed_probes(
+            smoke_result.get("failed") or []
+        )
+        return {
+            "ok": False,
+            "error": (
+                "Smoke subdomain en échec — rollback automatique vers Off."
+                + (f" Détail : {summary}" if summary else "")
+            ),
+            "rolled_back": True,
+            "paths": paths,
+            "smoke": smoke_result,
+            "failed_summary": summary,
+            "sync_detail": sync_detail,
+        }
+
+    final_arm = dict(read_arm_state(settings))
+    sub = dict(final_arm.get("subdomain") or {})
+    sub.update(
+        {
+            "armed": True,
+            "target_mode": MODE_DETECTION,
+            "actor": actor,
+            "phase": "active",
+            "last_smoke_ok": True,
+            "last_smoke_at": datetime.now(timezone.utc).isoformat(),
+            "smoke": smoke_result,
+        }
+    )
+    final_arm["subdomain_armed"] = True
+    final_arm["subdomain"] = sub
+    write_arm_state(settings, final_arm)
+
+    record_waf_apply_metadata(
+        settings,
+        actor=actor,
+        nginx_t_ok=True,
+        nginx_t_detail=f"reactivate subdomain ok; {sync_detail}",
+        nginx_t_skipped=False,
+    )
+    return {
+        "ok": True,
+        "rolled_back": False,
+        "paths": paths,
+        "mode": MODE_DETECTION,
+        "family": "subdomain",
+        "smoke": smoke_result,
+        "sync_detail": sync_detail,
+        "smoke_hosts": hosts[:SUBDOMAIN_SMOKE_HOST_LIMIT],
+        "message": (
+            f"Moteur subdomain réactivé en DetectionOnly ({len(hosts[:SUBDOMAIN_SMOKE_HOST_LIMIT])} "
+            "sonde(s)). Smoke OK. Passer en On seulement après observation."
+        ),
+    }
+
+
+def _rollback_subdomain(
+    settings: Settings,
+    *,
+    prev_arm: dict[str, Any],
+    actor: str,
+    reason: str,
+    sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
+) -> None:
+    logger.warning("waf subdomain reactivation rollback: %s", reason)
+    from app.bastion.nginx_waf_export import _restore_file
+
+    _restore_file(subdomain_switch_export_path(settings))
+    _restore_file(subdomain_engine_mode_path(settings))
+    _force_disarmed_subdomain_files(settings)
+    restored = dict(prev_arm)
+    restored["subdomain_armed"] = False
+    if isinstance(restored.get("subdomain"), dict):
+        sub = dict(restored["subdomain"])
+        sub["armed"] = False
+        sub["reason"] = reason
+        sub["rolled_back"] = True
+        sub["actor"] = actor
+        restored["subdomain"] = sub
+    write_arm_state(settings, restored)
+    sync_fn = sync_reload or sync_and_reload
+    try:
+        sync_fn(settings)
+    except Exception:  # noqa: BLE001
+        logger.exception("sync after subdomain rollback failed")
 
 
 def _rollback(

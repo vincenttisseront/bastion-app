@@ -212,7 +212,7 @@
         <article class="sentinel-kpi sentinel-kpi--warn">
           <span class="sentinel-kpi-label">Requêtes suspectes</span>
           <span class="sentinel-kpi-value">{{ exec.live_suspicious }}</span>
-          <span class="sentinel-kpi-sub">Live · 3 h + hôtes inconnus</span>
+          <span class="sentinel-kpi-sub">Live · 3 h + filtrage hôtes</span>
         </article>
       </section>
 
@@ -299,7 +299,7 @@
               <li class="sentinel-quarantine-item">
                 <div>
                   <span class="sentinel-quarantine-ip">{{ q.flag }} {{ q.ip }}</span>
-                  <div class="sentinel-quarantine-meta">{{ q.origin_hint }} · {{ q.rule_type }}{% if q.permanent %} · permanent{% elif q.expires_at %} · exp. {{ q.expires_at }}{% endif %}</div>
+                  <div class="sentinel-quarantine-meta">{{ q.origin_hint }} · {{ q.rule_type_label or q.rule_type }}{% if q.permanent %} · permanent{% elif q.expires_at %} · exp. {{ q.expires_at }}{% endif %}</div>
                 </div>
                 <form method="post" action="/admin/security/waf/actions/lift-ban/{{ q.id }}" class="inline-form">
                   <button type="submit" class="btn btn-ghost btn-sm">Débloquer</button>
@@ -317,7 +317,7 @@
       <section class="sentinel-panel sentinel-panel--feed" aria-label="Live security feed">
         <div class="sentinel-panel-head">
           <h3 class="sentinel-panel-title">Derniers blocages</h3>
-          <span class="sentinel-panel-meta">CRS + hôtes inconnus · agrégé{% if exec.generated_at %} {{ exec.generated_at[:16] }}{% endif %}</span>
+          <span class="sentinel-panel-meta">CRS + filtrage hôtes · agrégé{% if exec.generated_at %} {{ exec.generated_at[:16] }}{% endif %}</span>
         </div>
         <div class="sentinel-feed-wrap">
           <table class="sentinel-feed-table">
@@ -326,6 +326,7 @@
                 <th>Horodatage</th>
                 <th>IP source</th>
                 <th>Cible</th>
+                <th>Source</th>
                 <th>Règle</th>
                 <th>Action</th>
                 <th></th>
@@ -340,9 +341,32 @@
                   <span class="sentinel-mono">{{ a.client_ip }}</span>
                 </td>
                 <td class="sentinel-mono" title="{{ a.target_title or (a.host ~ a.uri) }}">{{ a.target_display or (a.host ~ a.uri) }}</td>
+                <td class="sentinel-feed-source-cell">
+                  {% if a.source_kind == 'modsecurity' %}
+                  <span class="sentinel-feed-source sentinel-feed-source--modsecurity" title="{{ a.source_title }}">
+                    <svg class="sentinel-feed-source-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                      <path fill="currentColor" d="M8 1 2 3.5v4.2c0 3.1 2.1 5.9 5.2 6.8l.8.2.8-.2C11.9 13.6 14 10.8 14 7.7V3.5L8 1zm0 1.4 4.5 2v3.3c0 2.4-1.6 4.6-4 5.4-2.4-.8-4-3-4-5.4V4.4L8 2.4z"/>
+                      <path fill="currentColor" d="M7.2 9.1 5.4 7.3l-.7.7 2.5 2.5 4.5-4.5-.7-.7-3.8 3.8z"/>
+                    </svg>
+                    <span class="sentinel-feed-source-label">{{ a.source_label or 'CRS' }}</span>
+                  </span>
+                  {% elif a.source_kind == 'host_filter' %}
+                  <span class="sentinel-feed-source sentinel-feed-source--host" title="{{ a.source_title }}">
+                    <svg class="sentinel-feed-source-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                      <path fill="currentColor" d="M2 3.5h12v1H2v-1zm0 3h8v1H2v-1zm0 3h10v1H2v-1z"/>
+                    </svg>
+                    <span class="sentinel-feed-source-label">{{ a.source_label or 'Filtrage' }}</span>
+                  </span>
+                  {% else %}
+                  <span class="muted">—</span>
+                  {% endif %}
+                  {% if a.vhost_family_label %}
+                  <span class="sentinel-feed-family" title="Famille vhost nginx">{{ a.vhost_family_label }}</span>
+                  {% endif %}
+                </td>
                 <td>
                   <span class="sentinel-sev sentinel-sev--{{ a.severity }}">{{ a.severity }}</span>
-                  <span class="sentinel-mono">{% if a.source == 'unknown_host' %}hôte inconnu{% else %}{{ a.rule_id }}{% endif %}</span>
+                  <span class="sentinel-mono"{% if a.rule_title %} title="{{ a.rule_title }}"{% endif %}>{{ a.rule_label or a.rule_id }}</span>
                 </td>
                 <td class="{% if a.blocked %}sentinel-action-ok{% else %}sentinel-action-warn{% endif %}">{{ a.action_label }}</td>
                 <td>
@@ -353,7 +377,7 @@
                     <input type="hidden" name="ip" value="{{ a.client_ip }}">
                     <input type="hidden" name="ban_mode" value="temporary">
                     <input type="hidden" name="ban_minutes" value="1440">
-                    <input type="hidden" name="reason" value="WAF Sentinel — {{ a.rule_id }}">
+                    <input type="hidden" name="reason" value="WAF Sentinel — {{ a.rule_label or a.rule_id }}">
                     <button type="submit" class="btn btn-ghost btn-sm">Bannir</button>
                   </form>
                   {% elif a.banned %}
@@ -362,7 +386,7 @@
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="6" class="muted" style="padding:1rem">Aucun blocage récent.</td></tr>
+              <tr><td colspan="7" class="muted" style="padding:1rem">Aucun blocage récent.</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -771,6 +795,7 @@
       <div class="form-section-sub">Réactivation IHM avec smoke HTTP et rollback auto</div>
     </div>
     <div class="form-body">
+      {% if reactivation.can_reactivate_portal %}
       <div class="alert alert-err">
         <strong>Moteur portal désarmé</strong>
         <p>{{ reactivation.summary }}</p>
@@ -780,17 +805,51 @@
       </div>
 
       <div class="waf-reactivation-actions">
-        {% if reactivation.can_reactivate %}
         <form method="post" action="/admin/security/waf/actions/reactivate" class="stack waf-reactivate-form"
               id="waf-reactivate-form">
           <label class="form-check">
             <input type="checkbox" name="confirm_reactivate" value="on" required>
             Je confirme la réactivation portal (DetectionOnly) avec smoke + rollback auto
           </label>
-          <button type="submit" class="btn btn-primary">Réactiver le moteur (DetectionOnly)</button>
+          <button type="submit" class="btn btn-primary">Réactiver le moteur portal (DetectionOnly)</button>
         </form>
-        {% endif %}
       </div>
+      {% elif reactivation.armed %}
+      <div class="alert alert-ok">
+        <strong>Moteur portal armé</strong>
+        <p>{{ reactivation.summary }}</p>
+        <p class="muted">Réel (nginx) portal : <code>{{ reactivation.real_mode or '—' }}</code>
+          · subdomain : <code>{{ reactivation.subdomain_real_mode or '—' }}</code></p>
+      </div>
+      {% endif %}
+
+      {% if reactivation.can_reactivate_subdomain %}
+      <div class="alert alert-warn" style="margin-top:1rem">
+        <strong>Sous-domaines (subdomain_proxy)</strong>
+        <p>{{ reactivation.subdomain_summary }}</p>
+        <p class="muted">FQDN testés :
+          {% for h in reactivation.subdomain_apps %}
+          <code class="mono">{{ h }}</code>{% if not loop.last %}, {% endif %}
+          {% endfor %}
+        </p>
+      </div>
+      <div class="waf-reactivation-actions">
+        <form method="post" action="/admin/security/waf/actions/reactivate-subdomain" class="stack waf-reactivate-form"
+              id="waf-reactivate-subdomain-form">
+          <label class="form-check">
+            <input type="checkbox" name="confirm_reactivate_subdomain" value="on" required>
+            Je confirme la réactivation subdomain (DetectionOnly) avec smoke + rollback auto
+          </label>
+          <button type="submit" class="btn btn-primary">Réactiver subdomain (DetectionOnly)</button>
+        </form>
+      </div>
+      {% elif reactivation.subdomain_armed %}
+      <div class="alert alert-ok" style="margin-top:1rem">
+        <strong>ModSecurity subdomain armé</strong>
+        <p class="muted">Mode nginx : <code>{{ reactivation.subdomain_real_mode or '—' }}</code>
+          · Apps : {% for h in reactivation.subdomain_apps %}<code class="mono">{{ h }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+      </div>
+      {% endif %}
 
       <ol class="waf-reactivation-steps">
         {% for step in reactivation.steps %}
@@ -800,16 +859,15 @@
         </li>
         {% endfor %}
       </ol>
-      <p class="form-help">Runbook : <code>{{ reactivation.runbook_path }}</code> · Familles subdomain/public restent Off jusqu’à une étape ultérieure.</p>
+      <p class="form-help">Runbook : <code>{{ reactivation.runbook_path }}</code> · Portal d'abord, puis subdomain. Public proxy : étape ultérieure.</p>
       <div class="alert alert-warn">
         <strong>Détection de succès (obligatoire)</strong>
         <ul class="waf-pending-list">
           <li><code>nginx -t</code> + reload après sync exports</li>
-          <li>HTTP <code>/_portal_nginx_ok</code> → 200</li>
-          <li>HTTP <code>/api/health</code> → pas de 5xx</li>
-          <li>HTTP <code>/auth/login</code> → pas de 5xx (échec type 06/08)</li>
+          <li>Portal : <code>/_portal_nginx_ok</code>, <code>/api/health</code>, <code>/auth/login</code> → pas de 5xx</li>
+          <li>Subdomain : GET <code>/</code> sur chaque FQDN <code>subdomain_proxy</code> → pas de 5xx</li>
         </ul>
-        <p class="muted">Si une sonde échoue ou est injoignable → rollback Off automatique. nginx -t seul ne suffit pas.</p>
+        <p class="muted">Si une sonde échoue ou est injoignable → rollback Off automatique (famille concernée). nginx -t seul ne suffit pas.</p>
       </div>
     </div>
   </div>
@@ -989,6 +1047,13 @@
       '/auth/login → pas de 5xx',
     ],
     confirmLabel: 'Réactiver',
+    danger: true,
+  });
+
+  confirmSubmit(document.getElementById('waf-reactivate-subdomain-form'), {
+    title: 'Réactiver ModSecurity subdomain ?',
+    message: 'DetectionOnly sur les vhosts subdomain_proxy, smoke GET / par FQDN. Rollback auto si 5xx.',
+    confirmLabel: 'Réactiver subdomain',
     danger: true,
   });
 

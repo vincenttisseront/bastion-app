@@ -7,13 +7,17 @@ from pathlib import Path
 from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_OFF, MODE_ON
 from app.bastion.waf_reactivation import (
     reactivate_engine,
+    reactivate_subdomain_engine,
     read_arm_state,
+    read_subdomain_armed,
     render_portal_switch,
     render_public_switch,
     render_subdomain_switch,
     smoke_portal_probes,
+    smoke_subdomain_probes,
+    write_arm_state,
 )
-from app.models import WafProfile
+from app.models import App, WafProfile
 from app.sso_settings import Settings
 
 
@@ -196,3 +200,113 @@ def test_smoke_fails_on_internal_login_500(monkeypatch, tmp_path: Path):
     out = smoke_portal_probes(settings)
     assert out["ok"] is False
     assert "500" in (out.get("failed_summary") or "")
+
+
+def _seed_portal_armed(db_session, tmp_path: Path) -> Settings:
+    settings = _settings(tmp_path)
+    db_session.add(
+        WafProfile(
+            name="Production",
+            mode=MODE_DETECTION,
+            anomaly_threshold=5,
+            is_active=True,
+            created_by="test",
+        )
+    )
+    db_session.commit()
+    write_arm_state(settings, {"armed": True, "family": "portal", "target_mode": MODE_DETECTION})
+    return settings
+
+
+def test_reactivate_subdomain_requires_portal_armed(db_session, tmp_path: Path):
+    settings = _settings(tmp_path)
+    db_session.add(
+        App(
+            slug="doli",
+            label="Doli",
+            public_fqdn="doli.example.fr",
+            access_mode="subdomain_proxy",
+            enabled=True,
+            upstream_url="http://127.0.0.1:8080",
+        )
+    )
+    db_session.commit()
+    result = reactivate_subdomain_engine(
+        db_session,
+        settings,
+        actor="admin",
+        confirm=True,
+        sync_reload=lambda _s: (True, "ok"),
+        smoke=lambda _db, _s: {"ok": True, "probes": [], "failed": []},
+    )
+    assert result["ok"] is False
+    assert "portal" in (result.get("error") or "").lower()
+
+
+def test_reactivate_subdomain_success(db_session, tmp_path: Path):
+    settings = _seed_portal_armed(db_session, tmp_path)
+    db_session.add(
+        App(
+            slug="doli",
+            label="Doli",
+            public_fqdn="doli.example.fr",
+            access_mode="subdomain_proxy",
+            enabled=True,
+            upstream_url="http://127.0.0.1:8080",
+        )
+    )
+    db_session.commit()
+
+    result = reactivate_subdomain_engine(
+        db_session,
+        settings,
+        actor="admin",
+        confirm=True,
+        sync_reload=lambda _s: (True, "ok"),
+        smoke=lambda _db, _s: {"ok": True, "probes": [{"ok": True}], "failed": []},
+    )
+    assert result["ok"] is True
+    assert read_subdomain_armed(settings) is True
+    switch = (tmp_path / "exports" / "modsecurity-subdomain-switch.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "modsecurity on;" in switch
+    engine = (
+        tmp_path / "exports" / "modsecurity" / "engine-subdomain-mode-generated.conf"
+    ).read_text(encoding="utf-8")
+    assert "DetectionOnly" in engine
+
+
+def test_reactivate_subdomain_smoke_failure_rolls_back(db_session, tmp_path: Path):
+    settings = _seed_portal_armed(db_session, tmp_path)
+    db_session.add(
+        App(
+            slug="doli",
+            label="Doli",
+            public_fqdn="doli.example.fr",
+            access_mode="subdomain_proxy",
+            enabled=True,
+            upstream_url="http://127.0.0.1:8080",
+        )
+    )
+    db_session.commit()
+
+    result = reactivate_subdomain_engine(
+        db_session,
+        settings,
+        actor="admin",
+        confirm=True,
+        sync_reload=lambda _s: (True, "ok"),
+        smoke=lambda _db, _s: {
+            "ok": False,
+            "probes": [{"url": "http://nginx:8080/", "ok": False, "status": 500}],
+            "failed": [{"url": "http://nginx:8080/", "status": 500}],
+        },
+    )
+    assert result["ok"] is False
+    assert result["rolled_back"] is True
+    assert read_subdomain_armed(settings) is False
+    switch = (tmp_path / "exports" / "modsecurity-subdomain-switch.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "modsecurity off;" in switch

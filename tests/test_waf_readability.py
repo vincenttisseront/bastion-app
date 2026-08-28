@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON, MODE_DETECTION
 from app.bastion.waf_readability import (
+    UNKNOWN_HOST_FEED_RULE_LABEL,
     build_attack_controls,
     build_efficiency_panel,
     build_executive_summary,
@@ -16,6 +17,9 @@ from app.bastion.waf_readability import (
     build_protection_verdict,
     build_unknown_host_panel,
     _apply_feed_target,
+    _enrich_feed_source,
+    _event_severity,
+    _resolve_vhost_family,
 )
 from app.bastion.pending_host_service import record_unknown_host
 from app.models import WafProfile
@@ -347,3 +351,51 @@ def test_apply_feed_target_unknown_host_uses_ip_not_reverse_dns():
     _apply_feed_target(row)
     assert row["target_display"] == "86.65.1.85/simple.php"
     assert "wanadoo" in row["target_title"]
+
+
+def test_unknown_host_feed_has_descriptive_rule_label(db_session: Session):
+    record_unknown_host(
+        db_session,
+        hostname="scanner.evil.example",
+        uri="/robots.php",
+        client_ip="20.151.129.194",
+    )
+    panel = build_unknown_host_panel(db_session, hours=24)
+    assert panel["recent"]
+    row = panel["recent"][0]
+    assert row["rule_label"] == UNKNOWN_HOST_FEED_RULE_LABEL
+    assert row["rule_title"]
+    assert _event_severity({**row, "blocked": True}) == "medium"
+
+
+def test_enrich_feed_source_marks_modsecurity_and_subdomain(db_session: Session):
+    from app.models import App
+
+    settings = Settings(portal_domain="portal.example.fr")  # type: ignore[call-arg]
+    db_session.add(
+        App(
+            slug="dolibarr",
+            label="Dolibarr",
+            public_fqdn="dolibarr.example.fr",
+            access_mode="subdomain_proxy",
+            enabled=True,
+            upstream_url="http://127.0.0.1:8080",
+        )
+    )
+    db_session.commit()
+    row = {
+        "source": "crs",
+        "host": "dolibarr.example.fr",
+        "blocked": True,
+    }
+    _enrich_feed_source(row, settings=settings, db=db_session)
+    assert row["source_kind"] == "modsecurity"
+    assert row["source_label"] == "CRS"
+    assert row["vhost_family"] == "subdomain"
+    assert row["vhost_family_label"] == "Sous-domaine"
+
+
+def test_resolve_vhost_family_portal_host():
+    settings = Settings(portal_domain="portal.example.fr")  # type: ignore[call-arg]
+    assert _resolve_vhost_family("portal.example.fr", settings, None) == "portal"
+    assert _resolve_vhost_family("auth.portal.example.fr", settings, None) == "portal"

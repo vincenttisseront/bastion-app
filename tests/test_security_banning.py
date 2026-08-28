@@ -102,6 +102,7 @@ def test_unknown_host_hammering_bans_scanner_ip(db_session: Session):
         .one()
     )
     assert audit.ip_address == ip
+    assert audit.event_code == "BST-WAF-2007"
 
 
 def test_security_hack_username_immediate_ban(db_session: Session):
