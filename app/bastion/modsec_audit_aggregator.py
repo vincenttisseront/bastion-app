@@ -6,6 +6,7 @@ writes pre-computed ``waf-audit-summary.json``. Never invoked per HTTP request.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ from app.sso_settings import Settings
 logger = logging.getLogger(__name__)
 
 SUMMARY_SCHEMA_VERSION = 2
-STATE_SCHEMA_VERSION = 2
+STATE_SCHEMA_VERSION = 3
 MAX_RECENT_EVENTS = 100
 TOP_N = 5
 
@@ -80,9 +81,29 @@ def is_loopback_audit_host(host: str) -> bool:
     return name in {"127.0.0.1", "::1", "localhost"}
 
 
+def is_loopback_client_ip(client_ip: str) -> bool:
+    """Smoke / health probes from docker01 hit :8080 with real Host but loopback IP."""
+    text = (client_ip or "").strip()
+    if not text or text == "—":
+        return False
+    if text.lower() == "localhost":
+        return True
+    # ModSec may log IPv4:port (not used for IPv6 bracket form here).
+    if text.count(":") == 1 and not text.startswith("["):
+        host_part, maybe_port = text.rsplit(":", 1)
+        if maybe_port.isdigit():
+            text = host_part
+    try:
+        return ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return False
+
+
 def is_audit_noise_event(event: dict[str, Any]) -> bool:
     """Drop internal probe noise from WAF bilan (top hosts / rules / charts)."""
-    return is_loopback_audit_host(str(event.get("host") or ""))
+    if is_loopback_audit_host(str(event.get("host") or "")):
+        return True
+    return is_loopback_client_ip(str(event.get("client_ip") or ""))
 
 
 def _rule_family(rule_id: str) -> str:
