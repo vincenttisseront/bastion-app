@@ -205,8 +205,17 @@ def decode_breakglass_token_with_fallback(
 
     Returns ``(payload, used_legacy_fallback)`` — legacy means vault token only.
     """
+    from app.jwt_audience import resolve_breakglass_jwt_audience
+
+    expected_aud = resolve_breakglass_jwt_audience(settings)
+    strict_aud = bool(getattr(settings, "breakglass_jwt_audience_strict", False))
     for secret, label in _validation_secrets(settings, db=db):
-        payload = decode_breakglass_token(cookie_value, secret)
+        payload = decode_breakglass_token(
+            cookie_value,
+            secret,
+            audience=expected_aud,
+            audience_strict=strict_aud,
+        )
         if payload is not None:
             used_legacy = label == "legacy"
             if used_legacy:
@@ -233,8 +242,11 @@ def create_breakglass_token(
     *,
     jti: str | None = None,
     ttl_seconds: int = COOKIE_MAX_AGE,
+    audience: str | None = None,
 ) -> str:
     """Build a break-glass JWT. Always includes a unique ``jti`` claim."""
+    from app.jwt_audience import DEFAULT_BREAKGLASS_JWT_AUDIENCE
+
     now = datetime.now(timezone.utc)
     payload = {
         "sub": username,
@@ -243,6 +255,7 @@ def create_breakglass_token(
         "last": int(now.timestamp()),
         "type": "bg",
         "jti": jti or str(uuid4()),
+        "aud": (audience or DEFAULT_BREAKGLASS_JWT_AUDIENCE).strip(),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
 
@@ -300,7 +313,12 @@ def issue_breakglass_token(
     """Create JWT + BreakGlassSession row. Returns ``(token, jti)``."""
     jti = str(uuid4())
     token = create_breakglass_token(username, secret, jti=jti)
-    payload = jwt.decode(token, secret, algorithms=["HS256"])
+    payload = jwt.decode(
+        token,
+        secret,
+        algorithms=["HS256"],
+        options={"verify_aud": False},
+    )
     expires_at = _aware_exp(payload.get("exp"))
     if expires_at is None:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=COOKIE_MAX_AGE)
@@ -439,12 +457,20 @@ def encode_breakglass_claims(
     touch_last: bool = True,
 ) -> str:
     """Re-encode claims preserving absolute ``exp`` / ``iat``; optionally slide ``last``."""
+    from app.jwt_audience import DEFAULT_BREAKGLASS_JWT_AUDIENCE
+
     now = datetime.now(timezone.utc)
     now_ts = int(now.timestamp())
     exp_dt = _aware_exp(payload.get("exp"))
     if exp_dt is None:
         exp_dt = now + timedelta(seconds=COOKIE_MAX_AGE)
     last = now_ts if touch_last else int(payload.get("last") or now_ts)
+    aud_raw = payload.get("aud")
+    aud = (
+        str(aud_raw).strip()
+        if isinstance(aud_raw, str) and aud_raw.strip()
+        else DEFAULT_BREAKGLASS_JWT_AUDIENCE
+    )
     claims = {
         "sub": payload.get("sub"),
         "iat": payload.get("iat"),
@@ -452,6 +478,7 @@ def encode_breakglass_claims(
         "last": last,
         "type": "bg",
         "jti": jti,
+        "aud": aud,
     }
     return jwt.encode(claims, secret, algorithm="HS256")
 
@@ -783,15 +810,32 @@ def purge_expired_breakglass_sessions(
     return len(to_delete)
 
 
-def decode_breakglass_token(cookie_value: str, secret: str) -> dict[str, Any] | None:
+def decode_breakglass_token(
+    cookie_value: str,
+    secret: str,
+    *,
+    audience: str | None = None,
+    audience_strict: bool = False,
+) -> dict[str, Any] | None:
     """Decode and enforce absolute ``exp`` + idle timeout on ``last``."""
+    from app.jwt_audience import jwt_audience_matches
+
     if not secret or not cookie_value:
         return None
     try:
-        payload = jwt.decode(cookie_value, secret, algorithms=["HS256"])
+        payload = jwt.decode(
+            cookie_value,
+            secret,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
     except jwt.PyJWTError:
         return None
     if payload.get("type") != "bg":
+        return None
+    if audience is not None and not jwt_audience_matches(
+        payload, audience, strict=audience_strict
+    ):
         return None
     if payload.get("exp") is None:
         # Absolute expiry is mandatory (reject legacy tokens without exp).
@@ -896,7 +940,12 @@ def maybe_refresh_breakglass_cookie(
         "last": now_ts,
         "type": "bg",
         "jti": jti,
+        "aud": payload.get("aud"),
     }
+    if not refreshed["aud"]:
+        from app.jwt_audience import DEFAULT_BREAKGLASS_JWT_AUDIENCE
+
+        refreshed["aud"] = DEFAULT_BREAKGLASS_JWT_AUDIENCE
     return jwt.encode(refreshed, sign_secret, algorithm="HS256")
 
 
@@ -1009,7 +1058,7 @@ def revoke_breakglass_session_from_request(
                 bg_cookie,
                 sec,
                 algorithms=["HS256"],
-                options={"verify_exp": False},
+                options={"verify_exp": False, "verify_aud": False},
             )
             if raw.get("type") != "bg":
                 continue
