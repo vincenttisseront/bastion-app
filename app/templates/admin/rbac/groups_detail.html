@@ -45,6 +45,12 @@
     <div class="alert alert-err" style="margin-bottom:var(--sp-3);">{{ members_error }}</div>
     {% endif %}
     <div class="card" style="padding:0;">
+      <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
+        <span class="card-title" style="font-size:var(--fs-sm);display:inline-flex;align-items:center;gap:var(--sp-2);">
+          Membres
+          <span class="badge badge-muted tab-badge">{{ members | length }}</span>
+        </span>
+      </div>
       <div class="table-wrap" style="border:none;border-radius:0;">
         <table class="data-table">
           <thead><tr><th>Utilisateur</th><th>Email</th><th>Statut</th></tr></thead>
@@ -77,148 +83,135 @@
   </div>
 
   <div class="group-fiche-panel" id="panel-comptes" data-panel="comptes" hidden>
-    <section class="sa-panel" aria-labelledby="sa-panel-title">
-      <div class="sa-toolbar">
-        <div class="sa-toolbar-lead">
-          <h2 id="sa-panel-title" class="sa-title">
-            Comptes partagés
-            <span class="sa-help-wrap">
-              <button type="button" class="sa-help" aria-describedby="sa-help-tip" aria-label="Aide comptes partagés">
-                <span aria-hidden="true">?</span>
-              </button>
-              <span id="sa-help-tip" class="sa-help-tip" role="tooltip">
-                Compte Crush/robotic commun à tous les membres non exclus.
-                Priorité la plus haute gagne si plusieurs groupes couvrent la même app.
-              </span>
+    {% if not vault_apps %}
+    <div class="alert alert-warn">Aucune application vault disponible.</div>
+    {% else %}
+    <div class="card" style="padding:0;">
+      <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
+        <span class="card-title" style="font-size:var(--fs-sm);display:inline-flex;align-items:center;gap:var(--sp-2);">
+          Comptes partagés
+          <span class="sa-help-wrap">
+            <button type="button" class="sa-help" aria-describedby="sa-help-tip" aria-label="Aide comptes partagés">
+              <span aria-hidden="true">?</span>
+            </button>
+            <span id="sa-help-tip" class="sa-help-tip" role="tooltip">
+              Compte Crush/robotic commun à tous les membres non exclus.
+              Priorité la plus haute gagne si plusieurs groupes couvrent la même app.
             </span>
-          </h2>
-          <p class="sa-sub">
-            <span id="sa-count">{{ group_credentials | length }}</span>
-            compte{% if group_credentials | length != 1 %}s{% endif %}
-            · <a href="/admin/rbac/matrix">Matrice</a>
-          </p>
-        </div>
-        <div class="sa-toolbar-actions">
-          {% if vault_apps %}
-          <button type="button" class="btn btn-primary btn-sm" data-sa-modal-open="add">
-            + Ajouter un compte
-          </button>
-          {% endif %}
+          </span>
+          <span class="badge badge-muted tab-badge">{{ group_credentials | length }}</span>
+        </span>
+        <div class="users-row-actions">
+          <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
+          <button type="button" class="btn btn-primary btn-sm" data-sa-modal-open="add">+ Ajouter</button>
         </div>
       </div>
-
-      {% if not vault_apps %}
-      <div class="alert alert-warn">Aucune application vault disponible.</div>
-      {% else %}
-      <div class="sa-card">
-        <div class="sa-search-row">
-          <label class="visually-hidden" for="sa-search">Rechercher un compte</label>
-          <input type="search" id="sa-search" class="form-input sa-search"
-                 placeholder="Rechercher application, compte, membre…"
-                 autocomplete="off">
-        </div>
-        <div class="table-wrap sa-table-wrap">
-          <table class="data-table sa-table" id="sa-table">
-            <thead>
-              <tr>
-                <th>Application</th>
-                <th>Compte</th>
-                <th>Priorité</th>
-                <th>Membres</th>
-                <th class="sa-col-actions">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for cred in group_credentials %}
-              {% set excl = cred.exclusions or [] %}
-              {% set excl_ids = excl | map(attribute='keycloak_user_id') | list %}
-              {% set app_obj = vault_apps | selectattr('slug', 'equalto', cred.app_slug) | first %}
-              {% set member_labels = [] %}
-              {% for m in members if m.id and m.id not in excl_ids %}
-                {% if member_labels.append(m.username or m.email or m.id) %}{% endif %}
-              {% endfor %}
-              <tr class="sa-row"
-                  data-sa-search="{{ cred.app_slug }} {{ app_obj.label if app_obj else '' }} {{ cred.robotic_username }} {{ member_labels | join(' ') }}">
-                <td>
-                  <div class="sa-app">
-                    {% if app_obj and app_obj.logo_path %}
-                    <img class="sa-app-icon" src="/media/app-logos/{{ app_obj.logo_path }}" alt="" width="24" height="24">
-                    {% else %}
-                    <span class="sa-app-icon sa-app-icon--fallback" aria-hidden="true">{{ (app_obj.label if app_obj else cred.app_slug)[:1] | upper }}</span>
-                    {% endif %}
-                    <div class="sa-app-text">
-                      <span class="sa-app-label">{{ app_obj.label if app_obj else cred.app_slug }}</span>
-                      <span class="sa-app-slug mono">{{ cred.app_slug }}</span>
-                    </div>
-                  </div>
-                </td>
-                <td class="mono sa-account">{{ cred.robotic_username }}</td>
-                <td>
-                  <span class="sa-prio-badge" title="Priorité multi-groupes">{{ cred.priority }}</span>
-                </td>
-                <td>
-                  {% if member_labels %}
-                  <div class="sa-avatars" title="{{ member_labels | join(', ') }}">
-                    {% for label in member_labels[:4] %}
-                    <span class="sa-avatar" aria-hidden="true">{{ label[:2] | upper }}</span>
-                    {% endfor %}
-                    {% if member_labels | length > 4 %}
-                    <span class="sa-avatar sa-avatar--more">+{{ member_labels | length - 4 }}</span>
-                    {% endif %}
-                    <span class="sa-avatar-count">{{ member_labels | length }}</span>
-                  </div>
+      <div class="sa-search-row">
+        <label class="visually-hidden" for="sa-search">Rechercher un compte</label>
+        <input type="search" id="sa-search" class="form-input sa-search"
+               placeholder="Rechercher application, compte, membre…"
+               autocomplete="off">
+      </div>
+      <div class="table-wrap" style="border:none;border-radius:0;">
+        <table class="data-table" id="sa-table">
+          <thead>
+            <tr>
+              <th>Application</th>
+              <th>Compte</th>
+              <th>Priorité</th>
+              <th>Membres</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cred in group_credentials %}
+            {% set excl = cred.exclusions or [] %}
+            {% set excl_ids = excl | map(attribute='keycloak_user_id') | list %}
+            {% set app_obj = vault_apps | selectattr('slug', 'equalto', cred.app_slug) | first %}
+            {% set member_labels = [] %}
+            {% for m in members if m.id and m.id not in excl_ids %}
+              {% if member_labels.append(m.username or m.email or m.id) %}{% endif %}
+            {% endfor %}
+            <tr class="sa-row"
+                data-sa-search="{{ cred.app_slug }} {{ app_obj.label if app_obj else '' }} {{ cred.robotic_username }} {{ member_labels | join(' ') }}">
+              <td>
+                <div class="sa-app">
+                  {% if app_obj and app_obj.logo_path %}
+                  <img class="sa-app-icon" src="/media/app-logos/{{ app_obj.logo_path }}" alt="" width="22" height="22">
                   {% else %}
-                  <span class="muted">0</span>
+                  <span class="sa-app-icon sa-app-icon--fallback" aria-hidden="true">{{ (app_obj.label if app_obj else cred.app_slug)[:1] | upper }}</span>
                   {% endif %}
-                  {% if excl %}
-                  <span class="sa-excl-hint" title="{% for e in excl %}{% for m in members if m.id == e.keycloak_user_id %}{{ m.username or m.email }}{% else %}{{ e.keycloak_user_id }}{% endfor %}{% if not loop.last %}, {% endif %}{% endfor %}">
-                    {{ excl | length }} exclu{% if excl | length != 1 %}s{% endif %}
-                  </span>
+                  <div class="sa-app-text">
+                    <span>{{ app_obj.label if app_obj else cred.app_slug }}</span>
+                    <span class="mono muted" style="font-size:10px;">{{ cred.app_slug }}</span>
+                  </div>
+                </div>
+              </td>
+              <td class="mono">{{ cred.robotic_username }}</td>
+              <td><span class="badge badge-muted" title="Priorité multi-groupes">{{ cred.priority }}</span></td>
+              <td>
+                {% if member_labels %}
+                <div class="sa-avatars" title="{{ member_labels | join(', ') }}">
+                  {% for label in member_labels[:4] %}
+                  <span class="sa-avatar" aria-hidden="true">{{ label[:2] | upper }}</span>
+                  {% endfor %}
+                  {% if member_labels | length > 4 %}
+                  <span class="sa-avatar sa-avatar--more">+{{ member_labels | length - 4 }}</span>
                   {% endif %}
-                </td>
-                <td class="sa-col-actions">
-                  <div class="sa-row-actions">
-                    <button type="button" class="btn btn-ghost btn-sm"
-                            data-sa-modal-open="edit"
-                            data-cred-id="{{ cred.id }}"
-                            data-app-slug="{{ cred.app_slug }}"
-                            data-username="{{ cred.robotic_username }}"
-                            data-priority="{{ cred.priority }}"
-                            data-excl='[{% for e in excl %}"{{ e.keycloak_user_id }}"{% if not loop.last %},{% endif %}{% endfor %}]'>
-                      Éditer
+                  <span class="muted" style="margin-left:var(--sp-2);font-size:var(--fs-xs);">{{ member_labels | length }}</span>
+                </div>
+                {% else %}
+                <span class="muted">0</span>
+                {% endif %}
+                {% if excl %}
+                <span class="muted" style="margin-left:var(--sp-2);font-size:10px;"
+                      title="{% for e in excl %}{% for m in members if m.id == e.keycloak_user_id %}{{ m.username or m.email }}{% else %}{{ e.keycloak_user_id }}{% endfor %}{% if not loop.last %}, {% endif %}{% endfor %}">
+                  {{ excl | length }} exclu{% if excl | length != 1 %}s{% endif %}
+                </span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="users-row-actions" style="justify-content:flex-end;">
+                  <button type="button" class="btn btn-ghost btn-sm"
+                          data-sa-modal-open="edit"
+                          data-cred-id="{{ cred.id }}"
+                          data-app-slug="{{ cred.app_slug }}"
+                          data-username="{{ cred.robotic_username }}"
+                          data-priority="{{ cred.priority }}"
+                          data-excl='[{% for e in excl %}"{{ e.keycloak_user_id }}"{% if not loop.last %},{% endif %}{% endfor %}]'>
+                    Éditer
+                  </button>
+                  <form method="post"
+                        action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete"
+                        class="inline-form">
+                    <button type="submit" class="btn btn-ghost btn-sm"
+                            data-confirm="Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?">
+                      Supprimer
                     </button>
-                    <form method="post"
-                          action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete"
-                          class="inline-form">
-                      <button type="submit" class="btn btn-ghost btn-sm sa-btn-danger"
-                              data-confirm="Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?">
-                        Supprimer
-                      </button>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-              {% else %}
-              <tr class="sa-empty-row">
-                <td colspan="5">
-                  <div class="empty-desc" style="padding:var(--sp-5);">
-                    Aucun compte partagé. Utilisez « Ajouter un compte ».
-                  </div>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        <p class="sa-filter-empty" id="sa-filter-empty" hidden>Aucun compte ne correspond à la recherche.</p>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% else %}
+            <tr class="sa-empty-row">
+              <td colspan="5">
+                <div class="empty-desc" style="padding:var(--sp-4);">
+                  Aucun compte partagé. Utilisez « + Ajouter ».
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
-      {% endif %}
-    </section>
+      <p class="sa-filter-empty" id="sa-filter-empty" hidden>Aucun compte ne correspond à la recherche.</p>
+    </div>
+    {% endif %}
 
     {% if vault_apps %}
     <div id="sa-cred-modal" class="bastion-modal" hidden aria-hidden="true">
       <div class="bastion-modal-backdrop" data-sa-modal-dismiss></div>
-      <div class="bastion-modal-dialog bastion-modal-dialog--form sa-modal-dialog"
+      <div class="bastion-modal-dialog bastion-modal-dialog--form"
            role="dialog" aria-modal="true" aria-labelledby="sa-modal-title" tabindex="-1">
         <div class="bastion-modal-header">
           <h2 id="sa-modal-title" class="bastion-modal-title">Ajouter un compte partagé</h2>
@@ -260,7 +253,7 @@
 
           <div id="sa-excl-panel" class="sa-excl-panel" hidden>
             <div class="sa-excl-head">
-              <span class="sa-excl-title">Exclusions</span>
+              <span class="form-section-title" style="font-size:var(--fs-xs);margin:0;">Exclusions</span>
               <span class="muted" style="font-size:var(--fs-xs);">Ces membres n’utilisent pas ce compte</span>
             </div>
             <ul id="sa-excl-chips" class="sa-chips"></ul>
