@@ -235,6 +235,26 @@ class Settings(BaseSettings):
             "nginx_app_logs_dir",
         ),
     )
+    # WAF dashboard geolocation (ip-api.com free tier — HTTP batch, 15 req/min).
+    ip_geoloc_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("IP_GEOLOC_ENABLED", "ip_geoloc_enabled"),
+    )
+    ip_geoloc_base_url: str = Field(
+        default="http://ip-api.com",
+        validation_alias=AliasChoices("IP_GEOLOC_BASE_URL", "ip_geoloc_base_url"),
+    )
+    ip_geoloc_lang: str = Field(
+        default="fr",
+        validation_alias=AliasChoices("IP_GEOLOC_LANG", "ip_geoloc_lang"),
+    )
+    ip_geoloc_cache_ttl_hours: int = Field(
+        default=168,
+        validation_alias=AliasChoices(
+            "IP_GEOLOC_CACHE_TTL_HOURS",
+            "ip_geoloc_cache_ttl_hours",
+        ),
+    )
     # Dedicated blob root for catalogue files (empty → {portal_data_dir}/private/files).
     files_storage_dir: str = Field(
         default="",

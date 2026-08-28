@@ -28,6 +28,7 @@ def _isolate_fernet_key_store(tmp_path, monkeypatch):
     monkeypatch.setenv("VAULT_KEYS_DIR", str(keys))
     monkeypatch.setenv("PORTAL_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("PORTAL_ENVIRONMENT", "test")
+    monkeypatch.setenv("IP_GEOLOC_ENABLED", "false")
     monkeypatch.setenv("SESSION_HOP_SECRET", "test-session-hop-secret-for-pytest")
     # Prefer a known test key so lifespan migrate path is deterministic when client starts.
     if not os.environ.get("PORTAL_SECRET_ENCRYPTION_KEY"):

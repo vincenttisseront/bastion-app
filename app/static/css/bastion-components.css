@@ -1332,6 +1332,12 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 #waf-page .inline-form{display:inline}
 
 /* WAF dashboard — enterprise-style layout */
+.waf-title-row{
+  display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-2) var(--sp-3);
+}
+.waf-status-chip-row--inline{
+  margin:0;padding:0;
+}
 .waf-status-chip-row{
   display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-2) var(--sp-3);
   margin-bottom:var(--sp-3);padding:0 var(--sp-1);
@@ -1368,21 +1374,20 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .waf-dashboard{display:flex;flex-direction:column;gap:var(--sp-4)}
 
 .waf-kpi-row{
-  display:grid;gap:var(--sp-3);
-  grid-template-columns:repeat(2,minmax(0,1fr));
+  display:flex;flex-wrap:nowrap;gap:var(--sp-3);
+  overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin;
 }
-@media(min-width:768px){.waf-kpi-row{grid-template-columns:repeat(4,minmax(0,1fr))}}
-@media(min-width:1100px){.waf-kpi-row{grid-template-columns:repeat(5,minmax(0,1fr))}}
 .waf-kpi-card{
+  flex:1 1 0;min-width:8.5rem;
   background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-lg);
-  padding:var(--sp-4) var(--sp-5);box-shadow:var(--sh-card);
-  display:flex;flex-direction:column;gap:var(--sp-1);min-height:5.5rem;
+  padding:var(--sp-3) var(--sp-4);box-shadow:var(--sh-card);
+  display:flex;flex-direction:column;gap:var(--sp-1);min-height:5rem;
   border-top:3px solid var(--accent);
 }
 .waf-kpi-card--warn{border-top-color:#f59e0b}
 .waf-kpi-card--err{border-top-color:#ef4444}
 .waf-kpi-label{font-size:var(--fs-xs);font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted)}
-.waf-kpi-value{font-size:var(--fs-2xl);font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--text)}
+.waf-kpi-value{font-size:var(--fs-xl);font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--text)}
 .waf-kpi-sub{font-size:var(--fs-xs);color:var(--text-muted)}
 .waf-kpi-quiet{
   margin:calc(var(--sp-2) * -1) 0 0;padding:0 var(--sp-1);

@@ -295,6 +295,81 @@ def admin_waf_exclude_from_event(
     return response
 
 
+@router.post("/admin/security/waf/actions/quick-toggle")
+def admin_waf_quick_toggle(
+    request: Request,
+    toggle: str = Form(...),
+    enabled: str = Form(...),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Toggle CRS or anti-bruteforce from Sentinel dashboard."""
+    from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON
+    from app.security.banning.service import update_policy_misc
+
+    response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
+    actor = _actor(user)
+    ip = client_ip_from_request(request) or None
+    turn_on = enabled == "on"
+    try:
+        if toggle == "bruteforce":
+            update_policy_misc(
+                db,
+                enabled=turn_on,
+                actor=actor,
+                ip_address=ip,
+            )
+            flash_redirect(
+                response,
+                f"Anti-bruteforce {'activé' if turn_on else 'désactivé'}.",
+                "success",
+                _flash_secret(settings),
+            )
+        elif toggle == "crs":
+            profile = waf_service.ensure_active_profile(db)
+            new_mode = MODE_ON if turn_on else MODE_OFF
+            waf_service.update_active_profile(
+                db,
+                mode=new_mode,
+                anomaly_threshold=int(profile.anomaly_threshold or 5),
+                actor=actor,
+                ip_address=ip,
+            )
+            flash_redirect(
+                response,
+                f"Inspection CRS → {new_mode}. Appliquer pour nginx.",
+                "success",
+                _flash_secret(settings),
+            )
+        else:
+            flash_redirect(response, "Contrôle inconnu.", "error", _flash_secret(settings))
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", _flash_secret(settings))
+    return response
+
+
+@router.post("/admin/security/waf/actions/lift-ban/{ban_id}")
+def admin_waf_lift_ban(
+    ban_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.security.banning.service import lift_ban
+
+    lift_ban(
+        db,
+        ban_id,
+        actor=_actor(user),
+        ip_address=client_ip_from_request(request) or None,
+    )
+    response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
+    flash_redirect(response, "IP débloquée.", "success", _flash_secret(settings))
+    return response
+
+
 @router.post("/admin/security/waf/actions/reactivate")
 def admin_waf_reactivate(
     request: Request,
