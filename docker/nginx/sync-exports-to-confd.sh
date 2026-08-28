@@ -93,6 +93,20 @@ modsecurity off;
 EOF
 fi
 
+# Subdomain / public connector switches (export-driven; default off).
+for _fam in subdomain public; do
+  _export="$EXPORTS/modsecurity-${_fam}-switch.conf"
+  _dest="/etc/nginx/includes/modsecurity-${_fam}-switch.conf"
+  if [[ -f "$_export" ]]; then
+    cp -a "$_export" "$_dest"
+  else
+    cat > "$_dest" <<EOF
+# Default safe state — no export yet.
+modsecurity off;
+EOF
+  fi
+done
+
 # Engine mode overlay: copy export only when IHM armed (waf-engine-arm.json).
 # Otherwise force Off so a DB profile mode=on cannot brick the edge.
 ARMED=0

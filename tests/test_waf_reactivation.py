@@ -9,6 +9,8 @@ from app.bastion.waf_reactivation import (
     reactivate_engine,
     read_arm_state,
     render_portal_switch,
+    render_public_switch,
+    render_subdomain_switch,
     smoke_portal_probes,
 )
 from app.models import WafProfile
@@ -28,6 +30,14 @@ def _settings(tmp_path: Path) -> Settings:
 def test_render_portal_switch():
     assert "modsecurity on;" in render_portal_switch(enabled=True)
     assert "modsecurity off;" in render_portal_switch(enabled=False)
+
+
+def test_render_subdomain_and_public_switches():
+    assert "Subdomain" in render_subdomain_switch(enabled=True)
+    assert "modsecurity on;" in render_subdomain_switch(enabled=True)
+    assert "modsecurity off;" in render_subdomain_switch(enabled=False)
+    assert "Public proxy" in render_public_switch(enabled=True)
+    assert "modsecurity on;" in render_public_switch(enabled=True)
 
 
 def test_reactivate_requires_confirm(db_session, tmp_path: Path):

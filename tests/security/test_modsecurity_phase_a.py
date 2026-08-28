@@ -160,13 +160,28 @@ def test_auth_snippets_disable_modsecurity():
     ][:200]
 
 
-def test_family_snippets_modsecurity_off_emergency():
-    for name in ("modsecurity-subdomain.conf", "modsecurity-public.conf"):
-        text = (ROOT / "docker/nginx/snippets" / name).read_text(encoding="utf-8")
+def test_family_snippets_use_exportable_switch():
+    for family, switch in (
+        ("modsecurity-subdomain.conf", "modsecurity-subdomain-switch.conf"),
+        ("modsecurity-public.conf", "modsecurity-public-switch.conf"),
+    ):
+        text = (ROOT / "docker/nginx/snippets" / family).read_text(encoding="utf-8")
+        assert f"include /etc/nginx/includes/{switch};" in text
+        assert "modsecurity_rules_file" in text
         live = [
             ln.strip()
             for ln in text.splitlines()
             if ln.strip() and not ln.strip().startswith("#")
         ]
-        assert "modsecurity off;" in live
         assert "modsecurity on;" not in live
+
+
+def test_family_switch_includes_default_off():
+    for name in ("modsecurity-subdomain-switch.conf", "modsecurity-public-switch.conf"):
+        text = (ROOT / "docker/nginx/includes" / name).read_text(encoding="utf-8")
+        live = [
+            ln.strip()
+            for ln in text.splitlines()
+            if ln.strip() and not ln.strip().startswith("#")
+        ]
+        assert live == ["modsecurity off;"]

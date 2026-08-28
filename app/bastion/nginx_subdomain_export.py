@@ -391,6 +391,19 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_pass_request_body off;",
         "    }",
         "",
+        "    # Optional health probe — no auth (symmetry public_proxy; modsecurity off)",
+        "    location = /healthz {",
+        "        modsecurity off;",
+        "        access_log off;",
+        "        proxy_pass $app_upstream/;",
+        "        proxy_redirect off;",
+        "        proxy_http_version 1.1;",
+        "        proxy_set_header Host $host;",
+        "        proxy_read_timeout 60s;",
+        "        proxy_send_timeout 60s;",
+        *ssl_lines,
+        "    }",
+        "",
     ]
     if crushftp:
         # CrushFTP aborts TLS on directory URLs; force the explicit index file.

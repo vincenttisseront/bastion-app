@@ -82,6 +82,10 @@ body.page-login .main-content{
   box-shadow:var(--sh-sm, 0 1px 2px color-mix(in srgb,var(--text) 12%,transparent));
 }
 .login-restart{margin-top:var(--sp-4);text-align:center}
+.login-sub a,.login-restart a{
+  color:var(--accent);font-weight:600;text-decoration:none;
+}
+.login-sub a:hover,.login-restart a:hover{color:var(--accent-h);text-decoration:underline}
 .login-divider{display:flex;align-items:center;gap:var(--sp-3);color:var(--text-3);font-size:var(--fs-xs);font-weight:600;letter-spacing:.05em;text-transform:lowercase}
 .login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:var(--border-muted)}
 .login-error,.alert-err{margin-bottom:var(--sp-2)}
