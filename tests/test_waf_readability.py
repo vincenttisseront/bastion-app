@@ -11,6 +11,7 @@ from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON, MODE_DETECTION
 from app.bastion.waf_readability import (
     build_attack_controls,
     build_efficiency_panel,
+    build_executive_summary,
     build_protection_layers,
     build_protection_verdict,
     build_unknown_host_panel,
@@ -291,3 +292,27 @@ def test_build_attack_controls_merges_unknown_host(db_session: Session):
     assert any(
         a.get("ip") == "198.51.100.9" for a in controls["top_attackers"]
     )
+
+
+def test_build_executive_summary_four_kpis(db_session: Session):
+    settings = Settings(
+        portal_domain="portal.example.fr",
+        exports_dir="/tmp/waf-exec",
+    )  # type: ignore[call-arg]
+    active = {"verifiable": True, "aggregate_mode": "on", "families": {"portal": {"sec_rule_engine": "on"}}}
+    efficiency = {
+        "present": True,
+        "inspected": 100,
+        "blocks": 5,
+        "critical": 1,
+        "status": "ok",
+    }
+    ac = {"present": False, "critical_24h": 0}
+    unknown = {"present": True, "hits_24h": 12}
+    layers = [{"alert": False}]
+    summary = build_executive_summary(settings, active, efficiency, ac, unknown, layers)
+    assert summary["inspected"] == 100
+    assert summary["blocks"] == 5
+    assert 0 <= summary["health_score"] <= 100
+    assert "health_gauge_svg" in summary
+    assert summary["live_suspicious"] >= 12

@@ -2,6 +2,10 @@
 
 {% block title %}WAF{% endblock %}
 
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260828-sentinel">
+{% endblock %}
+
 {% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
 
 
@@ -20,13 +24,30 @@
 
 {% set ac = attack_controls %}
 
+{% set exec = executive_summary %}
+
+{% set ti = threat_intel %}
+
+{% set quar = quarantine_panel %}
+
 <div class="page" id="waf-page">
 
   <div class="page-header">
 
     <div>
 
-      <h1 class="page-title">WAF</h1>
+      <div class="waf-title-row">
+        <h1 class="page-title">WAF</h1>
+        {% if v.level in ('active',) and not v.action_label %}
+        <div class="waf-status-chip-row waf-status-chip-row--inline" role="status">
+          <span class="waf-status-chip waf-status-chip--ok" title="{{ v.message }}">
+            <span class="waf-status-chip-dot"></span>
+            {{ v.title }}
+          </span>
+          {% if v.message %}<span class="waf-status-chip-hint">{{ v.message }}</span>{% endif %}
+        </div>
+        {% endif %}
+      </div>
 
       <p class="page-sub">Protection web, configuration ModSecurity/CRS et diagnostic.</p>
 
@@ -69,15 +90,7 @@
 
 
 
-  {% if v.level in ('active',) and not v.action_label %}
-  <div class="waf-status-chip-row" role="status">
-    <span class="waf-status-chip waf-status-chip--ok" title="{{ v.message }}">
-      <span class="waf-status-chip-dot"></span>
-      {{ v.title }}
-    </span>
-    {% if v.message %}<span class="waf-status-chip-hint">{{ v.message }}</span>{% endif %}
-  </div>
-  {% else %}
+  {% if not (v.level in ('active',) and not v.action_label) %}
   <div class="waf-status-strip alert {{ v.css }}" role="status">
     <div class="waf-status-strip-main">
       <span class="waf-status-strip-title">{{ v.title }}</span>
@@ -144,189 +157,211 @@
   {# —— Bilan —— #}
 
   <div class="form-section waf-panel waf-panel-bilan" id="bilan" role="tabpanel" aria-labelledby="tab-bilan">
-    <div class="form-body waf-dashboard">
-      <div class="waf-kpi-row">
-        <div class="waf-kpi-card">
-          <span class="waf-kpi-label">Requêtes inspectées</span>
-          <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.inspected }}{% else %}—{% endif %}</span>
-          <span class="waf-kpi-sub">24 h</span>
-        </div>
-        <div class="waf-kpi-card waf-kpi-card--warn">
-          <span class="waf-kpi-label">Détections</span>
-          <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.detections }}{% else %}—{% endif %}</span>
-          <span class="waf-kpi-sub">CRS</span>
-        </div>
-        <div class="waf-kpi-card waf-kpi-card--err">
-          <span class="waf-kpi-label">Blocages</span>
-          <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.blocks }}{% else %}—{% endif %}</span>
-          <span class="waf-kpi-sub">24 h</span>
-        </div>
-        <div class="waf-kpi-card waf-kpi-card--err">
-          <span class="waf-kpi-label">Critiques</span>
-          <span class="waf-kpi-value">{% if ac.present %}{{ ac.critical_24h }}{% else %}—{% endif %}</span>
-          <span class="waf-kpi-sub">SQLi / XSS / RCE / LFI</span>
-        </div>
-        <div class="waf-kpi-card waf-kpi-card--warn">
-          <span class="waf-kpi-label">Refus hôte inconnu</span>
-          <span class="waf-kpi-value">{% if unknown_host_panel.present %}{{ unknown_host_panel.hits_24h }}{% else %}—{% endif %}</span>
-          <span class="waf-kpi-sub">24 h · filtrage d'hôtes</span>
-        </div>
-        <div class="waf-kpi-card">
-          <span class="waf-kpi-label">Taux de blocage CRS</span>
-          <span class="waf-kpi-value">{% if efficiency.present %}{{ efficiency.block_rate_pct }} %{% else %}—{% endif %}</span>
-          <span class="waf-kpi-sub">{% if efficiency.generated_at %}agrégé {{ efficiency.generated_at[:16] }}{% else %}indisponible{% endif %}</span>
-        </div>
-      </div>
+    <div class="form-body waf-dashboard waf-sentinel">
 
-      {% if not efficiency.present %}
+      {% if not exec.present %}
       <div class="waf-dash-notice waf-dash-notice--unavailable">
         <strong>Données indisponibles</strong>
         <p>{{ efficiency.message }}</p>
         {% if efficiency.resolution %}<p class="waf-dash-notice-hint">{{ efficiency.resolution }}</p>{% endif %}
       </div>
-      {% elif efficiency.status == 'measured_zero' %}
+      {% else %}
+
+      <section class="sentinel-exec-row" aria-label="Executive summary">
+        <article class="sentinel-kpi sentinel-kpi--ok">
+          <span class="sentinel-kpi-label">Requêtes inspectées</span>
+          <span class="sentinel-kpi-value">{{ exec.inspected }}</span>
+          <span class="sentinel-kpi-sub">Total · 24 h</span>
+        </article>
+        <article class="sentinel-kpi sentinel-kpi--err">
+          <span class="sentinel-kpi-label">Menaces bloquées</span>
+          <span class="sentinel-kpi-value">
+            {{ exec.blocks }}
+            {% if exec.blocks_trend_pct is not none %}
+            <span class="sentinel-trend {% if exec.blocks_trend_pct > 0 %}sentinel-trend--up{% elif exec.blocks_trend_pct < 0 %}sentinel-trend--down{% endif %}"
+                  title="Tendance vs première moitié de la fenêtre 24 h">
+              {% if exec.blocks_trend_pct > 0 %}+{% endif %}{{ exec.blocks_trend_pct }} %
+            </span>
+            {% endif %}
+          </span>
+          <span class="sentinel-kpi-sub">CRS + refus · 24 h</span>
+        </article>
+        <article class="sentinel-kpi sentinel-kpi--ok sentinel-kpi--gauge">
+          <span class="sentinel-kpi-label">Score de santé WAF</span>
+          {{ exec.health_gauge_svg | safe }}
+        </article>
+        <article class="sentinel-kpi sentinel-kpi--warn">
+          <span class="sentinel-kpi-label">Requêtes suspectes</span>
+          <span class="sentinel-kpi-value">{{ exec.live_suspicious }}</span>
+          <span class="sentinel-kpi-sub">Live · 3 h + hôtes inconnus</span>
+        </article>
+      </section>
+
+      {% if efficiency.status == 'measured_zero' %}
       <p class="waf-kpi-quiet" title="{{ efficiency.zero_explanation or '' }}">
         24 h · aucune activité CRS enregistrée
       </p>
       {% endif %}
 
-      <div class="waf-dash-grid">
-        <div class="waf-dash-card waf-dash-card--layers">
-          <div class="waf-dash-card-header">
-            <h3 class="waf-dash-card-title">Couches de protection</h3>
-            <span class="waf-dash-card-meta">Temps réel</span>
+      <section class="sentinel-threat-grid" aria-label="Threat intelligence">
+        <div class="sentinel-panel sentinel-panel--wide">
+          <div class="sentinel-panel-head">
+            <h3 class="sentinel-panel-title">Flux trafic vs intrusions</h3>
+            <span class="sentinel-panel-meta">24 h</span>
           </div>
-          <ul class="waf-layer-list">
-            {% for layer in protection_layers %}
-            <li class="waf-layer-item{% if layer.alert %} waf-layer-item--alert{% endif %}">
-              <span class="waf-layer-dot waf-layer-dot--{{ layer.css | replace('badge-', '') }}"></span>
-              <span class="waf-layer-name">{{ layer.name }}</span>
-              <span class="badge {{ layer.css }} waf-layer-badge">{{ layer.state }}</span>
-              <span class="waf-layer-meta" title="{{ layer.detail_full }}">{{ layer.detail_short }}</span>
-            </li>
-            {% endfor %}
-          </ul>
+          <div class="sentinel-chart-slot">{{ ti.traffic_area_svg | safe }}</div>
         </div>
+        <div class="sentinel-panel">
+          <div class="sentinel-panel-head">
+            <h3 class="sentinel-panel-title">Origine des attaques</h3>
+            <span class="sentinel-panel-meta">{% if ip_geolocation.enabled %}pays × heure · {{ ip_geolocation.provider }}{% else %}géoloc désactivée{% endif %}</span>
+          </div>
+          <div class="sentinel-chart-slot">{{ ti.origin_heatmap_svg | safe }}</div>
+        </div>
+        <div class="sentinel-panel sentinel-panel--rules">
+          <div class="sentinel-panel-head">
+            <h3 class="sentinel-panel-title">Top règles OWASP</h3>
+            <span class="sentinel-panel-meta">SQLi · XSS · SSRF…</span>
+          </div>
+          <div class="sentinel-chart-slot">{{ ti.owasp_rules_svg | safe }}</div>
+        </div>
+      </section>
 
-        <div class="waf-dash-card waf-dash-card--chart">
-          <div class="waf-chart-slot">{{ visuals.detections_hourly_svg | safe }}</div>
+      <section class="sentinel-ops-grid" aria-label="Contrôles et quarantaine">
+        <div class="sentinel-panel">
+          <div class="sentinel-panel-head">
+            <h3 class="sentinel-panel-title">Contrôles rapides</h3>
+            <span class="sentinel-panel-meta">Couches de protection</span>
+          </div>
+          <div class="sentinel-panel-body">
+            <div class="sentinel-controls">
+              {% for ctrl in quick_controls %}
+              <div class="sentinel-control-row">
+                <div>
+                  <div class="sentinel-control-label">{{ ctrl.label }}</div>
+                  <div class="sentinel-control-detail">{{ ctrl.detail }}</div>
+                </div>
+                {% if ctrl.toggle and not ctrl.readonly %}
+                <form method="post" action="/admin/security/waf/actions/quick-toggle" class="inline-form">
+                  <input type="hidden" name="toggle" value="{{ ctrl.toggle }}">
+                  <input type="hidden" name="enabled" value="{{ 'off' if ctrl.enabled else 'on' }}">
+                  <button type="submit" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}"
+                          title="{{ 'Désactiver' if ctrl.enabled else 'Activer' }} {{ ctrl.label }}"
+                          aria-pressed="{{ 'true' if ctrl.enabled else 'false' }}"></button>
+                </form>
+                {% elif ctrl.readonly %}
+                <button type="button" class="sentinel-switch is-on" disabled title="Configuré dans Profil"></button>
+                {% else %}
+                <button type="button" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}" disabled></button>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+            <ul class="sentinel-layers" aria-label="Couches de protection">
+              {% for layer in protection_layers %}
+              <li class="sentinel-layer">
+                <span class="sentinel-layer-dot sentinel-layer-dot--{{ layer.css | replace('badge-', '') }}"></span>
+                <span>{{ layer.name }}</span>
+                <span class="badge {{ layer.css }}" style="margin-left:auto;font-size:.65rem">{{ layer.state }}</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
         </div>
-
-        <div class="waf-dash-card waf-dash-card--chart">
-          <div class="waf-chart-slot">{{ visuals.families_svg | safe }}</div>
+        <div class="sentinel-panel">
+          <div class="sentinel-panel-head">
+            <h3 class="sentinel-panel-title">IP en quarantaine</h3>
+            <span class="sentinel-panel-meta">{{ quar.count }} active(s)</span>
+          </div>
+          <div class="sentinel-panel-body">
+            <ul class="sentinel-quarantine-list">
+              {% for q in quar.rows %}
+              <li class="sentinel-quarantine-item">
+                <div>
+                  <span class="sentinel-quarantine-ip">{{ q.flag }} {{ q.ip }}</span>
+                  <div class="sentinel-quarantine-meta">{{ q.origin_hint }} · {{ q.rule_type }}{% if q.permanent %} · permanent{% elif q.expires_at %} · exp. {{ q.expires_at }}{% endif %}</div>
+                </div>
+                <form method="post" action="/admin/security/waf/actions/lift-ban/{{ q.id }}" class="inline-form">
+                  <button type="submit" class="btn btn-ghost btn-sm">Débloquer</button>
+                </form>
+              </li>
+              {% else %}
+              <li class="muted" style="padding:.5rem 0">Aucune IP en quarantaine.</li>
+              {% endfor %}
+            </ul>
+          </div>
         </div>
-
-        <div class="waf-dash-card waf-dash-card--chart">
-          <div class="waf-chart-slot">{{ visuals.top_rules_svg | safe }}</div>
-        </div>
-
-        <div class="waf-dash-card waf-dash-card--chart">
-          <div class="waf-chart-slot">{{ visuals.top_hosts_svg | safe }}</div>
-        </div>
-
-        {% if efficiency_7d.present %}
-        <div class="waf-dash-card waf-dash-card--chart waf-dash-card--daily">
-          <div class="waf-chart-slot">{{ visuals.detections_daily_svg | safe }}</div>
-          <p class="waf-dash-footnote">7 j · {{ efficiency_7d.inspected }} inspectées · {{ efficiency_7d.detections }} détections · {{ efficiency_7d.blocks }} blocages</p>
-        </div>
-        {% endif %}
-      </div>
+      </section>
 
       {% if ac.present %}
-      <div class="waf-attack-controls">
-        <div class="waf-dash-card waf-dash-card--attacks">
-          <div class="waf-dash-card-header">
-            <h3 class="waf-dash-card-title">Attaques récentes</h3>
-            <span class="waf-dash-card-meta">CRS + hôtes inconnus</span>
-          </div>
-          <ul class="waf-attack-list">
-            {% for a in ac.recent %}
-            <li class="waf-attack-row{% if a.critical %} waf-attack-row--critical{% endif %}">
-              <div class="waf-attack-row-main">
-                <time class="waf-attack-time mono" datetime="{{ a.timestamp }}">{{ a.timestamp }}</time>
-                {% if a.blocked %}<span class="badge badge-err">bloqué</span>{% else %}<span class="badge badge-warn">détecté</span>{% endif %}
-                {% if a.source == 'unknown_host' %}<span class="badge badge-warn">hôte inconnu</span>{% endif %}
-                {% for f in a.families %}<span class="badge badge-muted">{{ f }}</span>{% endfor %}
-                <span class="waf-attack-ip mono">{{ a.client_ip }}</span>
-              </div>
-              <div class="waf-attack-row-path">
-                <span class="mono" title="{{ a.host }}{{ a.uri }}">{{ a.host }}{{ a.uri }}</span>
-                <span class="waf-attack-rule mono">{% if a.source == 'unknown_host' %}filtrage hôte{% else %}règle {{ a.rule_id }}{% endif %}</span>
-              </div>
-              <div class="waf-attack-actions">
-                {% if a.banned %}
-                <span class="badge badge-ok">banni</span>
-                {% elif a.can_ban %}
-                <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form">
-                  <input type="hidden" name="ip" value="{{ a.client_ip }}">
-                  <input type="hidden" name="ban_mode" value="temporary">
-                  <input type="hidden" name="ban_minutes" value="1440">
-                  <input type="hidden" name="reason" value="WAF détection {{ a.families|join('/') if a.families else a.rule_id }} — {{ a.host }}{{ a.uri }}">
-                  <button type="submit" class="btn btn-ghost btn-sm" title="Bannir 24 h">Bannir 24h</button>
-                </form>
-                {% endif %}
-                {% if a.can_exclude %}
-                <form method="post" action="/admin/security/waf/actions/exclude-rule" class="inline-form waf-action-form">
-                  <input type="hidden" name="crs_rule_id" value="{{ a.rule_id }}">
-                  <input type="hidden" name="host" value="{{ a.host if a.host != '—' else '' }}">
-                  <input type="hidden" name="uri_pattern" value="{{ a.uri if a.uri != '—' else '' }}">
-                  <input type="hidden" name="reason" value="Faux positif — exclusion depuis bilan WAF">
-                  <button type="submit" class="btn btn-ghost btn-sm" title="Exclure cette règle CRS (hôte/URI)">Exclure</button>
-                </form>
-                {% endif %}
-              </div>
-            </li>
-            {% else %}
-            <li class="waf-attack-empty muted">Aucune détection récente.</li>
-            {% endfor %}
-          </ul>
-          {% if ac.critical_recent %}
-          <p class="waf-dash-footnote">{{ ac.critical_recent|length }} critique(s) dans les événements récents (SQLi / XSS / RCE / LFI). Bannir pousse vers SecurityBan ; deny nginx après <strong>Appliquer</strong> si permanent ou seuil d’occurrences.</p>
-          {% endif %}
+      <section class="sentinel-panel sentinel-panel--feed" aria-label="Live security feed">
+        <div class="sentinel-panel-head">
+          <h3 class="sentinel-panel-title">Derniers blocages</h3>
+          <span class="sentinel-panel-meta">CRS + hôtes inconnus · agrégé{% if exec.generated_at %} {{ exec.generated_at[:16] }}{% endif %}</span>
         </div>
-
-        <div class="waf-dash-card">
-          <div class="waf-dash-card-header">
-            <h3 class="waf-dash-card-title">Top attaquants</h3>
-            <span class="waf-dash-card-meta">24 h · CRS + scanners</span>
-          </div>
-          <ul class="waf-attacker-list">
-            {% for atk in ac.top_attackers %}
-            <li class="waf-attacker-item">
-              <span class="mono">{{ atk.ip }}</span>
-              <span class="waf-attacker-meta">
-                <strong>{{ atk.count }}</strong> <span class="muted">détections</span>
-                {% if atk.banned %}
-                <span class="badge badge-ok">banni</span>
-                {% elif atk.can_ban %}
-                <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form">
-                  <input type="hidden" name="ip" value="{{ atk.ip }}">
-                  <input type="hidden" name="ban_mode" value="temporary">
-                  <input type="hidden" name="ban_minutes" value="1440">
-                  <input type="hidden" name="reason" value="WAF top attaquant ({{ atk.count }} détections / 24 h)">
-                  <button type="submit" class="btn btn-ghost btn-sm">Bannir 24h</button>
-                </form>
-                <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form"
-                      data-confirm-title="Ban permanent ?"
-                      data-confirm="Ban permanent de {{ atk.ip }} ? Cliquez Appliquer ensuite pour pousser le deny nginx."
-                      data-confirm-label="Ban permanent"
-                      data-confirm-danger="1">
-                  <input type="hidden" name="ip" value="{{ atk.ip }}">
-                  <input type="hidden" name="ban_mode" value="permanent">
-                  <input type="hidden" name="confirm_permanent" value="on">
-                  <input type="hidden" name="reason" value="WAF top attaquant — ban permanent">
-                  <button type="submit" class="btn btn-sm btn-secondary">Deny permanent</button>
-                </form>
-                {% endif %}
-              </span>
-            </li>
-            {% else %}
-            <li class="muted">Aucun attaquant agrégé sur 24 h.</li>
-            {% endfor %}
-          </ul>
+        <div class="sentinel-feed-wrap">
+          <table class="sentinel-feed-table">
+            <thead>
+              <tr>
+                <th>Horodatage</th>
+                <th>IP source</th>
+                <th>URI cible</th>
+                <th>Règle</th>
+                <th>Action</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in ac.recent %}
+              <tr class="sentinel-feed-row{% if a.critical %} sentinel-feed-row--critical{% endif %}">
+                <td class="sentinel-mono">{{ a.timestamp }}</td>
+                <td>
+                  <span class="sentinel-mono" title="{{ a.origin_hint }}{% if a.origin_country %} · {{ a.origin_country }}{% endif %}">{{ a.origin_flag }}</span>
+                  <span class="sentinel-mono">{{ a.client_ip }}</span>
+                </td>
+                <td class="sentinel-mono" title="{{ a.host }}{{ a.uri }}">{{ a.host }}{{ a.uri }}</td>
+                <td>
+                  <span class="sentinel-sev sentinel-sev--{{ a.severity }}">{{ a.severity }}</span>
+                  <span class="sentinel-mono">{% if a.source == 'unknown_host' %}hôte inconnu{% else %}{{ a.rule_id }}{% endif %}</span>
+                </td>
+                <td class="{% if a.blocked %}sentinel-action-ok{% else %}sentinel-action-warn{% endif %}">{{ a.action_label }}</td>
+                <td>
+                  <button type="button" class="btn btn-ghost btn-sm" data-waf-inspect="{{ a.inspect_b64 }}"
+                          data-waf-inspect-ip="{{ a.client_ip }}">Inspecter</button>
+                  {% if not a.banned and a.can_ban %}
+                  <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form">
+                    <input type="hidden" name="ip" value="{{ a.client_ip }}">
+                    <input type="hidden" name="ban_mode" value="temporary">
+                    <input type="hidden" name="ban_minutes" value="1440">
+                    <input type="hidden" name="reason" value="WAF Sentinel — {{ a.rule_id }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">Bannir</button>
+                  </form>
+                  {% elif a.banned %}
+                  <span class="badge badge-ok">banni</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="muted" style="padding:1rem">Aucun blocage récent.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-      </div>
+      </section>
       {% endif %}
+
+      {% endif %}
+
+      <dialog id="waf-inspect-dialog" class="sentinel-inspect-dialog">
+        <div class="sentinel-inspect-head">
+          <strong id="waf-inspect-title">Détail événement</strong>
+          <button type="button" class="btn btn-ghost btn-sm" id="waf-inspect-close">Fermer</button>
+        </div>
+        <div class="sentinel-inspect-body">
+          <pre class="sentinel-inspect-pre" id="waf-inspect-pre"></pre>
+        </div>
+      </dialog>
+
     </div>
   </div>
 
@@ -992,6 +1027,8 @@
 })();
 
 </script>
+
+<script src="/static/js/waf-sentinel.js?v=20260828-sentinel"></script>
 
 {% endblock %}
 

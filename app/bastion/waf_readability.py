@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -9,6 +10,12 @@ from typing import Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.bastion.ip_geolocation import (
+    collect_waf_dashboard_ips,
+    country_flag,
+    lookup_ip_origins,
+    origin_from_geoloc,
+)
 from app.bastion.modsec_audit_aggregator import (
     RULE_FAMILY_LABELS,
     _rule_family,
@@ -21,8 +28,12 @@ from app.bastion.modsec_audit_aggregator import (
 from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_OFF, MODE_ON, list_promoted_deny_ips
 from app.bastion.nginx_waf_reality import portal_engine_mode, resolve_nginx_waf_snapshot_path
 from app.bastion.waf_charts import (
+    render_attack_heatmap,
+    render_dual_area_chart,
     render_family_breakdown,
+    render_health_gauge,
     render_horizontal_bars,
+    render_owasp_bars,
     render_series_chart,
     _empty_panel,
 )
@@ -178,7 +189,12 @@ def _count_unknown_host_refusals_24h(db: Session) -> int:
         return 0
 
 
-def build_unknown_host_panel(db: Session, *, hours: int = 24) -> dict[str, Any]:
+def build_unknown_host_panel(
+    db: Session,
+    *,
+    hours: int = 24,
+    geo_map: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Scanner / unknown-Host activity from app audit + PendingHost (not ModSec)."""
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     try:
@@ -221,16 +237,22 @@ def build_unknown_host_panel(db: Session, *, hours: int = 24) -> dict[str, Any]:
         if ban.target_type == "ip" and ban.target:
             banned_ips.add(str(ban.target).strip())
 
-    top_ips = [
-        {
-            "ip": str(row.last_client_ip),
-            "count": int(row.hits or 0),
-            "banned": str(row.last_client_ip) in banned_ips,
-            "can_ban": bool(row.last_client_ip),
-        }
-        for row in top_rows
-        if row.last_client_ip
-    ]
+    top_ips = []
+    for row in top_rows:
+        if not row.last_client_ip:
+            continue
+        ip = str(row.last_client_ip)
+        origin = origin_from_geoloc(ip, (geo_map or {}).get(ip))
+        top_ips.append(
+            {
+                "ip": ip,
+                "count": int(row.hits or 0),
+                "banned": ip in banned_ips,
+                "can_ban": bool(ip),
+                "country": origin.get("country") or "",
+                "flag": origin.get("flag") or "🌐",
+            }
+        )
 
     recent: list[dict[str, Any]] = []
     for row in audit_rows:
@@ -648,11 +670,16 @@ def build_efficiency_panel(
 
 
 def build_attack_controls(
-    settings: Settings, db: Session | None = None
+    settings: Settings,
+    db: Session | None = None,
+    *,
+    geo_map: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Attack monitoring + actionable security controls (CRS + unknown host)."""
     unknown_panel: dict[str, Any] = (
-        build_unknown_host_panel(db) if db is not None else {"present": False}
+        build_unknown_host_panel(db, geo_map=geo_map)
+        if db is not None
+        else {"present": False}
     )
 
     summary = read_audit_summary(settings)
@@ -691,6 +718,10 @@ def build_attack_controls(
             RULE_FAMILY_LABELS.get(str(f), str(f).upper()) for f in families if f
         ]
         client_ip = str(ev.get("client_ip") or "—").strip() or "—"
+        origin = origin_from_geoloc(
+            client_ip,
+            (geo_map or {}).get(client_ip) if client_ip != "—" else None,
+        )
         row = {
             "timestamp": (ev.get("timestamp") or "")[:19].replace("T", " "),
             "client_ip": client_ip,
@@ -708,11 +739,34 @@ def build_attack_controls(
             "can_exclude": str(ev.get("rule_id") or "").isdigit(),
             "source": "crs",
         }
+        row["origin_network"] = origin["network"]
+        row["origin_hint"] = origin["hint"]
+        row["origin_flag"] = origin["flag"]
+        row["origin_country"] = origin.get("country") or ""
+        row["origin_country_code"] = origin.get("country_code") or ""
+        row["severity"] = _event_severity(row)
+        row["action_label"] = "Bloqué" if row["blocked"] else "Alerté"
+        row["inspect_b64"] = _encode_inspect_payload(row)
         recent.append(row)
 
     for row in unknown_panel.get("recent") or []:
         if isinstance(row, dict):
-            recent.append(row)
+            enriched = dict(row)
+            ip = str(enriched.get("client_ip") or "—")
+            origin = origin_from_geoloc(
+                ip, (geo_map or {}).get(ip) if ip != "—" else None
+            )
+            enriched.setdefault("origin_network", origin["network"])
+            enriched.setdefault("origin_hint", origin["hint"])
+            enriched.setdefault("origin_flag", origin["flag"])
+            enriched.setdefault("origin_country", origin.get("country") or "")
+            enriched.setdefault("origin_country_code", origin.get("country_code") or "")
+            enriched.setdefault("severity", _event_severity(enriched))
+            enriched.setdefault(
+                "action_label", "Bloqué" if enriched.get("blocked") else "Refusé"
+            )
+            enriched.setdefault("inspect_b64", _encode_inspect_payload(enriched))
+            recent.append(enriched)
 
     recent.sort(key=lambda r: r.get("timestamp") or "", reverse=True)
     recent = recent[:30]
@@ -760,6 +814,301 @@ def build_attack_controls(
         "top_attackers": top_attackers,
         "critical_24h": int(window.get("critical") or 0),
         "unknown_host": unknown_panel,
+    }
+
+
+def _heatmap_row_key(ip: str, geo_map: dict[str, dict[str, Any]] | None) -> str:
+    origin = origin_from_geoloc(ip, (geo_map or {}).get(ip))
+    cc = origin.get("country_code") or ""
+    country = origin.get("country") or ""
+    flag = origin.get("flag") or "🌐"
+    if country:
+        return f"{flag} {country}"
+    if cc:
+        return f"{country_flag(cc)} {cc}"
+    return origin.get("network") or ip
+
+
+def _event_severity(row: dict[str, Any]) -> str:
+    if row.get("critical"):
+        return "critical"
+    if row.get("blocked"):
+        return "high"
+    if row.get("source") == "unknown_host":
+        return "medium"
+    return "low"
+
+
+def _encode_inspect_payload(row: dict[str, Any]) -> str:
+    payload = {
+        "timestamp": row.get("timestamp"),
+        "client_ip": row.get("client_ip"),
+        "host": row.get("host"),
+        "uri": row.get("uri"),
+        "rule_id": row.get("rule_id"),
+        "message": row.get("message"),
+        "blocked": row.get("blocked"),
+        "critical": row.get("critical"),
+        "families": row.get("families"),
+        "score": row.get("score"),
+        "source": row.get("source"),
+        "origin_country": row.get("origin_country"),
+        "origin_city": row.get("origin_hint"),
+    }
+    raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    return base64.b64encode(raw).decode("ascii")
+
+
+def _compute_health_score(
+    active: dict[str, Any],
+    efficiency: dict[str, Any],
+    layers: list[dict[str, Any]],
+) -> int:
+    score = 100
+    crs_mode = portal_engine_mode(active)
+    if crs_mode == MODE_OFF:
+        score -= 45
+    elif crs_mode == MODE_DETECTION:
+        score -= 18
+    elif crs_mode is None:
+        score -= 25
+    critical = int(efficiency.get("critical") or 0)
+    score -= min(25, critical * 4)
+    for layer in layers:
+        if layer.get("alert"):
+            score -= 8
+    return max(0, min(100, score))
+
+
+def _blocks_trend_pct(series_24h: list[dict[str, Any]], blocks: int) -> float | None:
+    if not series_24h:
+        return None
+    mid = max(1, len(series_24h) // 2)
+    prev = sum(int(p.get("detections") or 0) for p in series_24h[:mid])
+    curr = sum(int(p.get("detections") or 0) for p in series_24h[mid:])
+    if prev == 0 and curr == 0:
+        return 0.0 if blocks == 0 else 100.0
+    if prev == 0:
+        return 100.0
+    return round(((curr - prev) / prev) * 100, 1)
+
+
+def _live_suspicious_count(
+    series_24h: list[dict[str, Any]], unknown_hits: int
+) -> int:
+    live = sum(int(p.get("detections") or 0) for p in series_24h[-3:])
+    return live + min(unknown_hits, 9999)
+
+
+def build_executive_summary(
+    settings: Settings,
+    active: dict[str, Any],
+    efficiency: dict[str, Any],
+    attack_controls: dict[str, Any],
+    unknown_host_panel: dict[str, Any],
+    layers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary = read_audit_summary(settings)
+    series_24h = (summary.get("series") or {}).get("24h") or []
+    inspected = int(efficiency.get("inspected") or 0) if efficiency.get("present") else 0
+    blocks = int(efficiency.get("blocks") or 0) if efficiency.get("present") else 0
+    trend = _blocks_trend_pct(series_24h, blocks)
+    unknown_hits = int(unknown_host_panel.get("hits_24h") or 0)
+    live_suspicious = _live_suspicious_count(series_24h, unknown_hits) if efficiency.get("present") else unknown_hits
+    health = _compute_health_score(active, efficiency, layers)
+    return {
+        "present": efficiency.get("present") or unknown_host_panel.get("present"),
+        "inspected": inspected,
+        "blocks": blocks,
+        "blocks_trend_pct": trend,
+        "health_score": health,
+        "health_gauge_svg": render_health_gauge(health),
+        "live_suspicious": live_suspicious,
+        "generated_at": efficiency.get("generated_at"),
+    }
+
+
+def _build_heatmap_matrix(
+    settings: Settings,
+    db: Session | None,
+    *,
+    geo_map: dict[str, dict[str, Any]] | None = None,
+) -> tuple[list[list[int]], list[str], list[str]]:
+    summary = read_audit_summary(settings)
+    recent = summary.get("recent_events") or []
+    col_labels = [f"{h:02d}h" for h in range(24)]
+    network_counts: dict[str, dict[int, int]] = {}
+    for ev in recent:
+        if not isinstance(ev, dict):
+            continue
+        ip = str(ev.get("client_ip") or "").strip()
+        if not ip:
+            continue
+        net = _heatmap_row_key(ip, geo_map)
+        ts = str(ev.get("timestamp") or "")
+        hour = 0
+        if len(ts) >= 13:
+            try:
+                hour = int(ts[11:13])
+            except ValueError:
+                hour = 0
+        bucket = network_counts.setdefault(net, {})
+        bucket[hour] = bucket.get(hour, 0) + 1
+    if db is not None:
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        rows = (
+            db.query(PendingHost.last_client_ip, PendingHost.hit_count, PendingHost.last_seen_at)
+            .filter(PendingHost.last_seen_at >= since, PendingHost.last_client_ip.isnot(None))
+            .all()
+        )
+        for row in rows:
+            ip = str(row.last_client_ip or "").strip()
+            if not ip:
+                continue
+            net = _heatmap_row_key(ip, geo_map)
+            hour = row.last_seen_at.hour if row.last_seen_at else 0
+            bucket = network_counts.setdefault(net, {})
+            bucket[hour] = bucket.get(hour, 0) + int(row.hit_count or 1)
+    if not network_counts:
+        return [], [], col_labels
+    ranked = sorted(
+        network_counts.items(),
+        key=lambda x: sum(x[1].values()),
+        reverse=True,
+    )[:6]
+    row_labels = [label for label, _ in ranked]
+    matrix = []
+    for _, hours in ranked:
+        matrix.append([hours.get(h, 0) for h in range(24)])
+    return matrix, row_labels, col_labels
+
+
+def build_quarantine_panel(
+    db: Session,
+    *,
+    geo_map: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    bans = list_active_bans(db)
+    rows: list[dict[str, Any]] = []
+    for ban in bans[:20]:
+        if ban.target_type != "ip" or not ban.target:
+            continue
+        origin = origin_from_geoloc(str(ban.target), (geo_map or {}).get(str(ban.target)))
+        rows.append(
+            {
+                "id": ban.id,
+                "ip": str(ban.target),
+                "rule_type": ban.rule_type or "manual",
+                "reason": (ban.reason or "")[:80],
+                "expires_at": (
+                    ban.expires_at.isoformat()[:16].replace("T", " ")
+                    if ban.expires_at
+                    else None
+                ),
+                "permanent": bool(ban.permanent),
+                "origin_hint": origin["hint"],
+                "flag": origin["flag"],
+                "country": origin.get("country") or "",
+            }
+        )
+    return {"present": True, "count": len(rows), "rows": rows}
+
+
+def build_quick_controls(
+    db: Session,
+    profile: WafProfile,
+    active: dict[str, Any],
+) -> list[dict[str, Any]]:
+    policy = get_or_create_policy(db)
+    crs_mode = portal_engine_mode(active)
+    crs_on = crs_mode == MODE_ON
+    return [
+        {
+            "id": "crs",
+            "label": "Inspection CRS",
+            "enabled": crs_on,
+            "detail": "Blocage ModSecurity/OWASP CRS",
+            "toggle": "crs",
+            "readonly": crs_mode is None,
+        },
+        {
+            "id": "bruteforce",
+            "label": "Anti-bruteforce",
+            "enabled": bool(policy.enabled),
+            "detail": "Moteur de banning applicatif",
+            "toggle": "bruteforce",
+            "readonly": False,
+        },
+        {
+            "id": "rate_limit",
+            "label": "Rate limiting",
+            "enabled": True,
+            "detail": (
+                f"{profile.portal_login_rate} r/s login · "
+                f"{profile.portal_api_rate} r/s API"
+            ),
+            "toggle": None,
+            "readonly": True,
+        },
+    ]
+
+
+def build_threat_intel_visuals(
+    settings: Settings,
+    active: dict[str, Any],
+    efficiency: dict[str, Any],
+    db: Session | None = None,
+    *,
+    geo_map: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Threat intelligence charts for Sentinel dashboard."""
+    if not efficiency.get("present"):
+        panel = _empty_panel(
+            title="Threat Intelligence",
+            message=efficiency.get("message") or "Données indisponibles",
+            resolution=efficiency.get("resolution") or AGGREGATOR_UNAVAILABLE_RESOLUTION,
+            variant="unavailable",
+            width=560,
+            height=200,
+        )
+        return {
+            "traffic_area_svg": panel,
+            "origin_heatmap_svg": panel,
+            "owasp_rules_svg": panel,
+        }
+    summary = read_audit_summary(settings)
+    series_24h = (summary.get("series") or {}).get("24h") or []
+    window = (summary.get("windows") or {}).get("24h") or {}
+    top_rules = [
+        {"label": f"{r.get('rule_id')} · {(r.get('label') or '')[:20]}", "count": r.get("count")}
+        for r in (window.get("top_rules") or [])[:5]
+    ]
+    matrix, row_labels, col_labels = _build_heatmap_matrix(
+        settings, db, geo_map=geo_map
+    )
+    heatmap_title = (
+        "Origine des attaques (pays × heure)"
+        if getattr(settings, "ip_geoloc_enabled", True)
+        else "Origine des attaques (réseaux /24 × heure)"
+    )
+    measured_zero = efficiency.get("status") == "measured_zero"
+    empty_variant = "measured_zero" if measured_zero else "empty"
+    return {
+        "traffic_area_svg": render_dual_area_chart(
+            series_24h,
+            title="Trafic vs tentatives d'intrusion (24 h)",
+            empty_variant=empty_variant,
+        ),
+        "origin_heatmap_svg": render_attack_heatmap(
+            matrix,
+            row_labels=row_labels,
+            col_labels=col_labels,
+            title=heatmap_title,
+        ),
+        "owasp_rules_svg": render_owasp_bars(
+            top_rules,
+            title="Top 5 règles OWASP déclenchées",
+        ),
     }
 
 
@@ -1119,15 +1468,28 @@ def build_waf_readability_context(
     layers = build_protection_layers(db, profile, active, headers_panel)
     efficiency_24h = build_efficiency_panel(settings, active, window="24h")
     efficiency_7d = build_efficiency_panel(settings, active, window="7d")
+    audit_summary = read_audit_summary(settings)
+    dashboard_ips = collect_waf_dashboard_ips(settings, db, summary=audit_summary)
+    geo_map = lookup_ip_origins(settings, dashboard_ips)
     visuals = build_efficiency_visuals(settings, active, efficiency_24h)
-    attack_controls = build_attack_controls(settings, db)
-    unknown_host_panel = attack_controls.get("unknown_host") or build_unknown_host_panel(db)
+    attack_controls = build_attack_controls(settings, db, geo_map=geo_map)
+    unknown_host_panel = attack_controls.get("unknown_host") or build_unknown_host_panel(
+        db, geo_map=geo_map
+    )
     reactivation = build_reactivation_panel(
         profile, active, settings, export_pending=export_pending
     )
     diagnostic = build_diagnostic_panel(
         settings, active, generated or {}, headers_panel
     )
+    executive = build_executive_summary(
+        settings, active, efficiency_24h, attack_controls, unknown_host_panel, layers
+    )
+    threat_intel = build_threat_intel_visuals(
+        settings, active, efficiency_24h, db, geo_map=geo_map
+    )
+    quarantine = build_quarantine_panel(db, geo_map=geo_map)
+    quick_controls = build_quick_controls(db, profile, active)
     apply_enabled = bool(export_pending) or bool(
         verdict.get("action_apply") and reactivation.get("armed")
     )
@@ -1139,6 +1501,16 @@ def build_waf_readability_context(
         "efficiency_visuals": visuals,
         "attack_controls": attack_controls,
         "unknown_host_panel": unknown_host_panel,
+        "executive_summary": executive,
+        "threat_intel": threat_intel,
+        "quarantine_panel": quarantine,
+        "quick_controls": quick_controls,
+        "ip_geolocation": {
+            "enabled": bool(getattr(settings, "ip_geoloc_enabled", True)),
+            "resolved": len(geo_map),
+            "provider": "ip-api.com",
+        },
+        "security_policy_enabled": get_or_create_policy(db).enabled,
         "reactivation": reactivation,
         "apply_enabled": apply_enabled,
         "mode_pilotable": reactivation.get("pilotable"),
