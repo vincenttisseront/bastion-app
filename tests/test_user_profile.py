@@ -46,7 +46,7 @@ def _app(db: Session, *, slug: str, label: str) -> App:
     return app
 
 
-def _default_realm(db: Session) -> RealmConfig:
+def _default_realm(db: Session, *, with_provisioning: bool = False) -> RealmConfig:
     settings = Settings(
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
@@ -62,6 +62,12 @@ def _default_realm(db: Session) -> RealmConfig:
         is_default=True,
         enabled=True,
     )
+    if with_provisioning:
+        realm.keycloak_provision_client_id = "bastion-admin-provision"
+        realm.keycloak_provision_client_secret_encrypted = encrypt_secret(
+            "prov-secret", settings
+        )
+        realm.provisioning_enabled = True
     db.add(realm)
     db.commit()
     db.refresh(realm)
@@ -102,7 +108,19 @@ def test_user_profile_security_hidden_for_breakglass(
     assert "Sécurité du compte" in resp.text  # section title still present
 
 
-def test_user_profile_security_links_keycloak_account(
+def test_user_profile_security_native_when_provisioning(
+    client: TestClient, db_session: Session
+):
+    _default_realm(db_session, with_provisioning=True)
+    resp = client.get("/profile", headers=USER_HEADERS)
+    assert resp.status_code == 200
+    assert "Mettre à jour le mot de passe" in resp.text
+    assert "Sessions connectées" in resp.text
+    assert 'action="/profile/password"' in resp.text
+    assert "Gérer la sécurité du compte" not in resp.text
+
+
+def test_user_profile_security_links_keycloak_account_fallback(
     client: TestClient, db_session: Session
 ):
     _default_realm(db_session)

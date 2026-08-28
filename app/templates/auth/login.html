@@ -195,6 +195,9 @@
           {% endif %}
         </button>
       </form>
+      <p class="login-sub login-restart" style="margin-top:var(--sp-3); text-align:center;">
+        <a href="/auth/forgot-password{% if native_realm_slug %}?realm={{ native_realm_slug }}{% endif %}">Mot de passe oublié ?</a>
+      </p>
       {% endif %}
       {% elif not oauth2_url and not show_breakglass %}
       <p class="login-sub">Aucun mode de connexion n'est disponible depuis cette adresse.</p>

@@ -23,6 +23,11 @@ def check_access_request_post_rate(ip: str | None) -> float | None:
     return _check(ip, scope="access_request_post", limit=_POST_LIMIT, window=_POST_WINDOW_SEC)
 
 
+def check_forgot_password_post_rate(ip: str | None) -> float | None:
+    """Return retry-after seconds if over the forgot-password POST budget."""
+    return _check(ip, scope="forgot_password_post", limit=5, window=_POST_WINDOW_SEC)
+
+
 def check_altcha_challenge_rate(ip: str | None) -> float | None:
     """Return retry-after seconds if over the challenge GET budget."""
     return _check(ip, scope="altcha_challenge", limit=_CHALLENGE_LIMIT, window=_CHALLENGE_WINDOW_SEC)

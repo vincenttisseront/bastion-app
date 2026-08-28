@@ -171,6 +171,82 @@ async def logout_keycloak_user(
     }
 
 
+async def list_keycloak_user_sessions(
+    realm: RealmConfig, keycloak_user_id: str, settings: Settings
+) -> list[dict]:
+    """GET /users/{id}/sessions — active Keycloak SSO sessions for one user."""
+    uid = (keycloak_user_id or "").strip()
+    if not uid:
+        return []
+    resp = await _admin_get(realm, settings, f"/users/{uid}/sessions")
+    if resp.status_code == 403:
+        raise ValueError(_view_users_error())
+    if resp.status_code == 404:
+        return []
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec lecture sessions utilisateur (HTTP {resp.status_code})")
+    data = resp.json()
+    return data if isinstance(data, list) else []
+
+
+async def delete_keycloak_session(
+    realm: RealmConfig, session_id: str, settings: Settings
+) -> None:
+    """DELETE /sessions/{id} — revoke one Keycloak session."""
+    sid = (session_id or "").strip()
+    if not sid:
+        raise ValueError("Identifiant de session Keycloak manquant")
+    token = (
+        await get_provision_token(realm, settings)
+        if provisioning_configured(realm)
+        else None
+    )
+    resp = await _admin_send(realm, settings, "DELETE", f"/sessions/{sid}", token=token)
+    if resp.status_code == 403:
+        raise ValueError(_manage_users_error())
+    if resp.status_code == 404:
+        return
+    if resp.status_code >= 400:
+        raise ValueError(f"Échec révocation session Keycloak (HTTP {resp.status_code})")
+
+
+async def find_keycloak_user_by_identity(
+    realm: RealmConfig,
+    identity: str,
+    settings: Settings,
+) -> dict | None:
+    """Exact email/username match in a realm (for self-service forgot password)."""
+    from urllib.parse import quote
+
+    ident = (identity or "").strip()
+    if not ident:
+        return None
+    ident_l = ident.lower()
+    for attr in ("email", "username"):
+        resp = await _admin_get(
+            realm, settings, f"/users?{attr}={quote(ident)}&exact=true&max=2"
+        )
+        if resp.status_code >= 400:
+            continue
+        data = resp.json()
+        if not isinstance(data, list):
+            continue
+        for u in data:
+            email = (u.get("email") or "").strip().lower()
+            username = (u.get("username") or "").strip().lower()
+            if email == ident_l or username == ident_l:
+                return u
+        if len(data) == 1:
+            return data[0]
+    candidates = await search_keycloak_users(realm, ident, settings, max_results=5)
+    for u in candidates:
+        email = (u.get("email") or "").strip().lower()
+        username = (u.get("username") or "").strip().lower()
+        if email == ident_l or username == ident_l:
+            return u
+    return None
+
+
 async def fetch_group_members(
     realm: RealmConfig,
     keycloak_group_id: str,

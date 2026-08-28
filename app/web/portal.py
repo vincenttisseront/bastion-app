@@ -223,6 +223,22 @@ async def user_profile(
     tiles = _effective_tiles(db, user)
     account_url = _account_console_url(db, user, settings)
     as_ctx = _portal_activesync_context(db, user)
+    from app.web.profile_security_service import (
+        current_native_jti,
+        list_user_sso_sessions,
+        self_service_security_available,
+    )
+
+    security_available = self_service_security_available(db, user, settings)
+    current_jti = current_native_jti(request, db, settings)
+    sso_sessions: list = []
+    if security_available:
+        sso_sessions = await list_user_sso_sessions(
+            db,
+            user=user,
+            settings=settings,
+            current_jti=current_jti,
+        )
     return render(
         "portal/profile.html",
         **_portal_page_ctx(
@@ -234,6 +250,9 @@ async def user_profile(
             apps_preview=tiles[:6],
             account_url=account_url,
             role_label="Administrateur" if portal_admin else "Utilisateur",
+            security_available=security_available,
+            sso_sessions=sso_sessions,
+            min_password_len=12,
             **as_ctx,
         ),
     )
@@ -345,6 +364,146 @@ async def portal_device_revoke(
     flash_redirect(
         response,
         "Appareil révoqué — la synchronisation sera refusée à la prochaine tentative.",
+        "success",
+        secret,
+    )
+    return response
+
+
+@router.post("/profile/password")
+async def profile_change_password(
+    request: Request,
+    csrf_token: str = Form(""),
+    current_password: str = Form(""),
+    new_password: str = Form(""),
+    confirm_password: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    from app.web.profile_security_service import (
+        ProfileSecurityError,
+        change_own_password,
+        self_service_security_available,
+    )
+
+    _require_portal_csrf(request, settings, csrf_token)
+    secret = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/profile#section-security", status_code=302)
+    if not self_service_security_available(db, user, settings):
+        flash_redirect(response, "Changement de mot de passe indisponible.", "error", secret)
+        return response
+    actor = user.email or user.username or "user"
+    try:
+        await change_own_password(
+            db,
+            user=user,
+            settings=settings,
+            current_password=current_password,
+            new_password=new_password,
+            confirm_password=confirm_password,
+            actor=actor,
+            ip_address=_client_ip(request),
+        )
+    except ProfileSecurityError as exc:
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    flash_redirect(response, "Mot de passe mis à jour.", "success", secret)
+    return response
+
+
+@router.post("/profile/sessions/revoke")
+async def profile_revoke_session(
+    request: Request,
+    csrf_token: str = Form(""),
+    session_kind: str = Form(""),
+    session_id: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    from app.web.profile_security_service import (
+        ProfileSecurityError,
+        current_native_jti,
+        revoke_own_keycloak_session,
+        revoke_own_native_session,
+        self_service_security_available,
+    )
+
+    _require_portal_csrf(request, settings, csrf_token)
+    secret = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/profile#section-security", status_code=302)
+    if not self_service_security_available(db, user, settings):
+        flash_redirect(response, "Révocation indisponible.", "error", secret)
+        return response
+    actor = user.email or user.username or "user"
+    kind = (session_kind or "").strip()
+    sid = (session_id or "").strip()
+    try:
+        if kind == "keycloak":
+            await revoke_own_keycloak_session(
+                db,
+                user=user,
+                settings=settings,
+                session_id=sid,
+                actor=actor,
+                ip_address=_client_ip(request),
+            )
+        elif kind == "portal_native":
+            revoke_own_native_session(
+                db,
+                user=user,
+                jti=sid,
+                current_jti=current_native_jti(request, db, settings),
+                actor=actor,
+                ip_address=_client_ip(request),
+            )
+        else:
+            raise ProfileSecurityError("Session introuvable.")
+    except ProfileSecurityError as exc:
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    flash_redirect(response, "Session révoquée.", "success", secret)
+    return response
+
+
+@router.post("/profile/sessions/revoke-others")
+async def profile_revoke_other_sessions(
+    request: Request,
+    csrf_token: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    from app.web.profile_security_service import (
+        ProfileSecurityError,
+        current_native_jti,
+        revoke_all_other_sessions,
+        self_service_security_available,
+    )
+
+    _require_portal_csrf(request, settings, csrf_token)
+    secret = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url="/profile#section-security", status_code=302)
+    if not self_service_security_available(db, user, settings):
+        flash_redirect(response, "Révocation indisponible.", "error", secret)
+        return response
+    actor = user.email or user.username or "user"
+    try:
+        count = await revoke_all_other_sessions(
+            db,
+            user=user,
+            settings=settings,
+            current_jti=current_native_jti(request, db, settings),
+            actor=actor,
+            ip_address=_client_ip(request),
+        )
+    except ProfileSecurityError as exc:
+        flash_redirect(response, str(exc), "error", secret)
+        return response
+    flash_redirect(
+        response,
+        f"{count} session{'s' if count != 1 else ''} révoquée{'s' if count != 1 else ''}.",
         "success",
         secret,
     )
