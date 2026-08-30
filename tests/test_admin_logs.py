@@ -51,16 +51,17 @@ def test_logs_shows_integrity_and_exports(client: TestClient):
     assert "/admin/logs" in (audit_redirect.headers.get("location") or "")
 
 
-def test_resolve_audit_target_display_unknown_host_shows_ip():
+def test_resolve_audit_target_display_unknown_host_shows_host():
     display, title = resolve_audit_target_display(
         "access_denied_unknown_host",
-        "lm0ntsouris.wanadoo.fr",
+        "203.0.113.10",
         "86.65.1.85",
         {"uri": "/simple.php"},
     )
-    assert display == "86.65.1.85"
-    assert "wanadoo" in title
+    assert display == "203.0.113.10/simple.php"
+    assert "203.0.113.10" in title
     assert "/simple.php" in title
+    assert "86.65.1.85" not in display
 
 
 def test_logs_table_hides_french_action_title(client: TestClient, db_session: Session):
@@ -78,7 +79,8 @@ def test_logs_table_hides_french_action_title(client: TestClient, db_session: Se
     assert resp.status_code == 200
     assert "<code>access_denied_unknown_host</code>" in resp.text
     assert "86.65.1.85" in resp.text
-    assert "wanadoo.fr" not in resp.text.split("audit-tbody")[1].split("</tbody>")[0]
+    # Cible = Host HTTP refusé (tronqué éventuel), distinct de la colonne IP
+    assert "lm0ntsouris" in resp.text
     assert "audit-action-title" not in resp.text
 
 

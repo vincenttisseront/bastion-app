@@ -68,7 +68,8 @@
 #waf-page .sentinel-threat-grid .sentinel-panel--rules{grid-column:1/-1}
 
 #waf-page .sentinel-ops-grid{
-  display:grid;gap:.75rem;grid-template-columns:1fr 1fr;
+  display:grid;gap:.75rem;grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);
+  align-items:start;
 }
 @media(max-width:800px){#waf-page .sentinel-ops-grid{grid-template-columns:1fr}}
 
@@ -76,6 +77,8 @@
   background:var(--sentinel-bg);border:1px solid var(--sentinel-border);
   border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--sh-card);
 }
+#waf-page .sentinel-panel--quarantine{min-width:0}
+#waf-page .sentinel-panel--quarantine .sentinel-panel-body{padding:.55rem .75rem .65rem}
 #waf-page .sentinel-panel-head{
   display:flex;align-items:center;justify-content:space-between;
   padding:.65rem 1rem;border-bottom:1px solid var(--sentinel-border);
@@ -135,15 +138,23 @@
 #waf-page .sentinel-layer-dot--err{background:var(--sentinel-err)}
 #waf-page .sentinel-layer-dot--muted{background:var(--text-3)}
 
-#waf-page .sentinel-quarantine-list{list-style:none;margin:0;padding:0;max-height:14rem;overflow:auto}
+#waf-page .sentinel-quarantine-list{
+  list-style:none;margin:0;padding:0;max-height:9.5rem;overflow:auto;
+  overscroll-behavior:contain;
+}
 #waf-page .sentinel-quarantine-item{
-  display:flex;align-items:center;justify-content:space-between;gap:.5rem;
-  padding:.5rem 0;border-bottom:1px solid var(--border-muted);font-size:.78rem;
+  display:flex;align-items:center;justify-content:space-between;gap:.4rem;
+  padding:.32rem 0;border-bottom:1px solid var(--border-muted);font-size:.74rem;
 }
 #waf-page .sentinel-quarantine-item:last-child{border-bottom:none}
 #waf-page .sentinel-quarantine-ip{font-family:var(--sentinel-mono);font-weight:600;color:var(--sentinel-text)}
-#waf-page .sentinel-quarantine-meta{font-size:.68rem;color:var(--sentinel-muted)}
-
+#waf-page .sentinel-quarantine-meta{
+  font-size:.65rem;color:var(--sentinel-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;
+}
+#waf-page .sentinel-quarantine-foot{
+  margin:.45rem 0 0;padding-top:.4rem;border-top:1px solid var(--border-muted);
+  font-size:.68rem;display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;
+}
 #waf-page .sentinel-feed-wrap{overflow:auto;max-height:26rem}
 #waf-page .sentinel-feed-table{width:100%;border-collapse:collapse;font-size:.75rem}
 #waf-page .sentinel-feed-table th{

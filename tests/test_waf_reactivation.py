@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_OFF, MODE_ON
 from app.bastion.waf_reactivation import (
+    promote_subdomain_engine_to_on,
     reactivate_engine,
     reactivate_subdomain_engine,
     read_arm_state,
@@ -335,3 +336,144 @@ def test_reactivate_subdomain_smoke_failure_rolls_back(db_session, tmp_path: Pat
         encoding="utf-8"
     )
     assert "modsecurity off;" in switch
+
+
+def _seed_subdomain_detection(db_session, tmp_path: Path, *, profile_mode: str = MODE_ON):
+    settings = _settings(tmp_path)
+    db_session.add(
+        WafProfile(
+            name="Production",
+            mode=profile_mode,
+            anomaly_threshold=5,
+            is_active=True,
+            created_by="test",
+        )
+    )
+    db_session.add(
+        App(
+            slug="doli",
+            label="Doli",
+            public_fqdn="doli.example.fr",
+            access_mode="subdomain_proxy",
+            enabled=True,
+            upstream_url="http://127.0.0.1:8080",
+        )
+    )
+    db_session.commit()
+    mod = tmp_path / "exports" / "modsecurity"
+    mod.mkdir(parents=True, exist_ok=True)
+    engine = mod / "engine-subdomain-mode-generated.conf"
+    engine.write_text("SecRuleEngine DetectionOnly\n", encoding="utf-8")
+    (tmp_path / "exports" / "modsecurity-subdomain-switch.conf").write_text(
+        render_subdomain_switch(enabled=True), encoding="utf-8"
+    )
+    write_arm_state(
+        settings,
+        {
+            "armed": True,
+            "family": "portal",
+            "target_mode": MODE_ON,
+            "subdomain_armed": True,
+            "subdomain": {
+                "armed": True,
+                "target_mode": MODE_DETECTION,
+                "phase": "active",
+            },
+        },
+    )
+    return settings
+
+
+def test_promote_subdomain_requires_armed(db_session, tmp_path: Path):
+    settings = _settings(tmp_path)
+    db_session.add(
+        WafProfile(
+            name="Production",
+            mode=MODE_ON,
+            anomaly_threshold=5,
+            is_active=True,
+            created_by="test",
+        )
+    )
+    db_session.add(
+        App(
+            slug="doli",
+            label="Doli",
+            public_fqdn="doli.example.fr",
+            access_mode="subdomain_proxy",
+            enabled=True,
+            upstream_url="http://127.0.0.1:8080",
+        )
+    )
+    db_session.commit()
+    write_arm_state(settings, {"armed": True, "family": "portal", "target_mode": MODE_ON})
+    result = promote_subdomain_engine_to_on(
+        db_session,
+        settings,
+        actor="admin",
+        confirm=True,
+        sync_reload=lambda _s: (True, "ok"),
+        smoke=lambda _db, _s: {"ok": True, "probes": [], "failed": []},
+    )
+    assert result["ok"] is False
+    assert "DetectionOnly" in (result.get("error") or "")
+
+
+def test_promote_subdomain_requires_profile_on(db_session, tmp_path: Path):
+    settings = _seed_subdomain_detection(db_session, tmp_path, profile_mode=MODE_DETECTION)
+    result = promote_subdomain_engine_to_on(
+        db_session,
+        settings,
+        actor="admin",
+        confirm=True,
+        sync_reload=lambda _s: (True, "ok"),
+        smoke=lambda _db, _s: {"ok": True, "probes": [], "failed": []},
+    )
+    assert result["ok"] is False
+    assert "profil" in (result.get("error") or "").lower()
+
+
+def test_promote_subdomain_success(db_session, tmp_path: Path):
+    settings = _seed_subdomain_detection(db_session, tmp_path)
+    result = promote_subdomain_engine_to_on(
+        db_session,
+        settings,
+        actor="admin",
+        confirm=True,
+        sync_reload=lambda _s: (True, "ok"),
+        smoke=lambda _db, _s: {"ok": True, "probes": [{"ok": True}], "failed": []},
+    )
+    assert result["ok"] is True
+    assert result["mode"] == MODE_ON
+    assert read_subdomain_armed(settings) is True
+    engine = (
+        tmp_path / "exports" / "modsecurity" / "engine-subdomain-mode-generated.conf"
+    ).read_text(encoding="utf-8")
+    assert "SecRuleEngine On" in engine
+    arm = read_arm_state(settings)
+    assert (arm.get("subdomain") or {}).get("target_mode") == MODE_ON
+
+
+def test_promote_subdomain_smoke_failure_keeps_detection(db_session, tmp_path: Path):
+    settings = _seed_subdomain_detection(db_session, tmp_path)
+    result = promote_subdomain_engine_to_on(
+        db_session,
+        settings,
+        actor="admin",
+        confirm=True,
+        sync_reload=lambda _s: (True, "ok"),
+        smoke=lambda _db, _s: {
+            "ok": False,
+            "probes": [{"url": "http://nginx:8080/healthz", "ok": False, "status": 500}],
+            "failed": [{"url": "http://nginx:8080/healthz", "status": 500}],
+        },
+    )
+    assert result["ok"] is False
+    assert result["rolled_back"] is True
+    assert read_subdomain_armed(settings) is True
+    engine = (
+        tmp_path / "exports" / "modsecurity" / "engine-subdomain-mode-generated.conf"
+    ).read_text(encoding="utf-8")
+    assert "DetectionOnly" in engine
+    arm = read_arm_state(settings)
+    assert (arm.get("subdomain") or {}).get("target_mode") == MODE_DETECTION

@@ -288,18 +288,18 @@
             </ul>
           </div>
         </div>
-        <div class="sentinel-panel">
+        <div class="sentinel-panel sentinel-panel--quarantine">
           <div class="sentinel-panel-head">
             <h3 class="sentinel-panel-title">IP en quarantaine</h3>
-            <span class="sentinel-panel-meta">{{ quar.count }} active(s)</span>
+            <span class="sentinel-panel-meta">{{ quar.count }} IP</span>
           </div>
           <div class="sentinel-panel-body">
             <ul class="sentinel-quarantine-list">
               {% for q in quar.rows %}
               <li class="sentinel-quarantine-item">
-                <div>
-                  <span class="sentinel-quarantine-ip">{{ q.flag }} {{ q.ip }}</span>
-                  <div class="sentinel-quarantine-meta">{{ q.origin_hint }} · {{ q.rule_type_label or q.rule_type }}{% if q.permanent %} · permanent{% elif q.expires_at %} · exp. {{ q.expires_at }}{% endif %}</div>
+                <div style="min-width:0">
+                  <span class="sentinel-quarantine-ip">{{ q.flag }} {{ q.ip }}{% if q.ban_count and q.ban_count > 1 %} ×{{ q.ban_count }}{% endif %}</span>
+                  <div class="sentinel-quarantine-meta" title="{{ q.origin_hint }} · {{ q.rule_type_label or q.rule_type }}{% if q.permanent %} · permanent{% elif q.expires_at %} · exp. {{ q.expires_at }}{% endif %}">{{ q.rule_type_label or q.rule_type }}{% if q.permanent %} · permanent{% elif q.expires_at %} · exp. {{ q.expires_at }}{% endif %}</div>
                 </div>
                 <form method="post" action="/admin/security/waf/actions/lift-ban/{{ q.id }}" class="inline-form">
                   <button type="submit" class="btn btn-ghost btn-sm">Débloquer</button>
@@ -309,6 +309,16 @@
               <li class="muted" style="padding:.5rem 0">Aucune IP en quarantaine.</li>
               {% endfor %}
             </ul>
+            {% if quar.count %}
+            <div class="sentinel-quarantine-foot">
+              {% if quar.truncated %}
+              <span class="muted">+{{ quar.more_count }} autre(s)</span>
+              {% else %}
+              <span class="muted">Aperçu</span>
+              {% endif %}
+              <a href="/admin/security#banning">Sécurité → Banning</a>
+            </div>
+            {% endif %}
           </div>
         </div>
       </section>
@@ -325,7 +335,7 @@
               <tr>
                 <th>Horodatage</th>
                 <th>IP source</th>
-                <th>Cible</th>
+                <th title="Hôte HTTP + URI demandés (pas l'upstream)">Cible</th>
                 <th>Source</th>
                 <th>Règle</th>
                 <th>Action</th>
@@ -844,8 +854,26 @@
       <div class="alert alert-ok" style="margin-top:1rem">
         <strong>ModSecurity subdomain armé</strong>
         <p class="muted">Mode nginx : <code>{{ reactivation.subdomain_real_mode or '—' }}</code>
+          {% if reactivation.subdomain_target_mode %} · cible : <code>{{ reactivation.subdomain_target_mode }}</code>{% endif %}
           · Apps : {% for h in reactivation.subdomain_apps %}<code class="mono">{{ h }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
       </div>
+      {% if reactivation.can_promote_subdomain_to_on %}
+      <div class="alert alert-warn" style="margin-top:1rem">
+        <strong>Promouvoir les sous-domaines en On (blocage)</strong>
+        <p>{{ reactivation.subdomain_promote_summary }}</p>
+        <p class="muted">Prérequis : profil WAF en mode On. Le portail n'est pas modifié par cette action.</p>
+      </div>
+      <div class="waf-reactivation-actions">
+        <form method="post" action="/admin/security/waf/actions/promote-subdomain-on" class="stack waf-reactivate-form"
+              id="waf-promote-subdomain-on-form">
+          <label class="form-check">
+            <input type="checkbox" name="confirm_promote_subdomain_on" value="on" required>
+            Je confirme le passage subdomain en On (blocage CRS) et les contrôles HTTP
+          </label>
+          <button type="submit" class="btn btn-primary">Promouvoir subdomain (On)</button>
+        </form>
+      </div>
+      {% endif %}
       {% endif %}
 
       <ol class="waf-reactivation-steps">
@@ -1051,6 +1079,13 @@
     title: 'Réactiver ModSecurity subdomain ?',
     message: 'DetectionOnly sur les vhosts subdomain_proxy, GET / par FQDN. Retour à Off si 5xx.',
     confirmLabel: 'Réactiver subdomain',
+    danger: true,
+  });
+
+  confirmSubmit(document.getElementById('waf-promote-subdomain-on-form'), {
+    title: 'Promouvoir ModSecurity subdomain en On ?',
+    message: 'Blocage CRS sur les vhosts subdomain_proxy. Smoke HTTP ; retour DetectionOnly si échec.',
+    confirmLabel: 'Promouvoir On',
     danger: true,
   });
 
