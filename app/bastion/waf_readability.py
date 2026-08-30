@@ -234,12 +234,12 @@ def build_reactivation_panel(
         ),
         "subdomain_summary": (
             "DetectionOnly sur les FQDN subdomain_proxy actifs "
-            f"({len(subdomain_apps)} app(s)) : GET / (pas de 5xx). "
+            f"({len(subdomain_apps)} app(s)) : GET /auth/login (pas de 5xx). "
             "Retour à Off si une sonde échoue."
         ),
         "subdomain_promote_summary": (
             "Passe SecRuleEngine subdomain de DetectionOnly à On "
-            f"({len(subdomain_apps)} FQDN). Smoke HTTP obligatoire ; "
+            f"({len(subdomain_apps)} FQDN). Smoke GET /auth/login (edge, sans upstream) ; "
             "en échec → retour automatique en DetectionOnly (pas de désarmement)."
         ),
         "steps": list(REACTIVATION_STEPS),

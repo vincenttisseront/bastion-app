@@ -170,7 +170,7 @@ def test_smoke_portal_probes_structure(monkeypatch, tmp_path: Path):
     assert any(p.get("optional") for p in out["probes"])
 
 
-def test_smoke_subdomain_probes_use_healthz_not_root(monkeypatch, db_session, tmp_path: Path):
+def test_smoke_subdomain_probes_prefer_auth_login_edge(monkeypatch, db_session, tmp_path: Path):
     settings = _settings(tmp_path)
     db_session.add(
         App(
@@ -183,17 +183,21 @@ def test_smoke_subdomain_probes_use_healthz_not_root(monkeypatch, db_session, tm
         )
     )
     db_session.commit()
-    calls: list[str] = []
+    calls: list[tuple[str, str | None]] = []
 
     def fake_probe(url, **kwargs):
-        calls.append(url)
-        return {"ok": True, "status": 200, "url": url, "reason": "ok"}
+        calls.append((url, kwargs.get("host")))
+        # Simulate legacy /healthz hanging on upstream — must not be required.
+        if url.endswith("/healthz"):
+            return {"ok": False, "error": "timed out", "url": url, "status": None}
+        return {"ok": True, "status": 302, "url": url, "reason": "ok"}
 
     monkeypatch.setattr("app.bastion.waf_reactivation._http_probe", fake_probe)
     out = smoke_subdomain_probes(db_session, settings)
     assert out["ok"] is True
-    assert any(u.endswith("/healthz") for u in calls)
-    assert not any(u.rstrip("/").endswith(":8080") for u in calls)
+    assert any(u.endswith("/auth/login") for u, _ in calls)
+    assert calls[0][0].endswith("/auth/login")
+    assert calls[0][1] == "doli.example.fr"
 
 def test_smoke_ignores_optional_https_failure(monkeypatch, tmp_path: Path):
     settings = _settings(tmp_path)

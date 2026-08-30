@@ -423,10 +423,16 @@ def _format_failed_probes(failed: list[dict[str, Any]]) -> str:
     parts = []
     for p in failed:
         url = p.get("url") or "?"
+        host = p.get("subdomain_host") or p.get("host")
+        prefix = f"Host {host} " if host else ""
         if p.get("status") is not None:
-            parts.append(f"{url} → HTTP {p.get('status')} ({p.get('reason') or 'fail'})")
+            parts.append(
+                f"{prefix}{url} → HTTP {p.get('status')} ({p.get('reason') or 'fail'})"
+            )
         else:
-            parts.append(f"{url} → {p.get('error') or p.get('reason') or 'injoignable'}")
+            parts.append(
+                f"{prefix}{url} → {p.get('error') or p.get('reason') or 'injoignable'}"
+            )
     return "; ".join(parts)
 
 
@@ -712,7 +718,12 @@ def wait_for_subdomain_engine_mode(
 
 
 def smoke_subdomain_probes(db: Session, settings: Settings) -> dict[str, Any]:
-    """HTTP smoke on each enabled subdomain_proxy Host (edge :8080, no 5xx)."""
+    """HTTP smoke on each enabled subdomain_proxy Host (edge :8080, no 5xx).
+
+    Must not depend on app upstreams (Dolibarr, CrushFTP, …): ``/healthz`` used to
+    ``proxy_pass`` the origin and timed out during CRS promote. Prefer local edge
+    paths — ``/auth/login`` (302) then ``/healthz`` (200 after export apply).
+    """
     hosts = list_subdomain_smoke_hosts(db)[:SUBDOMAIN_SMOKE_HOST_LIMIT]
     if not hosts:
         return {
@@ -723,11 +734,33 @@ def smoke_subdomain_probes(db: Session, settings: Settings) -> dict[str, Any]:
         }
 
     base = "http://nginx:8080"
+    # Fast local responses first — avoid waiting out upstream proxy timeouts.
+    paths = ("/auth/login", "/healthz")
     probes: list[dict[str, Any]] = []
     for host in hosts:
-        probe = _http_probe(f"{base}/healthz", host=host, expect_not_5xx=True)
-        probe["critical"] = True
-        probe["subdomain_host"] = host
+        probe: dict[str, Any] | None = None
+        last: dict[str, Any] | None = None
+        for path in paths:
+            for attempt in range(SMOKE_RETRIES):
+                last = _http_probe(f"{base}{path}", host=host, expect_not_5xx=True)
+                last["critical"] = True
+                last["subdomain_host"] = host
+                last["path"] = path
+                last["attempt"] = attempt + 1
+                if last.get("ok"):
+                    probe = last
+                    break
+            if probe is not None:
+                break
+        if probe is None:
+            probe = last or {
+                "ok": False,
+                "url": f"{base}/auth/login",
+                "host": host,
+                "error": "probe failed",
+                "critical": True,
+                "subdomain_host": host,
+            }
         probes.append(probe)
 
     failed_critical = [p for p in probes if p.get("critical") and not p.get("ok")]

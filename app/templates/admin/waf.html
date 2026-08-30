@@ -890,7 +890,7 @@
         <ul class="waf-pending-list">
           <li><code>nginx -t</code> puis reload des exports</li>
           <li>Portail : <code>/_portal_nginx_ok</code>, <code>/api/health</code>, <code>/auth/login</code> — pas de 5xx</li>
-          <li>Sous-domaines : GET <code>/</code> sur chaque FQDN — pas de 5xx</li>
+          <li>Sous-domaines : GET <code>/auth/login</code> (Host = FQDN) — pas de 5xx (302 OK)</li>
         </ul>
         <p class="muted">Si une sonde échoue, le moteur de la famille concernée revient à Off. nginx -t seul ne suffit pas.</p>
       </div>
@@ -1077,14 +1077,14 @@
 
   confirmSubmit(document.getElementById('waf-reactivate-subdomain-form'), {
     title: 'Réactiver ModSecurity subdomain ?',
-    message: 'DetectionOnly sur les vhosts subdomain_proxy, GET / par FQDN. Retour à Off si 5xx.',
+    message: 'DetectionOnly sur les vhosts subdomain_proxy, GET /auth/login par FQDN. Retour à Off si 5xx.',
     confirmLabel: 'Réactiver subdomain',
     danger: true,
   });
 
   confirmSubmit(document.getElementById('waf-promote-subdomain-on-form'), {
     title: 'Promouvoir ModSecurity subdomain en On ?',
-    message: 'Blocage CRS sur les vhosts subdomain_proxy. Smoke HTTP ; retour DetectionOnly si échec.',
+    message: 'Blocage CRS sur les vhosts subdomain_proxy. Smoke /auth/login (pas d\'upstream) ; retour DetectionOnly si échec.',
     confirmLabel: 'Promouvoir On',
     danger: true,
   });
