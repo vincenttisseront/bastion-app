@@ -15,6 +15,7 @@ from app.bastion.waf_readability import (
     build_executive_summary,
     build_protection_layers,
     build_protection_verdict,
+    build_quarantine_panel,
     build_unknown_host_panel,
     _apply_feed_target,
     _enrich_feed_source,
@@ -22,7 +23,7 @@ from app.bastion.waf_readability import (
     _resolve_vhost_family,
 )
 from app.bastion.pending_host_service import record_unknown_host
-from app.models import WafProfile
+from app.models import SecurityBan, WafProfile
 from app.security.banning.service import get_or_create_policy
 from app.sso_settings import Settings
 
@@ -341,7 +342,20 @@ def test_health_score_breakdown_filtrage_alert():
     assert summary["health_breakdown"][0]["points"] == -8
 
 
-def test_apply_feed_target_unknown_host_uses_ip_not_reverse_dns():
+def test_apply_feed_target_unknown_host_shows_refused_host():
+    row = {
+        "source": "unknown_host",
+        "host": "203.0.113.10",
+        "uri": "/wp-json/batch/v1",
+        "client_ip": "93.123.109.163",
+    }
+    _apply_feed_target(row)
+    assert row["target_display"] == "203.0.113.10/wp-json/batch/v1"
+    assert "93.123.109.163" not in row["target_display"]
+    assert "203.0.113.10" in row["target_title"]
+
+
+def test_apply_feed_target_unknown_host_keeps_long_hostname():
     row = {
         "source": "unknown_host",
         "host": "lm0ntsouris-657-1-66-85.w80-11.abo.wanadoo.fr",
@@ -349,7 +363,8 @@ def test_apply_feed_target_unknown_host_uses_ip_not_reverse_dns():
         "client_ip": "86.65.1.85",
     }
     _apply_feed_target(row)
-    assert row["target_display"] == "86.65.1.85/simple.php"
+    assert row["target_display"].startswith("lm0ntsouris")
+    assert "/simple.php" in row["target_display"]
     assert "wanadoo" in row["target_title"]
 
 
@@ -399,3 +414,33 @@ def test_resolve_vhost_family_portal_host():
     settings = Settings(portal_domain="portal.example.fr")  # type: ignore[call-arg]
     assert _resolve_vhost_family("portal.example.fr", settings, None) == "portal"
     assert _resolve_vhost_family("auth.portal.example.fr", settings, None) == "portal"
+
+
+def test_quarantine_panel_dedupes_ip_and_limits(db_session: Session):
+    for _ in range(5):
+        db_session.add(
+            SecurityBan(
+                target_type="ip",
+                target="8.234.135.108",
+                reason="rafale",
+                rule_type="unknown_host_hammering",
+                permanent=False,
+                created_by="test",
+            )
+        )
+    db_session.add(
+        SecurityBan(
+            target_type="ip",
+            target="203.0.113.9",
+            reason="manual",
+            rule_type="manual",
+            permanent=True,
+            created_by="test",
+        )
+    )
+    db_session.commit()
+    panel = build_quarantine_panel(db_session, limit=8)
+    assert panel["count"] == 2
+    by_ip = {r["ip"]: r for r in panel["rows"]}
+    assert by_ip["8.234.135.108"]["ban_count"] == 5
+    assert panel["truncated"] is False

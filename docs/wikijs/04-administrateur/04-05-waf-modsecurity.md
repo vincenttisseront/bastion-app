@@ -16,14 +16,17 @@ Admin → **WAF** (`/admin/security/waf`) :
 | **Exclusions** | Désactivation soft de règles CRS |
 | **En-têtes** | Lecture snapshot nginx |
 | **Détails techniques** | Sources, diagnostic JSON |
-| **`Réactivation`** (onglet conditionnel) | Visible seulement si le moteur est désarmé — Réactiver DetectionOnly |
+| **`Réactivation`** (onglet conditionnel) | Armement portal / subdomain (DetectionOnly), puis **promotion subdomain → On** |
 | **Profil** | Mode, seuil ; **Couper le moteur** si armé |
 
 ### Appliquer vs Réactiver
 
-- **Appliquer** : pousse exclusions, deny IP, rate-limits (et le mode **si le moteur est déjà armé**).
+- **Appliquer** : pousse exclusions, deny IP, rate-limits (et le mode **portal** si le moteur est déjà armé).
 - **Réactiver le moteur (DetectionOnly)** : arme le connecteur portal + `SecRuleEngine DetectionOnly`,
   exécute un **smoke HTTP** ; en échec → **rollback auto** vers Off.
+- **Réactiver subdomain (DetectionOnly)** : après portal armé — même logique sur les FQDN `subdomain_proxy`.
+- **Promouvoir subdomain (On)** : passe `engine-subdomain-mode-generated.conf` de DetectionOnly à **On**
+  (profil WAF doit être On) ; smoke HTTP ; en échec → **retour DetectionOnly** (pas de désarmement).
 - **Couper le moteur** : désarmement immédiat.
 
 Sans armement, le sync nginx force `SecRuleEngine Off` même si le profil DB est « en blocage ».
@@ -34,10 +37,12 @@ Sans armement, le sync nginx force `SecRuleEngine Off` même si le profil DB est
 2. `/_portal_nginx_ok` → 200
 3. `/api/health` → pas de 5xx
 4. `/auth/login` → pas de 5xx (panne type 2026-08-06)
+5. Sous-domaines : `GET /healthz` (Host = FQDN) → pas de 5xx
 
 ## Bonnes pratiques
 
 - Première réactivation = **DetectionOnly** portal uniquement (subdomain / public restent Off)
+- Puis réactiver subdomain en DetectionOnly, observer, **promouvoir On** depuis l’onglet Réactivation
 - Observer le Bilan / `modsec_audit.log` avant de passer en **On**
 - Exclure avec parcimonie (fausses positives documentées)
 - Vérifier disque / logrotate avant réactivation (runbook §0.1)

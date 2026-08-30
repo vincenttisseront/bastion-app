@@ -111,7 +111,9 @@ REACTIVATION_STEPS = [
         "title": "DetectionOnly avant le blocage",
         "detail": (
             "Observer les faux positifs dans le bilan et les journaux CRS, "
-            "ajouter des exclusions ciblées, puis passer le profil en On + Appliquer."
+            "ajouter des exclusions ciblées, puis passer le profil en On + Appliquer "
+            "(portail). Pour les sous-domaines : promouvoir DetectionOnly → On "
+            "depuis l'onglet Réactivation (smoke + rollback)."
         ),
     },
     {
@@ -170,7 +172,22 @@ def build_reactivation_panel(
         and not subdomain_armed
         and subdomain_apps
     )
-    show_tab = can_reactivate_portal or can_reactivate_subdomain or subdomain_armed
+    sub_arm = arm.get("subdomain") if isinstance(arm.get("subdomain"), dict) else {}
+    subdomain_target = str(sub_arm.get("target_mode") or "")
+    subdomain_already_on = subdomain_real == MODE_ON or subdomain_target == MODE_ON
+    can_promote_subdomain_to_on = bool(
+        portal_armed
+        and subdomain_armed
+        and subdomain_apps
+        and profile.mode == MODE_ON
+        and not subdomain_already_on
+    )
+    show_tab = (
+        can_reactivate_portal
+        or can_reactivate_subdomain
+        or subdomain_armed
+        or can_promote_subdomain_to_on
+    )
     return {
         "show": show_tab,
         "blocked": blocked,
@@ -181,12 +198,14 @@ def build_reactivation_panel(
         "desired_mode": profile.mode,
         "real_mode": real,
         "subdomain_real_mode": subdomain_real,
+        "subdomain_target_mode": subdomain_target or None,
         "subdomain_apps": subdomain_apps,
         "export_pending": bool(export_pending),
         "apply_can_change_mode": bool(portal_armed),
         "can_reactivate": can_reactivate_portal,
         "can_reactivate_portal": can_reactivate_portal,
         "can_reactivate_subdomain": can_reactivate_subdomain,
+        "can_promote_subdomain_to_on": can_promote_subdomain_to_on,
         "can_disarm": portal_armed,
         "apply_still_useful_for": [
             "Exclusions CRS (bastion-exclusions-generated.conf)",
@@ -202,9 +221,14 @@ def build_reactivation_panel(
             else (
                 "Moteur portail armé. "
                 + (
-                    "Sous-domaines en DetectionOnly."
-                    if subdomain_armed
-                    else "Vous pouvez activer ModSecurity sur les applications en sous-domaine."
+                    "Sous-domaines en blocage (On)."
+                    if subdomain_already_on
+                    else (
+                        "Sous-domaines en DetectionOnly — promotion On disponible "
+                        "si le profil est en On."
+                        if subdomain_armed
+                        else "Vous pouvez activer ModSecurity sur les applications en sous-domaine."
+                    )
                 )
             )
         ),
@@ -212,6 +236,11 @@ def build_reactivation_panel(
             "DetectionOnly sur les FQDN subdomain_proxy actifs "
             f"({len(subdomain_apps)} app(s)) : GET / (pas de 5xx). "
             "Retour à Off si une sonde échoue."
+        ),
+        "subdomain_promote_summary": (
+            "Passe SecRuleEngine subdomain de DetectionOnly à On "
+            f"({len(subdomain_apps)} FQDN). Smoke HTTP obligatoire ; "
+            "en échec → retour automatique en DetectionOnly (pas de désarmement)."
         ),
         "steps": list(REACTIVATION_STEPS),
         "desired_on": desired_on,
@@ -967,13 +996,14 @@ def _enrich_feed_source(
 
 
 def _apply_feed_target(row: dict[str, Any]) -> None:
-    """Human-readable target column — unknown Host shows IP+path, not reverse-DNS hostname."""
+    """Human-readable target column: HTTP Host + URI (not client IP, not upstream)."""
     host = str(row.get("host") or "—").strip() or "—"
     uri = str(row.get("uri") or "/").strip() or "/"
-    client_ip = str(row.get("client_ip") or "—").strip() or "—"
     if row.get("source") == "unknown_host":
-        row["target_display"] = f"{client_ip}{uri}"
-        row["target_title"] = f"Hôte HTTP : {host} · {uri}"
+        # Refused Host header (edge) — never substitute client_ip (duplicates IP Source).
+        combined = f"{host}{uri}" if host != "—" else uri
+        row["target_display"] = combined[:120]
+        row["target_title"] = f"Hôte HTTP refusé : {host} · {uri}"
     else:
         combined = f"{host}{uri}" if host != "—" else uri
         row["target_display"] = combined[:120]
@@ -1164,34 +1194,49 @@ def build_quarantine_panel(
     db: Session,
     *,
     geo_map: dict[str, dict[str, Any]] | None = None,
+    limit: int = 8,
 ) -> dict[str, Any]:
+    """Compact preview of active IP bans (deduped by IP, newest first)."""
     bans = list_active_bans(db)
-    rows: list[dict[str, Any]] = []
-    for ban in bans[:20]:
+    by_ip: dict[str, dict[str, Any]] = {}
+    for ban in bans:
         if ban.target_type != "ip" or not ban.target:
             continue
-        origin = origin_from_geoloc(str(ban.target), (geo_map or {}).get(str(ban.target)))
-        rows.append(
-            {
-                "id": ban.id,
-                "ip": str(ban.target),
-                "rule_type": ban.rule_type or "manual",
-                "rule_type_label": BAN_RULE_TYPE_LABELS.get(
-                    ban.rule_type or "manual", ban.rule_type or "manual"
-                ),
-                "reason": (ban.reason or "")[:80],
-                "expires_at": (
-                    ban.expires_at.isoformat()[:16].replace("T", " ")
-                    if ban.expires_at
-                    else None
-                ),
-                "permanent": bool(ban.permanent),
-                "origin_hint": origin["hint"],
-                "flag": origin["flag"],
-                "country": origin.get("country") or "",
-            }
-        )
-    return {"present": True, "count": len(rows), "rows": rows}
+        ip = str(ban.target).strip()
+        if not ip:
+            continue
+        if ip in by_ip:
+            by_ip[ip]["ban_count"] = int(by_ip[ip]["ban_count"]) + 1
+            continue
+        origin = origin_from_geoloc(ip, (geo_map or {}).get(ip))
+        by_ip[ip] = {
+            "id": ban.id,
+            "ip": ip,
+            "ban_count": 1,
+            "rule_type": ban.rule_type or "manual",
+            "rule_type_label": BAN_RULE_TYPE_LABELS.get(
+                ban.rule_type or "manual", ban.rule_type or "manual"
+            ),
+            "reason": (ban.reason or "")[:80],
+            "expires_at": (
+                ban.expires_at.isoformat()[:16].replace("T", " ")
+                if ban.expires_at
+                else None
+            ),
+            "permanent": bool(ban.permanent),
+            "origin_hint": origin["hint"],
+            "flag": origin["flag"],
+            "country": origin.get("country") or "",
+        }
+    rows = list(by_ip.values())
+    total = len(rows)
+    return {
+        "present": True,
+        "count": total,
+        "rows": rows[: max(1, int(limit))],
+        "truncated": total > max(1, int(limit)),
+        "more_count": max(0, total - max(1, int(limit))),
+    }
 
 
 def build_quick_controls(

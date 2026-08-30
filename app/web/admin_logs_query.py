@@ -136,16 +136,22 @@ def resolve_audit_target_display(
     ip_address: str | None,
     details: dict[str, Any] | None,
 ) -> tuple[str, str]:
-    """Compact target for table; tooltip may include HTTP Host / URI."""
+    """Compact target for table; tooltip may include HTTP Host / URI.
+
+    For unknown-host refusals, ``target`` is the refused Host header (edge),
+    not the client IP and not an upstream behind the bastion.
+    """
     act = (action or "").strip()
     host = (target or "").strip()
-    ip = (ip_address or "").strip()
     uri = str((details or {}).get("uri") or "").strip()
     if act == "access_denied_unknown_host" and host:
-        title = f"Hôte HTTP : {host}"
+        title = f"Hôte HTTP refusé : {host}"
         if uri:
             title = f"{title} · {uri}"
-        return ip or "—", title
+        display = f"{host}{uri}" if uri else host
+        if len(display) > 48:
+            display = display[:47] + "…"
+        return display, title
     if host and len(host) > 48:
         return host[:47] + "…", host
     return host or "—", host or ""
