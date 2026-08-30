@@ -240,8 +240,9 @@ Le bandeau disparaît lorsque le moteur nginx rejoint le mode enregistré après
 
 ## Notes d’exploitation
 
-- **`/healthz` subdomain_proxy** : absent de l’export Python (présent seulement dans le
-  j2 DMZ legacy). Ne pas ajouter une sonde sans `modsecurity off;` dédié.
+- **`/healthz` subdomain_proxy** : `return 200` local (`modsecurity off`) — ne proxy
+  plus l’upstream (évite timeout smoke CRS si l’app métier est lente).
+  Régénérer les vhosts subdomain (apply infra) pour déployer le changement.
 - **Headers sécurité** (HSTS/XFO/…) : edge TLS nginx-bastion `:443` (`security-headers.conf`)
   — lecture seule dans l’IHM WAF pour l’instant.
 - **Rate limiting** portal : zones `portal_login` / `portal_api` pilotables via IHM (taux) ;

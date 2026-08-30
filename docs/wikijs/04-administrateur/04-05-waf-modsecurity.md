@@ -37,7 +37,7 @@ Sans armement, le sync nginx force `SecRuleEngine Off` même si le profil DB est
 2. `/_portal_nginx_ok` → 200
 3. `/api/health` → pas de 5xx
 4. `/auth/login` → pas de 5xx (panne type 2026-08-06)
-5. Sous-domaines : `GET /healthz` (Host = FQDN) → pas de 5xx
+5. Sous-domaines : `GET /auth/login` (Host = FQDN) → pas de 5xx (302 OK) ; `/healthz` edge local après apply export
 
 ## Bonnes pratiques
 
