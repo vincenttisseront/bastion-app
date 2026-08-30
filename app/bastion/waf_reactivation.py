@@ -701,20 +701,76 @@ def wait_for_subdomain_engine_mode(
     settings: Settings,
     expected: str,
     *,
-    attempts: int = 15,
+    attempts: int = 30,
     delay_sec: float = 2.0,
+    nudge: Callable[[Settings], None] | None = None,
 ) -> dict[str, Any]:
-    """Poll nginx WAF snapshot until subdomain SecRuleEngine matches."""
-    from app.bastion.nginx_waf_reality import read_nginx_waf_reality, subdomain_engine_mode
+    """Poll nginx WAF snapshot until subdomain SecRuleEngine matches.
+
+    Re-touches exports periodically so the bastion-nginx watcher re-syncs and
+    refreshes ``nginx-waf-snapshot.json`` (stale DetectionOnly was rolling back
+    a successful On promote).
+    """
+    from app.bastion.nginx_waf_reality import (
+        last_sec_rule_engine,
+        read_nginx_waf_reality,
+        subdomain_engine_mode,
+    )
 
     last: str | None = None
+    export_mode: str | None = None
+    snap_at: str | None = None
     for i in range(attempts):
+        try:
+            export_mode = last_sec_rule_engine(
+                subdomain_engine_mode_path(settings).read_text(encoding="utf-8")
+            )
+        except OSError:
+            export_mode = None
         active = read_nginx_waf_reality(settings=settings)
         last = subdomain_engine_mode(active)
+        snap_at = str(active.get("generated_at") or "") or None
         if last == expected:
-            return {"ok": True, "mode": last, "attempts": i + 1}
+            return {
+                "ok": True,
+                "mode": last,
+                "export_mode": export_mode,
+                "snapshot_generated_at": snap_at,
+                "attempts": i + 1,
+            }
+        # Nudge watcher every few polls when export already matches expected.
+        if nudge is not None and export_mode == expected and (i + 1) % 4 == 0:
+            try:
+                nudge(settings)
+            except Exception:  # noqa: BLE001
+                logger.exception("subdomain engine wait nudge failed")
         time.sleep(delay_sec)
-    return {"ok": False, "mode": last, "attempts": attempts}
+    return {
+        "ok": False,
+        "mode": last,
+        "export_mode": export_mode,
+        "snapshot_generated_at": snap_at,
+        "attempts": attempts,
+    }
+
+
+def _nudge_waf_exports_watcher(settings: Settings) -> None:
+    """Bump mtimes so watch-exports-reload re-runs sync + snapshot."""
+    for path in (
+        subdomain_engine_mode_path(settings),
+        arm_state_path(settings),
+        waf_exports_dir(settings) / ".waf-reload-nudge",
+    ):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.name == ".waf-reload-nudge":
+                path.write_text(
+                    datetime.now(timezone.utc).isoformat() + "\n", encoding="utf-8"
+                )
+            elif path.is_file():
+                path.touch()
+        except OSError:
+            logger.debug("nudge touch failed for %s", path, exc_info=True)
 
 
 def smoke_subdomain_probes(db: Session, settings: Settings) -> dict[str, Any]:
@@ -876,7 +932,11 @@ def reactivate_subdomain_engine(
         edge = wait_for_nginx_edge(settings)
         if not edge.get("ok"):
             time.sleep(RELOAD_WAIT_SEC)
-        engine_wait = wait_for_subdomain_engine_mode(settings, MODE_DETECTION)
+        engine_wait = wait_for_subdomain_engine_mode(
+            settings,
+            MODE_DETECTION,
+            nudge=_nudge_waf_exports_watcher,
+        )
         if not engine_wait.get("ok"):
             _rollback_subdomain(
                 settings,
@@ -889,7 +949,8 @@ def reactivate_subdomain_engine(
                 "ok": False,
                 "error": (
                     "nginx n'a pas basculé subdomain en DetectionOnly après reload "
-                    f"(mode snapshot={engine_wait.get('mode')!r})."
+                    f"(snapshot={engine_wait.get('mode')!r}, "
+                    f"export={engine_wait.get('export_mode')!r})."
                 ),
                 "rolled_back": True,
                 "paths": paths,
@@ -1034,7 +1095,11 @@ def promote_subdomain_engine_to_on(
     _backup_file(engine_path)
     _backup_file(arm_state_path(settings))
 
-    engine_path.write_text(render_engine_mode_line(MODE_ON), encoding="utf-8")
+    engine_path.write_text(
+        render_engine_mode_line(MODE_ON)
+        + f"# promote_at={datetime.now(timezone.utc).isoformat()}\n",
+        encoding="utf-8",
+    )
 
     body = dict(prev_arm)
     body.update(
@@ -1051,6 +1116,7 @@ def promote_subdomain_engine_to_on(
         }
     )
     write_arm_state(settings, body)
+    _nudge_waf_exports_watcher(settings)
 
     paths = {
         ENGINE_SUBDOMAIN_MODE_FILENAME: str(engine_path),
@@ -1081,7 +1147,22 @@ def promote_subdomain_engine_to_on(
         edge = wait_for_nginx_edge(settings)
         if not edge.get("ok"):
             time.sleep(RELOAD_WAIT_SEC)
-        engine_wait = wait_for_subdomain_engine_mode(settings, MODE_ON)
+        engine_wait = wait_for_subdomain_engine_mode(
+            settings,
+            MODE_ON,
+            nudge=_nudge_waf_exports_watcher,
+        )
+        if not engine_wait.get("ok"):
+            # One more forced sync before rolling back (stale snapshot is common).
+            sync_fn(settings)
+            _nudge_waf_exports_watcher(settings)
+            time.sleep(RELOAD_WAIT_SEC)
+            engine_wait = wait_for_subdomain_engine_mode(
+                settings,
+                MODE_ON,
+                attempts=15,
+                nudge=_nudge_waf_exports_watcher,
+            )
         if not engine_wait.get("ok"):
             _rollback_subdomain_promote(
                 settings,
@@ -1094,7 +1175,10 @@ def promote_subdomain_engine_to_on(
                 "ok": False,
                 "error": (
                     "nginx n'a pas basculé subdomain en On après reload "
-                    f"(mode snapshot={engine_wait.get('mode')!r})."
+                    f"(snapshot={engine_wait.get('mode')!r}, "
+                    f"export={engine_wait.get('export_mode')!r}). "
+                    "Vérifier le watcher bastion-nginx et "
+                    "engine-subdomain-mode-generated.conf."
                 ),
                 "rolled_back": True,
                 "paths": paths,
