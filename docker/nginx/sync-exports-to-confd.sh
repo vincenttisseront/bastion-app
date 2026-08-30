@@ -116,8 +116,8 @@ if [[ -f "$EXPORTS/modsecurity/waf-engine-arm.json" ]]; then
   fi
 fi
 if [[ "$ARMED" -eq 1 && -f "$EXPORTS/modsecurity/engine-mode-generated.conf" ]]; then
-  cp -a "$EXPORTS/modsecurity/engine-mode-generated.conf" \
-    /etc/nginx/modsecurity/generated/engine-mode-generated.conf
+  cat "$EXPORTS/modsecurity/engine-mode-generated.conf" \
+    > /etc/nginx/modsecurity/generated/engine-mode-generated.conf
 else
   cat > /etc/nginx/modsecurity/generated/engine-mode-generated.conf <<'EOF'
 # Not armed — Admin → WAF → Réactiver (DetectionOnly + contrôles HTTP).
@@ -132,8 +132,9 @@ if [[ -f "$EXPORTS/modsecurity/waf-engine-arm.json" ]]; then
   fi
 fi
 if [[ "$SUBDOMAIN_ARMED" -eq 1 && -f "$EXPORTS/modsecurity/engine-subdomain-mode-generated.conf" ]]; then
-  cp -a "$EXPORTS/modsecurity/engine-subdomain-mode-generated.conf" \
-    /etc/nginx/modsecurity/generated/engine-subdomain-mode-generated.conf
+  # Force content rewrite (not only cp -a) so watcher + nginx always see new bytes.
+  cat "$EXPORTS/modsecurity/engine-subdomain-mode-generated.conf" \
+    > /etc/nginx/modsecurity/generated/engine-subdomain-mode-generated.conf
 else
   cat > /etc/nginx/modsecurity/generated/engine-subdomain-mode-generated.conf <<'EOF'
 # Subdomain not armed — Admin → WAF → Réactiver subdomain.

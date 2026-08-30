@@ -46,15 +46,26 @@ family_json() {
   local engine_gen=false
   local crs_gen=false
   local engine_source=""
+  local overlay=""
 
   if [[ ! -f "$main" ]]; then
     jq -n --arg fam "$fam" '{family:$fam, error:"main conf missing"}'
     return
   fi
 
+  # Authoritative ModSecurity mode overlay (last Include in main-*.conf).
+  case "$fam" in
+    portal) overlay="${MODSEC}/generated/engine-mode-generated.conf" ;;
+    subdomain) overlay="${MODSEC}/generated/engine-subdomain-mode-generated.conf" ;;
+    *) overlay="" ;;
+  esac
+
   while IFS= read -r inc; do
     [[ -z "$inc" ]] && continue
-    if [[ "$inc" == *engine-mode-generated* ]]; then engine_gen=true; fi
+    # Match portal engine-mode-generated and subdomain engine-*-mode-generated.
+    if [[ "$inc" == *engine-mode-generated* || "$inc" == *engine-*-mode-generated* ]]; then
+      engine_gen=true
+    fi
     if [[ "$inc" == *crs-setup-generated* ]]; then crs_gen=true; fi
     if [[ -f "$inc" ]]; then
       combined+="$(cat "$inc")"$'\n'
@@ -68,7 +79,14 @@ family_json() {
   )
 
   local raw_mode static_mode threshold threshold_source
-  raw_mode="$(last_sec_rule_engine "$combined")"
+  # Prefer the generated overlay file when present (avoids stale/mis-ordered cats).
+  if [[ -n "$overlay" && -f "$overlay" ]]; then
+    raw_mode="$(last_sec_rule_engine "$(cat "$overlay")")"
+    engine_gen=true
+    engine_source="$overlay"
+  else
+    raw_mode="$(last_sec_rule_engine "$combined")"
+  fi
   static_mode="$(last_sec_rule_engine "$(cat "${MODSEC}/engine-${fam}.conf" 2>/dev/null || echo '')")"
   threshold="$(parse_threshold "$(cat "${MODSEC}/crs-setup.conf" 2>/dev/null || echo '')")"
   threshold_source="crs-setup.conf (statique)"
