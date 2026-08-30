@@ -278,9 +278,8 @@ async def subdomain_auth(
 
     Decision flow:
         1. RFC1918 bypass (if RFC1918_BYPASS_ENABLED) -> 200 (LAN, no identity —
-           no AccessGrant check). Default OFF (F-04 2026-07-25): align with portal
-           until the client-IP chain is proven; re-enable only for confirmed LAN
-           need. IP via client_ip_from_request (trusted proxy only).
+           no AccessGrant check). Default OFF; IP via client_ip_from_request
+           (trusted proxy only).
         2. App resolution       -> 401 if no app for this Host
         3. Session              -> native bastion_session, then oauth2-proxy, then
            break-glass cookie
@@ -303,12 +302,8 @@ async def subdomain_auth(
     client_ip = client_ip_from_request(request)
     cookie_header = request.headers.get("Cookie", "")
 
-    # 1. RFC1918 bypass — gated by RFC1918_BYPASS_ENABLED (default false, F-04).
-    # Portal /internal/oauth2-auth never applies this path. Subdomain kept the
-    # same flag; disabled until reverse01 → nginx-bastion → app IP resolution is
-    # validated end-to-end. client_ip_from_request ignores spoofed headers unless
-    # the TCP peer is in TRUSTED_PROXY_CIDRS.
-    #
+    # 1. RFC1918 bypass — gated by RFC1918_BYPASS_ENABLED (default false).
+    # Portal /internal/oauth2-auth never applies this path.
     # When enabled: skip AccessGrant, but still forward session identity when a
     # bastion_session is present — trusted-header upstreams need X-Auth-Email.
     # Anonymous LAN 200 only if no session.
@@ -554,8 +549,7 @@ async def subdomain_auth(
         )
 
     # 3b. Break-glass — emergency admin: allow all apps without AccessGrant.
-    # Rationale (2026-07-23): break-glass is the LAN recovery path when IdP is down;
-    # requiring grants would block the only remaining admin access to subdomain apps.
+    # LAN recovery when IdP is down; requiring grants would block that path.
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie:
         # rotate=False: nginx auth_request does not forward Set-Cookie.

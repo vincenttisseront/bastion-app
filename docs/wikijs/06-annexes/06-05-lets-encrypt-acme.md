@@ -1,73 +1,73 @@
-﻿> **Format :** Markdown (source Wiki.js).  
-> **Fichier dépôt d’origine :** `docs/lets-encrypt-acme-nginx-bastion.md` — garder les deux synchronisés (voir `docs/wikijs/MAINTENANCE.md`).
+> **Format :** Markdown (source Wiki.js).  
+> **Fichier dépôt d'origine :** docs/lets-encrypt-acme-nginx-bastion.md — garder les deux synchronisés (voir docs/wikijs/MAINTENANCE.md).
 
 ---
 # Let's Encrypt / ACME sur nginx-bastion (Docker)
 
-> Cutover reverse01 â†’ edge public nginx-bastion (2026-08-06). Challenge DNS-01
+> Cutover reverse01 → edge public nginx-bastion (2026-08-06). Challenge DNS-01
 > Cloudflare (`dns_cf`) pour **tous** les FQDN bastion.
 
-## PrÃ©requis CF DNS (gate ops)
+## Prérequis CF DNS (gate ops)
 
 Avant tout reconcile **staging ou prod** :
 
-1. Zone Cloudflare `ar-systems.fr` active (DNS gÃ©rÃ© cÃ´tÃ© CF).
-2. Token API avec **Zone.DNS Edit** dans `.env.acme` (`CF_Token=â€¦`).
-3. `ACME_DNS_API=dns_cf` (dÃ©faut compose / runtime).
+1. Zone Cloudflare `ar-systems.fr` active (DNS géré côté CF).
+2. Token API avec **Zone.DNS Edit** dans `.env.acme` (`CF_Token=…`).
+3. `ACME_DNS_API=dns_cf` (défaut compose / runtime).
 
-Confirmer explicitement **Â« CF DNS OK Â»** avant le premier issue rÃ©el. Sans Ã§a,
-acme.sh Ã©choue au challenge TXT.
+Confirmer explicitement **« CF DNS OK »** avant le premier issue réel. Sans ça,
+acme.sh échoue au challenge TXT.
 
 ## Topologie
 
 ```
-Internet â†’ Cloudflare (orange)
-         â†’ bastion-nginx:80  â†’ 301 HTTPS
-         â†’ bastion-nginx:443 (certs ACME + security-headers)
-         â†’ :8080 (portal / subdomain SSO / public_proxy)
+Internet → Cloudflare (orange)
+         → bastion-nginx:80  → 301 HTTPS
+         → bastion-nginx:443 (certs ACME + security-headers)
+         → :8080 (portal / subdomain SSO / public_proxy)
 acme-companion
   lit exports/acme-domains.json (portal + subdomain + public_proxy + infra)
-  Ã©crit data/certs/<fqdn>/{fullchain,privkey}.pem
-  (pas de docker.sock â€” reload via watcher mtime PEM / acme-domains.json)
+  écrit data/certs/<fqdn>/{fullchain,privkey}.pem
+  (pas de docker.sock — reload via watcher mtime PEM / acme-domains.json)
 ```
 
 Compose publie `"80:80"` / `"443:443"` ; `:8080` est `127.0.0.1:8080` seulement.
 
-## DÃ©cisions
+## Décisions
 
 | Sujet | Choix |
 |---|---|
 | Client | acme.sh sidecar (`neilpang/acme.sh`) |
 | Challenge | DNS-01 (`dns_cf` / Cloudflare) |
-| PÃ©rimÃ¨tre | portal + subdomain_proxy + public_proxy + infra |
-| TLS listen | `0.0.0.0:443` (+ `:80` â†’ 301 HTTPS) |
-| Reload | watcher nginx (mtime exports + pem) â€” **pas** de docker.sock |
-| Secrets | `.env.acme` (gitignored), modÃ¨le `.env.acme.example` |
+| Périmètre | portal + subdomain_proxy + public_proxy + infra |
+| TLS listen | `0.0.0.0:443` (+ `:80` → 301 HTTPS) |
+| Reload | watcher nginx (mtime exports + pem) — **pas** de docker.sock |
+| Secrets | `.env.acme` (gitignored), modèle `.env.acme.example` |
 | Edge | **nginx Docker** (Traefik hors ingress public) |
 
 ## Fichiers
 
-| PiÃ¨ce | RÃ´le |
+| Pièce | Rôle |
 |---|---|
 | `app/bastion/acme_domains_export.py` | `exports/acme-domains.json` (toutes familles) |
 | `docker/acme/reconcile-certs.sh` | issue / placeholder / prune |
-| `docker/acme/entrypoint-acme.sh` | cron + reconcile pÃ©riodique |
-| `docker/nginx/sync-acme-tls.sh` | vhosts `:443 ssl` (+ headers) ; `:80` â†’ 301 |
-| `docker/nginx/sync-public-proxy-tls.sh` | wrapper compat â†’ `sync-acme-tls.sh` |
-| `docker-compose.yml` â†’ `acme-companion` | service |
+| `docker/acme/entrypoint-acme.sh` | cron + reconcile périodique |
+| `docker/nginx/sync-acme-tls.sh` | vhosts `:443 ssl` (+ headers) ; `:80` → 301 |
+| `docker/nginx/sync-public-proxy-tls.sh` | wrapper compat → `sync-acme-tls.sh` |
+| `docker-compose.yml` → `acme-companion` | service |
 
-## ProcÃ©dure staging â†’ prod
+## Procédure staging → prod
 
 ### 1. Staging (Let's Encrypt test)
 
 ```bash
-# .env.acme ou Admin â†’ ACME
+# .env.acme ou Admin → ACME
 ACME_CA=letsencrypt_test
 ```
 
-Puis Admin â†’ **RÃ©concilier** (ou toucher `certs/.reconcile_request`).
+Puis Admin → **Réconcilier** (ou toucher `certs/.reconcile_request`).
 
-Valider **au moins 1 FQDN par famille** prÃ©sente dans `acme-domains.json`
+Valider **au moins 1 FQDN par famille** présente dans `acme-domains.json`
 (portal, subdomain_proxy, public_proxy) :
 
 ```bash
@@ -75,59 +75,59 @@ docker exec bastion-acme sh -c 'openssl x509 -noout -dates -in /certs/<fqdn>/ful
 docker exec bastion-nginx nginx -t
 ```
 
-Ã‰metteur attendu : staging Let's Encrypt (pas ZeroSSL).
+Émetteur attendu : staging Let's Encrypt (pas ZeroSSL).
 
 ### 2. Prod
 
-Quand staging est OK et CF DNS confirmÃ© :
+Quand staging est OK et CF DNS confirmé :
 
 ```bash
 ACME_CA=letsencrypt
 ```
 
-RÃ©concilier Ã  nouveau. VÃ©rifier dates / issuer, puis smoke HTTPS.
+Réconcilier à nouveau. Vérifier dates / issuer, puis smoke HTTPS.
 
-### Cause frÃ©quente : ZeroSSL au lieu de Let's Encrypt
+### Cause fréquente : ZeroSSL au lieu de Let's Encrypt
 
-Les images `neilpang/acme.sh` rÃ©centes utilisent **ZeroSSL** par dÃ©faut.
+Les images `neilpang/acme.sh` récentes utilisent **ZeroSSL** par défaut.
 Le reconcile force `--server letsencrypt` / `letsencrypt_test` et `--set-default-ca`.
-AprÃ¨s mise Ã  jour des scripts : redÃ©marrer `bastion-acme`, puis **RÃ©concilier**.
+Après mise à jour des scripts : redémarrer `bastion-acme`, puis **Réconcilier**.
 
 ## Mise en service (UI)
 
-1. Admin â†’ **ACME** : activer, coller `CF_Token`, CA staging puis prod.
-2. **Enregistrer** â†’ Ã©crit `exports/acme-runtime.env` (+ `acme-domains.json`).
-3. **RÃ©concilier maintenant** â†’ Ã©crit `certs/.reconcile_request` ; le sidecar poll ~5 s.
+1. Admin → **ACME** : activer, coller `CF_Token`, CA staging puis prod.
+2. **Enregistrer** → écrit `exports/acme-runtime.env` (+ `acme-domains.json`).
+3. **Réconcilier maintenant** → écrit `certs/.reconcile_request` ; le sidecar poll ~5 s.
 4. Panneau **Logs Let's Encrypt (live)** : queue `certs/acme-reconcile.log` + statut via `GET /api/admin/acme/status`.
-5. Tableau domaines : statut cert (OK / renew â‰¤30j / placeholder / absent), Ã©chÃ©ance, Ã©metteur.
+5. Tableau domaines : statut cert (OK / renew ≤30j / placeholder / absent), échéance, émetteur.
 
-### DNS â€” faut-il crÃ©er des records ?
+### DNS — faut-il créer des records ?
 
-**Non pour le challenge.** DNS-01 Cloudflare : acme.sh crÃ©e/supprime les TXT
-`_acme-challenge.<fqdn>` via lâ€™API. Aucun TXT manuel.
+**Non pour le challenge.** DNS-01 Cloudflare : acme.sh crée/supprime les TXT
+`_acme-challenge.<fqdn>` via l’API. Aucun TXT manuel.
 
-Toujours nÃ©cessaires hors ACME : A/AAAA/CNAME publics (orange CF) vers docker01
-oÃ¹ bastion-nginx Ã©coute 443.
+Toujours nécessaires hors ACME : A/AAAA/CNAME publics (orange CF) vers docker01
+où bastion-nginx écoute 443.
 
 ## Watcher reload
 
-Le conteneur nginx surveille le mtime des PEM et de `acme-domains.json`, rÃ©gÃ©nÃ¨re
-via `sync-acme-tls.sh`, puis `nginx -t` + reload â€” **sans** socket Docker vers le
+Le conteneur nginx surveille le mtime des PEM et de `acme-domains.json`, régénère
+via `sync-acme-tls.sh`, puis `nginx -t` + reload — **sans** socket Docker vers le
 sidecar.
 
-## Headers sÃ©curitÃ© (edge unique)
+## Headers sécurité (edge unique)
 
 `sync-acme-tls.sh` inclut `includes/security-headers.conf` **une fois** dans chaque
-`server { listen 443 â€¦ }` (pas sur `:8080`). Preuve ops :
+`server { listen 443 … }` (pas sur `:8080`). Preuve ops :
 
 ```bash
 curl -sI https://portal.ar-systems.fr | grep -iE 'strict-transport|x-frame|x-content|referrer-policy|permissions-policy'
-# Chaque header doit apparaÃ®tre une seule fois (pas de valeurs virgule-doublÃ©es).
+# Chaque header doit apparaître une seule fois (pas de valeurs virgule-doublées).
 ```
 
-RÃ©pÃ©ter pour 1 subdomain + 1 public_proxy.
+Répéter pour 1 subdomain + 1 public_proxy.
 
-## Correspondance conception â†’ code
+## Correspondance conception → code
 
 | Conception | Statut |
 |---|---|
@@ -135,10 +135,9 @@ RÃ©pÃ©ter pour 1 subdomain + 1 public_proxy.
 | Sidecar acme-companion | OK |
 | reconcile + prune | OK |
 | nginx :443 + volume certs :ro | OK |
-| HTTP :80 â†’ 301 HTTPS | OK |
+| HTTP :80 → 301 HTTPS | OK |
 | Reload sans docker.sock | OK (watcher) |
 | `.env.acme.example` | OK |
-| Admin â†’ ACME UI | OK |
-| Staging (`letsencrypt_test`) â†’ prod | DocumentÃ© ci-dessus |
-| Traefik labels / catch-all | RetirÃ© (nginx edge) |
-
+| Admin → ACME UI | OK |
+| Staging (`letsencrypt_test`) → prod | Documenté ci-dessus |
+| Traefik labels / catch-all | Retiré (nginx edge) |

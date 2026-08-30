@@ -39,7 +39,8 @@ Bastion /
 │   ├── 04.02 Apps, domaines, Apply      ← 04-administrateur/04-02-apps-domaines-apply.md
 │   ├── 04.03 Sessions & logs            ← 04-administrateur/04-03-sessions-logs.md
 │   ├── 04.04 ACME / certificats         ← 04-administrateur/04-04-acme-certificats.md
-│   └── 04.05 WAF ModSecurity            ← 04-administrateur/04-05-waf-modsecurity.md
+│   ├── 04.05 WAF ModSecurity            ← 04-administrateur/04-05-waf-modsecurity.md
+│   └── 04.06 SIEM — niveaux criticité   ← 04-administrateur/04-06-siem-niveaux-criticite.md
 ├── 05 — Documentation de configuration
 │   ├── 05.01 Environnement & secrets    ← 05-configuration/05-01-environnement-secrets.md
 │   ├── 05.02 Realms (source de vérité)  ← 05-configuration/05-02-realms-oidc-source-verite.md
@@ -52,6 +53,17 @@ Bastion /
 ```
 
 **Tout est en Markdown (`.md`).** Inventaire : [`MANIFEST.md`](./MANIFEST.md).
+
+## Publication Confluence (espace DL)
+
+```bash
+python scripts/publish_confluence_docs.py
+python scripts/publish_confluence_docs.py --attachments-only
+```
+
+Cartographie pages : [`confluence-page-map.json`](./confluence-page-map.json).
+Configs externes jointes aux pages (Wazuh, nginx templates, ModSecurity, oauth2,
+ACME…) : [`confluence-attachments.json`](./confluence-attachments.json).
 
 ## Publication dans Wiki.js
 

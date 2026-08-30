@@ -1,0 +1,17 @@
+<!--
+  Bastion Pro — décodeur CEF Wazuh manager (vmtools-wazuhdash01).
+
+  Cible : /var/ossec/etc/decoders/bastionpro_decoders.xml
+  Permissions OBLIGATOIRES : root:wazuh mode 0660
+  Compatibilité : vendor iBanFirst|Bastion ; timestamp ISO8601 Z avant program_name.
+
+  Déploiement : docs/ops/wazuh-bastionpro-deploy.md
+    sudo install -o root -g wazuh -m 0660 … /var/ossec/etc/decoders/bastionpro_decoders.xml
+    sudo systemctl reload wazuh-manager
+-->
+<!-- BastionPro CEF full-line decoder: old/new timestamp and vendor compatibility -->
+<decoder name="bastionpro-cef">
+  <prematch type="pcre2">^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+\S+\s+BastionPro-Sentinel\s+CEF:0\|(?:iBanFirst|Bastion)\|BastionPro-Sentinel\|</prematch>
+  <regex type="pcre2">^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\s+\S+\s+BastionPro-Sentinel\s+CEF:0\|(iBanFirst|Bastion)\|BastionPro-Sentinel\|([^|]+)\|([^|]+)\|([^|]+)\|([0-9]+)\|</regex>
+  <order>bastion.vendor,bastion.version,bastion.signature_id,bastion.event_name,bastion.cef_severity</order>
+</decoder>

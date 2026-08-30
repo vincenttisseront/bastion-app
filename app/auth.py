@@ -102,7 +102,7 @@ def iter_oidc_session_cookie_candidates(
     Order matters for the first non-empty peek (``extract_oidc_session_cookie_raw``),
     but ``_native_oidc_auth_response`` validates each until one succeeds — a
     garbled Starlette parse must not hide a good ``X-Bastion-Session-Cookie``
-    or raw Cookie value (HAR transfer loop after CrushFTP Cookie filtering).
+    or raw Cookie value (CrushFTP may filter Cookie on the auth subrequest).
     """
     cookie_name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
     ordered: list[str] = []
@@ -116,10 +116,7 @@ def iter_oidc_session_cookie_candidates(
         ordered.append(raw)
 
     # Explicit nginx headers first — CrushFTP Cookie filters can starve the
-    # auth subrequest Cookie jar (HAR ae=no-session:ck=72/90:x=0). Snippet sends
-    # X-Bastion-Session-Cookie from sticky parent $bastion_pass_session and
-    # X-Bastion-Session-From-Jar from a regex on $bastion_pass_cookie (never
-    # map-fallback to filtered $http_cookie on the auth subrequest).
+    # auth subrequest Cookie jar; prefer X-Bastion-Session-* over $http_cookie.
     _add(
         request.headers.get("X-Bastion-Session-Cookie")
         or request.headers.get("x-bastion-session-cookie")

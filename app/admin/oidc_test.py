@@ -221,6 +221,6 @@ async def test_oidc_connection_result(
 async def test_oidc_connection(
     issuer_url: str, client_id: str, client_secret: str
 ) -> dict:
-    """Legacy entrypoint — same JSON shape as before Phase 5."""
+    """Legacy entrypoint — same JSON shape as before."""
     result = await test_oidc_connection_result(issuer_url, client_id, client_secret)
     return _to_oidc_api_dict(result)

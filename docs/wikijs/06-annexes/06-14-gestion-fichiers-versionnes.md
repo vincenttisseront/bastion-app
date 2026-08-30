@@ -1,29 +1,28 @@
-﻿> **Format :** Markdown (source Wiki.js).  
-> **Fichier dépôt d’origine :** `docs/gestion-fichiers-versionnes-bastion.md` — garder les deux synchronisés (voir `docs/wikijs/MAINTENANCE.md`).
+> **Format :** Markdown (source Wiki.js).  
+> **Fichier dépôt d'origine :** docs/gestion-fichiers-versionnes-bastion.md — garder les deux synchronisés (voir docs/wikijs/MAINTENANCE.md).
 
 ---
-# Mise Ã  disposition de fichiers depuis le bastion â€” droits d'association + versions bÃªta/stable
+# Mise à disposition de fichiers depuis le bastion — droits d'association + versions bêta/stable
 
-> TÃ¢che : Mettre Ã  disposition des fichiers depuis le bastion, avec des droits d'association
-> similaires aux applications, et une gestion des versions (bÃªta-testeurs / releases stables).
+> Tâche : Mettre à disposition des fichiers depuis le bastion, avec des droits d'association
+> similaires aux applications, et une gestion des versions (bêta-testeurs / releases stables).
 >
-> Repo `bastion-app`. RÃ©utilise `AccessGrant` (`resource_type="file"`) + canal de diffusion
-> (`beta` | `stable`) portÃ© par chaque `FileVersion` et par `FileChannelAssignment` **par fichier**.
+> Repo `bastion-app`. Réutilise `AccessGrant` (`resource_type="file"`) + canal de diffusion
+> (`beta` | `stable`) porté par chaque `FileVersion` et par `FileChannelAssignment` **par fichier**.
 
-Voir le dÃ©tail des sections 0â€“9 dans l'historique de tÃ¢che. Ce document est la copie de rÃ©fÃ©rence
-sur disque pour Ã©viter un nouvel Ã©cart de synchronisation.
+Voir le détail des sections 0–9 dans l'historique de tâche. Ce document est la copie de référence
+sur disque pour éviter un nouvel écart de synchronisation.
 
-## DÃ©cisions actÃ©es (2026-07-24)
+## Décisions actées (2026-07-24)
 
-| # | Point | DÃ©cision |
+| # | Point | Décision |
 |---|---|---|
-| 1 | Chiffrement des blobs au repos | **Oui** â€” Fernet par blocs (`FILE_ENCRYPTION_CHUNK_SIZE`) |
-| 2 | Tri des versions | **SemVer strict** â€” validation Ã  l'upload + tri applicatif |
-| 3 | Quota / liste blanche d'extensions | **Non** â€” upload libre |
-| 4 | Volume Docker dÃ©diÃ© | **Oui** â€” `sso_portal_files_data` + `FILES_STORAGE_DIR` |
+| 1 | Chiffrement des blobs au repos | **Oui** — Fernet par blocs (`FILE_ENCRYPTION_CHUNK_SIZE`) |
+| 2 | Tri des versions | **SemVer strict** — validation à l'upload + tri applicatif |
+| 3 | Quota / liste blanche d'extensions | **Non** — upload libre |
+| 4 | Volume Docker dédié | **Oui** — `sso_portal_files_data` + `FILES_STORAGE_DIR` |
 
 ## Statut
 
-- Â§1â€“7 cÅ“ur fonctionnel livrÃ© (2026-07-24), tests verts.
-- Â§9 complÃ©ment : chiffrement, SemVer, volume dÃ©diÃ©, alignement modÃ¨le (canal par fichier).
-
+- §1–7 cœur fonctionnel livré (2026-07-24), tests verts.
+- §9 complément : chiffrement, SemVer, volume dédié, alignement modèle (canal par fichier).

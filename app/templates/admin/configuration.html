@@ -13,7 +13,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Configuration</h1>
-      <p class="page-sub">Réglages globaux du portail — SMTP, SIEM et stockage chaud PostgreSQL</p>
+      <p class="page-sub">SMTP, SIEM et stockage chaud PostgreSQL</p>
     </div>
     <div class="page-header-actions">
       {% if s.ready %}
@@ -265,7 +265,7 @@
             <input class="form-input" id="siem_filter_actions" name="filter_actions"
                    value="{{ (siem.filter_actions or []) | join(', ') if siem else '' }}"
                    placeholder="health.probe, BST-WAF-*, severity>=ERROR" autocomplete="off">
-            <p class="form-hint">Actions exactes, codes BST-…, globs de domaine (<code>BST-WAF-*</code>) ou seuil (<code>severity&gt;=ERROR</code>).</p>
+            <p class="form-hint">Codes d’action, globs ou seuil de sévérité (ex. <code>severity&gt;=ERROR</code>).</p>
           </div>
         </div>
         <div class="form-row">

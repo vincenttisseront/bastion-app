@@ -1,9 +1,27 @@
+> **Format :** Markdown (source Wiki.js).  
+> **Fichier dépôt d'origine :** docs/conception-modsecurity-crs-nginx-bastion.md — garder les deux synchronisés (voir docs/wikijs/MAINTENANCE.md).
+
+---
 # Conception — ModSecurity v3 + OWASP CRS (nginx-bastion)
 
-> Document de conception (Phase A livrée, Phase B à venir).
+> Document de conception (Phase A livrée, Phase B livrée).
 > Origine : cadrage 2026-08-05 ; mises à jour post-cutover reverse01 **2026-08-06**.
 > Ops live : [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md).
 > Audit pré-intégration : [`audit-preintegration-modsecurity-crs-nginx-bastion.md`](audit-preintegration-modsecurity-crs-nginx-bastion.md).
+
+> **État prod au 2026-08-28** (ne pas confondre avec le §2 / §6 historiques) :
+>
+> | Famille | Connecteur | `SecRuleEngine` | Source |
+> |---------|------------|-----------------|--------|
+> | **portal** | `on` (export IHM) | **On** (blocage) | réactivation runbook 22/08 |
+> | **subdomain_proxy** | **off** | Off | urgence 06/08, non rejouée |
+> | **public_proxy** | **off** | Off | urgence 06/08, non rejouée |
+>
+> L’état intermédiaire « portal seul en On » est **volontaire** (runbook du 22/08 :
+> première réactivation portal uniquement). **État cible inchangé** : les 3 familles en `On`.
+> Chemin de remise : smoke §1 → `modsecurity on` + `DetectionOnly` par famille → dépouillement
+> → `On` (public d’abord, subdomain ensuite). Voir [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md)
+> et le runbook subdomain/public (en préparation).
 
 Décision moteur : **ModSecurity v3 (libmodsecurity) + OWASP CRS complet** (pas de règles
 nginx natives légères, pas Coraza).
@@ -11,7 +29,7 @@ nginx natives légères, pas Coraza).
 | Phase | Contenu | Statut |
 |-------|---------|--------|
 | **A** | Image CRS, règles statiques, 3 familles, DetectionOnly → On | **Livrée** (#106 DetectionOnly, #107 On) — smoke prod OK 2026-08-06 |
-| **B** | IHM `/admin/security/waf`, générateur, profils/seuils/exclusions, headers edge, IP deny via `SecurityBanRule` | **À implémenter** (après ce document) |
+| **B** | IHM `/admin/security/waf`, générateur, profils/seuils/exclusions, headers edge, IP deny via `SecurityBanRule` | **Livrée** (réactivation IHM portal ; subdomain/public hors IHM) |
 
 ---
 
@@ -76,7 +94,7 @@ Réglages clés (`modsecurity.conf` / `crs-setup.conf`) :
 - Audit JSON, `RelevantOnly`, log `/var/log/nginx/apps/modsec_audit.log` (volume `nginx-logs`)
 - `SecRequestBodyAccess On`, `SecResponseBodyAccess Off`
 - Paranoia level **1**, seuils anomalie inbound **5** / outbound **4**
-- Engine : **`SecRuleEngine On`** sur les 3 familles (2026-08-06)
+- Engine : **`SecRuleEngine On`** sur les 3 familles (**2026-08-06**, pré-urgence — voir encart état prod 28/08)
 
 ---
 

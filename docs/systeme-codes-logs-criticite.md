@@ -85,3 +85,16 @@ Export admin : `/admin/logs/catalogue` (CSV/JSON).
 `log_action(..., code=None)` résout via `legacy_action` ; action inconnue → `BST-<domaine>-0000` / WARNING, sans exception.
 
 Colonnes `audit_logs.event_code` et `audit_logs.severity` (nullable, pas de backfill historique).
+
+## Mapping CEF / SIEM (résumé)
+
+| Criticité | CEF | Syslog |
+|-----------|-----|--------|
+| INFO | 1 | 6 |
+| NOTICE | 3 | 5 |
+| WARNING | 5 | 4 |
+| ERROR | 7 | 3 |
+| CRITICAL | 10 | 2 |
+
+Doc produit détaillée (WAF, Wazuh `rule.level`) :
+[`docs/wikijs/04-administrateur/04-06-siem-niveaux-criticite.md`](./wikijs/04-administrateur/04-06-siem-niveaux-criticite.md).

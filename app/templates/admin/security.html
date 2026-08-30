@@ -12,7 +12,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Sécurité</h1>
-      <p class="page-sub">Clés API, TLS, SSO sous-domaine, break-glass, coffre, chiffrement DB, anti-abus, logs containers</p>
+      <p class="page-sub">TLS, SSO, break-glass, chiffrement, anti-abus</p>
     </div>
   </div>
 
@@ -90,19 +90,12 @@
     </div>
     <div class="form-body">
       <p class="form-prose form-prose-spaced">
-        Quand ce mode est actif, les applications en accès
-        <strong>Sous-domaine dédié</strong> sont redirigées vers leur FQDN après
-        impersonation. Sinon elles retombent sur <span class="mono">/proxy/{slug}/</span>.
+        Actif : apps sous-domaine → FQDN après impersonation. Sinon <span class="mono">/proxy/{slug}/</span>.
       </p>
 
       <div class="alert alert-warn mb-4">
         <div class="alert-body">
-          N'activez ce mode que si l'infrastructure réseau est prête pour
-          <strong>TOUTES</strong> les applications configurées en mode
-          « Sous-domaine dédié » : DNS wildcard ou entrées dédiées pour chaque
-          sous-domaine, certificats TLS valides, routage Nginx en place.
-          Toute application en mode « Sous-domaine dédié » sans cette infra prête
-          deviendra inaccessible après activation.
+          N'activez que si DNS, TLS et nginx sont prêts pour toutes les apps en sous-domaine.
         </div>
       </div>
 
@@ -175,10 +168,8 @@
     </div>
     <div class="form-body">
       <p class="form-prose form-prose-spaced">
-        Canal principal : variable d'environnement <code class="mono">BREAKGLASS_JWT_SECRET</code>
-        (AWX / Ansible). L'UI ne génère un secret que si cette variable est absente —
-        filet de sécurité, sans conflit avec le canal as-code. Aucune valeur n'est
-        jamais affichée en clair.
+        Secret via <code class="mono">BREAKGLASS_JWT_SECRET</code> (env) ;
+        l’UI peut en générer un si absent. Jamais affiché en clair.
       </p>
 
       <div class="table-wrap mb-4">
@@ -211,9 +202,7 @@
       {% if breakglass_secret.env_defined %}
       <div class="alert alert-ok mb-4">
         <div class="alert-body">
-          Le secret est géré par AWX (<code class="mono">BREAKGLASS_JWT_SECRET</code>).
-          La génération depuis l'UI est désactivée pour ne pas entrer en conflit avec
-          le canal as-code.
+          Secret défini par <code class="mono">BREAKGLASS_JWT_SECRET</code> — génération UI désactivée.
         </div>
       </div>
       <button type="button" class="btn btn-secondary btn-sm" disabled title="Env déjà définie">
@@ -222,13 +211,13 @@
       {% elif breakglass_secret.can_generate %}
       <div class="alert alert-warn mb-4">
         <div class="alert-body">
-          Aucun secret dédié : les nouvelles signatures utilisent encore
-          <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> (ou un secret éphémère).
-          Générez un secret dédié ci-dessous, ou déployez la variable via AWX.
+          Aucun secret dédié — signatures encore sur
+          <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> (ou secret éphémère).
+          Générez un secret UI ou déployez la variable d’environnement.
         </div>
       </div>
       <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
-            data-confirm="Générer un secret HMAC dédié pour les cookies break-glass ? Les nouvelles signatures utiliseront ce secret immédiatement. Les cookies déjà émis restent valides grâce au fallback de transition."
+            data-confirm="Générer un secret break-glass ? Les sessions existantes restent valides pendant la transition."
             data-confirm-title="Générer le secret break-glass"
             data-confirm-label="Générer">
         <div class="form-group">
@@ -241,8 +230,7 @@
       </form>
       {% elif breakglass_secret.can_rotate %}
       <p class="form-help mb-4">
-        Un secret UI est déjà actif. Vous pouvez le régénérer (rotation) : l'ancienne
-        valeur reste acceptée en validation pendant la transition.
+        Secret UI actif — régénérer pour rotation (ancienne valeur acceptée pendant la transition).
       </p>
       <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
             data-confirm="Régénérer (rotation) le secret break-glass UI ? Les nouvelles signatures utiliseront la nouvelle valeur ; les cookies déjà émis restent valides."
@@ -477,8 +465,8 @@
       <div class="alert alert-warn mb-4">
         <div class="alert-body">
           Une clé SQLCipher est configurée mais <span class="mono">portal.db</span> est encore
-          en clair. Exécutez <span class="mono">python scripts/encrypt_portal_db.py</span>
-          avant le prochain redémarrage (déjà prévu dans le déploiement Ansible / migrate Docker).
+          en clair. Chiffrez avant redémarrage :
+          <span class="mono">python scripts/encrypt_portal_db.py</span>.
         </div>
       </div>
       {% elif db_encryption.status_badge == 'error' and not db_encryption.enabled %}
@@ -492,9 +480,9 @@
       {% elif not db_encryption.enabled %}
       <div class="alert alert-info mb-4">
         <div class="alert-body form-prose">
-          Mode clair (dev / tests). En production, fournir
+          Mode clair (dev). En production : clé
           <span class="mono">vault_portal_db_encryption_key</span>
-          (64 hex — <span class="mono">openssl rand -hex 32</span>) via AWX Vault.
+          (64 hex — <span class="mono">openssl rand -hex 32</span>).
         </div>
       </div>
       {% endif %}
@@ -533,8 +521,7 @@
       — break-glass <strong>autorisé</strong> pour cette IP.
       {% else %}
       — break-glass <strong>refusé</strong> (pas dans RFC1918 / allowlist, ou IP non résolue).
-      Le navigateur peut être en <code class="mono">192.168.1.x</code> alors que l’app voit
-      une IP Cloudflare, un hop Docker (<code class="mono">10.5.x</code>), ou rien.
+      L’IP vue peut différer de celle du poste (proxy, load balancer).
       {% endif %}
       <div class="form-help" style="margin-top:0.5rem">
         peer={{ ip_probe.request_client_host or '—' }}
@@ -563,7 +550,7 @@
                   <textarea id="breakglass_allow_cidrs" name="breakglass_allow_cidrs" rows="3" class="form-input is-mono"
                     placeholder="Vide = réseaux RFC1918 par défaut (ex. 10.0.0.0/8, 172.16.0.0/12)">{{ allow_raw }}</textarea>
                   <p class="form-help">
-                    Si renseigné, seules ces plages peuvent tenter un login break-glass (au lieu du filtre RFC1918).
+                    Si renseigné, seules ces plages (sinon RFC1918).
                   </p>
                 </div>
                 <div>
@@ -571,7 +558,7 @@
                   <textarea id="breakglass_deny_cidrs" name="breakglass_deny_cidrs" rows="3" class="form-input is-mono"
                     placeholder="Toujours refusées, même si présentes dans la liste d'autorisation">{{ deny_raw }}</textarea>
                   <p class="form-help">
-                    La liste de refus prime toujours. Séparez les CIDR par virgule ou retour ligne.
+                    Refus prioritaire — CIDR séparés par virgule ou ligne.
                   </p>
                 </div>
               </div>
@@ -615,9 +602,8 @@
         {% endif %}
       </div>
       <p class="form-help banning-apply-note">
-        L'enregistrement des règles de banning est <strong>immédiat</strong>.
-        La régénération des IP deny nginx (<span class="mono">waf-ip-deny.conf</span>) n'a lieu qu'au
-        <strong>Appliquer</strong> de la page <a href="/admin/security/waf">WAF</a> (ou export infra catalogue).
+        Règles immédiates ; deny nginx via <strong>Appliquer</strong> sur la page
+        <a href="/admin/security/waf">WAF</a>.
       </p>
 
       <div class="card">
@@ -678,7 +664,7 @@
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-hammer-login" hidden>
                   <div class="stack">
-                    <p class="form-help">Compteur distinct sur /auth/login, /auth/sso-start, /auth/sso-failed et login break-glass.</p>
+                    <p class="form-help">Compteur distinct : login, SSO, break-glass.</p>
                     <div class="form-grid">
                       <div>
                         <label class="form-label" for="hammering_login_threshold">Seuil (requêtes)</label>
@@ -714,7 +700,7 @@
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-unknown-host" hidden>
                   <div class="stack">
-                    <p class="form-help">Compte les refus <code class="mono">access_denied_unknown_host</code> par IP (PerplexityBot, apex non enregistré, etc.). Ban applicatif immédiat ; deny nginx après seuil d'occurrences WAF + <strong>Appliquer</strong>.</p>
+                    <p class="form-help">Ban IP après trop de requêtes vers des hôtes non configurés.</p>
                     <div class="form-grid">
                       <div>
                         <label class="form-label" for="unknown_host_threshold">Seuil (refus)</label>
@@ -789,7 +775,7 @@
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-success" hidden>
                   <div class="stack">
-                    <p class="form-help">Au-delà du seuil, le <strong>username</strong> est bloqué (pas l'IP) — partage de compte / script suspect.</p>
+                    <p class="form-help">Ban username (pas IP) si seuil dépassé.</p>
                     <div class="form-grid">
                       <div>
                         <label class="form-label" for="successful_login_threshold">Seuil</label>
@@ -880,10 +866,7 @@
                 <div class="banning-rule-panel" id="banning-panel-rate-limit" hidden>
                   <div class="stack">
                     <p class="form-help">
-                      Au-delà du budget, HTTP <strong>429 Too Many Requests</strong> (+ Retry-After) jusqu'à la fin de la fenêtre —
-                      réponse graduée <em>avant</em> le ban anti-hammering. Les requêtes rejetées comptent toujours pour
-                      l'anti-hammering : un client qui insiste finit banni. Chemins sensibles uniquement (login, /admin/*, /api/admin/*).
-                      Chaque 429 est journalisé (logs conteneur) ; l'audit <code>security.rate_limited</code> une fois par rafale.
+                      Au-delà : HTTP 429 (pas de ban). Login et admin uniquement.
                     </p>
                     <div class="form-grid">
                       <div>
@@ -915,8 +898,7 @@
                 <div class="banning-rule-panel" id="banning-panel-rate-limit-login" hidden>
                   <div class="stack">
                     <p class="form-help">
-                      Budget distinct sur /auth/login, /auth/breakglass, /auth/sso-start, /auth/sso-failed et login break-glass API —
-                      throttle plus serré que le rate limit global, sous le seuil de ban « Anti-hammering (login uniquement) ».
+                      Compteur login/SSO/break-glass — 429 sans ban, sous le seuil anti-hammering.
                     </p>
                     <div class="form-grid">
                       <div>
@@ -1122,8 +1104,7 @@
     <div class="form-section-header">
       <div class="form-section-title">Logs containers (Docker)</div>
       <div class="form-section-sub">
-        Onglet Containers de <a href="/admin/logs#containers">/admin/logs</a> —
-        proxy socket en lecture seule uniquement (jamais <span class="mono">/var/run/docker.sock</span> dans bastion-app).
+        Onglet Containers de <a href="/admin/logs#containers">/admin/logs</a> — proxy lecture seule (jamais le socket Docker dans bastion-app).
       </div>
     </div>
     <div class="form-body">
@@ -1139,9 +1120,7 @@
                  placeholder="http://docker-socket-proxy:2375"
                  autocomplete="off">
           <p class="form-help mt-2">
-            Service type <span class="mono">docker-socket-proxy</span> avec
-            <span class="mono">CONTAINERS=1</span> et <span class="mono">POST=0</span>
-            (overlay <span class="mono">docker-compose.docker-logs.yml</span>).
+            <span class="mono">docker-socket-proxy</span> : <span class="mono">CONTAINERS=1</span>, <span class="mono">POST=0</span>.
           </p>
         </div>
         <div>
@@ -1489,11 +1468,7 @@
       window.bastionAlert({
         title: 'Confirmation requise',
         message:
-          "N'activez ce mode que si l'infrastructure réseau est prête pour TOUTES " +
-          "les applications configurées en mode 'Sous-domaine dédié' : DNS wildcard " +
-          "ou entrées dédiées pour chaque sous-domaine, certificats TLS valides, " +
-          "routage Nginx en place. Toute application en mode 'Sous-domaine dédié' " +
-          "sans cette infra prête deviendra inaccessible après activation.",
+          "N'activez que si DNS, TLS et nginx sont prêts pour toutes les apps en sous-domaine.",
       });
       return;
     }
@@ -1501,8 +1476,7 @@
     window.bastionConfirm({
       title: "Confirmer l'activation du routage par sous-domaine dédié ?",
       message:
-        'Les applications listées ci-dessous seront redirigées vers leur FQDN ' +
-        'après impersonation. Sans DNS/TLS/Nginx prêts, elles seront inaccessibles.',
+        'Les apps listées iront sur leur FQDN. Sans DNS/TLS/nginx, elles seront inaccessibles.',
       list: apps.length
         ? apps
         : [{ label: 'Aucune application active en mode sous-domaine pour le moment.' }],

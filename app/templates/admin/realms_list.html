@@ -40,7 +40,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Realms OIDC</h1>
-      <p class="page-sub">Configurations IdP et export oauth2-proxy</p>
+      <p class="page-sub">IdP et export oauth2-proxy</p>
     </div>
     <div class="page-header-actions">
       <a href="/admin/realms/session-alignment" class="btn btn-ghost btn-sm">Alignement sessions SSO</a>
@@ -134,7 +134,7 @@
                   {% else %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/oidc-native-session/enable">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button class="btn btn-ghost btn-sm" title="Activer le pilote session native OIDC pour ce realm">Natif</button>
+                      <button class="btn btn-ghost btn-sm" title="Activer la session native OIDC">Natif</button>
                     </form>
                   {% endif %}
                 </div>

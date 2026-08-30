@@ -1,0 +1,80 @@
+{
+  "_comment": "source Markdown (docs/wikijs/…) → fichiers dépôt à joindre sur la page Confluence correspondante. Relatifs à la racine bastion-app.",
+  "docs/wikijs/04-administrateur/04-06-siem-niveaux-criticite.md": [
+    "docs/ops/wazuh-bastionpro-rules.xml",
+    "docs/ops/wazuh-bastionpro-decoders.xml",
+    "docs/ops/wazuh-bastionpro-deploy.md"
+  ],
+  "docs/wikijs/03-architecture/03-03-routage-nginx.md": [
+    "docker/nginx/nginx.conf",
+    "docker/nginx/templates/vhost_sso_portal.conf.template",
+    "docker/nginx/templates/proxy_portal_trusted_internal.conf.template",
+    "docker/nginx/includes/security-headers.conf",
+    "docker/nginx/includes/nginx-portal-client-ip.map.conf"
+  ],
+  "docs/wikijs/06-annexes/06-02-sdd-002-nginx-vhost-portail.md": [
+    "docker/nginx/templates/vhost_sso_portal.conf.template",
+    "docker/nginx/nginx.conf"
+  ],
+  "docs/wikijs/04-administrateur/04-05-waf-modsecurity.md": [
+    "docker/nginx/modsecurity/modsecurity.conf",
+    "docker/nginx/modsecurity/crs-setup.conf",
+    "docker/nginx/modsecurity/engine-portal.conf",
+    "docker/nginx/modsecurity/engine-subdomain.conf",
+    "docker/nginx/modsecurity/engine-public.conf",
+    "docker/nginx/modsecurity/main-portal.conf",
+    "docker/nginx/includes/waf-basic.conf",
+    "docker/nginx/includes/modsecurity-portal-switch.conf"
+  ],
+  "docs/wikijs/06-annexes/06-06-ops-modsecurity-crs.md": [
+    "docker/nginx/modsecurity/modsecurity.conf",
+    "docker/nginx/modsecurity/crs-setup.conf",
+    "docker/nginx/modsecurity/engine-portal.conf",
+    "docker/nginx/modsecurity/main-portal.conf",
+    "docker/nginx/modsecurity/main-subdomain.conf",
+    "docker/nginx/modsecurity/main-public.conf",
+    "docker/nginx/includes/waf-basic.conf",
+    "docker/nginx/snippets/modsecurity-subdomain.conf",
+    "docker/nginx/snippets/modsecurity-public.conf"
+  ],
+  "docs/wikijs/06-annexes/06-13-conception-modsecurity.md": [
+    "docker/nginx/modsecurity/modsecurity.conf",
+    "docker/nginx/modsecurity/crs-setup.conf",
+    "docker/nginx/modsecurity/main-portal.conf"
+  ],
+  "docs/wikijs/05-configuration/05-04-ip-client-troubleshooting.md": [
+    "docker/nginx/includes/nginx-portal-client-ip.map.conf",
+    "docker/nginx/includes/cloudflare-ips.conf"
+  ],
+  "docs/wikijs/06-annexes/06-04-ops-client-ip-chain.md": [
+    "docker/nginx/includes/nginx-portal-client-ip.map.conf",
+    "docker/nginx/includes/cloudflare-ips.conf",
+    "docker/nginx/includes/security-headers.conf"
+  ],
+  "docs/wikijs/04-administrateur/04-04-acme-certificats.md": [
+    "docker/nginx/sync-acme-tls.sh"
+  ],
+  "docs/wikijs/06-annexes/06-05-lets-encrypt-acme.md": [
+    "docker/nginx/sync-acme-tls.sh"
+  ],
+  "docs/wikijs/05-configuration/05-02-realms-oidc-source-verite.md": [
+    "docker/oauth2-core/oauth2-proxy.cfg.example"
+  ],
+  "docs/wikijs/06-annexes/06-09-oauth2-cookie-secret-policy.md": [
+    "docker/oauth2-core/oauth2-proxy.cfg.example"
+  ],
+  "docs/wikijs/06-annexes/06-01-sdd-001-authentification-sso.md": [
+    "docker/oauth2-core/oauth2-proxy.cfg.example",
+    "docker/nginx/snippets/nginx-portal-core-realm-oauth2.conf",
+    "docker/nginx/snippets/nginx-portal-oauth2-static.conf"
+  ],
+  "docs/wikijs/05-configuration/05-03-deploiement-docker.md": [
+    "docker/nginx/nginx.conf",
+    "docker/traefik/bastion-catchall.example.yml"
+  ],
+  "docs/wikijs/06-annexes/06-07-troubleshooting-nginx.md": [
+    "docker/nginx/nginx.conf",
+    "docker/nginx/templates/vhost_sso_portal.conf.template",
+    "docker/nginx/includes/security-headers.conf"
+  ]
+}

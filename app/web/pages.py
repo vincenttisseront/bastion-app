@@ -593,8 +593,8 @@ def login_page(
                 clear_breakglass_cookie(response, settings)
                 return response
     # Absolute subdomain rd= (from @portal_redirect) must never bounce back unless
-    # subdomain-auth would accept this session for that Host — otherwise the
-    # transfer↔login loop (HAR: login 302 → transfer auth_request 401 → login).
+    # subdomain-auth would accept this session for that Host.
+    # Avoid transfer↔login redirect loop.
     from urllib.parse import urlparse
 
     from app.auth import (
@@ -631,7 +631,7 @@ def login_page(
     sub_auth_denied = (request.query_params.get("bastion_sub") or "").strip() == "1"
 
     def _subdomain_rd_safe() -> bool:
-        """Proven accept for absolute rd= — native path preferred (HAR loop)."""
+        """True when absolute rd= is safe to honour."""
         if not rd_is_absolute_subdomain:
             return True
         if sub_auth_denied:
@@ -653,6 +653,21 @@ def login_page(
         # Nginx-injected identity on /login (when /login still hits auth_request):
         # only honour absolute subdomain rd when subdomain-auth would accept.
         if rd_is_absolute_subdomain and not _subdomain_rd_safe():
+            ae = (request.query_params.get("ae") or "").strip()
+            if sub_auth_denied and ae == "oauth2-unreachable":
+                response = RedirectResponse(url="/apps", status_code=302)
+                from app.web.flash import flash_redirect
+
+                flash_redirect(
+                    response,
+                    "SSO indisponible pour les sous-domaines — vérifiez oauth2-proxy "
+                    "ou activez la session native OIDC.",
+                    "error",
+                    settings.vault_portal_internal_token or "dev",
+                )
+                if native_ok and raw_session:
+                    set_oidc_session_cookie(response, raw_session, settings)
+                return response
             return RedirectResponse(url="/apps", status_code=302)
         response = RedirectResponse(url=rd, status_code=302)
         if native_ok and raw_session:
@@ -1367,11 +1382,20 @@ def admin_apps_list(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    from app.bastion.waf_app_protection import apps_waf_protection_by_slug
+
     apps = db.query(App).order_by(App.slug).all()
     realms = db.query(RealmConfig).order_by(RealmConfig.slug).all()
+    waf_by_slug = apps_waf_protection_by_slug(apps, settings)
     return render(
         "admin/apps/list.html",
-        **_ctx(request, settings, apps=apps, realms=realms),
+        **_ctx(
+            request,
+            settings,
+            apps=apps,
+            realms=realms,
+            waf_by_slug=waf_by_slug,
+        ),
     )
 
 
@@ -3633,7 +3657,7 @@ def admin_security_breakglass_jwt_secret_generate(
     if env_breakglass_secret_defined(settings):
         flash_redirect(
             response,
-            "Secret déjà défini via BREAKGLASS_JWT_SECRET (AWX) — génération UI désactivée.",
+            "Secret déjà défini via BREAKGLASS_JWT_SECRET (env) — génération UI désactivée.",
             "error",
             token,
         )

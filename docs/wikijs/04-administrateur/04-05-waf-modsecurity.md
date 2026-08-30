@@ -50,4 +50,8 @@ Sans armement, le sync nginx force `SecRuleEngine Off` même si le profil DB est
 - Conception : `docs/conception-modsecurity-crs-nginx-bastion.md`
 - Code : `app/bastion/waf_reactivation.py`
 
+Configs versionnées (`docker/nginx/modsecurity/*`, `waf-basic.conf`, switches)
+sont **pièces jointes** de cette page Confluence (voir
+`docs/wikijs/confluence-attachments.json`).
+
 Suite : [05.01 Configuration](../05-configuration/05-01-environnement-secrets.md)

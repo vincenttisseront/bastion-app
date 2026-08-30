@@ -1,40 +1,39 @@
-﻿> **Format :** Markdown (source Wiki.js).  
-> **Fichier dépôt d’origine :** `docs/rbac-information-architecture.md` — garder les deux synchronisés (voir `docs/wikijs/MAINTENANCE.md`).
+> **Format :** Markdown (source Wiki.js).  
+> **Fichier dépôt d'origine :** docs/rbac-information-architecture.md — garder les deux synchronisés (voir docs/wikijs/MAINTENANCE.md).
 
 ---
-# Architecture dâ€™information RBAC (Bastion Pro)
+# Architecture d’information RBAC (Bastion Pro)
 
 ## Pourquoi cette organisation
 
-Le module RBAC mÃ©langeait trois notions distinctes :
+Le module RBAC mélangeait trois notions distinctes :
 
-1. **Qui est lâ€™utilisateur** (crÃ©ation bastion vs import Keycloak)
-2. **Quels droits** (individuels vs hÃ©ritÃ©s de groupes)
-3. **Quel compte Crush/robotic** (prioritÃ© / exclusions multi-groupes)
+1. **Qui est l’utilisateur** (création bastion vs import Keycloak)
+2. **Quels droits** (individuels vs hérités de groupes)
+3. **Quel compte Crush/robotic** (priorité / exclusions multi-groupes)
 
-Les Ã©crans prÃ©cÃ©dents forÃ§aient un parcours multi-clics (fiche user â†’ groupes â†’ fiche groupe â†’ droits â†’ comptes) et rÃ©pÃ©taient un mini-bloc Â« Groupes Â» sous chaque onglet Utilisateurs.
+Les écrans précédents forçaient un parcours multi-clics (fiche user → groupes → fiche groupe → droits → comptes) et répétaient un mini-bloc « Groupes » sous chaque onglet Utilisateurs.
 
 ## Les 5 espaces
 
-| Onglet | URL | RÃ´le |
+| Onglet | URL | Rôle |
 |--------|-----|------|
-| Vue d'ensemble | `/admin/rbac/overview` | KPI + alertes + liens croisÃ©s (point dâ€™entrÃ©e pÃ©dagogique) |
-| Utilisateurs | `/admin/rbac/users` | Listes (crÃ©Ã©s / droits indiv. / recherche KC) + recherche live |
-| Groupes | `/admin/rbac` | Sync, membres, comptes partagÃ©s, droits de groupe |
-| Matrice | `/admin/rbac/matrix` | Apps Ã— groupes (grants de groupe) |
-| Gouvernance | `/admin/rbac/governance` | RÃ´les / permissions systÃ¨me |
+| Vue d'ensemble | `/admin/rbac/overview` | KPI + alertes + liens croisés (point d’entrée pédagogique) |
+| Utilisateurs | `/admin/rbac/users` | Listes (créés / droits indiv. / recherche KC) + recherche live |
+| Groupes | `/admin/rbac` | Sync, membres, comptes partagés, droits de groupe |
+| Matrice | `/admin/rbac/matrix` | Apps × groupes (grants de groupe) |
+| Gouvernance | `/admin/rbac/governance` | Rôles / permissions système |
 
-## Liens croisÃ©s (pas seulement la sidebar)
+## Liens croisés (pas seulement la sidebar)
 
-- Fiche **utilisateur** â†’ onglet **AccÃ¨s effectifs** : droits consolidÃ©s + comptes vault retenus + lien Matrice
-- Fiche **groupe** â†’ Membres (lien fiche user), Comptes (membres effectifs), Droits â†’ Matrice
-- Page **Utilisateurs** : bandeau rÃ©sumÃ© groupes â†’ `/admin/rbac` (plus de table dupliquÃ©e)
+- Fiche **utilisateur** → onglet **Accès effectifs** : droits consolidés + comptes vault retenus + lien Matrice
+- Fiche **groupe** → Membres (lien fiche user), Comptes (membres effectifs), Droits → Matrice
+- Page **Utilisateurs** : bandeau résumé groupes → `/admin/rbac` (plus de table dupliquée)
 
-## Comptes partagÃ©s
+## Comptes partagés
 
-Voir lâ€™aide repliable sur Groupe â†’ Comptes. RÃ¨gle : prioritÃ© max gagne ; exclusion sans override individuel = app bloquÃ©e.
+Voir l’aide repliable sur Groupe → Comptes. Règle : priorité max gagne ; exclusion sans override individuel = app bloquée.
 
 ## Layout
 
-Les pages RBAC utilisent `.page-rbac` / `.rbac-layout` avec `width: 100%` et `min-width: 0` (fix du rendu Â« miniature Â» dÃ» Ã  un grid sans largeur forcÃ©e sur le conteneur page).
-
+Les pages RBAC utilisent `.page-rbac` / `.rbac-layout` avec `width: 100%` et `min-width: 0` (fix du rendu « miniature » dû à un grid sans largeur forcée sur le conteneur page).

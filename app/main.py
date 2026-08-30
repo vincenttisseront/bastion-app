@@ -1,4 +1,4 @@
-"""FastAPI entrypoint — SSO portal Phase 5 + Bastion Pro UI."""
+"""FastAPI entrypoint — SSO portal + Bastion Pro UI."""
 
 from contextlib import asynccontextmanager
 from pathlib import Path

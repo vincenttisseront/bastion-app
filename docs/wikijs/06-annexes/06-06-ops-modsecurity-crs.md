@@ -1,10 +1,17 @@
+> **Format :** Markdown (source Wiki.js).  
+> **Fichier dépôt d'origine :** docs/ops-modsecurity-crs.md — garder les deux synchronisés (voir docs/wikijs/MAINTENANCE.md).
+
+---
 # Ops — ModSecurity v3 + OWASP CRS (nginx-bastion)
 
-**Statut (2026-08-06 soir)** : **EMERGENCY Off** sur les 3 familles
-(`modsecurity off` + `SecRuleEngine Off`). Cause : HTTP **500** sur tout chemin ModSec
-(`/auth/login`, `/`, …) alors que `/api/health` (`modsecurity off`) restait 200.
-`crs-setup-generated` a été écarté (#113) — le 500 persistait avec CRS + engine On.
-Re-activer uniquement après root cause (`error.log` nginx / debug ModSec).
+**Statut (2026-08-22)** : portal réactivable en **DetectionOnly** puis **On** via IHM
+(`waf_reactivation.py` + smoke Apply). Cause racine du 500 en **On** (2026-08-06) :
+`crs-setup.conf` statique ne définissait pas `tx.crs_setup_version` → la règle CRS
+**901001** (`deny,status:500`) ne bloquait qu’en `SecRuleEngine On` ; en
+**DetectionOnly** le deny est journalisé mais pas appliqué (d’où smoke vert puis 500 au
+passage On). Overlay `crs-setup-generated` id **901110** (#113) était un second piège
+(collision REQUEST-901) — toujours non chargé. Fix : `crs_setup_version=4280` +
+`SecDefaultAction` dans `docker/nginx/modsecurity/crs-setup.conf`.
 
 | Famille | Fichier | Engine | Date |
 |---------|---------|--------|------|
@@ -33,6 +40,7 @@ accepté vs ancien `nginx:1.27-alpine`).
 | Exclusions custom | `docker/nginx/includes/waf-basic.conf` |
 | Audit log (conteneur) | `/var/log/nginx/apps/modsec_audit.log` |
 | Audit log (hôte, bind mount) | `{SSO_PORTAL_DATA_DIR}/nginx-logs/modsec_audit.log` (prod : `/tools/portal/data/nginx-logs/…`) |
+| Audit engine | `SecAuditEngine RelevantOnly` (`modsecurity.conf`) — alimente le bilan IHM |
 | Rotation prod | `/etc/logrotate.d/bastion-nginx-logs` (hôte — voir [`ops-retention-donnees-froides-tools.md`](ops-retention-donnees-froides-tools.md)) |
 | Rotation conteneur (secours) | `docker/nginx/logrotate.d/modsecurity` (crond entrypoint — même inode audit via volume) |
 
@@ -119,6 +127,8 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 | `exports/modsecurity/engine-mode-generated.conf` | `SecRuleEngine` profil — inclus en dernier dans **main-portal.conf** seulement si `waf-engine-arm.json` est armé |
 | `exports/modsecurity/waf-engine-arm.json` | Armement IHM (`armed`) — sans armement le sync force `SecRuleEngine Off` |
 | `exports/modsecurity-portal-switch.conf` | `modsecurity on\|off;` serveur portal (include vhost) |
+| `exports/modsecurity-subdomain-switch.conf` | Connecteur subdomain (défaut off ; bascule export avant réactivation) |
+| `exports/modsecurity-public-switch.conf` | Connecteur public_proxy (défaut off ; bascule export avant réactivation) |
 | `exports/modsecurity/bastion-exclusions-generated.conf` | Exclusions UI après `waf-basic.conf` |
 | `exports/waf-ip-deny.conf` | `deny` IP promues depuis `SecurityBan` |
 | `exports/nginx-portal-rate-limits.conf` | Zones `portal_login` / `portal_api` |
@@ -138,12 +148,14 @@ Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`
 
 ### Incident — HTTP 500 partout sauf `/api/health`
 
-**Chronologie 2026-08-06 :**
+**Chronologie 2026-08-06 → 2026-08-22 :**
 1. Overlay `id:901110` (collision CRS) — fix #111/#112/#113 (Include retiré).
 2. Après #113 : stub généré OK, **pas** d’Include `crs-setup-generated`, export déjà
-   `1000900110` — **`/auth/login` toujours 500**. Donc pas (seulement) l’overlay seuil.
-3. Mitigation : **`modsecurity off`** serveur + `SecRuleEngine Off` + ne plus Inclure
-   `engine-mode-generated` sans garde-fou (le profil WAF DB `mode=on` forçait On en dernier).
+   `1000900110` — **`/auth/login` toujours 500** en On (mais OK en DetectionOnly).
+3. Mitigation : **`modsecurity off`** serveur + `SecRuleEngine Off` + armement IHM (#166+).
+4. **Root cause (2026-08-22)** : `crs-setup.conf` incomplet — absence de
+   `tx.crs_setup_version=4280` (règle CRS **901001**, message « CRS is deployed without
+   configuration! »). Corrigé dans le repo ; rebuild/reload `bastion-nginx` requis.
 
 **Depuis 2026-08-21** : réactivation IHM portal avec armement + smoke + rollback
 (`waf_reactivation.py`). Subdomain / public restent Off.

@@ -1,4 +1,4 @@
-"""Trusted-proxy client IP resolution (F-01 / F-04).
+"""Trusted-proxy client IP resolution.
 
 Fail-safe rule: forwarded headers (X-Real-IP, X-Forwarded-For) are honoured
 ONLY when the TCP peer is a configured trusted proxy (nginx-bastion on the
@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 # Intermediate hops that are never the end-user client.
 # Do NOT mark the whole 172.24.0.0/16 as infra: that is the corp/DMZ LAN where
-# workstations live (same range as reverse01). Only the reverse host itself.
+# workstations live. Only the nginx edge host itself.
 _INFRA_NETWORKS = (
     ipaddress.ip_network("10.5.0.0/16"),  # docker vpcbr (Traefik ↔ nginx ↔ app)
-    ipaddress.ip_network("172.24.0.108/32"),  # vmdmz-reverse01 (nginx DMZ)
+    ipaddress.ip_network("172.24.0.108/32"),  # nginx edge
     ipaddress.ip_network("172.17.0.0/16"),  # default docker bridge
     ipaddress.ip_network("127.0.0.0/8"),
 )
@@ -189,7 +189,7 @@ def client_ip_from_request(request: Request) -> str:
     - Trusted proxy → X-Real-IP if it is a non-infra client; else leftmost
       non-infra hop in X-Forwarded-For; else X-Portal-Client-IP (edge overwrite
       that survives Traefik); else empty string (fail closed: never treat
-      reverse01 ``172.24.0.108`` / Traefik as the user).
+      nginx edge ``172.24.0.108`` / Traefik as the user).
     - CF-Connecting-IP / True-Client-IP / X-Client-IP are never read.
     """
     peer = (request.client.host if request.client else "") or ""
@@ -213,7 +213,7 @@ def client_ip_from_request(request: Request) -> str:
         if candidates:
             resolved = candidates[0]
         else:
-            # Edge-only header (reverse01 overwrite). Never trust from the Internet
+            # Edge-only header (nginx edge overwrite). Never trust from the Internet
             # directly — only when the TCP peer is already a trusted proxy.
             portal = (request.headers.get("X-Portal-Client-IP") or "").strip()
             if portal and _valid_ip(portal) and not is_infra_hop(portal):

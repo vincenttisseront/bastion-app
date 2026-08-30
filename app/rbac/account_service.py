@@ -1,6 +1,6 @@
 """Bastion account creation flow — internal row + Keycloak user + app provisioning.
 
-Pipeline (spec §1) — no silent step, each stage persists its own status:
+Pipeline — no silent step, each stage persists its own status:
   1. BastionAccount row (status="pending")
   2. exact duplicate pre-check (find_keycloak_user_exact — never the fuzzy search)
   3. Keycloak user creation (WRITE service account, random password + UPDATE_PASSWORD)
@@ -9,9 +9,8 @@ Pipeline (spec §1) — no silent step, each stage persists its own status:
   5. per-app provisioning via driver registry (one BastionAccountProvisioning row
      per app — aggregate never masks a partial failure)
 
-Note transactionnel : log_action() et set_user_credential() commitent en interne
-(audit §3/§6) — le pipeline persiste donc chaque étape au fil de l'eau, pas de
-transaction englobante.
+log_action() and set_user_credential() commit internally — the pipeline persists
+each step as it goes, with no enclosing transaction.
 """
 
 from __future__ import annotations
@@ -79,7 +78,7 @@ class AccountCreationError(ValueError):
 
 
 def generate_initial_password() -> str:
-    """Random initial password (décision §9.1) — never logged, never stored."""
+    """Random initial password — never logged, never stored."""
     return secrets.token_urlsafe(24)
 
 
@@ -1436,7 +1435,7 @@ async def provision_account_app(
 
     if result.status == PROVISIONING_SUCCESS and result.credential_pushed:
         # Store the pushed credential in the internal vault (Fernet) — reuses
-        # set_user_credential as-is (audit §3), never plaintext in `detail`.
+        # set_user_credential as-is; never plaintext in `detail`.
         set_user_credential(
             db,
             app.slug,
@@ -1460,7 +1459,7 @@ async def provision_for_grant(
     actor: str,
     ip_address: str | None = None,
 ) -> dict | None:
-    """Post-grant provisioning hook (spec §5.3) — user grants only in V1.
+    """Post-grant provisioning hook — user grants only in V1.
 
     Returns None when the grant is out of scope (group subject, non-application
     resource, app without driver); otherwise an explicit summary dict — never a

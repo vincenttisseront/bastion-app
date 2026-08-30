@@ -2,8 +2,6 @@
 
 Target architecture: Traefik/edge terminates TLS → bastion-nginx:8080 (Host-based)
 → upstream app. Session cookie hop is always included (product-agnostic).
-
-DMZ reverse01 is transitional; these exports are the source of truth for front nginx.
 """
 
 from __future__ import annotations
@@ -222,7 +220,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     # oauth2 JWTs (header too large → 502, or CrushFTP drops the session and
     # Absolute-redirects to the upstream IP login page).
     # CRITICAL: put that Cookie filter in @app_upstream_* only — never in the
-    # same location as auth_request (inherits → HAR ae=no-session:ck=72:x=0).
+    # same location as auth_request (inherited proxy_set_header starves the jar).
     if crushftp:
         cookie_lines = [
             '        set $bastion_upstream_cookie '
@@ -363,7 +361,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "    set $bastion_app_upstream bastion-app:8000;",
         f'    set $app_upstream "{origin_esc}";',
         # Literal FQDN — re-set on auth_request rewrite; never empty like $host
-        # can be on the subrequest (HAR: portal OK, Transfer 401 no-app).
+        # can be on the subrequest.
         f'    set $bastion_vhost_fqdn "{fqdn_esc}";',
         "",
         "    include /etc/nginx/snippets/subdomain_auth_common.conf;",
@@ -449,7 +447,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "        proxy_intercept_errors off;",
             "",
             "        # Hand off AFTER auth — filtered Cookie must not share this location",
-            "        # with auth_request (inherits proxy_set_header -> ck=72 / x=0).",
+            "        # with auth_request (inherited proxy_set_header would starve the jar).",
             f"        try_files /nonexistent {named_upstream};",
             "    }",
             "",
@@ -462,7 +460,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "    location / {",
             # Capture Cookie here (parent) — auth + proxy in same location.
             # Do NOT use return 418 → named gate: nested error_page breaks
-            # @portal_redirect (HAR bare nginx 401 HTML).
+            # @portal_redirect.
             *_AUTH_COOKIE_CAPTURE_LINES,
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
@@ -483,10 +481,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             # (auth_request off on portal) — NOT bare /login which falls through
             # location / → portal_auth_check → bounce-back loop when subdomain
             # auth_request still returns 401.
-            # bastion_sub=1: login must NOT bounce back to this Host (HAR loop when
-            # auth_request 401 despite a valid bastion_session — stale nginx snippet).
-            # ae=$bastion_auth_err: surface FastAPI X-Auth-Error in the next HAR
-            # (no-session / no-app-for-host / native-session-rejected).
+            # bastion_sub=1: login must NOT bounce back to this Host.
+            # ae=$bastion_auth_err: surface FastAPI X-Auth-Error for diagnostics.
             f"        return 302 https://{portal_esc}/auth/login"
             "?rd=https://$host$request_uri&bastion_sub=1&ae=$bastion_auth_err;",
             "    }",

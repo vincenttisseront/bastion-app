@@ -40,14 +40,10 @@
         </div>
       </div>
       <p class="form-help" data-auth-mode-sso-help>
-        <strong>SSO</strong> : le bastion vérifie la session portail + AccessGrant.
-        Choisissez le <strong>mode SSO applicatif</strong> selon que la cible
-        consomme les en-têtes de confiance ou gère elle-même l’OIDC.
-        Puis <strong>Appliquer l’infra</strong> si le vhost change.
+        SSO : session portail + AccessGrant. Choisir le mode (en-têtes ou OIDC app), puis Appliquer l’infra si besoin.
       </p>
       <p id="generic-wsse-help" class="form-help" hidden>
-        En-tête X-WSSE (UsernameToken, digest SHA-1) régénéré à chaque requête par Nginx.
-        Renseignez un identifiant et un mot de passe dans le credential vault ci-dessous.
+        En-tête X-WSSE régénéré par Nginx — credential vault requis.
       </p>
     </div>
   {% endif %}
@@ -70,29 +66,13 @@
           </button>
         </div>
         <p class="form-help" data-portal-entry-help-sso-trusted>
-          Optionnel. Laissé vide = racine du FQDN. Adapté aux apps qui créent la
-          session uniquement via les en-têtes injectés.
+          Optionnel — vide = racine du FQDN (en-têtes injectés).
         </p>
         <p class="form-help" data-portal-entry-help-sso-oidc hidden>
-          Obligatoire. Chemin ouvert par la tuile (souvent
-          <span class="mono">https://app.example.com/login</span>) pour déclencher
-          le SSO IdP de l’application (Bypass Login / équivalent).
+          Obligatoire — chemin ouvert par la tuile pour le SSO IdP de l’app.
         </p>
         <p class="form-help" data-portal-entry-help-generic hidden>
-          Endpoint qui accepte un POST form-urlencoded.
-          <br>• grommunio-web :
-          <span class="mono">https://webmail…/web/?logon</span>
-          (champs <span class="mono">username</span> / <span class="mono">password</span>) —
-          GET préalable (cookies + CSRF) puis POST.
-          <br>• grommunio-admin :
-          <span class="mono">https://hôte:8443/api/v1/login</span>
-          (champs <span class="mono">user</span> / <span class="mono">pass</span>).
-          <br>• QNAP QTS :
-          <span class="mono">https://nas…/cgi-bin/authLogin.cgi</span>
-          (champs <span class="mono">user</span> / <span class="mono">pwd</span> —
-          le mot de passe est envoyé en Base64 ; extras typiques
-          <span class="mono">{"remme":"1","service":"1"}</span>).
-          La tuile passe par impersonation + hop cookies (<span class="mono">NAS_SID</span>).
+          URL du formulaire de login (POST).
         </p>
         {% if errors.login_form_url %}<div class="form-error">{{ errors.login_form_url }}</div>{% endif %}
         <div id="login-form-analyze-panel" class="login-form-analyze-panel" hidden></div>

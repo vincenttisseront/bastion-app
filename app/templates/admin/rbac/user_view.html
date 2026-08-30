@@ -301,9 +301,8 @@
     <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
       <h2 class="card-title" style="margin-top:0;">Groupes Keycloak</h2>
       <p class="form-hint">
-        Les droits AccessGrant sur un groupe société s’appliquent à tous les membres.
-        Les groupes d’un autre realm créent (ou lient) un compte Keycloak jumeau
-        (même identifiant / email) dans ce realm.
+        Droits AccessGrant du groupe société pour tous les membres.
+        Autre realm → compte IdP jumeau (même identifiant / email).
       </p>
       <ul style="margin:var(--sp-2) 0 0; padding-left:0; list-style:none;">
         {% for row in membership_rows %}

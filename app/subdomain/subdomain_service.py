@@ -1,4 +1,4 @@
-"""Subdomain SSO helpers — app resolution (Phase 4)."""
+"""Subdomain SSO helpers — app resolution."""
 
 from typing import Optional
 

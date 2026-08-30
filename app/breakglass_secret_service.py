@@ -131,12 +131,12 @@ def generate_or_rotate_ui_breakglass_secret(
     """
     Generate (or rotate) the UI-stored break-glass HMAC secret.
 
-    Refuses if ``BREAKGLASS_JWT_SECRET`` env is already set (AWX owns that channel).
+    Refuses if ``BREAKGLASS_JWT_SECRET`` env is already set (env owns that channel).
     Never returns or logs plaintext.
     """
     if env_breakglass_secret_defined(settings):
         raise PermissionError(
-            "BREAKGLASS_JWT_SECRET is set via environment; UI must not override AWX"
+            "BREAKGLASS_JWT_SECRET is set via environment; UI must not override env"
         )
 
     row = ensure_portal_settings(db, settings)

@@ -98,10 +98,10 @@ class RBACGroup(Base):
     id = Column(Integer, primary_key=True)
     # Display name (Keycloak group name for synced groups).
     name = Column(String, nullable=False, index=True)
-    # Legacy/manual linkage (kept for backward compatibility with early Phase 3 APIs).
+    # Legacy/manual linkage (backward compatibility).
     realm_slug = Column(String, nullable=True)
 
-    # New multi-realm Keycloak sync fields (Phase 4).
+    # Multi-realm Keycloak sync fields.
     realm_id = Column(Integer, ForeignKey("realm_configs.id"), nullable=True, index=True)
     keycloak_group_id = Column(String, nullable=True, index=True)
     path = Column(String, nullable=True)

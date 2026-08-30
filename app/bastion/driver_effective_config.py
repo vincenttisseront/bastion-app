@@ -1,1 +1,1 @@
-"""Module placeholder — Phase 2."""
+"""Reserved — not implemented."""

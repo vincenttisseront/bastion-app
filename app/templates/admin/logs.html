@@ -46,7 +46,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Journaux d'administration</h1>
-      <p class="page-sub" id="audit-sub">{{ total }} entrée(s) — audit métier (logins, refus d’accès, hôtes/URLs non traités)</p>
+      <p class="page-sub" id="audit-sub">{{ total }} entrée(s) — logins, refus, hôtes non traités</p>
     </div>
   </div>
 
@@ -298,9 +298,7 @@
       <span class="live-status" id="app-access-live-status" hidden>Live</span>
     </div>
     <p class="form-help mb-2">
-      Access log nginx (<span class="mono">{slug}.access.log</span>) — requêtes HTTP y compris
-      <span class="mono">public_proxy</span>. Cliquez une ligne pour le détail (panneau latéral).
-      Les hops internes <span class="mono">127.0.0.1:8080</span> (TLS → :8080) sont masqués par défaut.
+      Journal d’accès nginx (<span class="mono">{slug}.access.log</span>) — cliquez une ligne pour le détail.
     </p>
     <label class="form-help" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:var(--sp-3);">
       <input type="checkbox" id="app-access-show-internal"> Afficher hops internes (:8080)
@@ -326,7 +324,7 @@
             <td colspan="9">
               <div class="empty-state">
                 <div class="empty-title">Sélectionnez une application</div>
-                <div class="empty-sub">Puis cliquez sur Charger pour parser le access.log nginx.</div>
+                <div class="empty-sub">Puis cliquez <strong>Charger</strong>.</div>
               </div>
             </td>
           </tr>

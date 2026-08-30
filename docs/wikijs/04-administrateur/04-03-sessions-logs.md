@@ -30,6 +30,13 @@ taille requête, XFF / `X-Portal-Client-IP`, proto, `X-Request-Id`, identité
 Masque par défaut les hops internes `127.0.0.1:8080`.
 Après changement du format : `apply` infra + recreate nginx pour les nouvelles lignes.
 
+## Catalogue & SIEM
+
+Codes `BST-…` et criticité : **Admin → Logs → Catalogue**.
+
+Niveaux envoyés au SIEM (CEF 1 / 3 / 5 / 7 / 10, domaine WAF, vs `rule.level`
+Wazuh) : voir [04.06 SIEM — niveaux de criticité](./04-06-siem-niveaux-criticite.md).
+
 ## Conteneurs
 
 Si activé : proxy vers docker-socket-proxy, whitelist de noms de conteneurs.

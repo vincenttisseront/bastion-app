@@ -24,7 +24,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">{% if realm %}Modifier {{ realm.slug }}{% else %}Nouveau realm OIDC{% endif %}</h1>
-      <p class="page-sub">Configuration IdP, session native, sync et export oauth2-proxy</p>
+      <p class="page-sub">IdP, session native, sync et export oauth2-proxy</p>
     </div>
     <div class="page-header-actions">
       <a href="/admin/realms" class="btn btn-ghost btn-sm">← Realms</a>
@@ -58,7 +58,7 @@
 
   <form id="realm-form" method="post" action="{% if realm %}/admin/realms/{{ realm.id }}{% else %}/admin/realms{% endif %}" class="realm-form">
 
-    {# ── Général ── #}
+    {# Général #}
     <div class="realm-form-panel" id="panel-general" data-panel="general"{% if ns.initial != 'general' %} hidden{% endif %}>
       <div class="card realm-form-card">
         <h2 class="card-title" style="margin-top:0;">Identité du realm</h2>
@@ -136,10 +136,10 @@
           <div class="form-group">
             <label class="form-check">
               <input type="checkbox" disabled {% if form_values.oidc_native_session_enabled %}checked{% endif %}>
-              Session native OIDC (pilote)
+              Session native OIDC
             </label>
             <p class="form-help">
-              Activer / désactiver depuis la liste Realms (boutons dédiés) pour journaliser l'action admin.
+              Bascule depuis la liste Realms.
               {% if form_values.oidc_native_session_enabled %}
               <strong>Actuellement activé</strong> — formulaire natif + <code>bastion_session</code>.
               {% else %}
@@ -155,8 +155,7 @@
                 MFA / OTP (session native)
               </label>
               <p class="form-help">
-                Autorise l'enrôlement OTP Bastion (QR) et le bouton admin « Configurer OTP ».
-                Un challenge OTP déjà configuré côté IdP reste honoré à la connexion.
+                OTP Bastion (QR) + bouton admin « Configurer OTP ». Challenge IdP honoré si déjà configuré.
               </p>
             </div>
             <div class="form-group">
@@ -165,7 +164,7 @@
                 Afficher sur la page de login
               </label>
               <p class="form-help">
-                Inclure ce realm dans le sélecteur public. Décochez pour un realm RBAC / apps seulement.
+                Sélecteur public. Décochez = RBAC / apps seulement.
               </p>
             </div>
           </div>
@@ -180,7 +179,7 @@
       </div>
     </div>
 
-    {# ── OIDC & BFF ── #}
+    {# OIDC & BFF #}
     <div class="realm-form-panel" id="panel-oidc" data-panel="oidc"{% if ns.initial != 'oidc' %} hidden{% endif %}>
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
@@ -234,7 +233,7 @@
           <div>
             <h2 class="card-title" style="margin:0;">Client OIDC BFF (session native)</h2>
             <p class="form-hint" style="margin:var(--sp-2) 0 0;">
-              Configuration headless par realm (secret chiffré Fernet). Requis avant d'activer le toggle OIDC natif.
+              Client BFF headless — requis pour la session native.
             </p>
           </div>
           {% if form_values.oidc_bff_configured %}
@@ -289,7 +288,7 @@
       </div>
     </div>
 
-    {# ── Sync groupes ── #}
+    {# Sync groupes #}
     <div class="realm-form-panel" id="panel-sync" data-panel="sync"{% if ns.initial != 'sync' %} hidden{% endif %}>
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
@@ -342,7 +341,7 @@
       </div>
     </div>
 
-    {# ── Provisioning ── #}
+    {# Provisioning #}
     <div class="realm-form-panel" id="panel-provision" data-panel="provision"{% if ns.initial != 'provision' %} hidden{% endif %}>
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
@@ -388,7 +387,7 @@
       </div>
     </div>
 
-    {# ── Accès (demandes + email credentials ; SMTP global) ── #}
+    {# Accès (demandes + email ; SMTP global) #}
     <div class="realm-form-panel" id="panel-smtp" data-panel="smtp"{% if ns.initial != 'smtp' %} hidden{% endif %}>
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
@@ -421,8 +420,7 @@
               Ouvrir le formulaire « Demander un accès » sur la page de login
             </label>
             <p class="form-help">
-              Les demandes arrivent dans Admin → Demandes d'accès. L'approbation crée le compte
-              dans <strong>ce</strong> realm (provisioning requis).
+              Demandes → Admin → Demandes d'accès. Approbation = compte dans ce realm.
             </p>
             {% if errors.access_request_enabled %}<p class="form-error">{{ errors.access_request_enabled }}</p>{% endif %}
           </div>

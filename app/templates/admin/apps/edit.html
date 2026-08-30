@@ -160,12 +160,9 @@
           {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
           <div id="fqdn-cookie-domain-warning" class="alert alert-warn alert-spaced" hidden>
             <div class="alert-body">
-              Ce sous-domaine ne partage aucun domaine parent avec le portail
-              (<span class="mono" data-portal-domain-label>{{ portal_domain }}</span>) —
-              l'injection de cookie de session ne fonctionnera jamais pour cette combinaison.
-              Utilisez SSO Gate ou un domaine sous la même racine que le portail
-              (ex. <span class="mono">webmail.ar-systems.fr</span> et
-              <span class="mono">portal.ar-systems.fr</span> → Domain=<span class="mono">ar-systems.fr</span>).
+              Domaine sans racine commune avec le portail
+              <span class="mono" data-portal-domain-label>{{ portal_domain }}</span> —
+              cookies de session impossibles. Préférez SSO Gate ou un FQDN sous la même racine.
             </div>
           </div>
         </div>
@@ -190,18 +187,12 @@
           Accès mobile ActiveSync / Autodiscover
         </label>
         <p class="form-help" id="allow-activesync-help" {% if app.access_mode != 'subdomain_proxy' %}hidden{% endif %}>
-          Pour la messagerie (ex. grommunio) : détecte Exchange ActiveSync et Autodiscover,
-          exige une authentification Basic (ou session SSO) au lieu d’une redirection login navigateur.
-          Upstream = URL <strong>interne</strong> du serveur mail (IP/hostname LAN), pas
-          <span class="mono">https://webmail.…</span> (boucle). Sur iPhone : compte Exchange +
-          mot de passe messagerie (Basic), pas « Se connecter avec Microsoft ».
-          Journalisé (<span class="mono">activesync.allowed</span> /
-          <span class="mono">activesync.denied</span>).
+          ActiveSync / Autodiscover — upstream interne, auth Basic ou SSO (pas de redirect navigateur).
         </p>
         {% if app.allow_activesync %}
         <div class="form-group" id="activesync-device-control-entry">
           <a class="btn btn-secondary btn-sm" href="/admin/apps/{{ app.slug }}/activesync/devices/preview">Contrôle des appareils</a>
-          <p class="form-help">Prévisualiser le backfill, puis activer le refus des appareils inconnus.</p>
+          <p class="form-help">Prévisualiser, puis activer le refus des inconnus.</p>
         </div>
         {% endif %}
 
@@ -210,10 +201,7 @@
           Vérifier le certificat TLS de l’upstream (depuis le bastion)
         </label>
         <p class="form-help" id="upstream-tls-verify-help" {% if app.access_mode == 'sso_gate' %}hidden{% endif %}>
-          Login robotique, analyse de formulaire et reverse-proxy nginx.
-          Laisser <strong>désactivé</strong> pour une IP LAN ou un certificat auto-signé
-          (ex. <span class="mono">https://172.24.…</span>). Activer uniquement si le certificat
-          est valide pour le hostname de l’upstream.
+          Robotique, analyse formulaire, proxy nginx. Désactiver pour LAN / auto-signé.
         </p>
       </section>
 
@@ -264,11 +252,8 @@
             {% endfor %}
           </select>
           <p class="form-help">
-            Utilisé par « Nouvel utilisateur » (bastion → Keycloak → appli).
-            Choisissez <span class="mono">crushftp</span> pour afficher et configurer
-            la section « API Admin CrushFTP » (compte admin partagé) —
-            distinct du Credential vault individuel.
-            Vide = SSO uniquement, aucun compte local créé.
+            Pour « Nouvel utilisateur ». <span class="mono">crushftp</span> = section API Admin.
+            Vide = SSO seul.
           </p>
         </div>
 
@@ -279,9 +264,7 @@
           <hr class="form-divider" style="border:0;border-top:1px solid var(--border-muted);margin:var(--sp-5) 0;">
           <h4 class="wizard-panel-title" style="font-size:var(--fs-md);margin:0 0 var(--sp-3);">API Admin CrushFTP</h4>
           <p class="form-help" style="margin-top:0">
-            Compte admin CrushFTP partagé pour cette application — distinct du credential
-            individuel ci-dessus, utilisé uniquement pour créer/gérer les comptes et groupes
-            via l'API. Authentification HTTP Basic Auth (pas le flow session robotic).
+            Compte admin partagé (API) — distinct du vault individuel. HTTP Basic Auth.
           </p>
           <div class="form-group">
             <label class="form-label" for="crushftp_admin_base_url">URL API Admin CrushFTP</label>
@@ -289,11 +272,8 @@
                    class="form-input" value="{{ app.crushftp_admin_base_url or '' }}"
                    placeholder="http://10.x.x.x:8080/" autocomplete="off">
             <p class="form-help">
-              Listener CrushFTP joignable <strong>depuis le conteneur portail</strong>
-              (souvent <span class="mono">http://IP-LAN:8080/</span>) —
-              <strong>pas</strong> l’URL publique SSO
-              (<span class="mono">transfer.…</span> / bastion), qui renvoie un 302 oauth2-proxy
-              et fait échouer <span class="mono">setUserItem</span>.
+              Joignable depuis le conteneur portail (souvent <span class="mono">http://IP-LAN:8080/</span>) —
+              pas l’URL publique SSO.
             </p>
           </div>
           <div class="form-group">
@@ -302,14 +282,8 @@
                    class="form-input" value="{{ app.crushftp_vfs_base_path or '' }}"
                    placeholder="/crush_data/AR-SYSTEMS" autocomplete="off">
             <p class="form-help">
-              Chemin physique côté CrushFTP. Pour chaque utilisateur, le dossier société
-              (<span class="mono">organization</span>, ex. <span class="mono">SDIS999</span>)
-              est monté en lecture seule :
-              <span class="mono">FILE://…/AR-SYSTEMS/SDIS999/</span>.
-              Obligatoire pour le provisioning CrushFTP.
-              L’import des dossiers existants se fait depuis la
-              <a href="/admin/apps">liste des applications</a>
-              (bouton <strong>Importer sociétés</strong>).
+              Racine physique ; dossier société (<span class="mono">organization</span>) monté en lecture seule.
+              Import : liste apps → Importer sociétés.
             </p>
           </div>
           <div class="form-group">
@@ -318,9 +292,7 @@
                    class="form-input" value="{{ app.crushftp_admin_server_group or 'MainUsers' }}"
                    placeholder="MainUsers" autocomplete="off">
             <p class="form-help">
-              Namespace/contexte utilisateur CrushFTP (<span class="mono">serverGroup</span> de l'API) —
-              <strong>pas</strong> le groupe RBAC Keycloak ni le <span class="mono">group_name</span>
-              d'appartenance cible. Défaut : <span class="mono">MainUsers</span>.
+              Contexte API CrushFTP — pas le groupe RBAC. Défaut : <span class="mono">MainUsers</span>.
             </p>
           </div>
           <div class="form-row">
@@ -363,9 +335,8 @@
     </div>
     <div class="card-body">
       <p class="form-help card-danger-zone-lead">
-        Supprime définitivement cette application, ses droits d’accès, credentials vault
-        et appareils ActiveSync, puis régénère nginx. Préférez décocher
-        « Application activée » pour un retrait temporaire.
+        Suppression définitive (droits, vault, ActiveSync) + regen nginx.
+        Sinon décocher « Application activée ».
       </p>
       <form method="post" action="/admin/apps/{{ app.slug }}/delete" data-app-delete
             data-app-label="{{ app.label }}">

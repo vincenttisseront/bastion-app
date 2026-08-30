@@ -1348,7 +1348,7 @@ def admin_realms_oidc_native_enable(
     response = RedirectResponse(url="/admin/realms", status_code=302)
     flash_redirect(
         response,
-        f"Session native OIDC activée pour '{realm.slug}' (pilote).",
+        f"Session native OIDC activée pour '{realm.slug}'.",
         "success",
         settings.vault_portal_internal_token or "dev",
     )
@@ -1478,8 +1478,7 @@ def admin_realms_export(
         ip_address=_client_ip(request),
     )
     message = (
-        "Configuration exportée. Elle sera appliquée au prochain "
-        "déploiement AWX (linux_sso_portal_docker.yml)."
+        "Configuration exportée. Elle sera appliquée au prochain apply infra."
     )
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": message, "paths": paths})
@@ -1512,7 +1511,7 @@ def admin_realms_delete(
     released_port = realm.oauth2_proxy_port
     db.delete(realm)
     db.commit()
-    # Full export purge: oauth2 configs + nginx rewrite + systemd purge marker for AWX.
+    # Full export purge: oauth2 configs + nginx rewrite + systemd purge marker.
     purge_paths = purge_realm_exports_after_delete(db, settings, deleted_slug=slug)
     log_action(
         db,

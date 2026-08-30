@@ -54,6 +54,7 @@ AsciiDoc ou PDF source.
 | `04-administrateur/04-03-sessions-logs.md` | Sessions & logs |
 | `04-administrateur/04-04-acme-certificats.md` | ACME |
 | `04-administrateur/04-05-waf-modsecurity.md` | WAF |
+| `04-administrateur/04-06-siem-niveaux-criticite.md` | SIEM — niveaux CEF / criticité |
 
 ### 05 — Configuration
 
