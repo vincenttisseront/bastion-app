@@ -199,8 +199,16 @@ def _impersonation_error_payload(exc: ImpersonationError) -> tuple[dict, int]:
     return {"ok": False, "error": message}, status
 
 
-def _impersonation_error_response(exc: ImpersonationError) -> JSONResponse:
+def _impersonation_error_response(
+    exc: ImpersonationError,
+    *,
+    request: Request | None = None,
+    settings: Settings | None = None,
+) -> Response:
     payload, status = _impersonation_error_payload(exc)
+    if request is not None and settings is not None and not _wants_json(request):
+        message = payload.get("message") or payload.get("error") or str(exc)
+        return _identity_error_redirect(settings=settings, message=str(message))
     return JSONResponse(payload, status_code=status)
 
 
@@ -422,7 +430,7 @@ async def client_impersonate(
             client_headers=_browser_fingerprint_headers(request),
         )
     except ImpersonationError as exc:
-        return _impersonation_error_response(exc)
+        return _impersonation_error_response(exc, request=request, settings=settings)
 
     return _cookie_redirect(
         result, settings=settings, db=db, user=user, request=request, slug=slug

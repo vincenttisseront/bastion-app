@@ -279,7 +279,7 @@ def oauth2_proxy_systemd_unit_name(slug: str) -> str:
 
 
 def record_systemd_unit_purge(slug: str, settings: Settings) -> Path:
-    """Append a systemd unit to the purge list for the next AWX/apply run.
+    """Append a systemd unit to the purge list for the next apply run.
 
     apply-infrastructure.sh installs units from exports/systemd/*.service when present;
     there is no reverse format yet, so we write an explicit purge-units.list marker
@@ -314,7 +314,7 @@ def record_systemd_unit_purge(slug: str, settings: Settings) -> Path:
 def prune_deleted_realm_exports(db: Session, settings: Settings) -> dict[str, list[str]]:
     """Remove oauth2-proxy config files for realms that no longer exist in DB.
 
-    This enables "purge on delete" without directly touching systemd/nginx. AWX/Ansible
+    This enables "purge on delete" without directly touching systemd/nginx. Apply infra
     can reconcile based on export dir contents.
     """
     exports_path = _exports_path(settings)

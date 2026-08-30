@@ -157,7 +157,7 @@ def admin_infrastructure_apply(
             (
                 f"Export OK ({file_count} fichier(s)), mais signal hôte en échec : "
                 f"{host.get('message')}. "
-                "Lancez manuellement scripts/apply-infra-docker.sh sur vmdmz-docker01."
+                "Lancez manuellement scripts/apply-infra-docker.sh sur l’hôte Docker."
             ),
             "error",
             token,

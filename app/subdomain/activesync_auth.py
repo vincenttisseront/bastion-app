@@ -251,7 +251,7 @@ def _evaluate_device(
     control = bool(getattr(app, "activesync_device_control", False))
 
     if not device_id:
-        # Lot 1 fail-open; Lot 2 fail-closed when the gate is armed.
+        # Fail-open without device_id; fail-closed when enforce+control are set.
         if enforce and control:
             _log_device_denial(
                 db,

@@ -145,7 +145,7 @@ def _apps_visible_to_user(
     settings: Settings,
 ) -> list[App]:
     """
-    Catalogue API visibility (F-03).
+    Catalogue API visibility.
 
     Portal admins / break-glass (via is_portal_admin) see all enabled apps —
     same rule as Mes applications (``/apps``). End users see AccessGrant-effective

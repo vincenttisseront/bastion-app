@@ -1,0 +1,136 @@
+<!--
+  Bastion Pro — règles Wazuh manager (vmtools-wazuhdash01).
+
+  Cible : /var/ossec/etc/rules/bastionpro_rules.xml
+  Prérequis : /var/ossec/etc/decoders/bastionpro_decoders.xml (bastionpro-cef)
+  Permissions OBLIGATOIRES : root:wazuh mode 0660
+    (sinon analysisd démarre sans charger ce fichier → Permission denied)
+
+  IDs :
+    100500–100504, 100510–100512  = SIEM / AUTH / PROXY
+    100520–100524                  = CEF severity → rule.level
+    100530–100532                  = WAF signatures explicites
+
+  Déploiement : docs/ops/wazuh-bastionpro-deploy.md
+    sudo install -o root -g wazuh -m 0660 … /var/ossec/etc/rules/bastionpro_rules.xml
+    sudo /var/ossec/bin/wazuh-analysisd -t
+    sudo systemctl reload wazuh-manager
+-->
+<group name="bastionpro,siem,">
+
+  <!-- Parent — level bas ; les enfants portent la criticité. -->
+  <rule id="100500" level="3">
+    <decoded_as>bastionpro-cef</decoded_as>
+    <description>BastionPro: événement SIEM reçu</description>
+    <group>bastionpro_event,</group>
+  </rule>
+
+  <!-- —— Signatures SIEM (déjà en prod) —— -->
+  <rule id="100501" level="3">
+    <if_sid>100500</if_sid>
+    <field name="bastion.signature_id">^BST-SIEM-0001$</field>
+    <description>BastionPro: test de connectivité SIEM réussi</description>
+    <group>bastionpro_connectivity,</group>
+  </rule>
+
+  <rule id="100502" level="7">
+    <if_sid>100500</if_sid>
+    <field name="bastion.signature_id">^BST-SIEM-1001$</field>
+    <description>BastionPro: configuration du forwarder SIEM modifiée</description>
+    <group>bastionpro_configuration,</group>
+  </rule>
+
+  <rule id="100503" level="10">
+    <if_sid>100500</if_sid>
+    <field name="bastion.signature_id">^BST-SIEM-3001$</field>
+    <description>BastionPro: événement SIEM purgé sans livraison</description>
+    <group>bastionpro_delivery_failure,</group>
+  </rule>
+
+  <rule id="100504" level="12">
+    <if_sid>100500</if_sid>
+    <field name="bastion.signature_id">^BST-SIEM-4001$</field>
+    <description>BastionPro: forwarder SIEM hors service</description>
+    <group>bastionpro_forwarding_down,</group>
+  </rule>
+
+  <rule id="100510" level="8">
+    <if_sid>100500</if_sid>
+    <field name="bastion.signature_id" type="pcre2">^BST-AUTH-2[0-9]{3}$</field>
+    <description>BastionPro: anomalie ou échec d'authentification</description>
+    <group>bastionpro_authentication_failure,authentication_failed,</group>
+  </rule>
+
+  <rule id="100511" level="8">
+    <if_sid>100500</if_sid>
+    <field name="bastion.signature_id" type="pcre2">^BST-PROXY-2[0-9]{3}$</field>
+    <description>BastionPro: accès proxy refusé ou anomalie réseau</description>
+    <group>bastionpro_access_denied,</group>
+  </rule>
+
+  <rule id="100512" level="10">
+    <if_sid>100500</if_sid>
+    <field name="bastion.signature_id" type="pcre2">^BST-PROXY-4[0-9]{3}$</field>
+    <description>BastionPro: problème critique proxy ou TLS</description>
+    <group>bastionpro_proxy_critical,</group>
+  </rule>
+
+  <!-- —— Mapping CEF severity → rule.level (tous événements hors signatures ci-dessus) —— -->
+  <rule id="100520" level="3">
+    <if_sid>100500</if_sid>
+    <field name="bastion.cef_severity">^1$</field>
+    <description>BastionPro INFO (CEF 1)</description>
+    <group>bastionpro_info,</group>
+  </rule>
+
+  <rule id="100521" level="5">
+    <if_sid>100500</if_sid>
+    <field name="bastion.cef_severity">^3$</field>
+    <description>BastionPro NOTICE (CEF 3)</description>
+    <group>bastionpro_notice,</group>
+  </rule>
+
+  <rule id="100522" level="7">
+    <if_sid>100500</if_sid>
+    <field name="bastion.cef_severity">^5$</field>
+    <description>BastionPro WARNING / détection (CEF 5)</description>
+    <group>bastionpro_warning,bastionpro_waf_detect,</group>
+  </rule>
+
+  <rule id="100523" level="10">
+    <if_sid>100500</if_sid>
+    <field name="bastion.cef_severity">^7$</field>
+    <description>BastionPro ERROR (CEF 7)</description>
+    <group>bastionpro_error,</group>
+  </rule>
+
+  <rule id="100524" level="12">
+    <if_sid>100500</if_sid>
+    <field name="bastion.cef_severity">^10$</field>
+    <description>BastionPro CRITICAL (CEF 10)</description>
+    <group>bastionpro_critical,bastionpro_waf_critical,</group>
+  </rule>
+
+  <!-- —— WAF (libellés clairs ; levels déjà couverts par 100522/100524) —— -->
+  <rule id="100530" level="12">
+    <if_sid>100524</if_sid>
+    <field name="bastion.signature_id">^BST-WAF-4001$</field>
+    <description>BastionPro: IP bannie automatiquement (BST-WAF-4001)</description>
+    <group>bastionpro_waf_ban,</group>
+  </rule>
+
+  <rule id="100531" level="12">
+    <if_sid>100524</if_sid>
+    <field name="bastion.signature_id" type="pcre2">^BST-WAF-4[0-9]{3}$</field>
+    <description>BastionPro: WAF critique (BST-WAF-4xxx)</description>
+    <group>bastionpro_waf_critical,</group>
+  </rule>
+
+  <rule id="100532" level="7">
+    <if_sid>100522</if_sid>
+    <field name="bastion.signature_id" type="pcre2">^BST-WAF-2[0-9]{3}$</field>
+    <description>BastionPro: détection WAF (BST-WAF-2xxx)</description>
+    <group>bastionpro_waf_detect,</group>
+  </rule>
+
+</group>

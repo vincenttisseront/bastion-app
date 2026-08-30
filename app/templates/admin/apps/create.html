@@ -10,7 +10,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Nouvelle application</h1>
-      <p class="page-sub">Le slug est un identifiant technique interne — il n'apparaît pas dans l'URL publique</p>
+      <p class="page-sub">Slug interne — non visible dans l’URL publique</p>
     </div>
   </div>
 
@@ -91,25 +91,19 @@
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
             <input type="text" id="slug" name="slug" data-mode="create" data-slug-from="label" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug | default('') }}" required pattern="[a-z0-9-]+" placeholder="ex: crm-interne">
           </div>
-          <p class="form-help">Généré automatiquement depuis le nom, modifiable. Référence RBAC, audit et configs — pas une URL publique.</p>
+          <p class="form-help">Auto depuis le nom — référence interne, pas une URL.</p>
           {% if errors.slug %}<div class="form-error">{{ errors.slug }}</div>{% endif %}
         </div>
 
         <div id="access-mode-legacy-warning" class="alert alert-warn" hidden>
           <div class="alert-body">
-            Ce mode ne fonctionne que si l'application supporte un déploiement en sous-chemin.
-            En cas de doute, utilisez SSO Gate ou Sous-domaine dédié.
+            Nécessite un déploiement en sous-chemin. Sinon SSO Gate ou Sous-domaine dédié.
           </div>
         </div>
 
         <div id="access-mode-public-warning" class="alert alert-warn" hidden>
           <div class="alert-body">
-            ⚠️ Ce mode ne vérifie <strong>aucune authentification bastion</strong>
-            (pas de SSO, pas de RBAC, pas d'<span class="mono">auth_request</span>).
-            Le trafic est relayé tel quel vers l'URL backend. N'utilisez ce mode que si
-            l'application gère elle-même son contrôle d'accès, ou si elle est destinée à
-            être publique. Cette application <strong>n'apparaîtra pas</strong> dans le
-            catalogue « Mes applications » des utilisateurs.
+            Aucune auth bastion — trafic relayé tel quel. Hors catalogue utilisateurs.
           </div>
         </div>
 
@@ -119,16 +113,13 @@
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ form_values.public_fqdn | default('') }}" placeholder="app.example.fr" data-portal-domain="{{ portal_domain }}">
           </div>
-          <p class="form-help">FQDN public servi par Nginx (vhost dédié, proxy transparent).</p>
+          <p class="form-help">FQDN public Nginx (vhost dédié).</p>
           {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
           <div id="fqdn-cookie-domain-warning" class="alert alert-warn alert-spaced" hidden>
             <div class="alert-body">
-              Ce sous-domaine ne partage aucun domaine parent avec le portail
-              (<span class="mono" data-portal-domain-label>{{ portal_domain }}</span>) —
-              l'injection de cookie de session ne fonctionnera jamais pour cette combinaison.
-              Utilisez SSO Gate ou un domaine sous la même racine que le portail
-              (ex. <span class="mono">webmail.ar-systems.fr</span> et
-              <span class="mono">portal.ar-systems.fr</span> → Domain=<span class="mono">ar-systems.fr</span>).
+              Domaine sans racine commune avec le portail
+              <span class="mono" data-portal-domain-label>{{ portal_domain }}</span> —
+              cookies de session impossibles. Préférez SSO Gate ou un FQDN sous la même racine.
             </div>
           </div>
         </div>
@@ -139,7 +130,7 @@
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
             <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ form_values.upstream_url | default('') }}" required placeholder="https://app.example.fr/">
           </div>
-          <p class="form-help" id="upstream-url-help">L'utilisateur sera redirigé ici après validation SSO. Aucun proxy.</p>
+          <p class="form-help" id="upstream-url-help">Redirection après SSO — aucun proxy.</p>
           {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
         </div>
 
@@ -148,9 +139,7 @@
           Accès mobile ActiveSync / Autodiscover
         </label>
         <p class="form-help" id="allow-activesync-help" hidden>
-          Pour la messagerie (ex. grommunio) en mode sous-domaine : autorise ActiveSync / Autodiscover
-          avec authentification Basic (ou SSO), sans redirection login navigateur.
-          Upstream = URL interne du serveur mail (pas le FQDN public webmail).
+          ActiveSync / Autodiscover — upstream interne, auth Basic ou SSO (pas de redirect navigateur).
         </p>
 
         <label class="form-check" id="upstream-tls-verify-wrap" hidden>
@@ -158,9 +147,7 @@
           Vérifier le certificat TLS de l’upstream (depuis le bastion)
         </label>
         <p class="form-help" id="upstream-tls-verify-help" hidden>
-          Login robotique, analyse de formulaire et reverse-proxy nginx.
-          Laisser désactivé pour IP LAN / certificat auto-signé ; activer seulement
-          si le certificat est valide pour le hostname de l’upstream.
+          Robotique, analyse formulaire, proxy nginx. Désactiver pour LAN / auto-signé.
         </p>
       </section>
 

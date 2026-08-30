@@ -47,8 +47,21 @@
               and app.crushftp_admin_password_encrypted %}
             <tr data-searchable data-mode="{{ app.access_mode }}" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}{% if is_crushftp %} crushftp{% endif %}">
               <td>
-                {{ app.label }}
-                {% if is_crushftp %}<span class="badge badge-muted" style="margin-left:6px;">CrushFTP</span>{% endif %}
+                <span class="app-name-cell">
+                  {{ app.label }}
+                  {% set waf = waf_by_slug.get(app.slug) if waf_by_slug is defined else none %}
+                  {% if waf and waf.protected %}
+                  <span class="app-waf-shield" title="{{ waf.title }}" aria-label="{{ waf.title }}">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M12 3l8 3v6c0 5.25-3.4 9.74-8 11-4.6-1.26-8-5.75-8-11V6l8-3z"
+                            fill="currentColor" opacity=".18"/>
+                      <path d="M12 3l8 3v6c0 5.25-3.4 9.74-8 11-4.6-1.26-8-5.75-8-11V6l8-3z"
+                            stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/>
+                    </svg>
+                  </span>
+                  {% endif %}
+                  {% if is_crushftp %}<span class="badge badge-muted">CrushFTP</span>{% endif %}
+                </span>
               </td>
               <td class="mono">{{ app.slug }}</td>
               <td class="mono truncate truncate-cell">{{ app.upstream_url }}</td>

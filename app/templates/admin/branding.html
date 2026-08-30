@@ -8,7 +8,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Branding portail</h1>
-      <p class="page-sub">Identité et palette société — pages publiques et chrome authentifié</p>
+      <p class="page-sub">Identité et palette — pages publiques et chrome authentifié</p>
     </div>
     <div class="page-header-actions">
       <a href="/auth/login" class="btn btn-ghost" target="_blank" rel="noopener">Aperçu login</a>
@@ -18,8 +18,7 @@
   {% if b.show_product_branding %}
   <div class="alert alert-warn mb-4" role="alert">
     <div class="alert-body">
-      <strong>Marque produit visible</strong> — « Bastion Pro » apparaîtra sur les pages publiques.
-      Désactivez l’option ci-dessous pour anonymiser l’empreinte produit.
+      « Bastion Pro » visible sur les pages publiques — désactivez ci-dessous pour anonymiser.
     </div>
   </div>
   {% endif %}
@@ -47,7 +46,7 @@
           <label class="form-label" for="welcome_text">Texte de bienvenue</label>
           <textarea id="welcome_text" name="welcome_text" class="form-input" rows="3"
                     maxlength="500">{{ b.welcome_text or '' }}</textarea>
-          <p class="form-help">Sous le nom sur la page de connexion. Laisser vide pour aucun sous-titre.</p>
+          <p class="form-help">Sous le nom (login). Vide = aucun.</p>
         </div>
         <div class="form-group">
           <label class="form-label form-check-row">
@@ -74,7 +73,7 @@
             <input type="text" id="accent_color" name="accent_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.accent_color }}">
           </div>
-          <p class="form-help">Boutons primaires, navigation active, icônes marque — couleur unie uniquement.</p>
+          <p class="form-help">Boutons, nav active, icônes.</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="secondary_color">Secondaire</label>
@@ -85,7 +84,7 @@
             <input type="text" id="secondary_color" name="secondary_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.secondary_color }}">
           </div>
-          <p class="form-help">Pastilles / surfaces secondaires dédiées — jamais mélangée à la principale.</p>
+          <p class="form-help">Surfaces secondaires dédiées.</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="highlight_color">Accent / survol</label>
@@ -96,7 +95,7 @@
             <input type="text" id="highlight_color" name="highlight_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.highlight_color }}">
           </div>
-          <p class="form-help">État hover des boutons, focus, emphase et liens — aplat unique.</p>
+          <p class="form-help">Hover, focus, liens.</p>
         </div>
 
         <div class="brand-palette-preview" id="brand-palette-preview" aria-label="Aperçu palette">

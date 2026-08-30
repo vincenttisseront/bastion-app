@@ -99,7 +99,7 @@ def resolve_breakglass_signing_secret_with_source(
     Secret used to *sign* new ``bg_session`` JWTs (single active source).
 
     Priority:
-    1. ``BREAKGLASS_JWT_SECRET`` (env / AWX)
+    1. ``BREAKGLASS_JWT_SECRET`` (env)
     2. UI-generated secret in ``portal_settings`` (if env absent)
     3. Legacy ``VAULT_PORTAL_INTERNAL_TOKEN``
     4. Process-lifetime ephemeral (dev / last resort)
@@ -143,7 +143,7 @@ def resolve_breakglass_signing_secret_with_source(
         _EPHEMERAL_JWT_SECRET = secrets.token_urlsafe(32)
         logger.warning(
             "BREAKGLASS_JWT_SECRET unset and no UI secret — using ephemeral process "
-            "secret; set BREAKGLASS_JWT_SECRET via AWX or generate from Admin → Sécurité"
+            "secret; set BREAKGLASS_JWT_SECRET via env or generate from Admin → Sécurité"
         )
     source: SigningSource = "ephemeral"
     return _EPHEMERAL_JWT_SECRET, source
@@ -1134,7 +1134,7 @@ async def breakglass_login(
             detail="Break-glass JWT secret not configured (BREAKGLASS_JWT_SECRET)",
         )
 
-    # Defense in depth (F-01/F-06): same LAN/Misc gate as HTML /auth/login.
+    # Defense in depth: same LAN/Misc gate as HTML /auth/login.
     from app.security.banning.engine import (
         evaluate_login_attempt,
         is_breakglass_ip_allowed,

@@ -1,1 +1,1 @@
-"""Application vault — encrypted robotic credentials (distinct from Ansible/AWX)."""
+"""Application vault — encrypted robotic credentials."""

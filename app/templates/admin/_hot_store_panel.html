@@ -151,22 +151,14 @@
                 </div>
               </div>
               <p class="form-help">
-                Mot de passe stocké chiffré Fernet dans SQLite (jamais dans
-                <span class="mono">DATABASE_URL</span>). Sur le compose interne, utilisez
-                l’hôte <span class="mono">postgres</span> et <span class="mono">sslmode=disable</span>.
-                Un changement d’hôte / base / utilisateur réinitialise les étapes suivantes.
+                Mot de passe chiffré Fernet (SQLite). Compose interne : hôte <span class="mono">postgres</span>, <span class="mono">sslmode=disable</span>.
+                Changer hôte / base / utilisateur réinitialise les étapes suivantes.
               </p>
               <details class="hot-store-provision mb-3">
                 <summary class="form-label" style="cursor:pointer">Créer le rôle, la base et le mot de passe sur PostgreSQL</summary>
                 <div class="stack" style="margin-top:0.75rem">
                   <p class="form-help mb-0">
-                    Si l’auth échoue et qu’aucun mot de passe admin n’a jamais été choisi :
-                    définissez <span class="mono">HOT_STORE_PG_PASSWORD</span> dans le
-                    <span class="mono">.env</span>, redémarrez le service
-                    <span class="mono">postgres</span> (le entrypoint réaligne le rôle via
-                    socket local, sans ancien secret), puis saisissez <strong>le même</strong>
-                    mot de passe ci-dessus. La section admin ci-dessous sert seulement si vous
-                    provisionnez un rôle/base distincts avec un compte déjà connu.
+                    Auth échouée : alignez <span class="mono">HOT_STORE_PG_PASSWORD</span> dans <span class="mono">.env</span>, puis redémarrez Postgres.
                   </p>
                   <div class="form-row">
                     <div class="form-group">
@@ -211,7 +203,7 @@
             {% elif hs and hs.last_test_ok is sameas false %}<span class="badge badge-err">Échec</span>
             {% else %}<span class="badge badge-muted">Non testé</span>{% endif %}
           </header>
-          <p class="form-help mb-3">Étape sans risque — peut être relancée à volonté après chaque enregistrement.</p>
+          <p class="form-help mb-3">Sans risque — relançable après chaque enregistrement.</p>
           {% if hs and hs.last_test_error %}
           <div class="alert alert-error mb-3">{{ hs.last_test_error }}</div>
           {% elif test_ok and hs.last_test_at %}
@@ -249,15 +241,11 @@
             </div>
             {% if hs.password_sources_agree is sameas false %}
             <p class="form-help mb-0">
-              Les deux valeurs diffèrent. C’est la variable d’environnement qui est utilisée pour
-              se connecter, et c’est elle que l’entrypoint applique au rôle PostgreSQL : la valeur
-              saisie ici n’a donc pas d’effet sur la connexion.
+              Mot de passe env ≠ valeur enregistrée — seule la variable d’environnement est utilisée.
             </p>
             {% elif hs.password_source == 'stored' %}
             <p class="form-help mb-0">
-              HOT_STORE_PG_PASSWORD est absent de l’environnement de l’application. Postgres
-              synchronise pourtant son rôle depuis cette variable au démarrage : les deux valeurs
-              vont diverger au prochain redémarrage du conteneur.
+              <code>HOT_STORE_PG_PASSWORD</code> absent de l’env — Postgres et l’app divergeront au prochain redémarrage.
             </p>
             {% endif %}
           </div>
@@ -272,14 +260,10 @@
           <div class="mt-4">
             <h4 class="wizard-panel-title">Authentification refusée&nbsp;?</h4>
             <p class="form-help mb-3">
-              Le mot de passe du rôle n’est réappliqué qu’à la <strong>création</strong> du
-              conteneur postgres, et un simple redémarrage ne relit pas <code>.env</code>. Ce
-              bouton demande à l’hôte de recréer les conteneurs pour réaligner le rôle sur
-              <code>HOT_STORE_PG_PASSWORD</code>. Sans effet si c’est <code>.env</code> lui-même
-              qui porte la mauvaise valeur.
+              Recrée les conteneurs pour réaligner le rôle (<code>HOT_STORE_PG_PASSWORD</code>) — coupure brève.
             </p>
             <form method="post" action="/admin/configuration/hot-store/realign" class="hot-store-actions"
-                  data-confirm="Recréer les conteneurs pour réaligner le rôle PostgreSQL ? Le portail redémarre au passage, la session en cours sera brièvement coupée."
+                  data-confirm="Réaligner PostgreSQL ? Le portail redémarre brièvement."
                   data-confirm-title="Réaligner le mot de passe"
                   data-confirm-label="Réaligner">
               <button type="submit" class="btn btn-secondary" id="hot-store-realign-btn">
@@ -301,11 +285,11 @@
               <div class="wizard-summary-item"><span class="wizard-summary-label">Initialisé le</span><span class="wizard-summary-value mono">{{ hs.schema_prepared_at or hs.last_migrate_at }}</span></div>
               {% if hs.schema_prepared_by %}<div class="wizard-summary-item"><span class="wizard-summary-label">Par</span><span class="wizard-summary-value mono">{{ hs.schema_prepared_by }}</span></div>{% endif %}
             </div>
-            <p class="form-help mb-0">Schéma verrouillé — pour réinitialiser, contactez le support ou utilisez une action avancée hors du parcours normal.</p>
+            <p class="form-help mb-0">Schéma verrouillé — réinitialisation hors parcours normal.</p>
             <button type="button" class="btn btn-ghost" disabled title="Schéma déjà initialisé — réinitialisation verrouillée">Préparer le schéma</button>
           </div>
           {% else %}
-          <p class="form-help mb-3">Crée les tables chaudes sur PostgreSQL (idempotent tant qu’elle n’a jamais réussi).</p>
+          <p class="form-help mb-3">Crée les tables chaudes (idempotent tant qu’elle n’a jamais réussi).</p>
           <form method="post" action="/admin/configuration/hot-store/prepare" class="hot-store-actions"
                 data-confirm="Créer le schéma des tables chaudes sur PostgreSQL ?"
                 data-confirm-title="Initialiser le schéma"
@@ -322,7 +306,7 @@
             {% elif migrate_skipped %}<span class="badge badge-muted">Passée</span>
             {% else %}<span class="badge badge-muted">Optionnelle</span>{% endif %}
           </header>
-          <p class="form-help mb-3">Copie l’historique SQLite (sessions, audit, …) vers PostgreSQL. Si vous démarrez le hot store à neuf sans historique à reprendre, passez cette étape.</p>
+          <p class="form-help mb-3">Copie l’historique SQLite vers PostgreSQL. Sans historique à reprendre : sautez.</p>
           {% if migrate_done or migrate_skipped %}
           <div class="wizard-summary mb-3">
             <div class="wizard-summary-grid">
@@ -408,7 +392,7 @@
           <div class="wizard-summary">
             <div class="wizard-summary-hero">
               <p class="wizard-summary-hero-title">Stockage chaud actif</p>
-              <p class="form-help mb-0">Les écritures sessions / audit / anti-bruteforce / outbox SIEM passent par PostgreSQL. La configuration (realms, RBAC, coffre) reste sur SQLite.</p>
+              <p class="form-help mb-0">Écritures chaudes sur PostgreSQL ; config (realms, RBAC, coffre) sur SQLite.</p>
             </div>
             <div class="wizard-summary-grid">
               <div class="wizard-summary-item"><span class="wizard-summary-label">État</span><span class="wizard-summary-value">{{ hs.status_label }}</span></div>
@@ -428,7 +412,7 @@
             </form>
           </div>
           {% else %}
-          <p class="form-help mb-3">Active la bascule des écritures (sessions OIDC, sessions actives, audit, anti-bruteforce, outbox SIEM) vers PostgreSQL. La configuration reste sur SQLite.</p>
+          <p class="form-help mb-3">Bascule les écritures chaudes vers PostgreSQL. La config reste sur SQLite.</p>
           <form method="post" action="/admin/configuration/hot-store/enable"
                 data-confirm="Activer le hot store ? Les tables chaudes seront lues/écrites sur PostgreSQL."
                 data-confirm-title="Activer le hot store"

@@ -14,7 +14,7 @@ ENCRYPTION_KEY_ENV = "PORTAL_SECRET_ENCRYPTION_KEY"
 
 
 def _env_key_material(settings: Settings) -> str:
-    """Legacy env delivery (Phase A) — primary then vault fallback."""
+    """Legacy env delivery — primary then vault fallback."""
     raw = (settings.portal_secret_encryption_key or "").strip()
     if not raw:
         raw = (settings.vault_portal_vault_fernet_key or "").strip()

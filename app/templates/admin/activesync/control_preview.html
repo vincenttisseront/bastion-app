@@ -37,12 +37,11 @@
     </div>
     <div class="card-body">
       <p class="form-help">
-        Cette page <strong>n’active rien</strong> tant que vous ne confirmez pas.
-        Le backfill part de l’<strong>inventaire observé</strong> (pas des logs historiques).
+        Rien n’est activé sans confirmation. Backfill = inventaire observé (pas les logs).
         {% if preview.control_enabled and preview.control_enabled_at %}
-        Contrôle actif depuis {{ preview.control_enabled_at.strftime('%d/%m/%Y %H:%M') }} UTC.
+        Actif depuis {{ preview.control_enabled_at.strftime('%d/%m/%Y %H:%M') }} UTC.
         {% elif not preview.control_enabled %}
-        Inventaire seul — aucun refus automatique.
+        Inventaire seul — pas de refus automatique.
         {% endif %}
       </p>
       <ul class="form-help">
@@ -55,9 +54,7 @@
       </ul>
       {% if not preview.control_enabled %}
       <div class="alert alert-warn">
-        Tout téléphone absent de cet inventaire (éteint, congés, jamais synchronisé depuis
-        le début de l’observation) sera <strong>coupé</strong> dès l’activation et devra être
-        validé par son propriétaire dans le portail.
+        Tout appareil hors inventaire sera refusé à l’activation (validation portail requise).
       </div>
       {% endif %}
     </div>

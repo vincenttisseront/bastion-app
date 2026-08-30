@@ -24,3 +24,7 @@ docker/oauth2-core/oauth2-proxy.cfg
 app/static/uploads/app-logos/*
 !app/static/uploads/app-logos/.gitkeep
 data/sso-portal/uploads/
+
+# Local secrets (Atlassian, etc.)
+.secrets/
+

@@ -20,7 +20,7 @@ ACCESS_MODE_LABELS: dict[str, str] = {
 
 ACCESS_MODE_DESCRIPTIONS: dict[str, str] = {
     "sso_gate": "L'utilisateur est redirigé vers l'URL publique après validation SSO. Aucun proxy.",
-    "subdomain_proxy": "Proxy transparent sur un FQDN dédié (modèle CrushFTP Phase 3).",
+    "subdomain_proxy": "Proxy transparent sur un FQDN dédié (modèle CrushFTP).",
     "legacy_path_proxy": "Proxy sous /proxy/{slug}/ — uniquement si l'app supporte un base_path.",
     "public_proxy": (
         "Reverse proxy simple sans authentification bastion — hors catalogue utilisateur."

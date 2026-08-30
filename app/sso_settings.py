@@ -191,7 +191,7 @@ class Settings(BaseSettings):
         ),
     )
     # SQLCipher file-level key (32-byte hex). Distinct from Fernet column key.
-    # Prefer keys/db_encryption.key; env used for AWX bootstrap / migration to file.
+    # Prefer keys/db_encryption.key; env used for bootstrap / migration to file.
     vault_portal_db_encryption_key: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -270,8 +270,7 @@ class Settings(BaseSettings):
             "file_encryption_chunk_size",
         ),
     )
-    # Application-managed Fernet key directory (Phase B — not AWX-delivered).
-    # Empty → {portal_data_dir}/keys
+    # Application-managed Fernet key directory. Empty → {portal_data_dir}/keys
     vault_keys_dir: str = Field(
         default="",
         validation_alias=AliasChoices(
@@ -331,9 +330,8 @@ class Settings(BaseSettings):
         ),
     )
 
-    # Shared flag for optional LAN auth shortcuts. Default false (F-04 2026-07-25):
-    # disable until the reverse01 → nginx-bastion → app client-IP chain is proven.
-    # Portal /internal/oauth2-auth never applies this bypass; subdomain did when true.
+    # Shared flag for optional LAN auth shortcuts. Default false.
+    # Portal /internal/oauth2-auth never applies this bypass; subdomain may when true.
     rfc1918_bypass_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices(
@@ -456,7 +454,7 @@ class Settings(BaseSettings):
         HMAC values may live in SQLite (``ensure_portal_runtime_secrets``) rather
         than ``.env`` — lifespan fails closed if hop secret is still missing after
         ensure. Env SESSION_HOP_SECRET / BREAKGLASS_JWT_SECRET remain optional
-        overrides (pytest / emergency / AWX).
+        overrides (pytest / emergency / env).
         """
         if self.environment != "production":
             return self

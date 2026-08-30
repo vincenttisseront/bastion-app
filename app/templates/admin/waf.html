@@ -154,7 +154,7 @@
 
 
 
-  {# —— Bilan —— #}
+  {# Bilan #}
 
   <div class="form-section waf-panel waf-panel-bilan" id="bilan" role="tabpanel" aria-labelledby="tab-bilan">
     <div class="form-body waf-dashboard waf-sentinel">
@@ -411,7 +411,7 @@
 
 
 
-  {# —— Profil —— #}
+  {# Profil #}
 
   <div class="form-section waf-panel" id="profile" role="tabpanel" aria-labelledby="tab-profile" hidden>
 
@@ -445,7 +445,7 @@
 
             </select>
 
-            <p class="form-help" id="waf-preset-hint">Changer le préréglage remplit le formulaire avec les valeurs enregistrées de ce profil. Cliquez <strong>Enregistrer le profil</strong>, puis <strong>Appliquer</strong>.</p>
+            <p class="form-help" id="waf-preset-hint">Remplit le formulaire — puis Enregistrer, puis Appliquer.</p>
 
           </div>
 
@@ -529,7 +529,7 @@
 
 
 
-  {# —— Exclusions —— #}
+  {# Exclusions #}
 
   <div class="form-section waf-panel" id="exclusions" role="tabpanel" aria-labelledby="tab-exclusions" hidden>
 
@@ -593,7 +593,7 @@
 
 
 
-  {# —— En-têtes —— #}
+  {# En-têtes #}
 
   <div class="form-section waf-panel" id="headers" role="tabpanel" aria-labelledby="tab-headers" hidden>
 
@@ -629,7 +629,7 @@
 
 
 
-  {# —— Détails techniques —— #}
+  {# Détails techniques #}
 
   <div class="form-section waf-panel" id="technical" role="tabpanel" aria-labelledby="tab-technical" hidden>
 
@@ -771,10 +771,7 @@
           <span class="waf-dash-card-meta">Attendu (DB) · généré · réel nginx</span>
         </div>
         <div class="waf-diagnostic-export-body">
-          <p class="form-help">
-            Copiez ou téléchargez ce fichier pour un diagnostic complet de la mise en place
-            (aucun secret — modes, seuils, chemins, écarts).
-          </p>
+          <p class="form-help">Modes, seuils, chemins, écarts — aucun secret.</p>
           <div class="waf-diagnostic-export-actions">
             <button type="button" class="btn btn-secondary btn-sm" id="waf-diag-copy-btn">Copier le JSON</button>
             <a class="btn btn-secondary btn-sm" href="/admin/security/waf/diagnostic.json" download>Télécharger .json</a>

@@ -31,6 +31,12 @@ sinon break-glass / allowlist voient `127.0.0.1`.
 
 Détail : `docs/ops-client-ip-chain.md` · page [05.04](../05-configuration/05-04-ip-client-troubleshooting.md).
 
+## Configurations dépôt (pièces jointes Confluence)
+
+Sur la page Confluence correspondante : `nginx.conf`, templates
+`vhost_sso_portal.conf.template` / `proxy_portal_trusted_internal.conf.template`,
+headers et map IP client.
+
 ## Apply = source générée
 
 Modifierier à la main un vhost sous `exports/` est **éphémère** : le prochain apply

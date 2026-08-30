@@ -1,8 +1,8 @@
 """Fernet key rotation for the application vault (portal.db ciphertext columns).
 
 One logical key protects AppCredential, UserAppCredential and RealmConfig secrets.
-Phase B: key material lives in VAULT_KEYS_DIR; rotate_application_key() drives
-in-process rotation. rotate_fernet_key() remains the transactional re-encrypt core.
+Key material lives in VAULT_KEYS_DIR; rotate_application_key() drives in-process
+rotation. rotate_fernet_key() remains the transactional re-encrypt core.
 """
 
 from __future__ import annotations

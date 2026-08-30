@@ -1,8 +1,7 @@
 """SSO session alignment — oauth2-proxy cookie TTL vs Keycloak ssoSession* timeouts.
 
-Target (bastion portal, 2026-07): cookie_expire=12h, cookie_refresh=1h,
-Keycloak ssoSessionMaxLifespan ≤ 12h (43200s) so cookie_refresh cannot extend
-the SSO session past the documented hard wall.
+Target: cookie_expire=12h, cookie_refresh=1h, Keycloak ssoSessionMaxLifespan ≤ 12h
+(43200s) so cookie_refresh cannot extend the SSO session past the hard wall.
 """
 
 from __future__ import annotations

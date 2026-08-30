@@ -12,7 +12,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Nouvel utilisateur</h1>
-      <p class="page-sub">Compte Keycloak + groupes + provisioning applicatif</p>
+      <p class="page-sub">Compte IdP + groupes + provisioning</p>
     </div>
     <a href="/admin/rbac/users" class="btn btn-ghost">← Utilisateurs</a>
   </div>
@@ -50,8 +50,7 @@
             {% endfor %}
           </select>
           <p class="form-help">
-          Realm principal du compte. Les groupes d’autres realms créent un compte
-          Keycloak jumeau (même identifiant) dans ces realms.
+          Realm principal. Groupes d’autres realms → compte IdP jumeau (même identifiant).
         </p>
         </div>
         <div class="form-row">
@@ -68,7 +67,7 @@
           <div class="form-group">
             <label class="form-label" for="username">Identifiant <span class="req">*</span></label>
             <input type="text" id="username" name="username" class="form-input mono" value="{{ form_values.username or '' }}" required readonly autocomplete="off" placeholder="prenom.nom" data-identity-username aria-describedby="username-help">
-            <p class="form-help" id="username-help">Généré automatiquement depuis le prénom et le nom (<span class="mono">prenom.nom</span>, sans accents).</p>
+            <p class="form-help" id="username-help">Auto depuis prénom/nom (<span class="mono">prenom.nom</span>).</p>
           </div>
           <div class="form-group">
             <label class="form-label" for="email">Email <span class="req">*</span></label>
@@ -91,7 +90,7 @@
               {% endfor %}
             </select>
             <p class="form-help" data-org-existing-help{% if not org_pick or org_pick == '__new__' %} hidden{% endif %}>
-              Rattache au groupe société Keycloak/RBAC (provisioning CrushFTP, droits hérités).
+              Groupe société RBAC (provisioning, droits hérités).
             </p>
           </div>
           <div class="form-group">
@@ -137,7 +136,7 @@
         <button type="button" class="ds-accordion-expand" aria-expanded="{{ 'true' if selected_groups else 'false' }}" tabindex="-1">▸</button>
         <div>
           <div class="form-section-title">Groupes RBAC</div>
-          <div class="form-section-sub">Optionnel — tous realms (un compte Keycloak jumeau est créé si besoin)</div>
+          <div class="form-section-sub">Optionnel — tous realms (compte IdP jumeau si besoin)</div>
           <div class="form-section-summary is-off" data-groups-summary>Filtrage…</div>
         </div>
       </div>
