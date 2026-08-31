@@ -72,7 +72,9 @@ def test_generate_server_block_includes_hop_not_internal():
     block = generate_subdomain_server_block(app, _settings())
     assert "server_name dolibarr.ar-systems.fr;" in block
     assert "location = /.bastion/session-cookies" in block
-    assert "auth_request off;" in block
+    assert "location = /.bastion/sso-session-mirror" in block
+    main = block.split("location / {", 1)[1]
+    assert "modsecurity off;" in main.split("}", 1)[0]
     assert "internal;" not in block.split("session-cookies")[1].split("location /")[0]
     assert "session-cookie-hop" in block
     assert "proxy_set_header Host portal.ar-systems.fr;" in block

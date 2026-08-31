@@ -381,6 +381,20 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_pass_request_body off;",
         "    }",
         "",
+        "    location = /.bastion/sso-session-mirror {",
+        "        auth_request off;",
+        "        modsecurity off;",
+        "        proxy_pass http://$bastion_app_upstream/api/internal/sso-session-mirror;",
+        "        proxy_http_version 1.1;",
+        f"        proxy_set_header Host {portal_esc};",
+        "        proxy_set_header X-Real-IP $remote_addr;",
+        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        "        proxy_set_header X-Forwarded-Host $host;",
+        "        proxy_set_header Cookie $http_cookie;",
+        "        proxy_pass_request_body off;",
+        "    }",
+        "",
         "    # Edge liveness — must not depend on app upstream (smoke / monitoring).",
         "    location = /healthz {",
         "        modsecurity off;",
@@ -433,6 +447,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         # Auth gate only — CrushFTP Cookie filter is in the named location below.
         location_slash = [
             "    location / {",
+            "        modsecurity off;",
             *_AUTH_COOKIE_CAPTURE_LINES,
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
@@ -453,6 +468,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     else:
         location_slash = [
             "    location / {",
+            "        # SPA/API: CRS breaks grommunio.js responses and POST bodies.",
+            "        modsecurity off;",
             # Capture Cookie here (parent) — auth + proxy in same location.
             # Do NOT use return 418 → named gate: nested error_page breaks
             # @portal_redirect.

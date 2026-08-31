@@ -26,6 +26,7 @@ from app.bastion.bastion_fields import (
     vault_enabled_for_app,
 )
 from app.robotic.robotic_session_cookies import normalize_injected_cookie_scope
+from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
 from app.admin.export import export_app_catalogue_files
 from app.admin.infra_host_apply import request_host_apply
 from app.web.admin_infrastructure import host_apply_wait_redirect
@@ -720,7 +721,10 @@ def login_page(
                     set_oidc_session_cookie(response, raw_session, settings)
                 return response
             return RedirectResponse(url="/apps", status_code=302)
-        response = RedirectResponse(url=rd, status_code=302)
+        mirror_rd = redirect_via_subdomain_sso_mirror(
+            rd, portal_domain=settings.portal_domain or ""
+        )
+        response = RedirectResponse(url=mirror_rd, status_code=302)
         if native_ok and raw_session:
             set_oidc_session_cookie(response, raw_session, settings)
         return response
@@ -733,7 +737,10 @@ def login_page(
             response = RedirectResponse(url="/apps", status_code=302)
             set_oidc_session_cookie(response, raw_session, settings)
             return response
-        response = RedirectResponse(url=rd, status_code=302)
+        mirror_rd = redirect_via_subdomain_sso_mirror(
+            rd, portal_domain=settings.portal_domain or ""
+        )
+        response = RedirectResponse(url=mirror_rd, status_code=302)
         set_oidc_session_cookie(response, raw_session, settings)
         return response
 

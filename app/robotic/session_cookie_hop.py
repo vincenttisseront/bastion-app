@@ -17,7 +17,7 @@ import json
 import logging
 import time
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import RedirectResponse
@@ -38,6 +38,7 @@ HOP_COOKIE_NAME = "bastion_session_hop"
 _LEGACY_HOP_COOKIE_NAMES = (HOP_COOKIE_NAME, "bastion_crush_hop")
 
 HOP_PATH = "/.bastion/session-cookies"
+SSO_MIRROR_PATH = "/.bastion/sso-session-mirror"
 # Keep old path so transfer nginx configs already deployed still work.
 _LEGACY_HOP_PATHS = ("/.bastion/crush-session",)
 
@@ -221,6 +222,48 @@ def attach_session_hop_portal_cookies(
         response.set_cookie(**clear_kwargs)
 
 
+def apply_host_only_bastion_session_mirror(
+    response: Response,
+    request: Request,
+    settings: Settings,
+) -> bool:
+    """Host-only copy of bastion_session on the app FQDN (parent Domain may not stick)."""
+    from app.auth import extract_oidc_session_cookie_raw
+
+    raw = extract_oidc_session_cookie_raw(request, settings)
+    if not raw:
+        return False
+    name = (settings.oidc_session_cookie_name or "").strip() or "bastion_session"
+    response.set_cookie(
+        key=name,
+        value=raw,
+        max_age=settings.oidc_session_max_age,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+    return True
+
+
+def redirect_via_subdomain_sso_mirror(rd: str, *, portal_domain: str) -> str:
+    """Send post-login redirects through /.bastion/sso-session-mirror on the app host."""
+    parsed = urlparse((rd or "").strip())
+    portal = (portal_domain or "").strip().lower()
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in ("https", "http") or not host or host == portal:
+        return rd
+    path = (parsed.path or "").rstrip("/")
+    if path == SSO_MIRROR_PATH.rstrip("/"):
+        return rd
+    next_path = parsed.path or "/"
+    if parsed.query:
+        next_path = f"{next_path}?{parsed.query}"
+    return (
+        f"https://{host}{SSO_MIRROR_PATH}?next={quote(next_path, safe='')}"
+    )
+
+
 def apply_host_only_session_cookies(
     response: Response,
     cookies: dict[str, str],
@@ -314,6 +357,21 @@ def _hop_handler(
     )
     response = RedirectResponse(url=target, status_code=302)
     apply_host_only_session_cookies(response, cookies, shared_parent=shared)
+    apply_host_only_bastion_session_mirror(response, request, settings)
+    return response
+
+
+@router.get(SSO_MIRROR_PATH)
+@router.get("/api/internal/sso-session-mirror")
+def sso_session_mirror(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    next: str | None = None,  # noqa: A002
+):
+    """Public — host-only bastion_session after portal SSO before SPA API calls."""
+    target = _absolute_app_url(request, _safe_next(next, DEFAULT_NEXT))
+    response = RedirectResponse(url=target, status_code=302)
+    apply_host_only_bastion_session_mirror(response, request, settings)
     return response
 
 
@@ -344,6 +402,9 @@ __all__ = [
     "COOKIE_SCOPE_HOST_ONLY",
     "HOP_COOKIE_NAME",
     "HOP_PATH",
+    "SSO_MIRROR_PATH",
+    "apply_host_only_bastion_session_mirror",
+    "redirect_via_subdomain_sso_mirror",
     "attach_session_hop_portal_cookies",
     "apply_host_only_session_cookies",
     "router",
