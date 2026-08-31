@@ -85,3 +85,36 @@ def test_render_clears_consumed_flash_cookie():
     set_cookies = " ".join(response.headers.getlist("set-cookie")).lower()
     assert FLASH_COOKIE in set_cookies
     assert "max-age=0" in set_cookies or "expires=" in set_cookies
+
+
+def test_flash_cookie_is_base64_encoded_for_waf():
+    seed = Response()
+    set_flash(
+        seed,
+        [{"message": "Mot de passe incorrect ou compte verrouillé.", "category": "error"}],
+        SECRET,
+    )
+    cookie_val = seed.headers.get("set-cookie", "").split(";", 1)[0].split("=", 1)[1]
+    assert cookie_val.startswith("b64.")
+    assert "[" not in cookie_val
+    assert "{" not in cookie_val
+    request = _request_with_flash_cookie(cookie_val)
+    msgs = get_flash_messages(request, SECRET)
+    assert msgs[0]["message"] == "Mot de passe incorrect ou compte verrouillé."
+
+
+def test_flash_cookie_reads_legacy_signed_json():
+    seed = Response()
+    set_flash(
+        seed,
+        [{"message": "Legacy flash", "category": "info"}],
+        SECRET,
+    )
+    # Simulate pre-base64 cookie: signed JSON payload in clear.
+    from app.web.flash import _sign
+    import json
+
+    legacy = _sign(json.dumps([{"message": "Legacy flash", "category": "info"}]), SECRET)
+    request = _request_with_flash_cookie(legacy)
+    msgs = get_flash_messages(request, SECRET)
+    assert msgs[0]["message"] == "Legacy flash"

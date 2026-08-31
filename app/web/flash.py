@@ -1,5 +1,6 @@
 """Flash messages via signed cookie."""
 
+import base64
 import hashlib
 import hmac
 import json
@@ -26,6 +27,24 @@ from app.robotic.robotic_session_cookies import (
 
 FLASH_COOKIE = "portal_flash"
 FLASH_MAX_AGE = 30
+_FLASH_B64_PREFIX = "b64."
+
+
+def _encode_flash_cookie_value(signed: str) -> str:
+    """Base64url keeps signed JSON out of CRS cookie inspection (ModSecurity)."""
+    raw = base64.urlsafe_b64encode(signed.encode("utf-8")).decode("ascii")
+    return f"{_FLASH_B64_PREFIX}{raw.rstrip('=')}"
+
+
+def _decode_flash_cookie_value(raw: str) -> str | None:
+    if raw.startswith(_FLASH_B64_PREFIX):
+        body = raw[len(_FLASH_B64_PREFIX) :]
+        pad = "=" * (-len(body) % 4)
+        try:
+            return base64.urlsafe_b64decode(body + pad).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return None
+    return raw
 
 
 def _sign(payload: str, secret: str) -> str:
@@ -49,7 +68,10 @@ def get_flash_messages(request: Request, secret: str) -> list[dict[str, str]]:
     raw = request.cookies.get(FLASH_COOKIE)
     if not raw:
         return []
-    payload = _unsign(raw, secret)
+    signed = _decode_flash_cookie_value(raw)
+    if not signed:
+        return []
+    payload = _unsign(signed, secret)
     if not payload:
         return []
     try:
@@ -67,9 +89,10 @@ def get_flash_messages(request: Request, secret: str) -> list[dict[str, str]]:
 def set_flash(response: Response, messages: list[dict[str, str]], secret: str) -> None:
     payload = json.dumps(messages)
     signed = _sign(payload, secret)
+    encoded = _encode_flash_cookie_value(signed)
     response.set_cookie(
         key=FLASH_COOKIE,
-        value=signed,
+        value=encoded,
         max_age=FLASH_MAX_AGE,
         httponly=True,
         samesite="lax",
