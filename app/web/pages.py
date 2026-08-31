@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -545,6 +545,57 @@ def _record_sso_failure_from_request(request: Request, db: Session) -> None:
         username=username or "sso",
         success=False,
     )
+
+
+def _portal_same_site_cors_headers(
+    request: Request, settings: Settings
+) -> dict[str, str] | None:
+    """CORS preflight for portal /auth/login from subdomain apps (same parent domain)."""
+    from urllib.parse import urlparse
+
+    from app.robotic.robotic_session_cookies import (
+        normalize_hostname,
+        shared_parent_domain,
+    )
+
+    origin = (request.headers.get("origin") or "").strip()
+    if not origin:
+        return None
+    parsed = urlparse(origin)
+    if parsed.scheme not in ("https", "http"):
+        return None
+    host = normalize_hostname(parsed.hostname or "")
+    portal = normalize_hostname(settings.portal_domain or "")
+    if not portal or not host:
+        return None
+    if host == portal:
+        allowed = True
+    else:
+        parent = shared_parent_domain(host, portal)
+        allowed = bool(
+            parent and (host == parent or host.endswith("." + parent))
+        )
+    if not allowed:
+        return None
+    req_headers = (request.headers.get("access-control-request-headers") or "").strip()
+    allow_headers = req_headers or "Content-Type, Authorization, X-Requested-With"
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": allow_headers,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Max-Age": "86400",
+        "Vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
+    }
+
+
+@router.options("/login")
+@router.options("/auth/login")
+def login_options(request: Request, settings: Settings = Depends(get_settings)):
+    headers = _portal_same_site_cors_headers(request, settings)
+    if headers is None:
+        return Response(status_code=403)
+    return Response(status_code=204, headers=headers)
 
 
 @router.get("/login")

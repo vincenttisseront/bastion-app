@@ -255,3 +255,36 @@ def test_login_invalid_native_cookie_with_absolute_rd_shows_login_not_loop(
     else:
         assert resp.status_code == 200
         assert "connexion" in resp.text.lower() or "login" in resp.text.lower()
+
+
+def test_auth_login_options_same_site_cors(client: TestClient):
+    settings = _native_settings()
+    get_settings.cache_clear()
+    client.app.dependency_overrides[get_settings] = lambda: settings
+
+    resp = client.options(
+        "/auth/login",
+        headers={
+            "Origin": "https://webmail.ar-systems.fr",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert resp.status_code == 204
+    assert resp.headers.get("access-control-allow-origin") == "https://webmail.ar-systems.fr"
+    assert "GET" in (resp.headers.get("access-control-allow-methods") or "")
+
+
+def test_auth_login_options_rejects_foreign_origin(client: TestClient):
+    settings = _native_settings()
+    get_settings.cache_clear()
+    client.app.dependency_overrides[get_settings] = lambda: settings
+
+    resp = client.options(
+        "/auth/login",
+        headers={
+            "Origin": "https://evil.example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp.status_code == 403
