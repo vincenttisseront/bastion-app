@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.bastion.modsec_audit_aggregator import (
+    extract_modsec_matched_target,
     is_audit_noise_event,
     read_audit_summary,
     resolve_modsec_audit_log_path,
@@ -20,25 +21,75 @@ def _sample_audit_line(
     rule_id: str = "942100",
     host: str = "portal.example.com",
     client_ip: str = "203.0.113.10",
+    uri: str = "/api/test",
+    matched_data: str | None = None,
 ) -> str:
+    details: dict = {"ruleId": rule_id, "severity": "2"}
+    message = "SQL Injection Attack Detected"
+    if matched_data:
+        details["data"] = matched_data
+        message = f"{message} {matched_data}"
     payload = {
         "transaction": {
             "client_ip": client_ip,
             "time_stamp": datetime.now(timezone.utc).isoformat(),
             "request": {
-                "uri": "/api/test",
+                "uri": uri,
                 "headers": {"Host": host},
             },
             "response": {"http_code": 403},
             "messages": [
                 {
-                    "message": "SQL Injection Attack Detected",
-                    "details": {"ruleId": rule_id, "severity": "2"},
+                    "message": message,
+                    "details": details,
                 }
             ],
         }
     }
     return json.dumps(payload)
+
+
+def test_extract_modsec_matched_target():
+    kind, name = extract_modsec_matched_target(
+        'Matched Data: UNION SELECT found within ARGS:search_term'
+    )
+    assert kind == "args"
+    assert name == "search_term"
+    # Never return the payload value
+    assert "UNION" not in (name or "")
+
+    kind2, name2 = extract_modsec_matched_target(
+        "Matched Data: x within REQUEST_COOKIES:session_id"
+    )
+    assert kind2 == "cookies"
+    assert name2 == "session_id"
+
+    kind3, name3 = extract_modsec_matched_target("no match here")
+    assert kind3 is None and name3 is None
+
+
+def test_aggregator_captures_matched_target(tmp_path: Path):
+    logs = tmp_path / "nginx-logs"
+    logs.mkdir()
+    log_file = logs / "modsec_audit.log"
+    log_file.write_text(
+        _sample_audit_line(
+            uri="/api/v1/users",
+            matched_data='Matched Data: UNION SELECT found within ARGS:search_term',
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    settings = Settings(
+        environment="test",
+        database_url="sqlite://",
+        nginx_app_logs_dir=str(logs),
+    )
+    summary = run_aggregation(settings)
+    ev = summary["recent_events"][-1]
+    assert ev["matched_scope_kind"] == "args"
+    assert ev["matched_target_name"] == "search_term"
+    assert "UNION" not in json.dumps(ev)
 
 
 def test_aggregator_counts_detections(tmp_path: Path):

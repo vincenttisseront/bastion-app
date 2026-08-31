@@ -69,7 +69,10 @@ def test_write_waf_exports_profile_and_exclusion(db_session, tmp_path):
     assert "id:901110" not in crs  # must not collide with CRS REQUEST-901-*
 
     excl = Path(paths["bastion-exclusions-generated.conf"]).read_text(encoding="utf-8")
-    assert "SecRuleRemoveById 942100" in excl
+    assert "SecRuleRemoveById 942100" not in excl
+    assert "ctl:ruleRemoveById=942100" in excl
+    assert "REQUEST_URI" in excl
+    assert '@streq "/admin/apps/analyze-login-form"' in excl
 
     engine = Path(paths["engine-mode-generated.conf"]).read_text(encoding="utf-8")
     assert "SecRuleEngine On" in engine
@@ -249,6 +252,78 @@ def test_render_helpers_detection_only():
     assert "DetectionOnly" in render_engine_mode_generated(profile)
     assert "threshold=7" in render_crs_setup_generated(profile)
     excl = WafExclusion(
-        crs_rule_id=1, reason="r", uri_pattern="/x", active=True
+        id=42,
+        crs_rule_id=1,
+        reason="r",
+        uri_pattern="/x",
+        active=True,
+        scope_kind="rule",
+        uri_match="exact",
     )
-    assert "SecRuleRemoveById 1" in render_exclusions_generated([excl])
+    out = render_exclusions_generated([excl])
+    assert "SecRuleRemoveById 1" not in out
+    assert "ctl:ruleRemoveById=1" in out
+    assert "REQUEST_URI" in out
+
+
+def test_render_exclusions_args_scoped_host_uri():
+    excl = WafExclusion(
+        id=7,
+        crs_rule_id=941100,
+        reason="FP editor",
+        host="app.example.fr",
+        uri_pattern="/admin/blog/save",
+        active=True,
+        scope_kind="args",
+        target_name="content",
+        uri_match="exact",
+    )
+    out = render_exclusions_generated([excl])
+    assert "SecRuleRemoveById 941100" not in out
+    assert "ctl:ruleRemoveTargetById=941100;ARGS:content" in out
+    assert 'REQUEST_HEADERS:Host "@streq app.example.fr"' in out
+    assert '@streq "/admin/blog/save"' in out
+    assert "id:1500007" in out
+
+
+def test_render_exclusions_global_rule_remove():
+    excl = WafExclusion(
+        id=1,
+        crs_rule_id=920100,
+        reason="legacy global",
+        host=None,
+        uri_pattern=None,
+        active=True,
+        scope_kind="rule",
+    )
+    out = render_exclusions_generated([excl])
+    assert "SecRuleRemoveById 920100" in out
+    assert "WARN: global rule remove" in out
+
+
+def test_render_exclusions_uri_prefix_and_regex():
+    prefix = WafExclusion(
+        id=2,
+        crs_rule_id=100,
+        reason="p",
+        uri_pattern="/api/",
+        active=True,
+        scope_kind="rule",
+        uri_match="prefix",
+    )
+    regex = WafExclusion(
+        id=3,
+        crs_rule_id=101,
+        reason="r",
+        uri_pattern=r"^/blog/[0-9]+$",
+        active=True,
+        scope_kind="cookies",
+        target_name="session",
+        uri_match="regex",
+    )
+    out_p = render_exclusions_generated([prefix])
+    out_r = render_exclusions_generated([regex])
+    assert '@beginsWith "/api/"' in out_p
+    assert "ctl:ruleRemoveById=100" in out_p
+    assert '@rx "^/blog/[0-9]+$"' in out_r
+    assert "ctl:ruleRemoveTargetById=101;REQUEST_COOKIES:session" in out_r

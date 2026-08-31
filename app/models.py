@@ -1082,7 +1082,7 @@ class WafProfile(Base):
 
 
 class WafExclusion(Base):
-    """Targeted CRS exclusion (rule id + optional URI/host). Soft-disable via active=False."""
+    """Targeted CRS exclusion (rule id + optional URI/host/variable). Soft-disable via active=False."""
 
     __tablename__ = "waf_exclusions"
 
@@ -1090,6 +1090,12 @@ class WafExclusion(Base):
     uri_pattern = Column(String, nullable=True)
     host = Column(String, nullable=True)
     crs_rule_id = Column(Integer, nullable=True)
+    # rule | args | args_names | cookies | headers
+    scope_kind = Column(String, nullable=False, default="rule")
+    # Parameter / cookie / header name when scope_kind != rule
+    target_name = Column(String, nullable=True)
+    # exact | prefix | regex — how uri_pattern is matched
+    uri_match = Column(String, nullable=False, default="exact")
     reason = Column(String, nullable=False)
     active = Column(Boolean, nullable=False, default=True, index=True)
     created_by = Column(String, nullable=True)

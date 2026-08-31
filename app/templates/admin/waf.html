@@ -382,6 +382,25 @@
                 <td>
                   <button type="button" class="btn btn-ghost btn-sm" data-waf-inspect="{{ a.inspect_b64 }}"
                           data-waf-inspect-ip="{{ a.client_ip }}">Inspecter</button>
+                  {% if a.can_exclude and a.source == 'crs' %}
+                  <form method="post" action="/admin/security/waf/actions/exclude-rule" class="inline-form waf-action-form">
+                    <input type="hidden" name="crs_rule_id" value="{{ a.rule_id }}">
+                    <input type="hidden" name="host" value="{{ a.host if a.host != '—' else '' }}">
+                    <input type="hidden" name="uri_pattern" value="{{ a.uri if a.uri != '—' else '' }}">
+                    <input type="hidden" name="uri_match" value="exact">
+                    {% if a.matched_scope_kind and a.matched_target_name %}
+                    <input type="hidden" name="scope_kind" value="{{ a.matched_scope_kind }}">
+                    <input type="hidden" name="target_name" value="{{ a.matched_target_name }}">
+                    {% else %}
+                    <input type="hidden" name="scope_kind" value="rule">
+                    {% endif %}
+                    <input type="hidden" name="reason" value="FP depuis bilan — règle {{ a.rule_id }}{% if a.matched_target_name %} ({{ a.matched_scope_kind }}:{{ a.matched_target_name }}){% endif %}">
+                    <button type="submit" class="btn btn-ghost btn-sm" title="{% if a.matched_target_name %}Exclusion {{ a.matched_scope_kind }}:{{ a.matched_target_name }}{% else %}Exclusion scopée host+URI{% endif %}">Exclure</button>
+                  </form>
+                  <a class="btn btn-ghost btn-sm"
+                     href="/admin/security/waf?exclude_rule={{ a.rule_id }}&amp;exclude_host={{ (a.host if a.host != '—' else '') | urlencode }}&amp;exclude_uri={{ (a.uri if a.uri != '—' else '') | urlencode }}&amp;exclude_scope={{ (a.matched_scope_kind or 'args') | urlencode }}&amp;exclude_target={{ (a.matched_target_name or '') | urlencode }}&amp;exclude_reason={{ ('FP depuis bilan — règle ' ~ a.rule_id) | urlencode }}#exclusions"
+                     data-waf-exclude-refine>Affiner…</a>
+                  {% endif %}
                   {% if not a.banned and a.can_ban %}
                   <form method="post" action="/admin/security/waf/actions/ban-ip" class="inline-form waf-action-form">
                     <input type="hidden" name="ip" value="{{ a.client_ip }}">
@@ -543,27 +562,144 @@
 
   <div class="form-section waf-panel" id="exclusions" role="tabpanel" aria-labelledby="tab-exclusions" hidden>
 
-    <div class="form-section-header"><div class="form-section-title">Exclusions CRS</div></div>
+    <div class="form-section-header">
+      <div class="form-section-title">Exclusions CRS</div>
+      <div class="form-section-sub">Préférer une exclusion d’argument (ARGS) à une désactivation de règle entière. Puis <strong>Appliquer</strong>.</div>
+    </div>
 
     <div class="form-body">
 
+      <div class="form-footer form-footer-flush mb-4" style="justify-content:flex-start;gap:.5rem">
+        <button type="button" class="btn btn-secondary" id="waf-ex-import-btn">Importer depuis un blocage récent</button>
+      </div>
+
       <form method="post" action="/admin/security/waf/exclusions/add" class="stack mb-4" id="waf-exclusion-add-form">
 
-        <div class="form-group"><label class="form-label" for="waf_ex_reason">Raison</label><input class="form-input" type="text" id="waf_ex_reason" name="reason" required maxlength="500"></div>
-
-        <div class="form-row">
-
-          <div class="form-group"><label class="form-label" for="waf_ex_rule">ID règle CRS</label><input class="form-input is-mono" type="number" id="waf_ex_rule" name="crs_rule_id" required min="1"></div>
-
-          <div class="form-group"><label class="form-label" for="waf_ex_host">Host</label><input class="form-input is-mono" type="text" id="waf_ex_host" name="host"></div>
-
+        <div class="form-group">
+          <label class="form-label" for="waf_ex_reason">Raison</label>
+          <input class="form-input" type="text" id="waf_ex_reason" name="reason" required maxlength="500"
+                 placeholder="Faux positif sur l’éditeur de texte enrichi">
         </div>
 
-        <div class="form-group"><label class="form-label" for="waf_ex_uri">URI pattern</label><input class="form-input is-mono" type="text" id="waf_ex_uri" name="uri_pattern"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="waf_ex_host">Hôte</label>
+            <select class="form-select is-mono" id="waf_ex_host" name="host">
+              <option value="">— tous / global (déconseillé) —</option>
+              {% for h in exclusion_hosts | default([]) %}
+              <option value="{{ h }}">{{ h }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_ex_uri">URI cible</label>
+            <input class="form-input is-mono" type="text" id="waf_ex_uri" name="uri_pattern"
+                   placeholder="/admin/blog/save">
+          </div>
+        </div>
 
-        <div class="form-footer form-footer-flush"><button type="submit" class="btn btn-secondary">Ajouter</button></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="waf_ex_uri_match">Correspondance URI</label>
+            <select class="form-select" id="waf_ex_uri_match" name="uri_match">
+              <option value="exact" selected>Exacte (@streq)</option>
+              <option value="prefix">Préfixe (@beginsWith)</option>
+              <option value="regex">Expression régulière (@rx)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="waf_ex_rule">ID règle CRS</label>
+            <input class="form-input is-mono" type="text" id="waf_ex_rule" name="crs_rule_id" required
+                   list="waf-crs-rule-list" placeholder="942…" autocomplete="off"
+                   aria-describedby="waf-ex-rule-hint">
+            <datalist id="waf-crs-rule-list">
+              {% for s in crs_rule_suggestions | default([]) %}
+              <option value="{{ s.id }}">{{ s.label }}</option>
+              {% endfor %}
+            </datalist>
+            <p class="form-help" id="waf-ex-rule-hint">Saisie libre ou suggestions (ex. 942100 — Injection SQL).</p>
+          </div>
+        </div>
+
+        <fieldset class="form-group waf-exclusion-scope">
+          <legend class="form-label">Cible de l’exclusion</legend>
+          <label class="form-check">
+            <input type="radio" name="exclusion_mode" value="variable" checked id="waf_ex_mode_variable" data-waf-ex-mode>
+            Ignorer une variable (recommandé) — le backend choisit <code class="mono">ruleRemoveTargetById</code>
+          </label>
+          <label class="form-check">
+            <input type="radio" name="exclusion_mode" value="rule" id="waf_ex_mode_rule" data-waf-ex-mode>
+            Désactiver la règle entière sur cette URL — déconseillé (<code class="mono">ruleRemoveById</code>)
+          </label>
+        </fieldset>
+
+        <input type="hidden" name="scope_kind" id="waf_ex_scope_kind" value="args">
+
+        <div class="form-group" id="waf-ex-target-wrap">
+          <label class="form-label" for="waf_ex_collection">Variable à ignorer</label>
+          <div class="form-row" style="align-items:center;gap:.5rem">
+            <select class="form-select is-mono" id="waf_ex_collection" aria-label="Type de variable">
+              <option value="args" selected>ARGS (paramètre)</option>
+              <option value="args_names">ARGS_NAMES</option>
+              <option value="cookies">REQUEST_COOKIES</option>
+              <option value="headers">REQUEST_HEADERS</option>
+            </select>
+            <input class="form-input is-mono" type="text" id="waf_ex_target" name="target_name"
+                   placeholder="search_term" pattern="[A-Za-z0-9._-]*" maxlength="128">
+          </div>
+          <p class="form-help">Ex. <code class="mono">ARGS</code> + <code class="mono">content</code> → <code class="mono">ctl:ruleRemoveTargetById=…;ARGS:content</code></p>
+        </div>
+
+        <label class="form-check" id="waf-ex-global-wrap" hidden>
+          <input type="checkbox" name="allow_global" value="on" id="waf_ex_allow_global">
+          Je confirme l’exclusion <strong>globale</strong> de la règle (sans host ni URI)
+        </label>
+
+        <div class="form-footer form-footer-flush">
+          <button type="submit" class="btn btn-secondary">Ajouter</button>
+        </div>
 
       </form>
+
+      <dialog id="waf-ex-import-dialog" class="sentinel-inspect-dialog">
+        <div class="sentinel-inspect-head">
+          <strong>Importer depuis un blocage récent</strong>
+          <button type="button" class="btn btn-ghost btn-sm" id="waf-ex-import-close">Fermer</button>
+        </div>
+        <div class="sentinel-inspect-body" style="padding:0">
+          <table class="data-table" id="waf-ex-import-table">
+            <thead>
+              <tr><th>Heure</th><th>Règle</th><th>Cible</th><th>Variable</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% if ac is defined and ac.present %}
+              {% for a in ac.recent if a.can_exclude and a.source == 'crs' %}
+              <tr>
+                <td class="mono">{{ a.timestamp }}</td>
+                <td class="mono">{{ a.rule_id }}{% if a.message %} <span class="muted">{{ a.message[:40] }}</span>{% endif %}</td>
+                <td class="mono">{{ a.host if a.host != '—' else '—' }}{{ a.uri if a.uri != '—' else '' }}</td>
+                <td class="mono">{% if a.matched_target_name %}{{ a.matched_scope_kind }}:{{ a.matched_target_name }}{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>
+                  <button type="button" class="btn btn-ghost btn-sm"
+                          data-waf-ex-pick
+                          data-rule="{{ a.rule_id }}"
+                          data-host="{{ a.host if a.host != '—' else '' }}"
+                          data-uri="{{ a.uri if a.uri != '—' else '' }}"
+                          data-scope="{{ a.matched_scope_kind or '' }}"
+                          data-target="{{ a.matched_target_name or '' }}"
+                          data-reason="FP depuis bilan — règle {{ a.rule_id }}">Choisir</button>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="muted" style="padding:1rem">Aucun blocage CRS récent importable. Consultez le Bilan après agrégation des logs.</td></tr>
+              {% endfor %}
+              {% else %}
+              <tr><td colspan="5" class="muted" style="padding:1rem">Aucun blocage CRS récent importable. Consultez le Bilan après agrégation des logs.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </dialog>
 
       <div class="data-table-wrapper">
 
@@ -574,21 +710,27 @@
           <tbody>
 
             {% for ex in exclusions %}
-
+            {% set sk = ex.scope_kind or 'rule' %}
+            {% set is_global = not ex.host and not ex.uri_pattern %}
             <tr>
-
-              <td class="mono">{{ ex.id }}</td><td class="mono">{{ ex.crs_rule_id }}</td>
-
-              <td class="mono">{{ ex.host or '—' }}{% if ex.uri_pattern %} {{ ex.uri_pattern }}{% endif %}</td>
-
+              <td class="mono">{{ ex.id }}</td>
+              <td class="mono">{{ ex.crs_rule_id }}</td>
+              <td class="mono">
+                {% if is_global and sk == 'rule' %}
+                <span class="badge badge-warn" title="SecRuleRemoveById global">global</span>
+                {% endif %}
+                {% if sk == 'args' %}ARGS:{{ ex.target_name or '?' }}
+                {% elif sk == 'args_names' %}ARGS_NAMES{% if ex.target_name %}:{{ ex.target_name }}{% endif %}
+                {% elif sk == 'cookies' %}REQUEST_COOKIES:{{ ex.target_name or '?' }}
+                {% elif sk == 'headers' %}REQUEST_HEADERS:{{ ex.target_name or '?' }}
+                {% else %}règle entière{% endif %}
+                {% if ex.host %} · {{ ex.host }}{% endif %}
+                {% if ex.uri_pattern %} · {{ ex.uri_match or 'exact' }} {{ ex.uri_pattern }}{% endif %}
+              </td>
               <td>{{ ex.reason }}</td>
-
               <td>{% if ex.active %}<span class="badge badge-ok">oui</span>{% else %}<span class="badge badge-muted">non</span>{% endif %}</td>
-
               <td>{% if ex.active %}<form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/disable" class="inline-form waf-disable-form"><button type="submit" class="btn btn-ghost btn-sm">Désactiver</button></form>{% endif %}</td>
-
             </tr>
-
             {% else %}<tr><td colspan="6" class="muted">Aucune exclusion</td></tr>{% endfor %}
 
           </tbody>
@@ -921,6 +1063,8 @@
   function currentTab() {
 
     var h = (location.hash || '').replace(/^#/, '');
+    var q = h.indexOf('?');
+    if (q >= 0) h = h.slice(0, q);
 
     if (h === 'status' || h === 'technical-details') return 'bilan';
 
@@ -1094,6 +1238,144 @@
     confirmSubmit(form, { title: 'Désactiver cette exclusion ?', confirmLabel: 'Désactiver', danger: true });
 
   });
+
+  /* Exclusion form: mode + collection + Affiner / Import modal */
+  (function () {
+    var scopeHidden = document.getElementById('waf_ex_scope_kind');
+    var collectionSel = document.getElementById('waf_ex_collection');
+    var targetWrap = document.getElementById('waf-ex-target-wrap');
+    var targetInput = document.getElementById('waf_ex_target');
+    var globalWrap = document.getElementById('waf-ex-global-wrap');
+    var hostSel = document.getElementById('waf_ex_host');
+    var uriInput = document.getElementById('waf_ex_uri');
+    var modeVariable = document.getElementById('waf_ex_mode_variable');
+    var modeRule = document.getElementById('waf_ex_mode_rule');
+
+    function isVariableMode() {
+      return !!(modeVariable && modeVariable.checked);
+    }
+
+    function syncScopeUi() {
+      var variable = isVariableMode();
+      if (targetWrap) targetWrap.hidden = !variable;
+      if (targetInput) {
+        targetInput.required = variable;
+        if (!variable) targetInput.value = '';
+      }
+      if (scopeHidden) {
+        scopeHidden.value = variable
+          ? (collectionSel ? collectionSel.value : 'args')
+          : 'rule';
+      }
+      syncGlobalUi();
+    }
+
+    function syncGlobalUi() {
+      var host = hostSel ? (hostSel.value || '').trim() : '';
+      var uri = uriInput ? (uriInput.value || '').trim() : '';
+      var show = !isVariableMode() && !host && !uri;
+      if (globalWrap) globalWrap.hidden = !show;
+      var cb = document.getElementById('waf_ex_allow_global');
+      if (cb && !show) cb.checked = false;
+    }
+
+    function setHost(h) {
+      if (!hostSel || !h || h === '—') return;
+      var found = false;
+      for (var i = 0; i < hostSel.options.length; i++) {
+        if (hostSel.options[i].value === h) { hostSel.selectedIndex = i; found = true; break; }
+      }
+      if (!found) {
+        var opt = document.createElement('option');
+        opt.value = h;
+        opt.textContent = h;
+        hostSel.appendChild(opt);
+        hostSel.value = h;
+      }
+    }
+
+    function applyExclusionPrefill(opts) {
+      opts = opts || {};
+      var ruleEl = document.getElementById('waf_ex_rule');
+      var uriEl = document.getElementById('waf_ex_uri');
+      var reasonEl = document.getElementById('waf_ex_reason');
+      if (ruleEl && opts.rule) ruleEl.value = opts.rule;
+      if (opts.host) setHost(opts.host);
+      if (uriEl && opts.uri && opts.uri !== '—') uriEl.value = opts.uri;
+      if (reasonEl && opts.reason) reasonEl.value = opts.reason;
+      var scope = opts.scope || '';
+      var target = opts.target || '';
+      if (scope && target && collectionSel && modeVariable) {
+        modeVariable.checked = true;
+        if (modeRule) modeRule.checked = false;
+        collectionSel.value = scope;
+        if (targetInput) targetInput.value = target;
+      } else if (modeVariable) {
+        modeVariable.checked = true;
+        if (modeRule) modeRule.checked = false;
+        if (collectionSel) collectionSel.value = 'args';
+      }
+      syncScopeUi();
+    }
+
+    document.querySelectorAll('[data-waf-ex-mode]').forEach(function (el) {
+      el.addEventListener('change', syncScopeUi);
+    });
+    if (collectionSel) collectionSel.addEventListener('change', syncScopeUi);
+    if (hostSel) hostSel.addEventListener('change', syncGlobalUi);
+    if (uriInput) uriInput.addEventListener('input', syncGlobalUi);
+    syncScopeUi();
+
+    var importBtn = document.getElementById('waf-ex-import-btn');
+    var importDlg = document.getElementById('waf-ex-import-dialog');
+    var importClose = document.getElementById('waf-ex-import-close');
+    if (importBtn && importDlg) {
+      importBtn.addEventListener('click', function () {
+        if (typeof importDlg.showModal === 'function') importDlg.showModal();
+        else importDlg.setAttribute('open', 'open');
+      });
+    }
+    if (importClose && importDlg) {
+      importClose.addEventListener('click', function () {
+        if (typeof importDlg.close === 'function') importDlg.close();
+        else importDlg.removeAttribute('open');
+      });
+    }
+    document.querySelectorAll('[data-waf-ex-pick]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        applyExclusionPrefill({
+          rule: btn.getAttribute('data-rule') || '',
+          host: btn.getAttribute('data-host') || '',
+          uri: btn.getAttribute('data-uri') || '',
+          scope: btn.getAttribute('data-scope') || '',
+          target: btn.getAttribute('data-target') || '',
+          reason: btn.getAttribute('data-reason') || '',
+        });
+        if (importDlg) {
+          if (typeof importDlg.close === 'function') importDlg.close();
+          else importDlg.removeAttribute('open');
+        }
+      });
+    });
+
+    var params = new URLSearchParams(location.search || '');
+    var rule = params.get('exclude_rule') || params.get('rule');
+    if (rule) {
+      applyExclusionPrefill({
+        rule: rule,
+        host: params.get('exclude_host') || params.get('host') || '',
+        uri: params.get('exclude_uri') || params.get('uri') || '',
+        scope: params.get('exclude_scope') || params.get('scope') || '',
+        target: params.get('exclude_target') || params.get('target') || '',
+        reason: params.get('exclude_reason') || params.get('reason') || '',
+      });
+      if (history.replaceState) {
+        try {
+          history.replaceState(null, '', location.pathname + '#exclusions');
+        } catch (e) { /* ignore */ }
+      }
+    }
+  })();
 
   var copyBtn = document.getElementById('waf-diag-copy-btn');
   var diagTa = document.getElementById('waf-diagnostic-json');

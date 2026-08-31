@@ -41,13 +41,48 @@ def _waf_page_context(
     *,
     page: str,
 ) -> dict[str, Any]:
+    from app.bastion.modsec_audit_aggregator import CRS_RULE_LABELS, read_audit_summary
+    from app.bastion.nginx_known_hosts_export import collect_known_hostnames
+
     profile = waf_service.ensure_active_profile(db)
     exclusions = waf_service.list_exclusions(db)
+    hosts = [
+        h
+        for h in collect_known_hostnames(db, settings)
+        if h not in ("127.0.0.1", "localhost")
+    ]
+    suggestions: dict[str, str] = dict(CRS_RULE_LABELS)
+    try:
+        summary = read_audit_summary(settings) or {}
+        for item in summary.get("top_rules") or []:
+            if isinstance(item, dict):
+                sid = str(item.get("rule_id") or item.get("id") or "").strip()
+                label = str(item.get("label") or item.get("message") or "").strip()
+            else:
+                sid = str(item).strip()
+                label = ""
+            if sid.isdigit() and sid not in suggestions:
+                suggestions[sid] = label[:60] if label else f"Règle CRS {sid}"
+        for ev in summary.get("recent_events") or []:
+            if not isinstance(ev, dict):
+                continue
+            sid = str(ev.get("rule_id") or "").strip()
+            if sid.isdigit() and sid not in suggestions:
+                msg = str(ev.get("message") or "").strip()
+                suggestions[sid] = (msg[:60] if msg else f"Règle CRS {sid}")
+    except Exception:  # noqa: BLE001
+        pass
+    rule_suggestions = [
+        {"id": rid, "label": f"{rid} — {label}"}
+        for rid, label in sorted(suggestions.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0)
+    ]
     return {
         "profile": profile,
         "profiles": waf_service.list_profiles(db),
         "waf_profiles_map": waf_service.profiles_for_ui(db),
         "exclusions": exclusions,
+        "exclusion_hosts": hosts,
+        "crs_rule_suggestions": rule_suggestions,
         "anomaly_min": ANOMALY_MIN,
         "anomaly_max": ANOMALY_MAX,
         "valid_modes": sorted(VALID_MODES),
@@ -147,6 +182,10 @@ def admin_waf_exclusion_add(
     crs_rule_id: int = Form(...),
     uri_pattern: str = Form(""),
     host: str = Form(""),
+    scope_kind: str = Form("rule"),
+    target_name: str = Form(""),
+    uri_match: str = Form("exact"),
+    allow_global: str | None = Form(None),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -159,10 +198,19 @@ def admin_waf_exclusion_add(
             crs_rule_id=int(crs_rule_id),
             uri_pattern=uri_pattern,
             host=host,
+            scope_kind=scope_kind,
+            target_name=target_name,
+            uri_match=uri_match,
+            allow_global=allow_global == "on",
             actor=_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )
-        flash_redirect(response, "Exclusion ajoutée.", "success", _flash_secret(settings))
+        flash_redirect(
+            response,
+            "Exclusion ajoutée — Appliquer pour pousser vers nginx.",
+            "success",
+            _flash_secret(settings),
+        )
     except ValueError as exc:
         flash_redirect(response, str(exc), "error", _flash_secret(settings))
     return response
@@ -267,12 +315,15 @@ def admin_waf_exclude_from_event(
     host: str = Form(""),
     uri_pattern: str = Form(""),
     reason: str = Form(""),
+    scope_kind: str = Form("rule"),
+    target_name: str = Form(""),
+    uri_match: str = Form("exact"),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
     """Security tuning: create a CRS exclusion from a detected event (false positive path)."""
-    response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
+    response = RedirectResponse(url="/admin/security/waf#exclusions", status_code=302)
     try:
         waf_service.add_exclusion(
             db,
@@ -281,6 +332,10 @@ def admin_waf_exclude_from_event(
             crs_rule_id=int(crs_rule_id),
             uri_pattern=uri_pattern,
             host=host,
+            scope_kind=scope_kind or "rule",
+            target_name=target_name,
+            uri_match=uri_match or "exact",
+            allow_global=False,
             actor=_actor(user),
             ip_address=client_ip_from_request(request) or None,
         )

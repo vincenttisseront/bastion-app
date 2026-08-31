@@ -10,6 +10,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -24,18 +25,81 @@ STATE_SCHEMA_VERSION = 3
 MAX_RECENT_EVENTS = 100
 TOP_N = 5
 
-# Short CRS labels for common rules.
+# Short CRS labels for common rules (autocomplete admin — not full OWASP catalog).
 CRS_RULE_LABELS: dict[str, str] = {
-    "942100": "Injection SQL",
-    "941100": "XSS (tag)",
-    "941110": "XSS (script)",
-    "930100": "Traversée de répertoire",
-    "932100": "Injection commande OS",
     "913100": "Scanner / sonde",
+    "920100": "URI invalide",
+    "920270": "Caractère invalide dans URI",
     "920350": "Host est une adresse IP",
     "920540": "En-tête Restricted",
+    "930100": "Traversée de répertoire",
+    "930110": "Traversée de répertoire (OS)",
+    "931100": "RFI / inclusion distante",
+    "932100": "Injection commande OS",
+    "932110": "Injection commande Windows",
+    "941100": "XSS (tag HTML)",
+    "941110": "XSS (script)",
+    "941160": "XSS (noeud HTML)",
+    "942100": "Injection SQL (libinjection)",
+    "942110": "Injection SQL (commentaire)",
+    "942150": "Injection SQL (SQLi)",
+    "942200": "Injection SQL (MySQL)",
+    "942260": "Injection SQL (basic)",
+    "942330": "Injection SQL (classic)",
+    "943100": "Session fixation",
+    "944100": "Java attack",
     "949110": "Score d'anomalie (blocage)",
 }
+
+# Extract collection:name from ModSec matched-data text — never the matched value.
+_MATCHED_WITHIN_RE = re.compile(
+    r"(?i)\bwithin\s+"
+    r"(ARGS(?:_GET|_POST|_NAMES)?|REQUEST_COOKIES(?:_NAMES)?|REQUEST_HEADERS(?:_NAMES)?)"
+    r"(?::([A-Za-z0-9._\-]+))?"
+)
+_COLLECTION_TO_SCOPE: dict[str, str] = {
+    "ARGS": "args",
+    "ARGS_GET": "args",
+    "ARGS_POST": "args",
+    "ARGS_NAMES": "args_names",
+    "REQUEST_COOKIES": "cookies",
+    "REQUEST_COOKIES_NAMES": "cookies",
+    "REQUEST_HEADERS": "headers",
+    "REQUEST_HEADERS_NAMES": "headers",
+}
+_MATCHED_DATA_VALUE_RE = re.compile(r"(?i)Matched Data:\s*.+")
+
+
+def extract_modsec_matched_target(*texts: str | None) -> tuple[str | None, str | None]:
+    """Return ``(scope_kind, target_name)`` from ModSec « within ARGS:foo » fragments.
+
+    Only the variable *name* is returned — never Matched Data values (SQLi payloads, etc.).
+    """
+    for text in texts:
+        if not text:
+            continue
+        match = _MATCHED_WITHIN_RE.search(str(text))
+        if not match:
+            continue
+        coll = match.group(1).upper()
+        name = (match.group(2) or "").strip()
+        kind = _COLLECTION_TO_SCOPE.get(coll)
+        if not kind:
+            continue
+        if not name:
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9._\-]+", name):
+            continue
+        return kind, name
+    return None, None
+
+
+def redact_modsec_matched_data(text: str | None) -> str:
+    """Strip Matched Data payload values from messages kept in the summary JSON."""
+    if not text:
+        return ""
+    return _MATCHED_DATA_VALUE_RE.sub("Matched Data: [redacted]", str(text))
+
 
 
 def resolve_modsec_audit_log_path(settings: Settings) -> Path:
@@ -229,11 +293,15 @@ def _parse_audit_line(line: str) -> dict[str, Any] | None:
     rule_ids: list[str] = []
     max_score = 0
     msg_text = ""
+    matched_scope: str | None = None
+    matched_target: str | None = None
     if isinstance(messages, list):
         for msg in messages:
             if not isinstance(msg, dict):
                 continue
             details = msg.get("details") or {}
+            if not isinstance(details, dict):
+                details = {}
             rid = details.get("ruleId") or details.get("rule_id")
             if rid is not None:
                 rule_ids.append(str(rid))
@@ -244,7 +312,15 @@ def _parse_audit_line(line: str) -> dict[str, Any] | None:
             except (TypeError, ValueError):
                 pass
             if not msg_text and msg.get("message"):
-                msg_text = str(msg.get("message"))[:200]
+                msg_text = redact_modsec_matched_data(str(msg.get("message")))[:200]
+            if matched_scope is None:
+                kind, tname = extract_modsec_matched_target(
+                    details.get("data"),
+                    details.get("match"),
+                    msg.get("message"),
+                )
+                if kind and tname:
+                    matched_scope, matched_target = kind, tname
 
     response = tx.get("response") or {}
     http_code = response.get("http_code") if isinstance(response, dict) else None
@@ -275,6 +351,8 @@ def _parse_audit_line(line: str) -> dict[str, Any] | None:
         "message": msg_text,
         "critical": critical,
         "families": families,
+        "matched_scope_kind": matched_scope,
+        "matched_target_name": matched_target,
     }
 
 
@@ -489,6 +567,8 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
                 "critical": bool(event.get("critical")),
                 "message": event.get("message") or "",
                 "families": list(event.get("families") or []),
+                "matched_scope_kind": event.get("matched_scope_kind"),
+                "matched_target_name": event.get("matched_target_name"),
             }
         )
 

@@ -385,6 +385,8 @@ def test_waf_exclusion_add_ok(client: TestClient, db_session: Session):
             "crs_rule_id": "942100",
             "uri_pattern": "/admin/apps/analyze-login-form",
             "host": "",
+            "scope_kind": "rule",
+            "uri_match": "exact",
         },
         follow_redirects=False,
     )
@@ -392,6 +394,88 @@ def test_waf_exclusion_add_ok(client: TestClient, db_session: Session):
     row = db_session.query(WafExclusion).one()
     assert row.active is True
     assert row.crs_rule_id == 942100
+    assert row.scope_kind == "rule"
+    assert row.uri_match == "exact"
+
+
+def test_waf_exclusion_args_requires_target(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.post(
+        "/admin/security/waf/exclusions/add",
+        headers=ADMIN_HEADERS,
+        data={
+            "reason": "FP ARGS",
+            "crs_rule_id": "941100",
+            "uri_pattern": "/admin/save",
+            "host": "portal.example.com",
+            "scope_kind": "args",
+            "target_name": "",
+            "uri_match": "exact",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert db_session.query(WafExclusion).count() == 0
+
+
+def test_waf_exclusion_add_args_ok(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.post(
+        "/admin/security/waf/exclusions/add",
+        headers=ADMIN_HEADERS,
+        data={
+            "reason": "FP editor content",
+            "crs_rule_id": "941100",
+            "uri_pattern": "/admin/blog/save",
+            "host": "portal.example.com",
+            "scope_kind": "args",
+            "target_name": "content",
+            "uri_match": "exact",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    row = db_session.query(WafExclusion).one()
+    assert row.scope_kind == "args"
+    assert row.target_name == "content"
+    assert row.host == "portal.example.com"
+
+
+def test_waf_exclusion_global_requires_confirm(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    resp = client.post(
+        "/admin/security/waf/exclusions/add",
+        headers=ADMIN_HEADERS,
+        data={
+            "reason": "global attempt",
+            "crs_rule_id": "920100",
+            "uri_pattern": "",
+            "host": "",
+            "scope_kind": "rule",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert db_session.query(WafExclusion).count() == 0
+
+    resp2 = client.post(
+        "/admin/security/waf/exclusions/add",
+        headers=ADMIN_HEADERS,
+        data={
+            "reason": "global confirmed",
+            "crs_rule_id": "920100",
+            "uri_pattern": "",
+            "host": "",
+            "scope_kind": "rule",
+            "allow_global": "on",
+        },
+        follow_redirects=False,
+    )
+    assert resp2.status_code == 302
+    row = db_session.query(WafExclusion).one()
+    assert row.crs_rule_id == 920100
+    assert row.host is None
+    assert row.uri_pattern is None
 
 
 def test_waf_apply_nginx_t_failure(client: TestClient, db_session: Session):
@@ -524,11 +608,15 @@ def test_waf_exclude_rule_from_event(client: TestClient, db_session: Session):
             "host": "portal.example.com",
             "uri_pattern": "/api/test",
             "reason": "FP depuis bilan",
+            "scope_kind": "rule",
+            "uri_match": "exact",
         },
         follow_redirects=False,
     )
     assert resp.status_code == 302
+    assert "#exclusions" in (resp.headers.get("location") or "")
     row = db_session.query(WafExclusion).one()
     assert row.crs_rule_id == 942100
     assert row.host == "portal.example.com"
+    assert row.scope_kind == "rule"
     assert row.active is True
