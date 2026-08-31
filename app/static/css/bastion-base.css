@@ -1,5 +1,7 @@
 /* app/static/css/bastion-base.css */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+/* Native <dialog> is centered via UA margin:auto — do not inherit the reset. */
+dialog{margin:auto}
 html{font-size:16px;scroll-behavior:smooth}
 body{
   background:var(--bg-base);
