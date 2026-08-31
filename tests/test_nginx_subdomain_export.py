@@ -91,6 +91,9 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "ae=$bastion_auth_err" in block
     assert 'set $bastion_vhost_fqdn "dolibarr.ar-systems.fr";' in block
     assert "/auth/login?rd=https://" in block
+    redirect = block.split("@portal_redirect_doli {", 1)[1].split("    }", 1)[0]
+    assert "bastion_unauth_return_401" in redirect
+    assert "return 401" in redirect
     assert "/oauth2/" not in block.split("@portal_redirect")[1]
     assert "?rd=$request_uri;" not in block
     assert "proxy_set_header Cookie $http_cookie;" in block

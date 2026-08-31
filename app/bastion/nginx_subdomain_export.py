@@ -472,6 +472,11 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         [
             "",
             f"    location @portal_redirect_{slug} {{",
+            # fetch()/XHR (Sec-Fetch-Mode: cors): stay on this Host with 401 — a 302
+            # to portal /auth/login triggers cross-origin CORS preflight (405).
+            "        if ($bastion_unauth_return_401 = 1) {",
+            "            return 401;",
+            "        }",
             # Native bastion_session cutover: send browsers to /auth/login
             # (auth_request off on portal) — NOT bare /login which falls through
             # location / → portal_auth_check → bounce-back loop when subdomain
