@@ -74,6 +74,12 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/api/internal/session-cookie-hop": (
         "alias of /.bastion/session-cookies for direct bastion calls / tests"
     ),
+    "/.bastion/sso-session-mirror": (
+        "Host-only bastion_session copy on app FQDN after portal SSO"
+    ),
+    "/api/internal/sso-session-mirror": (
+        "alias of /.bastion/sso-session-mirror"
+    ),
     "/.bastion/crush-session": (
         "legacy alias of session-cookies hop (CrushFTP-era path)"
     ),

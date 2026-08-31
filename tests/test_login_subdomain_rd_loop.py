@@ -114,7 +114,11 @@ def test_login_with_native_session_bounces_to_subdomain_and_sets_domain(
         follow_redirects=False,
     )
     assert resp.status_code == 302
-    assert resp.headers.get("location") == TRANSFER_RD
+    from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
+
+    assert resp.headers.get("location") == redirect_via_subdomain_sso_mirror(
+        TRANSFER_RD, portal_domain=settings.portal_domain
+    )
     set_cookie = " ".join(resp.headers.get_list("set-cookie"))
     assert "bastion_session=" in set_cookie
     assert "Domain=ar-systems.fr" in set_cookie or "domain=ar-systems.fr" in set_cookie
@@ -288,3 +292,52 @@ def test_auth_login_options_rejects_foreign_origin(client: TestClient):
         },
     )
     assert resp.status_code == 403
+
+
+def test_sso_session_mirror_sets_host_only_bastion_session(
+    client: TestClient, db_session: Session
+):
+    from app.oidc_bff import issue_oidc_session
+    from app.sso_settings import get_settings
+
+    settings = _native_settings()
+    get_settings.cache_clear()
+    client.app.dependency_overrides[get_settings] = lambda: settings
+    _enable_native_realm(db_session)
+    token, _jti = issue_oidc_session(
+        db_session,
+        sub=KC_USER,
+        username="vincent.tisseront",
+        realm="ar-systems",
+        secret=settings.oidc_session_jwt_secret,
+        max_age=3600,
+        groups=("ARSYSTEMS-Users",),
+        email="vincent.tisseront@ar-systems.fr",
+    )
+    db_session.commit()
+
+    resp = client.get(
+        "/api/internal/sso-session-mirror?next=/web/",
+        headers={
+            "Host": "webmail.ar-systems.fr",
+            "X-Forwarded-Host": "webmail.ar-systems.fr",
+            "Cookie": f"bastion_session={token}",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    assert resp.headers.get("location") == "https://webmail.ar-systems.fr/web/"
+    set_cookie = " ".join(resp.headers.get_list("set-cookie"))
+    assert "bastion_session=" in set_cookie
+    assert "Domain=" not in set_cookie
+
+
+def test_redirect_via_subdomain_sso_mirror_encodes_next():
+    from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
+
+    out = redirect_via_subdomain_sso_mirror(
+        "https://webmail.ar-systems.fr/web/?logon",
+        portal_domain="portal.ar-systems.fr",
+    )
+    assert out.startswith("https://webmail.ar-systems.fr/.bastion/sso-session-mirror?next=")
+    assert "%2Fweb%2F" in out

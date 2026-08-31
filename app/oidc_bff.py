@@ -1108,7 +1108,12 @@ async def oidc_login(
         ip_address=client_ip or None,
     )
     if html_mode:
-        redirect = RedirectResponse(url=safe_rd, status_code=302)
+        from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
+
+        final_rd = redirect_via_subdomain_sso_mirror(
+            safe_rd, portal_domain=settings.portal_domain or ""
+        )
+        redirect = RedirectResponse(url=final_rd, status_code=302)
         set_oidc_session_cookie(redirect, token, settings)
         return redirect
 
