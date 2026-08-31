@@ -267,13 +267,46 @@ def _client_ip(request: Request) -> str:
     return client_ip_from_request(request)
 
 
-def _show_breakglass_form(request: Request, db: Session, settings: Settings) -> bool:
-    """True only for LAN / allowlisted clients — never expose BG UI on the public Internet."""
+def _is_breakglass_lan_allowed(
+    request: Request, db: Session, settings: Settings
+) -> bool:
+    """True only for LAN / allowlisted clients — never expose BG paths on the public Internet."""
     from app.security.banning.engine import is_breakglass_ip_allowed
 
     return is_breakglass_ip_allowed(
         db, _client_ip(request), rfc1918_cidrs=settings.rfc1918_cidrs
     )
+
+
+def _log_breakglass_ip_denied(
+    db: Session,
+    request: Request,
+    *,
+    actor: str,
+    via: str,
+) -> None:
+    from app.request_client_ip import client_ip_probe
+
+    client_ip = _client_ip(request)
+    probe = client_ip_probe(request)
+    log_action(
+        db,
+        actor=actor,
+        action="breakglass.login_denied_non_lan",
+        details={
+            "reason": "breakglass_ip_not_allowed",
+            "via": via,
+            "resolved": client_ip or None,
+            "x_real_ip": probe.get("x_real_ip"),
+            "x_forwarded_for": probe.get("x_forwarded_for"),
+            "peer": probe.get("request_client_host"),
+        },
+        ip_address=client_ip or None,
+    )
+
+
+def _show_breakglass_form(request: Request, db: Session, settings: Settings) -> bool:
+    return _is_breakglass_lan_allowed(request, db, settings)
 
 
 def _login_audience_label(realm: RealmConfig) -> str:
@@ -751,7 +784,21 @@ def login_page(
     surface = _login_surface_flags(request, db, settings, rd=rd)
     realm = get_default_idp_realm(db)
     if not realm and not has_active_breakglass_account(db) and not surface["show_native_login"]:
-        return RedirectResponse(url=setup_url(rd), status_code=302)
+        if _is_breakglass_lan_allowed(request, db, settings):
+            return RedirectResponse(url=setup_url(rd), status_code=302)
+        _log_breakglass_ip_denied(db, request, actor="setup", via="login_redirect")
+        return render(
+            "auth/login.html",
+            **_ctx(
+                request,
+                settings,
+                hide_chrome=True,
+                login_error=(
+                    "Configuration initiale accessible depuis le réseau local uniquement."
+                ),
+                **surface,
+            ),
+        )
 
     return render(
         "auth/login.html",
@@ -794,22 +841,7 @@ async def breakglass_login_post(
     if not is_breakglass_ip_allowed(
         db, client_ip, rfc1918_cidrs=settings.rfc1918_cidrs
     ):
-        from app.request_client_ip import client_ip_probe
-
-        probe = client_ip_probe(request)
-        log_action(
-            db,
-            actor=username,
-            action="breakglass.login_denied_non_lan",
-            details={
-                "reason": "breakglass_ip_not_allowed",
-                "resolved": client_ip or None,
-                "x_real_ip": probe.get("x_real_ip"),
-                "x_forwarded_for": probe.get("x_forwarded_for"),
-                "peer": probe.get("request_client_host"),
-            },
-            ip_address=client_ip or None,
-        )
+        _log_breakglass_ip_denied(db, request, actor=username, via="form")
         ctx = _ctx(
             request,
             settings,
@@ -879,6 +911,9 @@ def setup_page(
 ):
     if get_default_idp_realm(db) or has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Setup is locked")
+    if not _is_breakglass_lan_allowed(request, db, settings):
+        _log_breakglass_ip_denied(db, request, actor="setup", via="setup_get")
+        raise HTTPException(status_code=403, detail="Forbidden")
     rd = resolve_rd(request, portal_domain=settings.portal_domain or "")
     return render(
         "auth/setup.html",
@@ -898,6 +933,9 @@ async def setup_post(
 ):
     if get_default_idp_realm(db) or has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Setup is locked")
+    if not _is_breakglass_lan_allowed(request, db, settings):
+        _log_breakglass_ip_denied(db, request, actor=username.strip() or "setup", via="setup_post")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     # Setup always creates a break-glass admin — land on dashboard, not /apps.
     safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"

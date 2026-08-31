@@ -80,10 +80,26 @@ def test_login_post_uses_breakglass_not_idp_redirect(client: TestClient, db_sess
 
 
 def test_login_redirects_to_setup_without_idp_or_account(client: TestClient):
-    response = client.get("/auth/login?rd=/admin", follow_redirects=False)
+    response = client.get(
+        "/auth/login?rd=/admin",
+        headers={"X-Real-IP": "10.0.0.50"},
+        follow_redirects=False,
+    )
 
     assert response.status_code == 302
     assert response.headers["location"] == "/auth/setup?rd=%2Fadmin"
+
+
+def test_login_does_not_redirect_to_setup_from_public_ip(client: TestClient):
+    response = client.get(
+        "/auth/login?rd=/admin",
+        headers={"X-Real-IP": "203.0.113.10"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Configuration initiale accessible depuis le réseau local uniquement." in response.text
+    assert response.headers.get("location") != "/auth/setup?rd=%2Fadmin"
 
 
 def test_login_shows_local_form_only_when_breakglass_exists(client: TestClient, db_session: Session):
@@ -139,6 +155,7 @@ def test_setup_creates_account_and_redirects(client: TestClient, db_session: Ses
             "password": "initial-password-12",
             "password_confirm": "initial-password-12",
         },
+        headers={"X-Real-IP": "10.0.0.50"},
         follow_redirects=False,
     )
 

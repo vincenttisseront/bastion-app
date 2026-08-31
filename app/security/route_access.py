@@ -34,7 +34,9 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/auth/login": "authentication entry — cannot require a session",
     "/auth/logout": "clears/revokes native OIDC bastion_session; usable without portal session",
     "/auth/breakglass": "HTML break-glass login POST — password + LAN gate; public by design",
-    "/auth/setup": "initial break-glass setup before any session exists",
+    "/auth/setup": (
+        "initial break-glass setup before any session exists; LAN gate same as break-glass login"
+    ),
     "/auth/sso-start": "OIDC start redirect — unauthenticated by design",
     "/auth/sso-failed": "OIDC failure landing — unauthenticated by design",
     "/auth/access-request": (
