@@ -71,6 +71,10 @@ def test_nginx_block_with_flag_has_eas_locations():
     eas_section = block.split("Microsoft-Server-ActiveSync", 1)[1].split("location /", 1)[0]
     assert "proxy_set_header Upgrade" not in eas_section
     assert "proxy_set_header Connection" not in eas_section
+    assert "modsecurity off;" in eas_section
+    autodiscover = block.split("location ~* ^/(AutoDiscover|autodiscover)/ {", 1)[1]
+    autodiscover = autodiscover.split("}", 1)[0]
+    assert "modsecurity off;" in autodiscover
 
 
 def test_activesync_auth_requires_basic_or_sso(client, db_session):

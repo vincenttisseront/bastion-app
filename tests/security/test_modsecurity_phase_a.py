@@ -167,6 +167,37 @@ def test_auth_snippets_disable_modsecurity():
     ][:200]
 
 
+def test_eas_locations_disable_modsecurity_in_subdomain_export():
+    from app.bastion.nginx_subdomain_export import generate_subdomain_server_block
+    from app.models import App
+    from app.sso_settings import Settings
+
+    app = App(
+        slug="grommunio",
+        label="Mail",
+        upstream_url="https://10.0.0.9/",
+        access_mode="subdomain_proxy",
+        public_fqdn="webmail.example.fr",
+        allow_activesync=True,
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(
+        app,
+        Settings(
+            portal_domain="portal.ar-systems.fr",
+            vault_portal_internal_token="test-secret",
+        ),
+    )
+    eas = block.split("location ~* ^/Microsoft-Server-ActiveSync {", 1)[1].split(
+        "}", 1
+    )[0]
+    assert "modsecurity off;" in eas
+    ad = block.split("location ~* ^/(AutoDiscover|autodiscover)/ {", 1)[1].split(
+        "}", 1
+    )[0]
+    assert "modsecurity off;" in ad
+
+
 def test_family_snippets_use_exportable_switch():
     for family, switch in (
         ("modsecurity-subdomain.conf", "modsecurity-subdomain-switch.conf"),
