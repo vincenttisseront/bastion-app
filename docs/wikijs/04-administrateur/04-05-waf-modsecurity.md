@@ -13,11 +13,25 @@ Admin → **WAF** (`/admin/security/waf`) :
 |---------------|------|
 | **Bilan** | Verdict, KPI, attaques récentes, top attaquants, ban / exclusion |
 | **Profil** | Mode, seuil d’anomalie, rate-limits, seuil IP deny |
-| **Exclusions** | Désactivation soft de règles CRS |
+| **Exclusions** | Exclusions CRS **scopées** (host / URI / ARGS…) — pas de `SecRuleRemoveById` global sauf cas confirmé |
 | **En-têtes** | Lecture snapshot nginx |
 | **Détails techniques** | Sources, diagnostic JSON |
 | **`Réactivation`** (onglet conditionnel) | Armement portal / subdomain (DetectionOnly), puis **promotion subdomain → On** |
 | **Profil** | Mode, seuil ; **Couper le moteur** si armé |
+
+### Exclusions CRS (scope réel)
+
+Chaque exclusion active est exportée en `SecRule` conditionnel avec `ctl:ruleRemoveById`
+ou `ctl:ruleRemoveTargetById` (ARGS / cookies / headers), jamais en désactivation globale
+sauf confirmation explicite **sans** host ni URI.
+
+- Préférer **ignorer un argument** (ex. `ARGS:content`) à désactiver toute la règle.
+- **Importer depuis un blocage récent** (onglet Exclusions) ou Bilan → **Exclure** / **Affiner…** :
+  préremplit règle, host, URI ; si le journal contient `within ARGS:nom`, bascule sur ARGS + nom
+  (sans stocker la valeur Matched Data).
+- Autocomplete des IDs CRS courants + IDs vus dans le résumé d’audit.
+- Correspondance URI : exacte (`@streq`), préfixe (`@beginsWith`) ou regex (`@rx`).
+- Après ajout : revue dans l’onglet Exclusions, puis **Appliquer** pour nginx.
 
 ### Appliquer vs Réactiver
 
@@ -44,7 +58,7 @@ Sans armement, le sync nginx force `SecRuleEngine Off` même si le profil DB est
 - Première réactivation = **DetectionOnly** portal uniquement (subdomain / public restent Off)
 - Puis réactiver subdomain en DetectionOnly, observer, **promouvoir On** depuis l’onglet Réactivation
 - Observer le Bilan / `modsec_audit.log` avant de passer en **On**
-- Exclure avec parcimonie (fausses positives documentées)
+- Exclure avec parcimonie (fausses positives documentées) — scope host+URI+ARGS
 - Vérifier disque / logrotate avant réactivation (runbook §0.1)
 - Ne pas désactiver globalement pour « faire passer » une app — préférer exclusion fine ou ban IP
 

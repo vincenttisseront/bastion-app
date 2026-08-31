@@ -13,7 +13,11 @@ from app.bastion.nginx_waf_export import (
     MODE_DETECTION,
     MODE_OFF,
     MODE_ON,
+    SCOPE_RULE,
+    URI_MATCH_EXACT,
     VALID_MODES,
+    VALID_SCOPE_KINDS,
+    VALID_URI_MATCH,
     apply_waf_exports,
     clamp_anomaly_threshold,
     ensure_active_profile,
@@ -21,6 +25,7 @@ from app.bastion.nginx_waf_export import (
     read_effective_status,
     record_waf_apply_metadata,
     restore_waf_exports_previous,
+    sanitize_exclusion_target_name,
 )
 from app.models import WafExclusion, WafProfile
 from app.sso_settings import Settings
@@ -183,14 +188,33 @@ def add_exclusion(
     host: str | None,
     actor: str,
     ip_address: str | None = None,
+    scope_kind: str | None = None,
+    target_name: str | None = None,
+    uri_match: str | None = None,
+    allow_global: bool = False,
 ) -> WafExclusion:
     reason_s = (reason or "").strip()
     if not reason_s:
         raise ValueError("raison obligatoire")
     uri = (uri_pattern or "").strip() or None
-    host_s = (host or "").strip() or None
+    host_s = (host or "").strip().lower() or None
+    kind = (scope_kind or SCOPE_RULE).strip().lower()
+    if kind not in VALID_SCOPE_KINDS:
+        raise ValueError(f"scope_kind invalide: {scope_kind}")
+    match = (uri_match or URI_MATCH_EXACT).strip().lower()
+    if match not in VALID_URI_MATCH:
+        raise ValueError(f"uri_match invalide: {uri_match}")
+    target = sanitize_exclusion_target_name(target_name)
+    if kind != SCOPE_RULE and not target:
+        raise ValueError(
+            "nom de variable requis (argument, cookie ou en-tête) pour ce type d'exclusion"
+        )
     if not uri and not host_s:
-        raise ValueError("uri_pattern ou host requis")
+        if not allow_global or kind != SCOPE_RULE:
+            raise ValueError(
+                "host ou URI requis (exclusion globale de règle entière "
+                "uniquement avec confirmation explicite)"
+            )
     if crs_rule_id is None:
         raise ValueError("crs_rule_id requis")
     row = WafExclusion(
@@ -198,6 +222,9 @@ def add_exclusion(
         crs_rule_id=int(crs_rule_id),
         uri_pattern=uri,
         host=host_s,
+        scope_kind=kind,
+        target_name=target,
+        uri_match=match if uri else URI_MATCH_EXACT,
         active=True,
         created_by=actor,
     )
@@ -213,7 +240,11 @@ def add_exclusion(
             "crs_rule_id": row.crs_rule_id,
             "uri_pattern": row.uri_pattern,
             "host": row.host,
+            "scope_kind": row.scope_kind,
+            "target_name": row.target_name,
+            "uri_match": row.uri_match,
             "reason": row.reason,
+            "allow_global": bool(allow_global and not host_s and not uri),
         },
         ip_address=ip_address,
     )

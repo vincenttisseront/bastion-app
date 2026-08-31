@@ -839,6 +839,8 @@ def build_attack_controls(
             "can_ban": bool(client_ip and client_ip != "—"),
             "can_exclude": str(ev.get("rule_id") or "").isdigit(),
             "source": "crs",
+            "matched_scope_kind": ev.get("matched_scope_kind") or None,
+            "matched_target_name": ev.get("matched_target_name") or None,
         }
         row["origin_network"] = origin["network"]
         row["origin_hint"] = origin["hint"]
@@ -1041,6 +1043,8 @@ def _encode_inspect_payload(row: dict[str, Any]) -> str:
         "vhost_family_label": row.get("vhost_family_label"),
         "origin_country": row.get("origin_country"),
         "origin_city": row.get("origin_hint"),
+        "matched_scope_kind": row.get("matched_scope_kind"),
+        "matched_target_name": row.get("matched_target_name"),
     }
     raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     return base64.b64encode(raw).decode("ascii")
