@@ -3,7 +3,7 @@
 {% block title %}WAF{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260828-health-deny">
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260831-dialog-center">
 {% endblock %}
 
 {% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
@@ -661,46 +661,6 @@
 
       </form>
 
-      <dialog id="waf-ex-import-dialog" class="sentinel-inspect-dialog">
-        <div class="sentinel-inspect-head">
-          <strong>Importer depuis un blocage récent</strong>
-          <button type="button" class="btn btn-ghost btn-sm" id="waf-ex-import-close">Fermer</button>
-        </div>
-        <div class="sentinel-inspect-body" style="padding:0">
-          <table class="data-table" id="waf-ex-import-table">
-            <thead>
-              <tr><th>Heure</th><th>Règle</th><th>Cible</th><th>Variable</th><th></th></tr>
-            </thead>
-            <tbody>
-              {% if ac is defined and ac.present %}
-              {% for a in ac.recent if a.can_exclude and a.source == 'crs' %}
-              <tr>
-                <td class="mono">{{ a.timestamp }}</td>
-                <td class="mono">{{ a.rule_id }}{% if a.message %} <span class="muted">{{ a.message[:40] }}</span>{% endif %}</td>
-                <td class="mono">{{ a.host if a.host != '—' else '—' }}{{ a.uri if a.uri != '—' else '' }}</td>
-                <td class="mono">{% if a.matched_target_name %}{{ a.matched_scope_kind }}:{{ a.matched_target_name }}{% else %}<span class="muted">—</span>{% endif %}</td>
-                <td>
-                  <button type="button" class="btn btn-ghost btn-sm"
-                          data-waf-ex-pick
-                          data-rule="{{ a.rule_id }}"
-                          data-host="{{ a.host if a.host != '—' else '' }}"
-                          data-uri="{{ a.uri if a.uri != '—' else '' }}"
-                          data-scope="{{ a.matched_scope_kind or '' }}"
-                          data-target="{{ a.matched_target_name or '' }}"
-                          data-reason="FP depuis bilan — règle {{ a.rule_id }}">Choisir</button>
-                </td>
-              </tr>
-              {% else %}
-              <tr><td colspan="5" class="muted" style="padding:1rem">Aucun blocage CRS récent importable. Consultez le Bilan après agrégation des logs.</td></tr>
-              {% endfor %}
-              {% else %}
-              <tr><td colspan="5" class="muted" style="padding:1rem">Aucun blocage CRS récent importable. Consultez le Bilan après agrégation des logs.</td></tr>
-              {% endif %}
-            </tbody>
-          </table>
-        </div>
-      </dialog>
-
       <div class="data-table-wrapper">
 
         <table class="data-table">
@@ -1040,6 +1000,58 @@
   </div>
   {% endif %}
 
+  <dialog id="waf-ex-import-dialog" class="sentinel-inspect-dialog" aria-labelledby="waf-ex-import-title">
+    <div class="sentinel-inspect-head">
+      <strong id="waf-ex-import-title">Importer depuis un blocage récent</strong>
+      <button type="button" class="btn btn-ghost btn-sm" id="waf-ex-import-close">Fermer</button>
+    </div>
+    <div class="sentinel-inspect-body" style="padding:0">
+      {% if ac is defined and ac.present %}
+      <table class="data-table" id="waf-ex-import-table">
+        <thead>
+          <tr><th>Heure</th><th>Règle</th><th>Cible</th><th>Variable</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for a in ac.recent if a.can_exclude and a.source == 'crs' %}
+          <tr>
+            <td class="mono">{{ a.timestamp }}</td>
+            <td class="mono">{{ a.rule_id }}{% if a.message %} <span class="muted">{{ a.message[:40] }}</span>{% endif %}</td>
+            <td class="mono">{{ a.host if a.host != '—' else '—' }}{{ a.uri if a.uri != '—' else '' }}</td>
+            <td class="mono">{% if a.matched_target_name %}{{ a.matched_scope_kind }}:{{ a.matched_target_name }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>
+              <button type="button" class="btn btn-ghost btn-sm"
+                      data-waf-ex-pick
+                      data-rule="{{ a.rule_id }}"
+                      data-host="{{ a.host if a.host != '—' else '' }}"
+                      data-uri="{{ a.uri if a.uri != '—' else '' }}"
+                      data-scope="{{ a.matched_scope_kind or '' }}"
+                      data-target="{{ a.matched_target_name or '' }}"
+                      data-reason="FP depuis bilan — règle {{ a.rule_id }}">Choisir</button>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5">
+              <p class="sentinel-inspect-empty">
+                Aucun blocage CRS récent importable.
+                Consultez l’onglet <strong>Bilan</strong> après agrégation des logs ModSecurity.
+                Sans événement CRS, une exclusion manuelle n’est pas justifiée.
+              </p>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="sentinel-inspect-empty">
+        Aucun blocage CRS récent importable.
+        Consultez l’onglet <strong>Bilan</strong> après agrégation des logs ModSecurity.
+        Sans événement CRS, une exclusion manuelle n’est pas justifiée.
+      </p>
+      {% endif %}
+    </div>
+  </dialog>
+
 </div>
 
 {% endblock %}
@@ -1329,17 +1341,22 @@
     var importBtn = document.getElementById('waf-ex-import-btn');
     var importDlg = document.getElementById('waf-ex-import-dialog');
     var importClose = document.getElementById('waf-ex-import-close');
+    function closeImportDlg() {
+      if (!importDlg) return;
+      if (typeof importDlg.close === 'function') importDlg.close();
+      else importDlg.removeAttribute('open');
+    }
     if (importBtn && importDlg) {
       importBtn.addEventListener('click', function () {
         if (typeof importDlg.showModal === 'function') importDlg.showModal();
         else importDlg.setAttribute('open', 'open');
       });
+      importDlg.addEventListener('click', function (ev) {
+        if (ev.target === importDlg) closeImportDlg();
+      });
     }
     if (importClose && importDlg) {
-      importClose.addEventListener('click', function () {
-        if (typeof importDlg.close === 'function') importDlg.close();
-        else importDlg.removeAttribute('open');
-      });
+      importClose.addEventListener('click', closeImportDlg);
     }
     document.querySelectorAll('[data-waf-ex-pick]').forEach(function (btn) {
       btn.addEventListener('click', function () {
