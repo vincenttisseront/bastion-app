@@ -98,6 +98,8 @@ def _activesync_locations(
 
     EAS uses long-lived Ping (often 15–30 min) and large Sync bodies — buffering off,
     high body limit, and no WebSocket Connection rewrite (would break keep-alive Ping).
+    CRS is off on these locations only: WBXML POST bodies trip SQLi/XSS rules.
+    Subdomain WAF stays armed for other paths.
     """
     ssl_lines: list[str] = []
     if upstream_is_https:
@@ -109,6 +111,8 @@ def _activesync_locations(
         "    # Mobile ActiveSync / Autodiscover (allow_activesync=true)",
         "    # Ping heartbeat needs read timeout >> default 60s (iOS often 900–1800s).",
         "    location ~* ^/Microsoft-Server-ActiveSync {",
+        "        # WBXML Sync/Ping — CRS false positives; subdomain WAF stays on elsewhere.",
+        "        modsecurity off;",
         *_AUTH_COOKIE_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
@@ -141,6 +145,7 @@ def _activesync_locations(
         "    }",
         "",
         "    location ~* ^/(AutoDiscover|autodiscover)/ {",
+        "        modsecurity off;",
         *_AUTH_COOKIE_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
@@ -170,6 +175,7 @@ def _activesync_locations(
         "    }",
         "",
         f"    location @activesync_unauthorized_{slug} {{",
+        "        modsecurity off;",
         '        add_header WWW-Authenticate \'Basic realm="ActiveSync"\' always;',
         "        default_type text/plain;",
         "        return 401 \"ActiveSync authentication required\\n\";",
