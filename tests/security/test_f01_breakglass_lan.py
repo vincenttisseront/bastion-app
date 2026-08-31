@@ -98,3 +98,43 @@ def test_login_page_shows_breakglass_from_lan_ip(
     assert 'name="username"' in response.text
     assert 'action="/auth/breakglass"' in response.text
     assert 'data-initial-panel="sso"' in response.text
+
+
+def test_setup_rejected_from_public_ip(client: TestClient, db_session: Session):
+    get_resp = client.get(
+        "/auth/setup",
+        headers={"X-Real-IP": "203.0.113.10"},
+        follow_redirects=False,
+    )
+    post_resp = client.post(
+        "/auth/setup",
+        data={
+            "username": "bootstrap",
+            "password": "initial-password-12",
+            "password_confirm": "initial-password-12",
+        },
+        headers={"X-Real-IP": "203.0.113.10"},
+        follow_redirects=False,
+    )
+
+    assert get_resp.status_code == 403
+    assert post_resp.status_code == 403
+    assert "bg_session" not in post_resp.cookies
+
+    denied = (
+        db_session.query(AuditLog)
+        .filter_by(action="breakglass.login_denied_non_lan")
+        .count()
+    )
+    assert denied >= 2
+
+
+def test_setup_allowed_from_rfc1918_ip(client: TestClient, db_session: Session):
+    get_resp = client.get(
+        "/auth/setup",
+        headers={"X-Real-IP": "192.168.1.50"},
+        follow_redirects=False,
+    )
+
+    assert get_resp.status_code == 200
+    assert 'action="/auth/setup"' in get_resp.text

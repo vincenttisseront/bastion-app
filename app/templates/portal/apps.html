@@ -316,10 +316,13 @@
     } catch (_) { /* fire-and-forget */ }
   }
 
-  function submitOpenWithIdentityForm(endpoint, password) {
+  function submitOpenWithIdentityForm(endpoint, password, targetName) {
     var form = document.createElement('form');
     form.method = 'POST';
     form.action = endpoint;
+    if (targetName) {
+      form.target = targetName;
+    }
     form.acceptCharset = 'UTF-8';
     form.style.display = 'none';
 
@@ -339,7 +342,9 @@
     form.submit();
   }
 
-  function openWithIdentity(tile) {
+  function openWithIdentity(tile, options) {
+    options = options || {};
+    var preferNewTab = options.preferNewTab !== false;
     var slug = tile.getAttribute('data-app-slug');
     var label = tile.getAttribute('data-app-label') || slug;
     var identityUsername = tile.getAttribute('data-identity-username') || '';
@@ -348,18 +353,46 @@
       ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');
     if (!slug || !window.bastionPasswordPrompt) return;
 
-    window.bastionPasswordPrompt({
+    // Named window must be opened synchronously on the user click (popup policy).
+    var tabName = 'bastion_app_' + slug;
+    var appTab = null;
+    if (preferNewTab) {
+      try {
+        appTab = window.open('about:blank', tabName);
+      } catch (_) {
+        appTab = null;
+      }
+    }
+    var useNamedTab = preferNewTab && appTab && !appTab.closed;
+
+    var promptPromise = window.bastionPasswordPrompt({
       title: 'Ouvrir ' + label,
-      message:
-        'Saisissez votre mot de passe applicatif. Vous quitterez le catalogue ' +
-        'le temps d’ouvrir l’application dans cet onglet.',
+      message: useNamedTab
+        ? 'Saisissez votre mot de passe applicatif. L’application s’ouvrira dans un nouvel onglet.'
+        : preferNewTab
+          ? 'Saisissez votre mot de passe applicatif. Autorisez les fenêtres popup pour ouvrir dans un nouvel onglet, sinon l’application s’ouvrira ici.'
+          : 'Saisissez votre mot de passe applicatif. Vous quitterez le catalogue le temps d’ouvrir l’application.',
       username: identityUsername,
       confirmLabel: 'Ouvrir',
       onConfirm: function (password) {
-        submitOpenWithIdentityForm(endpoint, password);
+        submitOpenWithIdentityForm(
+          endpoint,
+          password,
+          useNamedTab ? tabName : null
+        );
         return true;
       },
     });
+
+    if (promptPromise && typeof promptPromise.then === 'function') {
+      promptPromise.then(function (result) {
+        if ((!result || !result.ok) && appTab && !appTab.closed) {
+          try {
+            appTab.close();
+          } catch (_) { /* ignore */ }
+        }
+      });
+    }
   }
 
   function launchTile(tile) {
@@ -367,7 +400,7 @@
     launchPing(tile.getAttribute('data-app-id'));
     if (tile.hasAttribute('data-open-with-identity') ||
         tile.getAttribute('data-credential-mode') === 'identite_utilisateur') {
-      openWithIdentity(tile);
+      openWithIdentity(tile, { preferNewTab: true });
       return;
     }
     var href = tile.getAttribute('href');
@@ -429,7 +462,7 @@
     e.preventDefault();
     e.stopPropagation();
     launchPing(tile.getAttribute('data-app-id'));
-    openWithIdentity(tile);
+    openWithIdentity(tile, { preferNewTab: true });
   });
 
   function toggleFavorite(btn) {

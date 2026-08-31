@@ -88,9 +88,11 @@ test("modal Ouvrir submits HTML form to open-with-identity", async ({ page }) =>
 
     const formMeta = await page.evaluate(() => ({
       method: (window as { __lastFormMethod?: string }).__lastFormMethod,
+      target: (window as { __lastFormTarget?: string }).__lastFormTarget,
       body: (window as { __lastFormBody?: string }).__lastFormBody,
     }));
     expect(formMeta.method?.toLowerCase()).toBe("post");
+    expect(formMeta.target).toBe("bastion_app_grommunio");
     expect(formMeta.body).toContain("password=SecretPass-ForE2E");
     expect(formMeta.body).not.toContain("/api/internal/impersonate/");
   } finally {
