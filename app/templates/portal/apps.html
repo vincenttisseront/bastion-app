@@ -316,13 +316,10 @@
     } catch (_) { /* fire-and-forget */ }
   }
 
-  function submitOpenWithIdentityForm(endpoint, password, targetName) {
+  function submitOpenWithIdentityForm(endpoint, password) {
     var form = document.createElement('form');
     form.method = 'POST';
     form.action = endpoint;
-    if (targetName) {
-      form.target = targetName;
-    }
     form.acceptCharset = 'UTF-8';
     form.style.display = 'none';
 
@@ -351,40 +348,18 @@
       ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');
     if (!slug || !window.bastionPasswordPrompt) return;
 
-    // Pre-open the app tab synchronously (user gesture) — form.submit to _blank
-    // after the async password modal is blocked by Firefox/Safari popup blockers.
-    var tabName = 'bastion_app_' + slug;
-    var appTab = null;
-    try {
-      appTab = window.open('about:blank', tabName, 'noopener,noreferrer');
-    } catch (_) {
-      appTab = null;
-    }
-
-    var promptPromise = window.bastionPasswordPrompt({
+    window.bastionPasswordPrompt({
       title: 'Ouvrir ' + label,
-      message: 'Saisissez votre mot de passe pour établir la session applicative.',
+      message:
+        'Saisissez votre mot de passe applicatif. Vous quitterez le catalogue ' +
+        'le temps d’ouvrir l’application dans cet onglet.',
       username: identityUsername,
       confirmLabel: 'Ouvrir',
       onConfirm: function (password) {
-        submitOpenWithIdentityForm(
-          endpoint,
-          password,
-          appTab && !appTab.closed ? tabName : null
-        );
+        submitOpenWithIdentityForm(endpoint, password);
         return true;
       },
     });
-
-    if (promptPromise && typeof promptPromise.then === 'function') {
-      promptPromise.then(function (result) {
-        if ((!result || !result.ok) && appTab && !appTab.closed) {
-          try {
-            appTab.close();
-          } catch (_) { /* ignore */ }
-        }
-      });
-    }
   }
 
   function launchTile(tile) {
