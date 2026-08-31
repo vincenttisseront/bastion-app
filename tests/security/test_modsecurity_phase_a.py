@@ -46,6 +46,10 @@ def test_docker_portal_keeps_modsecurity_wiring_but_off():
         "location ^~ /admin {", 1
     )[0]
     assert "modsecurity off;" in api_admin
+    api_apps = text.split("location ^~ /api/apps/ {", 1)[1].split(
+        "location ^~ /api/admin {", 1
+    )[0]
+    assert "modsecurity off;" in api_apps
     assert "if ($uri ~ ^/(admin|dashboard))" in text
 
 

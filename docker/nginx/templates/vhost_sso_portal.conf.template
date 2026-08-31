@@ -322,11 +322,13 @@ server {
     # Same SSO auth_request as location /, but proxy_intercept_errors off so FastAPI
     # JSON 401/403 (e.g. wrong app password) is NOT rewritten to /auth/login HTML.
     # auth_request 401 still hits error_page → @portal_oauth2_signin.
+    # CRS off: POST password + CSRF must not be blocked (open-with-identity).
     location ^~ /api/apps/ {
         limit_req zone=portal_api burst=60 nodelay;
         auth_request /portal_auth_check;
         error_page 401 = @portal_oauth2_signin;
         proxy_intercept_errors off;
+        modsecurity off;
 
         auth_request_set $auth_user      $upstream_http_x_auth_request_user;
         auth_request_set $auth_email     $upstream_http_x_auth_request_email;
