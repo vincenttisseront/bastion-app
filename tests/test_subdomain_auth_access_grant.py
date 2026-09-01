@@ -792,3 +792,99 @@ def test_subdomain_auth_oauth2_unreachable_returns_401_not_503(client, db_sessio
 
     assert resp.status_code == 401
     assert resp.headers.get("x-auth-error") == "oauth2-unreachable"
+
+
+@respx.mock
+def test_subdomain_auth_teleport_agent_webapi_find_bypasses_sso(
+    client, db_session
+):
+    """Node agents must reach Teleport without portal oauth2 (no bastion cookies)."""
+    import httpx
+
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session, slug="teleport")
+    app.robotic_driver = "teleport"
+    db_session.add(app)
+    db_session.commit()
+    respx.get(OIDC_URL).mock(side_effect=httpx.ConnectError("oauth2-proxy down"))
+
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            **_auth_headers("teleport.ar-systems.fr"),
+            "X-Original-URI": "/webapi/find",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "teleport-agent"
+
+
+@respx.mock
+def test_subdomain_auth_teleport_without_app_session_returns_no_app_session(
+    client, db_session
+):
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session, slug="teleport")
+    app.robotic_driver = "teleport"
+    db_session.add(app)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers=_auth_headers(host="teleport.ar-systems.fr", uri="/web/"),
+    )
+
+    assert resp.status_code == 401
+    assert resp.headers.get("x-auth-error") == "no-app-session"
+    assert resp.headers.get("x-auth-app") == "teleport"
+
+
+@respx.mock
+def test_subdomain_auth_teleport_with_host_session_allows(client, db_session):
+    import binascii
+    import json
+
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session, slug="teleport")
+    app.robotic_driver = "teleport"
+    db_session.add(app)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id=KC_USER,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+    respx.get(OIDC_URL).mock(return_value=_oidc_ok())
+
+    session_val = binascii.hexlify(
+        json.dumps({"user": "admin", "sid": "sess-browser"}).encode()
+    ).decode()
+    headers = _auth_headers(host="teleport.ar-systems.fr", uri="/web/")
+    headers["Cookie"] = f"_oauth2_proxy=valid; __Host-session={session_val}"
+
+    resp = client.get("/internal/subdomain-auth", headers=headers)
+
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-app") == "teleport"

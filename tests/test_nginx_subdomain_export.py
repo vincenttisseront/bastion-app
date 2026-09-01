@@ -118,6 +118,7 @@ def test_generate_server_block_includes_hop_not_internal():
     assert "set $bastion_auth_cookie $http_cookie;" not in main
     assert "auth_request /internal/subdomain-auth;" in main
     assert "auth_request_set $bastion_auth_err" in main
+    assert "auth_request_set $bastion_auth_app" in main
     assert main.index("auth_request /internal/subdomain-auth") < main.index(
         "auth_request_set $bastion_auth_err"
     )
@@ -354,3 +355,26 @@ def test_generate_conf_and_inventory(db_session, tmp_path):
     stale.write_text("# stale", encoding="utf-8")
     write_subdomain_apps_exports(db_session, settings)
     assert not stale.exists()
+
+
+def test_portal_redirect_no_app_session_routes_to_impersonate():
+    app = App(
+        slug="teleport",
+        label="Teleport",
+        upstream_url="https://10.0.0.5:3080",
+        access_mode="subdomain_proxy",
+        public_fqdn="teleport.ar-systems.fr",
+        robotic_driver="teleport",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert "@portal_redirect_teleport {" in block
+    assert "no-app-session" in block
+    assert "/api/internal/impersonate/teleport" in block
+    assert 'set $bastion_auth_app "";' in block
+    assert "auth_request_set $bastion_auth_app" in block
+    assert "location = /webapi/find {" in block
+    assert "location = /webapi/connectionupgrade {" in block
+    assert "location ^~ /webapi/host/ {" in block
+    find_loc = block.split("location = /webapi/find {", 1)[1].split("    }", 1)[0]
+    assert "auth_request off;" in find_loc

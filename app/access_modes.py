@@ -151,6 +151,11 @@ _COOKIE_IMPERSONATE_DRIVERS: frozenset[str] = frozenset(
 )
 
 
+def uses_cookie_impersonation(app) -> bool:
+    driver = (getattr(app, "robotic_driver", None) or "").strip().lower()
+    return driver in _COOKIE_IMPERSONATE_DRIVERS
+
+
 def app_launch_url(app) -> str:
     driver = getattr(app, "robotic_driver", None)
 

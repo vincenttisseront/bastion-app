@@ -71,6 +71,7 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
 # Cookie = $bastion_auth_cookie rebuilt from $bastion_pass_* in location /.
 _AUTH_REQUEST_DIAG_LINES = (
     "        auth_request_set $bastion_auth_err $upstream_http_x_auth_error;",
+    "        auth_request_set $bastion_auth_app $upstream_http_x_auth_app;",
 )
 
 # Capture client Cookie in location / BEFORE auth_request.
@@ -188,6 +189,100 @@ def _is_crushftp_app(app: App) -> bool:
     driver = (getattr(app, "robotic_driver", None) or "").strip().lower()
     provision = (getattr(app, "provisioning_driver", None) or "").strip().lower()
     return driver == "crushftp" or provision == "crushftp"
+
+
+def _is_teleport_app(app: App) -> bool:
+    from app.bastion.teleport_agent_paths import is_teleport_app
+
+    return is_teleport_app(app)
+
+
+def _teleport_agent_proxy_lines(
+    *,
+    ssl_lines: list[str],
+    forwarded_ip_lines: list[str],
+    cookie_lines: list[str],
+    redirect_lines: list[str],
+    fqdn_esc: str,
+    upstream_host_esc: str,
+) -> list[str]:
+    """Direct upstream proxy — no auth_request, no trusted-header injection."""
+    return [
+        "        proxy_pass $app_upstream;",
+        *redirect_lines,
+        "        proxy_http_version 1.1;",
+        "        proxy_buffering off;",
+        "        proxy_request_buffering off;",
+        "        proxy_buffer_size 128k;",
+        "        proxy_buffers 8 128k;",
+        "        proxy_busy_buffers_size 256k;",
+        "        proxy_set_header Upgrade $http_upgrade;",
+        "        proxy_set_header Connection $connection_upgrade;",
+        "        proxy_connect_timeout 60s;",
+        "        proxy_read_timeout 3600s;",
+        "        proxy_send_timeout 3600s;",
+        *ssl_lines,
+        "        proxy_set_header Host $host;",
+        *forwarded_ip_lines,
+        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        *cookie_lines,
+        "        proxy_cookie_path / /;",
+        f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
+        "",
+    ]
+
+
+def _teleport_agent_locations(
+    slug: str,
+    *,
+    ssl_lines: list[str],
+    forwarded_ip_lines: list[str],
+    cookie_lines: list[str],
+    redirect_lines: list[str],
+    fqdn_esc: str,
+    upstream_host_esc: str,
+) -> list[str]:
+    """Agent/reverse-tunnel paths — bypass portal SSO (Teleport handles auth)."""
+    proxy = _teleport_agent_proxy_lines(
+        ssl_lines=ssl_lines,
+        forwarded_ip_lines=forwarded_ip_lines,
+        cookie_lines=cookie_lines,
+        redirect_lines=redirect_lines,
+        fqdn_esc=fqdn_esc,
+        upstream_host_esc=upstream_host_esc,
+    )
+    blocks: list[str] = [
+        "    # Teleport agents — reverse tunnel / TLS-routing (no portal SSO).",
+    ]
+    for path in ("/webapi/find", "/webapi/ping", "/webapi/connectionupgrade"):
+        blocks.extend(
+            [
+                f"    location = {path} {{",
+                "        auth_request off;",
+                "        modsecurity off;",
+                *proxy,
+                "    }",
+                "",
+            ]
+        )
+    blocks.extend(
+        [
+            "    location ^~ /webapi/host/ {",
+            "        auth_request off;",
+            "        modsecurity off;",
+            *proxy,
+            "    }",
+            "",
+            "    location ~* ^/v[12]/webapi/.+/connect/ws {",
+            "        auth_request off;",
+            "        modsecurity off;",
+            *proxy,
+            "    }",
+            "",
+        ]
+    )
+    del slug  # reserved for future per-app tuning
+    return blocks
 
 
 def generate_subdomain_server_block(app: App, settings: Settings) -> str:
@@ -350,6 +445,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "",
         "    # Empty defaults for log_format app (nginx 1.30+) before auth_request_set.",
         '    set $bastion_auth_err "";',
+        '    set $bastion_auth_app "";',
         '    set $auth_email "";',
         '    set $auth_user "";',
         '    set $auth_app "";',
@@ -449,6 +545,18 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
                 upstream_tls_verify=tls_verify,
             )
         )
+    if _is_teleport_app(app):
+        lines.extend(
+            _teleport_agent_locations(
+                slug,
+                ssl_lines=ssl_lines,
+                forwarded_ip_lines=forwarded_ip_lines,
+                cookie_lines=cookie_lines,
+                redirect_lines=redirect_lines,
+                fqdn_esc=fqdn_esc,
+                upstream_host_esc=upstream_host_esc,
+            )
+        )
     if crushftp:
         # Auth gate only — CrushFTP Cookie filter is in the named location below.
         location_slash = [
@@ -499,6 +607,11 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             # to portal /auth/login triggers cross-origin CORS preflight (405).
             "        if ($bastion_unauth_return_401 = 1) {",
             "            return 401;",
+            "        }",
+            # Portal session OK but upstream robotic cookie missing — vault impersonate
+            # (same path as catalogue tile) instead of the upstream login page.
+            "        if ($bastion_auth_err = no-app-session) {",
+            f"            return 302 https://{portal_esc}/api/internal/impersonate/{slug};",
             "        }",
             # Native bastion_session cutover: send browsers to /auth/login
             # (auth_request off on portal) — NOT bare /login which falls through
