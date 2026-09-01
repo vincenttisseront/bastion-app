@@ -49,6 +49,16 @@ def test_launch_url_generic_form_uses_impersonate():
     assert app_launch_url(app) == "/api/internal/impersonate/wiki"
 
 
+def test_launch_url_teleport_uses_impersonate():
+    app = _app(
+        slug="teleport",
+        robotic_driver="teleport",
+        access_mode="subdomain_proxy",
+        public_fqdn="teleport.ar-systems.fr",
+    )
+    assert app_launch_url(app) == "/api/internal/impersonate/teleport"
+
+
 def test_launch_url_generic_basic_auth_stays_direct():
     app = _app(
         slug="grafana",
