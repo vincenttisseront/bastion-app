@@ -38,6 +38,14 @@ RULE_UNKNOWN_HOST = "unknown_host_hammering"
 TARGET_IP = "ip"
 TARGET_USERNAME = "username"
 
+# Same defaults as Settings.rfc1918_cidrs — used when evaluating break-glass ban exemption.
+_DEFAULT_RFC1918_CIDRS: tuple[str, ...] = (
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "127.0.0.1/32",
+)
+
 DEFAULT_RULES: dict[str, dict] = {
     RULE_HAMMERING: {
         "threshold": 100,
@@ -253,6 +261,28 @@ def is_breakglass_ip_allowed(
         return False
 
 
+def is_breakglass_ban_exempt(db: Session, ip: str | None) -> bool:
+    """Break-glass LAN / allowlisted ops IPs must not receive automatic hammering bans."""
+    ip_n = (ip or "").strip()
+    if not ip_n:
+        return False
+    if is_allowlisted(db, ip=ip_n):
+        return True
+    return is_breakglass_ip_allowed(
+        db, ip_n, rfc1918_cidrs=list(_DEFAULT_RFC1918_CIDRS)
+    )
+
+
+def _auto_ip_ban_blocks_breakglass_lan(db: Session, ban: SecurityBan) -> bool:
+    """True when an active IP ban should deny requests (respects break-glass exemption)."""
+    if ban.target_type != TARGET_IP:
+        return True
+    if not is_breakglass_ban_exempt(db, ban.target):
+        return True
+    # Manual admin bans still apply; automatic hammering must not lock out LAN ops.
+    return (ban.rule_type or "").strip().lower() == "manual"
+
+
 def _normalize_username(username: str | None) -> str:
     return (username or "").strip().lower()
 
@@ -363,6 +393,8 @@ def find_active_ban(
             .all()
         )
     for ban in candidates:
+        if ban.target_type == TARGET_IP and not _auto_ip_ban_blocks_breakglass_lan(db, ban):
+            continue
         if ban.permanent:
             return ban
         if ban.expires_at is None:
@@ -407,6 +439,18 @@ def apply_ban(
         ip=target if target_type == TARGET_IP else None,
         username=target if target_type == TARGET_USERNAME else None,
     ):
+        return None
+
+    if (
+        target_type == TARGET_IP
+        and actor == "system"
+        and is_breakglass_ban_exempt(db, target)
+    ):
+        logger.info(
+            "skipping automatic ban on break-glass allowed ip=%s rule=%s",
+            target,
+            rule_type,
+        )
         return None
 
     existing = find_active_ban(
@@ -494,7 +538,7 @@ def record_sensitive_request(
     policy = get_policy(db)
     if not policy.enabled:
         return None
-    if not ip or is_allowlisted(db, ip=ip):
+    if not ip or is_allowlisted(db, ip=ip) or is_breakglass_ban_exempt(db, ip):
         return None
 
     concurrent_rule = get_rule(db, RULE_CONCURRENT)
@@ -577,7 +621,7 @@ def record_unknown_host_refusal(
     if not policy.enabled:
         return None
     ip_n = (ip or "").strip()
-    if not ip_n or is_allowlisted(db, ip=ip_n):
+    if not ip_n or is_allowlisted(db, ip=ip_n) or is_breakglass_ban_exempt(db, ip_n):
         return None
 
     existing = find_active_ban(db, ip=ip_n)
@@ -671,6 +715,8 @@ def record_rate_limited_request(
     """
     policy = get_policy(db)
     if not policy.enabled or not ip or is_allowlisted(db, ip=ip):
+        return False, 0
+    if is_breakglass_ban_exempt(db, ip):
         return False, 0
 
     checks: list[tuple[str, str]] = [(RULE_RATE_LIMIT, "rate")]
@@ -912,7 +958,7 @@ def evaluate_login_attempt(
     try:
         if ip:
             ip_count = _prune_and_count(db, "fail_ip", ip, window)
-            if ip_count >= threshold:
+            if ip_count >= threshold and not is_breakglass_ban_exempt(db, ip):
                 ban = apply_ban(
                     db,
                     target_type=TARGET_IP,

@@ -25,6 +25,7 @@ from app.security.banning.engine import (
     find_active_ban,
     get_rule,
     is_breakglass_ip_allowed,
+    is_breakglass_ban_exempt,
     lift_expired_bans,
     record_sensitive_request,
     record_successful_login,
@@ -298,6 +299,104 @@ def test_security_breakglass_deny_and_allow_cidrs(db_session: Session):
     assert is_breakglass_ip_allowed(db_session, "10.5.1.10", rfc1918_cidrs=rfc) is True
     assert is_breakglass_ip_allowed(db_session, "10.5.9.5", rfc1918_cidrs=rfc) is False
     assert is_breakglass_ip_allowed(db_session, "192.168.1.1", rfc1918_cidrs=rfc) is False
+
+
+def test_breakglass_lan_ip_exempt_from_hammering_ban(db_session: Session):
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_HAMMERING: {
+                "enabled": True,
+                "threshold": 3,
+                "window_seconds": 60,
+                "ban_minutes": 10,
+                "ban_permanent": False,
+            }
+        },
+        actor="test",
+    )
+    ip = "192.168.1.250"
+    assert is_breakglass_ban_exempt(db_session, ip) is True
+    for _ in range(10):
+        assert record_sensitive_request(db_session, ip=ip, path="/admin/security") is None
+    assert find_active_ban(db_session, ip=ip) is None
+    allowed, _, _ = check_request_allowed(
+        db_session, ip=ip, path="/admin/dashboard", username="admin"
+    )
+    assert allowed is True
+
+
+def test_breakglass_lan_auto_ban_ignored_manual_ban_still_blocks(db_session: Session):
+    ip = "192.168.1.250"
+    auto = apply_ban(
+        db_session,
+        target_type="ip",
+        target=ip,
+        reason="hammering",
+        rule_type=RULE_HAMMERING,
+        permanent=False,
+        ban_minutes=30,
+        actor="system",
+    )
+    assert auto is None
+
+    # Simulate legacy auto ban row (before exemption) — must not block LAN ops.
+    legacy = SecurityBan(
+        target_type="ip",
+        target=ip,
+        reason="legacy hammering",
+        rule_type=RULE_HAMMERING,
+        banned_at=utcnow(),
+        expires_at=utcnow() + timedelta(minutes=30),
+        permanent=False,
+        created_by="system",
+    )
+    db_session.add(legacy)
+    db_session.commit()
+    assert find_active_ban(db_session, ip=ip) is None
+    allowed, _, _ = check_request_allowed(
+        db_session, ip=ip, path="/admin/dashboard", username="admin"
+    )
+    assert allowed is True
+
+    manual = apply_ban(
+        db_session,
+        target_type="ip",
+        target=ip,
+        reason="confirmed admin ban",
+        rule_type="manual",
+        permanent=False,
+        ban_minutes=15,
+        actor="admin",
+    )
+    assert manual is not None
+    assert find_active_ban(db_session, ip=ip) is not None
+    allowed, reason, _ = check_request_allowed(
+        db_session, ip=ip, path="/admin/dashboard", username="admin"
+    )
+    assert allowed is False
+    assert reason
+
+
+def test_breakglass_lan_exempt_from_failed_login_ip_ban(db_session: Session):
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_FAILED_LOGIN: {
+                "enabled": True,
+                "threshold": 2,
+                "window_seconds": 120,
+                "ban_minutes": 15,
+                "ban_username": True,
+            }
+        },
+        actor="test",
+    )
+    ip = "192.168.1.250"
+    for _ in range(3):
+        evaluate_login_attempt(db_session, ip=ip, username="vincent", success=False)
+    assert find_active_ban(db_session, ip=ip) is None
+    assert find_active_ban(db_session, username="vincent") is not None
 
 
 def test_security_failed_login_bans_ip_after_threshold(db_session: Session):
