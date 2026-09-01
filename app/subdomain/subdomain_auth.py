@@ -17,6 +17,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
+from app.bastion.teleport_agent_paths import is_teleport_agent_request
 from app.auth import get_realm_proxy_url, is_rfc1918
 from app.breakglass import (
     COOKIE_NAME,
@@ -26,6 +27,7 @@ from app.database import get_db, release_db_connection
 from app.models import App
 from app.rbac.effective_access_service import user_can_launch_application
 from app.request_client_ip import client_ip_from_request
+from app.robotic.app_session_presence import has_app_session_cookie
 from app.security.session_binding_service import evaluate_sso_binding
 from app.sso_settings import Settings, get_settings
 from app.web.user_context import parse_groups_header
@@ -159,6 +161,24 @@ def _allow_identity_headers(
     if groups:
         headers["X-Auth-Groups"] = ",".join(groups)
     return headers
+
+
+def _deny_no_app_session(app: App) -> Response:
+    return Response(
+        status_code=401,
+        headers={
+            "X-Auth-Error": "no-app-session",
+            "X-Auth-App": app.slug,
+        },
+    )
+
+
+def _require_app_session_cookie(app: App | None, cookie_header: str) -> Response | None:
+    if app is None:
+        return None
+    if has_app_session_cookie(app, cookie_header):
+        return None
+    return _deny_no_app_session(app)
 
 
 def _deny_no_grant(
@@ -343,7 +363,6 @@ async def subdomain_auth(
             headers={"X-Auth-Source": "rfc1918-bypass"},
         )
 
-    # 2. App resolution by Host
     app = _resolve_app_by_host(db, original_host)
     if not app:
         return _deny_no_app(
@@ -351,6 +370,13 @@ async def subdomain_auth(
             host=original_host,
             uri=original_uri,
             ip_address=client_ip,
+        )
+
+    # Teleport node agents / reverse tunnel — no portal cookies; auth with Teleport.
+    if is_teleport_agent_request(original_uri, app):
+        return Response(
+            status_code=200,
+            headers={"X-Auth-Source": "teleport-agent"},
         )
 
     # 3a. Prefer native bastion_session (same cutover as /internal/oauth2-auth),
@@ -425,6 +451,10 @@ async def subdomain_auth(
                 source_ip=client_ip,
                 auth_source=auth_source,
             )
+
+        missing_app_session = _require_app_session_cookie(app_row, cookie_header)
+        if missing_app_session is not None:
+            return missing_app_session
 
         _warn_crushftp_login_bounce(
             app_row,
@@ -528,6 +558,10 @@ async def subdomain_auth(
                 source_ip=client_ip,
                 auth_source="oidc",
             )
+
+        missing_app_session = _require_app_session_cookie(app_row, cookie_header)
+        if missing_app_session is not None:
+            return missing_app_session
 
         _warn_crushftp_login_bounce(
             app_row,
