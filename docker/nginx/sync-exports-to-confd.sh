@@ -68,19 +68,27 @@ fi
 
 # --- WAF overlays (ne pas écraser crs-setup / waf-basic / engine-* statiques) ---
 mkdir -p /etc/nginx/modsecurity/generated
-# crs-setup-generated.conf n'est pas chargé par main-*.conf (collision d'id CRS 901).
-# Nettoyage de l'export au cas où il serait réinclus plus tard.
+# crs-setup-generated.conf (id 1000900110) overlays static crs-setup.conf after Admin → Appliquer.
 if [[ -f "$EXPORTS/modsecurity/crs-setup-generated.conf" ]]; then
   if grep -qE 'id:901[0-9]{3},' "$EXPORTS/modsecurity/crs-setup-generated.conf" 2>/dev/null; then
     echo "WARN: sanitizing exports/modsecurity/crs-setup-generated.conf (CRS 901xxx rule id)" >&2
     sed -i 's/id:901110,/id:1000900110,/g' "$EXPORTS/modsecurity/crs-setup-generated.conf" || true
   fi
-fi
-# Keep generated copy as comment-only stub (not loaded). Thresholds = static crs-setup.conf.
-cat > /etc/nginx/modsecurity/generated/crs-setup-generated.conf <<'EOF'
-# Not loaded by main-*.conf — anomaly thresholds come from ../crs-setup.conf (id:900110).
-# Export may still be written by Admin → WAF for a future safe re-Include (id:1000900110).
+  cp -a "$EXPORTS/modsecurity/crs-setup-generated.conf" \
+    /etc/nginx/modsecurity/generated/crs-setup-generated.conf
+else
+  cat > /etc/nginx/modsecurity/generated/crs-setup-generated.conf <<'EOF'
+# No export yet — inbound threshold falls back to crs-setup.conf (id:900110).
+SecAction \
+    "id:1000900110,\
+    phase:1,\
+    nolog,\
+    pass,\
+    t:none,\
+    setvar:tx.inbound_anomaly_score_threshold=5,\
+    setvar:tx.outbound_anomaly_score_threshold=4"
 EOF
+fi
 
 # Portal ModSecurity connector (Admin → WAF → Réactiver / Couper).
 if [[ -f "$EXPORTS/modsecurity-portal-switch.conf" ]]; then
