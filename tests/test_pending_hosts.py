@@ -298,6 +298,10 @@ def test_docker_portal_admin_403_nostore_and_error_page():
     assert 'proxy_pass http://$bastion_app_upstream/errors/403;' in text
     assert 'proxy_pass http://$bastion_app_upstream/errors/429;' in text
     assert 'proxy_pass http://$bastion_app_upstream/errors/503;' in text
+    import re
+
+    portal_err_locs = re.findall(r"location = /__portal_err/\d+", text)
+    assert len(portal_err_locs) == len(set(portal_err_locs)), portal_err_locs
     # Unknown-host discovery stays unbranded (must keep intercept off).
     unknown = text.split("location = /__bastion_unknown_host", 1)[1].split(
         "location = /internal/unknown-host", 1
