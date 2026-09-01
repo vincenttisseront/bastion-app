@@ -15,7 +15,13 @@ def test_error_pages_neutral(client: TestClient, db_session: Session):
         company_name="Portail ACME",
         show_product_branding=False,
     )
-    for path, code in (("/errors/403", 403), ("/errors/404", 404), ("/errors/500", 500)):
+    for path, code in (
+        ("/errors/403", 403),
+        ("/errors/404", 404),
+        ("/errors/429", 429),
+        ("/errors/500", 500),
+        ("/errors/503", 503),
+    ):
         r = client.get(path)
         assert r.status_code == code
         assert "Portail ACME" in r.text

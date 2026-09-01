@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api_errors import api_error_from_detail, api_error_response
 from app.auth import router as auth_router
 from app.admin.infrastructure import router as infrastructure_router
 from app.bastion.unknown_host_routes import router as unknown_host_router
@@ -245,24 +246,33 @@ def _admin_logs_api_path(path: str) -> bool:
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     path = request.url.path
     # Native OIDC BFF + REST APIs: return JSON (do not HTML-redirect /auth/login → itself).
+    headers = dict(exc.headers) if exc.headers else None
     if (
         path.startswith("/api/")
         or path in ("/auth/login", "/auth/logout")
         or _admin_logs_api_path(path)
     ):
-        return JSONResponse(
-            {"detail": exc.detail},
+        return api_error_from_detail(
             status_code=exc.status_code,
-            headers=dict(exc.headers) if exc.headers else None,
+            detail=exc.detail,
+            headers=headers,
         )
     wants_json = "application/json" in (request.headers.get("accept") or "").lower()
     if exc.status_code == 401:
         if wants_json:
-            return JSONResponse({"detail": exc.detail}, status_code=401)
+            return api_error_from_detail(
+                status_code=401,
+                detail=exc.detail,
+                headers=headers,
+            )
         return RedirectResponse(url="/auth/login", status_code=302)
     if exc.status_code == 403:
         if wants_json:
-            return JSONResponse({"detail": exc.detail}, status_code=403)
+            return api_error_from_detail(
+                status_code=403,
+                detail=exc.detail,
+                headers=headers,
+            )
         # Authenticated end-users hitting /dashboard or /admin → home launcher
         from app.web.user_context import get_user_context
 
@@ -275,7 +285,37 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         settings = get_settings()
         ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
         return render("errors/404.html", **ctx, status_code=404)
-    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+    if exc.status_code == 429:
+        if wants_json:
+            return api_error_from_detail(
+                status_code=429,
+                detail=exc.detail,
+                headers=headers,
+            )
+        settings = get_settings()
+        ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
+        return render("errors/429.html", **ctx, status_code=429)
+    if exc.status_code == 503:
+        if wants_json:
+            return api_error_from_detail(
+                status_code=503,
+                detail=exc.detail,
+                headers=headers,
+            )
+        settings = get_settings()
+        ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
+        return render("errors/503.html", **ctx, status_code=503)
+    if wants_json:
+        return api_error_from_detail(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=headers,
+        )
+    return api_error_from_detail(
+        status_code=exc.status_code,
+        detail=exc.detail,
+        headers=headers,
+    )
 
 
 @app.exception_handler(Exception)
@@ -285,12 +325,9 @@ async def generic_exception_handler(request: Request, exc: Exception):
         raise exc
     accept = (request.headers.get("accept") or "").lower()
     if "application/json" in accept:
-        return JSONResponse(
-            {
-                "ok": False,
-                "errors": {"_form": "Erreur interne — l’incident a été journalisé."},
-            },
+        return api_error_response(
             status_code=500,
+            message="Erreur interne — l’incident a été journalisé.",
         )
     settings = get_settings()
     ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)

@@ -42,8 +42,9 @@ server {
     include /etc/nginx/snippets/error_pages.conf;
     error_page 403 = /__portal_err/403;
     error_page 404 = /__portal_err/404;
-    error_page 500 502 503 504 = /__portal_err/500;
-    error_page 429 = @portal_rate_limited;
+    error_page 500 502 504 = /__portal_err/500;
+    error_page 503 = /__portal_err/503;
+    error_page 429 = /__portal_err/429;
     # ModSecurity CRS — switch serveur (défaut off). Réactiver écrit
     # exports/modsecurity-portal-switch.conf (on) ; Couper / rollback → off.
     # Les « modsecurity off » ci-dessous restent pour health / auth / erreurs.
@@ -80,10 +81,37 @@ server {
         return 404;
     }
 
-    location @portal_rate_limited {
-        default_type text/html;
+    location = /__portal_err/500 {
+        internal;
+        auth_request off;
+        modsecurity off;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://$bastion_app_upstream/errors/500;
+    }
+
+    location = /__portal_err/429 {
+        internal;
+        auth_request off;
+        modsecurity off;
         add_header X-Rate-Limited-By "portal-nginx" always;
-        return 429 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Trop de requêtes</title></head><body><h1>Trop de requêtes (429)</h1></body></html>';
+        add_header Cache-Control "no-store" always;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://$bastion_app_upstream/errors/429;
+    }
+
+    location = /__portal_err/503 {
+        internal;
+        auth_request off;
+        modsecurity off;
+        add_header Cache-Control "no-store" always;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://$bastion_app_upstream/errors/503;
     }
 
     location = /__portal_err/403 {

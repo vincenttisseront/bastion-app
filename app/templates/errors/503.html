@@ -1,0 +1,20 @@
+{% extends "base_public.html" %}
+{% block title %}Service indisponible{% endblock %}
+
+{% block content %}
+<div class="error-page">
+  <div class="error-icon error-icon--warn">
+    <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+  </div>
+  <div class="error-code error-code--warn">503</div>
+  <h1 class="page-title">Service indisponible</h1>
+  <p class="error-message">
+    {% if branding.show_product_branding %}
+    Le service est temporairement indisponible (maintenance ou surcharge). Réessayez dans quelques instants.
+    {% else %}
+    {{ branding.company_name }} — le service est temporairement indisponible. Réessayez dans quelques instants.
+    {% endif %}
+  </p>
+  <a href="/auth/login" class="btn btn-primary">Connexion</a>
+</div>
+{% endblock %}

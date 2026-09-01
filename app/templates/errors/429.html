@@ -1,0 +1,20 @@
+{% extends "base_public.html" %}
+{% block title %}Trop de requêtes{% endblock %}
+
+{% block content %}
+<div class="error-page">
+  <div class="error-icon error-icon--warn">
+    <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+  </div>
+  <div class="error-code error-code--warn">429</div>
+  <h1 class="page-title">Trop de requêtes</h1>
+  <p class="error-message">
+    {% if branding.show_product_branding %}
+    Le débit a été temporairement limité. Attendez quelques secondes puis rechargez la page.
+    {% else %}
+    {{ branding.company_name }} — le débit a été temporairement limité. Attendez quelques secondes puis rechargez la page.
+    {% endif %}
+  </p>
+  <a href="/auth/login" class="btn btn-primary">Connexion</a>
+</div>
+{% endblock %}

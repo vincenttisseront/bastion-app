@@ -1458,6 +1458,32 @@ def error_500(
     )
 
 
+@router.get("/errors/429")
+def error_429(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    return render(
+        "errors/429.html",
+        **_ctx(request, settings, hide_chrome=True),
+        status_code=429,
+    )
+
+
+@router.get("/errors/503")
+def error_503(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    return render(
+        "errors/503.html",
+        **_ctx(request, settings, hide_chrome=True),
+        status_code=503,
+    )
+
+
 # --- Admin ---
 
 

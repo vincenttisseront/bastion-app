@@ -48,14 +48,10 @@ server {
     include /etc/nginx/snippets/error_pages.conf;
     error_page 403 = /__portal_err/403;
     error_page 404 = /__portal_err/404;
-    error_page 500 502 503 504 = /__portal_err/500;
-    error_page 429 = @portal_rate_limited;
+    error_page 500 502 504 = /__portal_err/500;
+    error_page 503 = /__portal_err/503;
+    error_page 429 = /__portal_err/429;
     include /etc/nginx/includes/waf-basic.conf;
-    location @portal_rate_limited {
-        default_type text/html;
-        add_header X-Rate-Limited-By "portal-nginx" always;
-        return 429 '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Trop de requêtes</title></head><body><h1>Trop de requêtes (429)</h1><p>Le reverse proxy a limité temporairement le débit. Ce n\'est pas un bannissement CrushFTP.</p><p>Attendez quelques secondes puis rechargez. Si le problème persiste après déploiement AWX, vérifiez <code>limit_req</code> sur <code>/proxy/</code> dans nginx.</p></body></html>';
-    }
 
     # Pages d'erreur portail — servies par FastAPI (templates Jinja2).
     # URI internes (pas de named location + proxy_pass : directives interdites après proxy_pass).
@@ -88,6 +84,28 @@ server {
         proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/500;
     }
 
+    location = /__portal_err/429 {
+        internal;
+        auth_request off;
+        add_header X-Rate-Limited-By "portal-nginx" always;
+        add_header Cache-Control "no-store" always;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/429;
+    }
+
+    location = /__portal_err/503 {
+        internal;
+        auth_request off;
+        add_header Cache-Control "no-store" always;
+        include /etc/nginx/snippets/proxy_portal_strip_identity.conf;
+        include /etc/nginx/snippets/proxy_portal_fastapi.conf;
+        include /etc/nginx/snippets/proxy_portal_trusted_internal.conf;
+        proxy_pass http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/errors/503;
+    }
+
+    # Pages d'erreur portail — servies par FastAPI (templates Jinja2).
     include /etc/nginx/mime.types;
     types_hash_max_size 2048;
 
