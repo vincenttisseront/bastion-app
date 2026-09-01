@@ -145,11 +145,17 @@ def validate_app_access_fields(
     return errors
 
 
+# Robotic drivers that obtain session cookies via /api/internal/impersonate before landing on the app.
+_COOKIE_IMPERSONATE_DRIVERS: frozenset[str] = frozenset(
+    {"crushftp", "generic_form", "teleport"}
+)
+
+
 def app_launch_url(app) -> str:
     driver = getattr(app, "robotic_driver", None)
 
     # Drivers that set session cookies require an impersonation round-trip first.
-    if driver in ("crushftp", "generic_form"):
+    if driver in _COOKIE_IMPERSONATE_DRIVERS:
         return f"/api/internal/impersonate/{app.slug}"
 
     # generic_basic_auth / generic_wsse: Nginx auth_request injects on each
