@@ -6,6 +6,7 @@ import json
 
 AUTH_MODES: tuple[str, ...] = (
     "sso",
+    "teleport",
     "generic_form",
     "generic_basic_auth",
     "generic_wsse",
@@ -13,6 +14,7 @@ AUTH_MODES: tuple[str, ...] = (
 
 AUTH_MODE_LABELS: dict[str, str] = {
     "sso": "SSO",
+    "teleport": "Vault — Teleport (API web)",
     "generic_form": "Vault — Formulaire de login",
     "generic_basic_auth": "Vault — Basic Auth",
     "generic_wsse": "Vault — X-WSSE (UsernameToken)",
@@ -25,7 +27,7 @@ _AUTH_MODE_ALIASES: dict[str, str] = {
 }
 
 ROBOTIC_DRIVERS: frozenset[str] = frozenset(
-    {"crushftp", "generic_form", "generic_basic_auth", "generic_wsse"}
+    {"crushftp", "teleport", "generic_form", "generic_basic_auth", "generic_wsse"}
 )
 
 # Account provisioning drivers (V1). None/empty = SSO only, no local account.
@@ -175,16 +177,19 @@ def resolve_identity_login_username(
 
 
 def resolve_robotic_driver(auth_mode: str, existing: str | None = None) -> str | None:
-    """Map auth_mode to robotic_driver; preserve crushftp when auth_mode stays SSO."""
+    """Map auth_mode to robotic_driver; preserve crushftp/teleport when auth_mode stays SSO."""
     mode = normalize_auth_mode(auth_mode)
+    if mode == "teleport":
+        return "teleport"
     if mode == "generic_form":
         return "generic_form"
     if mode == "generic_basic_auth":
         return "generic_basic_auth"
     if mode == "generic_wsse":
         return "generic_wsse"
-    if mode == "sso" and (existing or "").strip().lower() == "crushftp":
-        return "crushftp"
+    preserved = (existing or "").strip().lower()
+    if mode == "sso" and preserved in ("crushftp", "teleport"):
+        return preserved
     return None
 
 

@@ -15,6 +15,7 @@ from app.audit import log_action
 from app.bastion.bastion_fields import normalize_credential_mode
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPDriver
+from app.bastion.drivers.teleport import TeleportDriver, resolve_teleport_login_base_url
 from app.bastion.drivers.generic import (
     DriverAuthRejectedError,
     DriverUpstreamError,
@@ -154,6 +155,7 @@ def _credential_mode_for_source(source: CredentialSource | None) -> str | None:
 # CrushFTP browser UI after robotic SSO — never login.html (that path is the
 # unauthenticated form; login_form_url often points there for fingerprinting).
 _CRUSHFTP_UI_ENTRY = "/WebInterface/new-ui/index.html"
+_TELEPORT_UI_ENTRY = "/web/"
 
 
 def _resolve_target(
@@ -171,6 +173,8 @@ def _resolve_target(
         driver = (getattr(app, "robotic_driver", None) or "").strip().lower()
         if driver == "crushftp":
             target = f"https://{fqdn}{_CRUSHFTP_UI_ENTRY}"
+        elif driver == "teleport":
+            target = f"https://{fqdn}{_TELEPORT_UI_ENTRY}"
         else:
             target = (
                 public_app_entry_url(app, root_trailing_slash=True)
@@ -312,10 +316,16 @@ def _audit_impersonate(
         details["wsse_nonce"] = wsse_nonce
     if wsse_created:
         details["wsse_created"] = wsse_created
+    if driver == "crushftp":
+        audit_action = "robotic.impersonate"
+    elif driver == "teleport":
+        audit_action = "robotic.impersonate.teleport"
+    else:
+        audit_action = "robotic.impersonate.generic"
     log_action(
         db,
         actor=actor,
-        action="robotic.impersonate.generic" if driver != "crushftp" else "robotic.impersonate",
+        action=audit_action,
         target=f"app:{app_slug}",
         details=details,
         ip_address=ip_address,
@@ -554,6 +564,124 @@ async def _impersonate_crushftp(
     )
 
 
+async def _impersonate_teleport(
+    db: Session,
+    app: App,
+    app_slug: str,
+    settings: Settings,
+    resolved: ResolvedCredential,
+    password: str,
+    *,
+    actor: str,
+    ip_address: str | None,
+    client_headers: dict[str, str] | None = None,  # unused — uniform handler signature
+) -> RoboticSessionResult:
+    driver = TeleportDriver()
+    session = None
+    try:
+        login_base = resolve_teleport_login_base_url(app, settings)
+    except ValueError as exc:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver="teleport",
+            error="login_failed",
+            credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
+        )
+        raise ImpersonationError(str(exc)) from exc
+    tls_verify = resolve_upstream_tls_verify(app)
+    try:
+        session = await driver.login(
+            login_base,
+            resolved.robotic_username,
+            password,
+            tls_verify=tls_verify,
+        )
+    except RoboticLoginError as exc:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver="teleport",
+            error="login_failed",
+            credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
+        )
+        raise ImpersonationError(str(exc)) from exc
+    finally:
+        password = ""  # noqa: F841
+
+    try:
+        identity = await driver.get_username(session)
+        if identity != resolved.robotic_username:
+            _audit_impersonate(
+                db,
+                app_slug=app_slug,
+                actor=actor,
+                ip_address=ip_address,
+                success=False,
+                driver="teleport",
+                error="identity_mismatch",
+                credential_source=resolved.source,
+                credential_mode=_credential_mode_for_source(resolved.source),
+            )
+            raise ImpersonationError("Teleport identity fingerprint mismatch")
+        mode, target_url, fqdn = _resolve_target(app, settings, db)
+    except ImpersonationError:
+        await driver.logout(session)
+        raise
+    except RoboticLoginError as exc:
+        await driver.logout(session)
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver="teleport",
+            error="login_failed",
+            credential_source=resolved.source,
+            credential_mode=_credential_mode_for_source(resolved.source),
+        )
+        raise ImpersonationError(str(exc)) from exc
+    except Exception:
+        await driver.logout(session)
+        raise
+
+    _audit_impersonate(
+        db,
+        app_slug=app_slug,
+        actor=actor,
+        ip_address=ip_address,
+        success=True,
+        driver="teleport",
+        mode=mode,
+        robotic_username=resolved.robotic_username,
+        cookies=session.cookies,
+        credential_source=resolved.source,
+        credential_mode=_credential_mode_for_source(resolved.source),
+    )
+    return RoboticSessionResult(
+        cookies=session.cookies,
+        target_url=target_url,
+        mode=mode,
+        fqdn=fqdn,
+        slug=app.slug,
+        robotic_username=resolved.robotic_username,
+        driver="teleport",
+        credential_source=resolved.source,
+        use_crushftp_cookies=False,
+        login_base_url=login_base,
+        injected_cookie_scope=_injected_cookie_scope(app),
+    )
+
+
 async def _impersonate_generic_form(
     db: Session,
     app: App,
@@ -661,6 +789,7 @@ async def _impersonate_generic_form(
 # (same pattern as app/bastion/drivers/registry.py for provisioning drivers).
 _COOKIE_SSO_HANDLERS = {
     "crushftp": _impersonate_crushftp,
+    "teleport": _impersonate_teleport,
     "generic_form": _impersonate_generic_form,
 }
 
@@ -681,7 +810,7 @@ async def impersonate(
     """
     Vault decrypt + driver login + session cookies for cookie-based robotic SSO.
 
-    Supports crushftp and generic_form drivers only.
+    Supports crushftp, teleport, and generic_form drivers only.
     Uses per-user override when keycloak_user_id has an active UserAppCredential;
     otherwise group shared credential (OIDC group_names), then app-wide shared.
 

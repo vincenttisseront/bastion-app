@@ -103,3 +103,7 @@ def test_infrastructure_apply_redirects_to_wait_page(
     assert page.status_code == 200
     assert "Application sur l’hôte en cours" in page.text
     assert "Export OK" in page.text
+    assert 'id="infrastructure-apply-wait"' in page.text
+    assert 'data-refresh-url="/admin/infrastructure/apply-wait' in page.text
+    assert "data-poll-ms=" in page.text
+    assert "data-started-at=" in page.text
