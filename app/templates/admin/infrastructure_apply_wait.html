@@ -4,7 +4,10 @@
 {% block breadcrumb %}Admin / Infrastructure / En cours{% endblock %}
 
 {% block content %}
-<div class="page" id="infrastructure-apply-wait">
+<div class="page" id="infrastructure-apply-wait"
+     data-poll-ms="{{ (poll_sec * 1000) | int }}"
+     data-refresh-url="{{ refresh_url }}"
+     data-started-at="{{ started_at | int }}">
   <div class="page-header">
     <div>
       <h1 class="page-title">Application sur l’hôte en cours</h1>
@@ -40,13 +43,4 @@
     </div>
   </div>
 </div>
-<script>
-(function () {
-  var pollMs = {{ (poll_sec * 1000) | int }};
-  var refreshUrl = {{ refresh_url_json }};
-  window.setTimeout(function () {
-    window.location.replace(refreshUrl);
-  }, Math.max(1000, pollMs));
-})();
-</script>
 {% endblock %}

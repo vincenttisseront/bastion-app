@@ -13,6 +13,15 @@
         Le mode vault générique ne s'applique pas — configurez le credential ci-dessous.
       </div>
     </div>
+  {% elif app is defined and app.robotic_driver == 'teleport' %}
+    <div class="alert alert-info">
+      <div class="alert-body">
+        Driver Teleport (<span class="mono">robotic_driver=teleport</span>) — login via
+        <span class="mono">POST /v1/webapi/sessions/web</span> (JSON). L’
+        <strong>upstream_url interne</strong> doit pointer vers le proxy Teleport
+        (pas le FQDN public bastion). Credential vault requis — pas d’analyse HTML.
+      </div>
+    </div>
   {% else %}
     <div class="form-group">
       <label class="form-label" for="auth_mode">Authentification applicative</label>
@@ -41,6 +50,12 @@
       </div>
       <p class="form-help" data-auth-mode-sso-help>
         SSO : session portail + AccessGrant. Choisir le mode (en-têtes ou OIDC app), puis Appliquer l’infra si besoin.
+      </p>
+      <p class="form-help" data-auth-mode-teleport-help hidden>
+        Teleport : le bastion appelle l’API web Teleport avec le credential vault et pose
+        le cookie de session sur le FQDN public. Upstream interne obligatoire (ex.
+        <span class="mono">https://10.x.x.x:3080</span>). MFA Teleport doit être désactivé
+        pour le compte vault.
       </p>
       <p id="generic-wsse-help" class="form-help" hidden>
         En-tête X-WSSE régénéré par Nginx — credential vault requis.

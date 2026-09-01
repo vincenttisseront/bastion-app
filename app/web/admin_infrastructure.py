@@ -291,5 +291,5 @@ def admin_infrastructure_apply_wait(
         timeout_sec=timeout,
         poll_sec=poll,
         refresh_url=refresh_url,
-        refresh_url_json=json.dumps(refresh_url),
+        started_at=started_at,
     )

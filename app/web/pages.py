@@ -256,6 +256,8 @@ def _validate_auth_fields(
                 login_extra_fields,
             )
         )
+    if auth == "teleport":
+        pass
     return errors
 
 

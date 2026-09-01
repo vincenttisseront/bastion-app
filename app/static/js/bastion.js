@@ -137,7 +137,27 @@ document.addEventListener('DOMContentLoaded', function () {
   initSlugFromLabel();
   initAccessModeForm();
   initLoginFormAnalyzer();
+  initInfraApplyWait();
 });
+
+function initInfraApplyWait() {
+  var root = document.getElementById('infrastructure-apply-wait');
+  if (!root) return;
+  var refreshUrl = root.getAttribute('data-refresh-url') || '';
+  var pollMs = parseInt(root.getAttribute('data-poll-ms') || '2000', 10);
+  var startedAt = parseInt(root.getAttribute('data-started-at') || '0', 10);
+  var elapsedEl = document.getElementById('wait-elapsed');
+  if (startedAt > 0 && elapsedEl) {
+    window.setInterval(function () {
+      var sec = Math.max(0, Math.floor(Date.now() / 1000 - startedAt));
+      elapsedEl.textContent = String(sec);
+    }, 1000);
+  }
+  if (!refreshUrl) return;
+  window.setTimeout(function () {
+    window.location.replace(refreshUrl);
+  }, Math.max(1000, pollMs));
+}
 
 function slugify(str) {
   return str.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -501,6 +521,7 @@ function initAccessModeForm() {
     var mode = authSelect.value;
     var isSso = mode === 'sso' || mode === 'oidc';
     var isGenericForm = mode === 'generic_form';
+    var isTeleport = mode === 'teleport';
     var bridge = currentSsoBridge();
     var isAppOidc = isSso && bridge === 'app_oidc';
     if (ssoBridgeGroup) {
@@ -517,6 +538,10 @@ function initAccessModeForm() {
     if (wsseHelp) {
       wsseHelp.hidden = mode !== 'generic_wsse';
     }
+    var helpSso = document.querySelector('[data-auth-mode-sso-help]');
+    var helpTeleport = document.querySelector('[data-auth-mode-teleport-help]');
+    if (helpSso) helpSso.hidden = !isSso;
+    if (helpTeleport) helpTeleport.hidden = !isTeleport;
     if (labelSso) labelSso.hidden = !isSso;
     if (labelGeneric) labelGeneric.hidden = !isGenericForm;
     if (reqOidc) reqOidc.hidden = !isAppOidc;

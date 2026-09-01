@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPDriver
+from app.bastion.drivers.teleport import TeleportDriver, resolve_teleport_login_base_url
 from app.bastion.drivers.generic import (
     generic_basic_auth_header,
     generic_basic_auth_probe,
@@ -188,9 +189,48 @@ async def test_app_credential_connection(
                     message="X-WSSE probe failed",
                 )
             )
-    else:
-        # Prefer CrushFTP Admin API base URL for credential tests: upstream_url is
-        # often the public SSO FQDN (302/HTML) and cannot accept native login.
+    elif driver == "teleport":
+        login_base = resolve_teleport_login_base_url(app, settings)
+        teleport_driver = TeleportDriver()
+        try:
+            session = await teleport_driver.login(
+                login_base,
+                resolved.robotic_username,
+                password,
+                tls_verify=resolve_upstream_tls_verify(app),
+            )
+            password = ""
+            password_cleared = True
+            checks.append(
+                CheckStep(
+                    name="login",
+                    status=CheckStatus.OK,
+                    message=f"Teleport web session OK ({login_base.rstrip('/')})",
+                )
+            )
+            identity = await teleport_driver.get_username(session)
+            if identity != resolved.robotic_username:
+                checks.append(
+                    CheckStep(
+                        name="get_username",
+                        status=CheckStatus.ERROR,
+                        message="Identity mismatch after login",
+                    )
+                )
+            else:
+                checks.append(
+                    CheckStep(
+                        name="get_username",
+                        status=CheckStatus.OK,
+                        message="Identity fingerprint OK",
+                    )
+                )
+            await teleport_driver.logout(session)
+        except RoboticLoginError as exc:
+            checks.append(
+                CheckStep(name="login", status=CheckStatus.ERROR, message=str(exc))
+            )
+    elif driver == "crushftp" or driver == "":
         crush_login_url = (
             (getattr(app, "crushftp_admin_base_url", None) or "").strip()
             or (app.upstream_url or "").strip()
