@@ -3,7 +3,7 @@
 {% block title %}WAF{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260831-dialog-center">
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260901-owasp-logs">
 {% endblock %}
 
 {% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
@@ -240,9 +240,34 @@
         <div class="sentinel-panel sentinel-panel--rules">
           <div class="sentinel-panel-head">
             <h3 class="sentinel-panel-title">Top règles OWASP</h3>
-            <span class="sentinel-panel-meta">SQLi · XSS · SSRF…</span>
+            <span class="sentinel-panel-meta">Cliquez une règle pour voir les logs</span>
           </div>
+          {% if ti.top_rules %}
+          <ul class="sentinel-owasp-list" aria-label="Top 5 règles OWASP déclenchées">
+            {% for r in ti.top_rules %}
+            <li>
+              <button type="button"
+                      class="sentinel-owasp-row"
+                      data-waf-rule-id="{{ r.rule_id }}"
+                      data-waf-rule-label="{{ r.label }}"
+                      data-waf-rule-count="{{ r.count }}"
+                      data-waf-rule-events-b64="{{ r.events_b64 }}"
+                      title="Voir les logs associés à {{ r.rule_id }}">
+                <span class="sentinel-owasp-meta">
+                  <span class="sentinel-owasp-id">{{ r.rule_id }}</span>
+                  <span class="sentinel-owasp-label">{{ r.label }}</span>
+                </span>
+                <span class="sentinel-owasp-bar-track" aria-hidden="true">
+                  <span class="sentinel-owasp-bar" style="width:{{ r.bar_pct }}%"></span>
+                </span>
+                <span class="sentinel-owasp-count">{{ r.count }}</span>
+              </button>
+            </li>
+            {% endfor %}
+          </ul>
+          {% else %}
           <div class="sentinel-chart-slot">{{ ti.owasp_rules_svg | safe }}</div>
+          {% endif %}
         </div>
       </section>
 
@@ -344,7 +369,9 @@
             </thead>
             <tbody>
               {% for a in ac.recent %}
-              <tr class="sentinel-feed-row{% if a.critical %} sentinel-feed-row--critical{% endif %}">
+              <tr class="sentinel-feed-row{% if a.critical %} sentinel-feed-row--critical{% endif %}"
+                  data-feed-rule-id="{{ a.rule_id }}"
+                  data-feed-rule-ids="{{ (a.all_rule_ids or [a.rule_id]) | join(',') }}">
                 <td class="sentinel-mono">{{ a.timestamp }}</td>
                 <td>
                   <span class="sentinel-mono" title="{{ a.origin_hint }}{% if a.origin_country %} · {{ a.origin_country }}{% endif %}">{{ a.origin_flag }}</span>
@@ -439,6 +466,30 @@
         </div>
         <div class="sentinel-inspect-body">
           <pre class="sentinel-inspect-pre" id="waf-inspect-pre"></pre>
+        </div>
+      </dialog>
+
+      <dialog id="waf-rule-logs-dialog" class="sentinel-inspect-dialog sentinel-rule-logs-dialog">
+        <div class="sentinel-inspect-head">
+          <strong id="waf-rule-logs-title">Logs règle CRS</strong>
+          <button type="button" class="btn btn-ghost btn-sm" id="waf-rule-logs-close">Fermer</button>
+        </div>
+        <div class="sentinel-inspect-body">
+          <p class="sentinel-rule-logs-hint" id="waf-rule-logs-hint"></p>
+          <div class="sentinel-rule-logs-wrap">
+            <table class="sentinel-feed-table sentinel-rule-logs-table">
+              <thead>
+                <tr>
+                  <th>Horodatage</th>
+                  <th>IP</th>
+                  <th>Cible</th>
+                  <th>Action</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody id="waf-rule-logs-body"></tbody>
+            </table>
+          </div>
         </div>
       </dialog>
 
@@ -1451,7 +1502,7 @@
 
 </script>
 
-<script src="/static/js/waf-sentinel.js?v=20260828-sentinel"></script>
+<script src="/static/js/waf-sentinel.js?v=20260901-owasp-logs"></script>
 
 {% endblock %}
 
