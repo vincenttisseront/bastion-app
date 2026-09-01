@@ -128,9 +128,12 @@ def render_horizontal_bars(
     label_key: str,
     value_key: str = "count",
     title: str,
-    width: int = 420,
-    row_height: int = 26,
+    width: int = 560,
+    row_height: int = 28,
+    label_chars: int = 42,
+    label_col_w: int = 220,
 ) -> str:
+    """Horizontal bars with a dedicated label column (no bar overlap / 16-char clip)."""
     inner_h = max(60, 36 + len(items) * row_height) if items else 100
     height = inner_h + 8
     if not items:
@@ -148,21 +151,32 @@ def render_horizontal_bars(
         f'<rect class="waf-chart-bg" width="{width}" height="{height}" rx="8"/>',
         f'<text class="waf-chart-title" x="16" y="20">{_esc(title)}</text>',
     ]
-    bar_max_w = width - 168
     label_x = 16
-    bar_x = 132
+    bar_x = label_col_w
+    # Leave room for count text after the bar.
+    bar_max_w = max(40, width - bar_x - 56)
     for i, it in enumerate(items):
         y = 32 + i * row_height
-        label = str(it.get(label_key) or "—")
-        short = label if len(label) <= 16 else label[:14] + "…"
+        rule_id = str(it.get("rule_id") or "").strip()
+        human = str(it.get(label_key) or it.get("label") or "—").strip()
+        if rule_id and human and not human.startswith(rule_id):
+            full = f"{rule_id} · {human}"
+        else:
+            full = human or rule_id or "—"
+        short = full if len(full) <= label_chars else full[: label_chars - 1] + "…"
         val = int(it.get(value_key) or 0)
         bw = max(2, int((val / max_v) * bar_max_w))
-        parts.append(f'<text class="waf-chart-hbar-label" x="{label_x}" y="{y + 15}">{_esc(short)}</text>')
         parts.append(
-            f'<rect class="waf-chart-hbar" x="{bar_x}" y="{y + 2}" width="{bw}" height="16" rx="3">'
-            f'<title>{_esc(label)}: {val}</title></rect>'
+            f'<text class="waf-chart-hbar-label" x="{label_x}" y="{y + 16}">'
+            f'<title>{_esc(full)}: {val}</title>{_esc(short)}</text>'
         )
-        parts.append(f'<text class="waf-chart-hbar-val" x="{bar_x + bw + 8}" y="{y + 14}">{val}</text>')
+        parts.append(
+            f'<rect class="waf-chart-hbar" x="{bar_x}" y="{y + 3}" width="{bw}" height="16" rx="3">'
+            f'<title>{_esc(full)}: {val}</title></rect>'
+        )
+        parts.append(
+            f'<text class="waf-chart-hbar-val" x="{bar_x + bw + 8}" y="{y + 15}">{val}</text>'
+        )
     parts.append("</svg>")
     return "".join(parts)
 
@@ -427,9 +441,9 @@ def render_owasp_bars(
     items: list[dict[str, Any]],
     *,
     title: str = "Top 5 règles OWASP",
-    width: int = 420,
+    width: int = 560,
 ) -> str:
-    """Horizontal bars with Sentinel alert styling."""
+    """Horizontal bars with readable CRS id + label (Sentinel threat intel)."""
     if not items:
         return _empty_panel(
             title=title,
@@ -438,4 +452,12 @@ def render_owasp_bars(
             width=width,
             height=140,
         )
-    return render_horizontal_bars(items, label_key="label", value_key="count", title=title, width=width)
+    return render_horizontal_bars(
+        items,
+        label_key="label",
+        value_key="count",
+        title=title,
+        width=width,
+        label_chars=48,
+        label_col_w=248,
+    )
