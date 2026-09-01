@@ -229,6 +229,50 @@
 #waf-page .sentinel-action-warn{color:var(--warn);font-weight:600}
 #waf-page .sentinel-chart-slot .waf-chart-hbar-label{font-family:var(--sentinel-mono);font-size:11px}
 
+#waf-page .sentinel-owasp-list{list-style:none;margin:0;padding:.35rem .75rem .75rem;display:flex;flex-direction:column;gap:.35rem}
+#waf-page .sentinel-owasp-row{
+  display:grid;grid-template-columns:minmax(14rem,1.4fr) minmax(6rem,1fr) auto;
+  align-items:center;gap:.75rem;width:100%;text-align:left;
+  padding:.45rem .65rem;border:1px solid var(--sentinel-border);border-radius:var(--r-md);
+  background:var(--sentinel-bg-2);color:var(--sentinel-text);cursor:pointer;
+  transition:border-color .15s ease, background .15s ease;
+}
+#waf-page .sentinel-owasp-row:hover,
+#waf-page .sentinel-owasp-row:focus-visible{
+  border-color:color-mix(in srgb,var(--err) 45%,var(--sentinel-border));
+  background:color-mix(in srgb,var(--err) 8%,var(--sentinel-bg-2));
+  outline:none;
+}
+#waf-page .sentinel-owasp-row.is-active{
+  border-color:var(--err);
+  box-shadow:inset 3px 0 0 var(--err);
+}
+#waf-page .sentinel-owasp-meta{display:flex;align-items:baseline;gap:.5rem;min-width:0}
+#waf-page .sentinel-owasp-id{
+  font-family:var(--sentinel-mono);font-weight:700;font-size:.78rem;flex-shrink:0;color:var(--sentinel-text);
+}
+#waf-page .sentinel-owasp-label{
+  font-size:.78rem;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+#waf-page .sentinel-owasp-bar-track{
+  display:block;height:.55rem;border-radius:999px;background:var(--bg-tertiary);overflow:hidden;min-width:4rem;
+}
+#waf-page .sentinel-owasp-bar{
+  display:block;height:100%;border-radius:inherit;background:var(--err);min-width:2px;
+}
+#waf-page .sentinel-owasp-count{
+  font-family:var(--sentinel-mono);font-weight:700;font-size:.78rem;min-width:2.5rem;text-align:right;
+}
+#waf-page .sentinel-feed-filter-hint{
+  margin:0 0 .5rem;padding:.4rem .65rem;border-radius:var(--r-md);
+  background:color-mix(in srgb,var(--info) 12%,var(--bg-tertiary));
+  color:var(--text-2);font-size:.72rem;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;
+}
+#waf-page .sentinel-rule-logs-hint{margin:0 0 .75rem;font-size:.75rem;color:var(--text-2)}
+#waf-page .sentinel-rule-logs-wrap{overflow:auto;max-height:min(50vh,22rem)}
+#waf-page .sentinel-rule-logs-table{table-layout:auto}
+#waf-page .sentinel-rule-logs-dialog{width:min(56rem, calc(100% - 2rem));max-width:56rem}
+
 /* Native <dialog> centering needs margin:auto — bastion-base resets * { margin:0 }. */
 #waf-page .sentinel-inspect-dialog{
   border:1px solid var(--sentinel-border);border-radius:var(--r-lg);padding:0;

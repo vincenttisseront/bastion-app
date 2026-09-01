@@ -16,6 +16,7 @@ from app.bastion.waf_readability import (
     build_protection_layers,
     build_protection_verdict,
     build_quarantine_panel,
+    build_threat_intel_visuals,
     build_unknown_host_panel,
     _apply_feed_target,
     _enrich_feed_source,
@@ -210,6 +211,56 @@ def test_efficiency_zero_explanation_when_engine_off(tmp_path: Path):
     assert panel["inspected"] == 0
     assert panel["status"] == "measured_zero"
     assert "moteur est arrêté" in (panel.get("zero_explanation") or "")
+
+
+def test_threat_intel_owasp_rows_use_catalog_and_attach_events(tmp_path: Path):
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    summary = {
+        "schema_version": 2,
+        "generated_at": "2026-09-01T12:00:00+00:00",
+        "log_available": True,
+        "windows": {
+            "24h": {
+                "inspected": 10,
+                "detections": 5,
+                "blocks": 5,
+                "critical": 1,
+                "top_rules": [
+                    {"rule_id": "920450", "label": "Règle CRS 920450", "count": 403},
+                    {"rule_id": "930130", "label": "Règle CRS 930130", "count": 105},
+                ],
+            }
+        },
+        "series": {"24h": [{"label": "12h", "detections": 5, "inspected": 10}]},
+        "recent_events": [
+            {
+                "timestamp": "2026-09-01T11:00:00+00:00",
+                "client_ip": "203.0.113.9",
+                "host": "portal.example.fr",
+                "uri": "/df.php",
+                "rule_id": "920450",
+                "all_rule_ids": ["920450", "949110"],
+                "blocked": True,
+                "message": "HTTP header is restricted by policy",
+            }
+        ],
+    }
+    (logs / "waf-audit-summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    settings = Settings(
+        environment="test", database_url="sqlite://", nginx_app_logs_dir=str(logs)
+    )
+    ti = build_threat_intel_visuals(
+        settings,
+        {"verifiable": True, "aggregate_mode": MODE_ON},
+        {"present": True, "status": "ok"},
+    )
+    assert ti["top_rules"][0]["rule_id"] == "920450"
+    assert ti["top_rules"][0]["label"] == "En-tête HTTP restreint"
+    assert "Règle CRS" not in ti["top_rules"][0]["label"]
+    assert ti["top_rules"][0]["events"]
+    assert ti["top_rules"][0]["events"][0]["uri"] == "/df.php"
+    assert ti["top_rules"][1]["label"] == "Accès fichier restreint (LFI)"
 
 
 def test_protection_layers_anti_bruteforce_alert_when_policy_disabled(db_session):

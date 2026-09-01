@@ -1342,18 +1342,57 @@ def build_threat_intel_visuals(
             "traffic_area_svg": panel,
             "origin_heatmap_svg": panel,
             "owasp_rules_svg": panel,
+            "top_rules": [],
         }
     summary = read_audit_summary(settings)
     series_24h = (summary.get("series") or {}).get("24h") or []
     window = (summary.get("windows") or {}).get("24h") or {}
-    top_rules = [
-        {
-            "rule_id": str(r.get("rule_id") or ""),
-            "label": str(r.get("label") or f"Règle CRS {r.get('rule_id') or '—'}"),
-            "count": r.get("count"),
-        }
-        for r in (window.get("top_rules") or [])[:5]
-    ]
+    recent_raw = list(summary.get("recent_events") or [])
+    top_rules: list[dict[str, Any]] = []
+    max_count = 1
+    for r in (window.get("top_rules") or [])[:5]:
+        rid = str(r.get("rule_id") or "").strip()
+        if not rid:
+            continue
+        count = int(r.get("count") or 0)
+        max_count = max(max_count, count)
+        matching: list[dict[str, Any]] = []
+        for ev in reversed(recent_raw):
+            if not isinstance(ev, dict):
+                continue
+            all_ids = [str(x) for x in (ev.get("all_rule_ids") or [])]
+            primary = str(ev.get("rule_id") or "")
+            if rid != primary and rid not in all_ids:
+                continue
+            matching.append(
+                {
+                    "timestamp": (ev.get("timestamp") or "")[:19].replace("T", " "),
+                    "client_ip": ev.get("client_ip") or "—",
+                    "host": ev.get("host") or "—",
+                    "uri": (ev.get("uri") or "—")[:120],
+                    "blocked": bool(ev.get("blocked")),
+                    "message": (ev.get("message") or "")[:160],
+                    "rule_id": primary or rid,
+                    "all_rule_ids": all_ids or [rid],
+                    "rule_chain_display": ev.get("rule_chain_display") or "",
+                }
+            )
+            if len(matching) >= 25:
+                break
+        top_rules.append(
+            {
+                "rule_id": rid,
+                "label": rule_label(rid),
+                "count": count,
+                "events": matching,
+                "events_b64": base64.b64encode(
+                    json.dumps(matching, ensure_ascii=False).encode("utf-8")
+                ).decode("ascii"),
+                "events_count": len(matching),
+            }
+        )
+    for item in top_rules:
+        item["bar_pct"] = round((int(item["count"]) / max_count) * 100, 1)
     matrix, row_labels, col_labels = _build_heatmap_matrix(
         settings, db, geo_map=geo_map
     )
@@ -1377,9 +1416,17 @@ def build_threat_intel_visuals(
             title=heatmap_title,
         ),
         "owasp_rules_svg": render_owasp_bars(
-            top_rules,
+            [
+                {
+                    "rule_id": r["rule_id"],
+                    "label": r["label"],
+                    "count": r["count"],
+                }
+                for r in top_rules
+            ],
             title="Top 5 règles OWASP déclenchées",
         ),
+        "top_rules": top_rules,
     }
 
 
@@ -1437,7 +1484,7 @@ def build_efficiency_visuals(
     top_rules = [
         {
             "rule_id": str(r.get("rule_id") or ""),
-            "label": str(r.get("label") or f"Règle CRS {r.get('rule_id') or '—'}"),
+            "label": rule_label(str(r.get("rule_id") or "")),
             "count": r.get("count"),
         }
         for r in (window.get("top_rules") or [])

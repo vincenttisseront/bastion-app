@@ -111,6 +111,16 @@ def test_is_crs_detection_rule_id():
     assert is_crs_detection_rule_id("913100") is True
 
 
+def test_rule_label_covers_common_protocol_and_lfi_ids():
+    from app.bastion.modsec_audit_aggregator import rule_label
+
+    assert rule_label("920450") == "En-tête HTTP restreint"
+    assert rule_label("930130") == "Accès fichier restreint (LFI)"
+    assert rule_label("920600") == "Accept charset illégal"
+    assert rule_label("920440") == "Extension d'URL restreinte"
+    assert "Règle CRS" not in rule_label("920450")
+
+
 def test_extract_modsec_matched_target():
     kind, name = extract_modsec_matched_target(
         'Matched Data: UNION SELECT found within ARGS:search_term'
