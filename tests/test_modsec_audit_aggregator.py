@@ -7,8 +7,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.bastion.modsec_audit_aggregator import (
+    build_rule_chain,
     extract_modsec_matched_target,
+    format_rule_chain_display,
     is_audit_noise_event,
+    is_crs_detection_rule_id,
+    pick_primary_rule_id,
     read_audit_summary,
     resolve_modsec_audit_log_path,
     run_aggregation,
@@ -23,12 +27,21 @@ def _sample_audit_line(
     client_ip: str = "203.0.113.10",
     uri: str = "/api/test",
     matched_data: str | None = None,
+    extra_messages: list[dict] | None = None,
 ) -> str:
     details: dict = {"ruleId": rule_id, "severity": "2"}
     message = "SQL Injection Attack Detected"
     if matched_data:
         details["data"] = matched_data
         message = f"{message} {matched_data}"
+    messages = [
+        {
+            "message": message,
+            "details": details,
+        }
+    ]
+    if extra_messages:
+        messages.extend(extra_messages)
     payload = {
         "transaction": {
             "client_ip": client_ip,
@@ -38,15 +51,64 @@ def _sample_audit_line(
                 "headers": {"Host": host},
             },
             "response": {"http_code": 403},
-            "messages": [
-                {
-                    "message": message,
-                    "details": details,
-                }
-            ],
+            "messages": messages,
         }
     }
     return json.dumps(payload)
+
+
+def test_pick_primary_rule_id_prefers_detection_over_949110():
+    assert pick_primary_rule_id(["949110", "942100"]) == "942100"
+    assert pick_primary_rule_id(["942100", "949110"]) == "942100"
+    assert pick_primary_rule_id(["949110"]) == "949110"
+    assert pick_primary_rule_id([]) == "—"
+
+
+def test_build_rule_chain_dedupes_and_labels():
+    chain = build_rule_chain(["942100", "949110", "942100"])
+    assert [c["rule_id"] for c in chain] == ["942100", "949110"]
+    assert chain[0]["label"] == "Injection SQL (libinjection)"
+    display = format_rule_chain_display(chain)
+    assert "942100" in display
+    assert "949110" in display
+    assert "→" in display
+
+
+def test_aggregator_primary_rule_and_chain_with_anomaly_block(tmp_path: Path):
+    logs = tmp_path / "nginx-logs"
+    logs.mkdir()
+    log_file = logs / "modsec_audit.log"
+    log_file.write_text(
+        _sample_audit_line(
+            rule_id="942100",
+            extra_messages=[
+                {
+                    "message": "Inbound Anomaly Score Exceeded (Total Score: 5)",
+                    "details": {"ruleId": "949110", "severity": "0"},
+                }
+            ],
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    settings = Settings(
+        environment="test",
+        database_url="sqlite://",
+        nginx_app_logs_dir=str(logs),
+    )
+    summary = run_aggregation(settings)
+    ev = summary["recent_events"][-1]
+    assert ev["rule_id"] == "942100"
+    assert ev["all_rule_ids"] == ["942100", "949110"]
+    assert [c["rule_id"] for c in ev["rule_chain"]] == ["942100", "949110"]
+    assert "942100" in ev["rule_chain_display"]
+    assert "949110" in ev["rule_chain_display"]
+
+
+def test_is_crs_detection_rule_id():
+    assert is_crs_detection_rule_id("942100") is True
+    assert is_crs_detection_rule_id("949110") is False
+    assert is_crs_detection_rule_id("913100") is True
 
 
 def test_extract_modsec_matched_target():

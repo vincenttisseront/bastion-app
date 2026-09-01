@@ -51,6 +51,21 @@ CRS_RULE_LABELS: dict[str, str] = {
     "949110": "Score d'anomalie (blocage)",
 }
 
+# CRS outcome / anomaly-score rules — not the triggering detection.
+ANOMALY_SCORE_RULE_IDS = frozenset(
+    {
+        "949100",
+        "949110",
+        "949111",
+        "959100",
+        "959110",
+    }
+)
+
+# Inclusive CRS detection prefixes (913 scanner … 944 java/session).
+_DETECTION_PREFIX_MIN = 913
+_DETECTION_PREFIX_MAX = 944
+
 # Extract collection:name from ModSec matched-data text — never the matched value.
 _MATCHED_WITHIN_RE = re.compile(
     r"(?i)\bwithin\s+"
@@ -125,6 +140,66 @@ def resolve_audit_summary_path(settings: Settings) -> Path:
 def _rule_label(rule_id: str) -> str:
     rid = str(rule_id).strip()
     return CRS_RULE_LABELS.get(rid, f"Règle CRS {rid}")
+
+
+def rule_label(rule_id: str) -> str:
+    """Public alias for admin UI / readability layer."""
+    return _rule_label(rule_id)
+
+
+def is_anomaly_score_rule(rule_id: str) -> bool:
+    rid = str(rule_id).strip()
+    if rid in ANOMALY_SCORE_RULE_IDS:
+        return True
+    if len(rid) == 6 and rid.isdigit():
+        prefix = rid[:3]
+        return prefix in ("949", "959")
+    return False
+
+
+def is_crs_detection_rule_id(rule_id: str) -> bool:
+    """True for specific CRS matchers (913xxx–944xxx), excluding anomaly outcome rules."""
+    rid = str(rule_id).strip()
+    if not rid.isdigit() or len(rid) != 6:
+        return False
+    if is_anomaly_score_rule(rid):
+        return False
+    try:
+        prefix = int(rid[:3])
+    except ValueError:
+        return False
+    return _DETECTION_PREFIX_MIN <= prefix <= _DETECTION_PREFIX_MAX
+
+
+def pick_primary_rule_id(rule_ids: list[str]) -> str:
+    """Prefer the triggering detection rule over generic anomaly block (949110)."""
+    if not rule_ids:
+        return "—"
+    for rid in rule_ids:
+        if is_crs_detection_rule_id(rid):
+            return str(rid).strip()
+    return str(rule_ids[0]).strip() or "—"
+
+
+def build_rule_chain(rule_ids: list[str]) -> list[dict[str, str]]:
+    """Ordered unique rule ids with human labels (audit message order preserved)."""
+    chain: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in rule_ids:
+        rid = str(raw).strip()
+        if not rid or rid in seen:
+            continue
+        seen.add(rid)
+        chain.append({"rule_id": rid, "label": _rule_label(rid)})
+    return chain
+
+
+def format_rule_chain_display(rule_chain: list[dict[str, str]]) -> str:
+    if not rule_chain:
+        return ""
+    return " → ".join(
+        f"{item['rule_id']} ({item['label']})" for item in rule_chain if item.get("rule_id")
+    )
 
 
 def _host_without_port(host: str) -> str:
@@ -555,13 +630,17 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
         bucket = hourly.setdefault(key, _empty_bucket())
         _merge_event_into_bucket(bucket, event)
 
+        rule_chain = build_rule_chain(event.get("rule_ids") or [])
         recent.append(
             {
                 "timestamp": ts.isoformat(),
                 "client_ip": event.get("client_ip"),
                 "host": event.get("host"),
                 "uri": event.get("uri"),
-                "rule_id": (event.get("rule_ids") or ["—"])[0],
+                "rule_id": pick_primary_rule_id(event.get("rule_ids") or []),
+                "all_rule_ids": list(event.get("rule_ids") or []),
+                "rule_chain": rule_chain,
+                "rule_chain_display": format_rule_chain_display(rule_chain),
                 "score": event.get("score") or 0,
                 "blocked": bool(event.get("blocked")),
                 "critical": bool(event.get("critical")),

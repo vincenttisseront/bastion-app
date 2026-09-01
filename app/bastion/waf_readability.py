@@ -20,9 +20,12 @@ from app.bastion.ip_geolocation import (
 from app.bastion.modsec_audit_aggregator import (
     RULE_FAMILY_LABELS,
     _rule_family,
+    build_rule_chain,
+    format_rule_chain_display,
     read_aggregator_state,
     read_audit_summary,
     resolve_audit_summary_path,
+    rule_label,
     resolve_aggregator_state_path,
     resolve_modsec_audit_log_path,
 )
@@ -823,12 +826,28 @@ def build_attack_controls(
             client_ip,
             (geo_map or {}).get(client_ip) if client_ip != "—" else None,
         )
+        all_rule_ids = list(ev.get("all_rule_ids") or [])
+        rule_chain = list(ev.get("rule_chain") or [])
+        if not rule_chain and all_rule_ids:
+            rule_chain = build_rule_chain(all_rule_ids)
+        elif not rule_chain and ev.get("rule_id") and ev.get("rule_id") != "—":
+            rule_chain = build_rule_chain([str(ev.get("rule_id"))])
+        primary_rule_id = str(ev.get("rule_id") or "—")
+        chain_display = str(ev.get("rule_chain_display") or "").strip()
+        if not chain_display and rule_chain:
+            chain_display = format_rule_chain_display(rule_chain)
+        primary_label = rule_label(primary_rule_id) if primary_rule_id != "—" else ""
         row = {
             "timestamp": (ev.get("timestamp") or "")[:19].replace("T", " "),
             "client_ip": client_ip,
             "host": ev.get("host") or "—",
             "uri": (ev.get("uri") or "—")[:80],
-            "rule_id": ev.get("rule_id") or "—",
+            "rule_id": primary_rule_id,
+            "rule_label": primary_label,
+            "rule_title": chain_display or primary_label,
+            "all_rule_ids": all_rule_ids,
+            "rule_chain": rule_chain,
+            "rule_chain_display": chain_display,
             "message": (ev.get("message") or "")[:80],
             "blocked": bool(ev.get("blocked")),
             "critical": bool(ev.get("critical"))
@@ -1031,6 +1050,9 @@ def _encode_inspect_payload(row: dict[str, Any]) -> str:
         "rule_id": row.get("rule_id"),
         "rule_label": row.get("rule_label"),
         "rule_title": row.get("rule_title"),
+        "all_rule_ids": row.get("all_rule_ids") or [],
+        "rule_chain": row.get("rule_chain") or [],
+        "rule_chain_display": row.get("rule_chain_display") or "",
         "message": row.get("message"),
         "blocked": row.get("blocked"),
         "critical": row.get("critical"),
