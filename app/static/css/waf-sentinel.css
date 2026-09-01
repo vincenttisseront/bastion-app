@@ -94,6 +94,7 @@
 #waf-page .sentinel-chart-legend{fill:var(--sentinel-muted);font-size:9px}
 #waf-page .sentinel-chart-grid{stroke:var(--border-muted);stroke-width:1;opacity:.7}
 #waf-page .sentinel-chart-axis{fill:var(--sentinel-muted);font-size:8px}
+#waf-page .sentinel-chart-axis-y{font-family:var(--sentinel-mono);font-size:9px;font-weight:600}
 #waf-page .sentinel-area-primary{fill:color-mix(in srgb,var(--text-2) 18%,transparent)}
 #waf-page .sentinel-area-secondary{fill:color-mix(in srgb,var(--err) 16%,transparent)}
 #waf-page .sentinel-line-primary{stroke:var(--text-2);stroke-width:2}
