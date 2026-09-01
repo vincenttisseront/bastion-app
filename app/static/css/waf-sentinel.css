@@ -156,20 +156,36 @@
   font-size:.68rem;display:flex;justify-content:space-between;gap:.5rem;flex-wrap:wrap;
 }
 #waf-page .sentinel-feed-wrap{overflow:auto;max-height:26rem}
-#waf-page .sentinel-feed-table{width:100%;border-collapse:collapse;font-size:.75rem}
+#waf-page .sentinel-feed-table{width:100%;border-collapse:collapse;font-size:.75rem;table-layout:fixed}
 #waf-page .sentinel-feed-table th{
   text-align:left;padding:.45rem .65rem;font-size:.65rem;text-transform:uppercase;
   letter-spacing:.04em;color:var(--sentinel-muted);border-bottom:1px solid var(--sentinel-border);
-  background:var(--sentinel-bg-2);position:sticky;top:0;z-index:1;
+  background:var(--sentinel-bg-2);position:sticky;top:0;z-index:1;white-space:nowrap;
 }
 #waf-page .sentinel-feed-table td{
-  padding:.4rem .65rem;border-bottom:1px solid var(--border-muted);
+  padding:.35rem .65rem;border-bottom:1px solid var(--border-muted);
   vertical-align:middle;color:var(--sentinel-text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 #waf-page .sentinel-feed-table tr:hover td{background:var(--row-hover)}
 #waf-page .sentinel-feed-table tr.sentinel-feed-row--critical td{border-left:2px solid var(--sentinel-err)}
+#waf-page .sentinel-feed-table th:nth-child(1),
+#waf-page .sentinel-feed-table td:nth-child(1){width:9.5rem}
+#waf-page .sentinel-feed-table th:nth-child(2),
+#waf-page .sentinel-feed-table td:nth-child(2){width:9.5rem}
+#waf-page .sentinel-feed-table th:nth-child(3),
+#waf-page .sentinel-feed-table td:nth-child(3){width:16%}
+#waf-page .sentinel-feed-table th:nth-child(4),
+#waf-page .sentinel-feed-table td:nth-child(4){width:7.5rem}
+#waf-page .sentinel-feed-table th:nth-child(5),
+#waf-page .sentinel-feed-table td:nth-child(5){width:22%}
+#waf-page .sentinel-feed-table th:nth-child(6),
+#waf-page .sentinel-feed-table td:nth-child(6){width:4.5rem}
+#waf-page .sentinel-feed-table th:nth-child(7),
+#waf-page .sentinel-feed-table td:nth-child(7){width:auto}
 #waf-page .sentinel-sev{
-  display:inline-block;padding:.1rem .45rem;border-radius:var(--r-sm);font-size:.62rem;font-weight:700;text-transform:uppercase;
+  display:inline-block;padding:.1rem .4rem;border-radius:var(--r-sm);font-size:.6rem;font-weight:700;text-transform:uppercase;
+  flex-shrink:0;line-height:1.2;
 }
 #waf-page .sentinel-sev--critical{background:var(--err-bg);color:var(--err)}
 #waf-page .sentinel-sev--high{background:var(--warn-bg);color:var(--warn)}
@@ -189,10 +205,29 @@
 }
 #waf-page .sentinel-feed-source-icon{display:block;flex-shrink:0}
 #waf-page .sentinel-feed-family{
-  display:block;margin-top:.2rem;font-size:.62rem;font-weight:600;color:var(--sentinel-muted);
+  display:inline;margin-left:.35rem;font-size:.62rem;font-weight:600;color:var(--sentinel-muted);
+}
+#waf-page .sentinel-feed-rule{
+  display:inline-flex;align-items:center;gap:.35rem;max-width:100%;min-width:0;
+}
+#waf-page .sentinel-feed-rule-id{
+  font-family:var(--sentinel-mono);font-weight:700;color:var(--sentinel-text);flex-shrink:0;
+}
+#waf-page .sentinel-feed-rule-label{
+  font-family:var(--sentinel-mono);color:var(--text-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;
+}
+#waf-page .sentinel-feed-actions{
+  white-space:nowrap;overflow:visible;text-overflow:clip;
+}
+#waf-page .sentinel-feed-actions .inline-form,
+#waf-page .sentinel-feed-actions .btn,
+#waf-page .sentinel-feed-actions .badge{
+  display:inline-flex;vertical-align:middle;margin:0 .1rem 0 0;
 }
 #waf-page .sentinel-action-ok{color:var(--err);font-weight:600}
 #waf-page .sentinel-action-warn{color:var(--warn);font-weight:600}
+#waf-page .sentinel-chart-slot .waf-chart-hbar-label{font-family:var(--sentinel-mono);font-size:11px}
 
 /* Native <dialog> centering needs margin:auto — bastion-base resets * { margin:0 }. */
 #waf-page .sentinel-inspect-dialog{

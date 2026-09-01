@@ -1347,7 +1347,11 @@ def build_threat_intel_visuals(
     series_24h = (summary.get("series") or {}).get("24h") or []
     window = (summary.get("windows") or {}).get("24h") or {}
     top_rules = [
-        {"label": f"{r.get('rule_id')} · {(r.get('label') or '')[:20]}", "count": r.get("count")}
+        {
+            "rule_id": str(r.get("rule_id") or ""),
+            "label": str(r.get("label") or f"Règle CRS {r.get('rule_id') or '—'}"),
+            "count": r.get("count"),
+        }
         for r in (window.get("top_rules") or [])[:5]
     ]
     matrix, row_labels, col_labels = _build_heatmap_matrix(
@@ -1431,7 +1435,11 @@ def build_efficiency_visuals(
     measured_zero = efficiency.get("status") == "measured_zero"
 
     top_rules = [
-        {"label": f"{r.get('rule_id')} · {r.get('label')}", "count": r.get("count")}
+        {
+            "rule_id": str(r.get("rule_id") or ""),
+            "label": str(r.get("label") or f"Règle CRS {r.get('rule_id') or '—'}"),
+            "count": r.get("count"),
+        }
         for r in (window.get("top_rules") or [])
     ]
     top_hosts = [

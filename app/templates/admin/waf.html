@@ -353,7 +353,7 @@
                 <td class="sentinel-mono" title="{{ a.target_title or (a.host ~ a.uri) }}">{{ a.target_display or (a.host ~ a.uri) }}</td>
                 <td class="sentinel-feed-source-cell">
                   {% if a.source_kind == 'modsecurity' %}
-                  <span class="sentinel-feed-source sentinel-feed-source--modsecurity" title="{{ a.source_title }}">
+                  <span class="sentinel-feed-source sentinel-feed-source--modsecurity" title="{{ a.source_title }}{% if a.vhost_family_label %} · {{ a.vhost_family_label }}{% endif %}">
                     <svg class="sentinel-feed-source-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                       <path fill="currentColor" d="M8 1 2 3.5v4.2c0 3.1 2.1 5.9 5.2 6.8l.8.2.8-.2C11.9 13.6 14 10.8 14 7.7V3.5L8 1zm0 1.4 4.5 2v3.3c0 2.4-1.6 4.6-4 5.4-2.4-.8-4-3-4-5.4V4.4L8 2.4z"/>
                       <path fill="currentColor" d="M7.2 9.1 5.4 7.3l-.7.7 2.5 2.5 4.5-4.5-.7-.7-3.8 3.8z"/>
@@ -361,7 +361,7 @@
                     <span class="sentinel-feed-source-label">{{ a.source_label or 'CRS' }}</span>
                   </span>
                   {% elif a.source_kind == 'host_filter' %}
-                  <span class="sentinel-feed-source sentinel-feed-source--host" title="{{ a.source_title }}">
+                  <span class="sentinel-feed-source sentinel-feed-source--host" title="{{ a.source_title }}{% if a.vhost_family_label %} · {{ a.vhost_family_label }}{% endif %}">
                     <svg class="sentinel-feed-source-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
                       <path fill="currentColor" d="M2 3.5h12v1H2v-1zm0 3h8v1H2v-1zm0 3h10v1H2v-1z"/>
                     </svg>
@@ -374,12 +374,19 @@
                   <span class="sentinel-feed-family" title="Famille vhost nginx">{{ a.vhost_family_label }}</span>
                   {% endif %}
                 </td>
-                <td>
-                  <span class="sentinel-sev sentinel-sev--{{ a.severity }}">{{ a.severity }}</span>
-                  <span class="sentinel-mono"{% if a.rule_title %} title="{{ a.rule_title }}"{% endif %}>{{ a.rule_label or a.rule_id }}</span>
+                <td class="sentinel-feed-rule-cell" title="{{ a.rule_title or a.rule_label or a.rule_id }}">
+                  <span class="sentinel-feed-rule">
+                    <span class="sentinel-sev sentinel-sev--{{ a.severity }}">{{ a.severity }}</span>
+                    {% if a.source == 'crs' and a.rule_id and a.rule_id != '—' %}
+                    <span class="sentinel-feed-rule-id">{{ a.rule_id }}</span>
+                    <span class="sentinel-feed-rule-label">{{ a.rule_label or a.rule_id }}</span>
+                    {% else %}
+                    <span class="sentinel-feed-rule-label">{{ a.rule_label or a.rule_id }}</span>
+                    {% endif %}
+                  </span>
                 </td>
                 <td class="{% if a.blocked %}sentinel-action-ok{% else %}sentinel-action-warn{% endif %}">{{ a.action_label }}</td>
-                <td>
+                <td class="sentinel-feed-actions">
                   <button type="button" class="btn btn-ghost btn-sm" data-waf-inspect="{{ a.inspect_b64 }}"
                           data-waf-inspect-ip="{{ a.client_ip }}">Inspecter</button>
                   {% if a.can_exclude and a.source == 'crs' %}

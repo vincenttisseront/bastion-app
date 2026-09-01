@@ -27,3 +27,30 @@ def test_donut_chart_renders():
     )
     assert "waf-chart-donut" in svg
     assert "8" in svg  # total
+
+
+def test_horizontal_bars_keep_readable_crs_labels():
+    from app.bastion.waf_charts import render_owasp_bars
+
+    svg = render_owasp_bars(
+        [
+            {
+                "rule_id": "942110",
+                "label": "Injection SQL (commentaire)",
+                "count": 185,
+            },
+            {
+                "rule_id": "949110",
+                "label": "Score d'anomalie (blocage)",
+                "count": 400,
+            },
+        ],
+        title="Top 5 règles OWASP déclenchées",
+    )
+    assert "942110" in svg
+    assert "949110" in svg
+    assert "Injection SQL" in svg
+    # Former hard clip to 16 chars made IDs unreadable ("490490…").
+    assert "490490" not in svg
+    assert 'x="248"' in svg  # bars start after wider label column
+    assert "waf-chart-hbar-label" in svg
