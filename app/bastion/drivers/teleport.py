@@ -18,8 +18,18 @@ _SESSION_PATH = "/v1/webapi/sessions/web"
 _USER_STATUS_PATH = "/v1/webapi/user/status"
 _PING_PATHS = ("/v1/webapi/ping", "/webapi/ping")
 
-# Teleport web session cookies (Community + Enterprise recent builds).
+# Teleport web session cookie (v13+): hex(JSON {user,sid}) — see lib/web/session/cookie.go.
+# CSRF is separate: __Host-grv_csrf (lib/httplib/csrf/csrf.go).
 _SESSION_COOKIE_NAMES = (
+    "__Host-session",
+    "__Secure-session",
+)
+_CSRF_COOKIE_NAMES = (
+    "__Host-grv_csrf",
+    "__Secure-grv_csrf",
+)
+# Legacy / mistaken names — never inject; cleared on hop when present.
+_STALE_SESSION_COOKIE_NAMES = (
     "__Host-grv_session",
     "__Secure-grv_session",
     "grv_session",
@@ -51,25 +61,19 @@ def _extract_session_cookies(response: httpx.Response) -> dict[str, str]:
         value = response.cookies.get(name)
         if value:
             out[name] = value
+    for name in _CSRF_COOKIE_NAMES:
+        value = response.cookies.get(name)
+        if value:
+            out[name] = value
     if out:
         return out
-    # Fallback: any grv/teleport-looking cookie from Set-Cookie.
-    for key, value in response.cookies.items():
-        lowered = key.lower()
-        if "grv" in lowered or "teleport" in lowered:
-            out[key] = value
-    if out:
-        return out
-    # Some builds return bearer token in JSON — encode as session cookie value.
-    try:
-        payload = response.json()
-    except (json.JSONDecodeError, ValueError):
-        payload = None
-    if isinstance(payload, dict):
-        token = (payload.get("token") or payload.get("session") or "").strip()
-        if token:
-            out["__Host-grv_session"] = token
+    # Do not map JSON bearer token to a browser cookie — it is not __Host-session.
     return out
+
+
+def stale_teleport_browser_cookies() -> tuple[str, ...]:
+    """Cookie names to expire on the app FQDN after a successful Teleport hop."""
+    return _STALE_SESSION_COOKIE_NAMES
 
 
 def _login_reject_hint(text: str, status: int) -> str:
@@ -185,8 +189,6 @@ class TeleportDriver(RoboticDriver):
         )
 
     async def get_username(self, session: TeleportSession) -> str:
-        if session.username:
-            return session.username
         base = _normalize_base_url(session.base_url)
         url = urljoin(base + "/", _USER_STATUS_PATH.lstrip("/"))
         headers = dict(session.request_headers or {})

@@ -269,16 +269,36 @@ def apply_host_only_session_cookies(
     cookies: dict[str, str],
     *,
     shared_parent: str | None,
+    expire_cookie_names: tuple[str, ...] | None = None,
 ) -> None:
     """Set target session cookies host-only; expire parent-domain copies + hop cookie."""
+    expire_names = list(expire_cookie_names or ())
+    if "__Host-session" in cookies or "__Secure-session" in cookies:
+        from app.bastion.drivers.teleport import stale_teleport_browser_cookies
+
+        expire_names.extend(stale_teleport_browser_cookies())
+
     for key, value in cookies.items():
         if not value:
             continue
+        samesite = "none" if "csrf" in key.lower() else "lax"
         response.set_cookie(
             key=key,
             value=value,
             path="/",
             httponly=cookie_should_be_httponly(key),
+            secure=True,
+            samesite=samesite,
+        )
+    for stale in dict.fromkeys(expire_names):
+        if stale in cookies:
+            continue
+        response.set_cookie(
+            key=stale,
+            value="",
+            path="/",
+            max_age=0,
+            httponly=True,
             secure=True,
             samesite="lax",
         )
