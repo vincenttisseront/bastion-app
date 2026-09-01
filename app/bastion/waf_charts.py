@@ -261,6 +261,18 @@ def render_family_breakdown(
     return render_donut_chart(items, label_key="label", value_key="count", title=title, width=width)
 
 
+def _format_axis_count(value: int) -> str:
+    """Compact Y-axis tick label (FR-friendly)."""
+    n = max(0, int(value))
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}".rstrip("0").rstrip(".") + "M"
+    if n >= 10_000:
+        return f"{n / 1_000:.0f}k"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}".rstrip("0").rstrip(".") + "k"
+    return str(n)
+
+
 def render_dual_area_chart(
     series: list[dict[str, Any]],
     *,
@@ -288,12 +300,14 @@ def render_dual_area_chart(
             height=height,
         )
 
-    pad_l, pad_b, pad_t, pad_r = 40, 36, 32, 16
+    pad_l, pad_b, pad_t, pad_r = 52, 36, 32, 16
     chart_w = width - pad_l - pad_r
     chart_h = height - pad_t - pad_b
     max_v = max(max(p_vals) if p_vals else 0, max(s_vals) if s_vals else 0, 1)
     n = max(len(series), 1)
     step = chart_w / max(n - 1, 1)
+    # 4 horizontal guides including baseline → ticks at 100%, 67%, 33%, 0%.
+    y_ticks = 3
 
     def _points(vals: list[int]) -> str:
         pts: list[str] = []
@@ -321,10 +335,17 @@ def render_dual_area_chart(
         f'<tspan fill="#64748b">●</tspan> {_esc(primary_label)}  '
         f'<tspan fill="#ef4444">●</tspan> {_esc(secondary_label)}</text>',
     ]
-    for i in range(4):
-        gy = pad_t + int(chart_h * i / 3)
+    for i in range(y_ticks + 1):
+        ratio = i / y_ticks
+        gy = pad_t + int(chart_h * ratio)
+        tick_val = int(round(max_v * (1 - ratio)))
         parts.append(
-            f'<line class="sentinel-chart-grid" x1="{pad_l}" y1="{gy}" x2="{width - pad_r}" y2="{gy}"/>'
+            f'<line class="sentinel-chart-grid" x1="{pad_l}" y1="{gy}" '
+            f'x2="{width - pad_r}" y2="{gy}"/>'
+        )
+        parts.append(
+            f'<text class="sentinel-chart-axis sentinel-chart-axis-y" '
+            f'x="{pad_l - 6}" y="{gy + 3}" text-anchor="end">{_esc(_format_axis_count(tick_val))}</text>'
         )
     parts.append(f'<path class="sentinel-area-primary" d="{_area_path(p_vals)}"/>')
     parts.append(f'<path class="sentinel-area-secondary" d="{_area_path(s_vals)}"/>')
