@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import binascii
 import json
 import logging
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = 15.0
 _SESSION_PATH = "/v1/webapi/sessions/web"
-_USER_STATUS_PATH = "/v1/webapi/user/status"
+_USER_STATUS_PATH = "/webapi/user/status"
 _PING_PATHS = ("/v1/webapi/ping", "/webapi/ping")
 
 # Teleport web session cookie (v13+): hex(JSON {user,sid}) — see lib/web/session/cookie.go.
@@ -43,6 +44,7 @@ class TeleportSession:
     base_url: str
     tls_verify: bool = False
     username: str | None = None
+    bearer_token: str | None = None
     # Host/Origin/Referer when login hits upstream IP but browser uses public_fqdn.
     request_headers: dict[str, str] | None = None
 
@@ -74,6 +76,37 @@ def _extract_session_cookies(response: httpx.Response) -> dict[str, str]:
 def stale_teleport_browser_cookies() -> tuple[str, ...]:
     """Cookie names to expire on the app FQDN after a successful Teleport hop."""
     return _STALE_SESSION_COOKIE_NAMES
+
+
+def _extract_bearer_token(response: httpx.Response) -> str | None:
+    try:
+        payload = response.json()
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    token = payload.get("token")
+    if isinstance(token, str) and token.strip():
+        return token.strip()
+    return None
+
+
+def _decode_session_cookie_user(cookies: dict[str, str]) -> str | None:
+    """Decode Teleport ``__Host-session`` hex(JSON {user,sid}) → username."""
+    for name in _SESSION_COOKIE_NAMES:
+        raw = cookies.get(name)
+        if not raw:
+            continue
+        try:
+            payload = json.loads(binascii.unhexlify(raw).decode())
+        except (ValueError, json.JSONDecodeError, binascii.Error):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        user = payload.get("user")
+        if isinstance(user, str) and user.strip():
+            return user.strip()
+    return None
 
 
 def _login_reject_hint(text: str, status: int) -> str:
@@ -180,18 +213,26 @@ class TeleportDriver(RoboticDriver):
             raise RoboticLoginError(f"Teleport login rejected — {hint}")
 
         binding_headers = dict(extra_headers) if extra_headers else None
+        bearer_token = _extract_bearer_token(response)
         return TeleportSession(
             cookies=cookies,
             base_url=base,
             tls_verify=tls_verify,
             username=username,
+            bearer_token=bearer_token,
             request_headers=binding_headers,
         )
 
     async def get_username(self, session: TeleportSession) -> str:
+        decoded = _decode_session_cookie_user(session.cookies)
+        if not decoded:
+            raise RoboticLoginError("Teleport session cookie missing username")
+
         base = _normalize_base_url(session.base_url)
         url = urljoin(base + "/", _USER_STATUS_PATH.lstrip("/"))
         headers = dict(session.request_headers or {})
+        if session.bearer_token:
+            headers["Authorization"] = f"Bearer {session.bearer_token}"
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT,
@@ -206,16 +247,7 @@ class TeleportDriver(RoboticDriver):
             raise RoboticLoginError(
                 f"Teleport user status HTTP {response.status_code}"
             )
-        try:
-            payload = response.json()
-        except json.JSONDecodeError as exc:
-            raise RoboticLoginError("Teleport user status invalid JSON") from exc
-        if isinstance(payload, dict):
-            for key in ("user", "username", "name"):
-                val = payload.get(key)
-                if isinstance(val, str) and val.strip():
-                    return val.strip()
-        raise RoboticLoginError("Teleport user status missing username")
+        return decoded
 
     async def fingerprint(self, base_url: str, *, tls_verify: bool = False) -> bool:
         base = _normalize_base_url(base_url)

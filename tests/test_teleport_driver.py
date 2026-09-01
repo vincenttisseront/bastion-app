@@ -23,7 +23,7 @@ from app.vault.app_credential_service import set_app_credential
 
 BASE = "https://teleport.internal:3080"
 LOGIN_URL = f"{BASE}/v1/webapi/sessions/web"
-USER_STATUS_URL = f"{BASE}/v1/webapi/user/status"
+USER_STATUS_URL = f"{BASE}/webapi/user/status"
 SECRET = "TeleportVaultSecret-DoNotLog"
 
 
@@ -62,7 +62,7 @@ def _teleport_app(db: Session) -> App:
 
 
 def _mock_user_status(username: str = "admin"):
-    return Response(200, json={"user": username})
+    return Response(200, json={"message": "ok", "requiresDeviceTrust": False})
 
 
 @pytest.mark.asyncio
@@ -72,7 +72,7 @@ async def test_teleport_driver_login_sets_session_cookie():
     respx.post(LOGIN_URL).mock(
         return_value=Response(
             200,
-            json={"type": "bearer", "token": "bearer-not-a-browser-cookie"},
+            json={"type": "bearer", "token": "teleport-bearer-token"},
             headers={
                 "Set-Cookie": (
                     f"__Host-session={cookie_value}; Path=/; Secure; HttpOnly; SameSite=Lax"
@@ -80,11 +80,14 @@ async def test_teleport_driver_login_sets_session_cookie():
             },
         )
     )
-    respx.get(USER_STATUS_URL).mock(return_value=_mock_user_status("admin"))
+    respx.get(USER_STATUS_URL).mock(return_value=_mock_user_status())
     driver = TeleportDriver()
     session = await driver.login(BASE, "admin", "pass", tls_verify=False)
     assert session.cookies["__Host-session"] == cookie_value
+    assert session.bearer_token == "teleport-bearer-token"
     assert await driver.get_username(session) == "admin"
+    status_req = respx.calls[-1].request
+    assert status_req.headers["Authorization"] == "Bearer teleport-bearer-token"
 
 
 @pytest.mark.asyncio
@@ -172,7 +175,7 @@ async def test_teleport_driver_login_sends_public_host_binding():
     route.mock(
         return_value=Response(
             200,
-            json={"type": "bearer", "token": "ignored"},
+            json={"type": "bearer", "token": "bound-bearer"},
             headers={
                 "Set-Cookie": (
                     f"__Host-session={cookie_value}; Path=/; Secure; HttpOnly; SameSite=Lax"
@@ -180,7 +183,7 @@ async def test_teleport_driver_login_sends_public_host_binding():
             },
         )
     )
-    respx.get(USER_STATUS_URL).mock(return_value=_mock_user_status("admin"))
+    respx.get(USER_STATUS_URL).mock(return_value=_mock_user_status())
     driver = TeleportDriver()
     session = await driver.login(
         BASE,
@@ -212,7 +215,7 @@ async def test_impersonate_teleport(db_session: Session):
     route.mock(
         return_value=Response(
             200,
-            json={"type": "bearer", "token": "x"},
+            json={"type": "bearer", "token": "impersonate-bearer"},
             headers={
                 "Set-Cookie": (
                     f"__Host-session={cookie_value}; Path=/; Secure; HttpOnly; SameSite=Lax"
@@ -220,7 +223,7 @@ async def test_impersonate_teleport(db_session: Session):
             },
         )
     )
-    respx.get(USER_STATUS_URL).mock(return_value=_mock_user_status("admin"))
+    respx.get(USER_STATUS_URL).mock(return_value=_mock_user_status())
 
     result = await impersonate(
         db_session,
