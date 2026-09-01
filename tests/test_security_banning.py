@@ -734,7 +734,9 @@ def test_rate_limit_middleware_returns_429_with_retry_after(
 
     resp = client.get("/admin/security", headers=headers)
     assert resp.status_code == 429
-    assert resp.json()["detail"] == "Too many requests"
+    body = resp.json()
+    assert body["code"] == "too_many_requests"
+    assert "Trop de requêtes" in body["message"]
     assert resp.headers.get("Retry-After") == "45"
     # No ban row — throttle only.
     assert find_active_ban(db_session, ip="203.0.113.93") is None

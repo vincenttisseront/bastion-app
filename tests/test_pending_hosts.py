@@ -291,8 +291,13 @@ def test_docker_portal_admin_403_nostore_and_error_page():
         / "docker/nginx/templates/vhost_sso_portal.conf.template"
     ).read_text(encoding="utf-8")
     assert "error_page 403 = /__portal_err/403;" in text
+    assert "error_page 429 = /__portal_err/429;" in text
+    assert "error_page 503 = /__portal_err/503;" in text
+    assert "error_page 500 502 504 = /__portal_err/500;" in text
     assert "location = /__portal_err/403" in text
     assert 'proxy_pass http://$bastion_app_upstream/errors/403;' in text
+    assert 'proxy_pass http://$bastion_app_upstream/errors/429;' in text
+    assert 'proxy_pass http://$bastion_app_upstream/errors/503;' in text
     # Unknown-host discovery stays unbranded (must keep intercept off).
     unknown = text.split("location = /__bastion_unknown_host", 1)[1].split(
         "location = /internal/unknown-host", 1

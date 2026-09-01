@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
+from app.api_errors import api_error_response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 
 from app.database import SessionLocal
 from app.request_client_ip import client_ip_from_request
@@ -63,15 +64,15 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
                         max(1, retry),
                         username or "-",
                     )
-                    return JSONResponse(
-                        {"detail": "Too many requests"},
+                    return api_error_response(
                         status_code=429,
+                        message="Trop de requêtes — réessayez dans quelques instants.",
                         headers={"Retry-After": str(max(1, retry))},
                     )
-                detail = (
-                    "Too many concurrent connections"
+                message = (
+                    "Trop de connexions simultanées."
                     if reason == "concurrent_limit"
-                    else "Access temporarily blocked"
+                    else "Accès temporairement bloqué."
                 )
                 status = 429 if reason == "concurrent_limit" else 403
                 logger.warning(
@@ -84,7 +85,7 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
                     status,
                     username or "-",
                 )
-                return JSONResponse({"detail": detail}, status_code=status)
+                return api_error_response(status_code=status, message=message)
 
             begin_concurrent(ip)
             tracked = True
