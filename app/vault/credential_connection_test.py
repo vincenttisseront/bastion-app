@@ -190,14 +190,18 @@ async def test_app_credential_connection(
                 )
             )
     elif driver == "teleport":
+        from app.bastion.drivers.generic import public_host_binding_headers
+
         login_base = resolve_teleport_login_base_url(app, settings)
         teleport_driver = TeleportDriver()
+        host_headers = public_host_binding_headers(app, login_base)
         try:
             session = await teleport_driver.login(
                 login_base,
                 resolved.robotic_username,
                 password,
                 tls_verify=resolve_upstream_tls_verify(app),
+                extra_headers=host_headers or None,
             )
             password = ""
             password_cleared = True

@@ -182,6 +182,11 @@ def _safe_url_for_log(url: str) -> str:
     return urlunparse(parsed._replace(query="", fragment=""))
 
 
+def browser_fingerprint_headers(client_headers: dict[str, str] | None) -> dict[str, str]:
+    """Forward browser User-Agent / Accept-Language to robotic upstream login."""
+    return _browser_headers(client_headers)
+
+
 def _browser_headers(client_headers: dict[str, str] | None) -> dict[str, str]:
     if not client_headers:
         return {}

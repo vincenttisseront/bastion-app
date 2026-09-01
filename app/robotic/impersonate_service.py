@@ -19,6 +19,7 @@ from app.bastion.drivers.teleport import TeleportDriver, resolve_teleport_login_
 from app.bastion.drivers.generic import (
     DriverAuthRejectedError,
     DriverUpstreamError,
+    browser_fingerprint_headers,
     generic_basic_auth_header,
     generic_form_login,
     generic_wsse_header,
@@ -574,7 +575,7 @@ async def _impersonate_teleport(
     *,
     actor: str,
     ip_address: str | None,
-    client_headers: dict[str, str] | None = None,  # unused — uniform handler signature
+    client_headers: dict[str, str] | None = None,
 ) -> RoboticSessionResult:
     driver = TeleportDriver()
     session = None
@@ -594,12 +595,16 @@ async def _impersonate_teleport(
         )
         raise ImpersonationError(str(exc)) from exc
     tls_verify = resolve_upstream_tls_verify(app)
+    host_headers = public_host_binding_headers(app, login_base)
+    browser_headers = browser_fingerprint_headers(client_headers)
+    extra_headers = {**host_headers, **browser_headers} or None
     try:
         session = await driver.login(
             login_base,
             resolved.robotic_username,
             password,
             tls_verify=tls_verify,
+            extra_headers=extra_headers,
         )
     except RoboticLoginError as exc:
         _audit_impersonate(

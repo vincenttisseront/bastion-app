@@ -33,6 +33,8 @@ class TeleportSession:
     base_url: str
     tls_verify: bool = False
     username: str | None = None
+    # Host/Origin/Referer when login hits upstream IP but browser uses public_fqdn.
+    request_headers: dict[str, str] | None = None
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -173,11 +175,13 @@ class TeleportDriver(RoboticDriver):
             hint = _login_reject_hint(body, response.status_code)
             raise RoboticLoginError(f"Teleport login rejected — {hint}")
 
+        binding_headers = dict(extra_headers) if extra_headers else None
         return TeleportSession(
             cookies=cookies,
             base_url=base,
             tls_verify=tls_verify,
             username=username,
+            request_headers=binding_headers,
         )
 
     async def get_username(self, session: TeleportSession) -> str:
@@ -185,12 +189,15 @@ class TeleportDriver(RoboticDriver):
             return session.username
         base = _normalize_base_url(session.base_url)
         url = urljoin(base + "/", _USER_STATUS_PATH.lstrip("/"))
+        headers = dict(session.request_headers or {})
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT,
                 verify=session.tls_verify,
             ) as client:
-                response = await client.get(url, cookies=session.cookies)
+                response = await client.get(
+                    url, cookies=session.cookies, headers=headers or None
+                )
         except httpx.RequestError as exc:
             raise RoboticLoginError("Teleport user status request failed") from exc
         if response.status_code >= 400:
@@ -235,12 +242,15 @@ class TeleportDriver(RoboticDriver):
 
     async def logout(self, session: TeleportSession) -> None:
         url = _session_api_url(session.base_url)
+        headers = dict(session.request_headers or {})
         try:
             async with httpx.AsyncClient(
                 timeout=_TIMEOUT,
                 verify=session.tls_verify,
             ) as client:
-                await client.delete(url, cookies=session.cookies)
+                await client.delete(
+                    url, cookies=session.cookies, headers=headers or None
+                )
         except httpx.RequestError:
             logger.debug("Teleport logout failed (ignored)", exc_info=True)
 
