@@ -353,46 +353,34 @@
       ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');
     if (!slug || !window.bastionPasswordPrompt) return;
 
-    // Named window must be opened synchronously on the user click (popup policy).
+    // Open the named tab inside the modal confirm click (user gesture), not on tile
+    // click — pre-opening about:blank alongside the password modal is confusing UX.
     var tabName = 'bastion_app_' + slug;
-    var appTab = null;
-    if (preferNewTab) {
-      try {
-        appTab = window.open('about:blank', tabName);
-      } catch (_) {
-        appTab = null;
-      }
-    }
-    var useNamedTab = preferNewTab && appTab && !appTab.closed;
 
-    var promptPromise = window.bastionPasswordPrompt({
+    window.bastionPasswordPrompt({
       title: 'Ouvrir ' + label,
-      message: useNamedTab
+      message: preferNewTab
         ? 'Saisissez votre mot de passe applicatif. L’application s’ouvrira dans un nouvel onglet.'
-        : preferNewTab
-          ? 'Saisissez votre mot de passe applicatif. Autorisez les fenêtres popup pour ouvrir dans un nouvel onglet, sinon l’application s’ouvrira ici.'
-          : 'Saisissez votre mot de passe applicatif. Vous quitterez le catalogue le temps d’ouvrir l’application.',
+        : 'Saisissez votre mot de passe applicatif. Vous quitterez le catalogue le temps d’ouvrir l’application.',
       username: identityUsername,
       confirmLabel: 'Ouvrir',
       onConfirm: function (password) {
-        submitOpenWithIdentityForm(
-          endpoint,
-          password,
-          useNamedTab ? tabName : null
-        );
+        var targetName = null;
+        if (preferNewTab) {
+          var appTab = null;
+          try {
+            appTab = window.open('about:blank', tabName);
+          } catch (_) {
+            appTab = null;
+          }
+          if (appTab && !appTab.closed) {
+            targetName = tabName;
+          }
+        }
+        submitOpenWithIdentityForm(endpoint, password, targetName);
         return true;
       },
     });
-
-    if (promptPromise && typeof promptPromise.then === 'function') {
-      promptPromise.then(function (result) {
-        if ((!result || !result.ok) && appTab && !appTab.closed) {
-          try {
-            appTab.close();
-          } catch (_) { /* ignore */ }
-        }
-      });
-    }
   }
 
   function launchTile(tile) {
