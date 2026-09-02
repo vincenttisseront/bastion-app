@@ -98,6 +98,60 @@ async def fetch_container_log_snapshot(
     return "".join(chunks)
 
 
+async def run_container_logs_connectivity_test(
+    cfg: ContainerLogsConfig,
+    container: str | None = None,
+    *,
+    preview_tail: int = 5,
+) -> tuple[bool, str, list[str]]:
+    """Verify proxy reachability and log fetch for a whitelisted container."""
+    lines: list[str] = ["$ bastion container-logs connectivity-test"]
+    if not cfg.enabled:
+        lines.append("✗ Logs containers désactivés — cochez et enregistrez.")
+        return False, "Logs containers désactivés.", lines
+    if not (cfg.proxy_url or "").strip():
+        lines.append("✗ URL du proxy Docker manquante.")
+        return False, "URL du proxy manquante.", lines
+
+    allowed = docker_logs_whitelist(cfg)
+    if not allowed:
+        lines.append("✗ Liste blanche vide — ajoutez au moins un conteneur.")
+        return False, "Liste blanche vide.", lines
+
+    target: str | None = None
+    if (container or "").strip():
+        try:
+            target = assert_container_allowed(container or "", cfg)
+        except HTTPException:
+            lines.append(f"✗ Conteneur « {container} » non autorisé.")
+            return False, "Conteneur non autorisé.", lines
+    else:
+        target = allowed[0]
+
+    tail = max(1, min(int(preview_tail or 5), 50))
+    lines.append(f"→ proxy {cfg.proxy_url}")
+    lines.append(f"→ conteneur {target} (tail={tail})")
+    try:
+        text = await fetch_container_log_snapshot(cfg, target, tail=tail)
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, str) else "Erreur proxy Docker"
+        lines.append(f"✗ {detail}")
+        return False, detail, lines
+
+    preview = [ln for ln in text.splitlines() if ln.strip()]
+    byte_count = len(text.encode("utf-8", errors="replace"))
+    lines.append(f"✓ {len(preview)} ligne(s) lues ({byte_count} octets)")
+    if preview:
+        lines.append("--- extrait ---")
+        for row in preview[:8]:
+            lines.append(row[:240])
+        if len(preview) > 8:
+            lines.append(f"… ({len(preview) - 8} ligne(s) supplémentaire(s))")
+    else:
+        lines.append("(flux vide — conteneur joignable, aucun log récent)")
+    return True, f"Logs récupérés pour {target}.", lines
+
+
 async def iter_container_log_follow(
     cfg: ContainerLogsConfig,
     container: str,

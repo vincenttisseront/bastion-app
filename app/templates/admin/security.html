@@ -1101,41 +1101,89 @@
     {% set cls = container_logs_settings | default(none) %}
     {% set allowed = (cls.allowed_containers if cls else []) or [] %}
     {% set allowed_count = allowed | length %}
+    {% set cls_active = cls and cls.enabled and cls.proxy_url %}
     <div class="form-section-header">
       <div class="form-section-title">Logs containers (Docker)</div>
       <div class="form-section-sub">
-        Onglet Containers de <a href="/admin/logs#containers">/admin/logs</a> — proxy lecture seule (jamais le socket Docker dans bastion-app).
+        Lecture via proxy sécurisé — consommation dans
+        <a href="/admin/logs#containers">Admin → Logs → Containers</a>.
+        Le socket Docker n’est jamais monté dans bastion-app.
+        {% if cls_active %}
+        <span class="badge badge-ok tab-badge">Actif</span>
+        {% else %}
+        <span class="badge badge-muted tab-badge">Inactif</span>
+        {% endif %}
       </div>
     </div>
     <div class="form-body">
-      <form method="post" action="/admin/security/container-logs" class="stack input-mid mb-4">
-        <label class="form-check-row">
-          <input type="checkbox" name="enabled" value="on"{% if cls and cls.enabled %} checked{% endif %}>
-          <span>Activer les logs containers</span>
-        </label>
-        <div>
-          <label class="form-label" for="cls_proxy_url">URL du proxy Docker (lecture seule)</label>
-          <input class="form-input" id="cls_proxy_url" name="proxy_url"
-                 value="{{ cls.proxy_url if cls else '' }}"
-                 placeholder="http://docker-socket-proxy:2375"
-                 autocomplete="off">
-          <p class="form-help mt-2">
-            <span class="mono">docker-socket-proxy</span> : <span class="mono">CONTAINERS=1</span>, <span class="mono">POST=0</span>.
-          </p>
+      <div class="card mb-4">
+        <div class="card-header">
+          <span class="card-title">Connexion proxy</span>
         </div>
-        <div>
-          <label class="form-label" for="cls_tail_lines">Lignes (tail)</label>
-          <input class="form-input input-narrow" id="cls_tail_lines" name="tail_lines" type="number" min="1" max="5000"
-                 value="{{ cls.tail_lines if cls else 200 }}">
+        <div class="card-body">
+          <form method="post" action="/admin/security/container-logs" id="container-logs-form" class="stack">
+            <label class="form-check-row">
+              <input type="checkbox" name="enabled" value="on"{% if cls and cls.enabled %} checked{% endif %}>
+              <span>Activer les logs containers</span>
+            </label>
+            <div class="form-row">
+              <div class="form-group" style="flex:2;min-width:14rem;">
+                <label class="form-label" for="cls_proxy_url">URL du proxy Docker (lecture seule)</label>
+                <input class="form-input mono" id="cls_proxy_url" name="proxy_url"
+                       value="{{ cls.proxy_url if cls else '' }}"
+                       placeholder="http://docker-socket-proxy:2375"
+                       autocomplete="off">
+                <p class="form-help mt-2">
+                  Service <span class="mono">docker-socket-proxy</span> :
+                  <span class="mono">CONTAINERS=1</span>, <span class="mono">POST=0</span>.
+                </p>
+              </div>
+              <div class="form-group" style="flex:0 0 8rem;">
+                <label class="form-label" for="cls_tail_lines">Lignes (tail)</label>
+                <input class="form-input" id="cls_tail_lines" name="tail_lines" type="number" min="1" max="5000"
+                       value="{{ cls.tail_lines if cls else 200 }}">
+              </div>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Enregistrer</button>
+              {% if allowed %}
+              <label class="form-label" for="cls_test_container" style="margin:0;align-self:center;">Tester</label>
+              <select class="form-select input-narrow" id="cls_test_container" aria-label="Conteneur pour le test">
+                {% for name in allowed %}
+                <option value="{{ name }}">{{ name }}</option>
+                {% endfor %}
+              </select>
+              {% endif %}
+              <button type="button" class="btn btn-secondary" id="container-logs-test-btn"
+                      data-test-url="/admin/security/container-logs/test"
+                      data-csrf="{{ csrf_token }}"
+                      {% if not allowed %}disabled title="Ajoutez un conteneur autorisé"{% endif %}>
+                Tester la récupération
+              </button>
+            </div>
+            <p class="form-help">
+              Le test utilise la configuration <strong>déjà enregistrée</strong> (proxy, liste blanche, activation).
+            </p>
+          </form>
         </div>
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
-      </form>
+      </div>
+
+      <div class="config-test-shell mb-4" id="container-logs-test-shell" hidden aria-live="polite">
+        <div class="config-test-shell-header">
+          <span class="config-test-shell-heading">
+            <span class="config-test-shell-dots" aria-hidden="true"></span>
+            <span class="config-test-shell-title">Test de récupération des logs</span>
+          </span>
+          <span class="badge badge-muted" id="container-logs-test-status">…</span>
+        </div>
+        <pre class="config-test-shell-body font-mono" id="container-logs-test-body"></pre>
+      </div>
 
       <div class="card">
         <div class="card-header">
           <span class="card-title">Conteneurs autorisés · {{ allowed_count }}</span>
           <div class="card-header-actions">
-            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="container-add-modal">+ Ajouter un conteneur</button>
+            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="container-add-modal">+ Ajouter</button>
           </div>
         </div>
         <div class="card-body">
@@ -1147,8 +1195,8 @@
             <table class="data-table data-table-compact">
               <thead>
                 <tr>
-                  <th>Nom</th>
-                  <th></th>
+                  <th>Nom Compose</th>
+                  <th class="table-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1156,10 +1204,16 @@
                 <tr>
                   <td class="mono">{{ name }}</td>
                   <td class="table-actions">
-                    <form method="post" action="/admin/security/container-logs/containers/remove" class="inline-form">
-                      <input type="hidden" name="name" value="{{ name }}">
-                      <button type="submit" class="btn btn-secondary btn-sm">Retirer</button>
-                    </form>
+                    <div class="users-row-actions">
+                      <button type="button" class="btn btn-ghost btn-sm container-logs-row-test"
+                              data-container="{{ name }}"
+                              data-test-url="/admin/security/container-logs/test"
+                              data-csrf="{{ csrf_token }}">Tester</button>
+                      <form method="post" action="/admin/security/container-logs/containers/remove" class="inline-form">
+                        <input type="hidden" name="name" value="{{ name }}">
+                        <button type="submit" class="btn btn-secondary btn-sm">Retirer</button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
                 {% endfor %}
@@ -1172,7 +1226,7 @@
               <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
             </div>
             <div class="empty-title">Aucun conteneur autorisé</div>
-            <div class="empty-desc">Ajoutez un service Compose pour autoriser la lecture de ses logs.</div>
+            <div class="empty-desc">Ajoutez un service Compose (ex. bastion-app, bastion-nginx) pour autoriser la lecture de ses logs.</div>
           </div>
           {% endif %}
         </div>
@@ -1487,6 +1541,81 @@
       bypassConfirm = true;
       form.requestSubmit();
     });
+  });
+})();
+</script>
+<script>
+(function () {
+  var shell = document.getElementById('container-logs-test-shell');
+  var shellBody = document.getElementById('container-logs-test-body');
+  var shellStatus = document.getElementById('container-logs-test-status');
+  var mainBtn = document.getElementById('container-logs-test-btn');
+  var containerSelect = document.getElementById('cls_test_container');
+
+  if (!shell || !shellBody || !shellStatus) return;
+
+  async function runTest(btn) {
+    var url = (btn && btn.getAttribute('data-test-url')) || '/admin/security/container-logs/test';
+    var csrf = (btn && btn.getAttribute('data-csrf')) || '';
+    var container = (btn && btn.getAttribute('data-container')) || '';
+    if (!container && containerSelect) container = containerSelect.value || '';
+
+    shell.hidden = false;
+    shell.classList.remove('is-ok', 'is-err');
+    shellStatus.className = 'badge badge-muted';
+    shellStatus.textContent = 'en cours…';
+    shellBody.textContent = '$ bastion container-logs connectivity-test\n…';
+
+    var triggers = [mainBtn].concat(Array.prototype.slice.call(
+      document.querySelectorAll('.container-logs-row-test')
+    ));
+    triggers.forEach(function (el) { if (el) el.disabled = true; });
+
+    try {
+      var body = new URLSearchParams();
+      if (csrf) body.set('csrf_token', csrf);
+      if (container) body.set('name', container);
+      var resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
+        credentials: 'same-origin',
+      });
+      var data = {};
+      try { data = await resp.json(); } catch (e) { data = {}; }
+      var lines = Array.isArray(data.lines) ? data.lines : [];
+      if (!lines.length) {
+        lines = [
+          '$ bastion container-logs connectivity-test',
+          (data.ok ? '✓ ' : '✗ ') + (data.message || (resp.ok ? 'OK' : 'Échec HTTP ' + resp.status)),
+        ];
+      }
+      shellBody.textContent = lines.join('\n');
+      var ok = !!data.ok;
+      shell.classList.add(ok ? 'is-ok' : 'is-err');
+      shellStatus.className = 'badge ' + (ok ? 'badge-ok' : 'badge-err');
+      shellStatus.textContent = ok ? 'OK' : 'KO';
+    } catch (err) {
+      shell.classList.add('is-err');
+      shellStatus.className = 'badge badge-err';
+      shellStatus.textContent = 'KO';
+      shellBody.textContent =
+        '$ bastion container-logs connectivity-test\n✗ Erreur réseau: ' +
+        (err && err.message ? err.message : String(err));
+    } finally {
+      triggers.forEach(function (el) { if (el) el.disabled = false; });
+      shell.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+
+  if (mainBtn) {
+    mainBtn.addEventListener('click', function () { runTest(mainBtn); });
+  }
+  document.querySelectorAll('.container-logs-row-test').forEach(function (btn) {
+    btn.addEventListener('click', function () { runTest(btn); });
   });
 })();
 </script>
