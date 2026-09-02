@@ -619,8 +619,9 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             # auth_request still returns 401.
             # bastion_sub=1: login must NOT bounce back to this Host.
             # ae=$bastion_auth_err: surface FastAPI X-Auth-Error for diagnostics.
+            # Literal vhost FQDN (set above) — never raw $host from the request.
             f"        return 302 https://{portal_esc}/auth/login"
-            "?rd=https://$host$request_uri&bastion_sub=1&ae=$bastion_auth_err;",
+            "?rd=https://$bastion_vhost_fqdn$request_uri&bastion_sub=1&ae=$bastion_auth_err;",
             "    }",
             "}",
             "",

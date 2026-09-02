@@ -21,7 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
+import subprocess  # nosec B404  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -30,6 +30,7 @@ from pathlib import Path
 DEFAULT_EXPORTS_DIR = Path("/tools/portal/data/exports")
 DEFAULT_CONTAINER = "bastion-nginx"
 ENGINE_PATH_IN_CONTAINER = "/etc/nginx/modsecurity/generated/engine-mode-generated.conf"
+_SAFE_CONTAINER = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 
 
 @dataclass
@@ -96,20 +97,27 @@ def check_portal_switch(exports_dir: Path) -> CheckResult:
 
 
 def check_engine_in_container(container: str) -> CheckResult:
-    cmd = [
-        "docker",
-        "exec",
-        container,
-        "cat",
-        ENGINE_PATH_IN_CONTAINER,
-    ]
+    if not _SAFE_CONTAINER.fullmatch(container or ""):
+        return CheckResult(
+            name="engine-mode-generated.conf (container)",
+            ok=False,
+            detail="invalid docker container name",
+        )
     try:
-        proc = subprocess.run(
-            cmd,
+        # argv list only (no shell); container name validated above.
+        proc = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+            [
+                "docker",
+                "exec",
+                container,
+                "cat",
+                ENGINE_PATH_IN_CONTAINER,
+            ],
             capture_output=True,
             text=True,
             timeout=15,
             check=False,
+            shell=False,
         )
     except FileNotFoundError:
         return CheckResult(
