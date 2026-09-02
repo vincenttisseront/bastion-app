@@ -28,6 +28,8 @@ Les secrets OIDC **client_secret / cookie_secret** se saisissent dans
 
 - Jamais committer `.env`, dumps de secrets, HAR avec cookies
 - Tourner les secrets après exposition accidentelle
-- Aligner `X-Portal-Internal-Token` nginx ↔ app
+- Aligner `PORTAL_INTERNAL_TOKEN` (nginx snippet) ↔ `VAULT_PORTAL_INTERNAL_TOKEN` (app)
+- Sans cet alignement, FastAPI **ignore** les headers d’identité (SDD-001) — symptômes :
+  sessions SSO « perdues » / 401 systématiques derrière nginx mal configuré
 
 Suite : [05.02 Realms](./05-02-realms-oidc-source-verite.md)
