@@ -4,7 +4,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import logging
 
+from typing import Any
+
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -49,7 +52,7 @@ from app.web.admin_logs import router as admin_logs_router
 from app.web.notifications_routes import router as admin_notifications_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context
+from app.web.flash import base_template_context, flash_redirect
 from app.web.global_search import router as global_search_router
 from app.web.health_service import router as health_router
 from app.web.metrics_service import router as metrics_router
@@ -242,22 +245,102 @@ def _admin_logs_api_path(path: str) -> bool:
     )
 
 
+def _json_api_path(path: str) -> bool:
+    """REST/SSE/JSON-only paths — keep machine-readable errors."""
+    if path.startswith("/api/"):
+        return True
+    if _admin_logs_api_path(path):
+        return True
+    if path in ("/auth/login", "/auth/logout"):
+        return True
+    return False
+
+
+def _wants_json_response(request: Request) -> bool:
+    accept = (request.headers.get("accept") or "").lower()
+    if request.headers.get("x-requested-with") == "XMLHttpRequest":
+        return True
+    if "application/json" not in accept:
+        return False
+    # Prefer HTML when the client explicitly accepts both (typical fetch wrappers).
+    return "text/html" not in accept
+
+
+def _exception_detail_message(detail: Any) -> str:
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, list):
+        return "Données invalides — vérifiez les paramètres de la requête."
+    if isinstance(detail, dict):
+        return str(detail.get("message") or detail.get("_form") or "Requête invalide.")
+    return "Requête invalide."
+
+
+def _html_error_fallback(path: str, request: Request, settings) -> str:
+    if path.startswith("/admin/"):
+        return "/admin"
+    from app.web.user_context import get_user_context
+
+    if get_user_context(request, settings) is not None:
+        return "/apps"
+    return "/auth/login"
+
+
+def _html_client_error_response(
+    request: Request,
+    *,
+    status_code: int,
+    message: str,
+):
+    settings = get_settings()
+    path = request.url.path
+    if path.startswith("/admin/"):
+        response = RedirectResponse(
+            url=_html_error_fallback(path, request, settings),
+            status_code=302,
+        )
+        flash_redirect(
+            response,
+            message,
+            "warning",
+            settings.vault_portal_internal_token or "dev",
+        )
+        return response
+    ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
+    return render(
+        "errors/400.html",
+        **ctx,
+        error_message=message,
+        status_code=status_code,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    path = request.url.path
+    if _json_api_path(path):
+        return api_error_from_detail(status_code=422, detail=exc.errors())
+    if _wants_json_response(request):
+        return api_error_from_detail(status_code=422, detail=exc.errors())
+    return _html_client_error_response(
+        request,
+        status_code=422,
+        message=_exception_detail_message(exc.errors()),
+    )
+
+
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     path = request.url.path
     # Native OIDC BFF + REST APIs: return JSON (do not HTML-redirect /auth/login → itself).
     headers = dict(exc.headers) if exc.headers else None
-    if (
-        path.startswith("/api/")
-        or path in ("/auth/login", "/auth/logout")
-        or _admin_logs_api_path(path)
-    ):
+    if _json_api_path(path):
         return api_error_from_detail(
             status_code=exc.status_code,
             detail=exc.detail,
             headers=headers,
         )
-    wants_json = "application/json" in (request.headers.get("accept") or "").lower()
+    wants_json = _wants_json_response(request)
     if exc.status_code == 401:
         if wants_json:
             return api_error_from_detail(
@@ -311,10 +394,10 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             detail=exc.detail,
             headers=headers,
         )
-    return api_error_from_detail(
+    return _html_client_error_response(
+        request,
         status_code=exc.status_code,
-        detail=exc.detail,
-        headers=headers,
+        message=_exception_detail_message(exc.detail),
     )
 
 

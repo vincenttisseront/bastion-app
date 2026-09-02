@@ -50,6 +50,7 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/health": "liveness probe, non-sensitive",
     "/api/health": "monitoring probe, non-sensitive",
     "/errors/403": "static error page",
+    "/errors/400": "static error page",
     "/errors/404": "static error page",
     "/errors/500": "static error page",
     "/api/admin/breakglass/login": (

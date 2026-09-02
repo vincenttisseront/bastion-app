@@ -1445,6 +1445,19 @@ def error_404(
     )
 
 
+@router.get("/errors/400")
+def error_400(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    return render(
+        "errors/400.html",
+        **_ctx(request, settings, hide_chrome=True),
+        status_code=400,
+    )
+
+
 @router.get("/errors/500")
 def error_500(
     request: Request,
