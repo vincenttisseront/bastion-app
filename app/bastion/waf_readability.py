@@ -1342,6 +1342,9 @@ def build_threat_intel_visuals(
             "traffic_area_svg": panel,
             "origin_heatmap_svg": panel,
             "owasp_rules_svg": panel,
+            "blocks_hourly_svg": panel,
+            "families_svg": panel,
+            "top_attackers_svg": panel,
             "top_rules": [],
         }
     summary = read_audit_summary(settings)
@@ -1403,17 +1406,39 @@ def build_threat_intel_visuals(
     )
     measured_zero = efficiency.get("status") == "measured_zero"
     empty_variant = "measured_zero" if measured_zero else "empty"
+    top_attackers = [
+        {"label": a.get("ip") or a.get("label") or "—", "count": a.get("count")}
+        for a in (window.get("top_attackers") or [])[:5]
+    ]
+    families = window.get("rule_families") or []
     return {
         "traffic_area_svg": render_dual_area_chart(
             series_24h,
             title="Trafic vs tentatives d'intrusion (24 h)",
             empty_variant=empty_variant,
         ),
+        "blocks_hourly_svg": render_series_chart(
+            series_24h,
+            value_key="blocks",
+            title="Blocages CRS / heure (24 h)",
+            empty_variant=empty_variant,
+            empty_message="Aucun blocage sur 24 h",
+            height=180,
+        ),
         "origin_heatmap_svg": render_attack_heatmap(
             matrix,
             row_labels=row_labels,
             col_labels=col_labels,
             title=heatmap_title,
+        ),
+        "families_svg": render_family_breakdown(
+            families,
+            title="Familles de menaces (24 h)",
+        ),
+        "top_attackers_svg": render_horizontal_bars(
+            top_attackers,
+            label_key="label",
+            title="Top IP attaquantes (24 h)",
         ),
         "owasp_rules_svg": render_owasp_bars(
             [
