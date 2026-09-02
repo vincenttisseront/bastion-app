@@ -68,7 +68,7 @@ Implémentation : `_oauth2_upstream_to_auth_request_response()` dans `main.py`.
 |-------|--------|
 | **MUST** | Identité via headers Nginx : `X-Email`, `X-Groups`, `X-Preferred-Username`, `X-Portal-Realm-Slug` |
 | **MUST** | Admin = intersection groupes Keycloak avec `portal_admin_groups` (défaut `portal-admins`) ou `local_admins` ou break-glass |
-| **MUST** | Utilisateur authentifié non-admin sur `/admin` → **403** JSON (pas de redirect SSO) |
+| **MUST** | Utilisateur authentifié non-admin sur `/admin` → **302 `/apps`** en navigation HTML ; **403** JSON si client API (`Accept: application/json`) |
 | **MUST NOT** | Faire confiance aux headers `X-*` sans `X-Portal-Internal-Token` valide depuis Nginx |
 
 ### 3.4 Redirection login

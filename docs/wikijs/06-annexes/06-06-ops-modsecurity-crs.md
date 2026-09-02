@@ -119,7 +119,12 @@ Puis rebuild ou monter le fichier + `nginx -s reload` selon le mode de déploiem
 ## IHM Phase B — `/admin/security/waf`
 
 Pilotage des **overlays générés** uniquement (ne remplace pas `engine-*.conf`,
-`crs-setup.conf` paranoia, ni `waf-basic.conf` manuel) :
+`crs-setup.conf` paranoia, ni `waf-basic.conf` manuel).
+
+**Navigation IHM (2026-09)** : deux zones — **Analyse** (onglet Bilan seul : KPI,
+graphiques menaces, quarantaine) et **Configuration** (Profil, Exclusions, En-têtes,
+Détails techniques, Réactivation). Les actions **Appliquer** / armement sont sous
+Configuration, pas dans le Bilan.
 
 | Export | Rôle |
 |--------|------|

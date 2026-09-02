@@ -10,19 +10,26 @@ Entrée : `/dashboard` / menu **Admin**.
 
 | Zone | Usage |
 |------|--------|
-| Dashboard | Santé, métriques, alertes |
+| Dashboard | Santé, métriques (sessions utilisateurs/applicatives, tentatives bloquées 24 h), alertes |
 | Apps | CRUD applications, auth, logos, entrée portail |
 | Realms | OIDC, test, secrets |
-| RBAC | Users, groupes, matrice, grants |
-| Sessions | Présence portail / apps, révocation |
+| RBAC | Users, fiche `/admin/rbac/users/view`, groupes, matrice, grants |
+| Sessions | Présence portail / apps (`?kind=user\|app`), révocation |
 | Logs | Audit, accès nginx apps, containers |
 | Infrastructure | Apply / dry-run exports |
 | Domaines | Hosts inconnus capturés |
 | ACME | Domaines TLS, reconcile |
-| WAF | Profil ModSecurity, exclusions |
+| WAF | Bilan (analyse) + configuration ModSecurity/CRS |
 | Sécurité | Allowlist, ban, hot store, branding… |
 | Fichiers | Contenu versionné |
 | Configuration | SIEM, logs Docker, etc. |
+
+## Erreurs navigateur (admin)
+
+Requête admin invalide ou paramètres manquants (HTML, pas `Accept: application/json`) :
+redirect vers `/admin` avec message flash, ou page `/errors/400` hors zone admin.
+Un utilisateur authentifié **non admin** qui ouvre `/admin/*` est renvoyé vers `/apps`
+(plutôt qu’un JSON 403).
 
 ## Ordre de mise en service typique
 

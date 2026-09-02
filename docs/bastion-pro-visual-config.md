@@ -4,7 +4,7 @@ Document de référence pour la génération des templates Jinja2 et assets stat
 
 **Cible :** `app/static/` (CSS, JS) et `app/templates/` (Jinja2)  
 **Thème :** Sentinel Core (dark par défaut, light commutable)  
-**Dernière mise à jour :** 2026-07-10
+**Dernière mise à jour :** 2026-09-02
 
 ## Identité visuelle
 
@@ -27,15 +27,29 @@ app/templates/      base.html, partials/, auth/, dashboard/, sessions/, catalogu
 
 | Route | Template / API |
 |-------|------------------|
-| `/dashboard` | `dashboard/index.html` |
-| `/sessions` | `sessions/index.html` |
+| `/dashboard` | `dashboard/index.html` — KPI sessions (user/app), tentatives bloquées 24 h |
+| `/sessions` | `sessions/index.html` — onglets Toutes / Utilisateurs / Applications (`?kind=`) |
+| `/admin/rbac/users/view` | Fiche utilisateur dédiée (redirect si params manquants) |
+| `/admin/security/waf` | WAF — zones Analyse (Bilan) et Configuration |
 | `/catalogue` | `catalogue/index.html` |
 | `/audit` | `audit/index.html` (+ export CSV/PDF) |
 | `/api/metrics` | JSON KPIs |
 | `/api/sessions` | JSON sessions actives |
 | `/admin/sessions/{id}/isolate` | POST action sécurité |
 | `/auth/login`, `/breakglass` | `auth/login.html` |
-| `/errors/{403,404,500}` | Pages d'erreur Jinja2 |
+| `/errors/{400,403,404,429,500,503}` | Pages d'erreur Jinja2 |
+
+## Gestion des erreurs HTTP (navigateur)
+
+`app/main.py` — handlers globaux :
+
+| Contexte | Comportement |
+|----------|--------------|
+| `/api/*`, client `Accept: application/json` | JSON `{code, message}` |
+| `/admin/*`, erreur 400/422, navigateur HTML | Redirect `/admin` + flash |
+| Autre page HTML, erreur 400/422 | `errors/400.html` |
+| Non-admin authentifié sur `/admin/*` | Redirect `/apps` (403 HTML pour anonyme) |
+| 404 / 429 / 503 | Pages `errors/*.html` dédiées |
 
 ## Contexte Jinja2 global
 
@@ -47,7 +61,7 @@ Injecté via `app/web/flash.py` → `base_template_context()` :
 ## Nginx
 
 - Favicon : proxy vers `/static/img/bastion-icon.svg`
-- Erreurs 404/5xx : proxy vers FastAPI `/errors/404`, `/errors/500`
+- Erreurs 404/5xx : proxy vers FastAPI `/errors/404`, `/errors/500` (idem 400/429/503 côté app)
 
 ## Dépendances export audit
 

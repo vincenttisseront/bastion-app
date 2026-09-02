@@ -99,7 +99,9 @@ sequenceDiagram
 | Jeton interne Nginx invalide | **403** (à corriger → 401) |
 | Exception non gérée | **401** |
 
-**Admin FastAPI après passage Nginx :** `require_admin` peut encore renvoyer **403** JSON si l'utilisateur est authentifié mais pas admin — comportement attendu côté application, pas `auth_request`.
+**Admin FastAPI après passage Nginx :** `require_admin` renvoie **403** JSON pour les
+clients API. En navigation HTML, le handler global redirige un utilisateur authentifié
+non admin vers **`/apps`** (page 403 HTML si non authentifié).
 
 ---
 

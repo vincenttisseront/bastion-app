@@ -185,6 +185,10 @@ exports/ (ou docker/nginx/modsecurity/) :
 scripts/apply-infra-docker.sh → nginx -t → reload
 ```
 
+**Navigation (2026-09)** : barre WAF en deux groupes — **Analyse** (Bilan : lecture +
+graphiques + réponse incident) et **Configuration** (profil, exclusions, exports,
+réactivation). Évite de mélanger réglages moteur et tableaux de menaces.
+
 Modèles (famille `SecurityBanRule`) : `WafProfile`, `WafExclusion`, éventuellement
 `WafRuleCategoryToggle` (toujours soumis aux verrouillages §9.2).
 

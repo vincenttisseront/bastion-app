@@ -7,17 +7,28 @@ règles **OWASP CRS**, sans casser le core portail.
 
 ## Administration
 
-Admin → **WAF** (`/admin/security/waf`) :
+Admin → **WAF** (`/admin/security/waf`) — navigation en deux zones :
 
-| Onglet / zone | Rôle |
-|---------------|------|
-| **Bilan** | Verdict, KPI, attaques récentes, top attaquants, ban / exclusion |
-| **Profil** | Mode, seuil d’anomalie, rate-limits, seuil IP deny |
+### Analyse
+
+| Onglet | Rôle |
+|--------|------|
+| **Bilan** | Verdict, KPI 24 h, graphiques menaces (trafic, blocs/h, familles, origine, top IPs, OWASP), quarantaine, fil d’événements, actions ban / exclusion depuis un bloc |
+
+Lecture seule + actions de réponse (ban, exclusion) — pas de réglages moteur ici.
+
+### Configuration
+
+| Onglet | Rôle |
+|--------|------|
+| **Profil** | Mode, seuil d’anomalie, rate-limits, seuil IP deny ; **Appliquer** ; **Couper le moteur** si armé |
 | **Exclusions** | Exclusions CRS **scopées** (host / URI / ARGS…) — pas de `SecRuleRemoveById` global sauf cas confirmé |
 | **En-têtes** | Lecture snapshot nginx |
 | **Détails techniques** | Sources, diagnostic JSON |
-| **`Réactivation`** (onglet conditionnel) | Armement portal / subdomain (DetectionOnly), puis **promotion subdomain → On** |
-| **Profil** | Mode, seuil ; **Couper le moteur** si armé |
+| **`Réactivation`** (conditionnel) | Armement portal / subdomain (DetectionOnly), puis **promotion subdomain → On** |
+
+Les **contrôles rapides** (profil, Appliquer, armement) sont regroupés sous Configuration,
+pas dans le Bilan.
 
 ### Exclusions CRS (scope réel)
 

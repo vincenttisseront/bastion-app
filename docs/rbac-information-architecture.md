@@ -20,6 +20,23 @@ Les écrans précédents forçaient un parcours multi-clics (fiche user → grou
 | Matrice | `/admin/rbac/matrix` | Apps × groupes (grants de groupe) |
 | Gouvernance | `/admin/rbac/governance` | Rôles / permissions système |
 
+## Fiche utilisateur (hors onglets RBAC)
+
+Page dédiée **sans** la barre d’onglets Groupes / Matrice / Gouvernance :
+
+| URL | Paramètres requis |
+|-----|-------------------|
+| `/admin/rbac/users/view?account_id={id}` | Compte bastion existant |
+| `/admin/rbac/users/view?realm_id={id}&keycloak_user_id={kc_id}` | Identité Keycloak |
+
+Sections : identité, groupes, droits, vault, provisioning, appareils ActiveSync.
+
+**URL incomplète** (après auth, bookmark, lien sans paramètres) : **redirect 302**
+vers `/admin/rbac/users?list_tab=open` avec message flash — jamais de JSON brut.
+
+L’endpoint JSON `/admin/rbac/users/{keycloak_user_id}?realm_id=…` reste réservé aux
+appels `fetch` (recherche / modales), pas à la navigation HTML.
+
 ## Liens croisés (pas seulement la sidebar)
 
 - Fiche **utilisateur** → onglet **Accès effectifs** : droits consolidés + comptes vault retenus + lien Matrice

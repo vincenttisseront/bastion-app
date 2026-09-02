@@ -17,7 +17,8 @@ La documentation structurée pour publication dans Wiki.js vit dans
 
 | Fichier / dossier | Sujet |
 |-------------------|--------|
-| [`bastion-architecture.md`](./bastion-architecture.md) | Architecture longue (historique) |
+| [`bastion-pro-visual-config.md`](./bastion-pro-visual-config.md) | Routes UI, erreurs HTTP navigateur, contexte Jinja |
+| [`rbac-information-architecture.md`](./rbac-information-architecture.md) | RBAC IHM (fiche user, onglets) |
 | [`sdd/`](./sdd/) | Décisions figées auth / nginx |
 | [`lets-encrypt-acme-nginx-bastion.md`](./lets-encrypt-acme-nginx-bastion.md) | ACME |
 | [`ops-modsecurity-crs.md`](./ops-modsecurity-crs.md) | WAF ops |

@@ -2,18 +2,38 @@
 
 ## Sessions (`/sessions`)
 
-Registre des sessions **portail** et **application** (présence via auth_request /
-launch-ping). Permet :
+Registre des sessions **portail** (utilisateur) et **application** (présence via
+auth_request / launch-ping). Filtres :
 
-- voir IP, User-Agent, dernière activité ;
-- révoquer une session ;
-- ouvrir les logs associés.
+| Vue | URL |
+|-----|-----|
+| Toutes | `/sessions` |
+| Utilisateurs (portail) | `/sessions?kind=user` |
+| Applications | `/sessions?kind=app` |
+
+Onglets en tête de page ; rail latéral « Utilisateurs » pour filtrer le détail des
+sessions applicatives par personne.
+
+Actions : voir IP, User-Agent, dernière activité ; révoquer une session ; ouvrir les
+logs associés.
+
+### Dashboard
+
+La tuile **Sessions actives** du dashboard (`/dashboard`) affiche le total avec
+détail **utilisateurs · applicatives** et liens directs vers `/sessions?kind=user`
+et `/sessions?kind=app`.
 
 ### Liens logs depuis une session app
 
 - **Access log app** → onglet Accès apps (`{slug}.access.log`) — trafic HTTP réel
 - **Audit acteur** → Audit filtré sur l’email (les ids `app:email:slug` ne sont
   **pas** stockés dans AuditLog)
+
+## Tentatives bloquées (dashboard)
+
+KPI **24 h** : somme des blocages WAF + refus auth/access récents (pas un cumul
+historique). Détail sous la tuile : `X WAF · Y auth · Z ban(s)`. Lien vers
+`/admin/security/waf` (Bilan).
 
 ## Audit (`/admin/logs` → Audit)
 

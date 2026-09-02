@@ -10,11 +10,16 @@ Le bastion peut :
 
 ## Fiche utilisateur
 
-Depuis Admin → RBAC → Utilisateurs :
+Depuis Admin → RBAC → Utilisateurs, ou directement :
 
-- identité, groupes, droits effectifs ;
-- sessions / présence applicative ;
-- actions de gouvernance (selon droits admin).
+- `/admin/rbac/users/view?account_id=…` (compte bastion)
+- `/admin/rbac/users/view?realm_id=…&keycloak_user_id=…` (identité Keycloak)
+
+Contenu : identité, groupes, droits effectifs, vault, provisioning, appareils ActiveSync.
+La fiche n’affiche **pas** la barre d’onglets RBAC parente (Groupes / Matrice / Gouvernance).
+
+Si l’URL est ouverte sans paramètres requis, le portail redirige vers la liste
+Utilisateurs (onglet Recherche Keycloak) avec un message flash.
 
 ## Provisioning applicatif
 

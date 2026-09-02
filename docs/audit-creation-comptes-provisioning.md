@@ -298,9 +298,10 @@ def log_action(
   s'en tenir à l'audit renforcé en première itération. À trancher, mais ne pas inventer un
   second système.
 - **UI** : `/admin/rbac/users` (annuaire), `/admin/rbac/users/search`,
-  `/admin/rbac/users/{keycloak_user_id}` existent déjà dans `rbac_access.py` — la route
-  spec `/admin/rbac/users/new` s'insère dans ce router sans conflit (attention à l'ordre
-  de déclaration : `/users/new` doit être déclarée **avant** `/users/{keycloak_user_id}`).
+  `/admin/rbac/users/view` (fiche HTML dédiée), `/admin/rbac/users/{keycloak_user_id}`
+  (JSON API) existent dans `rbac_accounts.py` / `rbac_access.py` — la route spec
+  `/admin/rbac/users/new` s'insère sans conflit (ordre : `/users/new` et `/users/view`
+  **avant** `/users/{keycloak_user_id}`).
   `realm_form.html` fournit bien le pattern formulaire + placeholder de secret masqué à
   répliquer pour les champs provision.
 - **Realms** : la sélection « realms cibles » du formulaire devra filtrer

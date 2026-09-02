@@ -17,9 +17,10 @@ longues (`docs/*.md`, SDD) restent des annexes ; le wiki doit rester **actionnab
 | Parcours / copy visible aux partenaires | **01.00** (accueil externes) |
 | Apply infra / exports oauth2 / nginx | 04.02, 05.02, 05.03 |
 | ACME / TLS | 04.04, 05.01 |
-| WAF / ModSec | 04.05 |
-| Sessions / logs UI | 04.03, 01.x si UX change |
-| RBAC / grants | 02.04, 04.01 |
+| WAF / ModSec | 04.05, `docs/ops-modsecurity-crs.md` |
+| Sessions / logs UI | 04.03, 04.01 (dashboard), 01.x si UX change |
+| RBAC / grants / fiche user | 02.04, 02.05, 06-11, 04.01 |
+| Erreurs HTTP navigateur (400/422 admin) | 04.01, `docs/bastion-pro-visual-config.md` |
 | Bump `APP_VERSION` | Accueil + README de ce dossier |
 | Lancement app SSO (`trusted_headers` / `app_oidc`) | 01.03, 02.02, 04.02 |
 | Doc technique ops / SDD | Mettre à jour **source** `docs/*.md` **et** copie `06-annexes/06-xx-*.md` |
