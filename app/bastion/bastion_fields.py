@@ -30,6 +30,14 @@ ROBOTIC_DRIVERS: frozenset[str] = frozenset(
     {"crushftp", "teleport", "generic_form", "generic_basic_auth", "generic_wsse"}
 )
 
+ROBOTIC_DRIVER_LABELS: dict[str, str] = {
+    "crushftp": "CrushFTP",
+    "teleport": "Teleport",
+    "generic_form": "Generic",
+    "generic_basic_auth": "Basic auth",
+    "generic_wsse": "WSSE",
+}
+
 # Account provisioning drivers (V1). None/empty = SSO only, no local account.
 PROVISIONING_DRIVER_NAMES: tuple[str, ...] = ("crushftp", "generic")
 
@@ -202,6 +210,16 @@ def vault_enabled_for_app(auth_mode: str | None, robotic_driver: str | None) -> 
         "generic_basic_auth",
         "generic_wsse",
     )
+
+
+def app_driver_badge_label(app) -> str | None:
+    """Short label for admin app list (robotic driver, else provisioning-only CrushFTP)."""
+    driver = (getattr(app, "robotic_driver", None) or "").strip().lower()
+    if driver:
+        return ROBOTIC_DRIVER_LABELS.get(driver)
+    if (getattr(app, "provisioning_driver", None) or "").strip().lower() == "crushftp":
+        return "CrushFTP"
+    return None
 
 
 def validate_generic_form_fields(

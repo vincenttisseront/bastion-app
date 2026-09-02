@@ -40,12 +40,13 @@
           <tbody>
             {% for app in apps %}
             {% set is_crushftp = app.provisioning_driver == 'crushftp' %}
+            {% set driver_badge = app_driver_badge_label(app) %}
             {% set crush_ready = is_crushftp
               and app.crushftp_vfs_base_path
               and app.crushftp_admin_base_url
               and app.crushftp_admin_username
               and app.crushftp_admin_password_encrypted %}
-            <tr data-searchable data-mode="{{ app.access_mode }}" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}{% if is_crushftp %} crushftp{% endif %}">
+            <tr data-searchable data-mode="{{ app.access_mode }}" data-fuzzy-key="{{ app.label }} {{ app.slug }} {{ app.upstream_url }} {{ app.public_fqdn or '' }}{% if driver_badge %} {{ driver_badge | lower }}{% endif %}">
               <td>
                 <span class="app-name-cell">
                   {{ app.label }}
@@ -60,7 +61,7 @@
                     </svg>
                   </span>
                   {% endif %}
-                  {% if is_crushftp %}<span class="badge badge-muted">CrushFTP</span>{% endif %}
+                  {% if driver_badge %}<span class="badge badge-muted">{{ driver_badge }}</span>{% endif %}
                 </span>
               </td>
               <td class="mono">{{ app.slug }}</td>
