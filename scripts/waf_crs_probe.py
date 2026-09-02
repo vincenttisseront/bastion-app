@@ -266,8 +266,8 @@ def main() -> int:
         print("Vérifiez modsec_audit.log pour les rule_id (942xxx, 941xxx, 949110, …).")
         return 0
 
-    print(f"Résultat: {n_ok}/{n_total} sondes OK — CRS inactif, mal armé, ou chemins hors inspection.")
-    print("Actions: Admin → WAF → Réactivation (portal/subdomain) puis Appliquer ; reload bastion-nginx.")
+    print(f"Resultat: {n_ok}/{n_total} sondes OK — CRS inactif, mal arme, ou chemins hors inspection.")
+    print("Actions: Admin -> WAF -> Reactivation (portal/subdomain) puis Appliquer ; reload bastion-nginx.")
     return 1
 
 

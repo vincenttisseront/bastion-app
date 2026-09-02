@@ -323,6 +323,7 @@ async def subdomain_auth(
     cookie_header = request.headers.get("Cookie", "")
 
     # 1. RFC1918 bypass — gated by RFC1918_BYPASS_ENABLED (default false).
+    # F-04 (2026-07-25): subdomain must honour settings flag; default OFF like portal.
     # Portal /internal/oauth2-auth never applies this path.
     # When enabled: skip AccessGrant, but still forward session identity when a
     # bastion_session is present — trusted-header upstreams need X-Auth-Email.
