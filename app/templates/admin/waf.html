@@ -3,7 +3,7 @@
 {% block title %}WAF{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260901-yaxis">
+<link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260902-analyse">
 {% endblock %}
 
 {% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
@@ -49,7 +49,7 @@
         {% endif %}
       </div>
 
-      <p class="page-sub">Protection web, configuration ModSecurity/CRS et diagnostic.</p>
+      <p class="page-sub">Analyse des menaces (Bilan) et configuration ModSecurity/CRS.</p>
 
     </div>
 
@@ -134,22 +134,25 @@
 
 
 
-  <div class="tabs" role="tablist" aria-label="Sections WAF" id="waf-tabs">
-
-    <a href="#bilan" class="tab active" role="tab" data-tab="bilan" id="tab-bilan" aria-selected="true">Bilan</a>
-
-    <a href="#profile" class="tab" role="tab" data-tab="profile" id="tab-profile" aria-selected="false">Profil</a>
-
-    <a href="#exclusions" class="tab" role="tab" data-tab="exclusions" id="tab-exclusions" aria-selected="false">Exclusions {% if exclusions %}<span class="badge badge-muted tab-badge">{{ exclusions|length }}</span>{% endif %}</a>
-
-    <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">En-têtes</a>
-
-    <a href="#technical" class="tab" role="tab" data-tab="technical" id="tab-technical" aria-selected="false">Détails techniques</a>
-
-    {% if reactivation and reactivation.show %}
-    <a href="#reactivation" class="tab" role="tab" data-tab="reactivation" id="tab-reactivation" aria-selected="false">Réactivation</a>
-    {% endif %}
-
+  <div class="waf-nav" id="waf-tabs">
+    <div class="waf-nav-group" data-waf-nav="analyse">
+      <span class="waf-nav-group-label">Analyse</span>
+      <div class="tabs" role="tablist" aria-label="Analyse WAF">
+        <a href="#bilan" class="tab active" role="tab" data-tab="bilan" id="tab-bilan" aria-selected="true">Bilan</a>
+      </div>
+    </div>
+    <div class="waf-nav-group" data-waf-nav="config">
+      <span class="waf-nav-group-label">Configuration</span>
+      <div class="tabs" role="tablist" aria-label="Configuration WAF">
+        <a href="#profile" class="tab" role="tab" data-tab="profile" id="tab-profile" aria-selected="false">Profil</a>
+        <a href="#exclusions" class="tab" role="tab" data-tab="exclusions" id="tab-exclusions" aria-selected="false">Exclusions {% if exclusions %}<span class="badge badge-muted tab-badge">{{ exclusions|length }}</span>{% endif %}</a>
+        <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">En-têtes</a>
+        <a href="#technical" class="tab" role="tab" data-tab="technical" id="tab-technical" aria-selected="false">Détails techniques</a>
+        {% if reactivation and reactivation.show %}
+        <a href="#reactivation" class="tab" role="tab" data-tab="reactivation" id="tab-reactivation" aria-selected="false">Réactivation</a>
+        {% endif %}
+      </div>
+    </div>
   </div>
 
 
@@ -222,22 +225,50 @@
       </p>
       {% endif %}
 
-      <section class="sentinel-threat-grid" aria-label="Threat intelligence">
-        <div class="sentinel-panel sentinel-panel--wide">
+      <section class="sentinel-threat-stack waf-dash-grid" aria-label="Threat intelligence">
+        <div class="sentinel-panel sentinel-panel--full">
           <div class="sentinel-panel-head">
             <h3 class="sentinel-panel-title">Flux trafic vs intrusions</h3>
             <span class="sentinel-panel-meta">24 h</span>
           </div>
           <div class="sentinel-chart-slot">{{ ti.traffic_area_svg | safe }}</div>
         </div>
-        <div class="sentinel-panel">
-          <div class="sentinel-panel-head">
-            <h3 class="sentinel-panel-title">Origine des attaques</h3>
-            <span class="sentinel-panel-meta">{% if ip_geolocation.enabled %}pays × heure · {{ ip_geolocation.provider }}{% elif ip_geolocation.env_locked %}verrouillée (serveur){% else %}désactivée{% endif %}</span>
+
+        <div class="sentinel-threat-row">
+          <div class="sentinel-panel">
+            <div class="sentinel-panel-head">
+              <h3 class="sentinel-panel-title">Blocages CRS</h3>
+              <span class="sentinel-panel-meta">par heure · 24 h</span>
+            </div>
+            <div class="sentinel-chart-slot">{{ ti.blocks_hourly_svg | safe }}</div>
           </div>
-          <div class="sentinel-chart-slot">{{ ti.origin_heatmap_svg | safe }}</div>
+          <div class="sentinel-panel">
+            <div class="sentinel-panel-head">
+              <h3 class="sentinel-panel-title">Familles de menaces</h3>
+              <span class="sentinel-panel-meta">24 h</span>
+            </div>
+            <div class="sentinel-chart-slot">{{ ti.families_svg | safe }}</div>
+          </div>
         </div>
-        <div class="sentinel-panel sentinel-panel--rules">
+
+        <div class="sentinel-threat-row">
+          <div class="sentinel-panel">
+            <div class="sentinel-panel-head">
+              <h3 class="sentinel-panel-title">Origine des attaques</h3>
+              <span class="sentinel-panel-meta">{% if ip_geolocation.enabled %}pays × heure · {{ ip_geolocation.provider }}{% elif ip_geolocation.env_locked %}verrouillée (serveur){% else %}désactivée{% endif %}</span>
+            </div>
+            <div class="sentinel-chart-slot">{{ ti.origin_heatmap_svg | safe }}</div>
+          </div>
+          <div class="sentinel-panel">
+            <div class="sentinel-panel-head">
+              <h3 class="sentinel-panel-title">Top IP attaquantes</h3>
+              <span class="sentinel-panel-meta">24 h</span>
+            </div>
+            <div class="sentinel-chart-slot">{{ ti.top_attackers_svg | safe }}</div>
+          </div>
+        </div>
+
+        <div class="sentinel-panel sentinel-panel--full sentinel-panel--rules">
           <div class="sentinel-panel-head">
             <h3 class="sentinel-panel-title">Top règles OWASP</h3>
             <span class="sentinel-panel-meta">Cliquez une règle pour voir les logs</span>
@@ -271,55 +302,14 @@
         </div>
       </section>
 
-      <section class="sentinel-ops-grid" aria-label="Contrôles et quarantaine">
-        <div class="sentinel-panel">
-          <div class="sentinel-panel-head">
-            <h3 class="sentinel-panel-title">Contrôles rapides</h3>
-            <span class="sentinel-panel-meta">Couches de protection</span>
-          </div>
-          <div class="sentinel-panel-body">
-            <div class="sentinel-controls">
-              {% for ctrl in quick_controls %}
-              <div class="sentinel-control-row">
-                <div>
-                  <div class="sentinel-control-label">{{ ctrl.label }}</div>
-                  <div class="sentinel-control-detail">{{ ctrl.detail }}</div>
-                </div>
-                {% if ctrl.toggle and not ctrl.readonly %}
-                <form method="post" action="/admin/security/waf/actions/quick-toggle" class="inline-form">
-                  <input type="hidden" name="toggle" value="{{ ctrl.toggle }}">
-                  <input type="hidden" name="enabled" value="{{ 'off' if ctrl.enabled else 'on' }}">
-                  <button type="submit" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}"
-                          title="{% if ctrl.enabled %}Désactiver{% else %}Activer{% endif %} {{ ctrl.label }}"
-                          aria-pressed="{{ 'true' if ctrl.enabled else 'false' }}"
-                          aria-label="{{ ctrl.label }}"></button>
-                </form>
-                {% elif ctrl.readonly %}
-                <button type="button" class="sentinel-switch is-on" disabled title="Configuré dans Profil"></button>
-                {% else %}
-                <button type="button" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}" disabled></button>
-                {% endif %}
-              </div>
-              {% endfor %}
-            </div>
-            <ul class="sentinel-layers" aria-label="Couches de protection">
-              {% for layer in protection_layers %}
-              <li class="sentinel-layer" title="{{ layer.detail_full or layer.detail }}">
-                <span class="sentinel-layer-dot sentinel-layer-dot--{{ layer.css | replace('badge-', '') }}"></span>
-                <span>{{ layer.name }}</span>
-                <span class="badge {{ layer.css }}" style="margin-left:auto;font-size:.65rem">{{ layer.state }}</span>
-              </li>
-              {% endfor %}
-            </ul>
-          </div>
-        </div>
-        <div class="sentinel-panel sentinel-panel--quarantine">
+      <section class="sentinel-ops-grid sentinel-ops-grid--analyse" aria-label="Quarantaine">
+        <div class="sentinel-panel sentinel-panel--quarantine sentinel-panel--full">
           <div class="sentinel-panel-head">
             <h3 class="sentinel-panel-title">IP en quarantaine</h3>
-            <span class="sentinel-panel-meta">{{ quar.count }} IP</span>
+            <span class="sentinel-panel-meta">{{ quar.count }} IP · <a href="/admin/security#banning">gérer les bans</a></span>
           </div>
           <div class="sentinel-panel-body">
-            <ul class="sentinel-quarantine-list">
+            <ul class="sentinel-quarantine-list sentinel-quarantine-list--wide">
               {% for q in quar.rows %}
               <li class="sentinel-quarantine-item">
                 <div style="min-width:0">
@@ -511,6 +501,48 @@
     </div>
 
     <div class="form-body">
+
+      <section class="sentinel-panel sentinel-panel--config-controls waf-config-only" aria-label="Contrôles rapides">
+        <div class="sentinel-panel-head">
+          <h3 class="sentinel-panel-title">Contrôles rapides</h3>
+          <span class="sentinel-panel-meta">Couches de protection</span>
+        </div>
+        <div class="sentinel-panel-body">
+          <div class="sentinel-controls">
+            {% for ctrl in quick_controls %}
+            <div class="sentinel-control-row">
+              <div>
+                <div class="sentinel-control-label">{{ ctrl.label }}</div>
+                <div class="sentinel-control-detail">{{ ctrl.detail }}</div>
+              </div>
+              {% if ctrl.toggle and not ctrl.readonly %}
+              <form method="post" action="/admin/security/waf/actions/quick-toggle" class="inline-form">
+                <input type="hidden" name="toggle" value="{{ ctrl.toggle }}">
+                <input type="hidden" name="enabled" value="{{ 'off' if ctrl.enabled else 'on' }}">
+                <button type="submit" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}"
+                        title="{% if ctrl.enabled %}Désactiver{% else %}Activer{% endif %} {{ ctrl.label }}"
+                        aria-pressed="{{ 'true' if ctrl.enabled else 'false' }}"
+                        aria-label="{{ ctrl.label }}"></button>
+              </form>
+              {% elif ctrl.readonly %}
+              <button type="button" class="sentinel-switch is-on" disabled title="Configuré dans ce formulaire"></button>
+              {% else %}
+              <button type="button" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}" disabled></button>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          <ul class="sentinel-layers" aria-label="Couches de protection">
+            {% for layer in protection_layers %}
+            <li class="sentinel-layer" title="{{ layer.detail_full or layer.detail }}">
+              <span class="sentinel-layer-dot sentinel-layer-dot--{{ layer.css | replace('badge-', '') }}"></span>
+              <span>{{ layer.name }}</span>
+              <span class="badge {{ layer.css }}" style="margin-left:auto;font-size:.65rem">{{ layer.state }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </section>
 
       <form method="post" action="/admin/security/waf/profile" class="stack" id="waf-profile-form">
 
@@ -1217,6 +1249,12 @@
     });
 
     setConfigActions(CONFIG_TABS.indexOf(id) >= 0);
+
+    document.querySelectorAll('#waf-tabs [data-waf-nav]').forEach(function (group) {
+      var isConfig = group.getAttribute('data-waf-nav') === 'config';
+      var active = isConfig ? CONFIG_TABS.indexOf(id) >= 0 : id === 'bilan';
+      group.classList.toggle('is-active-group', active);
+    });
 
   }
 

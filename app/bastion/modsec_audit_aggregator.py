@@ -670,6 +670,8 @@ def _hourly_series(hourly: dict[str, Any], hours: int) -> list[dict[str, Any]]:
                 "label": dt.strftime("%Hh"),
                 "detections": int(bucket.get("detections") or 0),
                 "inspected": int(bucket.get("inspected") or 0),
+                "blocks": int(bucket.get("blocks") or 0),
+                "critical": int(bucket.get("critical") or 0),
             }
         )
     return series
@@ -681,7 +683,7 @@ def _daily_series(hourly: dict[str, Any], days: int) -> list[dict[str, Any]]:
     for i in range(days - 1, -1, -1):
         day = (now - timedelta(days=i)).date()
         day_key = day.strftime("%Y%m%d")
-        detections = inspected = 0
+        detections = inspected = blocks = critical = 0
         for key, bucket in hourly.items():
             if not str(key).startswith(day_key):
                 continue
@@ -689,12 +691,16 @@ def _daily_series(hourly: dict[str, Any], days: int) -> list[dict[str, Any]]:
                 continue
             detections += int(bucket.get("detections") or 0)
             inspected += int(bucket.get("inspected") or 0)
+            blocks += int(bucket.get("blocks") or 0)
+            critical += int(bucket.get("critical") or 0)
         series.append(
             {
                 "key": day_key,
                 "label": day.strftime("%d/%m"),
                 "detections": detections,
                 "inspected": inspected,
+                "blocks": blocks,
+                "critical": critical,
             }
         )
     return series
