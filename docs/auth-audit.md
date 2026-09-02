@@ -32,6 +32,7 @@
 | Chaîne complète | Nginx → `GET /internal/oauth2-auth` (FastAPI `:8000`) → `GET http://{realm.oauth2_listen}/oauth2/auth` (défaut `:4180`) |
 | Endpoint oauth2-proxy public | `/oauth2/ar-systems/start?rd=<chemin-relatif>` sur redirection 401 |
 | Headers transmis à FastAPI | `X-User`, `X-Email`, `X-Groups`, `X-Preferred-Username`, `X-Portal-Realm-Slug`, `X-Portal-Auth-Source`, `X-Portal-Internal-Token` |
+| Confiance headers identité | **Uniquement** si `X-Portal-Internal-Token` (ou Bearer) = `VAULT_PORTAL_INTERNAL_TOKEN` — sinon headers ignorés (`nginx_identity_trusted` / `get_user_context`) |
 | Comportement si non authentifié | Nginx reçoit 401 de la sous-requête → `error_page 401 = @portal_oauth2_signin` → `302 /oauth2/ar-systems/start?rd=$portal_oauth2_rd_safe` |
 
 **Chemins publics (sans `auth_request`) :**

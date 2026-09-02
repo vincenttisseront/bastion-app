@@ -20,6 +20,7 @@ from app.rbac.user_identity import (
     format_identity_last_name,
     parse_identity_from_username,
 )
+from app.security import nginx_identity_trusted
 from app.sso_settings import Settings, get_settings
 
 # Keycloak subject UUIDs must never be shown as a display name.
@@ -286,26 +287,41 @@ def get_user_context(
     db: Session | None = None,
 ) -> UserContext | None:
     settings = settings or get_settings()
-    email = request.headers.get("X-Email", "").strip()
-    preferred = request.headers.get("X-Preferred-Username", "").strip()
-    x_user = request.headers.get("X-User", "").strip()
+
+    # SDD-001: identity headers are only trusted from nginx (shared internal token).
+    # Direct vpcbr/host access with forged X-Email/X-Groups must not authenticate.
+    headers_trusted = nginx_identity_trusted(request, settings)
+    if headers_trusted:
+        email = request.headers.get("X-Email", "").strip()
+        preferred = request.headers.get("X-Preferred-Username", "").strip()
+        x_user = request.headers.get("X-User", "").strip()
+        keycloak_user_id = request.headers.get("X-User-Id", "").strip() or None
+        groups = _parse_groups(request.headers.get("X-Groups"))
+        realm_slug = _resolve_portal_realm_slug(request, settings, db)
+        auth_source = request.headers.get("X-Portal-Auth-Source", "sso")
+        given_name = (
+            request.headers.get("X-Given-Name", "").strip()
+            or request.headers.get("X-Auth-Request-Given-Name", "").strip()
+            or None
+        )
+        family_name = (
+            request.headers.get("X-Family-Name", "").strip()
+            or request.headers.get("X-Auth-Request-Family-Name", "").strip()
+            or None
+        )
+    else:
+        email = ""
+        preferred = ""
+        x_user = ""
+        keycloak_user_id = None
+        groups = []
+        realm_slug = (settings.sso_portal_default_realm_slug or "").strip() or "ar-systems"
+        auth_source = "sso"
+        given_name = None
+        family_name = None
+
     # Never treat a Keycloak subject UUID as the login name.
     username = _human_label(preferred, x_user, email) or preferred or x_user or email
-    # Prefer explicit subject UUID when Nginx/oauth2-proxy forwards it.
-    keycloak_user_id = request.headers.get("X-User-Id", "").strip() or None
-    groups = _parse_groups(request.headers.get("X-Groups"))
-    realm_slug = _resolve_portal_realm_slug(request, settings, db)
-    auth_source = request.headers.get("X-Portal-Auth-Source", "sso")
-    given_name = (
-        request.headers.get("X-Given-Name", "").strip()
-        or request.headers.get("X-Auth-Request-Given-Name", "").strip()
-        or None
-    )
-    family_name = (
-        request.headers.get("X-Family-Name", "").strip()
-        or request.headers.get("X-Auth-Request-Family-Name", "").strip()
-        or None
-    )
 
     if not email and not username:
         bg_cookie = request.cookies.get(COOKIE_NAME)
@@ -335,7 +351,7 @@ def get_user_context(
         keycloak_user_id = None
 
     # Fallback: X-User / X-User-Id holding a Keycloak subject (not an email).
-    if not keycloak_user_id:
+    if headers_trusted and not keycloak_user_id:
         for candidate in (request.headers.get("X-User-Id", ""), x_user):
             cand = (candidate or "").strip()
             if cand and looks_like_uuid(cand):

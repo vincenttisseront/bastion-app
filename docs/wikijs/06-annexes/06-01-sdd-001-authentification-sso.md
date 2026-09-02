@@ -7,7 +7,7 @@
 | Attribut | Valeur |
 |----------|--------|
 | **Statut** | Accepté |
-| **Date** | 2026-06-17 |
+| **Date** | 2026-09-02 |
 | **Périmètre** | Flux utilisateur, admin, logout, break-glass, identité FastAPI |
 | **Hôte** | `portal.ar-systems.fr` (`vmdmz-reverse01`) |
 
@@ -71,6 +71,10 @@ Implémentation : `_oauth2_upstream_to_auth_request_response()` dans `main.py`.
 | **MUST** | Utilisateur authentifié non-admin sur `/admin` → **302 `/apps`** en navigation HTML ; **403** JSON si client API (`Accept: application/json`) |
 | **MUST NOT** | Faire confiance aux headers `X-*` sans `X-Portal-Internal-Token` valide depuis Nginx |
 
+**Application (bastion-app, sept. 2026) :** `get_user_context()` (`app/web/user_context.py`) n’accepte `X-Email` / `X-Groups` / etc. que si `nginx_identity_trusted()` valide le jeton (`X-Portal-Internal-Token` ou `Authorization: Bearer`, comparaison constante). Jeton absent, incorrect ou non configuré → headers **ignorés** (fail closed) ; seule la session break-glass cookie peut encore authentifier. Accès direct à FastAPI sur `vpcbr` / `:8000` avec headers forgés **ne confère plus** d’identité admin.
+
+Tests : `tests/security/test_identity_header_token.py`.
+
 ### 3.4 Redirection login
 
 | Règle | Détail |
@@ -114,12 +118,14 @@ Ces chemins **MUST NOT** avoir `auth_request` :
 
 | Fichier | Rôle |
 |---------|------|
-| `files/portal/app/main.py` | `/internal/oauth2-auth`, routes admin |
-| `files/portal/app/auth.py` | `get_user_context`, `require_admin` |
-| `files/portal/app/breakglass.py` | JWT break-glass |
-| `files/portal/app/subdomain_auth.py` | Auth RBAC subdomain *(templates nginx hors repo)* |
-| `templates/snippets/proxy_portal_admin_location.conf.j2` | Bloc admin Nginx |
-| `files/nginx-portal-proxy.map.conf` | Maps `portal_oauth2_rd_safe` |
+| `app/main.py` | Routes portail, handlers erreurs |
+| `app/auth.py` | `/internal/oauth2-auth` |
+| `app/web/user_context.py` | `get_user_context`, `require_admin` — gate jeton interne |
+| `app/security/__init__.py` | `nginx_identity_trusted`, `require_nginx_internal_token` |
+| `app/breakglass.py` | JWT break-glass |
+| `app/subdomain/subdomain_auth.py` | Auth RBAC subdomain |
+| `docker/nginx/snippets/proxy_portal_strip_identity.conf` | Anti-spoof headers client |
+| `docker/nginx/templates/proxy_portal_trusted_internal.conf.template` | Injecte `X-Portal-Internal-Token` |
 
 ---
 
@@ -138,4 +144,12 @@ curl -sk -o /dev/null -w '%{http_code}\n' \
 curl -sS -o /dev/null -w '%{http_code}\n' \
   -H "X-Portal-Internal-Token: $(grep ^PORTAL_INTERNAL_TOKEN /opt/sso-portal/.env | cut -d= -f2-)" \
   http://127.0.0.1:8000/internal/oauth2-auth
+
+# Spoof identité sans jeton (accès direct FastAPI) → pas d'admin
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H "X-Email: admin@example.com" -H "X-Groups: portal-admins" \
+  http://127.0.0.1:8000/admin
+# Attendu : 401/302 login (pas 200 admin)
 ```
+
+Suite de tests automatisés : `pytest tests/security/test_identity_header_token.py`.

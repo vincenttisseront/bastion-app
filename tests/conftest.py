@@ -15,6 +15,31 @@ from app.sso_settings import Settings, get_settings
 from app.vault.encryption_key_store import reset_active_cache_for_tests
 from app.breakglass import reset_breakglass_ephemeral_secret_for_tests
 
+# Injected by TrustedHeadersTestClient so forged X-Email/X-Groups in tests still
+# satisfy SDD-001 (identity headers require X-Portal-Internal-Token).
+TEST_PORTAL_INTERNAL_TOKEN = "test-secret"
+
+
+class TrustedHeadersTestClient(TestClient):
+    """TestClient that auto-adds the nginx internal token on every request."""
+
+    def request(self, method, url, **kwargs):  # type: ignore[override]
+        headers = kwargs.get("headers")
+        merged: dict[str, str] = {}
+        if headers:
+            merged.update({str(k): str(v) for k, v in dict(headers).items()})
+        # Opt-out for negative tests (spoof without token).
+        omit = False
+        for key in list(merged):
+            if key.lower() == "x-test-omit-internal-token":
+                omit = True
+                merged.pop(key)
+        lower = {k.lower(): k for k in merged}
+        if not omit and "x-portal-internal-token" not in lower:
+            merged["X-Portal-Internal-Token"] = TEST_PORTAL_INTERNAL_TOKEN
+        kwargs["headers"] = merged
+        return super().request(method, url, **kwargs)
+
 
 @pytest.fixture(autouse=True)
 def _isolate_fernet_key_store(tmp_path, monkeypatch):
@@ -94,7 +119,7 @@ def client(db_engine, monkeypatch):
     def override_get_settings():
         return Settings(
             environment="test",
-            vault_portal_internal_token="test-secret",
+            vault_portal_internal_token=TEST_PORTAL_INTERNAL_TOKEN,
             breakglass_jwt_secret="test-bg-jwt-secret",
             breakglass_jwt_secret_fallback_enabled=True,
             session_hop_secret="test-session-hop-secret-for-pytest",
@@ -110,7 +135,7 @@ def client(db_engine, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_settings] = override_get_settings
-    with TestClient(app) as test_client:
+    with TrustedHeadersTestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 

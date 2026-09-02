@@ -13,7 +13,10 @@ Navigateur → nginx auth_request
 
 - Admin = **même** session SSO ; distinction via `require_admin` (groupes / grants).
 - Réponses auth_request hors 200/401 sont normalisées pour éviter les **500 nginx**.
-
+- **Gate jeton interne (SDD-001 §3.3) :** FastAPI n’utilise `X-Email` / `X-Groups` / … que si
+  `X-Portal-Internal-Token` (snippet `proxy_portal_trusted_internal`) correspond à
+  `VAULT_PORTAL_INTERNAL_TOKEN`. Sans jeton valide, les headers d’identité sont ignorés
+  (anti-spoof sur accès direct `:8000` / vpcbr). Break-glass cookie reste indépendant.
 ## Sous-domaine
 
 ```
