@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.access_modes import app_launch_url
+from app.bastion.bastion_fields import app_driver_badge_label
 from markupsafe import Markup
 from starlette.templating import Jinja2Templates
 
@@ -48,6 +49,7 @@ templates.env.filters["initials"] = _initials
 templates.env.filters["format_datetime"] = _format_datetime
 templates.env.filters["tojson"] = _tojson
 templates.env.globals["app_launch_url"] = app_launch_url
+templates.env.globals["app_driver_badge_label"] = app_driver_badge_label
 
 
 def render(template_name: str, **context: Any):
