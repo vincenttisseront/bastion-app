@@ -623,7 +623,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not hammer_on %} is-off{% endif %}" data-banning-summary>
                     {% if hammer_on %}
-                    Actif · {{ hammer.threshold if hammer else 100 }} requêtes / {{ hammer.window_seconds if hammer else 100 }}s · {% if hammer and hammer.ban_permanent %}ban permanent{% else %}ban {{ hammer.ban_minutes if hammer else 60 }} min{% endif %}
+                    {{ hammer.threshold if hammer else 100 }} req/{{ hammer.window_seconds if hammer else 100 }}s · {% if hammer and hammer.ban_permanent %}ban permanent{% else %}ban {{ hammer.ban_minutes if hammer else 60 }} min{% endif %}
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -658,7 +658,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not hammer_login_on %} is-off{% endif %}" data-banning-summary>
                     {% if hammer_login_on %}
-                    Actif · {{ hammer_login.threshold if hammer_login else 30 }} requêtes login / {{ hammer_login.window_seconds if hammer_login else 60 }}s · {% if hammer_login and hammer_login.ban_permanent %}ban permanent{% else %}ban {{ hammer_login.ban_minutes if hammer_login else 60 }} min{% endif %}
+                    {{ hammer_login.threshold if hammer_login else 30 }} login/{{ hammer_login.window_seconds if hammer_login else 60 }}s · {% if hammer_login and hammer_login.ban_permanent %}ban permanent{% else %}ban {{ hammer_login.ban_minutes if hammer_login else 60 }} min{% endif %}
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -694,7 +694,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not unknown_host_on %} is-off{% endif %}" data-banning-summary>
                     {% if unknown_host_on %}
-                    Actif · {{ unknown_host.threshold if unknown_host else 50 }} refus / {{ unknown_host.window_seconds if unknown_host else 300 }}s · ban IP {% if unknown_host and unknown_host.ban_permanent %}permanent{% else %}{{ unknown_host.ban_minutes if unknown_host else 1440 }} min{% endif %}
+                    {{ unknown_host.threshold if unknown_host else 50 }} refus/{{ unknown_host.window_seconds if unknown_host else 300 }}s · {% if unknown_host and unknown_host.ban_permanent %}ban permanent{% else %}ban IP {{ unknown_host.ban_minutes if unknown_host else 1440 }} min{% endif %}
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -730,7 +730,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not failed_on %} is-off{% endif %}" data-banning-summary>
                     {% if failed_on %}
-                    Actif · {{ failed.threshold if failed else 15 }} échecs / {{ failed.window_seconds if failed else 300 }}s · {% if failed and failed.ban_permanent %}ban permanent{% else %}ban IP {{ failed.ban_minutes if failed else 30 }} min{% endif %}{% if not failed or (failed.config_json or {}).get('ban_username', true) %} + compte{% endif %}
+                    {{ failed.threshold if failed else 15 }} échecs/{{ failed.window_seconds if failed else 300 }}s · {% if failed and failed.ban_permanent %}ban permanent{% else %}ban IP {{ failed.ban_minutes if failed else 30 }} min{% endif %}{% if not failed or (failed.config_json or {}).get('ban_username', true) %} + compte{% endif %}
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -769,7 +769,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not success_login_on %} is-off{% endif %}" data-banning-summary>
                     {% if success_login_on %}
-                    Actif · {{ success_login.threshold if success_login else 20 }} succès / IP / {{ success_login.window_seconds if success_login else 300 }}s · ban <strong>compte</strong> {% if success_login and success_login.ban_permanent %}permanent{% else %}{{ success_login.ban_minutes if success_login else 30 }} min{% endif %}
+                    {{ success_login.threshold if success_login else 20 }} succès/IP/{{ success_login.window_seconds if success_login else 300 }}s · ban compte {% if success_login and success_login.ban_permanent %}permanent{% else %}{{ success_login.ban_minutes if success_login else 30 }} min{% endif %}
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -805,7 +805,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not hack_on %} is-off{% endif %}" data-banning-summary>
                     {% if hack_on %}
-                    Actif · ban {% if hack and hack.ban_permanent %}permanent{% else %}immédiat ({{ hack.ban_minutes if hack else 1440 }} min){% endif %}
+                    {% if hack and hack.ban_permanent %}ban permanent{% else %}ban immédiat {{ hack.ban_minutes if hack else 1440 }} min{% endif %}
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -835,7 +835,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not concurrent_on %} is-off{% endif %}" data-banning-summary>
                     {% if concurrent_on %}
-                    Actif · max {{ concurrent.threshold }} connexions / IP (refus, pas de ban)
+                    max {{ concurrent.threshold }} conn./IP · refus sans ban
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -859,7 +859,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not rate_limit_on %} is-off{% endif %}" data-banning-summary>
                     {% if rate_limit_on %}
-                    Actif · {{ rate_limit.threshold if rate_limit else 120 }} requêtes / IP / {{ rate_limit.window_seconds if rate_limit else 60 }}s · 429 (pas de ban)
+                    {{ rate_limit.threshold if rate_limit else 120 }} req/IP/{{ rate_limit.window_seconds if rate_limit else 60 }}s · 429 sans ban
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -891,7 +891,7 @@
                   </label>
                   <span class="banning-rule-summary{% if not rate_limit_login_on %} is-off{% endif %}" data-banning-summary>
                     {% if rate_limit_login_on %}
-                    Actif · {{ rate_limit_login.threshold if rate_limit_login else 20 }} logins / IP / {{ rate_limit_login.window_seconds if rate_limit_login else 60 }}s · 429 (pas de ban)
+                    {{ rate_limit_login.threshold if rate_limit_login else 20 }} login/IP/{{ rate_limit_login.window_seconds if rate_limit_login else 60 }}s · 429 sans ban
                     {% else %}Désactivé{% endif %}
                   </span>
                 </div>
@@ -1320,33 +1320,34 @@
       var min = val(rule, 'minutes');
       var perm = val(rule, 'permanent');
       if (kind === 'hammering' || kind === 'hammering_login') {
+        var loginLabel = kind === 'hammering_login' ? ' login' : '';
         summary.textContent = perm
-          ? ('Actif · ' + thr + ' requêtes / ' + win + 's · ban permanent')
-          : ('Actif · ' + thr + ' requêtes / ' + win + 's · ban ' + min + ' min');
+          ? (thr + loginLabel + '/' + win + 's · ban permanent')
+          : (thr + loginLabel + '/' + win + 's · ban ' + min + ' min');
       } else if (kind === 'unknown_host_hammering') {
         summary.textContent = perm
-          ? ('Actif · ' + thr + ' refus / ' + win + 's · ban permanent')
-          : ('Actif · ' + thr + ' refus / ' + win + 's · ban IP ' + min + ' min');
+          ? (thr + ' refus/' + win + 's · ban permanent')
+          : (thr + ' refus/' + win + 's · ban IP ' + min + ' min');
       } else if (kind === 'failed_login') {
         var alsoUser = val(rule, 'ban_username');
         var base = perm
-          ? ('Actif · ' + thr + ' échecs / ' + win + 's · ban permanent')
-          : ('Actif · ' + thr + ' échecs / ' + win + 's · ban IP ' + min + ' min');
+          ? (thr + ' échecs/' + win + 's · ban permanent')
+          : (thr + ' échecs/' + win + 's · ban IP ' + min + ' min');
         summary.textContent = alsoUser ? (base + ' + compte') : base;
       } else if (kind === 'successful_login') {
         summary.textContent = perm
-          ? ('Actif · ' + thr + ' succès / IP / ' + win + 's · ban compte permanent')
-          : ('Actif · ' + thr + ' succès / IP / ' + win + 's · ban compte ' + min + ' min');
+          ? (thr + ' succès/IP/' + win + 's · ban compte permanent')
+          : (thr + ' succès/IP/' + win + 's · ban compte ' + min + ' min');
       } else if (kind === 'hack_username') {
         summary.textContent = perm
-          ? 'Actif · ban permanent'
-          : ('Actif · ban immédiat (' + min + ' min)');
+          ? 'ban permanent'
+          : ('ban immédiat ' + min + ' min');
       } else if (kind === 'concurrent') {
-        summary.textContent = 'Actif · max ' + thr + ' connexions / IP (refus, pas de ban)';
+        summary.textContent = 'max ' + thr + ' conn./IP · refus sans ban';
       } else if (kind === 'rate_limit') {
-        summary.textContent = 'Actif · ' + thr + ' requêtes / IP / ' + win + 's · 429 (pas de ban)';
+        summary.textContent = thr + ' req/IP/' + win + 's · 429 sans ban';
       } else if (kind === 'rate_limit_login') {
-        summary.textContent = 'Actif · ' + thr + ' logins / IP / ' + win + 's · 429 (pas de ban)';
+        summary.textContent = thr + ' login/IP/' + win + 's · 429 sans ban';
       }
     }
 

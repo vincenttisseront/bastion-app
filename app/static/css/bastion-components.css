@@ -360,6 +360,16 @@
 .ds-accordion-item.is-open .ds-accordion-panel,.banning-rule.is-open .banning-rule-panel{display:block;padding-top:var(--sp-3)}
 .ds-accordion-panel .stack,.banning-rule-panel .stack{gap:var(--sp-3)}
 .ds-accordion-item.is-open-default .ds-accordion-panel{display:block;padding-top:var(--sp-3)}
+/* Banning rules — single-line compact rows */
+.banning-accordion{gap:0;margin-bottom:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden}
+.banning-rule{border:0;border-radius:0;border-bottom:1px solid var(--border-muted)}
+.banning-rule:last-child{border-bottom:0}
+.banning-rule-head{flex-wrap:nowrap;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);min-height:2.125rem}
+.banning-rule-expand{order:1;width:1.25rem;height:1.25rem;font-size:var(--fs-xs)}
+.banning-rule-title{order:2;flex:0 1 auto;min-width:0;max-width:13.5rem;font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banning-rule-summary{order:3;flex:1 1 auto;min-width:0;padding-left:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.banning-rule-enable{order:4;flex:0 0 auto;margin-left:var(--sp-2);font-size:var(--fs-xs);white-space:nowrap}
+.banning-rule-enable input{margin:0}
 .form-section.is-accordion > .form-section-header{cursor:pointer;user-select:none;display:flex;align-items:flex-start;gap:var(--sp-3)}
 .form-section.is-accordion > .form-section-header .ds-accordion-expand{margin-top:2px}
 .form-section.is-accordion.is-open .ds-accordion-expand{transform:rotate(90deg)}
