@@ -17,6 +17,7 @@ def test_error_pages_neutral(client: TestClient, db_session: Session):
     )
     for path, code in (
         ("/errors/403", 403),
+        ("/errors/400", 400),
         ("/errors/404", 404),
         ("/errors/429", 429),
         ("/errors/500", 500),

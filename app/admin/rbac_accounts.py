@@ -337,7 +337,7 @@ async def admin_rbac_user_view(
             keycloak_user_id = account.keycloak_user_id
 
     if realm_id is None:
-        raise HTTPException(status_code=400, detail="realm_id ou account_id requis")
+        return _redirect_users_picker(settings)
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
@@ -357,9 +357,10 @@ async def admin_rbac_user_view(
         )
 
     if not keycloak_user_id and account is None:
-        raise HTTPException(
-            status_code=400,
-            detail="keycloak_user_id ou account_id requis",
+        return _redirect_users_picker(
+            settings,
+            realm_id=realm_id,
+            message="Utilisateur non spécifié — choisissez une fiche depuis Utilisateurs.",
         )
 
     kc_user = None
@@ -903,6 +904,27 @@ def _safe_redirect_url(raw: str | None, fallback: str) -> str:
     if value.startswith("/admin/") and "://" not in value and "\\" not in value:
         return value
     return fallback
+
+
+def _redirect_users_picker(
+    settings: Settings,
+    *,
+    realm_id: int | None = None,
+    list_tab: str = "open",
+    message: str = "Sélectionnez un utilisateur depuis la liste ou la recherche Keycloak.",
+) -> RedirectResponse:
+    """Never expose raw JSON when the fiche URL lacks account / Keycloak context."""
+    url = f"/admin/rbac/users?list_tab={list_tab}"
+    if realm_id is not None:
+        url += f"&realm_id={realm_id}"
+    response = RedirectResponse(url=url, status_code=302)
+    flash_redirect(
+        response,
+        message,
+        "warning",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
 
 
 @router.get("/admin/rbac/accounts/{account_id}")

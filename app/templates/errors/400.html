@@ -1,0 +1,22 @@
+{% extends "base_public.html" %}
+{% block title %}Requête invalide{% endblock %}
+
+{% block content %}
+<div class="error-page">
+  <div class="error-icon error-icon--warn">
+    <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+  </div>
+  <div class="error-code error-code--warn">400</div>
+  <h1 class="page-title">Requête invalide</h1>
+  <p class="error-message">
+    {% if error_message %}
+    {{ error_message }}
+    {% elif branding.show_product_branding %}
+    Les paramètres de la requête sont incorrects ou incomplets.
+    {% else %}
+    {{ branding.company_name }} — les paramètres de la requête sont incorrects ou incomplets.
+    {% endif %}
+  </p>
+  <a href="/apps" class="btn btn-primary">Accueil</a>
+</div>
+{% endblock %}
