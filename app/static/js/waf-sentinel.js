@@ -13,12 +13,16 @@
   var ruleBody = document.getElementById('waf-rule-logs-body');
   var feedFilterHint = null;
 
+  function b64ToBytes(b64) {
+    var binary = atob(b64);
+    return Uint8Array.from(binary, function (ch) {
+      return ch.charCodeAt(0);
+    });
+  }
+
   function decodePayload(b64) {
     try {
-      var binary = atob(b64);
-      var bytes = new Uint8Array(binary.length);
-      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      var json = new TextDecoder('utf-8').decode(bytes);
+      var json = new TextDecoder('utf-8').decode(b64ToBytes(b64));
       return JSON.parse(json);
     } catch (e) {
       return null;
@@ -52,21 +56,10 @@
     return lines.join('\n');
   }
 
-  function esc(text) {
-    return String(text == null ? '' : text)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
   function parseEventsB64(b64) {
     if (!b64) return [];
     try {
-      var binary = atob(b64);
-      var bytes = new Uint8Array(binary.length);
-      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      var json = new TextDecoder('utf-8').decode(bytes);
+      var json = new TextDecoder('utf-8').decode(b64ToBytes(b64));
       var parsed = JSON.parse(json);
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
@@ -105,11 +98,30 @@
       return;
     }
     hint.hidden = false;
-    hint.innerHTML =
-      'Filtre actif : règle <strong>' + esc(ruleId) + '</strong>' +
-      (label ? ' — ' + esc(label) : '') +
-      ' · ' + visible + ' ligne(s) · ' +
-      '<button type="button" class="btn btn-ghost btn-sm" data-waf-clear-rule-filter>Tout afficher</button>';
+    hint.textContent = '';
+    hint.appendChild(document.createTextNode('Filtre actif : règle '));
+    var strong = document.createElement('strong');
+    strong.textContent = String(ruleId || '');
+    hint.appendChild(strong);
+    if (label) {
+      hint.appendChild(document.createTextNode(' — ' + String(label)));
+    }
+    hint.appendChild(document.createTextNode(' · ' + visible + ' ligne(s) · '));
+    var clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'btn btn-ghost btn-sm';
+    clearBtn.setAttribute('data-waf-clear-rule-filter', '');
+    clearBtn.textContent = 'Tout afficher';
+    hint.appendChild(clearBtn);
+  }
+
+  function appendTd(tr, text, className, title) {
+    var td = document.createElement('td');
+    if (className) td.className = className;
+    if (title) td.title = title;
+    td.textContent = text == null ? '—' : String(text);
+    tr.appendChild(td);
+    return td;
   }
 
   function openRuleLogs(ruleId, label, count, events) {
@@ -122,25 +134,33 @@
         count + ' déclenchement(s) / 24 h · ' +
         events.length + ' événement(s) récents disponibles dans le feed agrégé.';
     }
+    ruleBody.textContent = '';
     if (!events.length) {
-      ruleBody.innerHTML =
-        '<tr><td colspan="5" class="muted" style="padding:1rem">' +
+      var emptyTr = document.createElement('tr');
+      var emptyTd = document.createElement('td');
+      emptyTd.colSpan = 5;
+      emptyTd.className = 'muted';
+      emptyTd.style.padding = '1rem';
+      emptyTd.textContent =
         'Aucun événement récent encore indexé pour cette règle. ' +
-        'Le compteur 24 h reste valide ; de nouveaux logs apparaîtront ici après agrégation.</td></tr>';
+        'Le compteur 24 h reste valide ; de nouveaux logs apparaîtront ici après agrégation.';
+      emptyTr.appendChild(emptyTd);
+      ruleBody.appendChild(emptyTr);
     } else {
-      ruleBody.innerHTML = events.map(function (ev) {
-        var target = esc((ev.host || '—') + (ev.uri || ''));
-        return (
-          '<tr>' +
-          '<td class="sentinel-mono">' + esc(ev.timestamp || '—') + '</td>' +
-          '<td class="sentinel-mono">' + esc(ev.client_ip || '—') + '</td>' +
-          '<td class="sentinel-mono" title="' + target + '">' + target + '</td>' +
-          '<td class="' + (ev.blocked ? 'sentinel-action-ok' : 'sentinel-action-warn') + '">' +
-          (ev.blocked ? 'Bloqué' : 'Alerté') + '</td>' +
-          '<td title="' + esc(ev.message || '') + '">' + esc(ev.message || '—') + '</td>' +
-          '</tr>'
+      events.forEach(function (ev) {
+        var tr = document.createElement('tr');
+        var target = (ev.host || '—') + (ev.uri || '');
+        appendTd(tr, ev.timestamp || '—', 'sentinel-mono');
+        appendTd(tr, ev.client_ip || '—', 'sentinel-mono');
+        appendTd(tr, target, 'sentinel-mono', target);
+        appendTd(
+          tr,
+          ev.blocked ? 'Bloqué' : 'Alerté',
+          ev.blocked ? 'sentinel-action-ok' : 'sentinel-action-warn'
         );
-      }).join('');
+        appendTd(tr, ev.message || '—', null, ev.message || '');
+        ruleBody.appendChild(tr);
+      });
     }
     filterFeedByRule(ruleId, label);
     var feed = document.querySelector('#waf-page .sentinel-feed-wrap');

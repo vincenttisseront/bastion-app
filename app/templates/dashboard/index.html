@@ -27,7 +27,7 @@
       <div class="metric-label">Sessions actives</div>
     </a>
 
-    <a href="/admin/logs?status=error#audit" class="metric-card red metric-card-link">
+    <a href="/admin/security/waf" class="metric-card red metric-card-link">
       <div class="metric-head">
         <div class="metric-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -36,6 +36,18 @@
       </div>
       <div class="metric-value">{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</div>
       <div class="metric-label">Tentatives bloquées</div>
+      <div class="metric-sub">
+        {% if metrics.blocked_attempts is none %}
+          Indisponible
+        {% else %}
+          {{ metrics.blocked_attempts_window_hours | default(24) }} h
+          · {{ metrics.blocked_attempts_waf | default(0) }} WAF
+          · {{ metrics.blocked_attempts_auth | default(0) }} auth
+          {% if metrics.blocked_attempts_active_bans | default(0) %}
+          · {{ metrics.blocked_attempts_active_bans }} ban{{ 's' if metrics.blocked_attempts_active_bans != 1 else '' }}
+          {% endif %}
+        {% endif %}
+      </div>
     </a>
 
     <a href="/admin/apps" class="metric-card blue metric-card-link">

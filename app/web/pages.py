@@ -433,7 +433,7 @@ def dashboard(
     user=Depends(require_admin),
 ):
     touch_portal_session(db, user, _client_ip(request), request=request)
-    metrics = get_dashboard_metrics(db)
+    metrics = get_dashboard_metrics(db, settings)
     # None, not [], so the panel can say "unreadable" instead of "nothing happened".
     audit_page = hot_read(
         lambda: list_audit_entries(db, limit=8),
