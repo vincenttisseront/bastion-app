@@ -16,16 +16,27 @@
   </div>
 
   <div class="metrics-grid">
-    <a href="/sessions" class="metric-card green metric-card-link">
+    <div class="metric-card green">
       <div class="metric-head">
         <div class="metric-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
         </div>
-        <span class="metric-trend flat">—</span>
+        <a class="metric-trend flat" href="/sessions">{{ metrics.active_sessions | default(0) }} total</a>
       </div>
-      <div class="metric-value">{{ metrics.active_sessions }}</div>
+      <div class="metric-value metric-value--split" aria-label="Sessions utilisateurs et applicatives">
+        <a class="metric-split" href="/sessions?kind=user">
+          <span class="metric-split-num">{{ metrics.active_sessions_user | default(0) }}</span>
+          <span class="metric-split-lbl">utilisateurs</span>
+        </a>
+        <span class="metric-split-sep" aria-hidden="true">·</span>
+        <a class="metric-split" href="/sessions?kind=app">
+          <span class="metric-split-num">{{ metrics.active_sessions_app | default(0) }}</span>
+          <span class="metric-split-lbl">applicatives</span>
+        </a>
+      </div>
       <div class="metric-label">Sessions actives</div>
-    </a>
+      <div class="metric-sub">portail · applications</div>
+    </div>
 
     <a href="/admin/security/waf" class="metric-card red metric-card-link">
       <div class="metric-head">

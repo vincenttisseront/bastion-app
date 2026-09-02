@@ -1352,14 +1352,14 @@ def get_active_sessions(
         return []
 
 
-def count_active_sessions(db: Session) -> int:
+def count_active_sessions(db: Session, *, kind: str | None = None) -> int:
+    """Count active registry rows; optional ``kind`` is ``user`` or ``app``."""
     try:
         expire_stale_sessions(db)
-        return (
-            db.query(ActiveSession)
-            .filter(ActiveSession.status == "active")
-            .count()
-        )
+        q = db.query(ActiveSession).filter(ActiveSession.status == "active")
+        if kind in (KIND_USER, KIND_APP):
+            q = q.filter(ActiveSession.kind == kind)
+        return q.count()
     except Exception:
         logger.exception("count_active_sessions failed")
         try:
@@ -1368,6 +1368,12 @@ def count_active_sessions(db: Session) -> int:
             pass
         return 0
 
+
+def count_active_sessions_by_kind(db: Session) -> dict[str, int]:
+    """Return ``{user, app, all}`` active session counts for dashboard KPIs."""
+    user_n = count_active_sessions(db, kind=KIND_USER)
+    app_n = count_active_sessions(db, kind=KIND_APP)
+    return {"user": user_n, "app": app_n, "all": user_n + app_n}
 
 def get_session_by_id(db: Session, session_id: str) -> ActiveSession | None:
     return db.query(ActiveSession).filter_by(id=session_id).first()

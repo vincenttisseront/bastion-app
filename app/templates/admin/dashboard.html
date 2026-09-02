@@ -19,8 +19,19 @@
         </div>
         <span class="metric-trend flat">—</span>
       </div>
-      <div class="metric-value">{{ metrics.active_sessions }}</div>
+      <div class="metric-value metric-value--split" aria-label="Sessions utilisateurs et applicatives">
+        <span class="metric-split">
+          <span class="metric-split-num">{{ metrics.active_sessions_user | default(0) }}</span>
+          <span class="metric-split-lbl">utilisateurs</span>
+        </span>
+        <span class="metric-split-sep" aria-hidden="true">·</span>
+        <span class="metric-split">
+          <span class="metric-split-num">{{ metrics.active_sessions_app | default(0) }}</span>
+          <span class="metric-split-lbl">applicatives</span>
+        </span>
+      </div>
       <div class="metric-label">Sessions actives</div>
+      <div class="metric-sub">portail · applications</div>
     </div>
     <div class="metric-card blue">
       <div class="metric-head">

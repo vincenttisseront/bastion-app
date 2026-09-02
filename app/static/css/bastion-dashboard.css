@@ -35,6 +35,15 @@
 .metric-trend.down{background:var(--ok-bg);color:var(--ok)}
 .metric-trend.flat{background:rgba(71,85,105,.15);color:var(--text-3)}
 .metric-value{font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.04em;color:var(--text);font-variant-numeric:tabular-nums;line-height:1;margin-bottom:var(--sp-2)}
+.metric-value--split{display:flex;align-items:flex-end;gap:var(--sp-3);flex-wrap:wrap}
+.metric-split{display:inline-flex;flex-direction:column;align-items:flex-start;gap:4px;color:inherit;text-decoration:none}
+.metric-split:hover{color:var(--mc,var(--accent));text-decoration:none}
+.metric-split-num{font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1}
+.metric-split-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
+.metric-split:hover .metric-split-lbl{color:var(--mc,var(--accent))}
+.metric-split-sep{font-size:var(--fs-2xl);font-weight:300;color:var(--text-3);line-height:1;padding-bottom:14px}
+.metric-trend[href]{text-decoration:none;color:inherit}
+.metric-trend[href]:hover{color:var(--mc,var(--accent))}
 .metric-label{font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3)}
 .metric-sub{font-size:var(--fs-xs);color:var(--text-2);margin-top:2px}
 

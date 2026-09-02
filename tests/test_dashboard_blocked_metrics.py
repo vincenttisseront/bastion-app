@@ -93,3 +93,60 @@ def test_blocked_attempts_without_waf_summary_uses_auth_only(db_session: Session
     assert metrics["blocked_attempts_waf"] == 0
     assert metrics["blocked_attempts_waf_available"] is False
     assert metrics["blocked_attempts"] == 1
+
+
+def test_active_sessions_split_user_and_app(db_session: Session):
+    from app.models import ActiveSession
+
+    now = utcnow()
+    db_session.add_all(
+        [
+            ActiveSession(
+                id="u1",
+                kind="user",
+                user_email="a@example.com",
+                username="a",
+                realm="r",
+                protocol="oidc",
+                target="portal",
+                status="active",
+                started_at=now,
+                last_seen_at=now,
+            ),
+            ActiveSession(
+                id="u2",
+                kind="user",
+                user_email="b@example.com",
+                username="b",
+                realm="r",
+                protocol="oidc",
+                target="portal",
+                status="active",
+                started_at=now,
+                last_seen_at=now,
+            ),
+            ActiveSession(
+                id="a1",
+                kind="app",
+                user_email="a@example.com",
+                username="a",
+                realm="r",
+                protocol="https",
+                target="grommunio",
+                status="active",
+                started_at=now,
+                last_seen_at=now,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    with patch(
+        "app.web.metrics_service.read_audit_summary",
+        return_value={"present": False},
+    ):
+        metrics = get_dashboard_metrics(db_session, _settings())
+
+    assert metrics["active_sessions_user"] == 2
+    assert metrics["active_sessions_app"] == 1
+    assert metrics["active_sessions"] == 3
