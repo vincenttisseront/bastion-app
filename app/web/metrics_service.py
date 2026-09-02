@@ -13,7 +13,7 @@ from app.database import get_db
 from app.db.hot_store import hot_read
 from app.models import App, AuditLog, SecurityBan, utcnow
 from app.sso_settings import Settings, get_settings
-from app.web.sessions_service import count_active_sessions
+from app.web.sessions_service import count_active_sessions_by_kind
 from app.web.user_context import require_admin
 
 # Router-level admin guard — metrics are operational/security sensitive.
@@ -109,9 +109,12 @@ def get_dashboard_metrics(db: Session, settings: Settings | None = None) -> dict
 
     enabled_apps = db.query(App).filter_by(enabled=True).count()
     total_apps = db.query(App).count()
+    sessions = count_active_sessions_by_kind(db)
 
     return {
-        "active_sessions": count_active_sessions(db),
+        "active_sessions": sessions["all"],
+        "active_sessions_user": sessions["user"],
+        "active_sessions_app": sessions["app"],
         "blocked_attempts": blocked_total,
         "blocked_attempts_window_hours": BLOCKED_WINDOW_HOURS,
         "blocked_attempts_waf": 0 if waf_blocks is None else int(waf_blocks),
