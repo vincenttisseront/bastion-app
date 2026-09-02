@@ -146,3 +146,52 @@ def test_logs_disabled_message_points_to_security(client: TestClient, db_session
     assert page.status_code == 200
     assert "/admin/security#container-logs" in page.text
     assert "DOCKER_LOGS_PROXY_URL" not in page.text
+
+
+def test_container_logs_test_endpoint(client: TestClient, db_session: Session, monkeypatch):
+    from app.web.container_logs_settings import add_allowed_container
+
+    update_container_logs_settings(
+        db_session,
+        enabled=True,
+        proxy_url="http://docker-proxy.test:2375",
+        actor="admin@example.com",
+    )
+    add_allowed_container(db_session, "bastion-app", actor="admin@example.com")
+
+    async def _fake_snapshot(cfg, container, *, tail=None):
+        assert container == "bastion-app"
+        return "line-one\nline-two\n"
+
+    monkeypatch.setattr(
+        "app.web.docker_logs.fetch_container_log_snapshot",
+        _fake_snapshot,
+    )
+
+    resp = client.post(
+        "/admin/security/container-logs/test",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={"name": "bastion-app"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert "line-one" in "\n".join(body["lines"])
+
+
+def test_container_logs_test_disabled(client: TestClient, db_session: Session):
+    ensure_container_logs_settings(db_session)
+    resp = client.post(
+        "/admin/security/container-logs/test",
+        headers={**ADMIN_HEADERS, "Accept": "application/json"},
+        data={},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["ok"] is False
+
+
+def test_security_page_has_container_logs_test_ui(client: TestClient):
+    page = client.get("/admin/security", headers=ADMIN_HEADERS)
+    assert page.status_code == 200
+    assert 'id="container-logs-test-btn"' in page.text
+    assert 'id="container-logs-test-shell"' in page.text

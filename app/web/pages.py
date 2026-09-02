@@ -3400,6 +3400,38 @@ def admin_security_container_logs(
     return response
 
 
+@admin_router.post("/admin/security/container-logs/test")
+async def admin_security_container_logs_test(
+    request: Request,
+    name: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from fastapi.responses import JSONResponse
+
+    from app.web.container_logs_settings import get_container_logs_config
+    from app.web.docker_logs import run_container_logs_connectivity_test
+
+    cfg = get_container_logs_config(db)
+    container = (name or "").strip() or None
+    ok, message, lines = await run_container_logs_connectivity_test(cfg, container)
+    accept = (request.headers.get("accept") or "").lower()
+    if "application/json" in accept:
+        return JSONResponse(
+            {"ok": ok, "message": message, "lines": lines, "container": container},
+            status_code=200 if ok else 400,
+        )
+    response = RedirectResponse(url="/admin/security#container-logs", status_code=302)
+    flash_redirect(
+        response,
+        message,
+        "success" if ok else "error",
+        settings.vault_portal_internal_token or "dev",
+    )
+    return response
+
+
 @admin_router.post("/admin/security/container-logs/containers/add")
 def admin_security_container_logs_add(
     request: Request,
