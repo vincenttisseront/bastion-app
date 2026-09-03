@@ -71,7 +71,7 @@ Implémentation : `_oauth2_upstream_to_auth_request_response()` dans `main.py`.
 | **MUST** | Utilisateur authentifié non-admin sur `/admin` → **302 `/apps`** en navigation HTML ; **403** JSON si client API (`Accept: application/json`) |
 | **MUST NOT** | Faire confiance aux headers `X-*` sans `X-Portal-Internal-Token` valide depuis Nginx |
 
-**Application (bastion-app, sept. 2026) :** `get_user_context()` (`app/web/user_context.py`) n’accepte `X-Email` / `X-Groups` / etc. que si `nginx_identity_trusted()` valide le jeton (`X-Portal-Internal-Token` ou `Authorization: Bearer`, comparaison constante). Jeton absent, incorrect ou non configuré → headers **ignorés** (fail closed) ; seule la session break-glass cookie peut encore authentifier. Accès direct à FastAPI sur `vpcbr` / `:8000` avec headers forgés **ne confère plus** d’identité admin.
+**Application (bastion-app, sept. 2026) :** `get_user_context()` (`app/web/user_context.py`) n’accepte `X-Email` / `X-Groups` / etc. que si `nginx_identity_trusted()` valide le jeton (`X-Portal-Internal-Token` ou `Authorization: Bearer`, comparaison constante). Jeton absent, incorrect ou non configuré → headers **ignorés** (fail closed) ; seule la session break-glass cookie peut encore authentifier. Accès direct à FastAPI sur `vpcbr` / `:8000` avec headers forgés **ne confère plus** d’identité admin. Si des headers d’identité sont présents sans jeton valide, un événement d’audit `security.identity_header_spoof` / `BST-AUTH-4001` est émis (rate-limit 5 min / IP).
 
 Tests : `tests/security/test_identity_header_token.py`.
 

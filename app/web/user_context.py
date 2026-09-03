@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import threading
+import time
 from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Request
@@ -20,8 +23,11 @@ from app.rbac.user_identity import (
     format_identity_last_name,
     parse_identity_from_username,
 )
+from app.request_client_ip import client_ip_from_request
 from app.security import nginx_identity_trusted
 from app.sso_settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
 
 # Keycloak subject UUIDs must never be shown as a display name.
 _UUID_RE = re.compile(
@@ -29,11 +35,106 @@ _UUID_RE = re.compile(
     re.IGNORECASE,
 )
 
+_IDENTITY_HEADER_NAMES = frozenset(
+    {
+        "x-email",
+        "x-groups",
+        "x-user",
+        "x-preferred-username",
+        "x-user-id",
+        "x-given-name",
+        "x-family-name",
+        "x-portal-auth-source",
+        "x-portal-realm-slug",
+    }
+)
+_SPOOF_AUDIT_TTL_SEC = 300.0
+_spoof_audit_lock = threading.Lock()
+_spoof_audit_last: dict[str, float] = {}
+
 
 def looks_like_uuid(value: str | None) -> bool:
     if not value:
         return False
     return bool(_UUID_RE.match(value.strip()))
+
+
+def _identity_headers_present(request: Request) -> list[str]:
+    found: list[str] = []
+    for name, value in request.headers.items():
+        key = name.lower()
+        if key in _IDENTITY_HEADER_NAMES and (value or "").strip():
+            found.append(key)
+    return found
+
+
+def _maybe_audit_identity_header_spoof(
+    request: Request,
+    *,
+    db: Session | None,
+) -> None:
+    """Log BST-AUTH-4001 when identity headers arrive without a trusted token.
+
+    Rate-limited per client IP (in-memory) so a hammer cannot flood audit_logs.
+    """
+    present = _identity_headers_present(request)
+    if not present:
+        return
+    peer = (request.client.host if request.client else "") or ""
+    ip = client_ip_from_request(request) or peer or "unknown"
+    now = time.monotonic()
+    with _spoof_audit_lock:
+        last = _spoof_audit_last.get(ip, 0.0)
+        if now - last < _SPOOF_AUDIT_TTL_SEC:
+            return
+        _spoof_audit_last[ip] = now
+        if len(_spoof_audit_last) > 4096:
+            cutoff = now - _SPOOF_AUDIT_TTL_SEC
+            stale = [k for k, ts in _spoof_audit_last.items() if ts < cutoff]
+            for k in stale:
+                _spoof_audit_last.pop(k, None)
+
+    token_hdr = (request.headers.get("x-portal-internal-token") or "").strip()
+    logger.warning(
+        "security.identity_header_spoof ip=%s path=%s headers=%s token_present=%s",
+        ip,
+        request.url.path,
+        ",".join(present),
+        bool(token_hdr),
+    )
+
+    own_session = False
+    session = db
+    if session is None:
+        from app.database import SessionLocal
+
+        session = SessionLocal()
+        own_session = True
+    try:
+        from app.audit import log_action
+
+        log_action(
+            session,
+            actor="anonymous",
+            action="security.identity_header_spoof",
+            target=f"ip:{ip}",
+            details={
+                "path": request.url.path,
+                "method": request.method,
+                "headers_present": present,
+                "token_header_present": bool(token_hdr),
+            },
+            ip_address=ip,
+            code="BST-AUTH-4001",
+        )
+    except Exception:
+        logger.exception("identity spoof audit failed ip=%s", ip)
+    finally:
+        if own_session:
+            try:
+                session.close()
+            except Exception:
+                logger.exception("identity spoof audit session close failed")
 
 
 def _human_label(*candidates: str | None) -> str | None:
@@ -310,6 +411,7 @@ def get_user_context(
             or None
         )
     else:
+        _maybe_audit_identity_header_spoof(request, db=db)
         email = ""
         preferred = ""
         x_user = ""

@@ -64,7 +64,7 @@ services:
   # Password: set HOT_STORE_PG_PASSWORD in .env — bastion-entrypoint.sh re-applies it
   # on every start via local socket (no prior admin password required).
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     entrypoint: ["/bin/sh", "/bastion-entrypoint.sh"]
     command: ["postgres"]
     environment:
@@ -199,7 +199,7 @@ services:
 
   # Let's Encrypt DNS-01 (Cloudflare) → certs for nginx :443
   acme-companion:
-    image: neilpang/acme.sh:latest
+    image: neilpang/acme.sh:3.1.4@sha256:08bad323dd6537ea2caba64260ef6e70e96057c4d9214afb9c07861db26653d9
     container_name: bastion-acme
     env_file:
       - path: ${ACME_ENV_FILE:-.env.acme}
