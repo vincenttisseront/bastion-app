@@ -7,6 +7,7 @@ Run: python scripts/offensive_f01_attacker_retest_20260726.py
 from __future__ import annotations
 
 import json
+import os
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,7 +16,7 @@ from urllib.parse import urlparse
 import httpx
 
 BASE = "https://portal.ar-systems.fr"
-EXPECTED_IP = "172.24.0.108"
+EXPECTED_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP", "172.24.0.110")
 OUT = (
     Path(__file__).resolve().parents[1]
     / "rapport-audit-securite-bastion-offensif-addendum-2026-07-26-evidence.json"

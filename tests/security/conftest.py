@@ -6,14 +6,14 @@ import os
 
 import pytest
 
-# Confirmed by Vincent 2026-07-25: portal.ar-systems.fr → 172.24.0.108 (nginx)
-# fronting portal Docker on 172.24.0.110 — staging/test path, not production.
+# Confirmed 2026-09-03: portal.ar-systems.fr → 172.24.0.110 (nginx edge on
+# vmdmz-docker01 after Traefik cutover). Override via BASTION_SECURITY_EXPECTED_IP.
 STAGING_BASE_URL = os.environ.get(
     "BASTION_SECURITY_BASE_URL",
     "https://portal.ar-systems.fr",
 ).rstrip("/")
 
-EXPECTED_STAGING_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP", "172.24.0.108")
+EXPECTED_STAGING_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP", "172.24.0.110")
 
 # Active probes hit the LIVE portal (network calls + audit noise: every full
 # pytest run used to leave breakglass.login_failed 'audit-probe-nonexistent'

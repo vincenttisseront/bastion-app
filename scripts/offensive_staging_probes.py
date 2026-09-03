@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import socket
 import time
 from datetime import datetime, timezone
@@ -18,7 +19,7 @@ import httpx
 import jwt
 
 BASE = "https://portal.ar-systems.fr"
-EXPECTED_IP = "172.24.0.108"
+EXPECTED_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP", "172.24.0.110")
 OUT = Path(__file__).resolve().parents[1] / "rapport-audit-securite-bastion-offensif-evidence.json"
 
 DISPOSABLE_USER = "audit-offensive-probe-20260725"
@@ -51,8 +52,8 @@ def main() -> None:
         "authorized_by": "Vincent chat: demarre la partie offensif (2026-07-25)",
         "network_path_note": (
             "Client (auditor workstation) → DNS → "
-            f"TLS to {BASE} ({EXPECTED_IP}=vmdmz-reverse01 nginx DMZ) → "
-            "proxy to nginx-bastion/portal Docker (172.24.0.110). "
+            f"TLS to {BASE} ({EXPECTED_IP}=nginx edge) → "
+            "bastion-app Docker on vpcbr. "
             "Not a local header-only simulation for live probes."
         ),
         "points": {},

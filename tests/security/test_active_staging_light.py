@@ -201,8 +201,10 @@ def test_security_headers_present(staging_base_url: str):
         assert resp.status_code == 200
         assert "max-age" in (resp.headers.get("strict-transport-security") or "").lower()
         assert "nosniff" in (resp.headers.get("x-content-type-options") or "").lower()
-        csp = resp.headers.get("content-security-policy") or ""
-        assert "default-src" in csp
+        assert "sameorigin" in (resp.headers.get("x-frame-options") or "").lower()
+        assert "strict-origin" in (resp.headers.get("referrer-policy") or "").lower()
+        # CSP intentionally omitted on edge cutover (security-headers.conf) — F-09.
+        # Do not require content-security-policy until a portal CSP policy is shipped.
     finally:
         client.close()
 
