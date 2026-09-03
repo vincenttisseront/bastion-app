@@ -329,12 +329,12 @@ def test_render_exclusions_uri_prefix_and_regex():
     assert "ctl:ruleRemoveTargetById=101;REQUEST_COOKIES:session" in out_r
 
 
-def test_render_exclusions_encodes_percent_as_rx_hex():
-    """URL-encoded traversal must not put '%' in the rule file (macro starter)."""
+def test_render_exclusions_decodes_percent_uri():
+    """URL-encoded traversal is decoded so the rule file never contains '%'."""
     excl = WafExclusion(
         id=8,
         crs_rule_id=930100,
-        reason="path traversal FP",
+        reason="FP depuis bilan — règle 930130",
         uri_pattern="%2f..%2f..%2f",
         active=True,
         scope_kind="rule",
@@ -345,5 +345,13 @@ def test_render_exclusions_encodes_percent_as_rx_hex():
         ln for ln in out.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
     ]
     assert all("%" not in ln for ln in rule_lines)
-    assert "@rx" in out
-    assert r"\x252f" in out
+    assert r"\x25" not in out
+    assert '@streq "/../../"' in out
+    assert "ctl:ruleRemoveById=930100" in out
+    # Metadata comments must stay comments (no Python !r quotes that confuse parsers).
+    assert "reason=FP depuis bilan" in out
+    assert "reason='" not in out
+    assert "pct2f" in out  # original encoded form only in comments
+    meta = [ln for ln in out.splitlines() if ln.startswith("# exclusion id=8")][0]
+    assert "%" not in meta
+    assert all(ord(c) < 128 for c in meta)
