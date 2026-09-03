@@ -329,8 +329,8 @@ def test_render_exclusions_uri_prefix_and_regex():
     assert "ctl:ruleRemoveTargetById=101;REQUEST_COOKIES:session" in out_r
 
 
-def test_render_exclusions_escapes_percent_in_uri():
-    """URL-encoded traversal in a URI must not be parsed as a ModSecurity macro."""
+def test_render_exclusions_encodes_percent_as_rx_hex():
+    """URL-encoded traversal must not put '%' in the rule file (macro starter)."""
     excl = WafExclusion(
         id=8,
         crs_rule_id=930100,
@@ -341,5 +341,9 @@ def test_render_exclusions_escapes_percent_in_uri():
         uri_match="exact",
     )
     out = render_exclusions_generated([excl])
-    assert r'@streq "\%2f..\%2f..\%2f"' in out
-    assert "%2f..%2f..%2f" not in out
+    rule_lines = [
+        ln for ln in out.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
+    ]
+    assert all("%" not in ln for ln in rule_lines)
+    assert "@rx" in out
+    assert r"\x252f" in out
