@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -240,19 +241,46 @@ _SCOPE_CTL_COLLECTION = {
 
 
 def _modsec_quote(value: str) -> str:
-    """Escape a value for use inside a ModSecurity quoted operator argument.
-
-    ``%`` must be escaped: ModSecurity expands ``%{VAR}`` (and rejects a bare
-    ``%2f`` as ``Expecting a variable``), which would make nginx -t fail when an
-    exclusion URI contains URL-encoded path traversal (``%2f..%2f``).
-    """
+    """Escape a value for use inside a ModSecurity quoted operator argument."""
     return (
         (value or "")
         .replace("\\", "\\\\")
-        .replace("%", "\\%")
         .replace('"', '\\"')
         .replace("'", "\\'")
     )
+
+
+def _modsec_rx_quote(pattern: str) -> str:
+    """Quote an @rx pattern. Do not escape backslashes (regex already has them)."""
+    return (pattern or "").replace('"', '\\"').replace("'", "\\'")
+
+
+def _percent_to_rx_hex(value: str) -> str:
+    """Replace ``%`` with ``\\x25`` so the rule file never contains a macro starter.
+
+    ``\\%`` is NOT accepted by libmodsecurity (still ``Expecting a variable``).
+    """
+    return (value or "").replace("%", r"\x25")
+
+
+def _uri_operator(uri: str, uri_match: str | None) -> str:
+    match = (uri_match or URI_MATCH_EXACT).strip().lower()
+    if match not in VALID_URI_MATCH:
+        match = URI_MATCH_EXACT
+    # Bare ``%`` in any operator argument is parsed as ``%{VAR}`` and fails nginx -t.
+    if "%" in uri:
+        if match == URI_MATCH_REGEX:
+            return f'@rx "{_modsec_rx_quote(_percent_to_rx_hex(uri))}"'
+        body = _percent_to_rx_hex(re.escape(uri))
+        if match == URI_MATCH_PREFIX:
+            return f'@rx "{_modsec_rx_quote("^" + body)}"'
+        return f'@rx "{_modsec_rx_quote("^" + body + "$")}"'
+    q = _modsec_quote(uri)
+    if match == URI_MATCH_PREFIX:
+        return f'@beginsWith "{q}"'
+    if match == URI_MATCH_REGEX:
+        return f'@rx "{q}"'
+    return f'@streq "{q}"'
 
 
 def sanitize_exclusion_target_name(name: str | None) -> str | None:
@@ -283,16 +311,23 @@ def _ctl_action_for_exclusion(ex: WafExclusion, rule_id: int) -> str:
     return f"ctl:ruleRemoveById={rule_id}"
 
 
-def _uri_operator(uri: str, uri_match: str | None) -> str:
-    match = (uri_match or URI_MATCH_EXACT).strip().lower()
-    if match not in VALID_URI_MATCH:
-        match = URI_MATCH_EXACT
-    q = _modsec_quote(uri)
-    if match == URI_MATCH_PREFIX:
-        return f'@beginsWith "{q}"'
-    if match == URI_MATCH_REGEX:
-        return f'@rx "{q}"'
-    return f'@streq "{q}"'
+def _drop_percent_secrules(lines: list[str]) -> list[str]:
+    """Last line of defense: '%' in a SecRule makes nginx -t fail at boot."""
+    out: list[str] = []
+    skipping_cont = False
+    for line in lines:
+        if skipping_cont:
+            skipping_cont = line.rstrip().endswith("\\")
+            continue
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith("#") or "%" not in line:
+            out.append(line)
+            continue
+        out.append(
+            "# skipped generated SecRule: '%' is a ModSecurity macro starter"
+        )
+        skipping_cont = line.rstrip().endswith("\\")
+    return out
 
 
 def render_exclusions_generated(exclusions: list[WafExclusion]) -> str:
@@ -357,7 +392,7 @@ def render_exclusions_generated(exclusions: list[WafExclusion]) -> str:
     if len(lines) <= 4:
         lines.append("# (no active exclusions)")
         lines.append("")
-    return "\n".join(lines)
+    return "\n".join(_drop_percent_secrules(lines))
 
 
 def render_ip_deny_conf(ips: list[str], *, min_occurrences: int) -> str:
