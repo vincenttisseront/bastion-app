@@ -28,7 +28,7 @@
 
 {% set ti = threat_intel %}
 
-{% set quar = quarantine_panel %}
+{% set bans = security_bans_all %}
 
 <div class="page" id="waf-page">
 
@@ -302,36 +302,47 @@
         </div>
       </section>
 
-      <section class="sentinel-ops-grid sentinel-ops-grid--analyse" aria-label="Quarantaine">
+      <section class="sentinel-ops-grid sentinel-ops-grid--analyse" aria-label="Bans unifiés">
         <div class="sentinel-panel sentinel-panel--quarantine sentinel-panel--full">
           <div class="sentinel-panel-head">
-            <h3 class="sentinel-panel-title">IP en quarantaine</h3>
-            <span class="sentinel-panel-meta">{{ quar.count }} IP · <a href="/admin/security#banning">gérer les bans</a></span>
+            <h3 class="sentinel-panel-title">Bans actifs (unifiés)</h3>
+            <span class="sentinel-panel-meta">{{ bans|length }} ban(s)</span>
           </div>
-          <div class="sentinel-panel-body">
-            <ul class="sentinel-quarantine-list sentinel-quarantine-list--wide">
-              {% for q in quar.rows %}
-              <li class="sentinel-quarantine-item">
-                <div style="min-width:0">
-                  <span class="sentinel-quarantine-ip">{{ q.flag }} {{ q.ip }}{% if q.ban_count and q.ban_count > 1 %} ×{{ q.ban_count }}{% endif %}</span>
-                  <div class="sentinel-quarantine-meta" title="{{ q.origin_hint }} · {{ q.rule_type_label or q.rule_type }}{% if q.permanent %} · permanent{% elif q.expires_at %} · exp. {{ q.expires_at }}{% endif %}">{{ q.rule_type_label or q.rule_type }}{% if q.permanent %} · permanent{% elif q.expires_at %} · exp. {{ q.expires_at }}{% endif %}</div>
-                </div>
-                <form method="post" action="/admin/security/waf/actions/lift-ban/{{ q.id }}" class="inline-form">
-                  <button type="submit" class="btn btn-ghost btn-sm">Débloquer</button>
-                </form>
-              </li>
-              {% else %}
-              <li class="muted" style="padding:.5rem 0">Aucune IP en quarantaine.</li>
-              {% endfor %}
-            </ul>
-            {% if quar.count %}
-            <div class="sentinel-quarantine-foot">
-              {% if quar.truncated %}
-              <span class="muted">+{{ quar.more_count }} autre(s)</span>
-              {% else %}
-              <span class="muted">Aperçu</span>
-              {% endif %}
-              <a href="/admin/security#banning">Sécurité → Banning</a>
+          <div class="sentinel-panel-body" id="bans-unified">
+            {% if bans %}
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr><th>Cible</th><th>Raison</th><th>Expiration</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {% for ban in bans %}
+                  <tr>
+                    <td><span class="mono">{{ ban.target_type }}:{{ ban.target }}</span></td>
+                    <td>{{ ban.reason }}</td>
+                    <td>
+                      {% if ban.permanent %}
+                      <span class="badge">Permanent</span>
+                      {% elif ban.expires_at %}
+                      <span class="mono">{{ ban.expires_at }}</span>
+                      {% else %}
+                      —
+                      {% endif %}
+                    </td>
+                    <td>
+                      <form method="post" action="/admin/security/waf/actions/lift-ban/{{ ban.id }}" class="inline-form">
+                        <button type="submit" class="btn btn-secondary btn-sm">Lever</button>
+                      </form>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            {% else %}
+            <div class="empty-state">
+              <div class="empty-title">Aucun ban actif</div>
+              <div class="empty-desc">Les bans manuels ou automatiques apparaîtront ici.</div>
             </div>
             {% endif %}
           </div>
