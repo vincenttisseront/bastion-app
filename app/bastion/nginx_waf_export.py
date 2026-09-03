@@ -240,10 +240,16 @@ _SCOPE_CTL_COLLECTION = {
 
 
 def _modsec_quote(value: str) -> str:
-    """Escape a value for use inside a ModSecurity quoted operator argument."""
+    """Escape a value for use inside a ModSecurity quoted operator argument.
+
+    ``%`` must be escaped: ModSecurity expands ``%{VAR}`` (and rejects a bare
+    ``%2f`` as ``Expecting a variable``), which would make nginx -t fail when an
+    exclusion URI contains URL-encoded path traversal (``%2f..%2f``).
+    """
     return (
         (value or "")
         .replace("\\", "\\\\")
+        .replace("%", "\\%")
         .replace('"', '\\"')
         .replace("'", "\\'")
     )

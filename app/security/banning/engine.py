@@ -340,7 +340,13 @@ def lift_expired_bans(db: Session, *, actor: str = "system") -> int:
         )
     )
     lifted = 0
+    lifted_ips: set[str] = set()
+    lifted_usernames: set[str] = set()
     for ban in q.all():
+        if ban.target_type == TARGET_IP:
+            lifted_ips.add(ban.target)
+        elif ban.target_type == TARGET_USERNAME:
+            lifted_usernames.add(_normalize_username(ban.target))
         ban.lifted_at = now
         ban.lifted_by = actor
         lifted += 1
@@ -359,6 +365,13 @@ def lift_expired_bans(db: Session, *, actor: str = "system") -> int:
         )
     if lifted:
         db.commit()
+        # Unblock must also reset sliding-window counters, otherwise a user
+        # can get re-banned immediately after the lift/expiry.
+        clear_failed_login_counters(
+            db,
+            ips=lifted_ips or None,
+            usernames=lifted_usernames or None,
+        )
     return lifted
 
 
@@ -495,6 +508,55 @@ def apply_ban(
         ip_address=ip_address,
     )
     return ban
+
+
+def clear_failed_login_counters(
+    db: Session,
+    *,
+    ips: set[str] | None = None,
+    usernames: set[str] | None = None,
+) -> int:
+    """Clear SQL sliding-window counters for failed logins.
+
+    Used for "unblock" semantics after ban lift/expiry, and on successful
+    login to avoid lingering failures re-triggering bans.
+    """
+    ips = {ip for ip in (ips or set()) if (ip or "").strip()}
+    usernames = {
+        _normalize_username(u)
+        for u in (usernames or set())
+        if (u or "").strip()
+    }
+    deleted = 0
+    try:
+        if ips:
+            deleted += (
+                db.query(SecurityRateEvent)
+                .filter(
+                    SecurityRateEvent.kind == "fail_ip",
+                    SecurityRateEvent.key.in_(sorted(ips)),
+                )
+                .delete(synchronize_session=False)
+            )
+        if usernames:
+            deleted += (
+                db.query(SecurityRateEvent)
+                .filter(
+                    SecurityRateEvent.kind == "fail_user",
+                    SecurityRateEvent.key.in_(sorted(usernames)),
+                )
+                .delete(synchronize_session=False)
+            )
+        if deleted:
+            db.commit()
+    except SQLAlchemyError:
+        logger.warning("failed-login counters clear failed (rollback)")
+        try:
+            db.rollback()
+        except SQLAlchemyError:
+            logger.exception("failed-login counters clear rollback failed")
+        return 0
+    return deleted
 
 
 def _prune_and_count(db: Session, kind: str, key: str, window_seconds: int) -> int:

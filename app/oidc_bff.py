@@ -39,6 +39,10 @@ from app.testing_framework.throttle import (
     record_failure,
 )
 from app.web.templates import render
+from app.security.banning.engine import (
+    clear_failed_login_counters,
+    evaluate_login_attempt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +57,7 @@ def _coerce_utc(value: datetime | None) -> datetime | None:
 router = APIRouter(tags=["oidc-bff"])
 
 _GENERIC_AUTH_FAILURE = "Identifiants invalides."
+_GENERIC_AUTH_BLOCKED = "Compte temporairement bloqué suite à trop de tentatives."
 _UNSUPPORTED_FLOW_LOGIN_ERROR = (
     "Keycloak exige une action avant de finaliser la connexion "
     "(souvent un mot de passe temporaire à changer, une vérification e-mail "
@@ -788,6 +793,29 @@ async def oidc_login(
             detail="Authentification native non activée pour ce realm.",
         )
 
+    # Block user when SecurityBan decided it after too many failures.
+    # This is independent from the HTTP 429 hot-store throttling.
+    pre = evaluate_login_attempt(
+        db,
+        ip=client_ip,
+        username=username or "",
+        success=True,
+    )
+    if not pre.allowed and pre.ban is not None:
+        if html_mode:
+            return _html_login_error(
+                request,
+                settings,
+                db,
+                rd=safe_rd,
+                username=username,
+                login_error=_GENERIC_AUTH_BLOCKED,
+                otp_required=otp_step,
+                attempt_id=attempt_id if otp_step else None,
+                realm=realm_slug,
+            )
+        raise HTTPException(status_code=403, detail=_GENERIC_AUTH_BLOCKED)
+
     wait = _check_login_rate_limit(client_ip, username)
     if wait is not None:
         if html_mode:
@@ -822,6 +850,12 @@ async def oidc_login(
                 realm_slug, username, password, settings=settings, db=db
             )
     except InvalidOtpError:
+        ban_eval = evaluate_login_attempt(
+            db,
+            ip=client_ip,
+            username=username or "",
+            success=False,
+        )
         if html_mode:
             _record_failed_attempt(
                 db,
@@ -852,7 +886,11 @@ async def oidc_login(
                         totp_secret_display=secret_disp,
                         qr_data_url=qr,
                         realm=realm_slug,
-                        login_error=_GENERIC_AUTH_FAILURE,
+                        login_error=(
+                            _GENERIC_AUTH_BLOCKED
+                            if ban_eval.ban is not None
+                            else _GENERIC_AUTH_FAILURE
+                        ),
                     )
             return _html_login_error(
                 request,
@@ -860,7 +898,11 @@ async def oidc_login(
                 db,
                 rd=safe_rd,
                 username=username,
-                login_error=_GENERIC_AUTH_FAILURE,
+                login_error=(
+                    _GENERIC_AUTH_BLOCKED
+                    if ban_eval.ban is not None
+                    else _GENERIC_AUTH_FAILURE
+                ),
                 otp_required=still is not None,
                 attempt_id=attempt_id if still is not None else None,
                 realm=realm_slug,
@@ -873,12 +915,20 @@ async def oidc_login(
             reason="invalid_otp",
             action="oidc_login_otp_failed",
         )
+        if ban_eval.ban is not None:
+            raise HTTPException(status_code=403, detail=_GENERIC_AUTH_BLOCKED) from None
         raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
     except InvalidCredentialsError:
         logger.warning(
             "oidc_login invalid_credentials realm=%s user=%s",
             realm_slug,
             username,
+        )
+        ban_eval = evaluate_login_attempt(
+            db,
+            ip=client_ip,
+            username=username or "",
+            success=False,
         )
         if html_mode:
             _record_failed_attempt(
@@ -894,12 +944,23 @@ async def oidc_login(
                 db,
                 rd=safe_rd,
                 username=username,
-                login_error=_GENERIC_AUTH_FAILURE,
+                login_error=(
+                    _GENERIC_AUTH_BLOCKED
+                    if ban_eval.ban is not None
+                    else _GENERIC_AUTH_FAILURE
+                ),
                 realm=realm_slug,
             )
-        _auth_failure_response(
-            db, request=request, username=username, realm=realm_slug, reason="invalid_credentials"
+        _record_failed_attempt(
+            db,
+            request=request,
+            username=username,
+            realm=realm_slug,
+            reason="invalid_credentials",
         )
+        if ban_eval.ban is not None:
+            raise HTTPException(status_code=403, detail=_GENERIC_AUTH_BLOCKED) from None
+        raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
     except UnsupportedAuthFlowError as exc:
         detail = str(exc) or "unsupported_flow"
         _record_unsupported_flow(
@@ -1099,6 +1160,16 @@ async def oidc_login(
     )
     db.commit()
     _clear_login_failures(client_ip, username)
+    # Also clear SQL sliding-window counters for failed logins.
+    # Otherwise a past sequence of failures can still trigger a re-ban.
+    try:
+        clear_failed_login_counters(
+            db,
+            ips={client_ip} if (client_ip or "").strip() else None,
+            usernames={username} if (username or "").strip() else None,
+        )
+    except Exception:
+        logger.exception("oidc_login sql failed-login counters clear failed")
     success_action = "oidc_login_otp_success" if otp_step else "oidc_login_success"
     log_action(
         db,

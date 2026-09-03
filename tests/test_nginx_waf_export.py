@@ -327,3 +327,19 @@ def test_render_exclusions_uri_prefix_and_regex():
     assert "ctl:ruleRemoveById=100" in out_p
     assert '@rx "^/blog/[0-9]+$"' in out_r
     assert "ctl:ruleRemoveTargetById=101;REQUEST_COOKIES:session" in out_r
+
+
+def test_render_exclusions_escapes_percent_in_uri():
+    """URL-encoded traversal in a URI must not be parsed as a ModSecurity macro."""
+    excl = WafExclusion(
+        id=8,
+        crs_rule_id=930100,
+        reason="path traversal FP",
+        uri_pattern="%2f..%2f..%2f",
+        active=True,
+        scope_kind="rule",
+        uri_match="exact",
+    )
+    out = render_exclusions_generated([excl])
+    assert r'@streq "\%2f..\%2f..\%2f"' in out
+    assert "%2f..%2f..%2f" not in out

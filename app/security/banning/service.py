@@ -18,6 +18,7 @@ from app.security.banning.engine import (
     TARGET_IP,
     TARGET_USERNAME,
     apply_ban,
+    clear_failed_login_counters,
     ensure_security_defaults,
     get_policy,
     _normalize_username,
@@ -190,6 +191,14 @@ def lift_ban(
     ban.lifted_by = actor
     db.commit()
     db.refresh(ban)
+
+    # "Unblock" should reset login failure counters; otherwise the user can
+    # be immediately re-banned due to lingering sliding-window events.
+    if ban.target_type == TARGET_USERNAME:
+        clear_failed_login_counters(db, usernames={ban.target})
+    elif ban.target_type == TARGET_IP:
+        clear_failed_login_counters(db, ips={ban.target})
+
     log_action(
         db,
         actor=actor,
