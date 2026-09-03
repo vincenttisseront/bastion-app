@@ -17,6 +17,9 @@ services:
     build:
       context: .
       target: migrate
+      args:
+        PYTHON_RUNTIME: ${PYTHON_RUNTIME:-dhi.io/python:3.12-debian13}
+        PYTHON_BUILDER: ${PYTHON_BUILDER:-dhi.io/python:3.12-debian13-dev}
     image: bastion-app-migrate:local
     user: "0:0"
     command:
@@ -91,6 +94,9 @@ services:
     build:
       context: .
       target: runtime
+      args:
+        PYTHON_RUNTIME: ${PYTHON_RUNTIME:-dhi.io/python:3.12-debian13}
+        PYTHON_BUILDER: ${PYTHON_BUILDER:-dhi.io/python:3.12-debian13-dev}
     image: bastion-app:local
     env_file:
       - .env

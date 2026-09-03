@@ -112,6 +112,21 @@ hot_store_pg_password_resolved: >-
 # development | production
 portal_environment: production
 
+# Docker Hardened Images (dhi.io) — pull requires Docker Hub auth (PAT recommended).
+# AWX Vault / Extra Vars:
+#   vault_dhi_registry_username  — Docker ID or org name
+#   vault_dhi_registry_token     — PAT/OAT read-only (prefer token over password)
+# Escape hatch (no dhi.io): bastion_app_use_dhi=false → python:3.12-slim build-args.
+bastion_app_use_dhi: true
+vault_dhi_registry_username: ""
+vault_dhi_registry_token: ""
+bastion_app_python_runtime_image: >-
+  {{ 'dhi.io/python:3.12-debian13' if (bastion_app_use_dhi | bool)
+     else 'python:3.12-slim' }}
+bastion_app_python_builder_image: >-
+  {{ 'dhi.io/python:3.12-debian13-dev' if (bastion_app_use_dhi | bool)
+     else 'python:3.12-slim' }}
+
 # Post-rotation smoke (decrypt check) — activer seulement après rotate_fernet_key
 sso_portal_post_rotation_smoke: false
 sso_portal_verify_fernet_key_migration: true
