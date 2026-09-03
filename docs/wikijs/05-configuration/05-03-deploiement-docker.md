@@ -29,7 +29,26 @@ Services typiques : `bastion-app`, migrate, `oauth2-proxy-core`, `bastion-nginx`
 - Healthcheck : `python -c urllib…` (pas de `curl` dans le runtime)
 - Au premier déploiement après migration depuis UID 1000, le job `bastion-app-migrate` re-`chown` les volumes data vers **65532**
 
-Pull DHI : `docker login dhi.io` (compte Docker Hub) si le registry le demande.
+### Auth `dhi.io` (obligatoire)
+
+Les pulls anonymes renvoient **401**. Sur l’hôte de build (`vmdmz-docker01`) :
+
+```bash
+# PAT Docker Hub (read-only) recommandé : https://hub.docker.com/settings/security
+echo "$DOCKER_PAT" | docker login dhi.io -u "$DOCKER_ID" --password-stdin
+docker compose build bastion-app bastion-app-migrate
+```
+
+AWX / Ansible : renseigner Vault
+
+| Variable | Rôle |
+|----------|------|
+| `vault_dhi_registry_username` | Docker ID (ou nom d’org pour OAT) |
+| `vault_dhi_registry_token` | PAT / OAT lecture seule |
+
+Le rôle `bastion_app_docker` exécute `docker login dhi.io` avant `compose build`.
+
+Contournement temporaire (sans DHI) : Extra Var `bastion_app_use_dhi=false` → bases `python:3.12-slim`.
 
 ## Post-démarrage
 

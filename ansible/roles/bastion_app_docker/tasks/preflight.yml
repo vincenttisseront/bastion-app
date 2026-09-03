@@ -38,6 +38,20 @@
     _disk_use_pct: "{{ _disk_parts[1] | default('?') }}"
     _disk_total_mb: "{{ _disk_parts[2] | default('?') }}"
 
+- name: "PREFLIGHT : credentials dhi.io (Hardened Images)"
+  ansible.builtin.assert:
+    that:
+      - (vault_dhi_registry_username | default('') | length) > 0
+      - (vault_dhi_registry_token | default('') | length) > 0
+    fail_msg: >-
+      Pull dhi.io/python exige une auth (401 anonyme). Renseigner en AWX Vault /
+      Extra Vars : vault_dhi_registry_username (Docker ID) et
+      vault_dhi_registry_token (PAT Docker Hub lecture seule).
+      Créer un PAT : https://hub.docker.com/settings/security
+      Puis sur l'hôte : docker login dhi.io -u <id> --password-stdin
+      Contournement temporaire : bastion_app_use_dhi=false (bases python:3.12-slim).
+  when: bastion_app_use_dhi | default(true) | bool
+
 - name: "PREFLIGHT : secrets non vides"
   ansible.builtin.assert:
     that:
