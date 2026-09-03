@@ -72,7 +72,7 @@ def test_write_waf_exports_profile_and_exclusion(db_session, tmp_path):
     assert "SecRuleRemoveById 942100" not in excl
     assert "ctl:ruleRemoveById=942100" in excl
     assert "REQUEST_URI" in excl
-    assert '@streq "/admin/apps/analyze-login-form"' in excl
+    assert '@streq /admin/apps/analyze-login-form' in excl
 
     engine = Path(paths["engine-mode-generated.conf"]).read_text(encoding="utf-8")
     assert "SecRuleEngine On" in engine
@@ -282,8 +282,9 @@ def test_render_exclusions_args_scoped_host_uri():
     assert "SecRuleRemoveById 941100" not in out
     assert "ctl:ruleRemoveTargetById=941100;ARGS:content" in out
     assert 'REQUEST_HEADERS:Host "@streq app.example.fr"' in out
-    assert '@streq "/admin/blog/save"' in out
+    assert '@streq /admin/blog/save' in out
     assert "id:1500007" in out
+    assert not any(ln.rstrip().endswith("\\") for ln in out.splitlines())
 
 
 def test_render_exclusions_global_rule_remove():
@@ -323,9 +324,9 @@ def test_render_exclusions_uri_prefix_and_regex():
     )
     out_p = render_exclusions_generated([prefix])
     out_r = render_exclusions_generated([regex])
-    assert '@beginsWith "/api/"' in out_p
+    assert '@beginsWith /api/' in out_p
     assert "ctl:ruleRemoveById=100" in out_p
-    assert '@rx "^/blog/[0-9]+$"' in out_r
+    assert '@rx ^/blog/[0-9]+$' in out_r
     assert "ctl:ruleRemoveTargetById=101;REQUEST_COOKIES:session" in out_r
 
 
@@ -346,8 +347,9 @@ def test_render_exclusions_decodes_percent_uri():
     ]
     assert all("%" not in ln for ln in rule_lines)
     assert r"\x25" not in out
-    assert '@streq "/../../"' in out
+    assert '@streq /../../' in out
     assert "ctl:ruleRemoveById=930100" in out
+    assert not any(ln.rstrip().endswith("\\") for ln in out.splitlines())
     # Metadata comments must stay comments (no Python !r quotes that confuse parsers).
     assert "reason=FP depuis bilan" in out
     assert "reason='" not in out
