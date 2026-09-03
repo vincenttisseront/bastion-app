@@ -118,14 +118,16 @@ sidecar.
 ## Headers sécurité (edge unique)
 
 `sync-acme-tls.sh` inclut `includes/security-headers.conf` **une fois** dans chaque
-`server { listen 443 … }` (pas sur `:8080`). Preuve ops :
+`server { listen 443 … }` (pas sur `:8080`). Pour `family=portal`, CSP via
+`security-headers-portal-csp.conf`. Preuve ops :
 
 ```bash
-curl -sI https://portal.ar-systems.fr | grep -iE 'strict-transport|x-frame|x-content|referrer-policy|permissions-policy'
+curl -sI https://portal.ar-systems.fr | grep -iE 'strict-transport|x-frame|x-content|referrer-policy|permissions-policy|content-security-policy'
 # Chaque header doit apparaître une seule fois (pas de valeurs virgule-doublées).
+# content-security-policy attendu uniquement sur le FQDN portal.
 ```
 
-Répéter pour 1 subdomain + 1 public_proxy.
+Répéter pour 1 subdomain + 1 public_proxy (sans CSP).
 
 ## Correspondance conception → code
 

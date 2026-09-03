@@ -222,10 +222,19 @@ def test_docker_portal_no_duplicate_security_headers_at_server():
 
     sync = (ROOT / "docker/nginx/sync-acme-tls.sh").read_text(encoding="utf-8")
     assert "include /etc/nginx/includes/security-headers.conf;" in sync
+    assert '[[ "$family" == "portal" ]]' in sync
+    assert "security-headers-portal-csp.conf" in sync
     hdr = (ROOT / "docker/nginx/includes/security-headers.conf").read_text(encoding="utf-8")
     assert "Strict-Transport-Security" in hdr
     assert "X-Content-Type-Options" in hdr
+    # Universal edge file stays CSP-free (subdomain/public_proxy FQDNs share it).
     assert "Content-Security-Policy" not in hdr
+    csp = (ROOT / "docker/nginx/includes/security-headers-portal-csp.conf").read_text(
+        encoding="utf-8"
+    )
+    assert "Content-Security-Policy" in csp
+    assert "default-src 'self'" in csp
+    assert "object-src 'none'" in csp
 
 
 def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
