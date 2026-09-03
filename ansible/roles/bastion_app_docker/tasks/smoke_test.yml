@@ -190,9 +190,8 @@
     marker="bastion-smoke.access.log"
     docker exec "$cid" sh -c 'test -d /var/log/nginx/apps'
     docker exec "$cid" sh -c "echo smoke-ok > /var/log/nginx/apps/$marker"
-    docker compose exec -T bastion-app test -f "/var/lib/sso-portal/nginx-logs/$marker"
-    body="$(docker compose exec -T bastion-app cat "/var/lib/sso-portal/nginx-logs/$marker")"
-    echo "$body" | grep -q smoke-ok
+    # DHI runtime has no test/cat — probe via Python.
+    docker compose exec -T bastion-app python -c "import pathlib; p=pathlib.Path('/var/lib/sso-portal/nginx-logs/$marker'); assert p.is_file(), p; assert 'smoke-ok' in p.read_text()"
     docker exec "$cid" rm -f "/var/log/nginx/apps/$marker"
     echo "shared nginx-logs volume OK"
   args:

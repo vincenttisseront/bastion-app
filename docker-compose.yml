@@ -14,8 +14,10 @@ name: bastion
 
 services:
   bastion-app-migrate:
-    build: .
-    image: bastion-app:local
+    build:
+      context: .
+      target: migrate
+    image: bastion-app-migrate:local
     user: "0:0"
     command:
       - /bin/sh
@@ -28,8 +30,8 @@ services:
         alembic upgrade head
         # HMAC secrets in portal_settings (not .env) — idempotent.
         python -m app.runtime_secrets_service
-        # App/files as UID 1000; never recurse into pgdata (postgres:16-alpine = UID 70).
-        chown -R 1000:1000 /var/lib/sso-portal /var/lib/sso-portal-files
+        # App/files as DHI nonroot UID 65532; never recurse into pgdata (postgres:16-alpine = UID 70).
+        chown -R 65532:65532 /var/lib/sso-portal /var/lib/sso-portal-files
         if [ -d /var/lib/sso-portal/pgdata ]; then
           chown -R 70:70 /var/lib/sso-portal/pgdata
           chmod 700 /var/lib/sso-portal/pgdata
@@ -86,7 +88,9 @@ services:
     restart: unless-stopped
 
   bastion-app:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: bastion-app:local
     env_file:
       - .env
@@ -115,7 +119,13 @@ services:
       bastion-app-migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3

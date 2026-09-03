@@ -287,7 +287,7 @@ Complément du vault Fernet (défense en profondeur) : AES-256 sur **tout** le f
 | Clé | `fernet_v{N}.key` sous `VAULT_KEYS_DIR` | `db_encryption.key` (même répertoire) |
 | Bootstrap AWX | `vault_portal_vault_fernet_key` (migration temporaire) | `vault_portal_db_encryption_key` (64 hex = `openssl rand -hex 32`) |
 | Injection | Application (`secret_crypto`) | `PRAGMA key` via événement SQLAlchemy `connect` (jamais dans l’URL) |
-| Driver | stdlib / SQLAlchemy | `sqlcipher3-binary` (wheels Linux ; image Docker `python:3.12-slim`) |
+| Driver | stdlib / SQLAlchemy | `sqlcipher3-binary` (wheels Linux ; image Docker `dhi.io/python:3.12-debian13`) |
 
 **Activation / migration** : `scripts/encrypt_portal_db.py` (idempotent) — backup
 `portal.db.bak-pre-sqlcipher-{ts}`, `sqlcipher_export`, replace atomique. Exécuté **avant**
