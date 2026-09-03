@@ -924,51 +924,22 @@
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Bans actifs · {{ bans_count }}</span>
+          <span class="card-title">Bans actifs (unifiés) · {{ bans_count }}</span>
           <div class="banning-card-actions">
             <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="ban-add-modal">+ Ajouter un ban</button>
           </div>
         </div>
         <div class="card-body">
-          {% if security_bans %}
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr><th>Cible</th><th>Raison</th><th>Expiration</th><th></th></tr>
-              </thead>
-              <tbody>
-                {% for ban in security_bans %}
-                <tr>
-                  <td><span class="mono">{{ ban.target_type }}:{{ ban.target }}</span></td>
-                  <td>{{ ban.reason }}</td>
-                  <td>
-                    {% if ban.permanent %}
-                    <span class="badge">Permanent</span>
-                    {% elif ban.expires_at %}
-                    <span class="mono">{{ ban.expires_at }}</span>
-                    {% else %}
-                    —
-                    {% endif %}
-                  </td>
-                  <td>
-                    <form method="post" action="/admin/security/banning/lift/{{ ban.id }}" class="inline-form">
-                      <button type="submit" class="btn btn-secondary btn-sm">Lever</button>
-                    </form>
-                  </td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          {% else %}
-          <div class="empty-state">
-            <div class="empty-icon">
-              <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          <div class="alert {% if bans_count %}alert-warn{% else %}alert-ok{% endif %}">
+            <div class="alert-body">
+              La liste détaillée des bans est affichée dans <strong>Admin → Sécurité → WAF</strong> (section
+              <span class="mono">Bans actifs (unifiés)</span>) :
+              <a href="/admin/security/waf#bans-unified">/admin/security/waf#bans-unified</a>.
             </div>
-            <div class="empty-title">Aucun ban actif</div>
-            <div class="empty-desc">Les bans manuels ou automatiques apparaîtront ici.</div>
           </div>
-          {% endif %}
+          <p class="form-help">
+            Ban(s) actifs actuellement : <span class="mono">{{ bans_count }}</span>.
+          </p>
         </div>
       </div>
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import timedelta
 from urllib.parse import parse_qs, urlparse
 
 import jwt
@@ -19,7 +20,7 @@ from httpx import Response
 from jwt.algorithms import RSAAlgorithm
 from sqlalchemy.orm import Session
 
-from app.models import OidcSession, RealmConfig
+from app.models import OidcSession, RealmConfig, utcnow
 from app.oidc_bff import OIDC_LOGIN_MAX_FAILURES
 from app.oidc_bff_config_service import set_oidc_bff_config
 from app.secret_crypto import encrypt_secret
@@ -360,6 +361,160 @@ def test_e2e_rate_limit_after_failures(
     assert blocked.status_code == 429
     assert "Retry-After" in blocked.headers
     assert db_session.query(OidcSession).count() == 0
+
+
+@respx.mock
+def test_e2e_password_failures_ban_username_then_unban_expired(
+    client: TestClient, db_session: Session, e2e_settings: Settings
+):
+    """SecurityBan: après trop d'échecs de password, on bloque le user puis on débloque à l'expiration."""
+    from app.security.banning.engine import RULE_FAILED_LOGIN, find_active_ban
+    from app.security.banning.service import update_ban_rules
+
+    ip = "10.0.0.44"
+    _add_realm(db_session, e2e_settings)
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_FAILED_LOGIN: {
+                "enabled": True,
+                "threshold": 2,
+                "window_seconds": 60,
+                "ban_minutes": 10,
+                "ban_username": True,
+            }
+        },
+        actor="test",
+    )
+    _mock_keycloak_success()
+
+    r1 = client.post(
+        "/auth/login",
+        data={"username": "bob", "password": "wrong"},
+        headers={"X-Real-IP": ip},
+    )
+    assert r1.status_code == 401
+    assert r1.json()["detail"] == "Identifiants invalides."
+
+    r2 = client.post(
+        "/auth/login",
+        data={"username": "bob", "password": "wrong"},
+        headers={"X-Real-IP": ip},
+    )
+    assert r2.status_code == 403
+    assert r2.json()["detail"] == "Compte temporairement bloqué suite à trop de tentatives."
+
+    ban = find_active_ban(db_session, username="bob")
+    assert ban is not None
+    assert ban.target_type == "username"
+    assert ban.expires_at is not None
+
+    # Tout nouveau login échoue immédiatement (pré-check).
+    r3 = client.post(
+        "/auth/login",
+        data={"username": "bob", "password": "wrong"},
+        headers={"X-Real-IP": ip},
+    )
+    assert r3.status_code == 403
+
+    # Expiration forcée (lift_expired_bans + reset counters).
+    ban.expires_at = utcnow() - timedelta(seconds=1)
+    db_session.commit()
+
+    r4 = client.post(
+        "/auth/login",
+        data={"username": "bob", "password": "wrong"},
+        headers={"X-Real-IP": ip},
+    )
+    assert r4.status_code == 401
+    assert r4.json()["detail"] == "Identifiants invalides."
+
+
+@respx.mock
+def test_e2e_otp_failures_ban_username_then_unban_expired(
+    client: TestClient, db_session: Session, e2e_settings: Settings
+):
+    """SecurityBan: après trop d'échecs MFA/OTP, on bloque le user puis on débloque à l'expiration."""
+    from app.security.banning.engine import RULE_FAILED_LOGIN, find_active_ban
+    from app.security.banning.service import update_ban_rules
+
+    ip = "10.0.0.45"
+    _add_realm(db_session, e2e_settings)
+    update_ban_rules(
+        db_session,
+        rules={
+            RULE_FAILED_LOGIN: {
+                "enabled": True,
+                "threshold": 2,
+                "window_seconds": 60,
+                "ban_minutes": 10,
+                "ban_username": True,
+            }
+        },
+        actor="test",
+    )
+
+    respx.get(AUTH).mock(
+        return_value=Response(
+            200, text=_login_html(), headers={"content-type": "text/html"}
+        )
+    )
+
+    call_n = {"n": 0}
+
+    def _authenticate(request):
+        call_n["n"] += 1
+        if call_n["n"] == 1:
+            return Response(
+                200, text=_otp_html(), headers={"content-type": "text/html"}
+            )
+        return Response(
+            200, text=_otp_html(error=True), headers={"content-type": "text/html"}
+        )
+
+    respx.post(
+        url__startswith=f"{KC}/realms/{REALM}/login-actions/authenticate"
+    ).mock(side_effect=_authenticate)
+
+    step1 = client.post(
+        "/auth/login",
+        data={"username": "alice", "password": "s3cret"},
+        headers={"X-Real-IP": ip},
+    )
+    assert step1.status_code == 200
+    body = step1.json()
+    assert body["status"] == "otp_required"
+    attempt_id = body["attempt_id"]
+
+    r1 = client.post(
+        "/auth/login",
+        data={"attempt_id": attempt_id, "otp_code": "000000"},
+        headers={"X-Real-IP": ip},
+    )
+    assert r1.status_code == 401
+
+    r2 = client.post(
+        "/auth/login",
+        data={"attempt_id": attempt_id, "otp_code": "000000"},
+        headers={"X-Real-IP": ip},
+    )
+    assert r2.status_code == 403
+    assert r2.json()["detail"] == "Compte temporairement bloqué suite à trop de tentatives."
+
+    ban = find_active_ban(db_session, username="alice")
+    assert ban is not None
+
+    # Expiration forcée (lift_expired_bans + reset counters).
+    ban.expires_at = utcnow() - timedelta(seconds=1)
+    db_session.commit()
+
+    r3 = client.post(
+        "/auth/login",
+        data={"attempt_id": attempt_id, "otp_code": "000000"},
+        headers={"X-Real-IP": ip},
+    )
+    assert r3.status_code == 401
+    assert r3.json()["detail"] == "Identifiants invalides."
 
 
 def _otp_html(*, error: bool = False) -> str:

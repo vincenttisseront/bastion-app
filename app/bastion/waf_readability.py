@@ -1846,6 +1846,7 @@ def build_waf_readability_context(
         geoloc_enabled=geoloc_enabled,
     )
     quarantine = build_quarantine_panel(db, geo_map=geo_map)
+    security_bans_all = list_active_bans(db)
     quick_controls = build_quick_controls(db, profile, active, settings)
     apply_enabled = bool(export_pending) or bool(
         verdict.get("action_apply") and reactivation.get("armed")
@@ -1861,6 +1862,7 @@ def build_waf_readability_context(
         "executive_summary": executive,
         "threat_intel": threat_intel,
         "quarantine_panel": quarantine,
+        "security_bans_all": security_bans_all,
         "quick_controls": quick_controls,
         "ip_geolocation": {
             "enabled": geoloc_enabled,
