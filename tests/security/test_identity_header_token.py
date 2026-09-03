@@ -62,6 +62,7 @@ def test_admin_headers_with_valid_token_accepted(client: TestClient):
 def test_get_user_context_ignores_headers_without_token(db_session: Session):
     from starlette.requests import Request
 
+    from app.models import AuditLog
     from app.sso_settings import Settings
     from app.web.user_context import get_user_context
 
@@ -87,6 +88,15 @@ def test_get_user_context_ignores_headers_without_token(db_session: Session):
         vault_portal_internal_token=TEST_PORTAL_INTERNAL_TOKEN,
     )
     assert get_user_context(request, settings, db=db_session) is None
+    row = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "security.identity_header_spoof")
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    assert row is not None
+    assert row.event_code == "BST-AUTH-4001"
+    assert row.target == "ip:10.5.0.99"
 
 
 def test_get_user_context_trusts_headers_with_token(db_session: Session):
