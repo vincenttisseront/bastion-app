@@ -440,7 +440,9 @@
 # oauth2-proxy is down. Regenerate BEFORE VERIFY so nginx can start (deferred DNS).
 - name: "Wait for bastion-app healthy (before infra export)"
   ansible.builtin.command:
-    cmd: docker compose exec -T bastion-app true
+    cmd: >-
+      docker compose exec -T bastion-app
+      python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
     chdir: "{{ bastion_app_docker_compose_dir }}"
   register: _app_ready
   retries: 20

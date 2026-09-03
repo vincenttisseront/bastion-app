@@ -22,6 +22,15 @@ docker compose up -d --build
 Services typiques : `bastion-app`, migrate, `oauth2-proxy-core`, `bastion-nginx`,
 `acme-companion`.
 
+## Image applicative (DHI)
+
+- **Runtime** : `dhi.io/python:3.12-debian13` (cible Compose `target: runtime`) — pas de shell, UID **65532**
+- **Builder / migrate** : `dhi.io/python:3.12-debian13-dev` (shell + apt pour le one-shot migrate)
+- Healthcheck : `python -c urllib…` (pas de `curl` dans le runtime)
+- Au premier déploiement après migration depuis UID 1000, le job `bastion-app-migrate` re-`chown` les volumes data vers **65532**
+
+Pull DHI : `docker login dhi.io` (compte Docker Hub) si le registry le demande.
+
 ## Post-démarrage
 
 1. Health : `GET /api/health`
