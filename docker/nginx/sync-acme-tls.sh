@@ -150,6 +150,13 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
 
     include /etc/nginx/includes/security-headers.conf;
+EOF
+  if [[ "$family" == "portal" ]]; then
+    cat >> "$OUT" <<EOF
+    include /etc/nginx/includes/security-headers-portal-csp.conf;
+EOF
+  fi
+  cat >> "$OUT" <<EOF
 
     absolute_redirect off;
     port_in_redirect off;

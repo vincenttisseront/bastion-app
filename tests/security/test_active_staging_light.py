@@ -203,8 +203,10 @@ def test_security_headers_present(staging_base_url: str):
         assert "nosniff" in (resp.headers.get("x-content-type-options") or "").lower()
         assert "sameorigin" in (resp.headers.get("x-frame-options") or "").lower()
         assert "strict-origin" in (resp.headers.get("referrer-policy") or "").lower()
-        # CSP intentionally omitted on edge cutover (security-headers.conf) — F-09.
-        # Do not require content-security-policy until a portal CSP policy is shipped.
+        csp = (resp.headers.get("content-security-policy") or "").lower()
+        assert "default-src" in csp
+        assert "'self'" in csp
+        assert "object-src" in csp
     finally:
         client.close()
 

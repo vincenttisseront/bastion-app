@@ -205,7 +205,7 @@ Audit : `security.waf.mode_changed`, `security.waf.exclusion_added`,
 | Rule engine / version CRS image | Non | Déploiement image |
 | Seuil anomalie inbound | Oui, borné 3–10 | Défaut **5** |
 | Headers HSTS / XFO / nosniff / Referrer / Permissions | Pas de désactivation unitaire silencieuse | Toujours présents (#108) ; expert seulement si un jour nécessaire |
-| CSP / COOP / COEP / CORP | Oui **après** définition du contenu | Pas encore posés au cutover — sujet ouvert |
+| CSP / COOP / COEP / CORP | CSP **portal-only** (PL1 pragmatique) | `security-headers-portal-csp.conf` via `sync-acme-tls.sh` si `family=portal` ; COOP/COEP/CORP absents |
 
 ### 9.3 Profils prédéfinis
 
@@ -266,7 +266,8 @@ Sans armement, le sync force `SecRuleEngine Off`. Voir
 ## 10. Points ouverts (post Phase A)
 
 1. ~~Phase A vs A+B~~ — **tranché** : A livrée ; B = prompt séparé.
-2. Contenu CSP / COOP / COEP / CORP — à définir avant contrôle IHM.
+2. Contenu CSP / COOP / COEP / CORP — CSP portal livrée (`security-headers-portal-csp.conf`,
+   `'unsafe-inline'` scripts/styles jusqu’aux nonces) ; COOP/COEP/CORP encore ouverts.
 3. ~~Blacklist IP WAF vs anti-bruteforce~~ — **tranché** (§9.6).
 4. ~~Durée DetectionOnly~~ — compressée / close (smoke On OK).
 5. Réactivation subdomain / public via IHM — **ouvert** (portal livré).
