@@ -28,6 +28,8 @@ bastion_nginx_listen_port: 8080
 bastion_traefik_config_dir: /tools/keycloak/traefik-config
 bastion_traefik_catchall_deploy: false
 bastion_require_traefik: false
+# Host-discovery HTTP probe (403 stub) — off by default; enable with bastion_discovery_smoke=true on --tags smoke
+bastion_discovery_smoke: false
 
 # Binds locaux sur docker01 (smoke on-host / debug)
 bastion_app_docker_bind_app: "127.0.0.1:8000"

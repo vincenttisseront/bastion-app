@@ -11,7 +11,8 @@ ansible-playbook ansible/linux_sso_portal_docker.yml \
 | Tag | Effet |
 |-----|--------|
 | `docker` | Sync `deploy/` + `.env` Vault + `compose pull && up -d` |
-| `preflight` / `smoke` / `edge` | Optionnels, hors chemin minimal |
+| `smoke` | Health checks (discovery Host optionnel : `bastion_discovery_smoke=true`) |
+| `preflight` / `edge` | Optionnels |
 
 | Extra-var | Défaut |
 |-----------|--------|

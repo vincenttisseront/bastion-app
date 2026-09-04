@@ -40,6 +40,14 @@
         tasks_from: smoke_test.yml
       when: bastion_app_docker_enabled | default(true) | bool
 
+    - name: Optional Host-discovery probe (nginx / Traefik)
+      ansible.builtin.include_role:
+        name: bastion_app_docker
+        tasks_from: traefik_catchall.yml
+      when:
+        - bastion_app_docker_enabled | default(true) | bool
+        - bastion_discovery_smoke | default(false) | bool
+
 - name: "VALIDATE_PURGE oauth2 units list"
   hosts: "{{ bastion_docker_play_hosts | default('all') }}"
   become: true
