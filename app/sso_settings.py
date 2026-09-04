@@ -45,11 +45,11 @@ class Settings(BaseSettings):
     )
 
     portal_domain: str = Field(
-        default="portal.ar-systems.fr",
+        default="portal.example.com",
         validation_alias=AliasChoices("PORTAL_DOMAIN", "portal_domain"),
     )
     sso_portal_default_realm_slug: str = Field(
-        default="ar-systems",
+        default="default",
         validation_alias=AliasChoices(
             "SSO_PORTAL_DEFAULT_REALM_SLUG",
             "PORTAL_DEFAULT_REALM_SLUG",

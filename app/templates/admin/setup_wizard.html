@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Configuration initiale — Bastion{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Configuration initiale</h1>
+    <p class="page-sub">
+      Les paramètres site (FQDN, slug realm) sont stockés en <strong>base</strong>
+      — pas dans le <span class="mono">.env</span>. Les secrets Docker
+      (token interne, clé SQLCipher) restent côté compose.
+    </p>
+  </div>
+</div>
+
+{% if setup.completed and not setup.needs_wizard %}
+<div class="alert alert-ok mb-4" role="status">
+  Parcours terminé (ou installation déjà opérationnelle).
+  <a href="/admin/dashboard">Retour au tableau de bord</a>
+</div>
+{% elif setup.needs_wizard %}
+<div class="alert alert-warn mb-4" role="status">
+  Il manque encore des éléments pour un portail prêt à l’emploi.
+</div>
+{% endif %}
+
+<div class="wizard" data-wizard data-initial-step="{% if not setup.has_breakglass %}admin{% elif setup.portal_domain in ['', 'localhost', 'portal.example.com'] %}site{% elif not setup.has_default_realm %}oidc{% else %}docker{% endif %}">
+  <div class="wizard-stepper" role="tablist" aria-label="Parcours configuration initiale">
+    {% for step in setup.steps %}
+    <button
+      type="button"
+      class="wizard-step is-{{ step.status }}"
+      role="tab"
+      id="wizard-tab-{{ step.id }}"
+      aria-controls="wizard-panel-{{ step.id }}"
+      data-wizard-goto="{{ step.id }}"
+      data-wizard-status="{{ step.status }}"
+    >
+      <span class="wizard-step-rail" aria-hidden="true"></span>
+      <span class="wizard-step-dot" aria-hidden="true">{{ loop.index }}</span>
+      <span class="wizard-step-label">{{ step.label }}</span>
+    </button>
+    {% endfor %}
+  </div>
+
+  <div class="wizard-panels">
+    <section class="wizard-panel form-section" id="wizard-panel-admin" role="tabpanel" data-wizard-panel="admin" hidden>
+      <div class="form-section-header">
+        <div class="form-section-title">Compte administrateur local</div>
+        <div class="form-section-sub">Break-glass (accès d’urgence / premier boot)</div>
+      </div>
+      <div class="form-body">
+        {% if setup.has_breakglass %}
+        <p class="form-prose">Compte local déjà créé.</p>
+        {% else %}
+        <p class="form-prose">Depuis le réseau local : <a href="/auth/setup">/auth/setup</a></p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="wizard-panel form-section" id="wizard-panel-site" role="tabpanel" data-wizard-panel="site" hidden>
+      <div class="form-section-header">
+        <div class="form-section-title">Identité du portail</div>
+        <div class="form-section-sub">
+          Écrit dans <span class="mono">portal_settings</span>
+          {% if setup.domain_from_db %}<span class="badge badge-ok">DB</span>{% else %}<span class="badge badge-muted">repli .env</span>{% endif %}
+        </div>
+      </div>
+      <div class="form-body">
+        <form method="post" action="/admin/setup-wizard/site" class="form-stack">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="form-group">
+            <label class="form-label" for="portal_domain">FQDN portail</label>
+            <input class="form-input" id="portal_domain" name="portal_domain" required
+                   placeholder="portal.votredomaine.tld"
+                   value="{{ form_domain }}">
+            <small>Exposé sur nginx <span class="mono">server_name</span> après reload (via <span class="mono">exports/bastion-site.env</span>).</small>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="default_realm_slug">Slug realm OIDC core</label>
+            <input class="form-input" id="default_realm_slug" name="default_realm_slug" required
+                   pattern="[a-z0-9][a-z0-9_-]{0,62}"
+                   placeholder="default"
+                   value="{{ form_slug }}">
+            <small>Doit correspondre au realm créé à l’étape suivante (<span class="mono">/oauth2/&lt;slug&gt;/…</span>).</small>
+          </div>
+          <button type="submit" class="btn btn-primary">Enregistrer en base</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="wizard-panel form-section" id="wizard-panel-oidc" role="tabpanel" data-wizard-panel="oidc" hidden>
+      <div class="form-section-header">
+        <div class="form-section-title">Realm OIDC</div>
+        <div class="form-section-sub">Secrets IdP en base (Fernet) — jamais dans le .env durable</div>
+      </div>
+      <div class="form-body">
+        {% if setup.has_default_realm %}
+        <p class="form-prose">{{ setup.steps[2].detail }}</p>
+        <p class="form-prose">
+          <a class="btn btn-secondary" href="/admin/realms">Gérer les realms</a>
+          {% if not setup.realm_tested_ok %}
+          — lancez <strong>Test OIDC</strong> puis <strong>Apply</strong> infrastructure.
+          {% endif %}
+        </p>
+        {% else %}
+        <p class="form-prose">
+          Créez un realm avec le slug <span class="mono">{{ setup.default_realm_slug }}</span>,
+          marquez-le <strong>défaut</strong> et activez-le.
+        </p>
+        <a class="btn btn-primary" href="/admin/realms/new">Nouveau realm</a>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="wizard-panel form-section" id="wizard-panel-docker" role="tabpanel" data-wizard-panel="docker" hidden>
+      <div class="form-section-header">
+        <div class="form-section-title">Reste côté Docker</div>
+        <div class="form-section-sub">Non déplaçable en base (besoin au démarrage des conteneurs)</div>
+      </div>
+      <div class="form-body">
+        <ul class="form-prose">
+          <li><span class="mono">VAULT_PORTAL_INTERNAL_TOKEN</span> — nginx ↔ app
+            {% if setup.internal_token_ok %}<span class="badge badge-ok">OK</span>{% else %}<span class="badge badge-warn">manquant</span>{% endif %}
+          </li>
+          <li><span class="mono">VAULT_PORTAL_DB_ENCRYPTION_KEY</span> / fichier clés — SQLCipher</li>
+          <li>Chemins volumes (<span class="mono">SSO_PORTAL_DATA_DIR</span>, …)</li>
+        </ul>
+        {% if setup.has_breakglass and setup.has_default_realm and setup.portal_domain not in ['', 'localhost', 'portal.example.com'] %}
+        <form method="post" action="/admin/setup-wizard/complete" class="mt-4">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="btn btn-primary">Marquer la configuration comme terminée</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}

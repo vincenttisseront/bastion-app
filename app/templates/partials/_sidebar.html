@@ -52,7 +52,7 @@
       + (bastion_accounts_count | int)
     )) | int %}
     {% set pending_nav_open = path.startswith('/admin/pending-hosts') or path.startswith('/admin/pending-users') or path.startswith('/admin/pending-devices') or path.startswith('/admin/access-requests') %}
-    {% set general_open = path.startswith('/admin/branding') or path.startswith('/admin/configuration') %}
+    {% set general_open = path.startswith('/admin/branding') or path.startswith('/admin/configuration') or path.startswith('/admin/setup-wizard') %}
     {% set access_open = path.startswith('/admin/realms') or path.startswith('/admin/rbac') or path == '/admin/security' or path.startswith('/admin/security/waf') or path.startswith('/admin/acme') %}
     {% set content_open = path.startswith('/admin/apps') or path.startswith('/admin/files') or path.startswith('/files') or pending_nav_open %}
     {% set infra_open = path.startswith('/admin/infrastructure') or path.startswith('/admin/dependencies') or path.startswith('/admin/logs') or path == '/admin/health' %}
@@ -61,6 +61,10 @@
 
     <div class="sidebar-nav-admin" data-sidebar-admin-accordion>
     {% call accordion_menu_group('general', 'Général', open=general_open) %}
+    <a href="/admin/setup-wizard" class="nav-item{% if path.startswith('/admin/setup-wizard') %} active{% endif %}" data-nav-label="Setup">
+      <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>
+      Setup
+    </a>
     <a href="/admin/branding" class="nav-item{% if path.startswith('/admin/branding') %} active{% endif %}" data-nav-label="Branding">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
       Branding

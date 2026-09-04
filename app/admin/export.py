@@ -110,11 +110,18 @@ def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
     return "\n".join(lines)
 
 
-def core_static_realm_slugs(settings: Settings) -> frozenset[str]:
-    """Realm slugs served by oauth2-proxy-core (nginx snippet static; oauth2 cfg still from DB)."""
+def core_static_realm_slugs(
+    settings: Settings, db: Session | None = None
+) -> frozenset[str]:
+    """Realm slugs served by oauth2-proxy-core (nginx snippet; oauth2 cfg from DB)."""
     if not settings.oauth2_core_static_enabled:
         return frozenset()
-    return frozenset({settings.sso_portal_default_realm_slug})
+    slug = settings.sso_portal_default_realm_slug
+    if db is not None:
+        from app.setup_wizard_service import get_effective_default_realm_slug
+
+        slug = get_effective_default_realm_slug(db, settings)
+    return frozenset({slug}) if slug else frozenset()
 
 
 def _nginx_upstream_var(slug: str) -> str:

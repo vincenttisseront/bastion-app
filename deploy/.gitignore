@@ -1,0 +1,9 @@
+# Secrets locaux — ne jamais committer
+.env
+.env.acme
+.env.oauth2-core
+data/sso-portal/**
+!data/sso-portal/.gitkeep
+data/sso-portal-files/**
+!data/sso-portal-files/.gitkeep
+docker/oauth2-core/oauth2-proxy.cfg

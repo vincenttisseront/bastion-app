@@ -4,7 +4,34 @@
 set -euo pipefail
 
 EXPORTS="${EXPORTS_DIR:-/var/lib/sso-portal/exports}"
-PORTAL_DOMAIN_EFF="${PORTAL_DOMAIN:-portal.ar-systems.fr}"
+PORTAL_DOMAIN_EFF="${PORTAL_DOMAIN:-portal.example.com}"
+SSO_PORTAL_DEFAULT_REALM_SLUG_EFF="${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}"
+
+# Setup wizard / Admin may publish site identity here (preferred over compose env).
+if [[ -f "$EXPORTS/bastion-site.env" ]]; then
+  # shellcheck disable=SC1090
+  set -a
+  # shellcheck disable=SC1091
+  . "$EXPORTS/bastion-site.env"
+  set +a
+  PORTAL_DOMAIN_EFF="${PORTAL_DOMAIN:-$PORTAL_DOMAIN_EFF}"
+  SSO_PORTAL_DEFAULT_REALM_SLUG_EFF="${SSO_PORTAL_DEFAULT_REALM_SLUG:-$SSO_PORTAL_DEFAULT_REALM_SLUG_EFF}"
+  export PORTAL_DOMAIN="$PORTAL_DOMAIN_EFF"
+  export SSO_PORTAL_DEFAULT_REALM_SLUG="$SSO_PORTAL_DEFAULT_REALM_SLUG_EFF"
+fi
+
+# Re-render portal vhost + core oauth2 location when templates are available
+# (watcher path — same as entrypoint envsubst).
+if [[ -f /etc/nginx/templates-portal/nginx-portal-core-realm-oauth2.conf.template ]]; then
+  envsubst '${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
+    < /etc/nginx/templates-portal/nginx-portal-core-realm-oauth2.conf.template \
+    > /etc/nginx/snippets/nginx-portal-core-realm-oauth2.conf
+fi
+if [[ -f /etc/nginx/templates-portal/vhost_sso_portal.conf.template ]]; then
+  envsubst '${PORTAL_DOMAIN} ${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
+    < /etc/nginx/templates-portal/vhost_sso_portal.conf.template \
+    > /etc/nginx/conf.d/vhost_sso_portal.conf
+fi
 
 mkdir -p /var/log/nginx/apps
 # Shared bind-mount with bastion-app (Admin → Logs → Accès apps). Ensure writable

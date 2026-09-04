@@ -1,26 +1,23 @@
-# Bastion applicatif — Phase 7
+# Bastion Pro — déploiement (images Docker Hub uniquement)
 #
-# Topologie (front) — Traefik coupé, nginx edge :
-#   clients → bastion-nginx:80 → 301 HTTPS
-#          → bastion-nginx:443 (certs ACME DNS-01)
-#              → :8080 (portal / subdomain SSO / public_proxy)
+# Aucun build depuis les sources : pull vincenttisseront/bastion-pro:{app,migrate,nginx}
+# + images upstream (postgres, oauth2-proxy, acme.sh).
 #
-# Réseau vpcbr (10.5.0.0/16) conservé pour bastion-app / oauth2 / Keycloak.
+# Prérequis :
+#   docker network create --subnet=10.5.0.0/16 vpcbr
+#   cp .env.example .env   # puis renseigner les secrets
+#   cp .env.acme.example .env.acme   # optionnel (Let's Encrypt DNS-01)
 #
-# Smoke local (loopback HTTP only) :
-#   docker compose -f docker-compose.yml -f docker-compose.publish.yml up -d
+# Démarrage :
+#   docker compose pull && docker compose up -d
+#
+# Voir README.md dans ce dossier.
 
 name: bastion
 
 services:
   bastion-app-migrate:
-    build:
-      context: .
-      target: migrate
-      args:
-        PYTHON_RUNTIME: ${PYTHON_RUNTIME:-dhi.io/python:3.12-debian13}
-        PYTHON_BUILDER: ${PYTHON_BUILDER:-dhi.io/python:3.12-debian13-dev}
-    image: bastion-app-migrate:local
+    image: ${BASTION_MIGRATE_IMAGE:-vincenttisseront/bastion-pro:migrate}
     user: "0:0"
     command:
       - /bin/sh
@@ -28,12 +25,9 @@ services:
       - |
         set -eu
         mkdir -p /var/lib/sso-portal/exports /var/lib/sso-portal/uploads/app-logos /var/lib/sso-portal/keys /var/lib/sso-portal/nginx-logs /var/lib/sso-portal-files/private/files
-        # Encrypt plaintext portal.db before Alembic/app expect SQLCipher (idempotent).
         python /app/scripts/encrypt_portal_db.py
         alembic upgrade head
-        # HMAC secrets in portal_settings (not .env) — idempotent.
         python -m app.runtime_secrets_service
-        # App/files as DHI nonroot UID 65532; never recurse into pgdata (postgres:16-alpine = UID 70).
         chown -R 65532:65532 /var/lib/sso-portal /var/lib/sso-portal-files
         if [ -d /var/lib/sso-portal/pgdata ]; then
           chown -R 70:70 /var/lib/sso-portal/pgdata
@@ -58,11 +52,6 @@ services:
           - bastion-app-migrate
     restart: "no"
 
-  # Optional hot store (sessions / audit / rate). Config stays on SQLite/SQLCipher.
-  # Configure + migrate from Admin → Général → Configuration → Stockage chaud.
-  # No host ports — vpcbr only. Encrypt the host pgdata volume for at-rest parity.
-  # Password: set HOT_STORE_PG_PASSWORD in .env — bastion-entrypoint.sh re-applies it
-  # on every start via local socket (no prior admin password required).
   postgres:
     image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
     entrypoint: ["/bin/sh", "/bastion-entrypoint.sh"]
@@ -91,13 +80,7 @@ services:
     restart: unless-stopped
 
   bastion-app:
-    build:
-      context: .
-      target: runtime
-      args:
-        PYTHON_RUNTIME: ${PYTHON_RUNTIME:-dhi.io/python:3.12-debian13}
-        PYTHON_BUILDER: ${PYTHON_BUILDER:-dhi.io/python:3.12-debian13-dev}
-    image: bastion-app:local
+    image: ${BASTION_APP_IMAGE:-vincenttisseront/bastion-pro:app}
     env_file:
       - .env
     environment:
@@ -113,7 +96,6 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}:/var/lib/sso-portal
       - ${SSO_PORTAL_FILES_DATA_DIR:-./data/sso-portal-files}:/var/lib/sso-portal-files
-      # Per-app nginx access logs + WAF snapshot / audit aggregator JSON (rw: aggregator writes summaries)
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/lib/sso-portal/nginx-logs
     networks:
       vpcbr:
@@ -141,7 +123,8 @@ services:
   oauth2-proxy-core:
     image: quay.io/oauth2-proxy/oauth2-proxy:${OAUTH2_PROXY_IMAGE_TAG:-v7.7.1}
     env_file:
-      - ${OAUTH2_CORE_ENV_FILE:-.env.oauth2-core}
+      - path: ${OAUTH2_CORE_ENV_FILE:-.env.oauth2-core}
+        required: false
     command:
       - --config=/etc/oauth2-proxy/oauth2-proxy.cfg
     volumes:
@@ -155,10 +138,8 @@ services:
     restart: unless-stopped
 
   nginx:
-    build: ./docker/nginx
-    image: bastion-nginx:local
+    image: ${BASTION_NGINX_IMAGE:-vincenttisseront/bastion-pro:nginx}
     container_name: bastion-nginx
-    # Match worker_rlimit_nofile in docker/nginx/nginx.conf (default Docker soft=1024 → EMFILE).
     ulimits:
       nofile:
         soft: 65535
@@ -170,8 +151,6 @@ services:
     volumes:
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/exports:/var/lib/sso-portal/exports:ro
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/certs:/etc/nginx/ssl:ro
-      # Shared with bastion-app (Admin → Logs → Accès apps).
-      # Also hosts ModSecurity audit: /var/log/nginx/apps/modsec_audit.log
       - ${SSO_PORTAL_DATA_DIR:-./data/sso-portal}/nginx-logs:/var/log/nginx/apps
     networks:
       vpcbr:
@@ -197,7 +176,6 @@ services:
         condition: service_started
     restart: unless-stopped
 
-  # Let's Encrypt DNS-01 (Cloudflare) → certs for nginx :443
   acme-companion:
     image: neilpang/acme.sh:3.1.4@sha256:08bad323dd6537ea2caba64260ef6e70e96057c4d9214afb9c07861db26653d9
     container_name: bastion-acme
@@ -228,16 +206,6 @@ services:
     restart: unless-stopped
 
 networks:
-  # Réseau partagé (IPAM 10.5.0.0/16 — ne pas recréer ; OK sans Traefik)
   vpcbr:
     external: true
     name: vpcbr
-
-# Volumes nommés (alias documentaire §9.3). En pratique les services montent des binds
-# via SSO_PORTAL_DATA_DIR / SSO_PORTAL_FILES_DATA_DIR pour permettre backup hôte Ansible.
-volumes:
-  sso_portal_files_data:
-    name: sso_portal_files_data
-    # Utilisation optionnelle : remplacer le bind files par
-    #   - sso_portal_files_data:/var/lib/sso-portal-files
-    # si un volume Docker nommé est préféré au bind hôte.

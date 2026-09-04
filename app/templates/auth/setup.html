@@ -34,7 +34,7 @@
 
     <form method="post" action="/auth/setup" id="setup-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="rd" value="{{ rd | default('/dashboard') }}">
+      <input type="hidden" name="rd" value="{{ rd | default('/admin/setup-wizard') }}">
       <div class="form-group">
         <label class="form-label" for="username">Utilisateur</label>
         <input

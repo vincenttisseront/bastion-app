@@ -2,13 +2,23 @@
 
 **Bastion applicatif** — portail SSO et reverse-proxy sécurisé pour exposer des applications internes derrière une authentification unique (OIDC), un catalogue d’apps, un vault de credentials et une administration centralisée.
 
-Ce dépôt contient :
+## Déploiement externe (recommandé)
+
+Sans builder depuis les sources : utiliser le pack **`deploy/`** (images Docker Hub uniquement).
+
+→ **[deploy/README.md](deploy/README.md)** — compose global, `.env.example`, guide first-boot.
+
+Images : `vincenttisseront/bastion-pro:{app,migrate,nginx}`.
+
+---
+
+Ce dépôt (développement) contient aussi :
 
 - l’application **FastAPI** (portail, admin, API)
 - le **nginx** Docker (TLS edge, routage Host / sous-domaines)
 - **oauth2-proxy** (sessions OIDC)
 - le sidecar **ACME** (Let’s Encrypt DNS-01)
-- le rôle **Ansible** de déploiement
+- le rôle **Ansible** de déploiement (interne)
 
 ---
 
