@@ -14,8 +14,8 @@ clients → edge TLS
 
 | `bastion_deploy_mode` | Comportement |
 |-----------------------|--------------|
-| **`hub`** (défaut) | Identique à `deploy/` : pull `bastion-pro-{app,migrate,nginx}`, **pas de build** |
-| **`source`** | Legacy : tar sources + `docker compose build` (DHI) |
+| **`hub`** (défaut) | Chemin **court** (`deploy_hub.yml`) : copie `deploy/` + scripts, `compose pull` + `up`, un apply-infra, smoke nginx. **Pas** de tar, build, retag `:local`, ni VERIFY image archaeology |
+| **`source`** | Legacy (`deploy_source.yml`) : tar sources + `docker compose build` (DHI) + VERIFY historiques |
 
 Extra-vars Hub :
 
@@ -31,6 +31,8 @@ Images :
 - `vincenttisseront/bastion-pro-app`
 - `vincenttisseront/bastion-pro-migrate`
 - `vincenttisseront/bastion-pro-nginx`
+
+`--tags docker` = chemin Hub court uniquement. Le play SMOKE est **séparé** (`--tags smoke`) — ne plus le coller au tag `docker`.
 
 | Rôle | Host | IP / chemin |
 |------|------|-------------|
@@ -68,7 +70,7 @@ bash scripts/smoke-docker-local.sh
 
 ### Cutover edge (flag)
 
-1. Déployer docker (`--tags docker`) avec rebuild nginx (`default_server` + infra proxies).
+1. Déployer docker (`--tags docker`) — Hub pull (pas de rebuild nginx sur l’hôte).
 2. Catch-all Traefik → bastion-nginx (découverte Domaines) — **automatique** au deploy :
    - labels `bastion-catchall` sur `bastion-nginx` (compose)
    - fichier `/tools/keycloak/traefik-config/bastion-catchall.yml` (rôle, tag `discovery`)

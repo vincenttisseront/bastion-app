@@ -12,6 +12,7 @@
 #
 # Tags :
 #   --tags docker | edge | smoke | preflight | validate_purge | modsec_wazuh
+#   docker = Hub pull path only (smoke is NOT included — use --tags smoke separately)
 #
 # Extra-vars :
 #   bastion_edge_catchall_enabled: true   # cutover edge sur reverse01
@@ -50,7 +51,6 @@
   tags:
     - smoke
     - smoke_test
-    - docker
   tasks:
     - name: Run bastion Docker smoke
       ansible.builtin.include_role:
