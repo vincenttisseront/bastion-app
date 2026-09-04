@@ -1,20 +1,16 @@
 ---
 # Deploy bastion Docker stack
 #
-# hub (default)  → deploy_hub.yml   : pull Hub images + thin deploy/ pack
-# source         → deploy_source.yml: tar full tree + compose build (legacy / DHI)
+# hub (default)  → deploy_hub.yml   : deploy/ + compose pull/up
+# source         → deploy_source.yml: tar + build (legacy)
+#
+# Discovery / Traefik catch-all smoke is NOT part of deploy — use --tags smoke
+# or include traefik_catchall.yml explicitly.
 
-- name: "Deploy via Docker Hub (fast path)"
+- name: "Deploy via Docker Hub (compose)"
   ansible.builtin.include_tasks: deploy_hub.yml
   when: (bastion_deploy_mode | default('hub')) == 'hub'
 
 - name: "Deploy from source (build)"
   ansible.builtin.include_tasks: deploy_source.yml
   when: (bastion_deploy_mode | default('hub')) == 'source'
-
-# Traefik catch-all → bastion-nginx (unknown Host → Domaines découverts)
-- name: "Install Traefik catch-all for Host discovery"
-  ansible.builtin.import_tasks: traefik_catchall.yml
-  tags:
-    - traefik
-    - discovery
