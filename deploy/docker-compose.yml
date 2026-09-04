@@ -1,21 +1,11 @@
-# Bastion Pro — déploiement (images Docker Hub uniquement)
+# Bastion Pro — déploiement (images Docker Hub publiques)
 #
-# Aucun build depuis les sources. Repos :
-#   vincenttisseront/bastion-pro-app
-#   vincenttisseront/bastion-pro-migrate
-#   vincenttisseront/bastion-pro-nginx
-# (tags : latest | <gitsha> — alias legacy aussi sur vincenttisseront/bastion-pro:{app,migrate,nginx})
-#
-# Prérequis :
-#   docker network create --subnet=10.5.0.0/16 vpcbr
-#   cp .env.example .env   # puis renseigner les secrets
-#   cp .env.acme.example .env.acme   # optionnel (Let's Encrypt DNS-01)
-#   docker login   # si les repos sont privés
-#
-# Démarrage :
+#   cp .env.example .env
+#   docker network create --subnet=10.5.0.0/16 vpcbr 2>/dev/null || true
 #   docker compose pull && docker compose up -d
 #
-# Voir README.md dans ce dossier.
+# Images : vincenttisseront/bastion-pro-{app,migrate,nginx}
+# Voir README.md
 
 name: bastion
 

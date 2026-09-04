@@ -1,39 +1,8 @@
 ---
-# Bastion Docker + edge DMZ — entry point AWX Project = bastion-app
-#
-# Job Template AWX :
-#   Project    = bastion-app
-#   Playbook   = ansible/linux_sso_portal_docker.yml
-#   Inventaire = inventaire AWX (celui que tu utilises déjà)
-#   Limit      = hôte choisi dans AWX (ex. vmdmz-docker01 ou vmdmz-reverse01)
-#
-# Par défaut hosts: all — le Limit AWX restreint le play à l'hôte sélectionné.
-# Pas besoin des groupes sso_portal_docker / nginx_dmz (optionnels).
-#
-# Tags :
-#   --tags docker | edge | smoke | preflight | validate_purge | modsec_wazuh
-#   docker = Hub pull path only (smoke is NOT included — use --tags smoke separately)
-#
-# Extra-vars :
-#   bastion_edge_catchall_enabled: true   # cutover edge sur reverse01
-#   bastion_docker_play_hosts / bastion_edge_play_hosts  # override si besoin
-#     (défaut: all — laisser AWX Limit faire le filtre)
-#   modsec_wazuh_normalizer_enabled: true  # host normalizer ModSec→Wazuh (docker01)
-- name: "PREFLIGHT Docker stack"
-  hosts: "{{ bastion_docker_play_hosts | default('all') }}"
-  become: true
-  gather_facts: true
-  tags:
-    - preflight
-    - docker
-  tasks:
-    - name: Run bastion Docker preflight
-      ansible.builtin.include_role:
-        name: bastion_app_docker
-        tasks_from: preflight.yml
-      when: bastion_app_docker_enabled | default(true) | bool
+# Optional AWX entry — production deploy is deploy/docker-compose.yml (public images).
+# Tags: docker | edge | smoke | preflight | validate_purge | modsec_wazuh
 
-- name: "Deploy bastion Docker stack"
+- name: "Deploy bastion (docker compose)"
   hosts: "{{ bastion_docker_play_hosts | default('all') }}"
   become: true
   gather_facts: true
@@ -42,6 +11,19 @@
     - deploy
   roles:
     - role: bastion_app_docker
+      when: bastion_app_docker_enabled | default(true) | bool
+
+- name: "PREFLIGHT Docker stack"
+  hosts: "{{ bastion_docker_play_hosts | default('all') }}"
+  become: true
+  gather_facts: true
+  tags:
+    - preflight
+  tasks:
+    - name: Run bastion Docker preflight
+      ansible.builtin.include_role:
+        name: bastion_app_docker
+        tasks_from: preflight.yml
       when: bastion_app_docker_enabled | default(true) | bool
 
 - name: "SMOKE Docker stack"
@@ -64,7 +46,6 @@
   gather_facts: false
   tags:
     - validate_purge
-    - smoke
   tasks:
     - name: Run validate_purge_units
       ansible.builtin.include_role:
@@ -78,7 +59,6 @@
   gather_facts: true
   tags:
     - edge
-    - deploy
   roles:
     - role: bastion_edge_dmz
       when: bastion_edge_catchall_enabled | default(false) | bool
@@ -89,7 +69,6 @@
   gather_facts: false
   tags:
     - smoke
-    - smoke_test
     - edge
   tasks:
     - name: Run edge catch-all smoke
@@ -107,4 +86,4 @@
     - wazuh
   roles:
     - role: modsec_wazuh_normalizer
-      when: modsec_wazuh_normalizer_enabled | default(true) | bool
+      when: modsec_wazuh_normalizer_enabled | default(false) | bool
