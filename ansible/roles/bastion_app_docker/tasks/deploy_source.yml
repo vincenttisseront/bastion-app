@@ -424,7 +424,7 @@
     - (vault_dhi_registry_token | default('') | length) > 0
   changed_when: true
 
-- name: "Docker login Docker Hub (private bastion-pro-* images)"
+- name: "Docker login Docker Hub (optional — images are public by default)"
   ansible.builtin.shell: |
     set -euo pipefail
     printf '%s' "{{ vault_dockerhub_token }}" | docker login \
@@ -434,8 +434,7 @@
     executable: /bin/bash
   no_log: true
   when:
-    - (bastion_deploy_mode | default('hub')) == 'hub'
-    - bastion_hub_login | default(true) | bool
+    - bastion_hub_login | default(false) | bool
     - (vault_dockerhub_token | default('') | length) > 0
     - (vault_dockerhub_username | default('') | length) > 0
   changed_when: true
