@@ -145,8 +145,20 @@ def verify_breakglass_password(db: Session, username: str, plain_password: str) 
     if account:
         ok = _check_bcrypt_hash(account.hashed_password, plain_password)
         if ok:
-            account.last_used_at = datetime.now(timezone.utc)
-            db.commit()
+            # Metadata only — never turn a valid password into a 500 (hot-store
+            # RoutingSession poison / SQLite lock / datetime binding).
+            try:
+                account.last_used_at = datetime.now(timezone.utc)
+                db.commit()
+            except SQLAlchemyError:
+                logger.exception(
+                    "breakglass: last_used_at stamp failed user=%s — login continues",
+                    username,
+                )
+                try:
+                    db.rollback()
+                except SQLAlchemyError:
+                    logger.exception("breakglass: rollback after last_used_at failure")
         return ok
 
     if username == LEGACY_BREAKGLASS_USERNAME:
