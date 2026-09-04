@@ -14,6 +14,10 @@ bastion_traefik_network=vpcbr
 bastion_edge_host_ip=172.24.0.108
 bastion_app_docker_compose_dir=/tools/portal
 bastion_app_docker_data_dir=/tools/portal/data
+# Requis — sinon les defaults publics (portal.example.com) cassent les cookies SSO
+portal_domain=portal.ar-systems.fr
+base_domain=ar-systems.fr
+sso_portal_default_realm_slug=ar-systems
 
 # Alias historique AWX (même hôte que sso_portal_edge)
 [nginx_dmz:children]

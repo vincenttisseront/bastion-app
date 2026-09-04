@@ -56,7 +56,7 @@
   <div class="rbac-overview-grid">
     <a class="rbac-overview-card" href="/admin/rbac/users">
       <p class="rbac-overview-card-title">Utilisateurs</p>
-      <p class="rbac-overview-card-sub">Créés bastion, droits individuels, recherche Keycloak live. Accès effectifs sur chaque fiche.</p>
+      <p class="rbac-overview-card-sub">Créés bastion, SSO avec accès, recherche Keycloak live. Accès effectifs sur chaque fiche.</p>
     </a>
     <a class="rbac-overview-card" href="/admin/rbac">
       <p class="rbac-overview-card-title">Groupes</p>
@@ -87,14 +87,14 @@
   <details class="rbac-help" style="margin-top:var(--sp-3);">
     <summary>Comment lire les accès ?</summary>
     <p style="margin:0 0 var(--sp-2);">
-      Un utilisateur peut avoir des <strong>droits individuels</strong>, des droits
+      Un utilisateur peut avoir des <strong>droits directs</strong>, des droits
       <strong>hérités de ses groupes</strong>, et un <strong>compte partagé</strong>
       Crush/robotic (priorité + exclusions) pour certaines apps.
       La réponse consolidée est sur la fiche utilisateur → onglet <strong>Droits</strong> (Accès effectifs).
     </p>
     <div class="rbac-help-example">
-      Exemple : Brigitte est dans ARSYSTEMS-Users (pas de droit individuel) → elle n'apparaît pas
-      dans « Droits individuels », mais la recherche live Keycloak et la fiche groupe → Membres la montrent.
+      Exemple : Brigitte est dans ARSYSTEMS-Users (pas de droit individuel) → elle apparaît
+      dans « SSO avec accès » via son groupe, et aussi via la recherche live Keycloak / fiche groupe → Membres.
     </div>
   </details>
 </div>

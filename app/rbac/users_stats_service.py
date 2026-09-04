@@ -382,7 +382,11 @@ def enrich_granted_users(
                 # Grant-only list has no Keycloak enabled=false — skip filter
                 continue
         if group_filter:
-            # V1: no group membership on grant rows — keep all
-            pass
+            needle = group_filter.strip().casefold()
+            via = [str(g).casefold() for g in (u.get("via_groups") or [])]
+            # Match membership labels; grant-only rows without via_groups stay
+            # visible unless a via_groups list exists and misses the filter.
+            if via and not any(needle in g or g in needle for g in via):
+                continue
         out.append(entry)
     return out

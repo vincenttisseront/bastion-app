@@ -28,7 +28,7 @@ from app.rbac.grants_service import (
     is_portal_admin_system_grant,
     is_self_portal_admin_grant,
     list_grants,
-    list_users_with_direct_grants,
+    list_sso_users_with_access,
     serialize_grant,
     serialize_member,
     serialize_user_search_result,
@@ -601,7 +601,11 @@ async def admin_rbac_users_page(
     search_q = (q or "").strip()
 
     apps = db.query(App).filter_by(enabled=True).order_by(App.label).all()
-    granted_users = list_users_with_direct_grants(db)
+    granted_users = await list_sso_users_with_access(
+        db,
+        settings,
+        realm_id=selected_realm.id if selected_realm is not None else None,
+    )
     enriched_users = enrich_granted_users(
         db, granted_users, group_filter=group, status_filter=status
     )

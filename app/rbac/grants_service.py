@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections import defaultdict
 from typing import Any
 
@@ -11,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.models import AccessGrant, App, FileResource, RBACGroup, RealmConfig
 from app.rbac.keycloak_admin import fetch_group_members, fetch_user_groups
+
+logger = logging.getLogger(__name__)
 
 SUBJECT_TYPES = frozenset({"group", "user"})
 RESOURCE_TYPES = frozenset({"application", "system_role", "rbac_role", "file", "folder"})
@@ -219,7 +223,8 @@ def list_grants(
 def list_users_with_direct_grants(db: Session) -> list[dict[str, Any]]:
     """Distinct SSO users that already have at least one individual AccessGrant.
 
-    Used as the default list on /admin/rbac/users (no full Keycloak directory sync).
+    Prefer ``list_sso_users_with_access`` on /admin/rbac/users — this helper
+    only covers direct (subject_type=user) grants, not group inheritance.
     """
     rows = (
         db.query(AccessGrant)
@@ -243,14 +248,159 @@ def list_users_with_direct_grants(db: Session) -> list[dict[str, Any]]:
                     grant.resource_type == "system_role"
                     and grant.system_role == "portal_admin"
                 ),
+                "access_via": ["direct"],
+                "via_groups": [],
+                "direct_grant_count": 1,
             }
         else:
             entry["grant_count"] += 1
+            entry["direct_grant_count"] = entry.get("direct_grant_count", 0) + 1
             if grant.resource_type == "system_role" and grant.system_role == "portal_admin":
                 entry["has_portal_admin"] = True
             if (not entry.get("display") or entry["display"] == uid) and grant.user_display_cache:
                 entry["display"] = grant.user_display_cache
     return sorted(by_user.values(), key=lambda u: (u["display"] or "").lower())
+
+
+def _member_display(member: dict[str, Any]) -> str:
+    return (
+        str(member.get("username") or "").strip()
+        or str(member.get("email") or "").strip()
+        or str(member.get("id") or "").strip()
+        or "?"
+    )
+
+
+async def list_sso_users_with_access(
+    db: Session,
+    settings,
+    *,
+    realm_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """SSO identities that have at least one access path.
+
+    Union of:
+    - users with a direct AccessGrant (subject_type=user)
+    - members of Keycloak groups that hold at least one AccessGrant
+
+    Does not sync the full IdP directory — only identities reachable via grants.
+    """
+    by_user: dict[str, dict[str, Any]] = {
+        u["keycloak_user_id"]: dict(u) for u in list_users_with_direct_grants(db)
+    }
+
+    group_id_rows = (
+        db.query(AccessGrant.rbac_group_id)
+        .filter(
+            AccessGrant.subject_type == "group",
+            AccessGrant.rbac_group_id.is_not(None),
+        )
+        .distinct()
+        .all()
+    )
+    gids = [int(row[0]) for row in group_id_rows if row[0] is not None]
+    if not gids:
+        return sorted(by_user.values(), key=lambda u: (u.get("display") or "").lower())
+
+    groups_q = db.query(RBACGroup).filter(RBACGroup.id.in_(gids))
+    if realm_id is not None:
+        groups_q = groups_q.filter(RBACGroup.realm_id == realm_id)
+    groups = [
+        g
+        for g in groups_q.all()
+        if g.keycloak_group_id and g.realm_id is not None
+    ]
+    if not groups:
+        return sorted(by_user.values(), key=lambda u: (u.get("display") or "").lower())
+
+    realms_by_id: dict[int, RealmConfig] = {}
+    for rid in {int(g.realm_id) for g in groups if g.realm_id is not None}:
+        realm = db.query(RealmConfig).filter_by(id=rid).first()
+        if realm is not None:
+            realms_by_id[rid] = realm
+
+    async def _fetch(group: RBACGroup) -> tuple[RBACGroup, list[dict] | Exception]:
+        realm = realms_by_id.get(int(group.realm_id)) if group.realm_id else None
+        if realm is None or not realm.groups_sync_enabled:
+            return group, []
+        try:
+            members = await fetch_group_members(
+                realm, str(group.keycloak_group_id), settings
+            )
+            return group, members
+        except Exception as exc:  # noqa: BLE001 — keep list usable if one group fails
+            logger.warning(
+                "list_sso_users_with_access: members failed for group %s: %s",
+                group.name,
+                exc,
+            )
+            return group, exc
+
+    results = await asyncio.gather(*[_fetch(g) for g in groups])
+
+    for group, payload in results:
+        if isinstance(payload, Exception) or not payload:
+            continue
+        members = payload
+        try:
+            group.member_count = len(members)
+        except Exception:
+            pass
+        label = group.name or f"groupe:{group.id}"
+        for member in members:
+            mid = str(member.get("id") or "").strip()
+            if not mid:
+                continue
+            display = _member_display(member)
+            entry = by_user.get(mid)
+            if entry is None:
+                by_user[mid] = {
+                    "keycloak_user_id": mid,
+                    "display": display,
+                    "grant_count": 0,
+                    "direct_grant_count": 0,
+                    "has_portal_admin": False,
+                    "access_via": ["group"],
+                    "via_groups": [label],
+                }
+            else:
+                via = entry.setdefault("via_groups", [])
+                if label not in via:
+                    via.append(label)
+                access_via = entry.setdefault("access_via", [])
+                if "group" not in access_via:
+                    access_via.append("group")
+                if (not entry.get("display") or entry["display"] == mid) and display != mid:
+                    entry["display"] = display
+
+    # Portal-admin via group grant: mark privileged when group has portal_admin.
+    admin_group_ids = {
+        int(row[0])
+        for row in (
+            db.query(AccessGrant.rbac_group_id)
+            .filter(
+                AccessGrant.subject_type == "group",
+                AccessGrant.resource_type == "system_role",
+                AccessGrant.system_role == "portal_admin",
+                AccessGrant.rbac_group_id.is_not(None),
+            )
+            .all()
+        )
+        if row[0] is not None
+    }
+    if admin_group_ids:
+        admin_names = {
+            g.name
+            for g in db.query(RBACGroup).filter(RBACGroup.id.in_(admin_group_ids)).all()
+            if g.name
+        }
+        for entry in by_user.values():
+            if entry.get("has_portal_admin"):
+                continue
+            if admin_names.intersection(entry.get("via_groups") or []):
+                entry["has_portal_admin"] = True
+
+    return sorted(by_user.values(), key=lambda u: (u.get("display") or "").lower())
 
 
 def count_grants_by_application(db: Session) -> dict[int, int]:
