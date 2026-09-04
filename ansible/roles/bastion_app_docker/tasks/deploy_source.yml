@@ -1,0 +1,1213 @@
+---
+# Legacy / DHI path — only when bastion_deploy_mode=source.
+# Builds images on the host from a full source tarball.
+# For production Hub pulls, see deploy_hub.yml (default).
+
+- name: "Ensure compose and data directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0755"
+  loop:
+    - "{{ bastion_app_docker_compose_dir }}"
+    - "{{ bastion_app_docker_data_dir }}"
+    - "{{ bastion_app_docker_files_data_dir }}"
+    - "{{ sso_portal_files_storage_dir }}"
+    - "{{ sso_portal_exports_dir }}"
+    - "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
+    - "{{ bastion_app_docker_data_dir }}/certs"
+    - "{{ bastion_app_docker_data_dir }}/acme"
+    - "{{ sso_portal_nginx_logs_dir }}"
+
+# AWX Project=awx-playbook → ne contient pas le code app.
+# Si le playbook wrapper a déjà cloné bastion-app (bastion_app_root), on NE reclône PAS
+# (sinon git HTTPS sans PAT hang sur dépôt privé).
+- name: "Decide whether to fetch bastion-app on controller"
+  ansible.builtin.stat:
+    path: "{{ bastion_app_root }}/{{ 'deploy/docker-compose.yml' if (bastion_deploy_mode | default('hub')) == 'hub' else 'Dockerfile' }}"
+  register: _bastion_root_dockerfile
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: "Fetch bastion-app source on controller (git)"
+  when:
+    - bastion_app_docker_fetch_git | default(true) | bool
+    - not (_bastion_root_dockerfile.stat.exists | default(false))
+  block:
+    - name: "Ensure controller cache dir for bastion-app checkout"
+      ansible.builtin.file:
+        path: "{{ playbook_dir }}/.cache"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+    - name: "Fail if private git fetch has no token/URL with credentials"
+      ansible.builtin.assert:
+        that:
+          - >-
+            ('@github.com' in (bastion_app_git_repo | default('')))
+            or (bastion_app_git_repo | default('') | regex_search('https://[^:]+:[^@]+@'))
+            or ((vault_bastion_app_github_token | default(bastion_app_github_token | default(''))) | length > 0)
+        fail_msg: >-
+          Clone bastion-app requis mais dépôt privé sans credentials.
+          Passe bastion_app_docker_fetch_git=false + bastion_app_root=<checkout>,
+          ou vault_bastion_app_github_token / URL authentifiée.
+
+    - name: "Build authenticated bastion-app git URL"
+      ansible.builtin.set_fact:
+        _bastion_fetch_repo: >-
+          {{
+            bastion_app_git_repo
+            if ('@github.com' in (bastion_app_git_repo | default(''))
+                or (bastion_app_git_repo | default('') | regex_search('https://[^:]+:[^@]+@')))
+            else (
+              ('https://' ~ (vault_bastion_app_github_token | default(bastion_app_github_token))
+               ~ '@github.com/vincenttisseront/bastion-app.git')
+              if ((vault_bastion_app_github_token | default(bastion_app_github_token | default(''))) | length > 0)
+              else bastion_app_git_repo
+            )
+          }}
+
+    - name: "Clone/update bastion-app @ {{ bastion_app_git_ref }}"
+      ansible.builtin.git:
+        repo: "{{ _bastion_fetch_repo }}"
+        dest: "{{ playbook_dir }}/.cache/bastion-app-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+        version: "{{ bastion_app_git_ref }}"
+        force: true
+        depth: 1
+        update: true
+      environment:
+        GIT_TERMINAL_PROMPT: "0"
+        GIT_ASKPASS: "/bin/echo"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      register: _bastion_git
+      no_log: "{{ (_bastion_fetch_repo | default('')) is search('@github.com') }}"
+
+    - name: "Point bastion_app_root at fetched checkout"
+      ansible.builtin.set_fact:
+        bastion_app_root: "{{ playbook_dir }}/.cache/bastion-app-{{ bastion_app_git_ref | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+
+    - name: "Log fetched bastion-app revision"
+      ansible.builtin.debug:
+        msg: >-
+          bastion_app_root={{ bastion_app_root }}
+          ref={{ bastion_app_git_ref }}
+          after={{ _bastion_git.after | default('n/a') }}
+
+- name: "Reuse existing bastion_app_root (skip git fetch)"
+  ansible.builtin.debug:
+    msg: "Reuse bastion_app_root={{ bastion_app_root }} (sources présentes — pas de second clone)"
+  when: _bastion_root_dockerfile.stat.exists | default(false)
+  run_once: true
+
+- name: "Assert bastion_app_root has deploy pack (hub) or full sources (source)"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ _bastion_required_paths }}"
+  vars:
+    _bastion_required_paths: >-
+      {{
+        [
+          bastion_app_root ~ '/deploy/docker-compose.yml',
+          bastion_app_root ~ '/deploy/docker/acme/entrypoint-acme.sh',
+          bastion_app_root ~ '/scripts/apply-infra-docker.sh',
+        ]
+        if (bastion_deploy_mode | default('hub')) == 'hub'
+        else
+        [
+          bastion_app_root ~ '/Dockerfile',
+          bastion_app_root ~ '/app',
+          bastion_app_root ~ '/docker/nginx/templates/vhost_sso_portal.conf.template',
+        ]
+      }}
+  register: _bastion_src_stat
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: "Fail if bastion_app_root sources incomplete"
+  ansible.builtin.assert:
+    that:
+      - _bastion_src_stat.results | map(attribute='stat.exists') | list | min
+    fail_msg: >-
+      Sources incompletes sous bastion_app_root={{ bastion_app_root }}
+      (mode={{ bastion_deploy_mode | default('hub') }}).
+  run_once: true
+
+# synchronize/rsync hangs on AWX EE (SSH password) — tar + copy + unarchive.
+- name: "Stage bastion Docker tarball on controller (hub = deploy pack)"
+  when: (bastion_deploy_mode | default('hub')) == 'hub'
+  ansible.builtin.shell: |
+    set -euo pipefail
+    stamp="{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+    work="{{ playbook_dir }}/.cache/bastion-docker-${stamp}"
+    rm -rf "${work}" "${work}.tar.gz"
+    mkdir -p "${work}"
+    root="{{ bastion_app_root }}"
+    test -f "${root}/deploy/docker-compose.yml"
+    # Pack = same surface as external deploy/ + apply-infra scripts
+    cp -a "${root}/deploy/docker-compose.yml" "${work}/docker-compose.yml"
+    for f in .env.example .env.acme.example README.md ANONYMIZATION.md .gitignore; do
+      if [ -f "${root}/deploy/${f}" ]; then
+        cp -a "${root}/deploy/${f}" "${work}/"
+      fi
+    done
+    cp -a "${root}/deploy/docker" "${work}/docker"
+    mkdir -p "${work}/data/sso-portal" "${work}/data/sso-portal-files/private/files" "${work}/scripts"
+    cp -a "${root}/scripts/apply-infra-docker.sh" "${work}/scripts/"
+    cp -a "${root}/scripts/apply-infra-docker-dispatch.sh" "${work}/scripts/" 2>/dev/null || true
+    cp -a "${root}/scripts/oauth2-cookie-secret.sh" "${work}/scripts/" 2>/dev/null || true
+    tar -C "${work}" -czf "${work}.tar.gz" .
+    rm -rf "${work}"
+    test -s "${work}.tar.gz"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: "Stage bastion Docker tarball on controller (source = full tree)"
+  when: (bastion_deploy_mode | default('hub')) == 'source'
+  ansible.builtin.shell: |
+    set -euo pipefail
+    stamp="{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+    work="{{ playbook_dir }}/.cache/bastion-docker-${stamp}"
+    rm -rf "${work}" "${work}.tar.gz"
+    mkdir -p "${work}"
+    root="{{ bastion_app_root }}"
+    test -f "${root}/Dockerfile"
+    test -d "${root}/app"
+    if ! grep -q 'get_core_realm_for_oauth2_export' "${root}/app/admin/infrastructure.py" 2>/dev/null; then
+      echo "REFUS: ${root}/app/admin/infrastructure.py sans get_core_realm_for_oauth2_export" >&2
+      exit 1
+    fi
+    for d in app migrations scripts docker nginx; do
+      if [ -d "${root}/${d}" ]; then
+        cp -a "${root}/${d}" "${work}/"
+      fi
+    done
+    for f in Dockerfile docker-compose.yml docker-compose.publish.yml pyproject.toml \
+      alembic.ini README.md package.json package-lock.json .dockerignore; do
+      if [ -f "${root}/${f}" ]; then
+        cp -a "${root}/${f}" "${work}/"
+      fi
+    done
+    test -f "${work}/pyproject.toml"
+    test -f "${work}/package.json"
+    test -f "${work}/package-lock.json"
+    rm -rf "${work}/.git" "${work}/.venv" "${work}/node_modules" "${work}/data" \
+      "${work}/docker/oauth2-core/oauth2-proxy.cfg" 2>/dev/null || true
+    tar -C "${work}" -czf "${work}.tar.gz" .
+    rm -rf "${work}"
+    test -s "${work}.tar.gz"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: "Upload Docker tarball to docker01"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/.cache/bastion-docker-{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+    dest: "/tmp/bastion-docker-{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+    mode: "0644"
+
+- name: "Extract Docker stack into /tools/portal"
+  ansible.builtin.unarchive:
+    src: "/tmp/bastion-docker-{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+    dest: "{{ bastion_app_docker_compose_dir }}"
+    remote_src: true
+
+- name: "Remove temporary Docker tarball on server"
+  ansible.builtin.file:
+    path: "/tmp/bastion-docker-{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}.tar.gz"
+    state: absent
+
+- name: "Render portal .env (no_log)"
+  ansible.builtin.template:
+    src: portal.env.j2
+    dest: "{{ sso_portal_env_path }}"
+    mode: "0600"
+  no_log: true
+
+- name: "Render bastion-nginx infra proxy vhosts (Keycloak / Grafana / …)"
+  ansible.builtin.template:
+    src: nginx-infra-proxy-apps.conf.j2
+    dest: "{{ sso_portal_exports_dir }}/nginx-infra-proxy-apps.conf"
+    mode: "0644"
+
+- name: "Export infra FQDNs for ACME (Keycloak TLS after Traefik cut)"
+  ansible.builtin.copy:
+    dest: "{{ sso_portal_exports_dir }}/infra-acme-domains.json"
+    mode: "0644"
+    content: "{{ _infra_acme | to_nice_json }}\n"
+  vars:
+    _infra_acme: >-
+      {{
+        bastion_infra_proxy_vhosts
+        | rejectattr('enabled', 'equalto', false)
+        | map('combine', {'family': 'infra'})
+        | list
+      }}
+
+- name: "Ensure oauth2-core cfg from example if missing"
+  ansible.builtin.copy:
+    src: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg.example"
+    dest: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    remote_src: true
+    # 0644 : l'image quay.io/oauth2-proxy tourne en non-root (uid ~2000).
+    # 0640 root:root → permission denied en boucle au démarrage.
+    mode: "0644"
+    force: false
+
+- name: "Ensure oauth2-core cfg readable by container user"
+  ansible.builtin.file:
+    path: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
+    state: directory
+    mode: "0755"
+    recurse: false
+
+- name: "Ensure oauth2-proxy.cfg mode for non-root container"
+  ansible.builtin.file:
+    path: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    mode: "0644"
+    state: file
+  failed_when: false
+
+# Keycloak PKCE : sans code_challenge_method → callback invalid_request
+# (Missing parameter: code_challenge_method). Idempotent sur cfg déjà présent.
+- name: "Ensure oauth2-proxy PKCE code_challenge_method=S256"
+  ansible.builtin.lineinfile:
+    path: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
+    regexp: '^\s*code_challenge_method\s*='
+    line: 'code_challenge_method = "S256"'
+    insertafter: '^\s*cookie_secret\s*='
+    mode: "0644"
+
+# cookie_secret AES : 16/24/32 octets. Placeholder ou longueur invalide → régénérer.
+# (logique dans scripts/oauth2-cookie-secret.sh — évite quoting Jinja2 dans Ansible)
+- name: "Ensure oauth2-proxy cookie_secret is AES-valid (16/24/32 bytes)"
+  ansible.builtin.command:
+    cmd: >-
+      bash {{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh
+      ensure-cfg
+      {{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg
+  register: _oauth2_cookie_secret
+  changed_when: "'regenerated' in (_oauth2_cookie_secret.stdout | default(''))"
+
+- name: "Ensure empty oauth2-core env file"
+  ansible.builtin.copy:
+    content: "# oauth2-core env (optional)\n"
+    dest: "{{ bastion_app_docker_compose_dir }}/.env.oauth2-core"
+    mode: "0600"
+    force: false
+
+- name: "Ensure ACME env file (.env.acme) exists"
+  ansible.builtin.copy:
+    content: |
+      # Cloudflare DNS-01 for bastion-acme (public_proxy). Fill CF_Token / CF_Zone_ID.
+      # See .env.acme.example in the bastion-app repo.
+    dest: "{{ bastion_app_docker_compose_dir }}/.env.acme"
+    mode: "0600"
+    force: false
+
+- name: "Ensure exports stub for nginx realms"
+  ansible.builtin.copy:
+    content: "# secondary realms — generated by apply-infra\n"
+    dest: "{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
+    mode: "0644"
+    force: false
+
+- name: "Ensure exports stub for nginx known-hosts map"
+  ansible.builtin.copy:
+    content: |
+      # stub — overwritten by export_app_catalogue_files / infrastructure apply
+      127.0.0.1 0;
+      localhost 0;
+      {{ portal_domain }} 0;
+    dest: "{{ sso_portal_exports_dir }}/nginx-known-hosts.map"
+    mode: "0644"
+    force: true
+
+- name: "Make apply-infra-docker executable"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: "0755"
+  loop:
+    - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh"
+    - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker-dispatch.sh"
+    - "{{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh"
+
+- name: "Ensure apply-infra request file exists (Admin UI signal)"
+  ansible.builtin.file:
+    path: "{{ bastion_app_docker_data_dir }}/apply-infra.request"
+    state: touch
+    mode: "0644"
+    modification_time: preserve
+    access_time: preserve
+
+- name: "Install bastion apply-infra systemd units"
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - src: bastion-apply-infra.service.j2
+      dest: bastion-apply-infra.service
+    - src: bastion-apply-infra.path.j2
+      dest: bastion-apply-infra.path
+  register: _bastion_apply_infra_units
+
+- name: "Enable bastion apply-infra path watcher"
+  ansible.builtin.systemd:
+    name: bastion-apply-infra.path
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: "Inspect Traefik network vpcbr (CLI — no community.docker required)"
+  ansible.builtin.command: docker network inspect {{ bastion_traefik_network }}
+  register: _vpcbr
+  changed_when: false
+  failed_when: false
+
+- name: "Fail if vpcbr missing (shared Docker network)"
+  ansible.builtin.fail:
+    msg: >-
+      Réseau Docker {{ bastion_traefik_network }} introuvable.
+      Il doit déjà exister (IPAM 10.5.0.0/16), historiquement créé avec la stack Keycloak.
+  when: _vpcbr.rc | default(1) != 0
+
+- name: "PREFLIGHT : vpcbr subnet is 10.5.0.0/16"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker network inspect {{ bastion_traefik_network }} \
+      --format '{% raw %}{{range .IPAM.Config}}{{.Subnet}}{{end}}{% endraw %}'
+  args:
+    executable: /bin/bash
+  register: _vpcbr_subnet
+  changed_when: false
+  failed_when: >-
+    (_vpcbr_subnet.stdout | trim) != "10.5.0.0/16"
+
+- name: "PREFLIGHT : Traefik container attached to vpcbr"
+  ansible.builtin.shell: |
+    set -o pipefail
+    docker network inspect {{ bastion_traefik_network }} --format '{% raw %}{{json .Containers}}{% endraw %}' \
+      | grep -qi traefik
+  args:
+    executable: /bin/bash
+  register: _traefik_on_vpcbr
+  changed_when: false
+  failed_when: _traefik_on_vpcbr.rc != 0
+  when: bastion_require_traefik | default(false) | bool
+
+- name: "Docker login dhi.io (Hardened Images) — mode source only"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    printf '%s' "{{ vault_dhi_registry_token }}" | docker login dhi.io \
+      --username "{{ vault_dhi_registry_username }}" \
+      --password-stdin
+  args:
+    executable: /bin/bash
+  no_log: true
+  when:
+    - (bastion_deploy_mode | default('hub')) == 'source'
+    - bastion_app_use_dhi | default(true) | bool
+    - (vault_dhi_registry_token | default('') | length) > 0
+  changed_when: true
+
+- name: "Docker login Docker Hub (private bastion-pro-* images)"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    printf '%s' "{{ vault_dockerhub_token }}" | docker login \
+      --username "{{ vault_dockerhub_username }}" \
+      --password-stdin
+  args:
+    executable: /bin/bash
+  no_log: true
+  when:
+    - (bastion_deploy_mode | default('hub')) == 'hub'
+    - bastion_hub_login | default(true) | bool
+    - (vault_dockerhub_token | default('') | length) > 0
+    - (vault_dockerhub_username | default('') | length) > 0
+  changed_when: true
+
+- name: "Docker compose pull Hub images (mode hub)"
+  ansible.builtin.command:
+    cmd: docker compose pull bastion-app bastion-app-migrate nginx
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    BASTION_APP_IMAGE: "{{ bastion_app_image }}"
+    BASTION_MIGRATE_IMAGE: "{{ bastion_migrate_image }}"
+    BASTION_NGINX_IMAGE: "{{ bastion_nginx_image }}"
+    OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
+  when: (bastion_deploy_mode | default('hub')) == 'hub'
+  register: _compose_pull
+  changed_when: true
+
+- name: "Retag Hub images as :local for smoke compatibility"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker tag "{{ bastion_app_image }}" bastion-app:local
+    docker tag "{{ bastion_migrate_image }}" bastion-app-migrate:local
+    docker tag "{{ bastion_nginx_image }}" bastion-nginx:local
+  args:
+    executable: /bin/bash
+  when:
+    - (bastion_deploy_mode | default('hub')) == 'hub'
+    - bastion_retag_local_aliases | default(true) | bool
+  changed_when: true
+
+- name: "Docker compose build (mode source only)"
+  ansible.builtin.command:
+    cmd: docker compose build --no-cache nginx bastion-app bastion-app-migrate
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    PYTHON_RUNTIME: "{{ bastion_app_python_runtime_image }}"
+    PYTHON_BUILDER: "{{ bastion_app_python_builder_image }}"
+  register: _compose_build
+  changed_when: true
+  when: (bastion_deploy_mode | default('hub')) == 'source'
+
+- name: "Encrypt portal.db with SQLCipher (before compose up / Alembic)"
+  ansible.builtin.import_tasks: encrypt_portal_db.yml
+
+- name: "Docker compose up migrate + stack"
+  ansible.builtin.command:
+    cmd: docker compose up -d --remove-orphans --force-recreate
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+    SSO_PORTAL_FILES_DATA_DIR: "{{ bastion_app_docker_files_data_dir }}"
+    OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
+    PORTAL_DOMAIN: "{{ portal_domain }}"
+    BASTION_APP_IMAGE: "{{ bastion_app_image }}"
+    BASTION_MIGRATE_IMAGE: "{{ bastion_migrate_image }}"
+    BASTION_NGINX_IMAGE: "{{ bastion_nginx_image }}"
+  register: _compose_up
+  failed_when: false
+
+- name: "Dump migrate logs on compose failure"
+  ansible.builtin.command:
+    cmd: docker compose logs --no-color --tail=80 bastion-app-migrate
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _migrate_logs
+  changed_when: false
+  failed_when: false
+  when: _compose_up.rc | default(0) != 0
+
+- name: "Dump bastion-app logs on compose failure"
+  ansible.builtin.command:
+    cmd: docker compose logs --no-color --tail=120 bastion-app
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _app_logs
+  changed_when: false
+  failed_when: false
+  when: _compose_up.rc | default(0) != 0
+
+- name: "Dump bastion-app health status on compose failure"
+  ansible.builtin.command:
+    cmd: docker compose ps bastion-app
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _app_ps
+  changed_when: false
+  failed_when: false
+  when: _compose_up.rc | default(0) != 0
+
+- name: "Fail with compose diagnostics"
+  ansible.builtin.fail:
+    msg: >-
+      docker compose up failed (rc={{ _compose_up.rc }}).
+      bastion-app ps:
+      {{ _app_ps.stdout | default('') }}
+      bastion-app logs:
+      {{ _app_logs.stdout | default('') }}
+      {{ _app_logs.stderr | default('') }}
+      migrate logs:
+      {{ _migrate_logs.stdout | default('') }}
+      {{ _migrate_logs.stderr | default('') }}
+      compose stderr:
+      {{ _compose_up.stderr | default('') }}
+  when: _compose_up.rc | default(0) != 0
+
+# Exports on the data volume may still use literal proxy_pass http://oauth2-proxy-*:4180
+# (resolved at nginx -t). That deadlocks when Keycloak sits behind the bastion and
+# oauth2-proxy is down. Regenerate BEFORE VERIFY so nginx can start (deferred DNS).
+- name: "Wait for bastion-app healthy (before infra export)"
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T bastion-app
+      python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _app_ready
+  retries: 20
+  delay: 3
+  until: _app_ready.rc | default(1) == 0
+  changed_when: false
+
+- name: "Regenerate oauth2 exports from DB (before nginx VERIFY)"
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T bastion-app
+      python -m app.admin.infrastructure apply
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+  register: _infra_export_early
+  failed_when: false
+  changed_when: _infra_export_early.rc == 0
+
+- name: "Warn if early DB infrastructure export failed"
+  ansible.builtin.debug:
+    msg: >-
+      early infrastructure apply rc={{ _infra_export_early.rc }} —
+      {{ _infra_export_early.stderr | default(_infra_export_early.stdout) }}
+  when: _infra_export_early.rc | default(0) != 0
+
+- name: "Sanitize nginx-portal-realms.conf if still using literal oauth2 upstreams"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    CONF="{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
+    test -f "$CONF" || exit 0
+    if ! grep -qE 'proxy_pass[[:space:]]+https?://oauth2-proxy-[^;/[:space:]]+/oauth2/' "$CONF"; then
+      echo "realms conf already deferred or empty"
+      exit 0
+    fi
+    python3 - "$CONF" <<'PY'
+    import re, sys
+    path = sys.argv[1]
+    text = open(path, encoding="utf-8").read()
+    # proxy_pass http://oauth2-proxy-clients:4180/oauth2/;
+    pat = re.compile(
+        r"proxy_pass\s+https?://(oauth2-proxy-([A-Za-z0-9_-]+):(\d+))/oauth2/;"
+    )
+
+    def repl(m):
+        hostport, slug, _port = m.group(1), m.group(2), m.group(3)
+        var = "oauth2_realm_" + re.sub(r"[^A-Za-z0-9]", "_", slug)
+        return (
+            f"rewrite ^/oauth2/{slug}/(.*)$ /oauth2/$1 break;\n"
+            f"    proxy_pass http://${var};"
+        )
+
+    # Inject set $var before each location that still has literal upstream
+    lines = text.splitlines(keepends=True)
+    out = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        loc = re.match(r"location\s+\^~\s+/oauth2/([A-Za-z0-9_-]+)/\s*\{", line)
+        if loc:
+            slug = loc.group(1)
+            # look ahead for literal proxy_pass in this block
+            block = [line]
+            j = i + 1
+            while j < len(lines) and not lines[j].strip().startswith("}"):
+                block.append(lines[j])
+                j += 1
+            if j < len(lines):
+                block.append(lines[j])
+            block_text = "".join(block)
+            m = pat.search(block_text)
+            if m and m.group(2) == slug:
+                hostport = m.group(1)
+                var = "oauth2_realm_" + re.sub(r"[^A-Za-z0-9]", "_", slug)
+                out.append(f"set ${var} {hostport};\n")
+                new_block = pat.sub(repl, block_text, count=1)
+                # ensure rewrite present (repl already adds it)
+                out.append(new_block)
+                i = j + 1
+                continue
+        out.append(line)
+        i += 1
+    new_text = "".join(out)
+    if "Docker: deferred DNS" not in new_text and "set $oauth2_realm_" in new_text:
+        new_text = (
+            "# Hotfix: deferred DNS (nginx starts without oauth2-proxy/Keycloak)\n"
+            + new_text
+        )
+    open(path, "w", encoding="utf-8").write(new_text)
+    print(f"sanitized {path}")
+    PY
+  args:
+    executable: /bin/bash
+  register: _realms_sanitize
+  changed_when: "'sanitized' in (_realms_sanitize.stdout | default(''))"
+
+- name: "Restart nginx after realms export (deferred DNS)"
+  ansible.builtin.command:
+    cmd: docker compose up -d --force-recreate --no-deps nginx
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  register: _nginx_recreate
+  failed_when: false
+  changed_when: _nginx_recreate.rc == 0
+
+# Bloque le deploy si l'image tournante n'a pas les correctifs SSO (évite login loop silencieux).
+- name: "VERIFY : image bastion-app contains SSO auth fixes"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ bastion_app_docker_compose_dir }}"
+    echo "=== image code ==="
+    docker compose exec -T bastion-app python - <<'PY'
+    import pathlib
+    import app.admin.infrastructure as infra
+    import app.auth as auth
+    from app.bastion.drivers import generic as generic_driver
+    from app.models import App
+    from app.sso_settings import get_settings
+    assert hasattr(infra, "get_core_realm_for_oauth2_export"), "missing get_core_realm_for_oauth2_export"
+    text = pathlib.Path(auth.__file__).read_text()
+    assert "Do NOT apply RFC1918 bypass" in text, "auth.py missing RFC1918 guard — old image"
+    assert "Prefer SSO session" in text or "Prefer SSO" in text, "auth.py missing SSO-over-breakglass"
+    assert hasattr(generic_driver, "generic_form_login"), "missing generic_form_login — old image"
+    assert hasattr(generic_driver, "generic_basic_auth_header"), "missing generic_basic_auth_header — old image"
+    for col in (
+        "login_form_url",
+        "login_username_field",
+        "login_password_field",
+        "login_extra_fields",
+        "login_http_method",
+    ):
+        assert hasattr(App, col), f"App.{col} missing — alembic 011_generic_driver_fields not applied"
+    s = get_settings()
+    print("rfc1918_bypass_enabled=", s.rfc1918_bypass_enabled)
+    assert s.rfc1918_bypass_enabled is False, "RFC1918_BYPASS_ENABLED must be false behind Traefik"
+    print("SSO auth + generic vault driver image OK")
+    PY
+    echo "=== nginx sync-exports + entrypoint (RO map + dedupe + watch) ==="
+    # Map sync lives in /sync-exports-to-confd.sh (entrypoint only calls it + watcher).
+    if ! docker run --rm --entrypoint test bastion-nginx:local -x /sync-exports-to-confd.sh; then
+      echo "OLD nginx image — missing /sync-exports-to-confd.sh (need >= 0d5d74f)."
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint test bastion-nginx:local -x /watch-exports-reload.sh; then
+      echo "OLD nginx image — missing /watch-exports-reload.sh (need >= 0d5d74f)."
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      '/sync-exports-to-confd.sh' /docker-entrypoint-portal.sh; then
+      echo "nginx entrypoint does not call sync-exports-to-confd.sh — rebuild nginx image"
+      docker run --rm --entrypoint sed bastion-nginx:local -n '1,55p' /docker-entrypoint-portal.sh || true
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -qE \
+      'never write MAP_SRC|exports/ is (mounted |often ):ro' /sync-exports-to-confd.sh; then
+      echo "OLD nginx image — sync-exports missing RO-exports guard (need >= 0d5d74f)."
+      docker run --rm --entrypoint sed bastion-nginx:local -n '1,50p' /sync-exports-to-confd.sh || true
+      exit 1
+    fi
+    echo "nginx RO-exports fix OK"
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -qE \
+      'BASTION_KNOWN_HOSTS_DEDUPE=1|awk .NF >= 2' /sync-exports-to-confd.sh; then
+      echo "nginx sync-exports missing map-key dedupe — rebuild nginx image (need >= 0d5d74f)"
+      docker run --rm --entrypoint sed bastion-nginx:local -n '30,55p' /sync-exports-to-confd.sh || true
+      exit 1
+    fi
+    echo "nginx known-hosts dedupe OK"
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'watch-exports-reload.sh' /docker-entrypoint-portal.sh; then
+      echo "nginx entrypoint missing exports watcher — rebuild nginx image (need >= 0d5d74f)"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint test bastion-nginx:local -x /sync-acme-tls.sh \
+      && ! docker run --rm --entrypoint test bastion-nginx:local -x /sync-public-proxy-tls.sh; then
+      echo "OLD nginx image — missing /sync-acme-tls.sh (ACME TLS sync)"
+      exit 1
+    fi
+    echo "nginx ACME TLS sync OK"
+    echo "=== nginx subdomain auth snippet (Transfer — literal Host + parent Cookie) ==="
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'proxy_set_header Cookie          \$bastion_auth_cookie;' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "OLD nginx snippet — expected Cookie \$bastion_auth_cookie (rebuilt in location /)."
+      docker run --rm --entrypoint sed bastion-nginx:local -n '1,35p' \
+        /etc/nginx/snippets/subdomain_auth_common.conf || true
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'proxy_pass_request_headers off;' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "OLD nginx snippet — missing proxy_pass_request_headers off (CrushFTP Cookie leak)"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'X-Bastion-Session-Cookie \$bastion_pass_session' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "OLD nginx snippet — expected X-Bastion-Session-Cookie \$bastion_pass_session (direct)"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'X-Bastion-Session-From-Jar \$bastion_session_from_jar' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "OLD nginx snippet — expected X-Bastion-Session-From-Jar \$bastion_session_from_jar"
+      exit 1
+    fi
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'X-Bastion-Session-Cookie \$bastion_auth_session' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "OLD nginx snippet — still uses map \$bastion_auth_session (falls back to filtered cookie)"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'X-Original-Host \$bastion_auth_host' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "OLD nginx snippet — expected X-Original-Host \$bastion_auth_host (literal vhost map)"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_vhost_fqdn \$bastion_auth_host' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — expected map \$bastion_vhost_fqdn \$bastion_auth_host"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_pass_cookie \$bastion_session_from_jar' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — expected session extract from \$bastion_pass_cookie only"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$http_cookie \$bastion_fresh_session' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — missing \$bastion_fresh_session"
+      exit 1
+    fi
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_fresh_session \$bastion_pick_session' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — \$bastion_pick_session cycle with \$bastion_pass_* causes 500 — rebuild nginx image"
+      exit 1
+    fi
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_fresh_session \$bastion_pick_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — \$bastion_pick_cookie cycle causes 500 — rebuild nginx image"
+      exit 1
+    fi
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'map \$bastion_pass_cookie \$bastion_auth_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — \$bastion_auth_cookie must be set in location /, not mapped from \$http_cookie"
+      exit 1
+    fi
+    if docker run --rm --entrypoint grep bastion-nginx:local -qE \
+      '""[[:space:]]+\$http_cookie;|""[[:space:]]+\$cookie_bastion_session;' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — still falls back auth Cookie/session to filtered \$http_cookie"
+      exit 1
+    fi
+    if docker run --rm --entrypoint grep bastion-nginx:local -q \
+      '\$bastion_session_from_http' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "OLD nginx map — still extracts session from filtered \$http_cookie"
+      exit 1
+    fi
+    if ! docker run --rm --entrypoint grep bastion-nginx:local -q \
+      'auth_err=\$bastion_auth_err' /etc/nginx/nginx.conf; then
+      echo "OLD nginx.conf — missing auth_err=\$bastion_auth_err in app log_format"
+      exit 1
+    fi
+    echo "nginx subdomain auth Host/Cookie contract OK"
+    echo "=== nginx-portal-realms deferred DNS ==="
+    REALMS="{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
+    if [[ -f "$REALMS" ]] && grep -qE 'proxy_pass[[:space:]]+https?://oauth2-proxy-' "$REALMS"; then
+      echo "OLD nginx-portal-realms.conf still uses literal oauth2-proxy upstream (nginx -t needs DNS at start)."
+      echo "Expected: set \$oauth2_realm_* + proxy_pass http://\$oauth2_realm_* (commit abeb9db+)."
+      head -40 "$REALMS" || true
+      exit 1
+    fi
+    echo "nginx realms deferred DNS OK (or empty stub)"
+    echo "=== nginx status ==="
+    if ! docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' bastion-nginx 2>/dev/null | grep -qx running; then
+      echo "bastion-nginx is not running (often nginx -t fail on known-hosts map)."
+      docker inspect -f '{% raw %}status={{.State.Status}} exit={{.State.ExitCode}} OOM={{.State.OOMKilled}}{% endraw %}' bastion-nginx 2>/dev/null || true
+      echo "---- docker logs bastion-nginx (tail 100) ----"
+      docker logs --tail 100 bastion-nginx 2>&1 || true
+      exit 1
+    fi
+    echo "=== nginx rd=/apps ==="
+    docker exec bastion-nginx grep -q 'set \$portal_login_rd /apps' \
+      /etc/nginx/conf.d/vhost_sso_portal.conf \
+      || { echo "nginx vhost missing set \$portal_login_rd /apps — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx nginx -t
+    echo "nginx signin OK"
+  args:
+    executable: /bin/bash
+  register: _sso_image_verify
+  retries: 10
+  delay: 3
+  until: _sso_image_verify.rc | default(1) == 0
+  changed_when: false
+
+- name: "Attach all bastion containers to vpcbr (10.5.0.0/16) with DNS aliases"
+  ansible.builtin.shell: |
+    set -o pipefail
+    net="{{ bastion_traefik_network }}"
+    cd "{{ bastion_app_docker_compose_dir }}"
+    mapfile -t cids < <(
+      docker ps -q \
+        --filter "label=com.docker.compose.project=bastion" \
+        --filter "status=running" \
+        | awk 'NF'
+    )
+    python3 - "$net" "${cids[@]}" <<'PY'
+    import json, subprocess, sys
+    net = sys.argv[1]
+    cids = [c for c in sys.argv[2:] if c]
+    if not cids:
+        sys.stderr.write("no running bastion containers\n")
+        sys.exit(1)
+
+    def inspect(cid):
+        return json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))[0]
+
+    def networks_of(cid):
+        return (inspect(cid).get("NetworkSettings", {}) or {}).get("Networks") or {}
+
+    def ip_on(cid, n):
+        return ((networks_of(cid).get(n) or {}).get("IPAddress") or "").strip()
+
+    changed = False
+    report = []
+    for cid in cids:
+        info = inspect(cid)
+        name = info.get("Name", cid).lstrip("/")
+        labels = info.get("Config", {}).get("Labels") or {}
+        service = labels.get("com.docker.compose.service") or ""
+        # Drop project bridge leftovers only (keep vpcbr + aliases intact when healthy)
+        for n in list(networks_of(cid)):
+            if n != net and (
+                n.startswith("bastion_")
+                or n.endswith("_bastion_net")
+                or n == "bastion_net"
+            ):
+                subprocess.call(["docker", "network", "disconnect", "-f", n, cid])
+                changed = True
+        ip = ip_on(cid, net)
+        if not ip.startswith("10.5."):
+            subprocess.call(["docker", "network", "disconnect", "-f", net, cid])
+            cmd = ["docker", "network", "connect"]
+            aliases = []
+            if service:
+                aliases.append(service)
+            aliases.append(name)
+            if name == "bastion-nginx" or service == "nginx":
+                aliases.extend(["bastion-nginx", "nginx"])
+            # unique preserve order
+            seen = set()
+            for a in aliases:
+                if a and a not in seen:
+                    seen.add(a)
+                    cmd.extend(["--alias", a])
+            cmd.extend([net, cid])
+            subprocess.check_call(cmd)
+            changed = True
+            ip = ip_on(cid, net)
+        if not ip.startswith("10.5."):
+            sys.stderr.write("%s: expected 10.5.0.0/16 on %s, got %r nets=%s\n" % (
+                name, net, ip, sorted(networks_of(cid))))
+            sys.exit(1)
+        report.append("%s=%s(service=%s)" % (name, ip, service or "?"))
+    print("CHANGED=%s" % ("1" if changed else "0"))
+    print(" ".join(report))
+    PY
+  args:
+    executable: /bin/bash
+  register: _vpcbr_attach
+  retries: 5
+  delay: 3
+  until: _vpcbr_attach.rc | default(1) == 0
+  changed_when: "'CHANGED=1' in (_vpcbr_attach.stdout | default(''))"
+
+- name: "Reload nginx after vpcbr attach (keep aliases — no full stack restart)"
+  ansible.builtin.command: docker exec bastion-nginx nginx -s reload
+  register: _nginx_reload
+  changed_when: true
+  failed_when: false
+
+- name: "Wait for bastion-app healthy"
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:8000/api/health"
+    status_code: 200
+  register: _wait_health
+  retries: 30
+  delay: 2
+  until: _wait_health.status | default(0) == 200
+
+# Check DNS vpcbr + proxy nginx → app
+- name: "Assert nginx resolves bastion-app on vpcbr and proxies /api/health"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    net="{{ bastion_traefik_network }}"
+    app_cid="$(docker ps -q -f name=bastion-bastion-app -f status=running | head -1)"
+    app_cid="${app_cid:-$(docker ps -q -f label=com.docker.compose.service=bastion-app -f status=running | head -1)}"
+    echo "app_cid=${app_cid}"
+    [[ -n "${app_cid}" ]]
+
+    echo "=== container IPs on ${net} ==="
+    python3 - "$net" bastion-nginx "$app_cid" <<'PY'
+    import json, subprocess, sys
+    net, *cids = sys.argv[1:]
+    for cid in cids:
+        data = json.loads(subprocess.check_output(["docker", "inspect", cid], text=True))[0]
+        name = data.get("Name", cid).lstrip("/")
+        nets = data.get("NetworkSettings", {}).get("Networks") or {}
+        ep = nets.get(net) or {}
+        print("%s ip=%s aliases=%s" % (name, ep.get("IPAddress"), ep.get("Aliases")))
+    PY
+
+    echo "=== direct app health from nginx (DNS + TCP) ==="
+    if ! docker exec bastion-nginx wget -qO- --timeout=5 http://bastion-app:8000/api/health | grep -q '"status"'; then
+      echo "DNS/TCP miss — reconnect bastion-app alias on ${net}"
+      docker network disconnect -f "$net" "$app_cid" || true
+      docker network connect --alias bastion-app --alias bastion-bastion-app-1 "$net" "$app_cid"
+      sleep 2
+      docker exec bastion-nginx wget -qO- --timeout=5 http://bastion-app:8000/api/health | grep -q '"status"'
+    fi
+    echo "direct app health OK"
+
+    echo "=== nginx -t / listeners ==="
+    docker exec bastion-nginx nginx -t
+    docker exec bastion-nginx sh -c 'wget -qO- http://127.0.0.1:8080/_portal_nginx_ok || { echo "FAIL _portal_nginx_ok"; wget -SO- http://127.0.0.1:8080/_portal_nginx_ok; exit 1; }'
+    echo
+    echo "=== /api/health via nginx proxy ==="
+    body="$(docker exec bastion-nginx wget -qO- http://127.0.0.1:8080/api/health)"
+    echo "$body"
+    echo "$body" | grep -q '"status"'
+  args:
+    executable: /bin/bash
+  register: _nginx_listen_check
+  retries: 15
+  delay: 3
+  until: _nginx_listen_check.rc | default(1) == 0
+  changed_when: "'DNS/TCP miss' in (_nginx_listen_check.stdout | default(''))"
+  failed_when: false
+
+- name: "Fail with nginx proxy diagnostics"
+  ansible.builtin.fail:
+    msg: |
+      nginx health/proxy check a échoué après attach vpcbr.
+      Si « direct app health OK » est présent : le DNS vpcbr bastion-app fonctionne —
+      suspecter plutôt le default_server :8080 (vhost portal doit avoir
+      listen … default_server, sinon un server{} subdomain/public_proxy alphabétique
+      vole Host 127.0.0.1 et casse /_portal_nginx_ok).
+      Sinon: alias DNS bastion-app absent sur {{ bastion_traefik_network }},
+      ou bastion-app pas en 10.5.0.0/16.
+      --- stdout ---
+      {{ _nginx_listen_check.stdout | default('') }}
+      --- stderr ---
+      {{ _nginx_listen_check.stderr | default('') }}
+      --- vpcbr_attach ---
+      {{ _vpcbr_attach.stdout | default('') }}
+  when: _nginx_listen_check.rc | default(1) != 0
+
+- name: "Regenerate oauth2 exports from DB (RealmConfig → exports/)"
+  ansible.builtin.command:
+    cmd: >-
+      docker compose exec -T bastion-app
+      python -m app.admin.infrastructure apply
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+  register: _infra_export
+  failed_when: false
+  changed_when: _infra_export.rc == 0
+
+- name: "Warn if DB infrastructure export failed"
+  ansible.builtin.debug:
+    msg: >-
+      python -m app.admin.infrastructure apply rc={{ _infra_export.rc }} —
+      {{ _infra_export.stderr | default(_infra_export.stdout) }}
+  when: _infra_export.rc | default(0) != 0
+
+- name: "Run apply-infra-docker (sync core cfg + secondary realms)"
+  ansible.builtin.command:
+    cmd: >-
+      bash {{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh
+      {{ sso_portal_exports_dir }}
+      {{ bastion_app_docker_compose_dir }}
+  environment:
+    OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
+    SSO_PORTAL_DEFAULT_REALM_SLUG: "{{ sso_portal_default_realm_slug }}"
+    PORTAL_DOMAIN: "{{ portal_domain }}"
+    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
+  register: _apply_docker
+  failed_when: _apply_docker.rc | default(1) != 0
+  changed_when: _apply_docker.rc == 0
+  # compose up + nginx reload ; ACME est async (sentinel) — ne doit pas bloquer le job
+  timeout: 180
+
+- name: "VERIFY : subdomain export has bastion_sub + auth_err diag (Transfer loop)"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    CONF_HOST="{{ sso_portal_exports_dir }}/nginx-subdomain-apps.conf"
+    CONF_NGX="/etc/nginx/conf.d/nginx-subdomain-apps.conf"
+    echo "=== live snippet (auth Cookie + session headers) ==="
+    docker exec bastion-nginx grep -q 'proxy_pass_request_headers off;' \
+      /etc/nginx/snippets/subdomain_auth_common.conf \
+      || { echo "live snippet missing proxy_pass_request_headers off — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'proxy_set_header Cookie          \$bastion_auth_cookie;' \
+      /etc/nginx/snippets/subdomain_auth_common.conf \
+      || { echo "live snippet missing Cookie \$bastion_auth_cookie — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_pass_session' \
+      /etc/nginx/snippets/subdomain_auth_common.conf \
+      || { echo "live snippet missing X-Bastion-Session-Cookie \$bastion_pass_session — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'X-Bastion-Session-From-Jar \$bastion_session_from_jar' \
+      /etc/nginx/snippets/subdomain_auth_common.conf \
+      || { echo "live snippet missing X-Bastion-Session-From-Jar — rebuild nginx image"; exit 1; }
+    if docker exec bastion-nginx grep -q 'X-Bastion-Session-Cookie \$bastion_auth_session' \
+      /etc/nginx/snippets/subdomain_auth_common.conf; then
+      echo "live snippet still uses map \$bastion_auth_session (filtered fallback) — rebuild nginx image"
+      exit 1
+    fi
+    docker exec bastion-nginx grep -q 'X-Original-Host \$bastion_auth_host' \
+      /etc/nginx/snippets/subdomain_auth_common.conf \
+      || { echo "live snippet missing X-Original-Host \$bastion_auth_host — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'map \$bastion_vhost_fqdn \$bastion_auth_host' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf \
+      || { echo "live map missing \$bastion_auth_host — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_session_from_jar' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf \
+      || { echo "live map missing session_from_jar from pass_cookie — rebuild nginx image"; exit 1; }
+    docker exec bastion-nginx grep -q 'map \$http_cookie \$bastion_fresh_session' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf \
+      || { echo "live map missing \$bastion_fresh_session — rebuild nginx image"; exit 1; }
+    if docker exec bastion-nginx grep -q 'map \$bastion_fresh_session \$bastion_pick_session' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "live map still has \$bastion_pick_session (cycle → 500) — rebuild nginx image"
+      exit 1
+    fi
+    if docker exec bastion-nginx grep -q 'map \$bastion_fresh_session \$bastion_pick_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "live map still has \$bastion_pick_cookie (cycle → 500) — rebuild nginx image"
+      exit 1
+    fi
+    if docker exec bastion-nginx grep -q 'map \$bastion_pass_cookie \$bastion_auth_cookie' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "live map still maps \$bastion_auth_cookie (must be set in location /) — rebuild nginx image"
+      exit 1
+    fi
+    if docker exec bastion-nginx grep -qE \
+      '""[[:space:]]+\$http_cookie;|""[[:space:]]+\$cookie_bastion_session;' \
+      /etc/nginx/includes/nginx-subdomain-auth.map.conf; then
+      echo "live map still falls back to filtered \$http_cookie — rebuild nginx image"
+      exit 1
+    fi
+    echo "snippet OK"
+    if [[ ! -f "$CONF_HOST" ]]; then
+      echo "no host export yet — skip export contract"
+      exit 0
+    fi
+    if ! grep -q 'auth_request /internal/subdomain-auth' "$CONF_HOST"; then
+      echo "no subdomain_proxy apps in export — skip export contract"
+      exit 0
+    fi
+    echo "=== exports/nginx-subdomain-apps.conf ==="
+    grep -q 'bastion_sub=1' "$CONF_HOST" \
+      || { echo "export missing bastion_sub=1 loop breaker — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'ae=\$bastion_auth_err' "$CONF_HOST" \
+      || { echo "export missing ae=\$bastion_auth_err diag — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'auth_request_set \$bastion_auth_err' "$CONF_HOST" \
+      || { echo "export missing auth_request_set \$bastion_auth_err — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'set \$bastion_vhost_fqdn "' "$CONF_HOST" \
+      || { echo "export missing set \$bastion_vhost_fqdn literal — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'set \$bastion_pass_session \$cookie_bastion_session;' "$CONF_HOST" \
+      || { echo "export missing Cookie snapshot (\$cookie_bastion_session) — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'set \$bastion_pass_cookie \$http_cookie;' "$CONF_HOST" \
+      || { echo "export missing Cookie jar snapshot — rebuild bastion-app + re-apply"; exit 1; }
+    grep -q 'auth_request /internal/subdomain-auth' "$CONF_HOST" \
+      || { echo "export missing auth_request in subdomain conf — rebuild bastion-app + re-apply"; exit 1; }
+    if grep -q 'error_page 418 = @bastion_auth_gate_' "$CONF_HOST"; then
+      echo "export still has 418 auth gate (nested error_page → bare 401) — rebuild bastion-app + re-apply"
+      exit 1
+    fi
+    if grep -q 'if (\$bastion_fresh_session' "$CONF_HOST"; then
+      echo "export still has sticky if{} (ifisevil → 404 new-ui) — rebuild bastion-app + re-apply"
+      exit 1
+    fi
+    if grep -q 'set \$bastion_pass_session \$bastion_pick_session;' "$CONF_HOST"; then
+      echo "export still has map-pick session (cycle → 500) — rebuild bastion-app + re-apply"
+      exit 1
+    fi
+    grep -q 'set \$bastion_auth_cookie "bastion_session=\$bastion_pass_session; \$bastion_pass_cookie";' "$CONF_HOST" \
+      || { echo "export missing auth Cookie rebuild (bastion_session= + pass jar) — rebuild bastion-app + re-apply"; exit 1; }
+    if grep -q 'CrushAuth=\$cookie_CrushAuth' "$CONF_HOST"; then
+      grep -q 'try_files /nonexistent @app_upstream_' "$CONF_HOST" \
+        || { echo "CrushFTP export missing @app_upstream_ handoff — rebuild bastion-app + re-apply"; exit 1; }
+      grep -q 'location @app_upstream_' "$CONF_HOST" \
+        || { echo "CrushFTP export missing named upstream location — rebuild bastion-app + re-apply"; exit 1; }
+      if grep -q 'bastion_session=\$cookie_bastion_session' "$CONF_HOST"; then
+        echo "CrushFTP export must NOT forward bastion_session upstream (502 / IP login) — rebuild bastion-app + re-apply"
+        exit 1
+      fi
+      grep -q 'proxy_redirect http://' "$CONF_HOST" \
+        || { echo "CrushFTP export missing proxy_redirect for Absolute IP Location — rebuild bastion-app + re-apply"; exit 1; }
+      if awk '/server_name[[:space:]]+transfer\./,/location \/ \{/' "$CONF_HOST" \
+           | grep -q 'set \$bastion_pass_cookie'; then
+        echo "CrushFTP export has server-level Cookie capture (auth rewrite wipe → ck=72) — rebuild bastion-app + re-apply"
+        exit 1
+      fi
+      echo "=== CrushFTP Transfer server block (host export) ==="
+      awk '/server_name[[:space:]]+transfer\./,/^}/' "$CONF_HOST" | head -n 120 || true
+    fi
+    if grep -q 'set \$bastion_auth_cookie \$http_cookie;' "$CONF_HOST"; then
+      echo "export still has legacy bastion_auth_cookie=\$http_cookie — rebuild bastion-app + re-apply"
+      exit 1
+    fi
+    echo "host export OK"
+    echo "=== live bastion-nginx conf.d copy ==="
+    docker exec bastion-nginx test -f "$CONF_NGX"
+    docker exec bastion-nginx grep -q 'bastion_sub=1' "$CONF_NGX" \
+      || { echo "live nginx conf missing bastion_sub=1 — sync-exports/reload failed"; exit 1; }
+    docker exec bastion-nginx grep -q 'auth_request_set \$bastion_auth_err' "$CONF_NGX" \
+      || { echo "live nginx conf missing auth_err diag — sync-exports/reload failed"; exit 1; }
+    docker exec bastion-nginx grep -q 'set \$bastion_vhost_fqdn "' "$CONF_NGX" \
+      || { echo "live nginx conf missing \$bastion_vhost_fqdn literal — sync-exports/reload failed"; exit 1; }
+    docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$cookie_bastion_session;' "$CONF_NGX" \
+      || { echo "live nginx conf missing Cookie snapshot — sync-exports/reload failed"; exit 1; }
+    if docker exec bastion-nginx grep -q 'error_page 418 = @bastion_auth_gate_' "$CONF_NGX"; then
+      echo "live nginx conf still has 418 auth gate (bare 401) — re-apply + reload"
+      exit 1
+    fi
+    if docker exec bastion-nginx grep -q 'if (\$bastion_fresh_session' "$CONF_NGX"; then
+      echo "live nginx conf still has sticky if{} (ifisevil → 404) — re-apply + reload"
+      exit 1
+    fi
+    if docker exec bastion-nginx grep -q 'set \$bastion_pass_session \$bastion_pick_session;' "$CONF_NGX"; then
+      echo "live nginx conf still has map-pick session (cycle → 500) — re-apply + reload"
+      exit 1
+    fi
+    docker exec bastion-nginx grep -q \
+      'set \$bastion_auth_cookie "bastion_session=\$bastion_pass_session; \$bastion_pass_cookie";' \
+      "$CONF_NGX" \
+      || { echo "live nginx conf missing auth Cookie rebuild — sync-exports/reload failed"; exit 1; }
+    if docker exec bastion-nginx grep -q 'CrushAuth=\$cookie_CrushAuth' "$CONF_NGX"; then
+      docker exec bastion-nginx grep -q 'try_files /nonexistent @app_upstream_' "$CONF_NGX" \
+        || { echo "live CrushFTP conf missing @app_upstream_ handoff — re-apply + reload"; exit 1; }
+      if docker exec bastion-nginx grep -q 'bastion_session=\$cookie_bastion_session' "$CONF_NGX"; then
+        echo "live CrushFTP conf must NOT forward bastion_session upstream — re-apply + reload"
+        exit 1
+      fi
+      docker exec bastion-nginx grep -q 'proxy_redirect http://' "$CONF_NGX" \
+        || { echo "live CrushFTP conf missing proxy_redirect — re-apply + reload"; exit 1; }
+      if docker exec bastion-nginx sh -c \
+           "awk '/server_name[[:space:]]+transfer\./,/location \/ \{/' '$CONF_NGX' | grep -q 'set \\\$bastion_pass_cookie'"; then
+        echo "live CrushFTP conf has server-level Cookie capture (auth wipe → ck=72) — re-apply + reload"
+        exit 1
+      fi
+      echo "=== CrushFTP Transfer server block (live nginx) ==="
+      docker exec bastion-nginx sh -c "awk '/server_name[[:space:]]+transfer\./,/^}/' '$CONF_NGX' | head -n 120" || true
+    fi
+    echo "subdomain auth Transfer contract OK"
+  args:
+    executable: /bin/bash
+  register: _subdomain_auth_verify
+  changed_when: false

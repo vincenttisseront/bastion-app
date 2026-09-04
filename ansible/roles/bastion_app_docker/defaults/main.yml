@@ -43,8 +43,8 @@ bastion_hub_image_tag: latest
 bastion_app_image: "{{ bastion_hub_namespace }}/bastion-pro-app:{{ bastion_hub_image_tag }}"
 bastion_migrate_image: "{{ bastion_hub_namespace }}/bastion-pro-migrate:{{ bastion_hub_image_tag }}"
 bastion_nginx_image: "{{ bastion_hub_namespace }}/bastion-pro-nginx:{{ bastion_hub_image_tag }}"
-# Smoke checks historically use :local tags — retag after Hub pull
-bastion_retag_local_aliases: true
+# Retag Hub → :local only for source VERIFY archaeology (unused on hub fast path)
+bastion_retag_local_aliases: false
 # Docker Hub login (private repos) — AWX Vault
 vault_dockerhub_username: ""
 vault_dockerhub_token: ""
