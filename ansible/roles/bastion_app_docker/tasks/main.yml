@@ -24,7 +24,7 @@
 # (sinon git HTTPS sans PAT hang sur dépôt privé).
 - name: "Decide whether to fetch bastion-app on controller"
   ansible.builtin.stat:
-    path: "{{ bastion_app_root }}/Dockerfile"
+    path: "{{ bastion_app_root }}/{{ 'deploy/docker-compose.yml' if (bastion_deploy_mode | default('hub')) == 'hub' else 'Dockerfile' }}"
   register: _bastion_root_dockerfile
   delegate_to: localhost
   become: false
@@ -101,17 +101,30 @@
 
 - name: "Reuse existing bastion_app_root (skip git fetch)"
   ansible.builtin.debug:
-    msg: "Reuse bastion_app_root={{ bastion_app_root }} (Dockerfile présent — pas de second clone)"
+    msg: "Reuse bastion_app_root={{ bastion_app_root }} (sources présentes — pas de second clone)"
   when: _bastion_root_dockerfile.stat.exists | default(false)
   run_once: true
 
-- name: "Assert bastion_app_root has Dockerfile + app/"
+- name: "Assert bastion_app_root has deploy pack (hub) or full sources (source)"
   ansible.builtin.stat:
     path: "{{ item }}"
-  loop:
-    - "{{ bastion_app_root }}/Dockerfile"
-    - "{{ bastion_app_root }}/app"
-    - "{{ bastion_app_root }}/docker/nginx/templates/vhost_sso_portal.conf.template"
+  loop: "{{ _bastion_required_paths }}"
+  vars:
+    _bastion_required_paths: >-
+      {{
+        [
+          bastion_app_root ~ '/deploy/docker-compose.yml',
+          bastion_app_root ~ '/deploy/docker/acme/entrypoint-acme.sh',
+          bastion_app_root ~ '/scripts/apply-infra-docker.sh',
+        ]
+        if (bastion_deploy_mode | default('hub')) == 'hub'
+        else
+        [
+          bastion_app_root ~ '/Dockerfile',
+          bastion_app_root ~ '/app',
+          bastion_app_root ~ '/docker/nginx/templates/vhost_sso_portal.conf.template',
+        ]
+      }}
   register: _bastion_src_stat
   delegate_to: localhost
   become: false
@@ -122,12 +135,44 @@
     that:
       - _bastion_src_stat.results | map(attribute='stat.exists') | list | min
     fail_msg: >-
-      Sources incompletes sous bastion_app_root={{ bastion_app_root }}.
-      Attendu: Dockerfile, app/, docker/nginx/templates/vhost_sso_portal.conf.template
+      Sources incompletes sous bastion_app_root={{ bastion_app_root }}
+      (mode={{ bastion_deploy_mode | default('hub') }}).
   run_once: true
 
-# synchronize/rsync hangs on AWX EE (SSH password) — tar + copy + unarchive (Phase 6 pattern).
-- name: "Stage bastion Docker tarball on controller"
+# synchronize/rsync hangs on AWX EE (SSH password) — tar + copy + unarchive.
+- name: "Stage bastion Docker tarball on controller (hub = deploy pack)"
+  when: (bastion_deploy_mode | default('hub')) == 'hub'
+  ansible.builtin.shell: |
+    set -euo pipefail
+    stamp="{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}"
+    work="{{ playbook_dir }}/.cache/bastion-docker-${stamp}"
+    rm -rf "${work}" "${work}.tar.gz"
+    mkdir -p "${work}"
+    root="{{ bastion_app_root }}"
+    test -f "${root}/deploy/docker-compose.yml"
+    # Pack = same surface as external deploy/ + apply-infra scripts
+    cp -a "${root}/deploy/docker-compose.yml" "${work}/docker-compose.yml"
+    for f in .env.example .env.acme.example README.md ANONYMIZATION.md .gitignore; do
+      if [ -f "${root}/deploy/${f}" ]; then
+        cp -a "${root}/deploy/${f}" "${work}/"
+      fi
+    done
+    cp -a "${root}/deploy/docker" "${work}/docker"
+    mkdir -p "${work}/data/sso-portal" "${work}/data/sso-portal-files/private/files" "${work}/scripts"
+    cp -a "${root}/scripts/apply-infra-docker.sh" "${work}/scripts/"
+    cp -a "${root}/scripts/apply-infra-docker-dispatch.sh" "${work}/scripts/" 2>/dev/null || true
+    cp -a "${root}/scripts/oauth2-cookie-secret.sh" "${work}/scripts/" 2>/dev/null || true
+    tar -C "${work}" -czf "${work}.tar.gz" .
+    rm -rf "${work}"
+    test -s "${work}.tar.gz"
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: "Stage bastion Docker tarball on controller (source = full tree)"
+  when: (bastion_deploy_mode | default('hub')) == 'source'
   ansible.builtin.shell: |
     set -euo pipefail
     stamp="{{ bastion_app_git_ref | default('phase7') | regex_replace('[^A-Za-z0-9._-]', '_') }}"
@@ -137,15 +182,9 @@
     root="{{ bastion_app_root }}"
     test -f "${root}/Dockerfile"
     test -d "${root}/app"
-    # Guard: refuse packing an AWX playbook tree without FastAPI app
     if ! grep -q 'get_core_realm_for_oauth2_export' "${root}/app/admin/infrastructure.py" 2>/dev/null; then
       echo "REFUS: ${root}/app/admin/infrastructure.py sans get_core_realm_for_oauth2_export" >&2
-      echo "Vérifier bastion_app_git_ref={{ bastion_app_git_ref }} / bastion_app_docker_fetch_git" >&2
       exit 1
-    fi
-    if ! grep -q 'RFC1918 bypass' "${root}/app/auth.py" 2>/dev/null \
-      && ! grep -q 'Do NOT apply RFC1918 bypass' "${root}/app/auth.py" 2>/dev/null; then
-      echo "WARN: auth.py sans garde RFC1918 documentée — continuer" >&2
     fi
     for d in app migrations scripts docker nginx; do
       if [ -d "${root}/${d}" ]; then
@@ -158,11 +197,9 @@
         cp -a "${root}/${f}" "${work}/"
       fi
     done
-    # Manifestes npm requis pour Admin → Dépendances (COPY dans le Dockerfile runtime).
     test -f "${work}/pyproject.toml"
     test -f "${work}/package.json"
     test -f "${work}/package-lock.json"
-    # Ne jamais embarquer secrets / data / caches
     rm -rf "${work}/.git" "${work}/.venv" "${work}/node_modules" "${work}/data" \
       "${work}/docker/oauth2-core/oauth2-proxy.cfg" 2>/dev/null || true
     tar -C "${work}" -czf "${work}.tar.gz" .
@@ -370,7 +407,7 @@
   failed_when: _traefik_on_vpcbr.rc != 0
   when: bastion_require_traefik | default(false) | bool
 
-- name: "Docker login dhi.io (Hardened Images)"
+- name: "Docker login dhi.io (Hardened Images) — mode source only"
   ansible.builtin.shell: |
     set -euo pipefail
     printf '%s' "{{ vault_dhi_registry_token }}" | docker login dhi.io \
@@ -380,11 +417,54 @@
     executable: /bin/bash
   no_log: true
   when:
+    - (bastion_deploy_mode | default('hub')) == 'source'
     - bastion_app_use_dhi | default(true) | bool
     - (vault_dhi_registry_token | default('') | length) > 0
   changed_when: true
 
-- name: "Docker compose build"
+- name: "Docker login Docker Hub (private bastion-pro-* images)"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    printf '%s' "{{ vault_dockerhub_token }}" | docker login \
+      --username "{{ vault_dockerhub_username }}" \
+      --password-stdin
+  args:
+    executable: /bin/bash
+  no_log: true
+  when:
+    - (bastion_deploy_mode | default('hub')) == 'hub'
+    - bastion_hub_login | default(true) | bool
+    - (vault_dockerhub_token | default('') | length) > 0
+    - (vault_dockerhub_username | default('') | length) > 0
+  changed_when: true
+
+- name: "Docker compose pull Hub images (mode hub)"
+  ansible.builtin.command:
+    cmd: docker compose pull bastion-app bastion-app-migrate nginx
+    chdir: "{{ bastion_app_docker_compose_dir }}"
+  environment:
+    BASTION_APP_IMAGE: "{{ bastion_app_image }}"
+    BASTION_MIGRATE_IMAGE: "{{ bastion_migrate_image }}"
+    BASTION_NGINX_IMAGE: "{{ bastion_nginx_image }}"
+    OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
+  when: (bastion_deploy_mode | default('hub')) == 'hub'
+  register: _compose_pull
+  changed_when: true
+
+- name: "Retag Hub images as :local for smoke compatibility"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker tag "{{ bastion_app_image }}" bastion-app:local
+    docker tag "{{ bastion_migrate_image }}" bastion-app-migrate:local
+    docker tag "{{ bastion_nginx_image }}" bastion-nginx:local
+  args:
+    executable: /bin/bash
+  when:
+    - (bastion_deploy_mode | default('hub')) == 'hub'
+    - bastion_retag_local_aliases | default(true) | bool
+  changed_when: true
+
+- name: "Docker compose build (mode source only)"
   ansible.builtin.command:
     cmd: docker compose build --no-cache nginx bastion-app bastion-app-migrate
     chdir: "{{ bastion_app_docker_compose_dir }}"
@@ -393,6 +473,7 @@
     PYTHON_BUILDER: "{{ bastion_app_python_builder_image }}"
   register: _compose_build
   changed_when: true
+  when: (bastion_deploy_mode | default('hub')) == 'source'
 
 - name: "Encrypt portal.db with SQLCipher (before compose up / Alembic)"
   ansible.builtin.import_tasks: encrypt_portal_db.yml
@@ -406,6 +487,9 @@
     SSO_PORTAL_FILES_DATA_DIR: "{{ bastion_app_docker_files_data_dir }}"
     OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
     PORTAL_DOMAIN: "{{ portal_domain }}"
+    BASTION_APP_IMAGE: "{{ bastion_app_image }}"
+    BASTION_MIGRATE_IMAGE: "{{ bastion_migrate_image }}"
+    BASTION_NGINX_IMAGE: "{{ bastion_nginx_image }}"
   register: _compose_up
   failed_when: false
 

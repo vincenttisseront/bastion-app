@@ -1,12 +1,16 @@
 # Bastion Pro — déploiement (images Docker Hub uniquement)
 #
-# Aucun build depuis les sources : pull vincenttisseront/bastion-pro:{app,migrate,nginx}
-# + images upstream (postgres, oauth2-proxy, acme.sh).
+# Aucun build depuis les sources. Repos :
+#   vincenttisseront/bastion-pro-app
+#   vincenttisseront/bastion-pro-migrate
+#   vincenttisseront/bastion-pro-nginx
+# (tags : latest | <gitsha> — alias legacy aussi sur vincenttisseront/bastion-pro:{app,migrate,nginx})
 #
 # Prérequis :
 #   docker network create --subnet=10.5.0.0/16 vpcbr
 #   cp .env.example .env   # puis renseigner les secrets
 #   cp .env.acme.example .env.acme   # optionnel (Let's Encrypt DNS-01)
+#   docker login   # si les repos sont privés
 #
 # Démarrage :
 #   docker compose pull && docker compose up -d
@@ -17,7 +21,7 @@ name: bastion
 
 services:
   bastion-app-migrate:
-    image: ${BASTION_MIGRATE_IMAGE:-vincenttisseront/bastion-pro:migrate}
+    image: ${BASTION_MIGRATE_IMAGE:-vincenttisseront/bastion-pro-migrate:latest}
     user: "0:0"
     command:
       - /bin/sh
@@ -80,7 +84,7 @@ services:
     restart: unless-stopped
 
   bastion-app:
-    image: ${BASTION_APP_IMAGE:-vincenttisseront/bastion-pro:app}
+    image: ${BASTION_APP_IMAGE:-vincenttisseront/bastion-pro-app:latest}
     env_file:
       - .env
     environment:
@@ -138,7 +142,7 @@ services:
     restart: unless-stopped
 
   nginx:
-    image: ${BASTION_NGINX_IMAGE:-vincenttisseront/bastion-pro:nginx}
+    image: ${BASTION_NGINX_IMAGE:-vincenttisseront/bastion-pro-nginx:latest}
     container_name: bastion-nginx
     ulimits:
       nofile:

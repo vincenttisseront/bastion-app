@@ -4,21 +4,38 @@
 
 ## Déploiement externe (recommandé)
 
-Sans builder depuis les sources : utiliser le pack **`deploy/`** (images Docker Hub uniquement).
+Sans builder depuis les sources : pack **`deploy/`** + images Docker Hub.
 
-→ **[deploy/README.md](deploy/README.md)** — compose global, `.env.example`, guide first-boot.
+→ Guide complet : **[deploy/README.md](deploy/README.md)**
 
-Images : `vincenttisseront/bastion-pro:{app,migrate,nginx}`.
+```bash
+cd deploy
+cp .env.example .env          # secrets + PORTAL_DOMAIN
+cp .env.acme.example .env.acme  # optionnel
+docker network create --subnet=10.5.0.0/16 vpcbr 2>/dev/null || true
+mkdir -p data/sso-portal data/sso-portal-files
+docker login                  # repos privés
+docker compose pull
+docker compose up -d
+```
+
+| Image | Rôle |
+|-------|------|
+| `vincenttisseront/bastion-pro-app` | runtime FastAPI |
+| `vincenttisseront/bastion-pro-migrate` | Alembic / bootstrap |
+| `vincenttisseront/bastion-pro-nginx` | edge TLS + ModSecurity |
+
+Tags : `latest` ou pin git SHA (`:6b2be94`). Après le premier boot : **Admin → Setup** (FQDN en base) → Realms → Apply.
 
 ---
 
-Ce dépôt (développement) contient aussi :
+Ce dépôt (développement / AWX) contient aussi :
 
 - l’application **FastAPI** (portail, admin, API)
 - le **nginx** Docker (TLS edge, routage Host / sous-domaines)
 - **oauth2-proxy** (sessions OIDC)
 - le sidecar **ACME** (Let’s Encrypt DNS-01)
-- le rôle **Ansible** de déploiement (interne)
+- le rôle **Ansible** (même procédé Hub par défaut)
 
 ---
 
@@ -89,79 +106,45 @@ Tests : `pytest`
 
 ---
 
-## Stack Docker (recommandé)
+## Stack Docker (dev — build local)
 
-### 1. Préparer l’environnement
+Pour développer depuis les sources (pas le chemin prod) :
 
 ```bash
 cp .env.example .env
-# PORTAL_DOMAIN=portal.example.com
-# SSO_PORTAL_DEFAULT_REALM_SLUG=default
-# secrets : VAULT_PORTAL_INTERNAL_TOKEN, BREAKGLASS_JWT_SECRET,
-#           SESSION_HOP_SECRET, PORTAL_SECRET_ENCRYPTION_KEY, …
-
-# Réseau Docker externe (adapter le subnet à votre infra)
-docker network create --subnet=10.5.0.0/16 vpcbr   # si absent
-
-# Données persistantes (hôte)
+docker network create --subnet=10.5.0.0/16 vpcbr 2>/dev/null || true
 mkdir -p data/sso-portal data/sso-portal-files
-```
-
-Variables utiles (compose) :
-
-| Variable | Rôle |
-|----------|------|
-| `SSO_PORTAL_DATA_DIR` | Données (SQLite, exports, certs, clés) |
-| `PORTAL_DOMAIN` | FQDN du portail |
-| `ACME_ENV_FILE` | Fichier env ACME optionnel (ex. `.env.acme`) |
-
-Modèle ACME : `.env.acme.example` → `.env.acme` (gitignored).
-
-### 2. Lancer
-
-```bash
 docker compose up -d --build
 ```
 
-Services principaux : `bastion-app`, `bastion-app-migrate`, `oauth2-proxy-core`, `nginx` (`bastion-nginx`), `acme-companion`.
+En production / distribution : utiliser **`deploy/`** (pull Hub, sans `--build`).
 
-Nginx écoute **80** (redirect) et **443** (TLS). Le routage HTTP interne reste sur `:8080` dans le conteneur.
+### Configurer le SSO (source de vérité = base)
 
-### 3. Configurer le SSO (source de vérité = base)
-
-Ne pas éditer à la main les fichiers générés sous `exports/` ou `docker/oauth2-core/` comme configuration durable.
-
-1. Ouvrir le portail (break-glass / setup initial si besoin)
+1. Break-glass / **Admin → Setup** (`/admin/setup-wizard`) pour le FQDN
 2. **Admin → Realms** : issuer, client_id, client_secret, cookie_secret, redirect_uri, PKCE
-3. **Test OIDC** puis **Apply infrastructure** (`python -m app.admin.infrastructure apply` ou bouton/API)
-4. Le script `scripts/apply-infra-docker.sh` synchronise l’export vers oauth2-proxy et recharge nginx
+3. **Test OIDC** puis **Apply infrastructure**
+4. Ne pas éditer à la main `exports/` ni le cfg oauth2 comme source durable
 
-### 4. Certificats Let’s Encrypt
+### Certificats Let’s Encrypt
 
-1. **Admin → ACME** : activer, coller le token DNS, CA prod ou staging
-2. **Enregistrer** puis **Réconcilier**
-3. Suivre les logs live sur la page ACME (`certs/acme-reconcile.log`)
+1. **Admin → ACME** : token DNS, CA staging puis prod
+2. **Réconcilier** — DNS-01 automatique (pas de TXT manuels)
 
-DNS-01 : le sidecar crée/supprime les TXT `_acme-challenge.*` via l’API — **pas de TXT manuels**. Les enregistrements A/AAAA/CNAME publics vers l’hôte nginx restent à votre charge.
+### Applications
 
-### 5. Applications
-
-**Admin → Apps** : créer une app avec un mode d’accès, par exemple :
-
-- `subdomain_proxy` — FQDN dédié + SSO
-- `public_proxy` — FQDN public (éventuellement robotic SSO)
-- lien / proxy path selon le catalogue
-
-Après modification : Apply infra (exports nginx + reload).
+**Admin → Apps** puis Apply infra (exports nginx + reload).
 
 ---
 
-## Déploiement Ansible
+## Déploiement Ansible (AWX)
 
 Playbook : `ansible/linux_sso_portal_docker.yml`  
 Rôle : `ansible/roles/bastion_app_docker`
 
-Exemple (inventaire et secrets à fournir) :
+**Par défaut (`bastion_deploy_mode: hub`)** : même procédé que `deploy/` —
+pull des images Hub, **pas** de `docker compose build`. Le contrôleur
+pousse le pack `deploy/` + scripts apply-infra sur l’hôte.
 
 ```bash
 ansible-playbook ansible/linux_sso_portal_docker.yml \
@@ -170,11 +153,17 @@ ansible-playbook ansible/linux_sso_portal_docker.yml \
   --tags docker
 ```
 
-Le rôle installe typiquement la stack sous un répertoire hôte configurable (défaut documenté dans `ansible/roles/bastion_app_docker/defaults/main.yml`), construit les images, migre la DB, applique l’infra et lance des smokes.
+Extra-vars utiles :
 
-Tags utiles : `docker`, `smoke`, `discovery`, `edge` (edge TLS amont optionnel).
+| Variable | Défaut | Rôle |
+|----------|--------|------|
+| `bastion_deploy_mode` | `hub` | `hub` = pull images ; `source` = build local (dev) |
+| `bastion_hub_image_tag` | `latest` | tag Hub (`latest` ou SHA) |
+| `vault_dockerhub_username` / `vault_dockerhub_token` | — | login Hub (repos privés) |
 
-Détails et variables : [ansible/README.md](ansible/README.md) — **à adapter** : retirez / remplacez toute valeur d’environnement spécifique avant publication publique de forks internes.
+Mode legacy build : `bastion_deploy_mode=source` (+ auth `dhi.io` si DHI).
+
+Détails : [ansible/README.md](ansible/README.md).
 
 ---
 
@@ -182,13 +171,14 @@ Détails et variables : [ansible/README.md](ansible/README.md) — **à adapter*
 
 ```
 app/                 # FastAPI (portail, admin, drivers, vault, ACME, …)
+deploy/              # Pack image-only (compose + README) — chemin prod / externe
 docker/nginx/        # Image nginx + sync exports / ACME TLS
 docker/acme/         # Sidecar Let’s Encrypt DNS-01
 docker/oauth2-core/  # Miroir généré oauth2-proxy (non source de vérité)
-ansible/             # Playbook + rôle de déploiement
+ansible/             # Playbook AWX (hub pull par défaut)
 scripts/             # apply-infra-docker, smokes, utilitaires
-docs/                # Architecture, SDD, ops (peut contenir des exemples d’env)
-tests/               # Pytest (+ e2e éventuels)
+docs/                # Architecture, SDD, ops
+tests/               # Pytest
 migrations/          # Alembic
 ```
 

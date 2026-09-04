@@ -34,7 +34,23 @@ bastion_app_docker_bind_app: "127.0.0.1:8000"
 bastion_app_docker_bind_oauth2_core: "127.0.0.1:4180"
 bastion_app_docker_bind_nginx: "127.0.0.1:{{ bastion_nginx_listen_port }}"
 
-# Source code for build
+# Source / Hub deploy mode
+# hub (default) = same as deploy/: pull Docker Hub images, no compose build
+# source        = legacy: tar full tree + docker compose build (dev / DHI)
+bastion_deploy_mode: hub
+bastion_hub_namespace: vincenttisseront
+bastion_hub_image_tag: latest
+bastion_app_image: "{{ bastion_hub_namespace }}/bastion-pro-app:{{ bastion_hub_image_tag }}"
+bastion_migrate_image: "{{ bastion_hub_namespace }}/bastion-pro-migrate:{{ bastion_hub_image_tag }}"
+bastion_nginx_image: "{{ bastion_hub_namespace }}/bastion-pro-nginx:{{ bastion_hub_image_tag }}"
+# Smoke checks historically use :local tags — retag after Hub pull
+bastion_retag_local_aliases: true
+# Docker Hub login (private repos) — AWX Vault
+vault_dockerhub_username: ""
+vault_dockerhub_token: ""
+bastion_hub_login: true
+
+# Source code for build (mode=source) or packing deploy/ + scripts (mode=hub)
 # AWX Project = bastion-app → playbook_dir/.. EST le checkout applicatif.
 # bastion_app_docker_fetch_git: true seulement si le JT pointe ailleurs sans sources.
 bastion_app_git_repo: "https://github.com/vincenttisseront/bastion-app.git"

@@ -17,23 +17,25 @@ Vous tirez les images depuis Docker Hub et configurez votre domaine / IdP.
 
 ## Images
 
-| Service | Image |
-|---------|--------|
-| App | `vincenttisseront/bastion-pro:app` |
-| Migrations | `vincenttisseront/bastion-pro:migrate` |
-| Nginx edge + WAF | `vincenttisseront/bastion-pro:nginx` |
+| Service | Image Docker Hub |
+|---------|------------------|
+| App | `vincenttisseront/bastion-pro-app:latest` |
+| Migrations | `vincenttisseront/bastion-pro-migrate:latest` |
+| Nginx edge + WAF | `vincenttisseront/bastion-pro-nginx:latest` |
 | oauth2-proxy | `quay.io/oauth2-proxy/oauth2-proxy:v7.7.1` |
 | Postgres (optionnel) | `postgres:16-alpine` (digest épinglé) |
 | ACME | `neilpang/acme.sh:3.1.4` (digest épinglé) |
 
-Repo Hub privé : connectez-vous avant le pull (`docker login`).
+Repos Hub **privés** : `docker login` avant le pull.
 
-Surcharge possible dans `.env` :
+Alias legacy (même digests) : `vincenttisseront/bastion-pro:{app,migrate,nginx}`.
+
+Surcharge / pin SHA dans `.env` :
 
 ```bash
-BASTION_APP_IMAGE=vincenttisseront/bastion-pro:app-<sha>
-BASTION_MIGRATE_IMAGE=vincenttisseront/bastion-pro:migrate-<sha>
-BASTION_NGINX_IMAGE=vincenttisseront/bastion-pro:nginx-<sha>
+BASTION_APP_IMAGE=vincenttisseront/bastion-pro-app:6b2be94
+BASTION_MIGRATE_IMAGE=vincenttisseront/bastion-pro-migrate:6b2be94
+BASTION_NGINX_IMAGE=vincenttisseront/bastion-pro-nginx:6b2be94
 ```
 
 ## Prérequis

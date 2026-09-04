@@ -1,20 +1,41 @@
-## Phase 7+ — Bastion indépendant (Docker + edge catch-all)
+## Phase 7+ — Bastion (Docker Hub images + edge)
 
-**Entry point AWX unique : projet `bastion-app`** (plus de wrapper `awx-playbook/linux_sso_portal_docker.yml`).
+**Entry point AWX : projet `bastion-app`**
 
 ```
-clients → vmdmz-reverse01:443 (TLS catch-all)
-            → https://172.24.0.110 (Traefik)
-              → bastion-nginx:8080  ← reverse Host unique
-                  ├─ portal.* / default_server → bastion-app / oauth2
-                  ├─ App DB subdomain_proxy / public_proxy
-                  └─ infra (Keycloak, …) via exports/nginx-infra-proxy-apps.conf
+clients → edge TLS
+            → bastion-nginx:443/80
+                  ├─ portal.* → bastion-app / oauth2
+                  ├─ apps subdomain_proxy / public_proxy
+                  └─ infra proxies (exports)
 ```
+
+### Mode de déploiement (défaut = Hub)
+
+| `bastion_deploy_mode` | Comportement |
+|-----------------------|--------------|
+| **`hub`** (défaut) | Identique à `deploy/` : pull `bastion-pro-{app,migrate,nginx}`, **pas de build** |
+| **`source`** | Legacy : tar sources + `docker compose build` (DHI) |
+
+Extra-vars Hub :
+
+```yaml
+bastion_deploy_mode: hub
+bastion_hub_image_tag: latest   # ou SHA git publié sur Hub
+vault_dockerhub_username: "…"
+vault_dockerhub_token: "…"      # PAT read
+```
+
+Images :
+
+- `vincenttisseront/bastion-pro-app`
+- `vincenttisseront/bastion-pro-migrate`
+- `vincenttisseront/bastion-pro-nginx`
 
 | Rôle | Host | IP / chemin |
 |------|------|-------------|
 | Edge TLS catch-all | `vmdmz-reverse01` | `172.24.0.108` — rôle `bastion_edge_dmz` |
-| Traefik + stack bastion | `vmdmz-docker01` | `172.24.0.110` — `/tools/portal` |
+| Stack bastion | `vmdmz-docker01` | `172.24.0.110` — `/tools/portal` |
 
 - Compose / `.env` / oauth2-core : `/tools/portal`
 - Data (SQLite, exports) : `/tools/portal/data` → `/var/lib/sso-portal`
