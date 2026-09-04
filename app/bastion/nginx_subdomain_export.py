@@ -297,7 +297,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     # Origin only — path in upstream_url is ignored (avoids /web ↔ /web/ 301 loops).
     origin = upstream_origin(raw_upstream)
     upstream_host = _upstream_host(raw_upstream)
-    portal = (settings.portal_domain or "portal.ar-systems.fr").strip()
+    portal = (settings.portal_domain or "portal.example.com").strip()
     origin_esc = _nginx_escape(origin)
     fqdn_esc = _nginx_escape(fqdn)
     portal_esc = _nginx_escape(portal)

@@ -25,8 +25,7 @@ logger = logging.getLogger(__name__)
 # Do NOT mark the whole 172.24.0.0/16 as infra: that is the corp/DMZ LAN where
 # workstations live. Only the nginx edge host itself.
 _INFRA_NETWORKS = (
-    ipaddress.ip_network("10.5.0.0/16"),  # docker vpcbr (Traefik ↔ nginx ↔ app)
-    ipaddress.ip_network("172.24.0.108/32"),  # nginx edge
+    ipaddress.ip_network("10.5.0.0/16"),  # docker vpcbr (nginx ↔ app)
     ipaddress.ip_network("172.17.0.0/16"),  # default docker bridge
     ipaddress.ip_network("127.0.0.0/8"),
 )

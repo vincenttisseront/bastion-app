@@ -961,6 +961,11 @@ class PortalSettings(Base):
     daily_recap_hour = Column(Integer, nullable=False, default=7)  # 0–23, Europe/Paris
     daily_recap_last_sent_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Site identity (Admin setup wizard) — preferred over .env when set.
+    portal_domain = Column(String, nullable=True)
+    default_realm_slug = Column(String, nullable=True)
+    setup_wizard_completed_at = Column(DateTime(timezone=True), nullable=True)
+
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 

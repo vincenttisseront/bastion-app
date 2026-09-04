@@ -3,9 +3,21 @@
 set -euo pipefail
 
 export PORTAL_INTERNAL_TOKEN="${PORTAL_INTERNAL_TOKEN:-}"
-export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.ar-systems.fr}"
-export SSO_PORTAL_DEFAULT_REALM_SLUG="${SSO_PORTAL_DEFAULT_REALM_SLUG:-ar-systems}"
+export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.example.com}"
+export SSO_PORTAL_DEFAULT_REALM_SLUG="${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}"
 export EXPORTS_DIR="${EXPORTS_DIR:-/var/lib/sso-portal/exports}"
+
+# DB / setup-wizard override (written by bastion-app as exports/bastion-site.env)
+if [[ -f "${EXPORTS_DIR}/bastion-site.env" ]]; then
+  # shellcheck disable=SC1090
+  set -a
+  # Prefer file values over compose defaults when present.
+  # shellcheck disable=SC1091
+  . "${EXPORTS_DIR}/bastion-site.env"
+  set +a
+  export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.example.com}"
+  export SSO_PORTAL_DEFAULT_REALM_SLUG="${SSO_PORTAL_DEFAULT_REALM_SLUG:-default}"
+fi
 
 # Portal + auth_request open many FDs. Docker default soft=1024 → accept4 EMFILE
 # and clients see bare "403 Forbidden / nginx". Compose sets ulimits.nofile=65535;
@@ -53,6 +65,10 @@ chmod 0640 /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
 envsubst '${PORTAL_INTERNAL_TOKEN}' \
   < /etc/nginx/templates-portal/proxy_portal_trusted_internal.conf.template \
   > /etc/nginx/snippets/proxy_portal_trusted_internal.conf
+
+envsubst '${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
+  < /etc/nginx/templates-portal/nginx-portal-core-realm-oauth2.conf.template \
+  > /etc/nginx/snippets/nginx-portal-core-realm-oauth2.conf
 
 envsubst '${PORTAL_DOMAIN} ${SSO_PORTAL_DEFAULT_REALM_SLUG}' \
   < /etc/nginx/templates-portal/vhost_sso_portal.conf.template \

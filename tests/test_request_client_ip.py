@@ -104,29 +104,30 @@ def test_x_real_ip_preferred_over_tcp_peer_when_trusted():
     assert ip != "10.5.0.2"
 
 
-def test_reverse01_never_used_as_client_ip():
-    """If only the DMZ reverse IP is visible, resolve empty (fail closed for LAN)."""
+def test_legacy_dmz_host_ip_is_not_hardcoded_infra():
+    """Customer/DMZ host IPs must not be baked in — only docker/loopback infra."""
+    assert not is_infra_hop("172.24.0.108")
+    assert not is_infra_hop("172.24.0.50")
+    assert is_infra_hop("10.5.0.12")
     ip = client_ip_from_request(
         _req(
             headers={
-                "X-Real-IP": "172.24.0.108",
-                "X-Forwarded-For": "172.24.0.108",
+                "X-Real-IP": "172.24.0.50",
+                "X-Forwarded-For": "172.24.0.50",
             },
             host="10.5.0.2",
         )
     )
-    assert ip == ""
-    assert ip != "172.24.0.108"
-    assert is_infra_hop("172.24.0.108")
+    assert ip == "172.24.0.50"
 
 
-def test_portal_client_ip_header_survives_infra_only_xff():
-    """Fallback path: infra-only XFF/X-Real → X-Portal-Client-IP still wins (flag on)."""
+def test_portal_client_ip_header_survives_when_xff_is_private():
+    """X-Portal-Client-IP can still win when configured (trusted peer)."""
     ip = client_ip_from_request(
         _req(
             headers={
-                "X-Real-IP": "172.24.0.108",
-                "X-Forwarded-For": "172.24.0.108",
+                "X-Real-IP": "10.5.0.1",
+                "X-Forwarded-For": "10.5.0.1",
                 "X-Portal-Client-IP": "172.24.0.50",
             },
             host="10.5.0.2",
@@ -176,9 +177,9 @@ def test_ignores_cdn_spoof_headers_even_from_trusted_peer():
 
 
 def test_corp_lan_172_24_workstation_is_not_infra():
-    """Workstations on 172.24.0.0/16 (same LAN as reverse01) must count as clients."""
+    """Entire 172.24.0.0/16 is client LAN — never baked as infra hop."""
     assert not is_infra_hop("172.24.0.50")
-    assert is_infra_hop("172.24.0.108")
+    assert not is_infra_hop("172.24.0.108")
     ip = client_ip_from_request(
         _req(headers={"X-Real-IP": "172.24.0.50"}, host="10.5.0.2")
     )
@@ -186,17 +187,17 @@ def test_corp_lan_172_24_workstation_is_not_infra():
 
 
 def test_prefer_client_ip_upgrades_infra():
-    assert prefer_client_ip("172.24.0.108", "192.168.2.10") == "192.168.2.10"
-    assert prefer_client_ip("192.168.2.10", "172.24.0.108") == "192.168.2.10"
-    assert is_infra_hop("172.24.0.108")
+    assert prefer_client_ip("10.5.0.1", "192.168.2.10") == "192.168.2.10"
+    assert prefer_client_ip("192.168.2.10", "10.5.0.1") == "192.168.2.10"
+    assert is_infra_hop("10.5.0.1")
     assert not is_infra_hop("192.168.2.10")
     assert not is_infra_hop("172.24.0.42")
     assert is_trusted_proxy_peer("10.5.0.1")
     assert not is_trusted_proxy_peer("203.0.113.1")
 
 
-def test_app_trusts_only_docker_peer_not_reverse01_as_proxy():
-    """FastAPI must not treat reverse01 as a TCP trusted proxy (only nginx-bastion)."""
+def test_app_trusts_only_docker_peer_not_external_lan_as_proxy():
+    """FastAPI must not treat arbitrary LAN hosts as TCP trusted proxies."""
     assert is_trusted_proxy_peer("10.5.0.8")
     assert not is_trusted_proxy_peer("172.24.0.108")
     # Spoofed public client via headers from an untrusted peer is ignored.

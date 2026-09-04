@@ -48,14 +48,16 @@ def _exports_path(settings: Settings) -> Path:
 
 def iter_exportable_realms(db: Session, settings: Settings) -> list[RealmConfig]:
     """Enabled secondary realms (dedicated oauth2-proxy instance each)."""
-    exclude = core_static_realm_slugs(settings)
+    exclude = core_static_realm_slugs(settings, db)
     query = db.query(RealmConfig).filter_by(enabled=True).order_by(RealmConfig.slug)
     return [realm for realm in query.all() if realm.slug not in exclude]
 
 
 def get_core_realm_for_oauth2_export(db: Session, settings: Settings) -> RealmConfig | None:
     """Default portal realm whose oauth2-proxy-core cfg is generated from DB."""
-    slug = settings.sso_portal_default_realm_slug
+    from app.setup_wizard_service import get_effective_default_realm_slug
+
+    slug = get_effective_default_realm_slug(db, settings)
     realm = db.query(RealmConfig).filter_by(slug=slug, enabled=True).first()
     if realm:
         return realm
@@ -121,9 +123,14 @@ def build_infrastructure_manifest(
     """Build manifest consumed by apply-infrastructure.sh / admin diagnostics."""
     realms = iter_exportable_realms(db, settings)
     applications = db.query(App).order_by(App.slug).all()
+    from app.setup_wizard_service import (
+        get_effective_default_realm_slug,
+        get_effective_portal_domain,
+    )
+
     return {
-        "portal_domain": settings.portal_domain,
-        "core_static_realm": settings.sso_portal_default_realm_slug
+        "portal_domain": get_effective_portal_domain(db, settings),
+        "core_static_realm": get_effective_default_realm_slug(db, settings)
         if settings.oauth2_core_static_enabled
         else None,
         "realms": [_realm_manifest_entry(realm) for realm in realms],
@@ -142,6 +149,21 @@ def apply_infrastructure(db: Session, settings: Settings) -> dict[str, Any]:
     error: str | None = None
 
     try:
+        from app.setup_wizard_service import (
+            get_effective_default_realm_slug,
+            get_effective_portal_domain,
+            write_site_env_export,
+        )
+
+        site_env = write_site_env_export(
+            settings,
+            portal_domain=get_effective_portal_domain(db, settings),
+            default_realm_slug=get_effective_default_realm_slug(db, settings),
+        )
+        written_files.append(
+            _file_manifest_entry(site_env, kind="bastion_site_env")
+        )
+
         # Core/default realm: oauth2 cfg from DB → oauth2-proxy-core (via apply-infra-docker).
         # Exported even if last_test_status != ok so secrets entered in Admin can be applied.
         core_realm = get_core_realm_for_oauth2_export(db, settings)

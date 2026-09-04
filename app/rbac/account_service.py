@@ -1015,7 +1015,7 @@ def send_credentials_email(
             "SMTP non configuré — activez-le dans Admin → Général → Configuration."
         )
 
-    portal = (settings.portal_domain or "portal.ar-systems.fr").strip()
+    portal = (settings.portal_domain or "portal.example.com").strip()
     portal_url = f"https://{portal}" if not portal.startswith("http") else portal
     subject, text, html = credentials_email_bodies(
         portal_url=portal_url,

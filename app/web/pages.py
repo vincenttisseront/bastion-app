@@ -939,10 +939,10 @@ async def setup_post(
         _log_breakglass_ip_denied(db, request, actor=username.strip() or "setup", via="setup_post")
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    # Setup always creates a break-glass admin — land on dashboard, not /apps.
-    safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"
-    if safe_rd == "/apps":
-        safe_rd = "/dashboard"
+    # Setup always creates a break-glass admin — land on setup wizard.
+    safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/admin/setup-wizard"
+    if safe_rd in ("/apps", "/dashboard", "/admin/dashboard"):
+        safe_rd = "/admin/setup-wizard"
     username = username.strip()
     errors: list[str] = []
 
@@ -1508,8 +1508,12 @@ def admin_dashboard(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    """Legacy hub page — redirect to Général → Configuration."""
-    _ = (request, db, settings, user)
+    """Legacy hub — prefer setup wizard when incomplete, else Configuration."""
+    from app.setup_wizard_service import get_setup_status
+
+    _ = (request, user)
+    if get_setup_status(db, settings).needs_wizard:
+        return RedirectResponse(url="/admin/setup-wizard", status_code=302)
     return RedirectResponse(url="/admin/configuration", status_code=302)
 
 

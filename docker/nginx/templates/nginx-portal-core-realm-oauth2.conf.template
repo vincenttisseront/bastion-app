@@ -1,8 +1,6 @@
-# Placeholder — overwritten at container start by envsubst from
-# templates/nginx-portal-core-realm-oauth2.conf.template
-# (SSO_PORTAL_DEFAULT_REALM_SLUG). Keep this file so image builds that
-# COPY snippets/ still have a path for include before first render.
-location ~ ^/oauth2/default/(.*)$ {
+# ---- oauth2-proxy CORE realm (${SSO_PORTAL_DEFAULT_REALM_SLUG}) ----
+# Rendered by docker-entrypoint.sh via envsubst — do not hardcode a customer slug.
+location ~ ^/oauth2/${SSO_PORTAL_DEFAULT_REALM_SLUG}/(.*)$ {
     proxy_pass http://$oauth2_core_upstream/oauth2/$1$is_args$args;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;

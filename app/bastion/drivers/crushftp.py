@@ -570,7 +570,7 @@ class CrushFTPProvisioningDriver:
                 status=PROVISIONING_FAILED,
                 detail=(
                     "Racine VFS sociétés non configurée sur l'application "
-                    "(champ crushftp_vfs_base_path, ex. /crush_data/AR-SYSTEMS)."
+                    "(champ crushftp_vfs_base_path, ex. /crush_data/COMPANY)."
                 ),
             )
         try:
@@ -895,7 +895,7 @@ class CrushFTPProvisioningDriver:
         if not path:
             return [], (
                 "Racine VFS sociétés non configurée "
-                "(champ crushftp_vfs_base_path, ex. /crush_data/AR-SYSTEMS)."
+                "(champ crushftp_vfs_base_path, ex. /crush_data/COMPANY)."
             )
 
         ok, msg, _status, body = await self._admin_post_body(

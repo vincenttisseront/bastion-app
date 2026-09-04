@@ -5,11 +5,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_dockerfile_no_alembic_in_cmd():
+def test_dockerfile_no_alembic_in_runtime_cmd():
     text = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    assert "alembic" not in text.split("CMD")[-1]
-    assert "HEALTHCHECK" in text
-    assert "uvicorn" in text
+    # Multi-stage: migrate target has alembic; runtime CMD must not.
+    runtime = text.split("AS runtime", 1)[1].split("AS migrate", 1)[0]
+    assert "CMD" in runtime
+    assert "alembic" not in runtime.split("CMD", 1)[-1]
+    assert "HEALTHCHECK" in runtime
+    assert "uvicorn" in runtime
 
 
 def test_compose_split_topology_binds():
@@ -89,9 +92,11 @@ def test_nginx_docker_uses_service_dns():
     assert "port_in_redirect off" in vhost
     assert "letsencrypt" not in vhost
     core = (
-        ROOT / "docker" / "nginx" / "snippets" / "nginx-portal-core-realm-oauth2.conf"
+        ROOT / "docker" / "nginx" / "templates" / "nginx-portal-core-realm-oauth2.conf.template"
     ).read_text(encoding="utf-8")
     assert "oauth2-proxy-core:4180" in core or "$oauth2_core_upstream" in core
+    assert "${SSO_PORTAL_DEFAULT_REALM_SLUG}" in core
+    assert "ar-systems" not in core
 
 
 def test_ansible_docker_role_present():
