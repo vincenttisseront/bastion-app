@@ -29,7 +29,18 @@ def _create_legacy_settings_table(db: Session) -> None:
     db.commit()
 
 
-def test_legacy_breakglass_hash_migrates_and_verifies(db_session: Session):
+def test_verify_succeeds_when_last_used_at_commit_fails(db_session: Session):
+    """A valid password must not become False/500 if stamping last_used_at fails."""
+    from unittest.mock import patch
+
+    from sqlalchemy.exc import OperationalError
+
+    set_breakglass_password(db_session, "admin", "CorrectHorseBattery1")
+    boom = OperationalError("UPDATE", {}, Exception("db locked"))
+
+    with patch.object(db_session, "commit", side_effect=boom):
+        assert verify_breakglass_password(db_session, "admin", "CorrectHorseBattery1") is True
+
     password = "legacy-password-12"
     set_breakglass_password(db_session, "tmp", password)
     account = db_session.execute(

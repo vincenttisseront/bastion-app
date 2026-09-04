@@ -108,20 +108,38 @@ def resolve_breakglass_signing_secret_with_source(
     """
     from app.breakglass_secret_service import SigningSource, get_ui_breakglass_secret
 
+    def _from_ui_or_cache() -> tuple[str, SigningSource] | None:
+        ui = get_ui_breakglass_secret(db, settings)
+        if ui:
+            return ui, "ui"
+        from app.runtime_secrets_service import get_cached_breakglass_secret
+
+        cached = get_cached_breakglass_secret()
+        if cached:
+            return cached, "ui"
+        return None
+
     dedicated = (settings.breakglass_jwt_secret or "").strip()
     if dedicated:
         return dedicated, "env"
 
-    ui = get_ui_breakglass_secret(db, settings)
-    if ui:
-        return ui, "ui"
+    found = _from_ui_or_cache()
+    if found:
+        return found
 
-    # Also accept process cache populated by ensure_portal_runtime_secrets.
-    from app.runtime_secrets_service import get_cached_breakglass_secret
+    # Lifespan may have skipped ensure (race / decrypt failure). Seed once, then retry.
+    if db is not None:
+        try:
+            from app.runtime_secrets_service import ensure_portal_runtime_secrets
 
-    cached = get_cached_breakglass_secret()
-    if cached:
-        return cached, "ui"
+            ensure_portal_runtime_secrets(db, settings, actor="breakglass_resolve")
+        except Exception:
+            logger.exception(
+                "breakglass: ensure_portal_runtime_secrets failed during resolve"
+            )
+        found = _from_ui_or_cache()
+        if found:
+            return found
 
     if settings.is_production:
         raise RuntimeError(

@@ -51,6 +51,55 @@ def test_login_succeeds_when_the_session_registry_is_down(
     assert "bg_session" in response.cookies
 
 
+def test_login_succeeds_in_production_after_lazy_secret_ensure(
+    client: TestClient, db_session: Session, monkeypatch
+):
+    """Production without env BREAKGLASS_JWT_SECRET must seed from SQLite, not 500."""
+    from cryptography.fernet import Fernet
+
+    from app.runtime_secrets_service import reset_runtime_secrets_cache_for_tests
+    from app.sso_settings import Settings, get_settings
+
+    set_breakglass_password(db_session, "admin", PASSWORD)
+    reset_runtime_secrets_cache_for_tests()
+    key = Fernet.generate_key().decode()
+    settings = Settings(
+        environment="production",
+        breakglass_jwt_secret="",
+        session_hop_secret="",
+        vault_portal_internal_token="vault-only",
+        portal_secret_encryption_key=key,
+        vault_portal_vault_fernet_key=key,
+        portal_domain="portal.test",
+        database_url="sqlite://",
+    )
+    monkeypatch.setattr("app.web.pages.get_settings", lambda: settings)
+    get_settings.cache_clear()
+
+    response = _login(client)
+    assert response.status_code == 302, response.text[:500]
+    assert response.headers["location"] == "/dashboard"
+    assert "bg_session" in response.cookies
+
+
+def test_login_shows_form_not_500_when_token_issue_fails(
+    client: TestClient, db_session: Session
+):
+    set_breakglass_password(db_session, "admin", PASSWORD)
+
+    with patch(
+        "app.web.pages.issue_breakglass_token",
+        side_effect=RuntimeError("BREAKGLASS_JWT_SECRET is required in production"),
+    ):
+        response = _login(client)
+
+    assert response.status_code == 200
+    assert (
+        "BREAKGLASS_JWT_SECRET" in response.text
+        or "session break-glass" in response.text.lower()
+    )
+
+
 def test_unregistered_token_is_short_lived(client: TestClient, db_session: Session):
     """It cannot be revoked, so the window it opens has to be bounded."""
     set_breakglass_password(db_session, "admin", PASSWORD)
@@ -58,7 +107,12 @@ def test_unregistered_token_is_short_lived(client: TestClient, db_session: Sessi
     with patch("app.breakglass.register_breakglass_session", side_effect=PG_DOWN):
         token, _jti = issue_breakglass_token(db_session, "admin", "s3cret-signing-key")
 
-    payload = jwt.decode(token, "s3cret-signing-key", algorithms=["HS256"])
+    payload = jwt.decode(
+        token,
+        "s3cret-signing-key",
+        algorithms=["HS256"],
+        options={"verify_aud": False},
+    )
     lifetime = payload["exp"] - payload["iat"]
     assert lifetime == DEGRADED_TOKEN_TTL_SEC
     assert lifetime < COOKIE_MAX_AGE
@@ -71,7 +125,12 @@ def test_nominal_token_keeps_the_full_lifetime(
 
     token, jti = issue_breakglass_token(db_session, "admin", "s3cret-signing-key")
 
-    payload = jwt.decode(token, "s3cret-signing-key", algorithms=["HS256"])
+    payload = jwt.decode(
+        token,
+        "s3cret-signing-key",
+        algorithms=["HS256"],
+        options={"verify_aud": False},
+    )
     assert payload["exp"] - payload["iat"] == COOKIE_MAX_AGE
     assert db_session.query(BreakGlassSession).filter_by(jti=jti).first() is not None
 

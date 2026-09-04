@@ -524,12 +524,26 @@ def _breakglass_login_response(
 ) -> RedirectResponse:
     from app.security.banning.engine import record_successful_login
 
-    token, jti = issue_breakglass_token(
-        db,
-        username,
-        resolve_breakglass_signing_secret(settings, db=db),
-        request=request,
-    )
+    try:
+        token, jti = issue_breakglass_token(
+            db,
+            username,
+            resolve_breakglass_signing_secret(settings, db=db),
+            request=request,
+        )
+    except Exception as exc:
+        # Missing JWT secret / hot-path bugs must not become an opaque 500 —
+        # break-glass is the recovery door when the rest of the stack is broken.
+        logger.exception("breakglass login issue_token failed user=%s", username)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise RuntimeError(
+            "Impossible d’émettre la session break-glass "
+            f"({type(exc).__name__}). Vérifiez BREAKGLASS_JWT_SECRET / "
+            "Admin → Sécurité → secret JWT break-glass, et les logs bastion-app."
+        ) from exc
     try:
         db.commit()
     except SQLAlchemyError as exc:
@@ -902,7 +916,19 @@ async def breakglass_login_post(
         )
         return render("auth/login.html", **ctx)
 
-    return _breakglass_login_response(username, request, settings, db, safe_rd)
+    try:
+        return _breakglass_login_response(username, request, settings, db, safe_rd)
+    except RuntimeError as exc:
+        logger.error("breakglass login aborted: %s", exc)
+        ctx = _ctx(
+            request,
+            settings,
+            hide_chrome=True,
+            login_error=str(exc),
+            login_panel="local",
+            **_login_surface_flags(request, db, settings, rd=safe_rd),
+        )
+        return render("auth/login.html", **ctx)
 
 
 @router.get("/auth/setup")
