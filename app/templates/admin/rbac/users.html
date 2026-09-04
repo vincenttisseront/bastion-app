@@ -158,7 +158,7 @@
       Créés bastion{% if bastion_accounts_total %} {{ bastion_accounts_total }}{% endif %}
     </a>
     <a href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=1) }}" class="tab{% if list_tab == 'keycloak' %} active{% endif %}" role="tab"{% if list_tab == 'keycloak' %} aria-current="page"{% endif %}>
-      Droits individuels{% if import_users_total %} {{ import_users_total }}{% endif %}
+      SSO avec accès{% if import_users_total %} {{ import_users_total }}{% endif %}
     </a>
     <a href="/admin/rbac/users?{{ users_qs(list_tab='open', page=1) }}" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
       Recherche Keycloak
@@ -282,8 +282,8 @@
   {% if import_users %}
   <div class="card users-panel">
     <div class="users-panel-head">
-      <p class="users-panel-title">Droits individuels ({{ list_meta.total }} — p. {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
-      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Grants user uniquement — accès via groupe → fiche groupe ou recherche live Keycloak</span>
+      <p class="users-panel-title">SSO avec accès ({{ list_meta.total }} — p. {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
+      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Identités Keycloak ayant un accès (grant direct et/ou via un groupe à droits)</span>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0;">
       <table class="data-table">
@@ -291,6 +291,7 @@
           <tr>
             <th style="width:2.5rem;"></th>
             <th>Identité</th>
+            <th>Provenance</th>
             <th>Droits</th>
             <th>Statut</th>
             <th>Dernière connex.</th>
@@ -308,11 +309,24 @@
               <div class="users-id-sub">{{ u.keycloak_user_id }}</div>
             </td>
             <td>
+              {% set via = u.access_via or [] %}
+              {% if 'direct' in via %}
+              <span class="badge badge-muted" title="AccessGrant utilisateur">Direct</span>
+              {% endif %}
+              {% for gname in u.via_groups or [] %}
+              <span class="badge badge-ok" title="Membre d'un groupe à droits">{{ gname }}</span>
+              {% else %}
+              {% if 'direct' not in via %}
+              <span class="form-hint">—</span>
+              {% endif %}
+              {% endfor %}
+            </td>
+            <td>
               {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
               {% if droits_realm %}
-              <a class="badge badge-muted" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}#droits">{{ u.grant_count }}</a>
+              <a class="badge badge-muted" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}#droits">{% if u.direct_grant_count %}{{ u.direct_grant_count }} dir.{% elif u.grant_count %}{{ u.grant_count }}{% else %}effet.{% endif %}</a>
               {% else %}
-              <span class="badge badge-muted">{{ u.grant_count }}</span>
+              <span class="badge badge-muted">{% if u.direct_grant_count %}{{ u.direct_grant_count }}{% else %}{{ u.grant_count }}{% endif %}</span>
               {% endif %}
             </td>
             <td>
@@ -355,7 +369,7 @@
     {% endif %}
   </div>
   {% else %}
-  <div class="alert alert-info" style="margin-bottom:var(--sp-3);">Aucun utilisateur avec droits individuels pour ces filtres. Utilisez Recherche Keycloak.</div>
+  <div class="alert alert-info" style="margin-bottom:var(--sp-3);">Aucun utilisateur SSO avec accès pour ces filtres. Vérifiez les grants de groupe ou utilisez Recherche Keycloak.</div>
   {% endif %}
 
   {% else %}

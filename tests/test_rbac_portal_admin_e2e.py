@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 import respx
 
 from app.models import AccessGrant, AuditLog, RealmConfig
@@ -108,7 +109,7 @@ def test_promote_and_revoke_portal_admin_via_grants_api(client, db_session):
     assert users_page.status_code == 200
     assert "bob" in users_page.text
     assert "Privilégié" in users_page.text
-    assert "droits individuels" in users_page.text or "Recherche Keycloak" in users_page.text
+    assert "SSO avec accès" in users_page.text or "Recherche Keycloak" in users_page.text
     assert "Anomalies de Connexion" not in users_page.text
 
     revoke = client.post(
@@ -206,6 +207,73 @@ def test_list_users_with_direct_grants_helper(db_session):
     assert users[0]["keycloak_user_id"] == "u-1"
     assert users[0]["grant_count"] == 2
     assert users[0]["has_portal_admin"] is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_sso_users_with_access_includes_group_members(db_session):
+    from app.models import App, RBACGroup
+    from app.rbac.grants_service import list_sso_users_with_access
+
+    realm = _realm(db_session)
+    app = App(slug="wiki", label="Wiki", upstream_url="https://wiki.internal/", enabled=True)
+    db_session.add(app)
+    db_session.flush()
+    group = RBACGroup(
+        name="ARSYSTEMS-Users",
+        realm_id=realm.id,
+        keycloak_group_id="kc-g-arsystems",
+        path="/ARSYSTEMS-Users",
+        member_count=1,
+    )
+    db_session.add(group)
+    db_session.flush()
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group.id,
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id="u-direct",
+            user_display_cache="direct-only",
+            resource_type="system_role",
+            system_role="portal_auditor",
+            access_level="view",
+        ),
+        "admin",
+    )
+    db_session.commit()
+
+    token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
+    respx.post(token_url).respond(200, json={"access_token": "t"})
+    respx.get(url__regex=r".*/groups/kc-g-arsystems/members.*").respond(
+        200,
+        json=[
+            {
+                "id": "u-via-group",
+                "username": "brigitte",
+                "email": "brigitte@example.com",
+            }
+        ],
+    )
+
+    users = await list_sso_users_with_access(db_session, _settings(), realm_id=realm.id)
+    by_id = {u["keycloak_user_id"]: u for u in users}
+    assert "u-direct" in by_id
+    assert "u-via-group" in by_id
+    assert by_id["u-via-group"]["display"] == "brigitte"
+    assert "ARSYSTEMS-Users" in by_id["u-via-group"]["via_groups"]
+    assert "group" in by_id["u-via-group"]["access_via"]
+    assert "direct" in by_id["u-direct"]["access_via"]
 
 
 def test_oauth2_export_sets_user_id_claim_sub(db_session):

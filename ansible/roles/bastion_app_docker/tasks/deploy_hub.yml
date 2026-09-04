@@ -25,6 +25,18 @@
     dest: "{{ bastion_app_docker_compose_dir }}/"
     mode: preserve
 
+- name: "refuse placeholder portal_domain (breaks cookies on real FQDN)"
+  ansible.builtin.assert:
+    that:
+      - >-
+        (bastion_allow_example_domain | default(false) | bool)
+        or ('example.com' not in (portal_domain | default('') | lower))
+    fail_msg: >-
+      portal_domain={{ portal_domain | default('') }} ressemble à un placeholder.
+      Fixe portal_domain / base_domain / sso_portal_default_realm_slug dans l'inventaire AWX
+      (ex. portal.ar-systems.fr) — sinon bg_session / SSO partent sur le mauvais Domain
+      et le login bounce sur /auth/login. Escape : bastion_allow_example_domain=true.
+
 - name: "scripts executable"
   ansible.builtin.file:
     path: "{{ item }}"

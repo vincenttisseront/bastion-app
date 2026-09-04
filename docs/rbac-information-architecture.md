@@ -15,7 +15,7 @@ Les écrans précédents forçaient un parcours multi-clics (fiche user → grou
 | Onglet | URL | Rôle |
 |--------|-----|------|
 | Vue d'ensemble | `/admin/rbac/overview` | KPI + alertes + liens croisés (point d’entrée pédagogique) |
-| Utilisateurs | `/admin/rbac/users` | Listes (créés / droits indiv. / recherche KC) + recherche live |
+| Utilisateurs | `/admin/rbac/users` | Listes (créés / SSO avec accès / recherche KC) + recherche live |
 | Groupes | `/admin/rbac` | Sync, membres, comptes partagés, droits de groupe |
 | Matrice | `/admin/rbac/matrix` | Apps × groupes (grants de groupe) |
 | Gouvernance | `/admin/rbac/governance` | Rôles / permissions système |
