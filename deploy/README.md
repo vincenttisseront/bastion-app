@@ -7,13 +7,17 @@ Vous tirez les images depuis Docker Hub et configurez votre domaine / IdP.
 
 | Fichier | Rôle |
 |---------|------|
-| `docker-compose.yml` | Stack complète (pull only) |
+| `docker-compose.yml` | **Source de vérité du déploiement** (pull only) |
 | `.env.example` | Variables applicatives (à copier en `.env`) |
 | `.env.acme.example` | Token DNS pour Let’s Encrypt (optionnel) |
 | `docker/oauth2-core/` | Stub oauth2-proxy (à personnaliser, puis régénéré via Admin) |
 | `docker/postgres/` | Entrypoint sync mot de passe hot-store |
 | `docker/acme/` | Scripts ACME companion |
+| `scripts/` | `apply-infra-docker.sh` (+ dispatch) pour Admin → Apply côté hôte |
 | `data/` | Volumes hôte (vides au départ) |
+
+Pas d’Ansible obligatoire : `docker compose pull && up -d` suffit.
+AWX, s’il est utilisé, ne fait que poser ce dossier et écrire `.env` depuis le Vault.
 
 ## Images
 

@@ -10,12 +10,15 @@ clients → edge TLS
                   └─ infra proxies (exports)
 ```
 
-### Mode de déploiement (défaut = Hub)
+### Mode de déploiement (défaut = Hub = docker compose)
+
+Le déploiement produit **est** le pack [`deploy/`](../deploy/README.md) :
+`docker compose pull && docker compose up -d`.
 
 | `bastion_deploy_mode` | Comportement |
 |-----------------------|--------------|
-| **`hub`** (défaut) | Chemin **court** (`deploy_hub.yml`) : copie `deploy/` + scripts, `compose pull` + `up`, un apply-infra, smoke nginx. **Pas** de tar, build, retag `:local`, ni VERIFY image archaeology |
-| **`source`** | Legacy (`deploy_source.yml`) : tar sources + `docker compose build` (DHI) + VERIFY historiques |
+| **`hub`** (défaut) | AWX = wrapper mince : copie `deploy/`, écrit `.env` (Vault), `compose pull` + `up -d`, health. Optionnel : watcher systemd pour Admin → Apply |
+| **`source`** | Legacy (`deploy_source.yml`) : tar + `docker compose build` (DHI) — hors chemin prod |
 
 Extra-vars Hub :
 
@@ -26,13 +29,9 @@ vault_dockerhub_username: "…"
 vault_dockerhub_token: "…"      # PAT read
 ```
 
-Images :
+Images : `vincenttisseront/bastion-pro-{app,migrate,nginx}`.
 
-- `vincenttisseront/bastion-pro-app`
-- `vincenttisseront/bastion-pro-migrate`
-- `vincenttisseront/bastion-pro-nginx`
-
-`--tags docker` = chemin Hub court uniquement. Le play SMOKE est **séparé** (`--tags smoke`) — ne plus le coller au tag `docker`.
+`--tags docker` uniquement. SMOKE séparé : `--tags smoke`.
 
 | Rôle | Host | IP / chemin |
 |------|------|-------------|

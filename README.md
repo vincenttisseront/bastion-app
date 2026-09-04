@@ -142,9 +142,10 @@ En production / distribution : utiliser **`deploy/`** (pull Hub, sans `--build`)
 Playbook : `ansible/linux_sso_portal_docker.yml`  
 Rôle : `ansible/roles/bastion_app_docker`
 
-**Par défaut (`bastion_deploy_mode: hub`)** : même procédé que `deploy/` —
-pull des images Hub, **pas** de `docker compose build`. Le contrôleur
-pousse le pack `deploy/` + scripts apply-infra sur l’hôte.
+**La source de vérité reste `deploy/docker-compose.yml`.**  
+AWX (`bastion_deploy_mode: hub`) automatise le guide
+[`deploy/README.md`](deploy/README.md) : poser le pack, écrire `.env`
+depuis le Vault, puis `docker compose pull && up -d`. Pas de build.
 
 ```bash
 ansible-playbook ansible/linux_sso_portal_docker.yml \

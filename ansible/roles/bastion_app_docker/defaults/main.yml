@@ -43,12 +43,14 @@ bastion_hub_image_tag: latest
 bastion_app_image: "{{ bastion_hub_namespace }}/bastion-pro-app:{{ bastion_hub_image_tag }}"
 bastion_migrate_image: "{{ bastion_hub_namespace }}/bastion-pro-migrate:{{ bastion_hub_image_tag }}"
 bastion_nginx_image: "{{ bastion_hub_namespace }}/bastion-pro-nginx:{{ bastion_hub_image_tag }}"
-# Retag Hub → :local only for source VERIFY archaeology (unused on hub fast path)
+# Retag Hub → :local only for source VERIFY archaeology (unused on hub path)
 bastion_retag_local_aliases: false
 # Docker Hub login (private repos) — AWX Vault
 vault_dockerhub_username: ""
 vault_dockerhub_token: ""
 bastion_hub_login: true
+# systemd path watcher so Admin → Apply can run apply-infra-docker.sh on the host
+bastion_hub_install_host_watcher: true
 
 # Source code for build (mode=source) or packing deploy/ + scripts (mode=hub)
 # AWX Project = bastion-app → playbook_dir/.. EST le checkout applicatif.
