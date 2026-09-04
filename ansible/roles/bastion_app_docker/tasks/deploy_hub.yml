@@ -1,8 +1,16 @@
 ---
-# Fast path: pull Docker Hub images + sync thin deploy/ pack (no build, no tar, no image archaeology).
-# Same surface as deploy/README.md.
+# AWX wrapper around deploy/ — same steps as deploy/README.md
+#
+#   1. copy deploy/ → compose dir
+#   2. write .env from Vault
+#   3. docker network vpcbr (if missing)
+#   4. docker login + compose pull + up -d
+#   5. health check
+#
+# Optional site glue (Admin → Apply on the host): systemd path watcher.
+# Not required for a manual `docker compose` install.
 
-- name: "HUB : ensure compose and data directories"
+- name: "compose : ensure host directories"
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -15,83 +23,51 @@
     - "{{ bastion_app_docker_files_data_dir }}"
     - "{{ sso_portal_files_storage_dir }}"
     - "{{ sso_portal_exports_dir }}"
-    - "{{ bastion_app_docker_compose_dir }}/docker"
-    - "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core"
-    - "{{ bastion_app_docker_compose_dir }}/scripts"
     - "{{ bastion_app_docker_data_dir }}/certs"
     - "{{ bastion_app_docker_data_dir }}/acme"
     - "{{ sso_portal_nginx_logs_dir }}"
 
-- name: "HUB : assert AWX project has deploy pack"
+- name: "compose : assert deploy/ pack on AWX controller"
   ansible.builtin.stat:
-    path: "{{ item }}"
-  loop:
-    - "{{ bastion_app_root }}/deploy/docker-compose.yml"
-    - "{{ bastion_app_root }}/deploy/docker/acme/entrypoint-acme.sh"
-    - "{{ bastion_app_root }}/scripts/apply-infra-docker.sh"
-  register: _hub_src
+    path: "{{ bastion_app_root }}/deploy/docker-compose.yml"
+  register: _deploy_pack
   delegate_to: localhost
   become: false
   run_once: true
 
-- name: "HUB : fail if deploy pack missing on controller"
+- name: "compose : fail if deploy/ missing"
   ansible.builtin.assert:
     that:
-      - _hub_src.results | map(attribute='stat.exists') | list | min
+      - _deploy_pack.stat.exists | default(false)
     fail_msg: >-
-      Mode hub: sources deploy/ incompletes sous bastion_app_root={{ bastion_app_root }}.
-      AWX Project doit être bastion-app (playbook_dir/..).
+      Pack deploy/ introuvable sous bastion_app_root={{ bastion_app_root }}.
+      AWX Project = bastion-app (playbook_dir/..).
   run_once: true
 
-- name: "HUB : sync compose + docker/ from project (no tarball)"
+# Full pack (compose, docker/, scripts/, examples) — identical to a manual scp of deploy/
+- name: "compose : sync deploy/ pack to host"
   ansible.builtin.copy:
-    src: "{{ item.src }}"
-    dest: "{{ item.dest }}"
-    mode: "{{ item.mode | default(omit) }}"
-  loop:
-    - src: "{{ bastion_app_root }}/deploy/docker-compose.yml"
-      dest: "{{ bastion_app_docker_compose_dir }}/docker-compose.yml"
-      mode: "0644"
-    - src: "{{ bastion_app_root }}/deploy/docker/"
-      dest: "{{ bastion_app_docker_compose_dir }}/docker/"
-    - src: "{{ bastion_app_root }}/scripts/apply-infra-docker.sh"
-      dest: "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh"
-      mode: "0755"
-    - src: "{{ bastion_app_root }}/scripts/apply-infra-docker-dispatch.sh"
-      dest: "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker-dispatch.sh"
-      mode: "0755"
-    - src: "{{ bastion_app_root }}/scripts/oauth2-cookie-secret.sh"
-      dest: "{{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh"
-      mode: "0755"
+    src: "{{ bastion_app_root }}/deploy/"
+    dest: "{{ bastion_app_docker_compose_dir }}/"
+    mode: preserve
 
-- name: "HUB : render portal .env"
+- name: "compose : make deploy/scripts executable"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    mode: "0755"
+  loop:
+    - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh"
+    - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker-dispatch.sh"
+    - "{{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh"
+
+- name: "compose : write .env from Vault (portal.env.j2)"
   ansible.builtin.template:
     src: portal.env.j2
     dest: "{{ sso_portal_env_path }}"
     mode: "0600"
   no_log: true
 
-- name: "HUB : render nginx infra proxy vhosts"
-  ansible.builtin.template:
-    src: nginx-infra-proxy-apps.conf.j2
-    dest: "{{ sso_portal_exports_dir }}/nginx-infra-proxy-apps.conf"
-    mode: "0644"
-
-- name: "HUB : export infra FQDNs for ACME"
-  ansible.builtin.copy:
-    dest: "{{ sso_portal_exports_dir }}/infra-acme-domains.json"
-    mode: "0644"
-    content: "{{ _infra_acme | to_nice_json }}\n"
-  vars:
-    _infra_acme: >-
-      {{
-        bastion_infra_proxy_vhosts
-        | rejectattr('enabled', 'equalto', false)
-        | map('combine', {'family': 'infra'})
-        | list
-      }}
-
-- name: "HUB : ensure oauth2-core cfg from example if missing"
+- name: "compose : ensure oauth2-core cfg from example if missing"
   ansible.builtin.copy:
     src: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg.example"
     dest: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
@@ -99,14 +75,7 @@
     mode: "0644"
     force: false
 
-- name: "HUB : ensure oauth2-proxy.cfg mode for non-root container"
-  ansible.builtin.file:
-    path: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
-    mode: "0644"
-    state: file
-  failed_when: false
-
-- name: "HUB : ensure oauth2-proxy PKCE code_challenge_method=S256"
+- name: "compose : ensure oauth2 PKCE"
   ansible.builtin.lineinfile:
     path: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
     regexp: '^\s*code_challenge_method\s*='
@@ -114,92 +83,115 @@
     insertafter: '^\s*cookie_secret\s*='
     mode: "0644"
 
-- name: "HUB : ensure oauth2-proxy cookie_secret is AES-valid"
+- name: "compose : ensure oauth2 cookie_secret"
   ansible.builtin.command:
     cmd: >-
       bash {{ bastion_app_docker_compose_dir }}/scripts/oauth2-cookie-secret.sh
       ensure-cfg
       {{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg
-  register: _oauth2_cookie_secret
-  changed_when: "'regenerated' in (_oauth2_cookie_secret.stdout | default(''))"
+  register: _oauth2_cookie
+  changed_when: "'regenerated' in (_oauth2_cookie.stdout | default(''))"
 
-- name: "HUB : ensure empty oauth2-core env file"
+- name: "compose : ensure .env.oauth2-core / .env.acme stubs"
   ansible.builtin.copy:
-    content: "# oauth2-core env (optional)\n"
-    dest: "{{ bastion_app_docker_compose_dir }}/.env.oauth2-core"
+    content: "{{ item.content }}"
+    dest: "{{ item.dest }}"
     mode: "0600"
     force: false
-
-- name: "HUB : ensure ACME env file (.env.acme) exists"
-  ansible.builtin.copy:
-    content: |
-      # Cloudflare DNS-01 for bastion-acme (public_proxy). Fill CF_Token / CF_Zone_ID.
-    dest: "{{ bastion_app_docker_compose_dir }}/.env.acme"
-    mode: "0600"
-    force: false
-
-- name: "HUB : ensure exports stub for nginx realms"
-  ansible.builtin.copy:
-    content: "# secondary realms — generated by apply-infra\n"
-    dest: "{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
-    mode: "0644"
-    force: false
-
-- name: "HUB : ensure exports stub for nginx known-hosts map"
-  ansible.builtin.copy:
-    content: |
-      # stub — overwritten by export_app_catalogue_files / infrastructure apply
-      127.0.0.1 0;
-      localhost 0;
-      {{ portal_domain }} 0;
-    dest: "{{ sso_portal_exports_dir }}/nginx-known-hosts.map"
-    mode: "0644"
-    force: true
-
-- name: "HUB : ensure apply-infra request file exists"
-  ansible.builtin.file:
-    path: "{{ bastion_app_docker_data_dir }}/apply-infra.request"
-    state: touch
-    mode: "0644"
-    modification_time: preserve
-    access_time: preserve
-
-- name: "HUB : install apply-infra systemd units"
-  ansible.builtin.template:
-    src: "{{ item.src }}"
-    dest: "/etc/systemd/system/{{ item.dest }}"
-    mode: "0644"
   loop:
-    - src: bastion-apply-infra.service.j2
-      dest: bastion-apply-infra.service
-    - src: bastion-apply-infra.path.j2
-      dest: bastion-apply-infra.path
+    - dest: "{{ bastion_app_docker_compose_dir }}/.env.oauth2-core"
+      content: "# oauth2-core env (optional)\n"
+    - dest: "{{ bastion_app_docker_compose_dir }}/.env.acme"
+      content: "# Cloudflare DNS-01 — see .env.acme.example\n"
 
-- name: "HUB : enable apply-infra path watcher"
-  ansible.builtin.systemd:
-    name: bastion-apply-infra.path
-    enabled: true
-    state: started
-    daemon_reload: true
+- name: "compose : nginx export stubs (first boot before Admin Apply)"
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.dest }}"
+    mode: "0644"
+    force: "{{ item.force | default(false) }}"
+  loop:
+    - dest: "{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
+      content: "# secondary realms — generated by apply-infra\n"
+      force: false
+    - dest: "{{ sso_portal_exports_dir }}/nginx-known-hosts.map"
+      content: |
+        127.0.0.1 0;
+        localhost 0;
+        {{ portal_domain }} 0;
+      force: true
 
-- name: "HUB : require vpcbr network"
-  ansible.builtin.command: docker network inspect {{ bastion_traefik_network }}
-  register: _vpcbr
-  changed_when: false
-  failed_when: _vpcbr.rc | default(1) != 0
+- name: "compose : optional infra proxy exports (Keycloak / …)"
+  when: (bastion_infra_proxy_vhosts | default([]) | length) > 0
+  block:
+    - name: "compose : render nginx-infra-proxy-apps.conf"
+      ansible.builtin.template:
+        src: nginx-infra-proxy-apps.conf.j2
+        dest: "{{ sso_portal_exports_dir }}/nginx-infra-proxy-apps.conf"
+        mode: "0644"
 
-- name: "HUB : require vpcbr subnet 10.5.0.0/16"
+    - name: "compose : infra ACME domains JSON"
+      ansible.builtin.copy:
+        dest: "{{ sso_portal_exports_dir }}/infra-acme-domains.json"
+        mode: "0644"
+        content: "{{ _infra_acme | to_nice_json }}\n"
+      vars:
+        _infra_acme: >-
+          {{
+            bastion_infra_proxy_vhosts
+            | rejectattr('enabled', 'equalto', false)
+            | map('combine', {'family': 'infra'})
+            | list
+          }}
+
+# Host watcher so Admin → Apply can touch apply-infra.request (same as bare-metal ops).
+- name: "compose : install apply-infra systemd watcher"
+  when: bastion_hub_install_host_watcher | default(true) | bool
+  block:
+    - name: "compose : touch apply-infra.request"
+      ansible.builtin.file:
+        path: "{{ bastion_app_docker_data_dir }}/apply-infra.request"
+        state: touch
+        mode: "0644"
+        modification_time: preserve
+        access_time: preserve
+
+    - name: "compose : systemd units"
+      ansible.builtin.template:
+        src: "{{ item.src }}"
+        dest: "/etc/systemd/system/{{ item.dest }}"
+        mode: "0644"
+      loop:
+        - src: bastion-apply-infra.service.j2
+          dest: bastion-apply-infra.service
+        - src: bastion-apply-infra.path.j2
+          dest: bastion-apply-infra.path
+
+    - name: "compose : enable path watcher"
+      ansible.builtin.systemd:
+        name: bastion-apply-infra.path
+        enabled: true
+        state: started
+        daemon_reload: true
+
+- name: "compose : ensure vpcbr (10.5.0.0/16)"
   ansible.builtin.shell: |
-    set -o pipefail
-    docker network inspect {{ bastion_traefik_network }} \
-      --format '{% raw %}{{range .IPAM.Config}}{{.Subnet}}{{end}}{% endraw %}'
+    set -euo pipefail
+    if docker network inspect {{ bastion_traefik_network }} >/dev/null 2>&1; then
+      subnet=$(docker network inspect {{ bastion_traefik_network }} \
+        --format '{% raw %}{{range .IPAM.Config}}{{.Subnet}}{{end}}{% endraw %}')
+      test "$subnet" = "10.5.0.0/16"
+      echo "vpcbr exists ($subnet)"
+      exit 0
+    fi
+    docker network create --subnet=10.5.0.0/16 {{ bastion_traefik_network }}
+    echo "vpcbr created"
   args:
     executable: /bin/bash
-  register: _vpcbr_subnet
-  changed_when: false
-  failed_when: (_vpcbr_subnet.stdout | trim) != "10.5.0.0/16"
+  register: _vpcbr
+  changed_when: "'created' in (_vpcbr.stdout | default(''))"
 
-- name: "HUB : Docker Hub login (private images)"
+- name: "compose : Docker Hub login"
   ansible.builtin.shell: |
     set -euo pipefail
     printf '%s' "{{ vault_dockerhub_token }}" | docker login \
@@ -214,21 +206,13 @@
     - (vault_dockerhub_username | default('') | length) > 0
   changed_when: true
 
-- name: "HUB : docker compose pull"
-  ansible.builtin.command:
-    cmd: docker compose pull bastion-app bastion-app-migrate nginx
-    chdir: "{{ bastion_app_docker_compose_dir }}"
-  environment:
-    BASTION_APP_IMAGE: "{{ bastion_app_image }}"
-    BASTION_MIGRATE_IMAGE: "{{ bastion_migrate_image }}"
-    BASTION_NGINX_IMAGE: "{{ bastion_nginx_image }}"
-    OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
-  register: _compose_pull
-  changed_when: true
-
-- name: "HUB : docker compose up (no force-recreate)"
-  ansible.builtin.command:
-    cmd: docker compose up -d --remove-orphans
+- name: "compose : pull && up -d"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    docker compose pull bastion-app bastion-app-migrate nginx
+    docker compose up -d --remove-orphans
+  args:
+    executable: /bin/bash
     chdir: "{{ bastion_app_docker_compose_dir }}"
   environment:
     SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
@@ -238,105 +222,42 @@
     BASTION_APP_IMAGE: "{{ bastion_app_image }}"
     BASTION_MIGRATE_IMAGE: "{{ bastion_migrate_image }}"
     BASTION_NGINX_IMAGE: "{{ bastion_nginx_image }}"
-  register: _compose_up
+  register: _compose
   failed_when: false
+  changed_when: true
 
-- name: "HUB : dump migrate logs on failure"
+- name: "compose : dump logs on failure"
+  when: _compose.rc | default(0) != 0
   ansible.builtin.command:
-    cmd: docker compose logs --no-color --tail=80 bastion-app-migrate
+    cmd: docker compose logs --no-color --tail=100 bastion-app-migrate bastion-app nginx
     chdir: "{{ bastion_app_docker_compose_dir }}"
-  register: _migrate_logs
+  register: _compose_logs
   changed_when: false
   failed_when: false
-  when: _compose_up.rc | default(0) != 0
 
-- name: "HUB : dump app logs on failure"
-  ansible.builtin.command:
-    cmd: docker compose logs --no-color --tail=120 bastion-app
-    chdir: "{{ bastion_app_docker_compose_dir }}"
-  register: _app_logs
-  changed_when: false
-  failed_when: false
-  when: _compose_up.rc | default(0) != 0
-
-- name: "HUB : fail with compose diagnostics"
+- name: "compose : fail with diagnostics"
   ansible.builtin.fail:
-    msg: >-
-      docker compose up failed (rc={{ _compose_up.rc }}).
-      bastion-app logs:
-      {{ _app_logs.stdout | default('') }}
-      migrate logs:
-      {{ _migrate_logs.stdout | default('') }}
-      compose stderr:
-      {{ _compose_up.stderr | default('') }}
-  when: _compose_up.rc | default(0) != 0
+    msg: |
+      docker compose failed (rc={{ _compose.rc }}).
+      {{ _compose.stderr | default('') }}
+      --- logs ---
+      {{ _compose_logs.stdout | default('') }}
+  when: _compose.rc | default(0) != 0
 
-- name: "HUB : wait for bastion-app healthy"
+- name: "compose : wait /api/health"
   ansible.builtin.command:
     cmd: >-
       docker compose exec -T bastion-app
       python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
     chdir: "{{ bastion_app_docker_compose_dir }}"
-  register: _app_ready
+  register: _health
   retries: 30
   delay: 3
-  until: _app_ready.rc | default(1) == 0
+  until: _health.rc | default(1) == 0
   changed_when: false
 
-- name: "HUB : apply infrastructure exports (once)"
-  ansible.builtin.command:
-    cmd: >-
-      docker compose exec -T bastion-app
-      python -m app.admin.infrastructure apply
-    chdir: "{{ bastion_app_docker_compose_dir }}"
-  environment:
-    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
-  register: _infra_export
-  failed_when: false
-  changed_when: _infra_export.rc == 0
-
-- name: "HUB : warn if infrastructure apply failed"
+- name: "compose : done"
   ansible.builtin.debug:
     msg: >-
-      infrastructure apply rc={{ _infra_export.rc }} —
-      {{ _infra_export.stderr | default(_infra_export.stdout) }}
-  when: _infra_export.rc | default(0) != 0
-
-- name: "HUB : apply-infra-docker (oauth2 sync + reload)"
-  ansible.builtin.command:
-    cmd: >-
-      bash {{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh
-      {{ sso_portal_exports_dir }}
-      {{ bastion_app_docker_compose_dir }}
-  environment:
-    OAUTH2_PROXY_IMAGE_TAG: "{{ oauth2_proxy_image_tag }}"
-    SSO_PORTAL_DEFAULT_REALM_SLUG: "{{ sso_portal_default_realm_slug }}"
-    PORTAL_DOMAIN: "{{ portal_domain }}"
-    SSO_PORTAL_DATA_DIR: "{{ bastion_app_docker_data_dir }}"
-  register: _apply_docker
-  failed_when: _apply_docker.rc | default(1) != 0
-  changed_when: _apply_docker.rc == 0
-  timeout: 180
-
-- name: "HUB : smoke — nginx running + nginx -t + proxy /api/health"
-  ansible.builtin.shell: |
-    set -euo pipefail
-    docker inspect -f '{% raw %}{{.State.Status}}{% endraw %}' bastion-nginx | grep -qx running
-    docker exec bastion-nginx nginx -t
-    docker exec bastion-nginx wget -qO- --timeout=5 http://bastion-app:8000/api/health | grep -q '"status"'
-    body="$(docker exec bastion-nginx wget -qO- --timeout=5 http://127.0.0.1:8080/api/health || true)"
-    echo "$body"
-    echo "$body" | grep -q '"status"'
-  args:
-    executable: /bin/bash
-  register: _hub_smoke
-  retries: 15
-  delay: 3
-  until: _hub_smoke.rc | default(1) == 0
-  changed_when: false
-
-- name: "HUB : deploy complete"
-  ansible.builtin.debug:
-    msg: >-
-      Hub deploy OK — images {{ bastion_app_image }}, {{ bastion_nginx_image }}
-      (tag={{ bastion_hub_image_tag }}). Skip VERIFY image archaeology / vpcbr re-attach / retag.
+      Stack up — {{ bastion_app_image }} / {{ bastion_nginx_image }}.
+      Suite : Admin → Setup / Realms → Apply (comme deploy/README.md).
