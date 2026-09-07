@@ -296,9 +296,18 @@
   until: _nginx_vpcbr.rc | default(1) == 0
   changed_when: false
 
-- name: "SMOKE : via Traefik https://{{ bastion_docker_host_ip }} Host={{ portal_domain }}"
+- name: "SMOKE : resolve HTTPS edge target (avoid anonymized default 10.0.0.10)"
+  ansible.builtin.set_fact:
+    bastion_smoke_https_ip: >-
+      {{
+        bastion_docker_host_ip
+        if (bastion_docker_host_ip | string) not in ['10.0.0.10', '10.0.0.11', '']
+        else (ansible_host | default(ansible_default_ipv4.address | default('127.0.0.1')))
+      }}
+
+- name: "SMOKE : via edge HTTPS https://{{ bastion_smoke_https_ip }} Host={{ portal_domain }}"
   ansible.builtin.uri:
-    url: "{{ bastion_upstream_url }}/api/health"
+    url: "https://{{ bastion_smoke_https_ip }}/api/health"
     headers:
       Host: "{{ portal_domain }}"
     validate_certs: false
@@ -339,7 +348,11 @@
     - name: "Fail with Traefik diagnostics"
       ansible.builtin.fail:
         msg: |
-          Traefik /api/health ? HTTP {{ _traefik_health.status | default('n/a') }}
+          Edge HTTPS /api/health → HTTP {{ _traefik_health.status | default('n/a') }}
+          url=https://{{ bastion_smoke_https_ip }}/api/health Host={{ portal_domain }}
+          bastion_docker_host_ip={{ bastion_docker_host_ip | default('') }}
+          ansible_host={{ ansible_host | default('') }}
+          (si IP=10.0.0.10 : fixer bastion_docker_host_ip dans l'inventaire AWX)
           body={{ _traefik_health.content | default('') }}
           nginx_vpcbr_ip={{ bastion_nginx_vpcbr_ip | default('') }}
           nginx-via-vpcbr rc={{ _nginx_vpcbr.rc | default('n/a') }} out={{ _nginx_vpcbr.stdout | default('') }}
