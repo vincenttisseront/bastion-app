@@ -65,7 +65,7 @@ def test_generate_nginx_conf_serves_well_known():
     )
     assert "server_name mta-sts.example.com;" in conf
     assert "listen 0.0.0.0:8080;" in conf
-    assert "access_log /var/log/nginx/apps/mta-sts.access.log" in conf
+    assert "access_log /var/log/nginx/apps/mta-sts.access.log app;" in conf
     assert "[::]" not in conf
     assert "listen 8080;" not in conf  # bare port can still open AF_INET6
     assert "location = /.well-known/mta-sts.txt" in conf
