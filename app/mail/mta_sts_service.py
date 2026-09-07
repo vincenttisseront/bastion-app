@@ -165,7 +165,8 @@ def generate_nginx_mta_sts_conf(
             "",
             "server {",
             "    listen 8080;",
-            "    listen [::]:8080;",
+            # No listen [::] — Docker hosts often have IPv6 disabled; nginx -t then fails
+            # with "Address family not supported by protocol" and blocks all reloads.
             f"    server_name {_nginx_escape_double_quoted(fqdn)};",
             "",
             "    # Static policy — no auth, no upstream.",
