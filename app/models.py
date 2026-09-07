@@ -974,6 +974,11 @@ class PortalSettings(Base):
     mta_sts_mx_hosts = Column(Text, nullable=True)  # newline-separated MX patterns
     mta_sts_max_age = Column(Integer, nullable=False, default=604800)
     mta_sts_published_at = Column(DateTime(timezone=True), nullable=True)
+    # When false, public Internet discovery uses mta_sts_public_mail_domain (split DNS).
+    mta_sts_same_public_domain = Column(Boolean, nullable=False, default=True)
+    mta_sts_public_mail_domain = Column(String, nullable=True)
+    # Newline/comma-separated public recursive DNS IPs used by Admin → Vérifier.
+    mta_sts_public_dns_resolvers = Column(Text, nullable=True)
 
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)

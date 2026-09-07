@@ -120,6 +120,38 @@ def test_write_export_when_disabled(db_session, tmp_path):
     assert "server {" not in path.read_text(encoding="utf-8")
 
 
+def test_parse_public_dns_resolvers():
+    from app.mail.mta_sts_service import parse_public_dns_resolvers
+
+    assert parse_public_dns_resolvers("1.1.1.1\n9.9.9.9") == ["1.1.1.1", "9.9.9.9"]
+    with pytest.raises(ValueError):
+        parse_public_dns_resolvers("dns.google")
+
+
+def test_split_public_domain_export(db_session, tmp_path):
+    settings = _settings(tmp_path)
+    update_mta_sts_settings(
+        db_session,
+        settings,
+        actor="admin@test",
+        enabled=True,
+        mail_domain="corp.internal",
+        same_public_domain=False,
+        public_mail_domain="example.com",
+        public_dns_resolvers="1.1.1.1\n8.8.8.8",
+        mode="testing",
+        mx_hosts="mail.example.com",
+        max_age=604800,
+    )
+    body = (Path(settings.exports_dir) / "nginx-mta-sts.conf").read_text(encoding="utf-8")
+    assert "mta-sts.example.com" in body
+    assert "mta-sts.corp.internal" in body
+    manifest = build_acme_domains_manifest(db_session, settings)
+    fqdns = {d["fqdn"] for d in manifest["domains"]}
+    assert "mta-sts.example.com" in fqdns
+    assert "mta-sts.corp.internal" in fqdns
+
+
 def test_setup_steps_reflect_public_probe(db_session, tmp_path):
     import json
 
