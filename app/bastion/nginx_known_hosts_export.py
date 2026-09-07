@@ -72,6 +72,15 @@ def collect_known_hostnames(db: Session, settings: Settings) -> list[str]:
         if fqdn:
             known.add(fqdn)
     known.update(_infra_fqdns_from_export(settings))
+    try:
+        from app.mail.mta_sts_service import iter_mta_sts_acme_domains
+
+        for row in iter_mta_sts_acme_domains(db, settings):
+            host = normalize_hostname(row.get("fqdn"))
+            if host:
+                known.add(host)
+    except Exception:
+        pass
     return sorted(known)
 
 

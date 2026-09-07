@@ -13,7 +13,7 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Configuration</h1>
-      <p class="page-sub">SMTP, SIEM et stockage chaud PostgreSQL</p>
+      <p class="page-sub">SMTP, SIEM, MTA-STS et stockage chaud PostgreSQL</p>
     </div>
     <div class="page-header-actions">
       {% if s.ready %}
@@ -27,6 +27,14 @@
       <span class="badge badge-ok">SIEM actif</span>
       {% else %}
       <span class="badge badge-muted">SIEM off</span>
+      {% endif %}
+      {% set mta = mta_sts | default({}) %}
+      {% if mta.ready %}
+      <span class="badge badge-ok">MTA-STS OK</span>
+      {% elif mta.enabled %}
+      <span class="badge badge-warn">MTA-STS</span>
+      {% else %}
+      <span class="badge badge-muted">MTA-STS off</span>
       {% endif %}
       {% if hot_store and hot_store.status_badge == 'ok' %}
       <span class="badge badge-ok">Hot store OK</span>
@@ -49,6 +57,15 @@
       SIEM
       {% if siem_on %}
       <span class="badge badge-ok tab-badge">ON</span>
+      {% endif %}
+    </a>
+    <a href="#mta-sts" class="tab" role="tab" data-tab="mta-sts" id="tab-mta-sts" aria-selected="false">
+      MTA-STS
+      {% set mta = mta_sts | default({}) %}
+      {% if mta.ready %}
+      <span class="badge badge-ok tab-badge">OK</span>
+      {% elif mta.enabled %}
+      <span class="badge badge-warn tab-badge">!</span>
       {% endif %}
     </a>
     <a href="#hot-store" class="tab" role="tab" data-tab="hot-store" id="tab-hot-store" aria-selected="false">
@@ -304,6 +321,7 @@
     </div>
   </div>
 
+  {% include "admin/_mta_sts_panel.html" %}
   {% include "admin/_hot_store_panel.html" %}
 </div>
 {% endblock %}
@@ -311,7 +329,7 @@
 {% block scripts %}
 <script>
 (function () {
-  var VALID = ['smtp', 'siem', 'hot-store'];
+  var VALID = ['smtp', 'siem', 'mta-sts', 'hot-store'];
   var DEFAULT = 'smtp';
 
   function currentTab() {

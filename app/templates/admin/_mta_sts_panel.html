@@ -1,0 +1,105 @@
+{# MTA-STS policy publication — included from admin/configuration.html #}
+{% set m = mta_sts | default({}) %}
+  <div class="form-section config-panel" id="mta-sts" role="tabpanel" aria-labelledby="tab-mta-sts" hidden>
+    <div class="form-section-header">
+      <div class="form-section-title">MTA-STS (RFC 8461)</div>
+      <div class="form-section-sub">
+        Publication de la politique TLS pour la messagerie du domaine mail —
+        servie par nginx sur
+        <span class="mono">https://mta-sts.&lt;domaine&gt;/.well-known/mta-sts.txt</span>.
+        Ne configure pas le serveur SMTP lui-même (voir l’onglet SMTP pour l’envoi sortant).
+      </div>
+    </div>
+    <div class="form-body">
+      <div class="alert alert-info mb-4" role="note">
+        Commencez en mode <strong>testing</strong> pour surveiller les rapports TLS-RPT
+        sans bloquer la livraison. Passez en <strong>enforce</strong> seulement après
+        validation. Les hôtes MX sont des hostnames (ex. <span class="mono">mail.exemple.fr</span>
+        ou <span class="mono">*.exemple.fr</span>), pas des URL.
+      </div>
+
+      <form method="post" action="/admin/configuration/mta-sts" id="mta-sts-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="form-group">
+          <label class="form-label form-check-row">
+            <input type="checkbox" name="mta_sts_enabled" value="on"
+                   {% if m.enabled %}checked{% endif %}>
+            Publier la politique MTA-STS via le reverse-proxy Bastion
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="mta_sts_mail_domain">Domaine mail</label>
+          <input type="text" id="mta_sts_mail_domain" name="mta_sts_mail_domain" class="form-input"
+                 value="{{ m.mail_domain }}" placeholder="ar-systems.fr" autocomplete="off"
+                 spellcheck="false">
+          <p class="form-help">
+            Domaine de messagerie (pas le sous-domaine <span class="mono">mta-sts.*</span>).
+            Le vhost publié sera <span class="mono">mta-sts.{{ m.mail_domain or 'votre-domaine.com' }}</span>.
+          </p>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="mta_sts_mode">Mode</label>
+            <select id="mta_sts_mode" name="mta_sts_mode" class="form-input">
+              <option value="testing" {% if m.mode == 'testing' %}selected{% endif %}>testing (recommandé au début)</option>
+              <option value="enforce" {% if m.mode == 'enforce' %}selected{% endif %}>enforce (strict)</option>
+              <option value="none" {% if m.mode == 'none' %}selected{% endif %}>none (désactive côté politique)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mta_sts_max_age">max_age (secondes)</label>
+            <input type="number" id="mta_sts_max_age" name="mta_sts_max_age" class="form-input"
+                   value="{{ m.max_age }}" min="86400" max="31557600" step="1">
+            <p class="form-help">604800 = 7 jours · 2592000 = 30 jours (une fois stabilisé).</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="mta_sts_mx_hosts">Hôtes MX</label>
+          <textarea id="mta_sts_mx_hosts" name="mta_sts_mx_hosts" class="form-input font-mono"
+                    rows="4" placeholder="mail.ar-systems.fr&#10;*.ar-systems.fr"
+                    spellcheck="false">{{ m.mx_hosts }}</textarea>
+          <p class="form-help">
+            Un hôte par ligne (ou séparés par virgule). Déclarez chaque MX explicite
+            ou un joker <span class="mono">*.domaine</span>.
+          </p>
+        </div>
+
+        {% if m.ready and m.policy_text %}
+        <div class="form-group">
+          <label class="form-label">Aperçu de la politique publiée</label>
+          <pre class="config-test-shell-body font-mono" style="min-height:auto">{{ m.policy_text }}</pre>
+          <p class="form-help">
+            URL :
+            <a href="{{ m.policy_url }}" target="_blank" rel="noopener noreferrer">{{ m.policy_url }}</a>
+            {% if m.published_at %} · dernière publication {{ m.published_at }}{% endif %}
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">DNS à créer manuellement</label>
+          <ol class="form-prose" style="margin:0;padding-left:1.25rem">
+            <li>
+              Enregistrement <strong>A/AAAA</strong> (ou CNAME) :
+              <span class="mono">{{ m.fqdn }}</span> → IP / alias du bastion nginx.
+            </li>
+            <li>
+              Enregistrement <strong>TXT</strong>
+              <span class="mono">{{ m.dns_name }}</span> =
+              <span class="mono">{{ m.dns_txt }}</span>
+              <br>
+              <span class="form-help">Changez l’<span class="mono">id=</span> à chaque mise à jour de politique (valeur suggérée ci-dessus).</span>
+            </li>
+          </ol>
+        </div>
+        {% endif %}
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Enregistrer &amp; publier</button>
+        </div>
+      </form>
+    </div>
+  </div>
