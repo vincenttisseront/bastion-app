@@ -73,7 +73,21 @@ def test_uncatalogued_guess_domain():
     assert uncatalogued_event("breakglass.foo").code == "BST-BGL-0000"
     assert uncatalogued_event("file.upload").code == "BST-FILE-0000"
     assert uncatalogued_event("security.unknown_host_hammering.detected").code == "BST-WAF-0000"
+    assert uncatalogued_event("mta_sts.something").code == "BST-MTA-0000"
     assert uncatalogued_event("weird").code == "BST-SYS-0000"
+
+
+def test_mta_domain_and_legacy_code_alias():
+    from app.audit.event_catalog import CODE_ALIASES, get_event_by_code
+
+    assert "MTA" in DOMAINS
+    ev = resolve_event(action="mta_sts.settings_saved")
+    assert ev.code == "BST-MTA-1001"
+    assert ev.domain == "MTA"
+    assert CODE_ALIASES["BST-ADM-1030"] == "BST-MTA-1001"
+    assert get_event_by_code("BST-ADM-1030") is ev
+    assert resolve_event(action="mta_sts.verify_ok").code == "BST-MTA-1002"
+    assert resolve_event(action="mta_sts.verify_failed").code == "BST-MTA-2001"
 
 
 def test_resolve_sentinel_code_when_action_now_catalogued():

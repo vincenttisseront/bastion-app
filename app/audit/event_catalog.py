@@ -8,8 +8,27 @@ from dataclasses import dataclass
 from enum import Enum
 
 DOMAINS: frozenset[str] = frozenset(
-    {"AUTH", "BGL", "SESS", "RBAC", "VLT", "FILE", "WAF", "PROXY", "ADM", "SIEM", "PROV", "SYS"}
+    {
+        "AUTH",
+        "BGL",
+        "SESS",
+        "RBAC",
+        "VLT",
+        "FILE",
+        "WAF",
+        "PROXY",
+        "ADM",
+        "MTA",
+        "SIEM",
+        "PROV",
+        "SYS",
+    }
 )
+
+# Renamed / relocated codes still present on historical AuditLog.event_code rows.
+CODE_ALIASES: dict[str, str] = {
+    "BST-ADM-1030": "BST-MTA-1001",
+}
 
 _CODE_RE = re.compile(r"^BST-([A-Z]{3,5})-(\d{4})$")
 
@@ -167,8 +186,6 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
        legacy_action='portal_settings.subdomain_sso_enabled'),
     _e('BST-ADM-1029', 'CONTAINER_LOGS_SETTINGS_UPDATED', 'Paramètres logs conteneurs mis à jour', ('configuration',),
        legacy_action='security.container_logs_settings.updated'),
-    _e('BST-ADM-1030', 'MTA_STS_SETTINGS_UPDATED', 'Politique MTA-STS mise à jour', ('configuration',),
-       legacy_action='mta_sts.settings_saved'),
     _e('BST-ADM-1031', 'SITE_IDENTITY_UPDATED', 'Identité du site mise à jour', ('configuration',),
        legacy_action='portal_settings.site_identity_updated'),
     _e('BST-ADM-1032', 'SETUP_WIZARD_COMPLETED', 'Assistant de configuration initial terminé', ('configuration',),
@@ -292,6 +309,13 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
        legacy_action='file.channel_assignment.removed'),
     _e('BST-FILE-4001', 'MALICIOUS_FILE_DETECTED', 'Fichier malveillant détecté au dépôt', ('file', 'malware',),
        runbook="Quarantaine, analyser l'acteur et le canal."),
+    _e('BST-MTA-1001', 'MTA_STS_SETTINGS_UPDATED', 'Politique MTA-STS mise à jour', ('configuration', 'email',),
+       legacy_action='mta_sts.settings_saved'),
+    _e('BST-MTA-1002', 'MTA_STS_VERIFY_OK', 'Vérification publique MTA-STS réussie', ('configuration', 'email',),
+       legacy_action='mta_sts.verify_ok'),
+    _e('BST-MTA-2001', 'MTA_STS_VERIFY_FAILED', 'Vérification publique MTA-STS en échec', ('configuration', 'email',),
+       legacy_action='mta_sts.verify_failed',
+       runbook='Contrôler DNS public A/TXT et HTTPS mta-sts ; le DNS IONOS inactif (NS custom) ne compte pas.'),
     _e('BST-PROV-1001', 'ACCOUNT_CREATED', 'Compte créé', ('iam',),
        legacy_action='account.created'),
     _e('BST-PROV-1002', 'ACCOUNT_DELETED', 'Compte supprimé', ('iam',),
@@ -674,7 +698,7 @@ _ACTION_DOMAIN_PREFIXES: tuple[tuple[str, str], ...] = tuple(
             ("portal_", "ADM"),
             ("notification.", "ADM"),
             ("smtp.", "ADM"),
-            ("mta_sts", "ADM"),
+            ("mta_sts", "MTA"),
             ("hot_store", "SYS"),
             ("infrastructure", "SYS"),
             ("health.", "SYS"),
@@ -706,7 +730,9 @@ def uncatalogued_event(action: str) -> EventDef:
 
 
 def get_event_by_code(code: str) -> EventDef | None:
-    return EVENTS.get((code or "").strip().upper())
+    c = (code or "").strip().upper()
+    c = CODE_ALIASES.get(c, c)
+    return EVENTS.get(c)
 
 
 def resolve_event(
