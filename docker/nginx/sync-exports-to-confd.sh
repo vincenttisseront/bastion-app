@@ -58,8 +58,11 @@ else
 fi
 
 if [[ -f "$EXPORTS/nginx-mta-sts.conf" ]]; then
-  cp -a "$EXPORTS/nginx-mta-sts.conf" \
-    /etc/nginx/conf.d/nginx-mta-sts.conf
+  # Sanitize stale exports: IPv6 / bare listen breaks nginx -t when the host has no inet6.
+  sed -e '/listen[[:space:]]*\[::\]/d' \
+      -e 's/listen[[:space:]]\+8080;/listen 0.0.0.0:8080;/g' \
+      "$EXPORTS/nginx-mta-sts.conf" \
+    > /etc/nginx/conf.d/nginx-mta-sts.conf
 else
   echo "# no MTA-STS policy exported yet" > /etc/nginx/conf.d/nginx-mta-sts.conf
 fi
