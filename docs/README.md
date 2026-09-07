@@ -1,17 +1,10 @@
 # Documentation (`docs/`)
 
-## Format
+## Documentation produit
 
-**Toute** la documentation produit et les annexes publiables sont en **Markdown**
-(`.md`). Voir [`wikijs/MANIFEST.md`](./wikijs/MANIFEST.md).
-
-## Wiki produit (Wiki.js)
-
-La documentation structurée pour publication dans Wiki.js vit dans
-**[`wikijs/`](./wikijs/README.md)** :
-
-- Doc utilisateur, fonctionnelle, architecture, administrateur, configuration
-- Glossaire + guide de **[maintenance](./wikijs/MAINTENANCE.md)**
+La doc produit Bastion Pro vit **uniquement sur Confluence** (espace DL).
+Elle n’est plus versionnée dans ce dépôt : pas de miroir Wiki.js / Markdown
+produit sous `docs/`.
 
 ## Docs techniques du dépôt
 
@@ -27,7 +20,7 @@ La documentation structurée pour publication dans Wiki.js vit dans
 | [`admin-logs-live-and-containers.md`](./admin-logs-live-and-containers.md) | Logs admin |
 | [`bff-oidc-native-session.md`](./bff-oidc-native-session.md) | Session OIDC native |
 | [`migrations.md`](./migrations.md) | Alembic |
-| `audit-*.md`, `fix-ux-*.md` | Audits / suivi interne (non wiki produit) |
+| `audit-*.md`, `fix-ux-*.md` | Audits / suivi interne (non produit Confluence) |
 
-En cas de conflit, les pages **`wikijs/`** + SDD prévalent pour le narratif produit ;
+En cas de conflit narratif, **Confluence** prévaut pour le produit ;
 les audits restent des annexes d’ingénierie.

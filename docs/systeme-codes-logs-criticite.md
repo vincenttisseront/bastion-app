@@ -96,5 +96,5 @@ Colonnes `audit_logs.event_code` et `audit_logs.severity` (nullable, pas de back
 | ERROR | 7 | 3 |
 | CRITICAL | 10 | 2 |
 
-Doc produit détaillée (WAF, Wazuh `rule.level`) :
-[`docs/wikijs/04-administrateur/04-06-siem-niveaux-criticite.md`](./wikijs/04-administrateur/04-06-siem-niveaux-criticite.md).
+Doc produit détaillée (WAF, Wazuh `rule.level`) : Confluence espace DL
+(SIEM / niveaux de criticité).

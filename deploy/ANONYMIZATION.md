@@ -4,7 +4,7 @@
 
 Le dossier `deploy/` + les images Hub `vincenttisseront/bastion-pro:*` sont
 la surface destinée à un déploiement **externe**. Le reste du dépôt
-(ansible, docs/wikijs, rapports d’audit, tests, scripts offensifs) reste
+(ansible, rapports d’audit, tests, scripts offensifs) reste
 interne / développement.
 
 ## Déjà neutralisé (code / défauts runtime)
@@ -22,7 +22,7 @@ interne / développement.
 ## À ne jamais livrer dans un tarball externe
 
 - `ansible/` (inventaires, IPs `172.24.0.x`, hosts `vmdmz-*`)
-- `docs/wikijs/`, `docs/auth-audit.md`, docs ops Wazuh internes
+- `docs/auth-audit.md`, docs ops Wazuh internes
 - `rapport-audit-*.md/json`
 - `tmp/`, `nginx/reference-from-awx/`
 - `apply-infra.*`, `CURSOR_CONTEXT.md`

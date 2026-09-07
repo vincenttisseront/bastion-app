@@ -11,7 +11,7 @@
 
 Code : `app/bastion/waf_reactivation.py` · sync : `docker/nginx/sync-exports-to-confd.sh`.
 
-Liens : [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md) · [`04-05-waf-modsecurity.md`](wikijs/04-administrateur/04-05-waf-modsecurity.md) · conception §9.
+Liens : [`ops-modsecurity-crs.md`](ops-modsecurity-crs.md) · Confluence (WAF ModSecurity) · conception §9.
 
 ---
 
