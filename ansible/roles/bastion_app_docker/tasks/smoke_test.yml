@@ -122,6 +122,37 @@
   changed_when: false
   failed_when: false
 
+- name: "SMOKE : diagnose nginx listen sockets on failure"
+  when: _nginx_exec_health.rc | default(1) != 0
+  ansible.builtin.shell: |
+    cid="{{ _nginx_cid.stdout | trim }}"
+    echo "=== conf.d ==="
+    docker exec "$cid" ls -la /etc/nginx/conf.d/ || true
+    echo "=== vhost head ==="
+    docker exec "$cid" head -40 /etc/nginx/conf.d/vhost_sso_portal.conf || true
+    echo "=== nginx-mta-sts.conf ==="
+    docker exec "$cid" cat /etc/nginx/conf.d/nginx-mta-sts.conf 2>/dev/null || true
+    echo "=== nginx -t ==="
+    docker exec "$cid" nginx -t 2>&1 || true
+    echo "=== listeners ==="
+    docker exec "$cid" sh -c 'ss -lntp || netstat -lntp' || true
+    echo "=== logs ==="
+    docker logs --tail 50 "$cid" || true
+  args:
+    executable: /bin/bash
+  register: _nginx_listen_diag
+  changed_when: false
+  failed_when: false
+
+- name: "SMOKE : fail with nginx listen diagnostics"
+  ansible.builtin.fail:
+    msg: |
+      nginx /api/health via exec failed (often :8080 not listening).
+      Check MTA-STS export for listen [::]:8080 or bare listen 8080 on IPv6-less hosts.
+      {{ _nginx_exec_health.stderr | default('') }}
+      {{ _nginx_listen_diag.stdout | default('') }}
+  when: _nginx_exec_health.rc | default(1) != 0
+
 # /api/health has « modsecurity off » — a CRS rule-id collision still yields HTTP 500 on
 # /, /auth/login, /static, … while health stays 200. Catch that class of outage here.
 - name: "SMOKE : nginx ModSec path /auth/login must not be 500"
@@ -149,16 +180,22 @@
   ansible.builtin.shell: |
     set -euo pipefail
     cid="{{ _nginx_cid.stdout | trim }}"
-    echo "=== generated crs-setup (should be stub / not Included) ==="
+    echo "=== listeners (expect 0.0.0.0:8080) ==="
+    docker exec "$cid" sh -c 'ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null' || true
+    echo "=== nginx-mta-sts.conf (no [::] / bare listen 8080) ==="
+    docker exec "$cid" cat /etc/nginx/conf.d/nginx-mta-sts.conf 2>/dev/null || true
+    echo "=== export nginx-mta-sts.conf ==="
+    cat /tools/portal/data/exports/nginx-mta-sts.conf 2>/dev/null || true
+    echo "=== nginx -t ==="
+    docker exec "$cid" nginx -t 2>&1 || true
+    echo "=== generated crs-setup ==="
     docker exec "$cid" cat /etc/nginx/modsecurity/generated/crs-setup-generated.conf || true
     echo "=== main-portal Include lines ==="
     docker exec "$cid" grep -n Include /etc/nginx/modsecurity/main-portal.conf || true
-    echo "=== export on volume ==="
-    cat /tools/portal/data/exports/modsecurity/crs-setup-generated.conf 2>/dev/null || true
     echo "=== error.log (tail) ==="
     docker exec "$cid" tail -n 40 /var/log/nginx/error.log 2>/dev/null || true
-    echo "=== modsec dirs ==="
-    docker exec "$cid" ls -la /tmp/modsecurity /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
+    echo "=== container logs (tail) ==="
+    docker logs --tail 40 "$cid" 2>&1 || true
     echo "=== wget /auth/login ==="
     docker exec "$cid" wget -S -O /dev/null \
       --header="Host: {{ portal_domain | default('portal.example.com') }}" \
@@ -174,9 +211,9 @@
   ansible.builtin.fail:
     msg: |
       /auth/login via nginx returned HTTP 5xx (or unreachable).
-      /api/health can still be 200 when ModSecurity is broken (modsecurity off on health).
-      Likely stale crs-setup-generated id:901110 — ensure main-*.conf does not Include it,
-      and rebuild nginx from master.
+      If wget says Connection refused: :8080 is down (often MTA-STS listen [::]/8080
+      or bare listen 8080 on a host without IPv6 — nginx -t fails, workers never bind).
+      If HTTP 500: possible CRS rule-id collision (crs-setup-generated must use id:1000900110).
       --- smoke ---
       {{ _nginx_modsec_login_smoke.stdout | default('') }}
       --- diag ---
@@ -210,32 +247,6 @@
       {{ _nginx_logs_volume_smoke.stdout | default('') }}
       {{ _nginx_logs_volume_smoke.stderr | default('') }}
   when: _nginx_logs_volume_smoke.rc | default(1) != 0
-
-- name: "SMOKE : diagnose nginx listen sockets on failure"
-  when: _nginx_exec_health.rc | default(1) != 0
-  ansible.builtin.shell: |
-    cid="{{ _nginx_cid.stdout | trim }}"
-    echo "=== conf.d ==="
-    docker exec "$cid" ls -la /etc/nginx/conf.d/ || true
-    echo "=== vhost head ==="
-    docker exec "$cid" head -40 /etc/nginx/conf.d/vhost_sso_portal.conf || true
-    echo "=== listeners ==="
-    docker exec "$cid" sh -c 'ss -lntp || netstat -lntp' || true
-    echo "=== logs ==="
-    docker logs --tail 50 "$cid" || true
-  args:
-    executable: /bin/bash
-  register: _nginx_listen_diag
-  changed_when: false
-  failed_when: false
-
-- name: "SMOKE : fail with nginx listen diagnostics"
-  ansible.builtin.fail:
-    msg: |
-      nginx /api/health via exec failed.
-      {{ _nginx_exec_health.stderr | default('') }}
-      {{ _nginx_listen_diag.stdout | default('') }}
-  when: _nginx_exec_health.rc | default(1) != 0
 
 - name: "SMOKE : resolve nginx IPv4 on {{ bastion_traefik_network }}"
   ansible.builtin.shell: |

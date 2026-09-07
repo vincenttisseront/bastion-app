@@ -164,9 +164,9 @@ def generate_nginx_mta_sts_conf(
             "# Do not edit; Admin → Configuration → MTA-STS + Apply infra (ACME).",
             "",
             "server {",
-            "    listen 8080;",
-            # No listen [::] — Docker hosts often have IPv6 disabled; nginx -t then fails
-            # with "Address family not supported by protocol" and blocks all reloads.
+            # IPv4-only like portal vhost. Bare `listen 8080` / `[::]:8080` make nginx -t
+            # fail on hosts without IPv6 (errno 97) and block all reloads / startup.
+            "    listen 0.0.0.0:8080;",
             f"    server_name {_nginx_escape_double_quoted(fqdn)};",
             "",
             "    # Static policy — no auth, no upstream.",
