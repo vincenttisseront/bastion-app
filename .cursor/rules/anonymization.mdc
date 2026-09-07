@@ -36,6 +36,6 @@ ou IP d’infra.
 2. Fallbacks runtime (`or "…"`, `:-…`) → `default` / `portal.example.com`, jamais un slug client.
 3. Placeholders HTML / messages d’erreur / commentaires d’exemple → génériques.
 4. Ne pas « corriger » un inventaire AWX live dans le dépôt : les exemples restent `*.example.com` ; la prod override via inventaire.
-5. `docs/wikijs/confluence-page-map.json` et rapports d’audit historiques peuvent rester hors scope ; le code livré (`app/`, `deploy/`, `scripts/` génériques, defaults Ansible, templates) **non**.
+5. Rapports d’audit historiques peuvent rester hors scope ; le code livré (`app/`, `deploy/`, `scripts/` génériques, defaults Ansible, templates) **non**. La doc produit est sur Confluence uniquement (pas de miroir Markdown wiki dans le dépôt).
 
 Voir aussi `deploy/ANONYMIZATION.md`.
