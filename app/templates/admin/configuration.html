@@ -29,12 +29,12 @@
       <span class="badge badge-muted">SIEM off</span>
       {% endif %}
       {% set mta = mta_sts | default({}) %}
-      {% if mta.ready %}
-      <span class="badge badge-ok">MTA-STS OK</span>
-      {% elif mta.enabled %}
-      <span class="badge badge-warn">MTA-STS</span>
+      {% if mta.status_badge == 'ok' %}
+      <span class="badge badge-ok" id="mta-sts-header-badge">MTA-STS OK</span>
+      {% elif mta.status_badge == 'warn' or mta.ready or mta.enabled %}
+      <span class="badge badge-warn" id="mta-sts-header-badge">MTA-STS publié</span>
       {% else %}
-      <span class="badge badge-muted">MTA-STS off</span>
+      <span class="badge badge-muted" id="mta-sts-header-badge">MTA-STS off</span>
       {% endif %}
       {% if hot_store and hot_store.status_badge == 'ok' %}
       <span class="badge badge-ok">Hot store OK</span>
@@ -62,10 +62,12 @@
     <a href="#mta-sts" class="tab" role="tab" data-tab="mta-sts" id="tab-mta-sts" aria-selected="false">
       MTA-STS
       {% set mta = mta_sts | default({}) %}
-      {% if mta.ready %}
-      <span class="badge badge-ok tab-badge">OK</span>
-      {% elif mta.enabled %}
-      <span class="badge badge-warn tab-badge">!</span>
+      {% if mta.status_badge == 'ok' %}
+      <span class="badge badge-ok tab-badge" id="mta-sts-tab-badge">OK</span>
+      {% elif mta.status_badge == 'warn' or mta.ready or mta.enabled %}
+      <span class="badge badge-warn tab-badge" id="mta-sts-tab-badge">…</span>
+      {% else %}
+      <span class="badge badge-muted tab-badge" id="mta-sts-tab-badge" hidden></span>
       {% endif %}
     </a>
     <a href="#hot-store" class="tab" role="tab" data-tab="hot-store" id="tab-hot-store" aria-selected="false">
@@ -407,6 +409,103 @@
     });
   }
 
+  function copyTextToClipboard(text, btn) {
+    function done(ok) {
+      if (!btn) return;
+      var prev = btn.getAttribute('data-copy-label') || btn.textContent;
+      if (!btn.getAttribute('data-copy-label')) btn.setAttribute('data-copy-label', prev);
+      btn.textContent = ok ? 'Copié' : 'Échec';
+      setTimeout(function () { btn.textContent = btn.getAttribute('data-copy-label') || prev; }, 1500);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
+      return;
+    }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      done(document.execCommand('copy'));
+      document.body.removeChild(ta);
+    } catch (e) {
+      done(false);
+    }
+  }
+
+  document.querySelectorAll('#mta-sts [data-copy]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var targetId = btn.getAttribute('data-copy-target');
+      var el = targetId ? document.getElementById(targetId) : null;
+      var text = el ? (el.textContent || '').trim() : (btn.getAttribute('data-copy') || '').trim();
+      if (!text) return;
+      copyTextToClipboard(text, btn);
+    });
+  });
+
+  function renderMtaStsSteps(steps) {
+    var root = document.getElementById('mta-sts-steps');
+    if (!root || !Array.isArray(steps)) return;
+    if (!steps.length) {
+      root.hidden = true;
+      root.innerHTML = '';
+      return;
+    }
+    root.hidden = false;
+    root.innerHTML = steps.map(function (step, idx) {
+      var st = step.status || 'todo';
+      var mark = st === 'done' ? '✓' : (st === 'failed' ? '!' : (st === 'current' ? '→' : String(idx + 1)));
+      var detail = step.detail
+        ? '<p class="form-help mta-sts-step-detail">' + escapeHtml(step.detail) + '</p>'
+        : '';
+      return (
+        '<div class="mta-sts-step is-' + escapeHtml(st) + '" data-step-id="' + escapeHtml(step.id || '') + '">' +
+          '<div class="mta-sts-step-mark" aria-hidden="true">' + mark + '</div>' +
+          '<div class="mta-sts-step-body">' +
+            '<div class="mta-sts-step-label">' + escapeHtml(step.label || '') + '</div>' +
+            detail +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function applyMtaStsProbeUi(data) {
+    if (!data) return;
+    renderMtaStsSteps(data.setup_steps || []);
+    var nextWrap = document.getElementById('mta-sts-next-action');
+    var nextText = document.getElementById('mta-sts-next-action-text');
+    if (nextWrap && nextText) {
+      if (data.next_action) {
+        nextWrap.hidden = false;
+        nextText.textContent = data.next_action;
+      }
+    }
+    var badge = data.status_badge || 'off';
+    var header = document.getElementById('mta-sts-header-badge');
+    if (header) {
+      header.className = 'badge ' + (badge === 'ok' ? 'badge-ok' : (badge === 'warn' ? 'badge-warn' : 'badge-muted'));
+      header.textContent = badge === 'ok' ? 'MTA-STS OK' : (badge === 'warn' ? 'MTA-STS publié' : 'MTA-STS off');
+    }
+    var tabBadge = document.getElementById('mta-sts-tab-badge');
+    if (tabBadge) {
+      tabBadge.hidden = badge === 'off';
+      tabBadge.className = 'badge tab-badge ' + (badge === 'ok' ? 'badge-ok' : (badge === 'warn' ? 'badge-warn' : 'badge-muted'));
+      tabBadge.textContent = badge === 'ok' ? 'OK' : (badge === 'warn' ? '…' : '');
+    }
+  }
+
   var mtaBtn = document.getElementById('mta-sts-verify-btn');
   var mtaShell = document.getElementById('mta-sts-test-shell');
   var mtaBody = document.getElementById('mta-sts-test-body');
@@ -447,6 +546,7 @@
         mtaShell.classList.add(ok ? 'is-ok' : 'is-err');
         mtaStatus.className = 'badge ' + (ok ? 'badge-ok' : 'badge-err');
         mtaStatus.textContent = ok ? 'OK' : 'KO';
+        applyMtaStsProbeUi(data);
       } catch (err) {
         mtaShell.classList.add('is-err');
         mtaStatus.className = 'badge badge-err';
