@@ -207,33 +207,67 @@ def test_parse_app_access_line_nominal():
     from app.web.nginx_app_logs import parse_app_access_line, parse_app_access_text
 
     line = (
-        "92.184.121.16 - - [05/Aug/2026:15:20:07 +0000] host=overseerr.ar-systems.fr "
+        "92.184.121.16 - - [05/Aug/2026:15:20:07 +0000] host=overseerr.example.com "
         '"GET /api/v1/status?checkUpdateAvailable=true HTTP/1.1" 200 140 '
-        '"https://overseerr.ar-systems.fr/" '
+        '"https://overseerr.example.com/" '
         '"Mozilla/5.0 (iPhone)" '
-        "rt=0.023 upstream=172.24.0.109:443 us=200 ut=0.023 auth_err=-"
+        "rt=0.023 upstream=10.0.0.109:443 us=200 ut=0.023 auth_err=-"
     )
     e = parse_app_access_line(line, index=3)
     assert e is not None
     assert e["parse_ok"] is True
     assert e["ecosystem"] == "nginx_access"
     assert e["remote_addr"] == "92.184.121.16"
-    assert e["host"] == "overseerr.ar-systems.fr"
+    assert e["host"] == "overseerr.example.com"
     assert e["method"] == "GET"
     assert e["path"].startswith("/api/v1/status")
     assert e["status"] == "200"
     assert e["status_class"] == "ok"
-    assert e["upstream_addr"] == "172.24.0.109:443"
+    assert e["upstream_addr"] == "10.0.0.109:443"
     assert e["is_internal_hop"] is False
 
     internal = parse_app_access_line(
-        line.replace("upstream=172.24.0.109:443", "upstream=127.0.0.1:8080")
+        line.replace("upstream=10.0.0.109:443", "upstream=127.0.0.1:8080")
     )
     assert internal["is_internal_hop"] is True
 
-    text = line + "\n" + line.replace("172.24.0.109:443", "127.0.0.1:8080") + "\n"
+    text = line + "\n" + line.replace("10.0.0.109:443", "127.0.0.1:8080") + "\n"
     entries = parse_app_access_text(text)
     assert len(entries) == 2
+
+
+def test_parse_combined_and_portal_access_line():
+    """MTA-STS / older vhosts may still write combined or portal (no host=)."""
+    from app.web.nginx_app_logs import parse_app_access_line
+
+    combined = (
+        '127.0.0.1 - - [07/Sep/2026:16:44:39 +0000] '
+        '"GET /favicon.ico HTTP/1.1" 404 47 "-" '
+        '"Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/139.0.0.0"'
+    )
+    e = parse_app_access_line(combined, index=1)
+    assert e["parse_ok"] is True
+    assert e["remote_addr"] == "127.0.0.1"
+    assert e["client_ip"] == "127.0.0.1"
+    assert e["time_local"] == "07/Sep/2026:16:44:39 +0000"
+    assert e["method"] == "GET"
+    assert e["path"] == "/favicon.ico"
+    assert e["status"] == "404"
+    assert e["status_class"] == "err"
+    assert e["host"] == ""
+    assert e["request"] == "GET /favicon.ico HTTP/1.1"
+
+    portal = (
+        '10.0.0.50 - - [07/Sep/2026:16:45:00 +0000] '
+        '"GET /.well-known/mta-sts.txt HTTP/1.1" 200 66 "-" "EasyDMARC" '
+        "rt=0.002"
+    )
+    p = parse_app_access_line(portal)
+    assert p["parse_ok"] is True
+    assert p["remote_addr"] == "10.0.0.50"
+    assert p["path"] == "/.well-known/mta-sts.txt"
+    assert p["status"] == "200"
+    assert p["request_time"] == "0.002"
 
 
 def test_parse_app_access_activesync_user_and_empty_auth_err():

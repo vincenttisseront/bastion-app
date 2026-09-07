@@ -36,6 +36,12 @@ _APP_ACCESS_HEAD_RE = re.compile(
     r"host=(?P<host>\S+) \"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+) "
     r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\"\s*(?P<kv>.*)$"
 )
+# Legacy ``portal`` / default ``combined`` (no host=) — e.g. older mta-sts.access.log.
+_COMBINED_ACCESS_HEAD_RE = re.compile(
+    r"^(?P<remote_addr>\S+) - (?P<remote_user>.+?) \[(?P<time_local>[^\]]+)\] "
+    r"\"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+) "
+    r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\"\s*(?P<kv>.*)$"
+)
 _KV_RE = re.compile(r'(\w+)=(?:"([^"]*)"|(\S*))')
 _NGINX_HEX_ESCAPE_RE = re.compile(r"\\x([0-9A-Fa-f]{2})")
 
@@ -338,7 +344,7 @@ def _entry_from_groups(
 
 
 def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | None:
-    """Parse one nginx ``log_format app`` line into a structured dict."""
+    """Parse one nginx access line (``app``, else ``portal``/combined) into a dict."""
     raw = (line or "").rstrip("\r\n")
     if not raw.strip():
         return None
@@ -346,6 +352,13 @@ def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | N
     if m:
         g = m.groupdict()
         kv = g.pop("kv", "") or ""
+        g.update(_parse_kv_tail(kv))
+        return _entry_from_groups(raw, g, index=index, parse_ok=True)
+    m = _COMBINED_ACCESS_HEAD_RE.match(raw)
+    if m:
+        g = m.groupdict()
+        kv = g.pop("kv", "") or ""
+        g["host"] = ""
         g.update(_parse_kv_tail(kv))
         return _entry_from_groups(raw, g, index=index, parse_ok=True)
     empty = {name: "" for name in _EMPTY_META_FIELDS}
