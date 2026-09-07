@@ -33,13 +33,16 @@ Puis : break-glass → **Admin → Setup** → **Realms** → Test OIDC → **Ap
 
 Guide complet : **[deploy/README.md](deploy/README.md)**.
 
-| Image | Rôle |
-|-------|------|
-| `vincenttisseront/bastion-pro-app` | FastAPI |
-| `vincenttisseront/bastion-pro-migrate` | migrations |
-| `vincenttisseront/bastion-pro-nginx` | edge TLS + WAF |
+| Image | Docker Hub | GitHub (GHCR) |
+|-------|------------|---------------|
+| App | `vincenttisseront/bastion-pro-app` | `ghcr.io/vincenttisseront/bastion-pro-app` |
+| Migrations | `vincenttisseront/bastion-pro-migrate` | `ghcr.io/vincenttisseront/bastion-pro-migrate` |
+| Nginx | `vincenttisseront/bastion-pro-nginx` | `ghcr.io/vincenttisseront/bastion-pro-nginx` |
 
-Pin optionnel dans `.env` : `BASTION_APP_IMAGE=…:gitsha` (idem migrate / nginx).
+Tags alignés Hub ↔ GitHub Releases : `:v0.8.0`, `:latest`, et SHA court (`:b6c09da`…).  
+Release : https://github.com/vincenttisseront/bastion-app/releases
+
+Pin optionnel dans `.env` : `BASTION_APP_IMAGE=…:v0.8.0` (idem migrate / nginx).
 
 Mettre à jour : `docker compose pull && docker compose up -d`.
 
