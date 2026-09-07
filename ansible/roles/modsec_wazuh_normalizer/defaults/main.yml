@@ -4,10 +4,11 @@
 
 modsec_wazuh_normalizer_enabled: true
 
-# Safety: only BastionPro docker host (override via inventory / extra-vars if needed).
-modsec_wazuh_allowed_hosts:
-  - docker01
-  - docker01.example.com
+# Safety gate: refuse Wazuh / non-Bastion hosts. Empty allowlist = any host not
+# in forbidden (AWX limit / play hosts is the real scope). Pin explicitly in
+# inventory when you want a hard allowlist, e.g.:
+#   modsec_wazuh_allowed_hosts: [docker01, docker01.example.com]
+modsec_wazuh_allowed_hosts: []
 modsec_wazuh_forbidden_hosts:
   - wazuh01
   - wazuh.example.com

@@ -1,6 +1,7 @@
 # modsec_wazuh_normalizer
 
-Host-side ModSecurity audit → NDJSON for the local Wazuh agent on **docker01**.
+Host-side ModSecurity audit → NDJSON for the local Wazuh agent on the
+**Bastion docker host** (inventory hostname; examples use `docker01`).
 
 ## Done when
 
@@ -14,5 +15,7 @@ Host-side ModSecurity audit → NDJSON for the local Wazuh agent on **docker01**
 
 - Project: `bastion-app`
 - Playbook: `ansible/linux_sso_portal_docker.yml`
-- Limit: `docker01`
+- Limit: Bastion docker host (e.g. `docker01`)
 - Tags: `modsec_wazuh`
+- `modsec_wazuh_allowed_hosts` defaults to **empty** (any host not in
+  `modsec_wazuh_forbidden_hosts`). Pin in inventory only if you want a hard allowlist.

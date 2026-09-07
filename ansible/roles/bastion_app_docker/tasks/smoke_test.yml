@@ -612,7 +612,7 @@
 - name: "SMOKE : rappel upstream pour reverse01"
   ansible.builtin.debug:
     msg: >-
-      Edge (edge01) : proxy_pass {{ bastion_upstream_url }}
+      Edge (edge01) : proxy_pass https://{{ bastion_smoke_https_ip | default(bastion_docker_host_ip) }}
       avec Host {{ portal_domain }} (meme schema que Keycloak / Traefik).
 
 - name: "SMOKE : SQLCipher — portal.db illisible sans clé"
