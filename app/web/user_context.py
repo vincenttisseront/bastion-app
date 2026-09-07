@@ -379,7 +379,7 @@ def _resolve_portal_realm_slug(
     from_jwt = _realm_from_bastion_session(request, settings, db)
     if from_jwt:
         return from_jwt
-    return (settings.sso_portal_default_realm_slug or "").strip() or "ar-systems"
+    return (settings.sso_portal_default_realm_slug or "").strip() or "default"
 
 
 def get_user_context(
@@ -417,7 +417,7 @@ def get_user_context(
         x_user = ""
         keycloak_user_id = None
         groups = []
-        realm_slug = (settings.sso_portal_default_realm_slug or "").strip() or "ar-systems"
+        realm_slug = (settings.sso_portal_default_realm_slug or "").strip() or "default"
         auth_source = "sso"
         given_name = None
         family_name = None

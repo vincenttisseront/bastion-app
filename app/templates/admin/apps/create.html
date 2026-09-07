@@ -111,7 +111,7 @@
           <label class="form-label" for="public_fqdn" id="public-fqdn-label">Sous-domaine public <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ form_values.public_fqdn | default('') }}" placeholder="app.example.fr" data-portal-domain="{{ portal_domain }}">
+            <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ form_values.public_fqdn | default('') }}" placeholder="app.example.com" data-portal-domain="{{ portal_domain }}">
           </div>
           <p class="form-help">FQDN public Nginx (vhost dédié).</p>
           {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
@@ -128,7 +128,7 @@
           <label class="form-label" for="upstream_url" id="upstream-url-label">URL publique de l'application <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ form_values.upstream_url | default('') }}" required placeholder="https://app.example.fr/">
+            <input type="url" id="upstream_url" name="upstream_url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}" value="{{ form_values.upstream_url | default('') }}" required placeholder="https://app.example.com/">
           </div>
           <p class="form-help" id="upstream-url-help">Redirection après SSO — aucun proxy.</p>
           {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}

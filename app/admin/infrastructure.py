@@ -1,7 +1,7 @@
 """Infrastructure desired-state manifest for apply-infrastructure.sh.
 
 Exports oauth2-proxy configs from DB RealmConfig (source of truth).
-- Default/core realm (ar-systems): oauth2 cfg only → synced to oauth2-proxy-core by apply-infra-docker.
+- Default/core realm: oauth2 cfg only → synced to oauth2-proxy-core by apply-infra-docker.
 - Secondary realms: oauth2 cfg + nginx snippet + dedicated containers.
 Nginx location for the core realm stays static (snippets/nginx-portal-core-realm-oauth2).
 """

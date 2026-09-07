@@ -14,8 +14,8 @@
       <div class="alert alert-info mb-4" role="note">
         Commencez en mode <strong>testing</strong> pour surveiller les rapports TLS-RPT
         sans bloquer la livraison. Passez en <strong>enforce</strong> seulement après
-        validation. Les hôtes MX sont des hostnames (ex. <span class="mono">mail.exemple.fr</span>
-        ou <span class="mono">*.exemple.fr</span>), pas des URL.
+        validation. Les hôtes MX sont des hostnames (ex. <span class="mono">mail.example.com</span>
+        ou <span class="mono">*.example.com</span>), pas des URL.
       </div>
 
       <form method="post" action="/admin/configuration/mta-sts" id="mta-sts-form">
@@ -32,11 +32,11 @@
         <div class="form-group">
           <label class="form-label" for="mta_sts_mail_domain">Domaine mail</label>
           <input type="text" id="mta_sts_mail_domain" name="mta_sts_mail_domain" class="form-input"
-                 value="{{ m.mail_domain }}" placeholder="ar-systems.fr" autocomplete="off"
+                 value="{{ m.mail_domain }}" placeholder="example.com" autocomplete="off"
                  spellcheck="false">
           <p class="form-help">
             Domaine de messagerie (pas le sous-domaine <span class="mono">mta-sts.*</span>).
-            Le vhost publié sera <span class="mono">mta-sts.{{ m.mail_domain or 'votre-domaine.com' }}</span>.
+            Le vhost publié sera <span class="mono">mta-sts.{{ m.mail_domain or 'example.com' }}</span>.
           </p>
         </div>
 
@@ -60,7 +60,7 @@
         <div class="form-group">
           <label class="form-label" for="mta_sts_mx_hosts">Hôtes MX</label>
           <textarea id="mta_sts_mx_hosts" name="mta_sts_mx_hosts" class="form-input font-mono"
-                    rows="4" placeholder="mail.ar-systems.fr&#10;*.ar-systems.fr"
+                    rows="4" placeholder="mail.example.com&#10;*.example.com"
                     spellcheck="false">{{ m.mx_hosts }}</textarea>
           <p class="form-help">
             Un hôte par ligne (ou séparés par virgule). Déclarez chaque MX explicite

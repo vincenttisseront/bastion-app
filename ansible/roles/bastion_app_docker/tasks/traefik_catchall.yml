@@ -38,7 +38,7 @@
   ansible.builtin.shell: |
     set -euo pipefail
     epoch=$(date +%s)
-    host="discovery-probe-${epoch}.{{ base_domain | default('ar-systems.fr') }}"
+    host="discovery-probe-${epoch}.{{ base_domain | default('example.com') }}"
     body=/tmp/bastion_discovery_body.html
     hdrs=/tmp/bastion_discovery_hdrs.txt
     rm -f "$body" "$hdrs"
@@ -107,7 +107,7 @@
   ansible.builtin.shell: |
     set -euo pipefail
     epoch=$(date +%s)
-    host="discovery-probe-${epoch}.{{ base_domain | default('ar-systems.fr') }}"
+    host="discovery-probe-${epoch}.{{ base_domain | default('example.com') }}"
     body=/tmp/bastion_discovery_body.html
     hdrs=/tmp/bastion_discovery_hdrs.txt
     rm -f "$body" "$hdrs"

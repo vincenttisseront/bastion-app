@@ -1,6 +1,6 @@
 # modsec_wazuh_normalizer
 
-Host-side ModSecurity audit → NDJSON for the local Wazuh agent on **vmdmz-docker01**.
+Host-side ModSecurity audit → NDJSON for the local Wazuh agent on **docker01**.
 
 ## Done when
 
@@ -14,5 +14,5 @@ Host-side ModSecurity audit → NDJSON for the local Wazuh agent on **vmdmz-dock
 
 - Project: `bastion-app`
 - Playbook: `ansible/linux_sso_portal_docker.yml`
-- Limit: `vmdmz-docker01`
+- Limit: `docker01`
 - Tags: `modsec_wazuh`

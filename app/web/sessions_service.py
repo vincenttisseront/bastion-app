@@ -359,9 +359,9 @@ def _drop_misattributed_default_portal_row(
     """Remove portal registry row stamped with the default realm when the real one differs.
 
     Happened when ``portal_realm_slug`` cookie was absent and every native OIDC
-    session was keyed as ``ar-systems``.
+    session was keyed as the default realm slug.
     """
-    default = (get_settings().sso_portal_default_realm_slug or "ar-systems").strip()
+    default = (get_settings().sso_portal_default_realm_slug or "default").strip()
     correct = (correct_realm or "").strip()
     if not correct or correct == default:
         return
@@ -682,7 +682,9 @@ def _touch_portal_session(
     if user.is_breakglass:
         realm = ""
     else:
-        realm = (user.realm_slug or "").strip() or "ar-systems"
+        realm = (user.realm_slug or "").strip() or (
+            get_settings().sso_portal_default_realm_slug or "default"
+        ).strip()
     if _looks_like_email(email):
         _heal_short_session_emails(db, full_email=email, username=user.username)
     session_id = _portal_session_id(email, realm)
@@ -836,7 +838,8 @@ def _touch_app_presence(
     if (auth_source or "").strip().lower() == "breakglass":
         realm_n = ""
     else:
-        realm_n = (realm or app.realm_slug or "ar-systems").strip() or "ar-systems"
+        _default_realm = (get_settings().sso_portal_default_realm_slug or "default").strip()
+        realm_n = (realm or app.realm_slug or _default_realm).strip() or _default_realm
     if _looks_like_email(email_n):
         _heal_short_session_emails(db, full_email=email_n, username=uname)
 
@@ -911,7 +914,8 @@ def _touch_app_session(
     if user.is_breakglass:
         realm = ""
     else:
-        realm = (user.realm_slug or app.realm_slug or "ar-systems").strip() or "ar-systems"
+        _default_realm = (get_settings().sso_portal_default_realm_slug or "default").strip()
+        realm = (user.realm_slug or app.realm_slug or _default_realm).strip() or _default_realm
     if _looks_like_email(email):
         _heal_short_session_emails(db, full_email=email, username=user.username)
     session_id = _app_session_id(email, app.slug)

@@ -155,7 +155,7 @@
           <label class="form-label" for="public_fqdn" id="public-fqdn-label">Sous-domaine public <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ app.public_fqdn or '' }}" placeholder="app.example.fr" data-portal-domain="{{ portal_domain }}">
+            <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ app.public_fqdn or '' }}" placeholder="app.example.com" data-portal-domain="{{ portal_domain }}">
           </div>
           {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
           <div id="fqdn-cookie-domain-warning" class="alert alert-warn alert-spaced" hidden>

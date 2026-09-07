@@ -9,7 +9,7 @@
     fail_msg: >-
       Ce rôle ne doit PAS tourner sur {{ inventory_hostname }}.
       Le normaliseur lit le volume Docker ModSecurity sur l'hôte Bastion
-      (attendu : vmdmz-docker01), pas sur vmtools-wazuhlogsfw01.
+      (attendu : docker01), pas sur wazuh01.
       Chemin source attendu : {{ modsec_wazuh_source }}
 
 - name: "PREFLIGHT : limit to BastionPro docker hosts"
@@ -58,7 +58,7 @@
       Vérifier le volume Docker ModSecurity
       (bind {{ bastion_app_docker_data_dir | default('/tools/portal/data') }}/nginx-logs
       → /var/log/nginx/apps dans bastion-nginx).
-      Ne pas lancer ce rôle sur vmtools-wazuhlogsfw01.
+      Ne pas lancer ce rôle sur wazuh01.
 
 - name: "PREFLIGHT : ModSecurity audit source file"
   ansible.builtin.stat:
@@ -76,7 +76,7 @@
       Attendu sur l'hôte via volume Docker du conteneur bastion-nginx
       (/var/log/nginx/apps/modsec_audit.log).
       Vérifier SecAuditEngine / montage nginx-logs.
-      Ce rôle cible vmdmz-docker01 — pas vmtools-wazuhlogsfw01.
+      Ce rôle cible docker01 — pas wazuh01.
 
 - name: "PREFLIGHT : wazuh group exists"
   ansible.builtin.getent:

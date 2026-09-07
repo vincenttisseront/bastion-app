@@ -1,37 +1,41 @@
 # Inventaire d'EXEMPLE local uniquement (ansible-playbook en CLI).
 # En prod AWX : inventaire + Limit du Job Template — pas ce fichier.
 # Le playbook utilise hosts: all ; le Limit AWX choisit l'hôte.
+#
+# Remplacer les placeholders example.com / IPs avant un run réel.
 
 [sso_portal_docker]
-vmdmz-docker01 ansible_host=172.24.0.110
+docker01 ansible_host=10.0.0.10
 
 [sso_portal_docker:vars]
 ansible_connection=ssh
 ansible_python_interpreter=/usr/bin/python3
-bastion_docker_host_ip=172.24.0.110
-bastion_upstream_url=https://172.24.0.110
+bastion_docker_host_ip=10.0.0.10
+bastion_upstream_url=https://10.0.0.10
 bastion_traefik_network=vpcbr
-bastion_edge_host_ip=172.24.0.108
+bastion_edge_host_ip=10.0.0.11
 bastion_app_docker_compose_dir=/tools/portal
 bastion_app_docker_data_dir=/tools/portal/data
 # Requis — sinon les defaults publics (portal.example.com) cassent les cookies SSO
-portal_domain=portal.ar-systems.fr
-base_domain=ar-systems.fr
-sso_portal_default_realm_slug=ar-systems
+portal_domain=portal.example.com
+base_domain=example.com
+sso_portal_default_realm_slug=default
+# Escape pour tests locaux sur example.com :
+# bastion_allow_example_domain=true
 
 # Alias historique AWX (même hôte que sso_portal_edge)
 [nginx_dmz:children]
 sso_portal_edge
 
 [sso_portal_edge]
-vmdmz-reverse01 ansible_host=172.24.0.108
+edge01 ansible_host=10.0.0.11
 
 [sso_portal_edge:vars]
 ansible_connection=ssh
 ansible_python_interpreter=/usr/bin/python3
-bastion_upstream_url=https://172.24.0.110
-bastion_docker_host_ip=172.24.0.110
-portal_domain=portal.ar-systems.fr
-base_domain=ar-systems.fr
+bastion_upstream_url=https://10.0.0.10
+bastion_docker_host_ip=10.0.0.10
+portal_domain=portal.example.com
+base_domain=example.com
 # Cutover: set true when ready to replace per-FQDN DMZ vhosts with catch-all
 bastion_edge_catchall_enabled=false

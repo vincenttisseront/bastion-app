@@ -1,6 +1,6 @@
 ---
-# Portail SSO AR Systems — bastion-app (Phase 6)
-# Prérequis : client OIDC Keycloak, DNS portal.ar-systems.fr, secrets Vault AWX
+# Portail SSO Bastion Pro — bastion-app (Phase 6)
+# Prérequis : client OIDC Keycloak, DNS portal.example.com, secrets Vault AWX
 #
 # Usage:
 #   ansible-playbook ansible/linux_sso_portal.yml \

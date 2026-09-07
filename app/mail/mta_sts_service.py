@@ -59,7 +59,7 @@ def validate_mail_domain(domain: str) -> str:
     host = normalize_hostname(domain) or ""
     if not host or not _DOMAIN_SAFE.match(host):
         raise ValueError(
-            "Domaine mail invalide — ex. ar-systems.fr (sans schéma http/https)."
+            "Domaine mail invalide — ex. example.com (sans schéma http/https)."
         )
     if host.startswith("mta-sts."):
         raise ValueError("Indiquez le domaine mail, pas le host mta-sts.*")
@@ -68,13 +68,13 @@ def validate_mail_domain(domain: str) -> str:
 
 def validate_mx_hosts(hosts: list[str]) -> list[str]:
     if not hosts:
-        raise ValueError("Au moins un hôte MX est requis (ex. mail.exemple.fr).")
+        raise ValueError("Au moins un hôte MX est requis (ex. mail.example.com).")
     cleaned: list[str] = []
     for h in hosts:
         if not _MX_SAFE.match(h):
             raise ValueError(
                 f"Hôte MX invalide: {h!r} — utilisez un hostname "
-                f"(mail.exemple.fr) ou un joker (*.exemple.fr), pas une URL."
+                f"(mail.example.com) ou un joker (*.example.com), pas une URL."
             )
         cleaned.append(h)
     return cleaned

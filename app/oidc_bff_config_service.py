@@ -39,8 +39,8 @@ def keycloak_realm_from_issuer(issuer_url: str) -> str | None:
     """
     Extract Keycloak realm name from issuer URL.
 
-    Bastion ``RealmConfig.slug`` is often lowercase (``ar-systems``) while the
-    Keycloak realm path keeps its own casing (``AR-SYSTEMS``).
+    Bastion ``RealmConfig.slug`` is often lowercase (``default``) while the
+    Keycloak realm path keeps its own casing (``Default``).
     """
     raw = (issuer_url or "").strip().rstrip("/")
     if not raw:

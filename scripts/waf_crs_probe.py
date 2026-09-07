@@ -6,8 +6,8 @@ trigger blocks on paths that remain under inspection (not ``modsecurity off``).
 
 Usage:
   python scripts/waf_crs_probe.py
-  python scripts/waf_crs_probe.py --base https://portal.ar-systems.fr
-  python scripts/waf_crs_probe.py --base https://portal.ar-systems.fr --subdomain-host webmail.ar-systems.fr
+  python scripts/waf_crs_probe.py --base https://portal.example.com
+  python scripts/waf_crs_probe.py --base https://portal.example.com --subdomain-host webmail.example.com
 
 Exit 0 when all probes got an expected block (403/406/429) or CRS audit signal.
 Exit 1 when any probe suggests CRS is inactive or misconfigured.
@@ -29,7 +29,7 @@ import httpx
 # Paths that stay under CRS on portal vhost (see vhost_sso_portal.conf.template).
 PORTAL_PROBE_PATH = "/auth/login"
 
-DEFAULT_BASE = "https://portal.ar-systems.fr"
+DEFAULT_BASE = "https://portal.example.com"
 
 # Minimal payloads mapped to CRS families (REQUEST-942, 941, 930, 932, …).
 PROBES: list[dict[str, str]] = [
