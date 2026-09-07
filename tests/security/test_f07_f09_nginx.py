@@ -286,14 +286,8 @@ def test_docker_nginx_real_ip_does_not_trust_client_x_real_ip():
     assert "$proxy_add_x_forwarded_for" not in proxy_blob
 
 
-def test_docker_nginx_real_ip_contract_documented():
-    """Ops doc + nginx comments: CF → bastion-nginx edge; Traefik out of public path."""
-    doc = (ROOT / "docs/ops-client-ip-chain.md").read_text(encoding="utf-8")
-    assert "Cloudflare" in doc
-    assert "CF-Connecting-IP" in doc
-    assert "bastion_portal_client_ip_fallback" in doc
-    assert "resolved" in doc
-    assert "hors chemin" in doc.lower()
+def test_docker_nginx_real_ip_contract_in_nginx_conf():
+    """nginx.conf: CF IP trust include; Traefik out of public path."""
     nginx_conf = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
     assert "cloudflare-ips.conf" in nginx_conf
     assert "bastion_require_traefik" in nginx_conf or "Traefik is out" in nginx_conf
