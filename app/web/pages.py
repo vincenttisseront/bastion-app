@@ -2808,7 +2808,7 @@ async def admin_rbac_overview(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    """RBAC dashboard — entry point for cross-links (see docs/rbac-information-architecture.md)."""
+    """RBAC dashboard — entry point for cross-links (admin users / grants)."""
     from sqlalchemy import func
 
     from app.models import AccessGrant, BastionAccount, GroupAppCredential

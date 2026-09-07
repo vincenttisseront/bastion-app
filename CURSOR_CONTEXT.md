@@ -11,7 +11,7 @@ Document de référence pour les sessions Cursor. **Tenir à jour** à chaque ch
 ### Phase 1 — Setup
 - Initialisation repo Git, arborescence FastAPI / Nginx / Ansible
 - Placeholders Python, templates Nginx restaurés depuis `awx-playbook@ff4f66b`
-- Documentation de référence copiée dans `docs/`
+- Documentation ingénierie : repo privé `bastion-docs` (pas ce dépôt public)
 
 ### Phase 2 — Core Auth
 - Auth portail (`auth.py`), multi-realm Keycloak (`realm_service.py`)

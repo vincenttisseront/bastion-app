@@ -36,6 +36,6 @@ ou IP d’infra.
 2. Fallbacks runtime (`or "…"`, `:-…`) → `default` / `portal.example.com`, jamais un slug client.
 3. Placeholders HTML / messages d’erreur / commentaires d’exemple → génériques.
 4. Ne pas « corriger » un inventaire AWX live dans le dépôt : les exemples restent `*.example.com` ; la prod override via inventaire.
-5. Rapports d’audit historiques peuvent rester hors scope ; le code livré (`app/`, `deploy/`, `scripts/` génériques, defaults Ansible, templates) **non**. La doc produit est sur Confluence uniquement (pas de miroir Markdown wiki dans le dépôt).
+5. Doc produit sur Confluence uniquement ; SDD / audits / runbooks dans le repo privé `bastion-docs` (pas de dossier `docs/` dans ce dépôt public). Le code livré (`app/`, `deploy/`, `scripts/` génériques, defaults Ansible, templates) reste anonymisé.
 
 Voir aussi `deploy/ANONYMIZATION.md`.

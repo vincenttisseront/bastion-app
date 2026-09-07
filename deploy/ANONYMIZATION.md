@@ -22,7 +22,7 @@ interne / développement.
 ## À ne jamais livrer dans un tarball externe
 
 - `ansible/` (inventaires, IPs `172.24.0.x`, hosts `vmdmz-*`)
-- `docs/auth-audit.md`, docs ops Wazuh internes
+- Docs ingénierie / SDD / audits (repo privé `bastion-docs`, pas ce dépôt)
 - `rapport-audit-*.md/json`
 - `tmp/`, `nginx/reference-from-awx/`
 - `apply-infra.*`, `CURSOR_CONTEXT.md`

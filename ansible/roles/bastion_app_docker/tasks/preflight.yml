@@ -31,7 +31,7 @@
       Espace disque insuffisant sur {{ bastion_app_docker_data_dir | dirname }} :
       {{ _disk_free_mb }} Mo libres ({{ _disk_use_pct }} utilisés, total {{ _disk_total_mb }} Mo),
       seuil requis {{ sso_portal_min_free_disk_mb }} Mo.
-      Voir docs/ops-retention-donnees-froides-tools.md
+      Voir runbook rétention données froides (bastion-docs).
   vars:
     _disk_parts: "{{ (_disk_mb.stdout | trim).split() }}"
     _disk_free_mb: "{{ _disk_parts[0] | default('0') }}"
