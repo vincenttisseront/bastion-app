@@ -30,7 +30,21 @@ curl -fsS http://127.0.0.1:8080/_portal_nginx_ok
 
 ## Images
 
-`vincenttisseront/bastion-pro-{app,migrate,nginx}:latest` (ou pin SHA dans `.env`).
+Docker Hub (défaut compose) et miroir GHCR — **mêmes tags** que la [GitHub Release](https://github.com/vincenttisseront/bastion-app/releases) :
+
+| Tag | Usage |
+|-----|--------|
+| `v0.8.0` | pin release (recommandé prod) |
+| `latest` | dernier build publié |
+| `<gitsha>` | pin exact (ex. `b6c09da`) |
+
+```bash
+# Hub (défaut)
+# BASTION_APP_IMAGE=vincenttisseront/bastion-pro-app:v0.8.0
+
+# ou GHCR
+# BASTION_APP_IMAGE=ghcr.io/vincenttisseront/bastion-pro-app:v0.8.0
+```
 
 ## Premier boot
 
