@@ -1464,6 +1464,9 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 }
 #waf-page .form-section{margin-top:0}
 #waf-page .inline-form{display:inline}
+#waf-page .waf-exclusion-actions{
+  display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;justify-content:flex-end;
+}
 
 /* WAF dashboard — enterprise-style layout */
 .waf-title-row{

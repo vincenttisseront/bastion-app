@@ -277,6 +277,37 @@ def disable_exclusion(
     return row
 
 
+def delete_exclusion(
+    db: Session,
+    exclusion_id: int,
+    *,
+    actor: str,
+    ip_address: str | None = None,
+) -> None:
+    row = db.query(WafExclusion).filter_by(id=exclusion_id).first()
+    if not row:
+        raise ValueError("exclusion introuvable")
+    details = {
+        "crs_rule_id": row.crs_rule_id,
+        "reason": row.reason,
+        "host": row.host,
+        "uri_pattern": row.uri_pattern,
+        "scope_kind": row.scope_kind,
+        "was_active": bool(row.active),
+    }
+    db.delete(row)
+    db.commit()
+    log_action(
+        db,
+        actor=actor,
+        action="security.waf.exclusion_deleted",
+        target=str(exclusion_id),
+        details=details,
+        ip_address=ip_address,
+    )
+    db.commit()
+
+
 def apply_waf(
     db: Session,
     settings: Settings,

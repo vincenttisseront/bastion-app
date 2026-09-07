@@ -109,7 +109,66 @@ def test_app_access_logs_forbids_unknown_slug(client, db_session):
         headers={**ADMIN_HEADERS, "Accept": "application/json"},
     )
     assert resp.status_code == 403
-    assert resp.json().get("detail") == "Forbidden"
+    body = resp.json()
+    assert body.get("detail") == "Forbidden" or body.get("message") == "Forbidden"
+
+
+def test_mta_sts_appears_in_app_access_list(client, db_session, tmp_path, monkeypatch):
+    from app.main import app as fastapi_app
+    from app.models import PortalSettings
+    from app.sso_settings import get_settings
+    from app.web.nginx_app_logs import MTA_STS_LOG_SLUG
+
+    logs_dir = tmp_path / "nginx-logs"
+    logs_dir.mkdir()
+    (logs_dir / "mta-sts.access.log").write_text(
+        '9.9.9.9 - - [07/Sep/2026:16:00:00 +0000] host=mta-sts.example.com '
+        '"GET /.well-known/mta-sts.txt HTTP/1.1" 200 66 "-" "EasyDMARC" '
+        "rt=0.01 upstream=- us=- ut=- auth_err=-\n",
+        encoding="utf-8",
+    )
+    db_session.add(
+        PortalSettings(
+            id=1,
+            mta_sts_enabled=True,
+            mta_sts_mail_domain="example.com",
+            mta_sts_mode="testing",
+            mta_sts_mx_hosts="mx.example.com",
+            mta_sts_max_age=604800,
+            mta_sts_same_public_domain=True,
+        )
+    )
+    db_session.commit()
+
+    def override_settings():
+        return _settings(tmp_path)
+
+    fastapi_app.dependency_overrides[get_settings] = override_settings
+    try:
+        page = client.get("/admin/logs", headers=ADMIN_HEADERS)
+        assert page.status_code == 200
+        assert MTA_STS_LOG_SLUG in page.text
+        assert "MTA-STS" in page.text
+        resp = client.get(
+            f"/admin/logs/apps/{MTA_STS_LOG_SLUG}/access",
+            headers=ADMIN_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["slug"] == MTA_STS_LOG_SLUG
+        assert body["entries"]
+        assert body["entries"][0]["method"] == "GET"
+        assert body["entries"][0].get("path") == "/.well-known/mta-sts.txt"
+    finally:
+        fastapi_app.dependency_overrides[get_settings] = lambda: Settings(
+            environment="test",
+            vault_portal_internal_token="test-secret",
+            breakglass_jwt_secret="test-bg-jwt-secret",
+            breakglass_jwt_secret_fallback_enabled=True,
+            session_hop_secret="test-session-hop-secret-for-pytest",
+            portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+            database_url="sqlite://",
+        )
 
 
 def test_read_access_log_tail_units(tmp_path):

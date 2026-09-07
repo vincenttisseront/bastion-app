@@ -620,3 +620,42 @@ def test_waf_exclude_rule_from_event(client: TestClient, db_session: Session):
     assert row.host == "portal.example.com"
     assert row.scope_kind == "rule"
     assert row.active is True
+
+
+def test_waf_exclusion_disable_then_delete(client: TestClient, db_session: Session):
+    _seed_profile(db_session)
+    add = client.post(
+        "/admin/security/waf/exclusions/add",
+        headers=ADMIN_HEADERS,
+        data={
+            "reason": "FP temporaire",
+            "crs_rule_id": "930130",
+            "uri_pattern": "/StudioServer/.git/config",
+            "host": "portal.example.com",
+            "scope_kind": "rule",
+            "uri_match": "exact",
+        },
+        follow_redirects=False,
+    )
+    assert add.status_code == 302
+    row = db_session.query(WafExclusion).one()
+    eid = row.id
+
+    disable = client.post(
+        f"/admin/security/waf/exclusions/{eid}/disable",
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert disable.status_code == 302
+    db_session.expire_all()
+    assert db_session.query(WafExclusion).one().active is False
+
+    delete = client.post(
+        f"/admin/security/waf/exclusions/{eid}/delete",
+        headers=ADMIN_HEADERS,
+        follow_redirects=False,
+    )
+    assert delete.status_code == 302
+    assert "#exclusions" in (delete.headers.get("location") or "")
+    db_session.expire_all()
+    assert db_session.query(WafExclusion).count() == 0
