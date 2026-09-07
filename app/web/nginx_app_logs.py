@@ -1,7 +1,8 @@
-"""Read nginx per-app access logs (public_proxy / subdomain_proxy).
+"""Read nginx per-app access logs (public_proxy / subdomain_proxy / MTA-STS).
 
 Logs live under NGINX_APP_LOGS_DIR (shared volume with bastion-nginx
-``/var/log/nginx/apps``). Only DB-known proxy app slugs are readable.
+``/var/log/nginx/apps``). Proxy app slugs come from the DB; MTA-STS is a
+synthetic slug ``mta-sts`` when publication is enabled.
 """
 
 from __future__ import annotations
@@ -16,13 +17,14 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
-from app.models import App
+from app.models import App, PortalSettings
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
 
 _SAFE_SLUG = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 _LOGGABLE_MODES = frozenset({"public_proxy", "subdomain_proxy"})
+MTA_STS_LOG_SLUG = "mta-sts"
 _DEFAULT_TAIL = 200
 _MAX_TAIL = 5000
 
@@ -88,7 +90,7 @@ def resolve_nginx_app_logs_dir(settings: Settings) -> Path:
 
 
 def list_loggable_apps(db: Session) -> list[dict[str, str]]:
-    """Enabled proxy apps that write ``{slug}.access.log`` (ordered by slug)."""
+    """Enabled proxy apps + MTA-STS edge host that write ``{slug}.access.log``."""
     apps = db.query(App).filter_by(enabled=True).order_by(App.slug).all()
     out: list[dict[str, str]] = []
     for app in apps:
@@ -108,7 +110,35 @@ def list_loggable_apps(db: Session) -> list[dict[str, str]]:
                 "public_fqdn": fqdn,
             }
         )
+    mta = _mta_sts_loggable_entry(db)
+    if mta is not None:
+        out.append(mta)
+    out.sort(key=lambda row: (row.get("slug") or "").lower())
     return out
+
+
+def _mta_sts_loggable_entry(db: Session) -> dict[str, str] | None:
+    """Synthetic Accès-apps row for ``mta-sts.access.log`` (not an App catalogue)."""
+    try:
+        row = db.query(PortalSettings).filter_by(id=1).first()
+    except Exception:
+        logger.debug("mta-sts loggable entry skipped (portal_settings unavailable)", exc_info=True)
+        return None
+    if row is None or not bool(getattr(row, "mta_sts_enabled", False)):
+        return None
+    mail = (getattr(row, "mta_sts_mail_domain", None) or "").strip()
+    if not mail:
+        return None
+    from app.mail.mta_sts_service import mta_sts_fqdn, public_mail_domain_for_row
+
+    domain = public_mail_domain_for_row(row) or mail
+    fqdn = mta_sts_fqdn(domain)
+    return {
+        "slug": MTA_STS_LOG_SLUG,
+        "label": "MTA-STS",
+        "access_mode": "mta_sts",
+        "public_fqdn": fqdn,
+    }
 
 
 def assert_loggable_slug(db: Session, slug: str) -> str:

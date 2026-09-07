@@ -243,6 +243,33 @@ def admin_waf_exclusion_disable(
     return response
 
 
+@router.post("/admin/security/waf/exclusions/{exclusion_id}/delete")
+def admin_waf_exclusion_delete(
+    request: Request,
+    exclusion_id: int,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    response = RedirectResponse(url="/admin/security/waf#exclusions", status_code=302)
+    try:
+        waf_service.delete_exclusion(
+            db,
+            exclusion_id,
+            actor=_actor(user),
+            ip_address=client_ip_from_request(request) or None,
+        )
+        flash_redirect(
+            response,
+            "Exclusion supprimée. Penser à Appliquer pour retirer la règle nginx.",
+            "success",
+            _flash_secret(settings),
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", _flash_secret(settings))
+    return response
+
+
 @router.post("/admin/security/waf/actions/ban-ip")
 def admin_waf_ban_ip(
     request: Request,

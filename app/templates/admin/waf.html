@@ -790,7 +790,16 @@
               </td>
               <td>{{ ex.reason }}</td>
               <td>{% if ex.active %}<span class="badge badge-ok">oui</span>{% else %}<span class="badge badge-muted">non</span>{% endif %}</td>
-              <td>{% if ex.active %}<form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/disable" class="inline-form waf-disable-form"><button type="submit" class="btn btn-ghost btn-sm">Désactiver</button></form>{% endif %}</td>
+              <td class="waf-exclusion-actions">
+                {% if ex.active %}
+                <form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/disable" class="inline-form waf-disable-form">
+                  <button type="submit" class="btn btn-ghost btn-sm">Désactiver</button>
+                </form>
+                {% endif %}
+                <form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/delete" class="inline-form waf-delete-form">
+                  <button type="submit" class="btn btn-ghost btn-sm">Supprimer</button>
+                </form>
+              </td>
             </tr>
             {% else %}<tr><td colspan="6" class="muted">Aucune exclusion</td></tr>{% endfor %}
 
@@ -1356,6 +1365,15 @@
 
     confirmSubmit(form, { title: 'Désactiver cette exclusion ?', confirmLabel: 'Désactiver', danger: true });
 
+  });
+
+  document.querySelectorAll('.waf-delete-form').forEach(function (form) {
+    confirmSubmit(form, {
+      title: 'Supprimer définitivement cette exclusion ?',
+      message: 'Elle disparaît de la base. Appliquer ensuite pour régénérer nginx.',
+      confirmLabel: 'Supprimer',
+      danger: true,
+    });
   });
 
   /* Exclusion form: mode + collection + Affiner / Import modal */

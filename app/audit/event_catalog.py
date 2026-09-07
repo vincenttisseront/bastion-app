@@ -549,6 +549,8 @@ _RAW_EVENTS: tuple[EventDef, ...] = (
        legacy_action='security.waf.exclusion_added'),
     _e('BST-WAF-1009', 'WAF_EXCLUSION_DISABLED', 'Exclusion WAF désactivée', ('intrusion_detection', 'configuration',),
        legacy_action='security.waf.exclusion_disabled'),
+    _e('BST-WAF-1016', 'WAF_EXCLUSION_DELETED', 'Exclusion WAF supprimée', ('intrusion_detection', 'configuration',),
+       legacy_action='security.waf.exclusion_deleted'),
     _e('BST-WAF-1010', 'WAF_CONFIG_APPLIED', 'Configuration WAF appliquée', ('intrusion_detection', 'configuration',),
        legacy_action='security.waf.apply'),
     _e('BST-WAF-2013', 'WAF_CONFIG_APPLY_ROLLBACK', 'Apply WAF annulé (validation ou rollback)', ('intrusion_detection', 'configuration',),
