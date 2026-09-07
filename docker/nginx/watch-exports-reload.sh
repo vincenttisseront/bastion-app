@@ -14,6 +14,7 @@ fingerprint() {
       nginx-public-proxy-apps.conf \
       nginx-subdomain-apps.conf \
       nginx-infra-proxy-apps.conf \
+      nginx-mta-sts.conf \
       acme-domains.json
     do
       if [[ -f "$EXPORTS/$f" ]]; then

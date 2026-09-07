@@ -1,0 +1,372 @@
+"""MTA-STS policy (RFC 8461) — store in portal_settings, publish via nginx edge.
+
+Publishes ``https://mta-sts.<mail_domain>/.well-known/mta-sts.txt`` as a static
+nginx ``return 200`` (no upstream). Does not enforce SMTP; that stays on the MTA.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+import re
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from app.audit import log_action
+from app.bastion.nginx_known_hosts_export import normalize_hostname
+from app.models import PortalSettings, utcnow
+from app.portal_settings_service import ensure_portal_settings
+from app.sso_settings import Settings
+
+logger = logging.getLogger(__name__)
+
+MTA_STS_MODES = frozenset({"testing", "enforce", "none"})
+DEFAULT_MAX_AGE = 604800  # 7 days
+MIN_MAX_AGE = 86400
+MAX_MAX_AGE = 31557600  # ~1 year
+
+_MX_SAFE = re.compile(
+    r"^(\*\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+)
+_DOMAIN_SAFE = re.compile(
+    r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
+)
+
+
+def parse_mx_hosts(raw: str | None) -> list[str]:
+    """Split MX patterns from textarea (newline / comma). Strips URL junk."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in re.split(r"[\n,;]+", raw or ""):
+        token = part.strip().lower()
+        if not token or token.startswith("#"):
+            continue
+        # Common paste mistakes: URLs / schemes
+        for prefix in ("https://", "http://", "://", "//"):
+            if token.startswith(prefix):
+                token = token[len(prefix) :]
+        token = token.split("/")[0].split("?")[0].strip(".")
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
+
+
+def validate_mail_domain(domain: str) -> str:
+    host = normalize_hostname(domain) or ""
+    if not host or not _DOMAIN_SAFE.match(host):
+        raise ValueError(
+            "Domaine mail invalide — ex. ar-systems.fr (sans schéma http/https)."
+        )
+    if host.startswith("mta-sts."):
+        raise ValueError("Indiquez le domaine mail, pas le host mta-sts.*")
+    return host
+
+
+def validate_mx_hosts(hosts: list[str]) -> list[str]:
+    if not hosts:
+        raise ValueError("Au moins un hôte MX est requis (ex. mail.exemple.fr).")
+    cleaned: list[str] = []
+    for h in hosts:
+        if not _MX_SAFE.match(h):
+            raise ValueError(
+                f"Hôte MX invalide: {h!r} — utilisez un hostname "
+                f"(mail.exemple.fr) ou un joker (*.exemple.fr), pas une URL."
+            )
+        cleaned.append(h)
+    return cleaned
+
+
+def validate_mode(mode: str) -> str:
+    m = (mode or "").strip().lower()
+    if m not in MTA_STS_MODES:
+        raise ValueError("Mode MTA-STS invalide (testing, enforce ou none).")
+    return m
+
+
+def validate_max_age(raw: int | str | None) -> int:
+    try:
+        value = int(raw if raw is not None else DEFAULT_MAX_AGE)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("max_age doit être un entier (secondes).") from exc
+    if value < MIN_MAX_AGE or value > MAX_MAX_AGE:
+        raise ValueError(
+            f"max_age hors plage ({MIN_MAX_AGE}–{MAX_MAX_AGE} s) — "
+            f"recommandé 604800 (7 j) puis 2592000 (30 j)."
+        )
+    return value
+
+
+def mta_sts_fqdn(mail_domain: str) -> str:
+    return f"mta-sts.{mail_domain}"
+
+
+def build_policy_text(
+    *,
+    mode: str,
+    mx_hosts: list[str],
+    max_age: int,
+) -> str:
+    lines = [
+        "version: STSv1",
+        f"mode: {mode}",
+    ]
+    for mx in mx_hosts:
+        lines.append(f"mx: {mx}")
+    lines.append(f"max_age: {int(max_age)}")
+    return "\n".join(lines) + "\n"
+
+
+def policy_id_hint(policy_text: str) -> str:
+    """Suggested id= value for DNS TXT ``_mta-sts.<domain>`` (change on each update)."""
+    digest = hashlib.sha256(policy_text.encode("utf-8")).hexdigest()[:12]
+    return digest
+
+
+def suggested_dns_txt(mail_domain: str, policy_text: str) -> str:
+    return f"v=STSv1; id={policy_id_hint(policy_text)}"
+
+
+def _nginx_escape_double_quoted(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\r\n", "\\n")
+        .replace("\n", "\\n")
+        .replace("\r", "\\n")
+    )
+
+
+def generate_nginx_mta_sts_conf(
+    *,
+    enabled: bool,
+    mail_domain: str | None,
+    mode: str,
+    mx_hosts: list[str],
+    max_age: int,
+) -> str:
+    """HTTP :8080 server{} — TLS terminates on ACME :443 for the same Host."""
+    if not enabled or not mail_domain:
+        return (
+            "# MTA-STS disabled — no mta-sts.* vhost\n"
+            "# Configure in Admin → Général → Configuration → MTA-STS\n"
+        )
+    fqdn = mta_sts_fqdn(mail_domain)
+    policy = build_policy_text(mode=mode, mx_hosts=mx_hosts, max_age=max_age)
+    body = _nginx_escape_double_quoted(policy)
+    return "\n".join(
+        [
+            "# Generated by bastion-app — MTA-STS policy (RFC 8461)",
+            "# https://mta-sts.<mail_domain>/.well-known/mta-sts.txt",
+            "# Do not edit; Admin → Configuration → MTA-STS + Apply infra (ACME).",
+            "",
+            "server {",
+            "    listen 8080;",
+            "    listen [::]:8080;",
+            f"    server_name {_nginx_escape_double_quoted(fqdn)};",
+            "",
+            "    # Static policy — no auth, no upstream.",
+            "    location = /.well-known/mta-sts.txt {",
+            '        default_type text/plain;',
+            '        charset utf-8;',
+            '        add_header Cache-Control "public, max-age=86400" always;',
+            f'        return 200 "{body}";',
+            "    }",
+            "",
+            "    location / {",
+            "        default_type text/plain;",
+            '        return 404 "MTA-STS host — only /.well-known/mta-sts.txt\\n";',
+            "    }",
+            "}",
+            "",
+        ]
+    )
+
+
+def write_mta_sts_nginx_export(db: Session, settings: Settings) -> Path:
+    row = ensure_portal_settings(db, settings)
+    exports = Path(settings.exports_dir)
+    exports.mkdir(parents=True, exist_ok=True)
+    path = exports / "nginx-mta-sts.conf"
+    enabled = bool(getattr(row, "mta_sts_enabled", False))
+    mail_domain = (getattr(row, "mta_sts_mail_domain", None) or "").strip() or None
+    mode = (getattr(row, "mta_sts_mode", None) or "testing").strip().lower()
+    mx_hosts = parse_mx_hosts(getattr(row, "mta_sts_mx_hosts", None))
+    max_age = int(getattr(row, "mta_sts_max_age", None) or DEFAULT_MAX_AGE)
+    if enabled and mail_domain:
+        try:
+            mail_domain = validate_mail_domain(mail_domain)
+            mode = validate_mode(mode)
+            mx_hosts = validate_mx_hosts(mx_hosts)
+            max_age = validate_max_age(max_age)
+        except ValueError as exc:
+            logger.warning("mta-sts export skipped — invalid settings: %s", exc)
+            enabled = False
+    content = generate_nginx_mta_sts_conf(
+        enabled=enabled,
+        mail_domain=mail_domain,
+        mode=mode,
+        mx_hosts=mx_hosts,
+        max_age=max_age,
+    )
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def mta_sts_public_status(db: Session, settings: Settings) -> dict[str, Any]:
+    row = ensure_portal_settings(db, settings)
+    enabled = bool(getattr(row, "mta_sts_enabled", False))
+    mail_domain = (getattr(row, "mta_sts_mail_domain", None) or "").strip()
+    mode = (getattr(row, "mta_sts_mode", None) or "testing").strip().lower()
+    mx_raw = getattr(row, "mta_sts_mx_hosts", None) or ""
+    mx_hosts = parse_mx_hosts(mx_raw)
+    max_age = int(getattr(row, "mta_sts_max_age", None) or DEFAULT_MAX_AGE)
+    published = getattr(row, "mta_sts_published_at", None)
+    published_s = ""
+    if published is not None:
+        try:
+            published_s = published.strftime("%Y-%m-%d %H:%M UTC")
+        except (TypeError, ValueError, AttributeError, OSError):
+            published_s = str(published)
+
+    policy_text = ""
+    fqdn = ""
+    policy_url = ""
+    dns_txt = ""
+    ready = False
+    if enabled and mail_domain and mx_hosts:
+        try:
+            d = validate_mail_domain(mail_domain)
+            m = validate_mode(mode)
+            mxs = validate_mx_hosts(mx_hosts)
+            age = validate_max_age(max_age)
+            policy_text = build_policy_text(mode=m, mx_hosts=mxs, max_age=age)
+            fqdn = mta_sts_fqdn(d)
+            policy_url = f"https://{fqdn}/.well-known/mta-sts.txt"
+            dns_txt = suggested_dns_txt(d, policy_text)
+            ready = True
+        except ValueError:
+            ready = False
+
+    return {
+        "enabled": enabled,
+        "mail_domain": mail_domain,
+        "mode": mode if mode in MTA_STS_MODES else "testing",
+        "mx_hosts": mx_raw,
+        "mx_list": mx_hosts,
+        "max_age": max_age,
+        "ready": ready,
+        "fqdn": fqdn,
+        "policy_url": policy_url,
+        "policy_text": policy_text,
+        "dns_name": f"_mta-sts.{mail_domain}" if mail_domain else "",
+        "dns_txt": dns_txt,
+        "published_at": published_s,
+        "status_badge": "ok" if ready else ("warn" if enabled else "off"),
+    }
+
+
+def update_mta_sts_settings(
+    db: Session,
+    settings: Settings,
+    *,
+    actor: str,
+    ip_address: str | None = None,
+    enabled: bool,
+    mail_domain: str,
+    mode: str,
+    mx_hosts: str,
+    max_age: int,
+) -> PortalSettings:
+    row = ensure_portal_settings(db, settings)
+    enabled_b = bool(enabled)
+    if enabled_b:
+        domain = validate_mail_domain(mail_domain)
+        mode_v = validate_mode(mode)
+        mxs = validate_mx_hosts(parse_mx_hosts(mx_hosts))
+        age = validate_max_age(max_age)
+        row.mta_sts_enabled = True
+        row.mta_sts_mail_domain = domain
+        row.mta_sts_mode = mode_v
+        row.mta_sts_mx_hosts = "\n".join(mxs)
+        row.mta_sts_max_age = age
+        row.mta_sts_published_at = utcnow()
+    else:
+        # Keep last values for re-enable; only clear the flag.
+        row.mta_sts_enabled = False
+        if (mail_domain or "").strip():
+            try:
+                row.mta_sts_mail_domain = validate_mail_domain(mail_domain)
+            except ValueError:
+                pass
+        if (mode or "").strip():
+            try:
+                row.mta_sts_mode = validate_mode(mode)
+            except ValueError:
+                pass
+        parsed = parse_mx_hosts(mx_hosts)
+        if parsed:
+            row.mta_sts_mx_hosts = "\n".join(parsed)
+        try:
+            row.mta_sts_max_age = validate_max_age(max_age)
+        except ValueError:
+            pass
+
+    row.updated_at = utcnow()
+    row.updated_by = actor
+    db.commit()
+    db.refresh(row)
+
+    # Refresh edge exports immediately (watcher copies into conf.d).
+    try:
+        write_mta_sts_nginx_export(db, settings)
+        from app.bastion.acme_domains_export import write_acme_domains_export
+        from app.bastion.nginx_known_hosts_export import write_known_hosts_map
+
+        write_known_hosts_map(db, settings)
+        write_acme_domains_export(db, settings)
+    except Exception:
+        logger.exception("mta-sts: export refresh failed after save")
+
+    log_action(
+        db,
+        actor=actor,
+        action="mta_sts.settings_saved",
+        target="portal_settings",
+        details={
+            "enabled": bool(row.mta_sts_enabled),
+            "mail_domain": row.mta_sts_mail_domain,
+            "mode": row.mta_sts_mode,
+            "mx_count": len(parse_mx_hosts(row.mta_sts_mx_hosts)),
+            "max_age": row.mta_sts_max_age,
+            "fqdn": mta_sts_fqdn(row.mta_sts_mail_domain)
+            if row.mta_sts_enabled and row.mta_sts_mail_domain
+            else None,
+        },
+        ip_address=ip_address,
+    )
+    return row
+
+
+def iter_mta_sts_acme_domains(db: Session, settings: Settings) -> list[dict[str, str]]:
+    """FQDNs for acme-domains.json when MTA-STS publication is enabled."""
+    row = ensure_portal_settings(db, settings)
+    if not bool(getattr(row, "mta_sts_enabled", False)):
+        return []
+    domain = (getattr(row, "mta_sts_mail_domain", None) or "").strip()
+    if not domain:
+        return []
+    try:
+        domain = validate_mail_domain(domain)
+    except ValueError:
+        return []
+    return [
+        {
+            "fqdn": mta_sts_fqdn(domain),
+            "slug": "mta-sts",
+            "family": "mta_sts",
+        }
+    ]

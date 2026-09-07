@@ -57,6 +57,13 @@ else
   echo "# no public_proxy apps exported yet" > /etc/nginx/conf.d/nginx-public-proxy-apps.conf
 fi
 
+if [[ -f "$EXPORTS/nginx-mta-sts.conf" ]]; then
+  cp -a "$EXPORTS/nginx-mta-sts.conf" \
+    /etc/nginx/conf.d/nginx-mta-sts.conf
+else
+  echo "# no MTA-STS policy exported yet" > /etc/nginx/conf.d/nginx-mta-sts.conf
+fi
+
 if [[ -f "$EXPORTS/nginx-infra-proxy-apps.conf" ]]; then
   cp -a "$EXPORTS/nginx-infra-proxy-apps.conf" \
     /etc/nginx/conf.d/nginx-infra-proxy-apps.conf

@@ -966,6 +966,15 @@ class PortalSettings(Base):
     default_realm_slug = Column(String, nullable=True)
     setup_wizard_completed_at = Column(DateTime(timezone=True), nullable=True)
 
+    # MTA-STS policy publication (Admin → Configuration) — nginx edge serves
+    # https://mta-sts.<mail_domain>/.well-known/mta-sts.txt (RFC 8461).
+    mta_sts_enabled = Column(Boolean, nullable=False, default=False)
+    mta_sts_mail_domain = Column(String, nullable=True)
+    mta_sts_mode = Column(String, nullable=False, default="testing")  # testing|enforce|none
+    mta_sts_mx_hosts = Column(Text, nullable=True)  # newline-separated MX patterns
+    mta_sts_max_age = Column(Integer, nullable=False, default=604800)
+    mta_sts_published_at = Column(DateTime(timezone=True), nullable=True)
+
     updated_at = Column(DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
     updated_by = Column(String, nullable=True)
 

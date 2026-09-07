@@ -226,6 +226,12 @@ def export_app_catalogue_files(db: Session, settings: Settings) -> dict[str, str
     paths = {"nginx_apps_conf": str(apps_path)}
     paths.update(write_subdomain_apps_exports(db, settings))
     paths.update(write_public_proxy_apps_exports(db, settings))
+    try:
+        from app.mail.mta_sts_service import write_mta_sts_nginx_export
+
+        paths["nginx_mta_sts_conf"] = str(write_mta_sts_nginx_export(db, settings))
+    except Exception:
+        pass
     paths["nginx_known_hosts_map"] = str(write_known_hosts_map(db, settings))
     paths["acme_domains_json"] = str(write_acme_domains_export(db, settings))
     try:

@@ -24,7 +24,8 @@ _FAMILY_ORDER = {
     "portal": 0,
     "subdomain_proxy": 1,
     "public_proxy": 2,
-    "infra": 3,
+    "mta_sts": 3,
+    "infra": 4,
 }
 
 
@@ -102,6 +103,18 @@ def build_acme_domains_manifest(db: Session, settings: Settings) -> dict[str, An
             family="public_proxy",
             upstream_url=app.upstream_url or "",
         )
+
+    try:
+        from app.mail.mta_sts_service import iter_mta_sts_acme_domains
+
+        for row in iter_mta_sts_acme_domains(db, settings):
+            _add(
+                fqdn=row["fqdn"],
+                slug=row.get("slug") or "mta-sts",
+                family=row.get("family") or "mta_sts",
+            )
+    except Exception:
+        logger.exception("acme: mta-sts domains skipped")
 
     for row in _load_infra_domains(settings):
         _add(

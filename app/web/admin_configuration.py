@@ -1,4 +1,4 @@
-"""Admin → Général → Configuration (SMTP + SIEM + hot store)."""
+"""Admin → Général → Configuration (SMTP + SIEM + hot store + MTA-STS)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ router = APIRouter(tags=["admin-configuration"], dependencies=[Depends(require_a
 _CONFIG_SMTP = "/admin/configuration#smtp"
 _CONFIG_SIEM = "/admin/configuration#siem"
 _CONFIG_HOT_STORE = "/admin/configuration#hot-store"
+_CONFIG_MTA_STS = "/admin/configuration#mta-sts"
 
 
 def _actor(user) -> str:
@@ -49,6 +50,7 @@ def admin_configuration_page(
     user=Depends(require_admin),
 ):
     from app.db.hot_store import get_hot_store_status
+    from app.mail.mta_sts_service import mta_sts_public_status
     from app.siem.settings_service import ensure_siem_settings, public_status as siem_public_status
 
     row = ensure_portal_settings(db, settings)
@@ -82,6 +84,7 @@ def admin_configuration_page(
         siem_settings=siem_settings,
         siem_status=siem_public_status(db),
         hot_store=get_hot_store_status(db, settings),
+        mta_sts=mta_sts_public_status(db, settings),
     )
     return render("admin/configuration.html", **ctx)
 
@@ -177,6 +180,46 @@ def admin_configuration_smtp_recap(
         "success" if ok else "error",
         settings.vault_portal_internal_token or "dev",
     )
+    return response
+
+
+@router.post("/admin/configuration/mta-sts")
+def admin_configuration_mta_sts(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    mta_sts_enabled: str | None = Form(None),
+    mta_sts_mail_domain: str = Form(""),
+    mta_sts_mode: str = Form("testing"),
+    mta_sts_mx_hosts: str = Form(""),
+    mta_sts_max_age: int = Form(604800),
+):
+    from app.mail.mta_sts_service import update_mta_sts_settings
+
+    token = settings.vault_portal_internal_token or "dev"
+    response = RedirectResponse(url=_CONFIG_MTA_STS, status_code=302)
+    try:
+        update_mta_sts_settings(
+            db,
+            settings,
+            actor=_actor(user),
+            ip_address=client_ip_from_request(request),
+            enabled=_form_bool(mta_sts_enabled),
+            mail_domain=mta_sts_mail_domain,
+            mode=mta_sts_mode,
+            mx_hosts=mta_sts_mx_hosts,
+            max_age=mta_sts_max_age,
+        )
+        flash_redirect(
+            response,
+            "Politique MTA-STS enregistrée et export nginx mis à jour. "
+            "Vérifiez le DNS (A/AAAA mta-sts.* + TXT _mta-sts.*) puis Apply infra pour le certificat ACME.",
+            "success",
+            token,
+        )
+    except ValueError as exc:
+        flash_redirect(response, str(exc), "error", token)
     return response
 
 
