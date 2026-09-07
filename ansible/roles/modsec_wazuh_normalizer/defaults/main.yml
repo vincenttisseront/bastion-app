@@ -6,11 +6,11 @@ modsec_wazuh_normalizer_enabled: true
 
 # Safety: only BastionPro docker host (override via inventory / extra-vars if needed).
 modsec_wazuh_allowed_hosts:
-  - vmdmz-docker01
-  - vmdmz-docker01.ar-systems.fr
+  - docker01
+  - docker01.example.com
 modsec_wazuh_forbidden_hosts:
-  - vmtools-wazuhlogsfw01
-  - vmtools-wazuhlogsfw01.ar-systems.fr
+  - wazuh01
+  - wazuh.example.com
 
 modsec_wazuh_source: /tools/portal/data/nginx-logs/modsec_audit.log
 modsec_wazuh_output: /tools/portal/data/nginx-logs/modsec_wazuh.jsonl

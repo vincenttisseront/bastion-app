@@ -4,25 +4,25 @@
 # Injecte les location = /.bastion/session-cookies (+ alias crush-session)
 # dans le vhost transfer live — nécessaire pour battre `location ~ /\. { deny all; }`.
 #
-# Usage sur vmdmz-reverse01 :
+# Usage sur edge01 :
 #   sudo bash patch-transfer-nginx-session-hop.sh
 #   # ou depuis le dépôt :
 #   sudo bash /chemin/vers/bastion-app/scripts/patch-transfer-nginx-session-hop.sh
 #
 # Variables :
 #   VHOST_DEST=/etc/nginx/conf.d/vhost_transfer_crushftp.conf
-#   TRAEFIK_UPSTREAM=https://172.24.0.110
-#   PORTAL_HOST=portal.ar-systems.fr
+#   TRAEFIK_UPSTREAM=https://10.0.0.10
+#   PORTAL_HOST=portal.example.com
 #   NO_RELOAD=1
-#   SMOKE_URL=https://transfer.ar-systems.fr/.bastion/session-cookies
+#   SMOKE_URL=https://transfer.example.com/.bastion/session-cookies
 
 set -euo pipefail
 
 VHOST_DEST="${VHOST_DEST:-/etc/nginx/conf.d/vhost_transfer_crushftp.conf}"
-TRAEFIK_UPSTREAM="${TRAEFIK_UPSTREAM:-https://172.24.0.110}"
-PORTAL_HOST="${PORTAL_HOST:-portal.ar-systems.fr}"
+TRAEFIK_UPSTREAM="${TRAEFIK_UPSTREAM:-https://10.0.0.10}"
+PORTAL_HOST="${PORTAL_HOST:-portal.example.com}"
 NO_RELOAD="${NO_RELOAD:-0}"
-SMOKE_URL="${SMOKE_URL:-https://transfer.ar-systems.fr/.bastion/session-cookies}"
+SMOKE_URL="${SMOKE_URL:-https://transfer.example.com/.bastion/session-cookies}"
 
 log() { printf '%s\n' "$*"; }
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -135,4 +135,4 @@ else
 fi
 
 log ""
-log "Ensuite: purge CrushAuth/currentAuth Domain=.ar-systems.fr puis open Transfer depuis le portail."
+log "Ensuite: purge CrushAuth/currentAuth Domain=.example.com puis open Transfer depuis le portail."

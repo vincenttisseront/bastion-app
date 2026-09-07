@@ -43,8 +43,8 @@ def normalize_hostname(value: str | None) -> str:
     Extract a bare hostname from a FQDN, URL, or host:port string.
 
     Used before shared-parent comparison and cookie Domain= computation so that
-    ``https://webmail.ar-systems.fr/`` or ``webmail.ar-systems.fr:443`` still
-    resolve to the same parent as ``portal.ar-systems.fr``.
+    ``https://webmail.example.com/`` or ``webmail.example.com:443`` still
+    resolve to the same parent as ``portal.example.com``.
     """
     raw = (value or "").strip().lower()
     if not raw:
@@ -97,8 +97,8 @@ def portal_sso_cookie_domain(portal_domain: str) -> str | None:
     """
     Parent domain for oauth2-proxy ``cookie_domains`` / ``whitelist_domains``.
 
-    ``portal.ar-systems.fr`` → ``ar-systems.fr`` so subdomain apps
-    (``webmail.ar-systems.fr``, …) receive ``_oauth2_proxy`` on auth_request.
+    ``portal.example.com`` → ``example.com`` so subdomain apps
+    (``webmail.example.com``, …) receive ``_oauth2_proxy`` on auth_request.
     Two-label portal hosts stay host-only (return None).
     """
     labels = [p for p in normalize_hostname(portal_domain).split(".") if p]

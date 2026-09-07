@@ -1,26 +1,26 @@
 ---
 # SSO Portal Docker — defaults (Phase 7)
-# Stack sur vmdmz-docker01 sous /tools/portal (comme Keycloak → /tools/keycloak).
-# nginx edge TLS sur vmdmz-reverse01.
+# Stack sur l'hôte Docker sous /tools/portal (comme Keycloak → /tools/keycloak).
+# nginx edge TLS sur l'hôte edge.
 
 bastion_app_docker_enabled: true
-# Racine config + compose sur docker01
+# Racine config + compose sur docker host
 bastion_app_docker_compose_dir: /tools/portal
 # Données persistantes hôte (monté → /var/lib/sso-portal dans les conteneurs)
 bastion_app_docker_data_dir: /tools/portal/data
 # Blobs fichiers versionnés (monté → /var/lib/sso-portal-files) — cycle de vie / backup séparés
 bastion_app_docker_files_data_dir: "{{ bastion_app_docker_data_dir }}-files"
 
-# Host Docker (inventaire AWX : vmdmz-docker01 = 172.24.0.110)
-bastion_docker_host: vmdmz-docker01
-bastion_docker_host_ip: "172.24.0.110"
+# Host Docker (inventaire AWX — override IPs / noms)
+bastion_docker_host: docker01
+bastion_docker_host_ip: "10.0.0.10"
 # Legacy var — smoke local
 bastion_publish_bind: "127.0.0.1"
 
 # Edge nginx (hors scope deploy Docker — doc / smoke distant)
-bastion_edge_host: vmdmz-reverse01
-bastion_edge_host_ip: "172.24.0.108"
-# Upstream public : nginx edge sur docker01 (80/443) — Traefik optionnel / coupé
+bastion_edge_host: edge01
+bastion_edge_host_ip: "10.0.0.11"
+# Upstream public : nginx edge sur l'hôte Docker (80/443) — Traefik optionnel / coupé
 bastion_upstream_url: "https://{{ bastion_docker_host_ip }}"
 bastion_traefik_network: vpcbr
 bastion_nginx_listen_port: 8080
@@ -31,7 +31,7 @@ bastion_require_traefik: false
 # Host-discovery HTTP probe (403 stub) — off by default; enable with bastion_discovery_smoke=true on --tags smoke
 bastion_discovery_smoke: false
 
-# Binds locaux sur docker01 (smoke on-host / debug)
+# Binds locaux sur l'hôte Docker (smoke on-host / debug)
 bastion_app_docker_bind_app: "127.0.0.1:8000"
 bastion_app_docker_bind_oauth2_core: "127.0.0.1:4180"
 bastion_app_docker_bind_nginx: "127.0.0.1:{{ bastion_nginx_listen_port }}"

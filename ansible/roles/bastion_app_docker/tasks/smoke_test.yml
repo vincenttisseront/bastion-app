@@ -130,7 +130,7 @@
     cid="{{ _nginx_cid.stdout | trim }}"
     # Headers only; follow nothing. Accept 200/302/401/403 — never 500.
     code="$(docker exec "$cid" wget -S -O /dev/null \
-      --header="Host: {{ portal_domain | default('portal.ar-systems.fr') }}" \
+      --header="Host: {{ portal_domain | default('portal.example.com') }}" \
       http://127.0.0.1:8080/auth/login 2>&1 \
       | awk '/^  HTTP\//{code=$2} END{print code+0}')"
     echo "auth_login_http=$code"
@@ -161,7 +161,7 @@
     docker exec "$cid" ls -la /tmp/modsecurity /var/log/nginx/apps/modsec_audit.log 2>/dev/null || true
     echo "=== wget /auth/login ==="
     docker exec "$cid" wget -S -O /dev/null \
-      --header="Host: {{ portal_domain | default('portal.ar-systems.fr') }}" \
+      --header="Host: {{ portal_domain | default('portal.example.com') }}" \
       http://127.0.0.1:8080/auth/login 2>&1 || true
   args:
     executable: /bin/bash
@@ -599,7 +599,7 @@
 - name: "SMOKE : rappel upstream pour reverse01"
   ansible.builtin.debug:
     msg: >-
-      Edge (vmdmz-reverse01) : proxy_pass {{ bastion_upstream_url }}
+      Edge (edge01) : proxy_pass {{ bastion_upstream_url }}
       avec Host {{ portal_domain }} (meme schema que Keycloak / Traefik).
 
 - name: "SMOKE : SQLCipher — portal.db illisible sans clé"

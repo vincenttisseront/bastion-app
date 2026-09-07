@@ -4,7 +4,7 @@
 # Restaure la config nginx transfer EXACTEMENT comme awx-playbook
 # (roles/nginx_reverse_proxy_dmz) — sans patch expérimental.
 #
-# Usage sur vmdmz-reverse01 :
+# Usage sur edge01 :
 #   sudo bash restore-transfer-nginx-awx.sh
 #
 # Sources (dans l'ordre) :
@@ -75,11 +75,11 @@ log "Map déployé : $MAP_DEST"
 if [[ -n "${VHOST_TEMPLATE:-}" && -f "$VHOST_TEMPLATE" ]] && command -v ansible >/dev/null 2>&1; then
   log "Vhost source: $VHOST_TEMPLATE (rendu ansible)"
   ansible localhost -m template -a "src=${VHOST_TEMPLATE} dest=${VHOST_DEST}" \
-    -e "transfer_domain=transfer.ar-systems.fr" \
-    -e "transfer_backend_ip=172.24.0.106" \
-    -e "transfer_backend=https://172.24.0.106" \
-    -e "ssl_certificate_path=/etc/letsencrypt/live/ar-systems.fr/fullchain.pem" \
-    -e "ssl_certificate_key=/etc/letsencrypt/live/ar-systems.fr/privkey.pem" \
+    -e "transfer_domain=transfer.example.com" \
+    -e "transfer_backend_ip=10.0.0.20" \
+    -e "transfer_backend=https://10.0.0.20" \
+    -e "ssl_certificate_path=/etc/letsencrypt/live/example.com/fullchain.pem" \
+    -e "ssl_certificate_key=/etc/letsencrypt/live/example.com/privkey.pem" \
     -e "ansible_managed=restored by restore-transfer-nginx-awx.sh" >/dev/null
 elif [[ -f "$VHOST_STATIC" ]]; then
   log "Vhost source: $VHOST_STATIC"
@@ -109,10 +109,10 @@ fi
 
 log ""
 log "=== Tests ==="
-curl -sk "https://172.24.0.106/WebInterface/new-ui/" -H "Host: 172.24.0.106" \
+curl -sk "https://10.0.0.20/WebInterface/new-ui/" -H "Host: 10.0.0.20" \
   -o /tmp/transfer-direct.bin -w "direct size=%{size_download}\n" --max-time 35 || true
-curl -sk "https://transfer.ar-systems.fr/WebInterface/new-ui/" \
-  --resolve transfer.ar-systems.fr:443:127.0.0.1 \
+curl -sk "https://transfer.example.com/WebInterface/new-ui/" \
+  --resolve transfer.example.com:443:127.0.0.1 \
   -o /tmp/transfer-proxy.bin -w "proxy size=%{size_download}\n" --max-time 35 || true
 ls -la /tmp/transfer-direct.bin /tmp/transfer-proxy.bin 2>/dev/null || true
 

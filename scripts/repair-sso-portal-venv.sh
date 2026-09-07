@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # repair-sso-portal-venv.sh — répare un venv /opt/sso-portal corrompu (ImportError fastapi).
 #
-# Usage sur vmdmz-reverse01 :
+# Usage sur edge01 :
 #   sudo bash repair-sso-portal-venv.sh
 #   sudo REBUILD=1 bash repair-sso-portal-venv.sh   # recréer le venv entièrement
 

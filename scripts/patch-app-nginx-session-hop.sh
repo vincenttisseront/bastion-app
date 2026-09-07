@@ -4,24 +4,24 @@
 # Injecte location = /.bastion/session-cookies dans un vhost app (Dolibarr, etc.)
 # pour battre `location ~ /\. { deny all; }` — requis pour le hop cookies Bastion.
 #
-# Usage sur vmdmz-reverse01 :
+# Usage sur edge01 :
 #   sudo VHOST_DEST=/etc/nginx/conf.d/vhost_dolibarr.conf \
-#        SMOKE_URL=https://dolibarr.ar-systems.fr/.bastion/session-cookies \
+#        SMOKE_URL=https://app.example.com/.bastion/session-cookies \
 #        bash scripts/patch-app-nginx-session-hop.sh
 #
 # Variables :
 #   VHOST_DEST   (obligatoire) chemin du vhost nginx
 #   SMOKE_URL    (obligatoire) URL de smoke GET
-#   TRAEFIK_UPSTREAM=https://172.24.0.110
-#   PORTAL_HOST=portal.ar-systems.fr
+#   TRAEFIK_UPSTREAM=https://10.0.0.10
+#   PORTAL_HOST=portal.example.com
 #   NO_RELOAD=1
 
 set -euo pipefail
 
 VHOST_DEST="${VHOST_DEST:-}"
 SMOKE_URL="${SMOKE_URL:-}"
-TRAEFIK_UPSTREAM="${TRAEFIK_UPSTREAM:-https://172.24.0.110}"
-PORTAL_HOST="${PORTAL_HOST:-portal.ar-systems.fr}"
+TRAEFIK_UPSTREAM="${TRAEFIK_UPSTREAM:-https://10.0.0.10}"
+PORTAL_HOST="${PORTAL_HOST:-portal.example.com}"
 NO_RELOAD="${NO_RELOAD:-0}"
 
 log() { printf '%s\n' "$*"; }
@@ -29,7 +29,7 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 [[ "${EUID:-$(id -u)}" -eq 0 ]] || die "Exécuter en root (sudo)."
 [[ -n "$VHOST_DEST" ]] || die "VHOST_DEST requis (ex: /etc/nginx/conf.d/vhost_dolibarr.conf)"
-[[ -n "$SMOKE_URL" ]] || die "SMOKE_URL requis (ex: https://dolibarr.ar-systems.fr/.bastion/session-cookies)"
+[[ -n "$SMOKE_URL" ]] || die "SMOKE_URL requis (ex: https://app.example.com/.bastion/session-cookies)"
 [[ -f "$VHOST_DEST" ]] || die "Vhost introuvable: $VHOST_DEST"
 command -v python3 >/dev/null 2>&1 || die "python3 requis"
 

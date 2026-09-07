@@ -24,7 +24,7 @@ grep -q 'OAUTH2_PROXY_NETWORK_MODE' .env \
   || printf '\nOAUTH2_PROXY_NETWORK_MODE=docker\nOAUTH2_PROXY_DEFAULT_URL=http://oauth2-proxy-core:4180\nDATABASE_URL=sqlite:////var/lib/sso-portal/portal.db\nEXPORTS_DIR=/var/lib/sso-portal/exports\n' >> .env
 
 export SSO_PORTAL_DATA_DIR="${SSO_PORTAL_DATA_DIR:-$ROOT/data/sso-portal}"
-export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.ar-systems.fr}"
+export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.example.com}"
 
 # Réseau Traefik attendu par compose (external vpcbr, même IPAM que Keycloak)
 docker network inspect vpcbr >/dev/null 2>&1 \
@@ -59,7 +59,7 @@ echo
 
 echo "=== subdomain-auth (expect non-500) ==="
 code="$(curl -s -o /dev/null -w '%{http_code}' \
-  -H 'X-Original-Host: transfer.ar-systems.fr' \
+  -H 'X-Original-Host: transfer.example.com' \
   -H 'X-Real-IP: 8.8.8.8' \
   http://127.0.0.1:8000/internal/subdomain-auth || true)"
 echo "subdomain-auth HTTP $code"
@@ -73,4 +73,4 @@ echo "=== apply-infra-docker ==="
 bash scripts/apply-infra-docker.sh "$SSO_PORTAL_DATA_DIR/exports" "$ROOT" || true
 
 echo "OK — smoke Docker local terminé"
-echo "Prod docker01 : sans publish.yml — entrée Traefik https://172.24.0.110 Host=${PORTAL_DOMAIN}"
+echo "Prod docker01 : sans publish.yml — entrée Traefik https://10.0.0.10 Host=${PORTAL_DOMAIN}"

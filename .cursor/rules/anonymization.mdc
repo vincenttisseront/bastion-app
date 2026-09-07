@@ -1,0 +1,41 @@
+---
+description: Keep Bastion Pro defaults, examples, and UI placeholders fully anonymous
+alwaysApply: true
+---
+
+# Anonymisation obligatoire
+
+Le dépôt et les images Hub/GHCR sont une surface **publique**. Tout nouveau
+code, doc, template, défaut Ansible/script, test d’exemple ou message UI doit
+rester **anonyme** — jamais de marque client, domaine réel, hostname interne
+ou IP d’infra.
+
+## Interdit (exemples)
+
+- Domaines / emails : `ar-systems.fr`, `@ar-systems.fr`, `portal.ar-systems.fr`
+- Marques / slugs client : `AR-SYSTEMS`, `ar-systems` comme défaut
+- Hôtes internes : `vmdmz-*`, `vmtools-*`, `vmapps-*`
+- IPs d’exemple d’infra réelle : `172.24.0.x` (préférer `10.0.0.x` ou variables)
+
+## Obligatoire
+
+| Usage | Valeur générique |
+|-------|------------------|
+| Domaine portail | `portal.example.com` |
+| Domaine / mail | `example.com` |
+| Realm slug défaut | `default` |
+| IdP | `idp.example.com` |
+| App FQDN | `app.example.com` |
+| Hosts inventaire | `docker01`, `edge01` |
+| IPs exemple | `10.0.0.10`, `10.0.0.11` |
+| Chemins société | `/crush_data/COMPANY` |
+
+## Règles agent
+
+1. Avant commit : chercher `ar-systems`, marques client, `vmdmz-`, `172.24.0.` dans les fichiers touchés.
+2. Fallbacks runtime (`or "…"`, `:-…`) → `default` / `portal.example.com`, jamais un slug client.
+3. Placeholders HTML / messages d’erreur / commentaires d’exemple → génériques.
+4. Ne pas « corriger » un inventaire AWX live dans le dépôt : les exemples restent `*.example.com` ; la prod override via inventaire.
+5. `docs/wikijs/confluence-page-map.json` et rapports d’audit historiques peuvent rester hors scope ; le code livré (`app/`, `deploy/`, `scripts/` génériques, defaults Ansible, templates) **non**.
+
+Voir aussi `deploy/ANONYMIZATION.md`.

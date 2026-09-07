@@ -230,7 +230,7 @@ def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
     # No usable internal URL — fail loudly (do not silently hit public FQDN).
     raise ValueError(
         "CrushFTP : aucune URL interne pour le login robotique. "
-        "Renseignez « URL API Admin CrushFTP » (ex. https://172.24.0.106:8080/) "
+        "Renseignez « URL API Admin CrushFTP » (ex. https://10.0.0.20:8080/) "
         "ou une upstream_url interne distincte du FQDN public "
         f"({fqdn or 'public_fqdn'})."
     )

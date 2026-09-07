@@ -291,7 +291,7 @@ async def subdomain_auth(
     auth_request handler for subdomain SSO vhosts.
 
     Expected Nginx headers (from subdomain_auth_common.conf.j2):
-        X-Original-Host — vhost FQDN (e.g. transfer.ar-systems.fr)
+        X-Original-Host — vhost FQDN (e.g. transfer.example.com)
         X-Original-URI  — requested URI
         X-Real-IP         — client source IP
         Cookie            — client cookies (bastion_session / oauth2-proxy / break-glass)

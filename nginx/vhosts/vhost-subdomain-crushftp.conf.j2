@@ -49,10 +49,10 @@ server {
     # validated by FastAPI, not Nginx internal;.
     location = /.bastion/session-cookies {
         auth_request off;
-        proxy_pass {{ bastion_app_proxy_pass | default('https://172.24.0.110') }}/api/internal/session-cookie-hop;
+        proxy_pass {{ bastion_app_proxy_pass | default('https://10.0.0.10') }}/api/internal/session-cookie-hop;
         proxy_ssl_verify off;
         proxy_http_version 1.1;
-        proxy_set_header Host {{ portal_domain | default('portal.ar-systems.fr') }};
+        proxy_set_header Host {{ portal_domain | default('portal.example.com') }};
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
@@ -84,7 +84,7 @@ server {
 
         # Propagation cookies applicatifs (CrushFTP : CrushAuth, currentAuth)
         proxy_cookie_path / /;
-        proxy_cookie_domain {{ vhost.upstream_host | default('172.24.0.106') }} {{ vhost.fqdn }};
+        proxy_cookie_domain {{ vhost.upstream_host | default('10.0.0.20') }} {{ vhost.fqdn }};
 
         # Identité transmise par FastAPI subdomain_auth
         auth_request_set $auth_user $upstream_http_x_auth_user;

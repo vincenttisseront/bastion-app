@@ -6,13 +6,13 @@
 
 bastion_edge_catchall_enabled: false
 
-bastion_edge_host: vmdmz-reverse01
-bastion_edge_host_ip: "172.24.0.108"
-bastion_docker_host_ip: "172.24.0.110"
+bastion_edge_host: edge01
+bastion_edge_host_ip: "10.0.0.11"
+bastion_docker_host_ip: "10.0.0.10"
 bastion_upstream_url: "https://{{ bastion_docker_host_ip }}"
 
-base_domain: ar-systems.fr
-portal_domain: portal.ar-systems.fr
+base_domain: example.com
+portal_domain: portal.example.com
 
 # TLS (Let's Encrypt on reverse01 — same paths as historical DMZ vhosts)
 bastion_edge_ssl_certificate: "/etc/letsencrypt/live/{{ base_domain }}/fullchain.pem"

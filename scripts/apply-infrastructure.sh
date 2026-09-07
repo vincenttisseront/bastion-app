@@ -15,7 +15,7 @@ fi
 
 shopt -s nullglob
 
-CORE_REALM_SLUG="${PORTAL_DEFAULT_REALM_SLUG:-ar-systems}"
+CORE_REALM_SLUG="${PORTAL_DEFAULT_REALM_SLUG:-default}"
 for slug_dir in "$EXPORT_DIR"/oauth2/*/; do
   slug="$(basename "$slug_dir")"
   if [[ "$slug" == "core-admin" || "$slug" == "$CORE_REALM_SLUG" ]]; then
