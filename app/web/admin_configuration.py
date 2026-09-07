@@ -243,6 +243,12 @@ def admin_configuration_mta_sts_verify(
                 "ok": bool(result.get("ok")),
                 "message": result.get("message") or "",
                 "lines": result.get("lines") or [],
+                "setup_steps": result.get("setup_steps") or [],
+                "next_action": result.get("next_action") or "",
+                "status_badge": result.get("status_badge") or "off",
+                "dns_a_ok": bool(result.get("dns_a_ok")),
+                "dns_txt_ok": bool(result.get("dns_txt_ok")),
+                "http_ok": bool(result.get("http_ok")),
             },
             status_code=200 if result.get("ok") else 400,
         )

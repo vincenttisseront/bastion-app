@@ -168,6 +168,8 @@ def generate_nginx_mta_sts_conf(
             # fail on hosts without IPv6 (errno 97) and block all reloads / startup.
             "    listen 0.0.0.0:8080;",
             f"    server_name {_nginx_escape_double_quoted(fqdn)};",
+            "    access_log /var/log/nginx/apps/mta-sts.access.log portal;",
+            "    error_log  /var/log/nginx/apps/mta-sts.error.log warn;",
             "",
             "    # Static policy — no auth, no upstream.",
             "    location = /.well-known/mta-sts.txt {",
@@ -215,6 +217,286 @@ def write_mta_sts_nginx_export(db: Session, settings: Settings) -> Path:
     )
     path.write_text(content, encoding="utf-8")
     return path
+
+
+PROBE_FILENAME = "mta-sts-probe.json"
+_PUBLIC_DNS = ("1.1.1.1", "8.8.8.8")
+
+
+def _probe_path(settings: Settings) -> Path:
+    return Path(settings.exports_dir) / PROBE_FILENAME
+
+
+def load_mta_sts_probe(settings: Settings) -> dict[str, Any]:
+    path = _probe_path(settings)
+    if not path.is_file():
+        return {}
+    try:
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def save_mta_sts_probe(settings: Settings, probe: dict[str, Any]) -> None:
+    import json
+
+    exports = Path(settings.exports_dir)
+    exports.mkdir(parents=True, exist_ok=True)
+    path = _probe_path(settings)
+    payload = dict(probe)
+    payload["saved_at"] = utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def clear_mta_sts_probe(settings: Settings) -> None:
+    path = _probe_path(settings)
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        pass
+
+
+def _acme_local_status(settings: Settings, fqdn: str) -> dict[str, Any]:
+    """Local Apply/ACME signals — no network (export + cert on data volume)."""
+    in_manifest = False
+    acme_path = Path(settings.exports_dir) / "acme-domains.json"
+    if acme_path.is_file() and fqdn:
+        try:
+            import json
+
+            data = json.loads(acme_path.read_text(encoding="utf-8"))
+            domains = data.get("domains") if isinstance(data, dict) else None
+            if isinstance(domains, list):
+                in_manifest = any(
+                    isinstance(d, dict)
+                    and normalize_hostname(d.get("fqdn")) == fqdn
+                    for d in domains
+                )
+        except (OSError, ValueError, TypeError):
+            in_manifest = False
+    cert_path = Path(settings.portal_data_dir) / "certs" / fqdn / "fullchain.pem"
+    cert_ok = bool(fqdn) and cert_path.is_file() and cert_path.stat().st_size > 0
+    return {
+        "in_acme_manifest": in_manifest,
+        "cert_present": cert_ok,
+        "cert_path": str(cert_path) if fqdn else "",
+        "ok": in_manifest and cert_ok,
+    }
+
+
+def _resolve_a_public(fqdn: str) -> tuple[bool, list[str], str]:
+    try:
+        import dns.resolver
+
+        resolver = dns.resolver.Resolver(configure=False)
+        resolver.nameservers = list(_PUBLIC_DNS)
+        resolver.lifetime = 5.0
+        answer = resolver.resolve(fqdn, "A")
+        addrs = sorted({rdata.address for rdata in answer})
+        return bool(addrs), addrs, ""
+    except Exception as exc:
+        return False, [], str(exc)
+
+
+def _resolve_txt_public(name: str, expected: str) -> tuple[bool, list[str], str]:
+    try:
+        import dns.resolver
+
+        resolver = dns.resolver.Resolver(configure=False)
+        resolver.nameservers = list(_PUBLIC_DNS)
+        resolver.lifetime = 5.0
+        answer = resolver.resolve(name, "TXT")
+        values: list[str] = []
+        for rdata in answer:
+            joined = "".join(
+                p.decode("utf-8") if isinstance(p, bytes) else str(p)
+                for p in getattr(rdata, "strings", ())
+            )
+            if not joined and hasattr(rdata, "to_text"):
+                joined = str(rdata.to_text()).strip('"')
+            values.append(joined.strip())
+        expected_n = (expected or "").strip()
+        ok = any(expected_n and expected_n in v for v in values) or (
+            bool(values) and not expected_n
+        )
+        return ok, values, ""
+    except Exception as exc:
+        return False, [], str(exc)
+
+
+def _https_policy_via_ip(fqdn: str, ip: str, url_path: str = "/.well-known/mta-sts.txt") -> tuple[bool, str, str]:
+    """HTTPS GET via public IP + SNI (bypass internal/split DNS)."""
+    import socket
+    import ssl
+
+    ctx = ssl.create_default_context()
+    try:
+        raw = socket.create_connection((ip, 443), timeout=8)
+        ssock = ctx.wrap_socket(raw, server_hostname=fqdn)
+        req = (
+            f"GET {url_path} HTTP/1.1\r\n"
+            f"Host: {fqdn}\r\n"
+            "User-Agent: bastion-mta-sts-probe\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        )
+        ssock.sendall(req.encode("ascii"))
+        chunks: list[bytes] = []
+        while True:
+            data = ssock.recv(4096)
+            if not data:
+                break
+            chunks.append(data)
+            if sum(len(c) for c in chunks) > 16384:
+                break
+        ssock.close()
+        raw_resp = b"".join(chunks).decode("utf-8", errors="replace")
+        head, _, body = raw_resp.partition("\r\n\r\n")
+        status_line = head.split("\r\n", 1)[0] if head else ""
+        status = 0
+        parts = status_line.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            status = int(parts[1])
+        if status == 200 and "version: STSv1" in body:
+            return True, f"HTTPS {status} via {ip}", body[:400]
+        return False, f"HTTPS {status or '?'} via {ip}", body[:400]
+    except Exception as exc:
+        return False, f"HTTPS échec via {ip}: {exc}", ""
+
+
+def _step(
+    *,
+    sid: str,
+    label: str,
+    status: str,
+    detail: str,
+) -> dict[str, str]:
+    return {"id": sid, "label": label, "status": status, "detail": detail}
+
+
+def _build_setup_steps(
+    *,
+    enabled: bool,
+    config_valid: bool,
+    ready: bool,
+    mode: str,
+    mx_hosts: list[str],
+    published_s: str,
+    export_has_vhost: bool,
+    fqdn: str,
+    dns_name: str,
+    dns_txt: str,
+    policy_url: str,
+    acme: dict[str, Any],
+    probe: dict[str, Any],
+) -> list[dict[str, str]]:
+    if enabled and not config_valid:
+        s1 = "failed"
+        d1 = "Publication cochée mais domaine/MX invalides."
+    elif ready and export_has_vhost:
+        s1 = "done"
+        d1 = (
+            f"Mode {mode}, {len(mx_hosts)} MX"
+            + (f", save {published_s}" if published_s else "")
+            + " · export nginx actif"
+        )
+    elif config_valid:
+        s1 = "current"
+        d1 = (
+            f"Mode {mode}, {len(mx_hosts)} MX — cochez Publier et Enregistrer."
+            if not enabled
+            else "Config OK — export nginx en attente."
+        )
+    else:
+        s1 = "todo"
+        d1 = "Sans publication cochée, nginx n’expose pas le fichier."
+
+    def _net_status(key_ok: str, key_detail: str, locked_detail: str) -> tuple[str, str]:
+        if not ready:
+            return ("todo" if config_valid else "locked"), locked_detail
+        if key_ok not in probe:
+            return "current", "Cliquez « Vérifier DNS + HTTPS » (scan DNS publics 1.1.1.1 / 8.8.8.8)."
+        if probe.get(key_ok):
+            return "done", str(probe.get(key_detail) or "OK")
+        return "failed", str(probe.get(key_detail) or "Échec — voir Vérifier.")
+
+    dns_a_s, dns_a_d = _net_status(
+        "dns_a_ok",
+        "dns_a_detail",
+        "Chez le registrar → même IP publique que portal.* (DNS public, pas le DNS interne).",
+    )
+    dns_txt_s, dns_txt_d = _net_status(
+        "dns_txt_ok",
+        "dns_txt_detail",
+        f"Valeur : {dns_txt}" if dns_txt else "Apparait après une config valide.",
+    )
+
+    if not ready:
+        acme_s, acme_d = (
+            ("todo" if config_valid else "locked"),
+            "Admin → Infrastructure → Apply (FQDN mta-sts dans acme-domains.json + certificat).",
+        )
+    elif acme.get("ok"):
+        acme_s, acme_d = "done", f"Certificat présent ({acme.get('cert_path', '')})."
+    elif acme.get("in_acme_manifest") and not acme.get("cert_present"):
+        acme_s, acme_d = (
+            "failed",
+            "Dans acme-domains.json mais certificat absent — Apply infra / attendre ACME DNS-01.",
+        )
+    elif not acme.get("in_acme_manifest"):
+        acme_s, acme_d = (
+            "failed",
+            "FQDN absent de acme-domains.json — Enregistrer MTA-STS puis Apply infra.",
+        )
+    else:
+        acme_s, acme_d = "current", "Apply infra pour émettre le certificat TLS."
+
+    http_s, http_d = _net_status(
+        "http_ok",
+        "http_detail",
+        policy_url or "https://mta-sts.<domaine>/.well-known/mta-sts.txt",
+    )
+
+    return [
+        _step(sid="config", label="1. Remplir domaine + MX, cocher Publier, Enregistrer", status=s1, detail=d1),
+        _step(
+            sid="dns_a",
+            label=f"2. DNS A/AAAA (public) : {fqdn or 'mta-sts.<domaine>'}",
+            status=dns_a_s,
+            detail=dns_a_d,
+        ),
+        _step(
+            sid="dns_txt",
+            label=f"3. DNS TXT (public) : {dns_name or '_mta-sts.<domaine>'}",
+            status=dns_txt_s,
+            detail=dns_txt_d if dns_txt_s != "todo" else (f"Valeur : {dns_txt}" if dns_txt else dns_txt_d),
+        ),
+        _step(sid="acme", label="4. Apply infra (certificat ACME TLS)", status=acme_s, detail=acme_d),
+        _step(
+            sid="verify",
+            label="5. HTTPS public (via IP DNS public + SNI)",
+            status=http_s,
+            detail=http_d,
+        ),
+    ]
+
+
+def _next_action_from_steps(steps: list[dict[str, str]], *, enabled: bool, config_valid: bool) -> str:
+    if not config_valid:
+        return "Renseignez un domaine mail et au moins un hôte MX, puis enregistrez."
+    if not enabled:
+        return "Cochez « Publier la politique… » puis Enregistrer & publier — sinon aucun vhost nginx."
+    for step in steps:
+        if step.get("status") in ("current", "failed", "todo"):
+            return step.get("detail") or step.get("label") or "Poursuivez la checklist."
+    return "Politique joignable en HTTPS public — MTA-STS opérationnel côté découverte."
 
 
 def mta_sts_public_status(db: Session, settings: Settings) -> dict[str, Any]:
@@ -267,57 +549,42 @@ def mta_sts_public_status(db: Session, settings: Settings) -> dict[str, Any]:
         except OSError:
             export_has_vhost = False
 
-    # Setup checklist — always returned so the UI can guide the admin.
-    steps = [
-        {
-            "id": "config",
-            "label": "1. Remplir domaine + MX, cocher Publier, Enregistrer",
-            "status": (
-                "failed"
-                if enabled and not config_valid
-                else (
-                    "done"
-                    if ready and export_has_vhost
-                    else ("current" if config_valid else "todo")
-                )
-            ),
-            "detail": (
-                "Publication cochée mais domaine/MX invalides."
-                if enabled and not config_valid
-                else (
-                    f"Mode {mode}, {len(mx_hosts)} MX"
-                    + (f", save {published_s}" if published_s else "")
-                    + (" · export nginx actif" if export_has_vhost else "")
-                    if config_valid
-                    else "Sans publication cochée, nginx n’expose pas le fichier."
-                )
-            ),
-        },
-        {
-            "id": "dns_a",
-            "label": f"2. DNS A/AAAA : {fqdn or 'mta-sts.<domaine>'}",
-            "status": "current" if ready else ("todo" if config_valid else "locked"),
-            "detail": "Chez le registrar → même IP publique que le bastion nginx (celle de portal.*).",
-        },
-        {
-            "id": "dns_txt",
-            "label": f"3. DNS TXT : {dns_name or '_mta-sts.<domaine>'}",
-            "status": "current" if ready else ("todo" if config_valid else "locked"),
-            "detail": f"Valeur : {dns_txt}" if dns_txt else "Apparait après une config valide.",
-        },
-        {
-            "id": "acme",
-            "label": "4. Apply infra (certificat ACME TLS)",
-            "status": "current" if ready else ("todo" if config_valid else "locked"),
-            "detail": "Admin → Infrastructure → Apply (le FQDN mta-sts entre dans acme-domains.json).",
-        },
-        {
-            "id": "verify",
-            "label": "5. Vérifier l’URL publique",
-            "status": "current" if ready else ("todo" if config_valid else "locked"),
-            "detail": policy_url or "https://mta-sts.<domaine>/.well-known/mta-sts.txt",
-        },
-    ]
+    acme = _acme_local_status(settings, fqdn) if fqdn else {
+        "in_acme_manifest": False,
+        "cert_present": False,
+        "cert_path": "",
+        "ok": False,
+    }
+    probe = load_mta_sts_probe(settings)
+    # Invalidate stale probe when policy id changed since last scan.
+    if probe and dns_txt and probe.get("expected_dns_txt") and probe.get("expected_dns_txt") != dns_txt:
+        probe = {}
+        clear_mta_sts_probe(settings)
+
+    steps = _build_setup_steps(
+        enabled=enabled,
+        config_valid=config_valid,
+        ready=ready,
+        mode=mode,
+        mx_hosts=mx_hosts,
+        published_s=published_s,
+        export_has_vhost=export_has_vhost,
+        fqdn=fqdn,
+        dns_name=dns_name,
+        dns_txt=dns_txt,
+        policy_url=policy_url,
+        acme=acme,
+        probe=probe,
+    )
+    probe_ok = bool(probe.get("ok")) if probe else False
+    if ready and probe_ok:
+        status_badge = "ok"
+    elif ready:
+        status_badge = "warn"
+    elif enabled or config_valid:
+        status_badge = "warn"
+    else:
+        status_badge = "off"
 
     return {
         "enabled": enabled,
@@ -337,98 +604,133 @@ def mta_sts_public_status(db: Session, settings: Settings) -> dict[str, Any]:
         "published_at": published_s,
         "export_has_vhost": export_has_vhost,
         "setup_steps": steps,
-        "status_badge": "ok" if ready else ("warn" if enabled or config_valid else "off"),
-        "next_action": _next_action(enabled=enabled, config_valid=config_valid, ready=ready),
+        "acme": acme,
+        "probe": probe,
+        "status_badge": status_badge,
+        "next_action": _next_action_from_steps(
+            steps, enabled=enabled, config_valid=config_valid
+        ),
+    }
+
+
+def probe_mta_sts_publication(db: Session, settings: Settings) -> dict[str, Any]:
+    """Scan via public DNS (1.1.1.1 / 8.8.8.8) + HTTPS pinned to resolved IP.
+
+    Avoids false OK from split-horizon / internal DNS on the bastion host.
+    Persists results so the checklist stays dynamic between page loads.
+    """
+    status = mta_sts_public_status(db, settings)
+    lines: list[str] = [
+        "$ bastion mta-sts verify",
+        "# DNS publics: " + ", ".join(_PUBLIC_DNS) + " (pas le DNS interne)",
+    ]
+    if not status.get("ready"):
+        lines.append("✗ Publication inactive ou config incomplète — " + status["next_action"])
+        return {"ok": False, "message": status["next_action"], "lines": lines, **status}
+
+    fqdn = status["fqdn"]
+    dns_name = status["dns_name"]
+    dns_txt = status["dns_txt"]
+    url = status["policy_url"]
+    lines.append(f"FQDN {fqdn}")
+    lines.append(f"URL  {url}")
+
+    dns_a_ok, addrs, dns_a_err = _resolve_a_public(fqdn)
+    if dns_a_ok:
+        lines.append("✓ DNS A (public) → " + ", ".join(addrs))
+        dns_a_detail = "Public → " + ", ".join(addrs)
+    else:
+        lines.append(f"✗ DNS A (public) NXDOMAIN / échec ({dns_a_err})")
+        lines.append("  → Chez le registrar public (Cloudflare/IONOS/…), pas seulement le DNS interne.")
+        dns_a_detail = f"DNS public KO: {dns_a_err or 'NXDOMAIN'}"
+
+    dns_txt_ok, txt_values, dns_txt_err = _resolve_txt_public(dns_name, dns_txt)
+    if dns_txt_ok:
+        lines.append("✓ DNS TXT (public) → " + (txt_values[0] if txt_values else dns_txt))
+        dns_txt_detail = "Public → " + (txt_values[0] if txt_values else "OK")
+    else:
+        found = ", ".join(txt_values) if txt_values else "(aucun)"
+        lines.append(f"✗ DNS TXT (public) attendu {dns_txt!r} — trouvé: {found}")
+        if dns_txt_err:
+            lines.append(f"  ({dns_txt_err})")
+        dns_txt_detail = f"TXT public KO — trouvé: {found}"
+
+    acme = status.get("acme") or _acme_local_status(settings, fqdn)
+    if acme.get("ok"):
+        lines.append("✓ ACME local — certificat présent")
+    elif acme.get("in_acme_manifest"):
+        lines.append("⚠ ACME — dans acme-domains.json mais fullchain.pem absent")
+    else:
+        lines.append("✗ ACME — FQDN absent de acme-domains.json (Apply infra)")
+
+    http_ok = False
+    http_detail = "HTTPS non testé (DNS A public requis)."
+    body_preview = ""
+    if dns_a_ok and addrs:
+        http_ok, http_detail, body_preview = _https_policy_via_ip(fqdn, addrs[0])
+        if http_ok:
+            lines.append(f"✓ {http_detail}")
+            for line in body_preview.strip().splitlines()[:8]:
+                lines.append("  " + line)
+        else:
+            lines.append(f"✗ {http_detail}")
+            if body_preview:
+                lines.append("  " + body_preview[:180].replace("\n", " "))
+
+    ok = bool(dns_a_ok and dns_txt_ok and http_ok)
+    probe = {
+        "ok": ok,
+        "dns_a_ok": dns_a_ok,
+        "dns_a_detail": dns_a_detail,
+        "dns_txt_ok": dns_txt_ok,
+        "dns_txt_detail": dns_txt_detail,
+        "http_ok": http_ok,
+        "http_detail": http_detail,
+        "resolved_addrs": addrs,
+        "expected_dns_txt": dns_txt,
+        "fqdn": fqdn,
+    }
+    try:
+        save_mta_sts_probe(settings, probe)
+    except OSError:
+        logger.exception("mta-sts: cannot persist probe")
+
+    # Rebuild status/steps with fresh probe + acme.
+    status = mta_sts_public_status(db, settings)
+    message = (
+        "Politique joignable en HTTPS public."
+        if ok
+        else (
+            "DNS public OK mais HTTPS KO — certificat / edge."
+            if dns_a_ok and not http_ok
+            else "DNS public incomplet (A et/ou TXT) — le DNS interne ne compte pas pour MTA-STS."
+        )
+    )
+    return {
+        "ok": ok,
+        "message": message,
+        "lines": lines,
+        "dns_ok": dns_a_ok,
+        "dns_a_ok": dns_a_ok,
+        "dns_txt_ok": dns_txt_ok,
+        "http_ok": http_ok,
+        "resolved_addrs": addrs,
+        **status,
     }
 
 
 def _next_action(*, enabled: bool, config_valid: bool, ready: bool) -> str:
+    # Kept for callers/tests; prefer _next_action_from_steps.
     if not config_valid:
         return "Renseignez un domaine mail et au moins un hôte MX, puis enregistrez."
     if not enabled:
         return "Cochez « Publier la politique… » puis Enregistrer & publier — sinon aucun vhost nginx."
     if ready:
         return (
-            "Créez les DNS A/AAAA + TXT chez le registrar, Attendez la propagation "
-            "(plus de NXDOMAIN), puis Apply infra pour le certificat TLS."
+            "Créez les DNS A/AAAA + TXT chez le registrar public, puis "
+            "« Vérifier DNS + HTTPS » (scan hors DNS interne)."
         )
     return "Enregistrez la configuration."
-
-
-def probe_mta_sts_publication(db: Session, settings: Settings) -> dict[str, Any]:
-    """Best-effort DNS + HTTPS check of the published policy URL (admin UI)."""
-    status = mta_sts_public_status(db, settings)
-    lines: list[str] = ["$ bastion mta-sts verify"]
-    if not status.get("ready"):
-        lines.append("✗ Publication inactive ou config incomplète — " + status["next_action"])
-        return {"ok": False, "message": status["next_action"], "lines": lines, **status}
-
-    fqdn = status["fqdn"]
-    url = status["policy_url"]
-    lines.append(f"FQDN {fqdn}")
-    lines.append(f"URL  {url}")
-
-    import socket
-
-    dns_ok = False
-    addrs: list[str] = []
-    try:
-        infos = socket.getaddrinfo(fqdn, 443, type=socket.SOCK_STREAM)
-        addrs = sorted({i[4][0] for i in infos})
-        dns_ok = bool(addrs)
-        lines.append("✓ DNS → " + ", ".join(addrs))
-    except socket.gaierror as exc:
-        lines.append(f"✗ DNS NXDOMAIN / échec résolution ({exc})")
-        lines.append("  → Enregistrez l’A/AAAA chez le registrar, attendez TTL (souvent 5–60 min).")
-        return {
-            "ok": False,
-            "message": f"DNS non résolu pour {fqdn} (NXDOMAIN ou pas encore propagé).",
-            "lines": lines,
-            "dns_ok": False,
-            "http_ok": False,
-            **status,
-        }
-
-    http_ok = False
-    body_preview = ""
-    try:
-        import httpx
-
-        with httpx.Client(timeout=8.0, follow_redirects=True, verify=True) as client:
-            resp = client.get(url)
-        body_preview = (resp.text or "")[:400]
-        if resp.status_code == 200 and "version: STSv1" in body_preview:
-            http_ok = True
-            lines.append(f"✓ HTTPS {resp.status_code} — politique STSv1 reçue")
-            for line in body_preview.strip().splitlines()[:8]:
-                lines.append("  " + line)
-        elif resp.status_code == 200:
-            lines.append(f"⚠ HTTPS 200 mais corps inattendu:\n{body_preview[:200]}")
-        else:
-            lines.append(f"✗ HTTPS {resp.status_code}")
-            if resp.status_code in (502, 503, 504):
-                lines.append("  → Edge nginx / ACME pas prêt — Apply infra + attendre le certificat.")
-    except Exception as exc:
-        err = str(exc)
-        lines.append(f"✗ HTTPS échec: {err}")
-        if "CERTIFICATE" in err.upper() or "SSL" in err.upper():
-            lines.append("  → Certificat manquant — Apply infra (ACME) pour mta-sts.*")
-
-    ok = dns_ok and http_ok
-    message = (
-        "Politique joignable en HTTPS."
-        if ok
-        else ("DNS OK mais HTTPS KO — certificat ou nginx." if dns_ok else "DNS non résolu.")
-    )
-    return {
-        "ok": ok,
-        "message": message,
-        "lines": lines,
-        "dns_ok": dns_ok,
-        "http_ok": http_ok,
-        "resolved_addrs": addrs,
-        **status,
-    }
 
 
 def update_mta_sts_settings(
@@ -492,6 +794,9 @@ def update_mta_sts_settings(
         write_acme_domains_export(db, settings)
     except Exception:
         logger.exception("mta-sts: export refresh failed after save")
+
+    # Policy / DNS id changed → force a fresh public scan.
+    clear_mta_sts_probe(settings)
 
     log_action(
         db,

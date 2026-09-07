@@ -11,15 +11,19 @@
     </div>
     <div class="form-body">
       {% if m.next_action %}
-      <p class="form-prose form-prose-spaced">
-        <strong>Prochaine étape :</strong> {{ m.next_action }}
+      <p class="form-prose form-prose-spaced" id="mta-sts-next-action">
+        <strong>Prochaine étape :</strong> <span id="mta-sts-next-action-text">{{ m.next_action }}</span>
+      </p>
+      {% else %}
+      <p class="form-prose form-prose-spaced" id="mta-sts-next-action" hidden>
+        <strong>Prochaine étape :</strong> <span id="mta-sts-next-action-text"></span>
       </p>
       {% endif %}
 
-      {% if steps %}
-      <div class="mta-sts-steps" aria-label="Parcours MTA-STS">
+      <div class="mta-sts-steps" id="mta-sts-steps" aria-label="Parcours MTA-STS"
+           {% if not steps %}hidden{% endif %}>
         {% for step in steps %}
-        <div class="mta-sts-step is-{{ step.status }}">
+        <div class="mta-sts-step is-{{ step.status }}" data-step-id="{{ step.id }}">
           <div class="mta-sts-step-mark" aria-hidden="true">
             {% if step.status == 'done' %}✓{% elif step.status == 'failed' %}!{% elif step.status == 'current' %}→{% else %}{{ loop.index }}{% endif %}
           </div>
@@ -30,7 +34,11 @@
         </div>
         {% endfor %}
       </div>
-      {% endif %}
+      <p class="form-help" id="mta-sts-scan-hint">
+        Le scan « Vérifier » interroge les DNS <strong>publics</strong> (1.1.1.1 / 8.8.8.8) —
+        un OK via DNS interne seul ne suffit pas. Les hits HTTP apparaissent dans
+        <span class="mono">nginx-logs/mta-sts.access.log</span> (pas dans Audit admin).
+      </p>
 
       <form method="post" action="/admin/configuration/mta-sts" id="mta-sts-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -87,16 +95,27 @@
 
         {% if m.policy_text %}
         <div class="form-group">
-          <label class="form-label">
-            {% if m.ready %}Politique publiée (fichier mta-sts.txt){% else %}Aperçu fichier mta-sts.txt (brouillon){% endif %}
-          </label>
-          <pre class="config-test-shell-body font-mono" style="min-height:auto">{{ m.policy_text }}</pre>
+          <div class="mta-sts-copy-head">
+            <label class="form-label" for="mta-sts-policy-pre">
+              {% if m.ready %}Politique publiée (fichier mta-sts.txt){% else %}Aperçu fichier mta-sts.txt (brouillon){% endif %}
+            </label>
+            <button type="button" class="btn btn-ghost btn-sm" data-copy
+                    data-copy-target="mta-sts-policy-pre" title="Copier la politique">Copier</button>
+          </div>
+          <pre id="mta-sts-policy-pre" class="config-test-shell-body font-mono" style="min-height:auto">{{ m.policy_text }}</pre>
           {% if m.policy_url %}
+          <div class="mta-sts-dns" style="margin-top:var(--sp-2)">
+            <div class="mta-sts-dns-row">
+              <span class="mta-sts-dns-k">URL</span>
+              <a class="mono mta-sts-dns-v" id="mta-sts-policy-url" href="{{ m.policy_url }}"
+                 target="_blank" rel="noopener noreferrer">{{ m.policy_url }}</a>
+              <button type="button" class="btn btn-ghost btn-sm" data-copy
+                      data-copy-target="mta-sts-policy-url" title="Copier l’URL">Copier</button>
+            </div>
+          </div>
           <p class="form-help">
-            Servi à :
-            <a href="{{ m.policy_url }}" target="_blank" rel="noopener noreferrer">{{ m.policy_url }}</a>
-            {% if m.published_at %} · save {{ m.published_at }}{% endif %}
-            {% if m.ready and m.export_has_vhost %} · export nginx OK{% elif m.ready %} · export en attente{% endif %}
+            {% if m.published_at %}Save {{ m.published_at }} · {% endif %}
+            {% if m.ready and m.export_has_vhost %}export nginx OK{% elif m.ready %}export en attente{% endif %}
           </p>
           {% endif %}
         </div>
@@ -104,23 +123,79 @@
 
         {% if m.config_valid and m.dns_name %}
         <div class="form-group">
-          <label class="form-label">Enregistrements DNS à créer (copier-coller)</label>
+          <label class="form-label">Enregistrements DNS à créer</label>
 
-          <p class="form-help" style="margin-bottom:var(--sp-2)"><strong>1. Enregistrement A</strong> (ou AAAA)</p>
-          <pre class="config-test-shell-body font-mono" style="min-height:auto">Type      : A
+          <div class="mta-sts-copy-head" style="margin-top:var(--sp-2)">
+            <p class="form-help" style="margin:0"><strong>1. Enregistrement A</strong> (ou AAAA)</p>
+            <button type="button" class="btn btn-ghost btn-sm" data-copy
+                    data-copy-target="mta-sts-dns-a-pre" title="Copier le bloc A">Copier le bloc</button>
+          </div>
+          <pre id="mta-sts-dns-a-pre" class="config-test-shell-body font-mono" style="min-height:auto">Type      : A
 Nom d'hôte: mta-sts
 FQDN      : {{ m.fqdn }}
 Pointe vers: &lt;IP publique du bastion nginx — même IP que portal.&gt;
 TTL       : 3600
 {% if m.dns_a_preview %}Aperçu    : {{ m.dns_a_preview }}{% endif %}</pre>
+          <div class="mta-sts-dns">
+            <div class="mta-sts-dns-row">
+              <span class="mta-sts-dns-k">Nom d'hôte</span>
+              <code class="mono mta-sts-dns-v" id="mta-sts-dns-a-host">mta-sts</code>
+              <button type="button" class="btn btn-ghost btn-sm" data-copy
+                      data-copy-target="mta-sts-dns-a-host">Copier</button>
+            </div>
+            <div class="mta-sts-dns-row">
+              <span class="mta-sts-dns-k">FQDN</span>
+              <code class="mono mta-sts-dns-v" id="mta-sts-dns-a-fqdn">{{ m.fqdn }}</code>
+              <button type="button" class="btn btn-ghost btn-sm" data-copy
+                      data-copy-target="mta-sts-dns-a-fqdn">Copier</button>
+            </div>
+            {% if m.dns_a_preview %}
+            <div class="mta-sts-dns-row">
+              <span class="mta-sts-dns-k">Aperçu</span>
+              <code class="mono mta-sts-dns-v" id="mta-sts-dns-a-preview">{{ m.dns_a_preview }}</code>
+              <button type="button" class="btn btn-ghost btn-sm" data-copy
+                      data-copy-target="mta-sts-dns-a-preview">Copier</button>
+            </div>
+            {% endif %}
+          </div>
 
-          <p class="form-help" style="margin:var(--sp-3) 0 var(--sp-2)"><strong>2. Enregistrement TXT</strong> (policy discovery)</p>
-          <pre class="config-test-shell-body font-mono" style="min-height:auto">Type      : TXT
+          <div class="mta-sts-copy-head" style="margin:var(--sp-3) 0 0">
+            <p class="form-help" style="margin:0"><strong>2. Enregistrement TXT</strong> (policy discovery)</p>
+            <button type="button" class="btn btn-ghost btn-sm" data-copy
+                    data-copy-target="mta-sts-dns-txt-pre" title="Copier le bloc TXT">Copier le bloc</button>
+          </div>
+          <pre id="mta-sts-dns-txt-pre" class="config-test-shell-body font-mono" style="min-height:auto">Type      : TXT
 Nom d'hôte: _mta-sts
 FQDN      : {{ m.dns_name }}
 Valeur    : {{ m.dns_txt }}
 TTL       : 3600
 Aperçu    : {{ m.dns_name }}. 3600 IN TXT "{{ m.dns_txt }}"</pre>
+          <div class="mta-sts-dns">
+            <div class="mta-sts-dns-row">
+              <span class="mta-sts-dns-k">Nom d'hôte</span>
+              <code class="mono mta-sts-dns-v" id="mta-sts-dns-txt-host">_mta-sts</code>
+              <button type="button" class="btn btn-ghost btn-sm" data-copy
+                      data-copy-target="mta-sts-dns-txt-host">Copier</button>
+            </div>
+            <div class="mta-sts-dns-row">
+              <span class="mta-sts-dns-k">FQDN</span>
+              <code class="mono mta-sts-dns-v" id="mta-sts-dns-txt-fqdn">{{ m.dns_name }}</code>
+              <button type="button" class="btn btn-ghost btn-sm" data-copy
+                      data-copy-target="mta-sts-dns-txt-fqdn">Copier</button>
+            </div>
+            <div class="mta-sts-dns-row">
+              <span class="mta-sts-dns-k">Valeur</span>
+              <code class="mono mta-sts-dns-v" id="mta-sts-dns-txt-value">{{ m.dns_txt }}</code>
+              <button type="button" class="btn btn-ghost btn-sm" data-copy
+                      data-copy-target="mta-sts-dns-txt-value">Copier</button>
+            </div>
+            <div class="mta-sts-dns-row">
+              <span class="mta-sts-dns-k">Aperçu</span>
+              <code class="mono mta-sts-dns-v" id="mta-sts-dns-txt-preview">{{ m.dns_name }}. 3600 IN TXT "{{ m.dns_txt }}"</code>
+              <button type="button" class="btn btn-ghost btn-sm" data-copy
+                      data-copy-target="mta-sts-dns-txt-preview">Copier</button>
+            </div>
+          </div>
 
           <p class="form-help">
             Recréez le TXT (nouvel <span class="mono">id=</span>) à chaque changement de politique.

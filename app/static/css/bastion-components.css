@@ -509,13 +509,23 @@
 .mta-sts-step.is-failed{border-color:rgba(239,68,68,.4)}
 .mta-sts-step.is-failed .mta-sts-step-mark{background:var(--err-bg);color:var(--err);border-color:rgba(239,68,68,.35)}
 .mta-sts-step.is-locked{opacity:.55}
+.mta-sts-copy-head{
+  display:flex;align-items:center;justify-content:space-between;gap:var(--sp-2);
+  margin-bottom:var(--sp-2);
+}
+.mta-sts-copy-head .form-label{margin:0}
 .mta-sts-dns{display:flex;flex-direction:column;gap:var(--sp-2);margin-top:var(--sp-2)}
 .mta-sts-dns-row{
   display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);
   padding:var(--sp-2) var(--sp-3);border:1px solid var(--border);border-radius:var(--r-md);
   background:var(--bg-tertiary);
 }
-.mta-sts-dns-row .mono{font-size:var(--fs-xs);word-break:break-all}
+.mta-sts-dns-k{
+  flex:0 0 6.5rem;font-size:var(--fs-xs);font-weight:600;color:var(--text-2);text-transform:uppercase;
+  letter-spacing:.02em;
+}
+.mta-sts-dns-v,.mta-sts-dns-row .mono{flex:1 1 12rem;font-size:var(--fs-xs);word-break:break-all;min-width:0}
+.mta-sts-dns-row .btn{flex:0 0 auto;margin-left:auto}
 
 
 /* Global action busy overlay */
