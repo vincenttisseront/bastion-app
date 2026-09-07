@@ -16,13 +16,18 @@
   ansible.builtin.assert:
     that:
       - >-
-        (inventory_hostname in (modsec_wazuh_allowed_hosts | default([])))
+        ((modsec_wazuh_allowed_hosts | default([])) | length == 0)
+        or (inventory_hostname in (modsec_wazuh_allowed_hosts | default([])))
         or (inventory_hostname_short in (modsec_wazuh_allowed_hosts | default([])))
         or (inventory_hostname == (bastion_docker_host | default('')))
         or (inventory_hostname_short == (bastion_docker_host | default('')))
     fail_msg: >-
       Hôte {{ inventory_hostname }} hors périmètre BastionPro docker.
-      Autorisés : {{ modsec_wazuh_allowed_hosts | default([]) | join(', ') }}.
+      Autorisés : {{
+        (modsec_wazuh_allowed_hosts | default([])) | join(', ')
+        if (modsec_wazuh_allowed_hosts | default([]) | length) > 0
+        else '(allowlist vide = tout hôte hors forbidden)'
+      }}.
       Override : modsec_wazuh_allowed_hosts / bastion_docker_host.
 
 - name: "PREFLIGHT : OS family Debian/Ubuntu"
