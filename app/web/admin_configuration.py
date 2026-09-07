@@ -214,12 +214,45 @@ def admin_configuration_mta_sts(
         flash_redirect(
             response,
             "Politique MTA-STS enregistrée et export nginx mis à jour. "
-            "Vérifiez le DNS (A/AAAA mta-sts.* + TXT _mta-sts.*) puis Apply infra pour le certificat ACME.",
+            "Suivez la checklist : DNS A/AAAA + TXT, puis Apply infra (ACME), puis Vérifier.",
             "success",
             token,
         )
     except ValueError as exc:
         flash_redirect(response, str(exc), "error", token)
+    return response
+
+
+@router.post("/admin/configuration/mta-sts/verify")
+def admin_configuration_mta_sts_verify(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from fastapi.responses import JSONResponse
+
+    from app.mail.mta_sts_service import probe_mta_sts_publication
+
+    result = probe_mta_sts_publication(db, settings)
+    accept = (request.headers.get("accept") or "").lower()
+    wants_json = "application/json" in accept
+    if wants_json:
+        return JSONResponse(
+            {
+                "ok": bool(result.get("ok")),
+                "message": result.get("message") or "",
+                "lines": result.get("lines") or [],
+            },
+            status_code=200 if result.get("ok") else 400,
+        )
+    response = RedirectResponse(url=_CONFIG_MTA_STS, status_code=302)
+    flash_redirect(
+        response,
+        result.get("message") or "Vérification terminée.",
+        "success" if result.get("ok") else "error",
+        settings.vault_portal_internal_token or "dev",
+    )
     return response
 
 

@@ -469,8 +469,13 @@
 .data-table td.mono,.mono{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-2)}
 
 .alert{
-  display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
-  border-radius:var(--r-lg);font-size:var(--fs-sm);border:1px solid;
+  /* Default block: plain-text alerts must not flex-split strong/mono children. */
+  display:block;padding:var(--sp-3) var(--sp-4);
+  border-radius:var(--r-lg);font-size:var(--fs-sm);line-height:1.55;border:1px solid;
+}
+.alert:has(> .alert-body),
+.alert:has(> .alert-close){
+  display:flex;align-items:flex-start;gap:var(--sp-3);
 }
 /* Author display:flex beats the UA [hidden] rule ? keep alerts dismissible via hidden. */
 .alert[hidden]{display:none!important}
@@ -481,6 +486,37 @@
 .alert-info{background:var(--info-bg);border-color:rgba(96,165,250,.25);color:var(--info)}
 .alert-close{margin-left:auto;background:none;border:none;cursor:pointer;color:currentColor;opacity:.5;padding:0;line-height:1}
 .alert-close:hover{opacity:1}
+
+/* MTA-STS setup checklist (Admin → Configuration) */
+.mta-sts-steps{display:flex;flex-direction:column;gap:var(--sp-2);margin:0 0 var(--sp-4);padding:0}
+.mta-sts-step{
+  display:flex;gap:var(--sp-3);align-items:flex-start;
+  padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-elevated,var(--bg-secondary));
+}
+.mta-sts-step-mark{
+  flex:0 0 1.75rem;height:1.75rem;border-radius:999px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:var(--fs-xs);font-weight:700;
+  background:var(--bg-tertiary);color:var(--text-2);border:1px solid var(--border);
+}
+.mta-sts-step-label{font-size:var(--fs-sm);font-weight:600;color:var(--text);line-height:1.35}
+.mta-sts-step-detail{margin:.25rem 0 0}
+.mta-sts-step.is-done{border-color:rgba(16,185,129,.35)}
+.mta-sts-step.is-done .mta-sts-step-mark{background:var(--ok-bg);color:var(--ok);border-color:rgba(16,185,129,.35)}
+.mta-sts-step.is-current{border-color:rgba(var(--accent-rgb,185,28,28),.35)}
+.mta-sts-step.is-current .mta-sts-step-mark{background:var(--accent);color:#fff;border-color:transparent}
+.mta-sts-step.is-failed{border-color:rgba(239,68,68,.4)}
+.mta-sts-step.is-failed .mta-sts-step-mark{background:var(--err-bg);color:var(--err);border-color:rgba(239,68,68,.35)}
+.mta-sts-step.is-locked{opacity:.55}
+.mta-sts-dns{display:flex;flex-direction:column;gap:var(--sp-2);margin-top:var(--sp-2)}
+.mta-sts-dns-row{
+  display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-2);
+  padding:var(--sp-2) var(--sp-3);border:1px solid var(--border);border-radius:var(--r-md);
+  background:var(--bg-tertiary);
+}
+.mta-sts-dns-row .mono{font-size:var(--fs-xs);word-break:break-all}
+
 
 /* Global action busy overlay */
 body.bastion-busy{cursor:progress}

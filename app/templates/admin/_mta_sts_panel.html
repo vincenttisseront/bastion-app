@@ -1,22 +1,36 @@
 {# MTA-STS policy publication — included from admin/configuration.html #}
 {% set m = mta_sts | default({}) %}
+{% set steps = m.setup_steps | default([]) %}
   <div class="form-section config-panel" id="mta-sts" role="tabpanel" aria-labelledby="tab-mta-sts" hidden>
     <div class="form-section-header">
       <div class="form-section-title">MTA-STS (RFC 8461)</div>
       <div class="form-section-sub">
-        Publication de la politique TLS pour la messagerie du domaine mail —
-        servie par nginx sur
-        <span class="mono">https://mta-sts.&lt;domaine&gt;/.well-known/mta-sts.txt</span>.
-        Ne configure pas le serveur SMTP lui-même (voir l’onglet SMTP pour l’envoi sortant).
+        Publie un fichier de politique TLS pour la messagerie
+        (<span class="mono">/.well-known/mta-sts.txt</span>) — pas l’envoi SMTP.
       </div>
     </div>
     <div class="form-body">
-      <div class="alert alert-info mb-4" role="note">
-        Commencez en mode <strong>testing</strong> pour surveiller les rapports TLS-RPT
-        sans bloquer la livraison. Passez en <strong>enforce</strong> seulement après
-        validation. Les hôtes MX sont des hostnames (ex. <span class="mono">mail.example.com</span>
-        ou <span class="mono">*.example.com</span>), pas des URL.
+      {% if m.next_action %}
+      <p class="form-prose form-prose-spaced">
+        <strong>Prochaine étape :</strong> {{ m.next_action }}
+      </p>
+      {% endif %}
+
+      {% if steps %}
+      <div class="mta-sts-steps" aria-label="Parcours MTA-STS">
+        {% for step in steps %}
+        <div class="mta-sts-step is-{{ step.status }}">
+          <div class="mta-sts-step-mark" aria-hidden="true">
+            {% if step.status == 'done' %}✓{% elif step.status == 'failed' %}!{% elif step.status == 'current' %}→{% else %}{{ loop.index }}{% endif %}
+          </div>
+          <div class="mta-sts-step-body">
+            <div class="mta-sts-step-label">{{ step.label }}</div>
+            {% if step.detail %}<p class="form-help mta-sts-step-detail">{{ step.detail }}</p>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
       </div>
+      {% endif %}
 
       <form method="post" action="/admin/configuration/mta-sts" id="mta-sts-form">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -27,6 +41,9 @@
                    {% if m.enabled %}checked{% endif %}>
             Publier la politique MTA-STS via le reverse-proxy Bastion
           </label>
+          {% if m.config_valid and not m.enabled %}
+          <p class="form-help">Obligatoire : sans cette case, aucun vhost nginx ni aperçu public.</p>
+          {% endif %}
         </div>
 
         <div class="form-group">
@@ -35,8 +52,9 @@
                  value="{{ m.mail_domain }}" placeholder="example.com" autocomplete="off"
                  spellcheck="false">
           <p class="form-help">
-            Domaine de messagerie (pas le sous-domaine <span class="mono">mta-sts.*</span>).
-            Le vhost publié sera <span class="mono">mta-sts.{{ m.mail_domain or 'example.com' }}</span>.
+            Domaine de messagerie (pas <span class="mono">mta-sts.*</span>).
+            Vhost :
+            <span class="mono">mta-sts.{{ m.mail_domain or 'example.com' }}</span>
           </p>
         </div>
 
@@ -53,7 +71,7 @@
             <label class="form-label" for="mta_sts_max_age">max_age (secondes)</label>
             <input type="number" id="mta_sts_max_age" name="mta_sts_max_age" class="form-input"
                    value="{{ m.max_age }}" min="86400" max="31557600" step="1">
-            <p class="form-help">604800 = 7 jours · 2592000 = 30 jours (une fois stabilisé).</p>
+            <p class="form-help">604800 = 7 jours · 2592000 = 30 jours.</p>
           </div>
         </div>
 
@@ -63,43 +81,72 @@
                     rows="4" placeholder="mail.example.com&#10;*.example.com"
                     spellcheck="false">{{ m.mx_hosts }}</textarea>
           <p class="form-help">
-            Un hôte par ligne (ou séparés par virgule). Déclarez chaque MX explicite
-            ou un joker <span class="mono">*.domaine</span>.
+            Un hôte par ligne. Hostnames ou joker <span class="mono">*.domaine</span> — pas d’URL.
           </p>
         </div>
 
-        {% if m.ready and m.policy_text %}
+        {% if m.policy_text %}
         <div class="form-group">
-          <label class="form-label">Aperçu de la politique publiée</label>
+          <label class="form-label">
+            {% if m.ready %}Politique publiée (fichier mta-sts.txt){% else %}Aperçu fichier mta-sts.txt (brouillon){% endif %}
+          </label>
           <pre class="config-test-shell-body font-mono" style="min-height:auto">{{ m.policy_text }}</pre>
+          {% if m.policy_url %}
           <p class="form-help">
-            URL :
+            Servi à :
             <a href="{{ m.policy_url }}" target="_blank" rel="noopener noreferrer">{{ m.policy_url }}</a>
-            {% if m.published_at %} · dernière publication {{ m.published_at }}{% endif %}
+            {% if m.published_at %} · save {{ m.published_at }}{% endif %}
+            {% if m.ready and m.export_has_vhost %} · export nginx OK{% elif m.ready %} · export en attente{% endif %}
           </p>
+          {% endif %}
         </div>
+        {% endif %}
 
+        {% if m.config_valid and m.dns_name %}
         <div class="form-group">
-          <label class="form-label">DNS à créer manuellement</label>
-          <ol class="form-prose" style="margin:0;padding-left:1.25rem">
-            <li>
-              Enregistrement <strong>A/AAAA</strong> (ou CNAME) :
-              <span class="mono">{{ m.fqdn }}</span> → IP / alias du bastion nginx.
-            </li>
-            <li>
-              Enregistrement <strong>TXT</strong>
-              <span class="mono">{{ m.dns_name }}</span> =
-              <span class="mono">{{ m.dns_txt }}</span>
-              <br>
-              <span class="form-help">Changez l’<span class="mono">id=</span> à chaque mise à jour de politique (valeur suggérée ci-dessus).</span>
-            </li>
-          </ol>
+          <label class="form-label">Enregistrements DNS à créer (copier-coller)</label>
+
+          <p class="form-help" style="margin-bottom:var(--sp-2)"><strong>1. Enregistrement A</strong> (ou AAAA)</p>
+          <pre class="config-test-shell-body font-mono" style="min-height:auto">Type      : A
+Nom d'hôte: mta-sts
+FQDN      : {{ m.fqdn }}
+Pointe vers: &lt;IP publique du bastion nginx — même IP que portal.&gt;
+TTL       : 3600
+{% if m.dns_a_preview %}Aperçu    : {{ m.dns_a_preview }}{% endif %}</pre>
+
+          <p class="form-help" style="margin:var(--sp-3) 0 var(--sp-2)"><strong>2. Enregistrement TXT</strong> (policy discovery)</p>
+          <pre class="config-test-shell-body font-mono" style="min-height:auto">Type      : TXT
+Nom d'hôte: _mta-sts
+FQDN      : {{ m.dns_name }}
+Valeur    : {{ m.dns_txt }}
+TTL       : 3600
+Aperçu    : {{ m.dns_name }}. 3600 IN TXT "{{ m.dns_txt }}"</pre>
+
+          <p class="form-help">
+            Recréez le TXT (nouvel <span class="mono">id=</span>) à chaque changement de politique.
+            Tant que l’A n’est pas propagé : <span class="mono">DNS_PROBE_FINISHED_NXDOMAIN</span>.
+          </p>
         </div>
         {% endif %}
 
         <div class="form-actions">
           <button type="submit" class="btn btn-primary">Enregistrer &amp; publier</button>
+          {% if m.config_valid %}
+          <button type="button" class="btn btn-secondary" id="mta-sts-verify-btn"
+                  data-test-url="/admin/configuration/mta-sts/verify"
+                  data-csrf="{{ csrf_token }}">
+            Vérifier DNS + HTTPS
+          </button>
+          {% endif %}
         </div>
       </form>
+
+      <div class="config-test-shell mt-4" id="mta-sts-test-shell" hidden>
+        <div class="config-test-shell-head">
+          <span class="config-test-shell-title">Vérification MTA-STS</span>
+          <span class="badge badge-muted" id="mta-sts-test-status">…</span>
+        </div>
+        <pre class="config-test-shell-body font-mono" id="mta-sts-test-body"></pre>
+      </div>
     </div>
   </div>
