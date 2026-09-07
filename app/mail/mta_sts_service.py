@@ -236,20 +236,87 @@ def mta_sts_public_status(db: Session, settings: Settings) -> dict[str, Any]:
     fqdn = ""
     policy_url = ""
     dns_txt = ""
-    ready = False
-    if enabled and mail_domain and mx_hosts:
-        try:
-            d = validate_mail_domain(mail_domain)
+    dns_name = ""
+    config_valid = False
+    domain_ok = ""
+    try:
+        if mail_domain:
+            domain_ok = validate_mail_domain(mail_domain)
+        if domain_ok and mx_hosts:
             m = validate_mode(mode)
             mxs = validate_mx_hosts(mx_hosts)
             age = validate_max_age(max_age)
             policy_text = build_policy_text(mode=m, mx_hosts=mxs, max_age=age)
-            fqdn = mta_sts_fqdn(d)
+            fqdn = mta_sts_fqdn(domain_ok)
             policy_url = f"https://{fqdn}/.well-known/mta-sts.txt"
-            dns_txt = suggested_dns_txt(d, policy_text)
-            ready = True
-        except ValueError:
-            ready = False
+            dns_txt = suggested_dns_txt(domain_ok, policy_text)
+            dns_name = f"_mta-sts.{domain_ok}"
+            config_valid = True
+    except ValueError:
+        config_valid = False
+
+    ready = bool(enabled and config_valid)
+    exports = Path(settings.exports_dir)
+    export_path = exports / "nginx-mta-sts.conf"
+    export_exists = export_path.is_file()
+    export_has_vhost = False
+    if export_exists:
+        try:
+            export_has_vhost = "server {" in export_path.read_text(encoding="utf-8")
+        except OSError:
+            export_has_vhost = False
+
+    # Setup checklist — always returned so the UI can guide the admin.
+    steps = [
+        {
+            "id": "config",
+            "label": "1. Remplir domaine + MX, cocher Publier, Enregistrer",
+            "status": (
+                "failed"
+                if enabled and not config_valid
+                else (
+                    "done"
+                    if ready and export_has_vhost
+                    else ("current" if config_valid else "todo")
+                )
+            ),
+            "detail": (
+                "Publication cochée mais domaine/MX invalides."
+                if enabled and not config_valid
+                else (
+                    f"Mode {mode}, {len(mx_hosts)} MX"
+                    + (f", save {published_s}" if published_s else "")
+                    + (" · export nginx actif" if export_has_vhost else "")
+                    if config_valid
+                    else "Sans publication cochée, nginx n’expose pas le fichier."
+                )
+            ),
+        },
+        {
+            "id": "dns_a",
+            "label": f"2. DNS A/AAAA : {fqdn or 'mta-sts.<domaine>'}",
+            "status": "current" if ready else ("todo" if config_valid else "locked"),
+            "detail": "Chez le registrar → même IP publique que le bastion nginx (celle de portal.*).",
+        },
+        {
+            "id": "dns_txt",
+            "label": f"3. DNS TXT : {dns_name or '_mta-sts.<domaine>'}",
+            "status": "current" if ready else ("todo" if config_valid else "locked"),
+            "detail": f"Valeur : {dns_txt}" if dns_txt else "Apparait après une config valide.",
+        },
+        {
+            "id": "acme",
+            "label": "4. Apply infra (certificat ACME TLS)",
+            "status": "current" if ready else ("todo" if config_valid else "locked"),
+            "detail": "Admin → Infrastructure → Apply (le FQDN mta-sts entre dans acme-domains.json).",
+        },
+        {
+            "id": "verify",
+            "label": "5. Vérifier l’URL publique",
+            "status": "current" if ready else ("todo" if config_valid else "locked"),
+            "detail": policy_url or "https://mta-sts.<domaine>/.well-known/mta-sts.txt",
+        },
+    ]
 
     return {
         "enabled": enabled,
@@ -258,14 +325,108 @@ def mta_sts_public_status(db: Session, settings: Settings) -> dict[str, Any]:
         "mx_hosts": mx_raw,
         "mx_list": mx_hosts,
         "max_age": max_age,
+        "config_valid": config_valid,
         "ready": ready,
         "fqdn": fqdn,
         "policy_url": policy_url,
         "policy_text": policy_text,
-        "dns_name": f"_mta-sts.{mail_domain}" if mail_domain else "",
+        "dns_name": dns_name,
         "dns_txt": dns_txt,
+        "dns_a_preview": f"{fqdn} 3600 IN A <IP-bastion>" if fqdn else "",
         "published_at": published_s,
-        "status_badge": "ok" if ready else ("warn" if enabled else "off"),
+        "export_has_vhost": export_has_vhost,
+        "setup_steps": steps,
+        "status_badge": "ok" if ready else ("warn" if enabled or config_valid else "off"),
+        "next_action": _next_action(enabled=enabled, config_valid=config_valid, ready=ready),
+    }
+
+
+def _next_action(*, enabled: bool, config_valid: bool, ready: bool) -> str:
+    if not config_valid:
+        return "Renseignez un domaine mail et au moins un hôte MX, puis enregistrez."
+    if not enabled:
+        return "Cochez « Publier la politique… » puis Enregistrer & publier — sinon aucun vhost nginx."
+    if ready:
+        return (
+            "Créez les DNS A/AAAA + TXT chez le registrar, Attendez la propagation "
+            "(plus de NXDOMAIN), puis Apply infra pour le certificat TLS."
+        )
+    return "Enregistrez la configuration."
+
+
+def probe_mta_sts_publication(db: Session, settings: Settings) -> dict[str, Any]:
+    """Best-effort DNS + HTTPS check of the published policy URL (admin UI)."""
+    status = mta_sts_public_status(db, settings)
+    lines: list[str] = ["$ bastion mta-sts verify"]
+    if not status.get("ready"):
+        lines.append("✗ Publication inactive ou config incomplète — " + status["next_action"])
+        return {"ok": False, "message": status["next_action"], "lines": lines, **status}
+
+    fqdn = status["fqdn"]
+    url = status["policy_url"]
+    lines.append(f"FQDN {fqdn}")
+    lines.append(f"URL  {url}")
+
+    import socket
+
+    dns_ok = False
+    addrs: list[str] = []
+    try:
+        infos = socket.getaddrinfo(fqdn, 443, type=socket.SOCK_STREAM)
+        addrs = sorted({i[4][0] for i in infos})
+        dns_ok = bool(addrs)
+        lines.append("✓ DNS → " + ", ".join(addrs))
+    except socket.gaierror as exc:
+        lines.append(f"✗ DNS NXDOMAIN / échec résolution ({exc})")
+        lines.append("  → Enregistrez l’A/AAAA chez le registrar, attendez TTL (souvent 5–60 min).")
+        return {
+            "ok": False,
+            "message": f"DNS non résolu pour {fqdn} (NXDOMAIN ou pas encore propagé).",
+            "lines": lines,
+            "dns_ok": False,
+            "http_ok": False,
+            **status,
+        }
+
+    http_ok = False
+    body_preview = ""
+    try:
+        import httpx
+
+        with httpx.Client(timeout=8.0, follow_redirects=True, verify=True) as client:
+            resp = client.get(url)
+        body_preview = (resp.text or "")[:400]
+        if resp.status_code == 200 and "version: STSv1" in body_preview:
+            http_ok = True
+            lines.append(f"✓ HTTPS {resp.status_code} — politique STSv1 reçue")
+            for line in body_preview.strip().splitlines()[:8]:
+                lines.append("  " + line)
+        elif resp.status_code == 200:
+            lines.append(f"⚠ HTTPS 200 mais corps inattendu:\n{body_preview[:200]}")
+        else:
+            lines.append(f"✗ HTTPS {resp.status_code}")
+            if resp.status_code in (502, 503, 504):
+                lines.append("  → Edge nginx / ACME pas prêt — Apply infra + attendre le certificat.")
+    except Exception as exc:
+        err = str(exc)
+        lines.append(f"✗ HTTPS échec: {err}")
+        if "CERTIFICATE" in err.upper() or "SSL" in err.upper():
+            lines.append("  → Certificat manquant — Apply infra (ACME) pour mta-sts.*")
+
+    ok = dns_ok and http_ok
+    message = (
+        "Politique joignable en HTTPS."
+        if ok
+        else ("DNS OK mais HTTPS KO — certificat ou nginx." if dns_ok else "DNS non résolu.")
+    )
+    return {
+        "ok": ok,
+        "message": message,
+        "lines": lines,
+        "dns_ok": dns_ok,
+        "http_ok": http_ok,
+        "resolved_addrs": addrs,
+        **status,
     }
 
 

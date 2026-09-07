@@ -406,6 +406,58 @@
       }
     });
   }
+
+  var mtaBtn = document.getElementById('mta-sts-verify-btn');
+  var mtaShell = document.getElementById('mta-sts-test-shell');
+  var mtaBody = document.getElementById('mta-sts-test-body');
+  var mtaStatus = document.getElementById('mta-sts-test-status');
+  if (mtaBtn && mtaShell && mtaBody && mtaStatus) {
+    mtaBtn.addEventListener('click', async function () {
+      var url = mtaBtn.getAttribute('data-test-url') || '/admin/configuration/mta-sts/verify';
+      var csrf = mtaBtn.getAttribute('data-csrf') || '';
+      mtaShell.hidden = false;
+      mtaShell.classList.remove('is-ok', 'is-err');
+      mtaStatus.className = 'badge badge-muted';
+      mtaStatus.textContent = 'en cours…';
+      mtaBody.textContent = '$ bastion mta-sts verify\n…';
+      mtaBtn.disabled = true;
+      try {
+        var body = new URLSearchParams();
+        if (csrf) body.set('csrf_token', csrf);
+        var resp = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: body.toString(),
+          credentials: 'same-origin',
+        });
+        var data = {};
+        try { data = await resp.json(); } catch (e) { data = {}; }
+        var lines = Array.isArray(data.lines) ? data.lines : [];
+        if (!lines.length) {
+          lines = [
+            '$ bastion mta-sts verify',
+            (data.ok ? '✓ ' : '✗ ') + (data.message || (resp.ok ? 'OK' : 'Échec HTTP ' + resp.status)),
+          ];
+        }
+        mtaBody.textContent = lines.join('\n');
+        var ok = !!data.ok;
+        mtaShell.classList.add(ok ? 'is-ok' : 'is-err');
+        mtaStatus.className = 'badge ' + (ok ? 'badge-ok' : 'badge-err');
+        mtaStatus.textContent = ok ? 'OK' : 'KO';
+      } catch (err) {
+        mtaShell.classList.add('is-err');
+        mtaStatus.className = 'badge badge-err';
+        mtaStatus.textContent = 'KO';
+        mtaBody.textContent = '$ bastion mta-sts verify\n✗ Erreur réseau: ' + (err && err.message ? err.message : String(err));
+      } finally {
+        mtaBtn.disabled = false;
+        mtaShell.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    });
+  }
 })();
 </script>
 {% endblock %}
