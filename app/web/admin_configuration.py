@@ -238,15 +238,32 @@ def admin_configuration_mta_sts_verify(
 ):
     from fastapi.responses import JSONResponse
 
+    from app.audit import log_action
     from app.mail.mta_sts_service import probe_mta_sts_publication
 
     result = probe_mta_sts_publication(db, settings)
+    ok = bool(result.get("ok"))
+    log_action(
+        db,
+        actor=_actor(user),
+        action="mta_sts.verify_ok" if ok else "mta_sts.verify_failed",
+        target="portal_settings",
+        details={
+            "ok": ok,
+            "message": (result.get("message") or "")[:240],
+            "dns_a_ok": bool(result.get("dns_a_ok")),
+            "dns_txt_ok": bool(result.get("dns_txt_ok")),
+            "http_ok": bool(result.get("http_ok")),
+            "fqdn": result.get("fqdn") or result.get("dns_name"),
+        },
+        ip_address=client_ip_from_request(request),
+    )
     accept = (request.headers.get("accept") or "").lower()
     wants_json = "application/json" in accept
     if wants_json:
         return JSONResponse(
             {
-                "ok": bool(result.get("ok")),
+                "ok": ok,
                 "message": result.get("message") or "",
                 "lines": result.get("lines") or [],
                 "setup_steps": result.get("setup_steps") or [],
@@ -256,13 +273,13 @@ def admin_configuration_mta_sts_verify(
                 "dns_txt_ok": bool(result.get("dns_txt_ok")),
                 "http_ok": bool(result.get("http_ok")),
             },
-            status_code=200 if result.get("ok") else 400,
+            status_code=200 if ok else 400,
         )
     response = RedirectResponse(url=_CONFIG_MTA_STS, status_code=302)
     flash_redirect(
         response,
         result.get("message") or "Vérification terminée.",
-        "success" if result.get("ok") else "error",
+        "success" if ok else "error",
         settings.vault_portal_internal_token or "dev",
     )
     return response

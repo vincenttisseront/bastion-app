@@ -142,21 +142,32 @@
           </label>
         </div>
         <div class="logs-filters-footer">
-          <div class="logs-result-checks" role="group" aria-label="Résultat">
-            {% for st in ['success', 'error', 'info'] %}
-            <label><input type="checkbox" name="status" value="{{ st }}"{% if st in (filters.status or []) %} checked{% endif %}> {{ st }}</label>
-            {% endfor %}
-          </div>
-          <div class="logs-result-checks" role="group" aria-label="Criticité">
-            {% for sev in catalog_severities %}
-            <label><input type="checkbox" name="severity" value="{{ sev }}"{% if sev in (filters.severity or []) %} checked{% endif %}> {{ sev }}</label>
-            {% endfor %}
-            <label><input type="checkbox" name="severity_min" value="WARNING"{% if filters.severity_min == 'WARNING' %} checked{% endif %}> ≥ WARNING</label>
-          </div>
-          <div class="logs-result-checks" role="group" aria-label="Domaine">
-            {% for dom in catalog_domains %}
-            <label><input type="checkbox" name="domain" value="{{ dom }}"{% if dom in (filters.domain or []) %} checked{% endif %}> {{ dom }}</label>
-            {% endfor %}
+          <div class="logs-filters-check-groups">
+            <div class="logs-filters-check-group" role="group" aria-label="Résultat">
+              <span class="logs-filters-check-label">Résultat</span>
+              <div class="logs-result-checks">
+                {% for st in ['success', 'error', 'info'] %}
+                <label><input type="checkbox" name="status" value="{{ st }}"{% if st in (filters.status or []) %} checked{% endif %}> {{ st }}</label>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="logs-filters-check-group" role="group" aria-label="Criticité">
+              <span class="logs-filters-check-label">Criticité</span>
+              <div class="logs-result-checks">
+                {% for sev in catalog_severities %}
+                <label><input type="checkbox" name="severity" value="{{ sev }}"{% if sev in (filters.severity or []) %} checked{% endif %}> {{ sev }}</label>
+                {% endfor %}
+                <label><input type="checkbox" name="severity_min" value="WARNING"{% if filters.severity_min == 'WARNING' %} checked{% endif %}> ≥ WARNING</label>
+              </div>
+            </div>
+            <div class="logs-filters-check-group" role="group" aria-label="Domaine">
+              <span class="logs-filters-check-label">Domaine</span>
+              <div class="logs-result-checks logs-domain-checks">
+                {% for dom in catalog_domains %}
+                <label><input type="checkbox" name="domain" value="{{ dom }}"{% if dom in (filters.domain or []) %} checked{% endif %}> {{ dom }}</label>
+                {% endfor %}
+              </div>
+            </div>
           </div>
           <div class="logs-filters-actions">
             <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
