@@ -6,31 +6,33 @@
 {% set pending_queue = pending_queue | default({'total': 0, 'entries': []}) %}
 {% set pending_total = pending_queue.total | default(0) %}
 {% set pending_entries = pending_queue.entries | default([]) %}
-<div class="page">
+<div class="page" id="dashboard-live" data-poll-ms="8000">
   <div class="page-header">
     <div>
       <h1 class="page-title">Dashboard</h1>
-      <p class="page-sub">Vue d’ensemble — <span class="font-mono">{{ now }}</span></p>
+      <p class="page-sub">Vue d’ensemble — <span class="font-mono" data-dash="now">{{ now }}</span></p>
     </div>
-    <div class="live-pill"><span class="live-dot"></span>Live</div>
+    <div class="live-pill" data-dash="live-pill" title="Rafraîchissement automatique des indicateurs">
+      <span class="live-dot"></span><span data-dash="live-label">Live</span>
+    </div>
   </div>
 
   <div class="metrics-grid">
-    <div class="metric-card green">
+    <div class="metric-card green" data-dash-card="sessions">
       <div class="metric-head">
         <div class="metric-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
         </div>
-        <a class="metric-trend flat" href="/sessions">{{ metrics.active_sessions | default(0) }} total</a>
+        <a class="metric-trend flat" href="/sessions" data-dash="sessions-total">{{ metrics.active_sessions | default(0) }} total</a>
       </div>
       <div class="metric-value metric-value--split" aria-label="Sessions utilisateurs et applicatives">
         <a class="metric-split" href="/sessions?kind=user">
-          <span class="metric-split-num">{{ metrics.active_sessions_user | default(0) }}</span>
+          <span class="metric-split-num" data-dash="sessions-user">{{ metrics.active_sessions_user | default(0) }}</span>
           <span class="metric-split-lbl">utilisateurs</span>
         </a>
         <span class="metric-split-sep" aria-hidden="true">·</span>
         <a class="metric-split" href="/sessions?kind=app">
-          <span class="metric-split-num">{{ metrics.active_sessions_app | default(0) }}</span>
+          <span class="metric-split-num" data-dash="sessions-app">{{ metrics.active_sessions_app | default(0) }}</span>
           <span class="metric-split-lbl">applicatives</span>
         </a>
       </div>
@@ -38,16 +40,16 @@
       <div class="metric-sub">portail · applications</div>
     </div>
 
-    <a href="/admin/security/waf" class="metric-card red metric-card-link">
+    <a href="/admin/security/waf" class="metric-card red metric-card-link" data-dash-card="blocked">
       <div class="metric-head">
         <div class="metric-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         </div>
-        <span class="metric-trend {% if metrics.blocked_attempts %}up{% else %}down{% endif %}">{% if metrics.blocked_attempts %}↑{% else %}↓{% endif %}</span>
+        <span class="metric-trend {% if metrics.blocked_attempts %}up{% else %}down{% endif %}" data-dash="blocked-trend">{% if metrics.blocked_attempts %}↑{% else %}↓{% endif %}</span>
       </div>
-      <div class="metric-value">{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</div>
+      <div class="metric-value" data-dash="blocked-value">{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</div>
       <div class="metric-label">Tentatives bloquées</div>
-      <div class="metric-sub">
+      <div class="metric-sub" data-dash="blocked-sub">
         {% if metrics.blocked_attempts is none %}
           Indisponible
         {% else %}
@@ -61,28 +63,28 @@
       </div>
     </a>
 
-    <a href="/admin/apps" class="metric-card blue metric-card-link">
+    <a href="/admin/apps" class="metric-card blue metric-card-link" data-dash-card="apps">
       <div class="metric-head">
         <div class="metric-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
         </div>
-        <span class="metric-trend {% if metrics.total_apps and metrics.enabled_apps == metrics.total_apps %}down{% else %}flat{% endif %}">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</span>
+        <span class="metric-trend {% if metrics.total_apps and metrics.enabled_apps == metrics.total_apps %}down{% else %}flat{% endif %}" data-dash="apps-trend">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</span>
       </div>
-      <div class="metric-value">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</div>
+      <div class="metric-value" data-dash="apps-value">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</div>
       <div class="metric-label">Santé apps</div>
-      <div class="metric-sub">{{ metrics.enabled_apps }}/{{ metrics.total_apps }} apps actives</div>
+      <div class="metric-sub" data-dash="apps-sub">{{ metrics.enabled_apps }}/{{ metrics.total_apps }} apps actives</div>
     </a>
 
-    <a href="#pending-actions" class="metric-card yellow metric-card-link">
+    <a href="#pending-actions" class="metric-card yellow metric-card-link" data-dash-card="pending">
       <div class="metric-head">
         <div class="metric-icon">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
         </div>
-        <span class="metric-trend {% if pending_total %}up{% else %}flat{% endif %}">{% if pending_total %}Action{% else %}OK{% endif %}</span>
+        <span class="metric-trend {% if pending_total %}up{% else %}flat{% endif %}" data-dash="pending-trend">{% if pending_total %}Action{% else %}OK{% endif %}</span>
       </div>
-      <div class="metric-value">{{ pending_total }}</div>
+      <div class="metric-value" data-dash="pending-value">{{ pending_total }}</div>
       <div class="metric-label">Éléments en attente</div>
-      <div class="metric-sub">{% if pending_total %}À traiter{% else %}Rien en file{% endif %}</div>
+      <div class="metric-sub" data-dash="pending-sub">{% if pending_total %}À traiter{% else %}Rien en file{% endif %}</div>
     </a>
   </div>
 
@@ -90,13 +92,9 @@
     <div class="card" id="pending-actions">
       <div class="card-header">
         <span class="card-title">Éléments en attente</span>
-        {% if pending_total %}
-        <span class="badge badge-warn">{{ pending_total }}</span>
-        {% else %}
-        <span class="badge badge-ok">À jour</span>
-        {% endif %}
+        <span class="badge {% if pending_total %}badge-warn{% else %}badge-ok{% endif %}" data-dash="pending-badge">{% if pending_total %}{{ pending_total }}{% else %}À jour{% endif %}</span>
       </div>
-      <div class="pending-queue">
+      <div class="pending-queue" data-dash="pending-list">
         {% for item in pending_entries %}
         <a class="pending-queue-item pending-queue-item--{{ item.severity }}" href="{{ item.href }}">
           <div class="pending-queue-main">
@@ -123,7 +121,7 @@
         <span class="card-title">Flux d'audit en direct</span>
         <a href="/admin/logs#audit" class="btn btn-ghost btn-sm">Voir tout →</a>
       </div>
-      <div class="audit-stream">
+      <div class="audit-stream" data-dash="audit-list">
         {% if recent_audit is none %}
         <div class="empty-state">
           <div class="empty-icon">
@@ -162,4 +160,194 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var root = document.getElementById('dashboard-live');
+  if (!root) return;
+
+  var pollMs = parseInt(root.getAttribute('data-poll-ms') || '8000', 10);
+  if (!isFinite(pollMs) || pollMs < 3000) pollMs = 8000;
+  var timer = null;
+  var inFlight = false;
+
+  function $(sel) { return root.querySelector(sel); }
+  function text(sel, value) {
+    var el = $(sel);
+    if (el) el.textContent = value == null ? '' : String(value);
+  }
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+  function setTrend(el, cls, label) {
+    if (!el) return;
+    el.className = 'metric-trend ' + cls;
+    el.textContent = label;
+  }
+  function pct(enabled, total) {
+    if (!total) return null;
+    return Math.round((enabled / total) * 100);
+  }
+
+  function renderPending(list, entries, total) {
+    var badge = $('[data-dash="pending-badge"]');
+    if (badge) {
+      badge.className = 'badge ' + (total ? 'badge-warn' : 'badge-ok');
+      badge.textContent = total ? String(total) : 'À jour';
+    }
+    if (!list) return;
+    if (!entries || !entries.length) {
+      list.innerHTML =
+        '<div class="empty-state" style="padding:var(--sp-5);">' +
+        '<div class="empty-title">Rien en attente</div>' +
+        '<div class="empty-desc">Demandes d\'accès, nouveaux users, appareils, domaines et comptes à sync apparaîtront ici.</div>' +
+        '</div>';
+      return;
+    }
+    list.innerHTML = entries.map(function (item) {
+      var sev = item.severity === 'warn' ? 'warn' : (item.severity === 'error' ? 'err' : 'info');
+      var detail = item.detail
+        ? '<div class="pending-queue-detail">' + esc(item.detail) + '</div>'
+        : '';
+      return (
+        '<a class="pending-queue-item pending-queue-item--' + esc(item.severity || 'info') + '" href="' + esc(item.href || '#') + '">' +
+        '<div class="pending-queue-main">' +
+        '<div class="pending-queue-label">' + esc(item.label) + '</div>' +
+        '<div class="pending-queue-summary">' + esc(item.summary) + '</div>' +
+        detail +
+        '</div>' +
+        '<span class="badge badge-' + sev + '">' + esc(item.count) + '</span>' +
+        '<span class="pending-queue-go" aria-hidden="true">→</span>' +
+        '</a>'
+      );
+    }).join('');
+  }
+
+  function renderAudit(list, entries) {
+    if (!list) return;
+    if (entries === null) {
+      list.innerHTML =
+        '<div class="empty-state">' +
+        '<div class="empty-title">Journal indisponible</div>' +
+        '<div class="empty-desc">Le stockage chaud est injoignable — ' +
+        '<a href="/admin/configuration#hot-store">vérifier la configuration</a>.</div></div>';
+      return;
+    }
+    if (!entries || !entries.length) {
+      list.innerHTML =
+        '<div class="empty-state">' +
+        '<div class="empty-title">Aucune activité récente</div>' +
+        '<div class="empty-desc">Les actions administrateur apparaîtront ici en temps réel.</div></div>';
+      return;
+    }
+    list.innerHTML = entries.map(function (e) {
+      return (
+        '<a class="audit-entry audit-entry-link" data-searchable ' +
+        'href="/admin/logs?id=' + encodeURIComponent(e.id) + '#audit" ' +
+        'title="Ouvrir dans les journaux">' +
+        '<span class="audit-dot ' + esc(e.severity || '') + '"></span>' +
+        '<div><div class="audit-action">' + esc(e.action) + '</div>' +
+        '<div class="audit-target">' + esc(e.target) + '</div></div>' +
+        '<span class="audit-user">' + esc(e.user) + '</span>' +
+        '<span class="audit-time">' + esc(e.time) + '</span>' +
+        '</a>'
+      );
+    }).join('');
+  }
+
+  function apply(data) {
+    var m = data.metrics || {};
+    var pq = data.pending_queue || {};
+    var totalPending = pq.total || 0;
+
+    text('[data-dash="now"]', data.now || '');
+    text('[data-dash="sessions-total"]', (m.active_sessions || 0) + ' total');
+    text('[data-dash="sessions-user"]', m.active_sessions_user || 0);
+    text('[data-dash="sessions-app"]', m.active_sessions_app || 0);
+
+    var blocked = m.blocked_attempts;
+    text('[data-dash="blocked-value"]', blocked == null ? '—' : blocked);
+    setTrend($('[data-dash="blocked-trend"]'), blocked ? 'up' : 'down', blocked ? '↑' : '↓');
+    if (blocked == null) {
+      text('[data-dash="blocked-sub"]', 'Indisponible');
+    } else {
+      var bans = m.blocked_attempts_active_bans || 0;
+      var sub = (m.blocked_attempts_window_hours || 24) + ' h'
+        + ' · ' + (m.blocked_attempts_waf || 0) + ' WAF'
+        + ' · ' + (m.blocked_attempts_auth || 0) + ' auth';
+      if (bans) sub += ' · ' + bans + (bans === 1 ? ' ban' : ' bans');
+      text('[data-dash="blocked-sub"]', sub);
+    }
+
+    var health = pct(m.enabled_apps || 0, m.total_apps || 0);
+    text('[data-dash="apps-value"]', health == null ? '—' : (health + '%'));
+    text('[data-dash="apps-trend"]', health == null ? '—' : (health + '%'));
+    var appsTrend = $('[data-dash="apps-trend"]');
+    if (appsTrend) {
+      appsTrend.className = 'metric-trend ' + (
+        m.total_apps && m.enabled_apps === m.total_apps ? 'down' : 'flat'
+      );
+    }
+    text('[data-dash="apps-sub"]', (m.enabled_apps || 0) + '/' + (m.total_apps || 0) + ' apps actives');
+
+    text('[data-dash="pending-value"]', totalPending);
+    setTrend($('[data-dash="pending-trend"]'), totalPending ? 'up' : 'flat', totalPending ? 'Action' : 'OK');
+    text('[data-dash="pending-sub"]', totalPending ? 'À traiter' : 'Rien en file');
+
+    renderPending($('[data-dash="pending-list"]'), pq.entries || [], totalPending);
+    renderAudit($('[data-dash="audit-list"]'), data.recent_audit);
+
+    var nav = document.querySelector('.nav-item[href="/dashboard"] .nav-badge');
+    if (nav) {
+      if (totalPending > 0) {
+        nav.textContent = String(totalPending);
+        nav.setAttribute('aria-label', totalPending + ' éléments en attente');
+        nav.hidden = false;
+      } else {
+        nav.hidden = true;
+      }
+    }
+
+    text('[data-dash="live-label"]', 'Live');
+    var pill = $('[data-dash="live-pill"]');
+    if (pill) pill.classList.remove('is-stale');
+  }
+
+  function markError() {
+    text('[data-dash="live-label"]', 'Pause');
+    var pill = $('[data-dash="live-pill"]');
+    if (pill) pill.classList.add('is-stale');
+  }
+
+  function tick() {
+    if (document.hidden || inFlight) return;
+    inFlight = true;
+    fetch('/api/dashboard', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.json();
+      })
+      .then(apply)
+      .catch(markError)
+      .finally(function () { inFlight = false; });
+  }
+
+  function schedule() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    if (document.hidden) return;
+    tick();
+    timer = setInterval(tick, pollMs);
+  }
+
+  document.addEventListener('visibilitychange', schedule);
+  schedule();
+})();
+</script>
 {% endblock %}

@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from app.audit import list_audit_entries
 from app.bastion.modsec_audit_aggregator import read_audit_summary
 from app.database import get_db
 from app.db.hot_store import hot_read
 from app.models import App, AuditLog, SecurityBan, utcnow
 from app.sso_settings import Settings, get_settings
+from app.web.pending_queue_service import build_pending_action_items
 from app.web.sessions_service import count_active_sessions_by_kind
 from app.web.user_context import require_admin
 
@@ -127,9 +130,36 @@ def get_dashboard_metrics(db: Session, settings: Settings | None = None) -> dict
     }
 
 
+def get_dashboard_snapshot(db: Session, settings: Settings) -> dict[str, Any]:
+    """Full dashboard payload for live polling (KPIs + pending + recent audit)."""
+    metrics = get_dashboard_metrics(db, settings)
+    pending_queue = build_pending_action_items(db)
+    audit_page = hot_read(
+        lambda: list_audit_entries(db, limit=8),
+        default=None,
+        what="recent audit entries",
+        db=db,
+    )
+    recent_audit = audit_page[0] if audit_page else None
+    return {
+        "now": utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "metrics": metrics,
+        "pending_queue": pending_queue,
+        "recent_audit": recent_audit,
+    }
+
+
 @router.get("/metrics")
 def get_metrics(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     return get_dashboard_metrics(db, settings)
+
+
+@router.get("/dashboard")
+def get_dashboard(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    return get_dashboard_snapshot(db, settings)

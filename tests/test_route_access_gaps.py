@@ -80,3 +80,17 @@ def test_api_metrics_requires_admin(client: TestClient):
     assert admin.status_code == 200
     body = admin.json()
     assert "active_sessions" in body
+
+
+def test_api_dashboard_requires_admin(client: TestClient):
+    user = client.get("/api/dashboard", headers=USER_HEADERS)
+    assert user.status_code == 403
+    admin = client.get("/api/dashboard", headers=ADMIN_HEADERS)
+    assert admin.status_code == 200
+    body = admin.json()
+    assert "metrics" in body
+    assert "active_sessions" in body["metrics"]
+    assert "pending_queue" in body
+    assert "total" in body["pending_queue"]
+    assert "recent_audit" in body
+    assert "now" in body
