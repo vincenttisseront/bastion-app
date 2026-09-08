@@ -72,14 +72,6 @@ def render_series_chart(
     values = [max(0, int(p.get(value_key) or 0)) for p in series]
     if not series:
         return _empty_panel(title=title, message=empty_message, variant=empty_variant, width=width, height=height)
-    if sum(values) == 0 and empty_variant == "measured_zero":
-        return _empty_panel(
-            title=title,
-            message="Mesure effectuée — aucune activité",
-            variant="measured_zero",
-            width=width,
-            height=height,
-        )
 
     pad_l, pad_b, pad_t, pad_r = 36, 32, 28, 12
     chart_w = width - pad_l - pad_r
@@ -92,6 +84,7 @@ def render_series_chart(
     # Center the bar group when capped width leaves unused horizontal space.
     used_w = n * bar_w + (n - 1) * gap
     offset_x = pad_l + max(0, (chart_w - used_w) // 2)
+    all_zero = sum(values) == 0
 
     parts = [
         f'<svg class="waf-chart waf-chart-series" viewBox="0 0 {width} {height}" '
@@ -99,12 +92,22 @@ def render_series_chart(
         f'<rect class="waf-chart-bg" width="{width}" height="{height}" rx="8"/>',
         f'<text class="waf-chart-title" x="{pad_l}" y="18">{_esc(title)}</text>',
     ]
+    if all_zero:
+        parts.append(
+            f'<text class="waf-chart-axis" x="{width - pad_r}" y="18" text-anchor="end">0</text>'
+        )
     # Grid lines
     for i in range(4):
         gy = pad_t + int(chart_h * i / 3)
         parts.append(
             f'<line class="waf-chart-grid" x1="{pad_l}" y1="{gy}" x2="{width - pad_r}" y2="{gy}"/>'
         )
+    # Baseline (emphasises the zero floor when bars are flat).
+    base_y = pad_t + chart_h
+    parts.append(
+        f'<line class="waf-chart-baseline" x1="{pad_l}" y1="{base_y}" '
+        f'x2="{width - pad_r}" y2="{base_y}"/>'
+    )
     for i, (point, val) in enumerate(zip(series, values)):
         x = offset_x + i * (bar_w + gap)
         h = int((val / max_v) * chart_h) if val else 0
@@ -134,16 +137,21 @@ def render_horizontal_bars(
     label_col_w: int = 220,
 ) -> str:
     """Horizontal bars with a dedicated label column (no bar overlap / 16-char clip)."""
-    inner_h = max(60, 36 + len(items) * row_height) if items else 100
-    height = inner_h + 8
     if not items:
-        return _empty_panel(
-            title=title,
-            message="Aucune entrée sur la période",
-            variant="measured_zero",
-            width=width,
-            height=height,
+        height = 100
+        return (
+            f'<svg class="waf-chart waf-chart-hbars" viewBox="0 0 {width} {height}" '
+            f'width="100%" height="{height}" role="img" aria-label="{_esc(title)}">'
+            f'<rect class="waf-chart-bg" width="{width}" height="{height}" rx="8"/>'
+            f'<text class="waf-chart-title" x="16" y="20">{_esc(title)}</text>'
+            f'<line class="waf-chart-baseline" x1="{label_col_w}" y1="52" '
+            f'x2="{width - 24}" y2="52"/>'
+            f'<text class="waf-chart-axis" x="{label_col_w}" y="48">0</text>'
+            f'<text class="waf-chart-legend" x="16" y="72">Aucune entrée sur la période</text>'
+            f"</svg>"
         )
+    inner_h = max(60, 36 + len(items) * row_height)
+    height = inner_h + 8
     max_v = max(int(it.get(value_key) or 0) for it in items) or 1
     parts = [
         f'<svg class="waf-chart waf-chart-hbars" viewBox="0 0 {width} {height}" '
@@ -191,24 +199,33 @@ def render_donut_chart(
     height: int = 180,
 ) -> str:
     total = sum(int(it.get(value_key) or 0) for it in items)
-    if not items or total == 0:
-        return _empty_panel(
-            title=title,
-            message="Aucune détection classée",
-            variant="measured_zero",
-            width=width,
-            height=height,
-        )
-
     colors = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#64748b"]
     cx, cy, r, ri = 88, height // 2 + 8, 52, 32
-    start = -math.pi / 2
     parts = [
         f'<svg class="waf-chart waf-chart-donut" viewBox="0 0 {width} {height}" '
         f'width="100%" height="{height}" role="img" aria-label="{_esc(title)}">',
         f'<rect class="waf-chart-bg" width="{width}" height="{height}" rx="8"/>',
         f'<text class="waf-chart-title" x="16" y="20">{_esc(title)}</text>',
     ]
+    if not items or total == 0:
+        # Empty ring at 0 — keeps the same visual language as an active donut.
+        parts.append(
+            f'<circle cx="{cx}" cy="{cy}" r="{(r + ri) / 2:.1f}" fill="none" '
+            f'stroke="#e2e8f0" stroke-width="{r - ri}"/>'
+        )
+        parts.append(
+            f'<text class="waf-chart-donut-center" x="{cx}" y="{cy - 2}" text-anchor="middle">0</text>'
+        )
+        parts.append(
+            f'<text class="waf-chart-donut-sub" x="{cx}" y="{cy + 12}" text-anchor="middle">détections</text>'
+        )
+        parts.append(
+            f'<text class="waf-chart-legend" x="180" y="{height // 2 + 4}">Aucune famille détectée</text>'
+        )
+        parts.append("</svg>")
+        return "".join(parts)
+
+    start = -math.pi / 2
     for i, it in enumerate(items):
         val = int(it.get(value_key) or 0)
         if val <= 0:
@@ -291,14 +308,6 @@ def render_dual_area_chart(
         return _empty_panel(title=title, message=empty_message, variant=empty_variant, width=width, height=height)
     p_vals = [max(0, int(p.get(primary_key) or 0)) for p in series]
     s_vals = [max(0, int(p.get(secondary_key) or 0)) for p in series]
-    if sum(p_vals) + sum(s_vals) == 0 and empty_variant == "measured_zero":
-        return _empty_panel(
-            title=title,
-            message="Mesure effectuée — aucune activité",
-            variant="measured_zero",
-            width=width,
-            height=height,
-        )
 
     pad_l, pad_b, pad_t, pad_r = 52, 36, 32, 16
     chart_w = width - pad_l - pad_r
@@ -465,14 +474,6 @@ def render_owasp_bars(
     width: int = 560,
 ) -> str:
     """Horizontal bars with readable CRS id + label (Sentinel threat intel)."""
-    if not items:
-        return _empty_panel(
-            title=title,
-            message="Aucune règle déclenchée",
-            variant="measured_zero",
-            width=width,
-            height=140,
-        )
     return render_horizontal_bars(
         items,
         label_key="label",

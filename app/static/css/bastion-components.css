@@ -1584,6 +1584,7 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .waf-chart-bg{fill:var(--bg-tertiary);stroke:var(--border-muted);stroke-width:1}
 .waf-chart-title{fill:var(--text-muted);font-size:11px;font-weight:600}
 .waf-chart-grid{stroke:var(--border-muted);stroke-width:1;opacity:.6}
+.waf-chart-baseline{stroke:var(--text-3);stroke-width:1.5;opacity:.55}
 .waf-chart-bar{fill:var(--accent)}
 .waf-chart-axis{fill:var(--text-muted);font-size:9px}
 .waf-chart-hbar-label{fill:var(--text-2);font-size:10px}
