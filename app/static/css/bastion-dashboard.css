@@ -74,6 +74,8 @@
 .admin-card:hover .admin-arrow{opacity:1;color:var(--accent);transform:translateX(3px)}
 
 .live-pill,.live-indicator{display:inline-flex;align-items:center;gap:var(--sp-2);font-size:var(--fs-xs);font-weight:700;letter-spacing:.1em;color:var(--ok);background:var(--ok-bg);border:1px solid rgba(16,185,129,.25);padding:3px 10px;border-radius:var(--r-full);text-transform:uppercase}
+.live-pill.is-stale,.live-indicator.is-stale{color:var(--warn);background:var(--warn-bg,rgba(245,158,11,.12));border-color:rgba(245,158,11,.3)}
+.live-pill.is-stale .live-dot{background:var(--warn);animation:none}
 .live-dot{width:7px;height:7px;border-radius:var(--r-full);background:var(--ok);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,.6)}50%{box-shadow:0 0 0 5px rgba(16,185,129,0)}}
 
