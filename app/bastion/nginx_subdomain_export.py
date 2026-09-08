@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
+from app.bastion.bastion_fields import normalize_sso_bridge
 from app.bastion.upstream_proxy import upstream_origin
 from app.bastion.upstream_tls import (
     nginx_proxy_ssl_verify_directive,
@@ -505,20 +506,36 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        return 200 'ok\\n';",
         "    }",
         "",
-        "    # Never run auth_request on /auth/login here — 401 would 302 to",
-        "    # /auth/login?rd=… on this Host and nest until the URL explodes.",
-        "    location = /auth/login {",
-        "        auth_request off;",
-        "        modsecurity off;",
-        f"        return 302 https://{portal_esc}/auth/login;",
-        "    }",
-        "    location = /login {",
-        "        auth_request off;",
-        "        modsecurity off;",
-        f"        return 302 https://{portal_esc}/auth/login;",
-        "    }",
-        "",
     ]
+    # trusted_headers: app has no useful /auth/login on this Host — bounce to
+    # portal so a bare bookmark cannot nest with auth_request error_page.
+    # app_oidc: Immich/etc. use /auth/login (and sometimes /login) as their
+    # OIDC callback — must fall through to location / (gate + proxy_pass).
+    if normalize_sso_bridge(getattr(app, "sso_bridge", None)) == "app_oidc":
+        lines.extend(
+            [
+                "    # app_oidc — keep /auth/login and /login on this Host (OIDC callback).",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "    # Never run auth_request on /auth/login here — 401 would 302 to",
+                "    # /auth/login?rd=… on this Host and nest until the URL explodes.",
+                "    location = /auth/login {",
+                "        auth_request off;",
+                "        modsecurity off;",
+                f"        return 302 https://{portal_esc}/auth/login;",
+                "    }",
+                "    location = /login {",
+                "        auth_request off;",
+                "        modsecurity off;",
+                f"        return 302 https://{portal_esc}/auth/login;",
+                "    }",
+                "",
+            ]
+        )
     if crushftp:
         # CrushFTP aborts TLS on directory URLs; force the explicit index file.
         lines.extend(

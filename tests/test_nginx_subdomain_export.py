@@ -240,6 +240,30 @@ def test_generate_server_block_strips_web_path():
     assert "/auth/login?rd=https://" in block
 
 
+def test_app_oidc_keeps_auth_login_on_app_host():
+    """OIDC callback paths must not be hijacked to the portal (Immich, …)."""
+    app = App(
+        slug="immich",
+        label="Photos",
+        upstream_url="http://immich_server:2283",
+        access_mode="subdomain_proxy",
+        public_fqdn="immich.example.com",
+        realm_slug="default",
+        sso_bridge="app_oidc",
+        login_form_url="https://immich.example.com/",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert "app_oidc — keep /auth/login" in block
+    assert "location = /auth/login {" not in block
+    assert "location = /login {" not in block
+    assert "return 302 https://portal.ar-systems.fr/auth/login;" not in block
+    # Unauthenticated browsers still bounce to portal via error_page.
+    assert "auth_request /internal/subdomain-auth;" in block
+    assert "@portal_redirect_immich" in block
+    assert "rd=https://$bastion_vhost_fqdn$request_uri" in block
+
+
 def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     """Upstream CrushAuth filter must not imply auth_request drops bastion_session."""
     app = App(
