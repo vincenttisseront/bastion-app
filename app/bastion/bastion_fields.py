@@ -92,8 +92,10 @@ SSO_BRIDGE_HELP: dict[str, str] = {
     "app_oidc": (
         "L’application ignore les en-têtes bruts : elle crée sa session via "
         "sa propre stratégie OpenID / OAuth (même IdP que le portail). "
-        "Configurez Bypass Login / équivalent côté app et une URL d’entrée "
-        "portail (souvent …/login) pour que la tuile déclenche le SSO."
+        "Configurez Bypass Login / Auto Launch côté app et une URL d’entrée "
+        "portail (souvent la racine /) pour que la tuile déclenche le SSO. "
+        "Les chemins /auth/login et /login restent proxifiés vers l’app "
+        "(callback OIDC) — ils ne sont pas redirigés vers le portail."
     ),
 }
 
