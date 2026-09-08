@@ -141,7 +141,9 @@ def test_degraded_unavailable_vs_measured_zero(client: TestClient, db_session: S
     ):
         resp2 = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert "waf-kpi-quiet" in resp2.text or "aucune activité CRS" in resp2.text
-    assert "waf-chart-unavailable" in resp2.text or "waf-chart-measured_zero" in resp2.text
+    # Zero activity still draws charts (flat line / empty ring), not grey empty panels.
+    assert "waf-chart-series" in resp2.text or "sentinel-line-primary" in resp2.text
+    assert "Mesure effectuée" not in resp2.text
 
 
 def test_no_external_network_on_page(client: TestClient, db_session: Session):

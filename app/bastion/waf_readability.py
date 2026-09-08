@@ -1348,7 +1348,22 @@ def build_threat_intel_visuals(
             "top_rules": [],
         }
     summary = read_audit_summary(settings)
+    measured_zero = efficiency.get("status") == "measured_zero"
     series_24h = (summary.get("series") or {}).get("24h") or []
+    if not series_24h and measured_zero:
+        # Incomplete summary still gets a 24 h zero floor (visual chart, not grey box).
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        series_24h = [
+            {
+                "label": (now - timedelta(hours=i)).strftime("%Hh"),
+                "detections": 0,
+                "inspected": 0,
+                "blocks": 0,
+            }
+            for i in range(23, -1, -1)
+        ]
     window = (summary.get("windows") or {}).get("24h") or {}
     recent_raw = list(summary.get("recent_events") or [])
     top_rules: list[dict[str, Any]] = []
@@ -1404,7 +1419,6 @@ def build_threat_intel_visuals(
         if geoloc_enabled
         else "Origine des attaques (réseaux /24 × heure)"
     )
-    measured_zero = efficiency.get("status") == "measured_zero"
     empty_variant = "measured_zero" if measured_zero else "empty"
     top_attackers = [
         {"label": a.get("ip") or a.get("label") or "—", "count": a.get("count")}
