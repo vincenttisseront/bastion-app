@@ -156,7 +156,61 @@ EOF
     include /etc/nginx/includes/security-headers-portal-csp.conf;
 EOF
   fi
-  cat >> "$OUT" <<EOF
+  # Shared proxy body for :443 → :8080. Quoted heredoc keeps literal $nginx vars;
+  # expanding ${_proxy_headers} into unquoted <<EOF writes them unchanged (not re-escaped).
+  _proxy_headers=$(cat <<'PROXY_EOF'
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        # Required: hop-by-hop Upgrade/Connection are dropped unless re-set
+        # (Teleport wss://…/connect/ws fails without these).
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        # oauth2-proxy Set-Cookie (id_token+refresh) often exceeds default 4k/8k
+        # → nginx 500 "upstream sent too big header" on /oauth2/*/callback.
+        proxy_buffer_size 128k;
+        proxy_buffers 8 128k;
+        proxy_busy_buffers_size 256k;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_set_header Host $host;
+        # Edge → :8080: peer becomes 127.0.0.1; map only trusts X-Portal-Client-IP
+        # from infra peers (see nginx-portal-client-ip.map.conf).
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Portal-Client-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port 443;
+PROXY_EOF
+)
+
+  if [[ "$family" == "mta_sts" ]]; then
+    # Only policy GETs matter for Accès apps; scanners (/favicon, CMS probes) stay quiet.
+    cat >> "$OUT" <<EOF
+
+    absolute_redirect off;
+    port_in_redirect off;
+
+    error_log  /var/log/nginx/apps/${slug}.error.log warn;
+
+    client_max_body_size 1m;
+    proxy_request_buffering off;
+    proxy_buffering off;
+
+    location = /.well-known/mta-sts.txt {
+        access_log /var/log/nginx/apps/${slug}.access.log app;
+${_proxy_headers}
+    }
+
+    location / {
+        access_log off;
+${_proxy_headers}
+    }
+}
+
+EOF
+  else
+    cat >> "$OUT" <<EOF
 
     absolute_redirect off;
     port_in_redirect off;
@@ -170,31 +224,10 @@ EOF
     proxy_buffering off;
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_http_version 1.1;
-        # Required: hop-by-hop Upgrade/Connection are dropped unless re-set
-        # (Teleport wss://…/connect/ws fails without these).
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection \$connection_upgrade;
-        # oauth2-proxy Set-Cookie (id_token+refresh) often exceeds default 4k/8k
-        # → nginx 500 "upstream sent too big header" on /oauth2/*/callback.
-        proxy_buffer_size 128k;
-        proxy_buffers 8 128k;
-        proxy_busy_buffers_size 256k;
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-        proxy_set_header Host \$host;
-        # Edge → :8080: peer becomes 127.0.0.1; map only trusts X-Portal-Client-IP
-        # from infra peers (see nginx-portal-client-ip.map.conf). Escape \$ in this
-        # heredoc — set -u treats bare \$vars as unbound (broke sync after #115).
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Portal-Client-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$remote_addr;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-Host \$host;
-        proxy_set_header X-Forwarded-Port 443;
+${_proxy_headers}
     }
 }
 
 EOF
+  fi
 done < <(emit_rows)

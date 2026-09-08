@@ -175,7 +175,10 @@ def generate_nginx_mta_sts_conf(
             # fail on hosts without IPv6 (errno 97) and block all reloads / startup.
             "    listen 0.0.0.0:8080;",
             f"    server_name {server_names};",
-            "    access_log /var/log/nginx/apps/mta-sts.access.log app;",
+            # No access_log here: peer is always 127.0.0.1 (edge :443 → :8080).
+            # Policy GETs are logged on the ACME edge (family=mta_sts) with real client IP.
+            # Logging scanners (/favicon, /administrator/…) here would pollute Accès apps.
+            "    access_log off;",
             "    error_log  /var/log/nginx/apps/mta-sts.error.log warn;",
             "",
             "    # Static policy — no auth, no upstream.",

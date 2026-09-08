@@ -116,8 +116,14 @@ def test_acme_tls_sync_forwards_websocket_headers():
     assert text.count("proxy_request_buffering off;") >= 2
     # Edge must pass client IP as X-Portal-Client-IP so :8080 map (peer=127.0.0.1)
     # can resolve break-glass / audit IP (X-Real-IP alone is overwritten on portal).
-    assert text.count("X-Portal-Client-IP \\$remote_addr") >= 2
-    assert text.count("X-Forwarded-For \\$remote_addr") >= 2
+    # default_server uses \$ escape; per-FQDN block uses quoted PROXY_EOF ($ literal).
+    assert text.count("X-Portal-Client-IP") >= 2
+    assert text.count("X-Forwarded-For") >= 2
+    assert "X-Portal-Client-IP \\$remote_addr" in text or "X-Portal-Client-IP $remote_addr" in text
+    # MTA-STS edge: log only policy path (scanners must not fill Accès apps).
+    assert "family\" == \"mta_sts\"" in text or 'family" == "mta_sts"' in text or '[[ "$family" == "mta_sts" ]]' in text
+    assert "location = /.well-known/mta-sts.txt" in text
+    assert "access_log off;" in text
     # Comments inside <<EOF must not contain bare $vars (set -u → unbound).
     assert "$portal_client_real_ip" not in text
     main = (ROOT / "docker/nginx/nginx.conf").read_text(encoding="utf-8")
