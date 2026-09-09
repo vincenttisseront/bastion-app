@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any
+from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
@@ -427,7 +428,10 @@ def build_notification_feed(
                     "category": "security",
                     "title": row.action,
                     "body": " · ".join(str(p) for p in body_parts) or (row.actor or ""),
-                    "href": f"/admin/logs?q={row.action}&status=error",
+                    "href": (
+                        f"/admin/logs?q={quote(str(row.action or ''), safe='')}"
+                        "&status=error"
+                    ),
                     "time": _fmt_time(row.created_at),
                     "count": 1,
                     "counts_for_badge": False,

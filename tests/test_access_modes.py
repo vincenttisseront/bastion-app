@@ -45,7 +45,7 @@ def test_app_launch_url_subdomain_uses_login_entry_path():
         robotic_driver=None,
         login_form_url="https://webmail.example.fr/web/?logon",
     )
-    assert app_launch_url(app) == "https://webmail.example.fr/web/"
+    assert app_launch_url(app) == "https://webmail.example.fr/web/?logon"
 
 
 def test_app_launch_url_wikijs_sso_entry_keeps_login_without_slash():
@@ -53,12 +53,30 @@ def test_app_launch_url_wikijs_sso_entry_keeps_login_without_slash():
     app = SimpleNamespace(
         access_mode="subdomain_proxy",
         upstream_url="https://10.0.31.112/",
-        public_fqdn="wikijs.ar-systems.fr",
+        public_fqdn="wikijs.example.com",
         slug="wikijs",
         robotic_driver=None,
-        login_form_url="https://wikijs.ar-systems.fr/login",
+        login_form_url="https://wikijs.example.com/login",
     )
-    assert app_launch_url(app) == "https://wikijs.ar-systems.fr/login"
+    assert app_launch_url(app) == "https://wikijs.example.com/login"
+
+
+def test_app_launch_url_jenkins_oidc_commence_login():
+    """Jenkins oic-auth: tile must hit commenceLogin without a trailing slash."""
+    app = SimpleNamespace(
+        access_mode="subdomain_proxy",
+        upstream_url="https://10.0.0.20/",
+        public_fqdn="jenkins.example.com",
+        slug="jenkins",
+        robotic_driver=None,
+        login_form_url=(
+            "https://jenkins.example.com/securityRealm/commenceLogin?from=%2F"
+        ),
+    )
+    assert (
+        app_launch_url(app)
+        == "https://jenkins.example.com/securityRealm/commenceLogin?from=%2F"
+    )
 
 
 def test_normalize_sso_bridge_and_app_oidc_requires_entry():

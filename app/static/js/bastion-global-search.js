@@ -74,7 +74,16 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  /** Same-origin path only — blocks javascript:/data:/protocol-relative URLs. */
+  function safeHref(href) {
+    var s = String(href == null ? "" : href).trim();
+    if (!s) return "#";
+    if (s.charAt(0) === "/" && s.charAt(1) !== "/") return s;
+    return "#";
   }
 
   function foldText(value) {
@@ -249,7 +258,7 @@
 
   function makeRow(item, categoryKey, query) {
     var a = document.createElement("a");
-    a.href = item.url || "#";
+    a.href = safeHref(item.url || "#");
     a.className = "global-search-item";
     a.setAttribute("role", "option");
     a.setAttribute("aria-selected", "false");
