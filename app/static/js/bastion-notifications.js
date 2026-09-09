@@ -13,6 +13,14 @@
     return d.innerHTML;
   }
 
+  /** Same-origin path only — blocks javascript:/data:/protocol-relative URLs. */
+  function safeHref(href) {
+    var s = String(href == null ? '' : href).trim();
+    if (!s) return '#';
+    if (s.charAt(0) === '/' && s.charAt(1) !== '/') return s;
+    return '#';
+  }
+
   function severityClass(sev) {
     if (sev === 'error' || sev === 'err') return 'err';
     if (sev === 'warn' || sev === 'warning') return 'warn';
@@ -96,7 +104,7 @@
         .map(function (s) {
           return (
             '<a class="notif-shortcut" href="' +
-            esc(s.href) +
+            esc(safeHref(s.href)) +
             '" title="' +
             esc(s.hint || '') +
             '">' +
@@ -144,7 +152,7 @@
           return (
             '<div class="notif-item-wrap">' +
             '<a class="notif-item" href="' +
-            esc(it.href || '#') +
+            esc(safeHref(it.href || '#')) +
             '">' +
             '<span class="dot dot-' +
             sev +

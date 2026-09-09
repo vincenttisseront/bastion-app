@@ -86,6 +86,22 @@ def test_dismiss_hides_until_fingerprint_changes(db_session):
     assert any(i["id"] == "pending-hosts" for i in feed3["items"])
 
 
+def test_denied_detail_href_urlencodes_action(db_session):
+    """Per-event denied links must keep a well-formed /admin/logs?q=… query."""
+    log_action(
+        db_session,
+        actor="anonymous",
+        action="access_denied_no_grant",
+        target="app.example.com",
+        details={"uri": "/secret", "reason": "no_grant"},
+        ip_address="10.0.0.10",
+    )
+    feed = build_notification_feed(db_session, user_email="admin@example.com")
+    detail = next((i for i in feed["items"] if str(i["id"]).startswith("audit-")), None)
+    assert detail is not None
+    assert detail["href"] == "/admin/logs?q=access_denied_no_grant&status=error"
+
+
 def test_dismiss_all_api(client, db_session):
     db_session.add(
         PendingHost(hostname="teleport.example.fr", status="pending", hit_count=1)

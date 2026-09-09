@@ -75,19 +75,55 @@ def is_user_catalogue_mode(access_mode: str | None) -> bool:
     return normalize_access_mode(access_mode) not in CATALOGUE_EXCLUDED_ACCESS_MODES
 
 
+# Path segments / leaf names that must keep their exact form (no trailing slash).
+# Jenkins oic-auth uses ``/securityRealm/commenceLogin`` — a forced ``/`` breaks SSO.
+_AUTH_ENTRY_NAMES = frozenset(
+    {
+        "login",
+        "signin",
+        "auth",
+        "sso",
+        "oauth",
+        "oidc",
+        "saml",
+        "securityrealm",
+        "commencelogin",
+    }
+)
+_AUTH_ENTRY_MARKERS = ("login", "signin", "auth", "sso", "oauth", "oidc", "saml")
+
+
+def _normalize_browser_entry_path(path: str) -> str:
+    """
+    Directory-style paths without a trailing slash get one (``/web`` → ``/web/``).
+    Auth entry points and file-like paths keep their exact form (``/login``,
+    ``/securityRealm/commenceLogin``, ``/index.php``).
+    """
+    if path in ("", "/"):
+        return "/"
+    if path.endswith("/"):
+        return path
+    last = path.rsplit("/", 1)[-1].lower()
+    segments = {s.lower() for s in path.strip("/").split("/") if s}
+    if (
+        "." in last
+        or last in _AUTH_ENTRY_NAMES
+        or segments & _AUTH_ENTRY_NAMES
+        or any(m in last for m in _AUTH_ENTRY_MARKERS)
+    ):
+        return path
+    return f"{path}/"
+
+
 def upstream_entry_path(app) -> str:
     """
     Browser entry path on the public FQDN (e.g. ``/web/`` for grommunio,
     ``/login`` for Wiki.js OIDC bypass).
 
     Prefer ``login_form_url`` path; else a non-root path on ``upstream_url``.
-    Nginx still proxies origin-only — this is only for redirects / probes.
-
-    Directory-style paths without a trailing slash get one (``/web`` → ``/web/``).
-    Auth entry points and file-like paths keep their exact form (``/login``,
-    ``/index.php``) — Wiki.js Bypass Login Screen breaks on ``/login/``.
+    Query strings are ignored here (probes / internal paths) — see
+    ``public_app_entry_url`` for tile launch URLs that preserve ``?…``.
     """
-    _AUTH_ENTRY_NAMES = frozenset({"login", "signin", "auth", "sso", "oauth", "oidc"})
     for raw in (
         (getattr(app, "login_form_url", None) or "").strip(),
         (getattr(app, "upstream_url", None) or "").strip(),
@@ -97,20 +133,27 @@ def upstream_entry_path(app) -> str:
         path = urlparse(raw).path or "/"
         if path in ("", "/"):
             continue
-        if path.endswith("/"):
-            return path
-        last = path.rsplit("/", 1)[-1].lower()
-        if "." in last or last in _AUTH_ENTRY_NAMES:
-            return path
-        return f"{path}/"
+        return _normalize_browser_entry_path(path)
     return "/"
 
 
 def public_app_entry_url(app, *, root_trailing_slash: bool = False) -> str | None:
-    """``https://{public_fqdn}`` or ``https://{public_fqdn}/web/`` when an entry path exists."""
+    """``https://{public_fqdn}`` (+ entry path/query from ``login_form_url`` when set)."""
     fqdn = (getattr(app, "public_fqdn", None) or "").strip()
     if not fqdn:
         return None
+
+    login_raw = (getattr(app, "login_form_url", None) or "").strip()
+    if login_raw:
+        parsed = urlparse(login_raw)
+        path = _normalize_browser_entry_path(parsed.path or "/")
+        query = f"?{parsed.query}" if parsed.query else ""
+        if path == "/" and not query:
+            return f"https://{fqdn}/" if root_trailing_slash else f"https://{fqdn}"
+        if path == "/":
+            return f"https://{fqdn}/{query}" if root_trailing_slash else f"https://{fqdn}{query}"
+        return f"https://{fqdn}{path}{query}"
+
     path = upstream_entry_path(app)
     if path == "/":
         return f"https://{fqdn}/" if root_trailing_slash else f"https://{fqdn}"

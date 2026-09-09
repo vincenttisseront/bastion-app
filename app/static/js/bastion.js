@@ -476,17 +476,28 @@ function initAccessModeForm() {
     fqdnCookieWarn.hidden = !show;
   }
 
+  function setLabelWithReq(el, text) {
+    if (!el) return;
+    el.textContent = '';
+    el.appendChild(document.createTextNode(String(text || '')));
+    el.appendChild(document.createTextNode(' '));
+    var req = document.createElement('span');
+    req.className = 'req';
+    req.textContent = '*';
+    el.appendChild(req);
+  }
+
   function applyMode() {
     var mode = select.value;
     var copy = ACCESS_MODE_COPY[mode] || ACCESS_MODE_COPY.sso_gate;
-    labelEl.innerHTML = copy.upstreamLabel + ' <span class="req">*</span>';
+    setLabelWithReq(labelEl, copy.upstreamLabel);
     helpEl.textContent = copy.upstreamHelp;
     if (upstreamInput && copy.upstreamPlaceholder) {
       upstreamInput.placeholder = copy.upstreamPlaceholder;
     }
     if (fqdnGroup) fqdnGroup.hidden = !copy.showFqdn;
     if (fqdnLabelEl) {
-      fqdnLabelEl.innerHTML = copy.fqdnLabel + ' <span class="req">*</span>';
+      setLabelWithReq(fqdnLabelEl, copy.fqdnLabel);
     }
     var easWrap = document.getElementById('allow-activesync-wrap');
     var easHelp = document.getElementById('allow-activesync-help');
@@ -616,7 +627,8 @@ function initLoginFormAnalyzer() {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function parseExtraJson() {
