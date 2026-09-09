@@ -744,6 +744,7 @@ def build_waf_ui_context(
         "executive_summary": readability.get("executive_summary") or {},
         "threat_intel": readability.get("threat_intel") or {},
         "quarantine_panel": readability.get("quarantine_panel") or {},
+        "security_bans_all": readability.get("security_bans_all") or [],
         "quick_controls": readability.get("quick_controls") or [],
         "ip_geolocation": readability.get("ip_geolocation") or {},
         "security_policy_enabled": readability.get("security_policy_enabled", True),
