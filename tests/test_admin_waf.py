@@ -117,6 +117,32 @@ def test_waf_page_ok_as_admin(client: TestClient, db_session: Session, tmp_path:
         resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
     assert resp.status_code == 200
     assert "Couches de protection" in resp.text
+
+
+def test_waf_page_lists_active_security_bans(
+    client: TestClient, db_session: Session, tmp_path: Path
+):
+    """Regression: security_bans_all must reach the template (was dropped in ui context)."""
+    from app.models import SecurityBan
+
+    _seed_profile(db_session)
+    db_session.add(
+        SecurityBan(
+            target_type="ip",
+            target="10.0.0.50",
+            reason="hammering",
+            rule_type="hammering",
+            permanent=True,
+            created_by="test",
+        )
+    )
+    db_session.commit()
+    with _patch_snapshot(tmp_path, mode=MODE_ON):
+        resp = client.get("/admin/security/waf", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert "id=\"bans-unified\"" in resp.text or 'id="bans-unified"' in resp.text
+    assert "10.0.0.50" in resp.text
+    assert "Aucun ban actif" not in resp.text
     assert "Derniers blocages" in resp.text
     assert "Géolocalisation IP" in resp.text
     assert "waf-sentinel.css" in resp.text

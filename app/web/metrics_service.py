@@ -13,7 +13,7 @@ from app.audit import list_audit_entries
 from app.bastion.modsec_audit_aggregator import read_audit_summary
 from app.database import get_db
 from app.db.hot_store import hot_read
-from app.models import App, AuditLog, SecurityBan, utcnow
+from app.models import App, AuditLog, utcnow
 from app.sso_settings import Settings, get_settings
 from app.web.pending_queue_service import build_pending_action_items
 from app.web.sessions_service import count_active_sessions_by_kind
@@ -74,19 +74,10 @@ def _waf_blocks_24h(settings: Settings) -> int | None:
 
 
 def _active_ban_count(db: Session) -> int:
-    now = utcnow()
-    return (
-        db.query(SecurityBan)
-        .filter(
-            SecurityBan.lifted_at.is_(None),
-            or_(
-                SecurityBan.permanent.is_(True),
-                SecurityBan.expires_at.is_(None),
-                SecurityBan.expires_at > now,
-            ),
-        )
-        .count()
-    )
+    """Same source of truth as WAF « Bans actifs (unifiés) »."""
+    from app.security.banning.service import list_active_bans
+
+    return len(list_active_bans(db))
 
 
 def get_dashboard_metrics(db: Session, settings: Settings | None = None) -> dict:
