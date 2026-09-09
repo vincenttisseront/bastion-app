@@ -157,7 +157,9 @@ issue_or_placeholder() {
   else
     SERVER="letsencrypt"
   fi
-  ISSUE_ARGS="--issue --server $SERVER --dns $DNS_API -d $fqdn"
+  # --force: non-interactive. Without it, a leftover domain key from a
+  # previous failed issue aborts with "Domain key exists, … add '--force'".
+  ISSUE_ARGS="--issue --force --server $SERVER --dns $DNS_API -d $fqdn"
   out="$(mktemp)"
   # shellcheck disable=SC2086
   set +e
@@ -168,7 +170,9 @@ issue_or_placeholder() {
   cat "$out"
   # Detect common misconfig for clearer follow-up in our log line
   hint="vérifier Zone DNS Edit sur CF + domaine dans la zone"
-  if grep -qi 'zerossl' "$out" 2>/dev/null; then
+  if grep -qi 'Domain key exists' "$out" 2>/dev/null; then
+    hint="clé domaine acme.sh déjà présente — relancer avec --force (corrigé dans reconcile)"
+  elif grep -qi 'zerossl' "$out" 2>/dev/null; then
     hint="acme.sh a pris ZeroSSL (forcer --server letsencrypt) — redéployer le sidecar"
   elif grep -qi 'register-account\|EAB credentials\|email address' "$out" 2>/dev/null; then
     hint="compte ACME : définir ACME_ACCOUNT_EMAIL et réconcilier"
