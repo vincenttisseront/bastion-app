@@ -198,6 +198,18 @@ def _is_teleport_app(app: App) -> bool:
     return is_teleport_app(app)
 
 
+def _is_jenkins_ci_app(app: App) -> bool:
+    from app.bastion.ci_bridge_paths import is_jenkins_ci_app
+
+    return is_jenkins_ci_app(app)
+
+
+def _is_sonarqube_ci_app(app: App) -> bool:
+    from app.bastion.ci_bridge_paths import is_sonarqube_ci_app
+
+    return is_sonarqube_ci_app(app)
+
+
 def _teleport_agent_proxy_lines(
     *,
     ssl_lines: list[str],
@@ -283,6 +295,60 @@ def _teleport_agent_locations(
         ]
     )
     del slug  # reserved for future per-app tuning
+    return blocks
+
+
+def _ci_bridge_locations(
+    *,
+    ssl_lines: list[str],
+    forwarded_ip_lines: list[str],
+    cookie_lines: list[str],
+    redirect_lines: list[str],
+    fqdn_esc: str,
+    upstream_host_esc: str,
+    jenkins: bool,
+    sonarqube: bool,
+) -> list[str]:
+    """Machine-to-machine CI paths — no portal SSO (token / plugin auth upstream)."""
+    proxy = _teleport_agent_proxy_lines(
+        ssl_lines=ssl_lines,
+        forwarded_ip_lines=forwarded_ip_lines,
+        cookie_lines=cookie_lines,
+        redirect_lines=redirect_lines,
+        fqdn_esc=fqdn_esc,
+        upstream_host_esc=upstream_host_esc,
+    )
+    blocks: list[str] = []
+    if jenkins:
+        blocks.extend(
+            [
+                "    # Jenkins ← SonarQube quality-gate webhook (no portal SSO).",
+                "    location = /sonarqube-webhook {",
+                "        auth_request off;",
+                "        modsecurity off;",
+                *proxy,
+                "    }",
+                "",
+                "    location = /sonarqube-webhook/ {",
+                "        auth_request off;",
+                "        modsecurity off;",
+                *proxy,
+                "    }",
+                "",
+            ]
+        )
+    if sonarqube:
+        blocks.extend(
+            [
+                "    # SonarQube Web API — scanner uses bearer token (not bastion_session).",
+                "    location ^~ /api/ {",
+                "        auth_request off;",
+                "        modsecurity off;",
+                *proxy,
+                "    }",
+                "",
+            ]
+        )
     return blocks
 
 
@@ -572,6 +638,19 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
                 redirect_lines=redirect_lines,
                 fqdn_esc=fqdn_esc,
                 upstream_host_esc=upstream_host_esc,
+            )
+        )
+    if _is_jenkins_ci_app(app) or _is_sonarqube_ci_app(app):
+        lines.extend(
+            _ci_bridge_locations(
+                ssl_lines=ssl_lines,
+                forwarded_ip_lines=forwarded_ip_lines,
+                cookie_lines=cookie_lines,
+                redirect_lines=redirect_lines,
+                fqdn_esc=fqdn_esc,
+                upstream_host_esc=upstream_host_esc,
+                jenkins=_is_jenkins_ci_app(app),
+                sonarqube=_is_sonarqube_ci_app(app),
             )
         )
     if crushftp:

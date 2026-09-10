@@ -402,3 +402,37 @@ def test_portal_redirect_no_app_session_routes_to_impersonate():
     assert "location ^~ /webapi/host/ {" in block
     find_loc = block.split("location = /webapi/find {", 1)[1].split("    }", 1)[0]
     assert "auth_request off;" in find_loc
+
+
+def test_jenkins_sonarqube_webhook_location_bypasses_sso():
+    app = App(
+        slug="jenkins",
+        label="Jenkins",
+        upstream_url="https://10.0.0.20/",
+        access_mode="subdomain_proxy",
+        public_fqdn="jenkins.example.com",
+        auth_mode="sso",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert "location = /sonarqube-webhook/ {" in block
+    webhook = block.split("location = /sonarqube-webhook/ {", 1)[1].split("    }", 1)[0]
+    assert "auth_request off;" in webhook
+    assert "modsecurity off;" in webhook
+
+
+def test_sonarqube_api_location_bypasses_sso():
+    app = App(
+        slug="sonarqube",
+        label="SonarQube",
+        upstream_url="https://10.0.0.21:9000/",
+        access_mode="subdomain_proxy",
+        public_fqdn="sonarqube.example.com",
+        auth_mode="sso",
+        enabled=True,
+    )
+    block = generate_subdomain_server_block(app, _settings())
+    assert "location ^~ /api/ {" in block
+    api = block.split("location ^~ /api/ {", 1)[1].split("    }", 1)[0]
+    assert "auth_request off;" in api
+    assert "modsecurity off;" in api
