@@ -71,6 +71,8 @@ ignore = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Repo root on sys.path so `from tests...` imports work in CI (Docker cwd-only).
+pythonpath = ["."]
 markers = [
     "security_active: light non-destructive probes against staging (needs confirmed IP)",
 ]
