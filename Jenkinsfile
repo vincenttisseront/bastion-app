@@ -1,30 +1,22 @@
 // bastion-app — CI qualité (ruff + pytest + SonarQube)
 //
-// Interconnexion attendue (derrière Bastion) :
-//   Jenkins UI     : https://jenkins.example.com
-//   SonarQube UI   : https://sonarqube.example.com
-//   Scanner → SQ   : https://sonarqube.example.com/api/*  (bypass SSO Bastion + token SQ)
-//   SQ → Jenkins   : https://jenkins.example.com/sonarqube-webhook/  (bypass SSO Bastion)
+// Compatible Jenkins sans plugin "Docker Pipeline" (agent types: any | label | none).
+// Prérequis agent : Docker CLI (docker run) + plugin SonarQube Scanner (withSonarQubeEnv).
 //
 // Prérequis Jenkins :
-//   1. Plugins : Pipeline, Docker Pipeline, JUnit, SonarQube Scanner
+//   1. Plugins : Pipeline, JUnit, SonarQube Scanner
 //   2. Manage Jenkins → System → SonarQube servers
-//        - Name : SonarQube  (ou override SONAR_SERVER_NAME)
-//        - Server URL : https://sonarqube.example.com
-//        - Server authentication token (Global Analysis Token SonarQube)
-//   3. Sur SonarQube : webhook → https://jenkins.example.com/sonarqube-webhook/
-//      (requis pour waitForQualityGate)
-//   4. Agent capable de lancer des conteneurs Docker
-//   5. Bastion : apps jenkins + sonarqube en subdomain_proxy + Apply infra
-//      (chemins /sonarqube-webhook/ et /api/ sans auth_request)
+//        - Name : SonarQube
+//        - Server URL + Server authentication token (Secret text)
+//   3. SonarQube webhook → https://jenkins…/sonarqube-webhook/
+//   4. Agent Linux avec `docker` (groupe jenkins) pour pull python / sonar-scanner-cli
 //
-// Job : Multibranch Pipeline (Jenkinsfile à la racine) ou Pipeline from SCM.
-// Variables optionnelles (job / folder) :
+// Variables optionnelles :
 //   SONAR_SERVER_NAME  — défaut SonarQube
 //   SONAR_PROJECT_KEY  — défaut bastion-app
 
 pipeline {
-  agent none
+  agent any
 
   options {
     timestamps()
@@ -38,44 +30,30 @@ pipeline {
     PYTHONDONTWRITEBYTECODE = '1'
     SONAR_SERVER_NAME = "${env.SONAR_SERVER_NAME ?: 'SonarQube'}"
     SONAR_PROJECT_KEY = "${env.SONAR_PROJECT_KEY ?: 'bastion-app'}"
+    PYTHON_IMAGE = 'python:3.12-bookworm'
+    SONAR_SCANNER_IMAGE = 'sonarsource/sonar-scanner-cli:11'
   }
 
   stages {
-    stage('Quality') {
-      agent {
-        docker {
-          image 'python:3.12-bookworm'
-          args '-u root:root'
-        }
-      }
-      stages {
-        stage('Deps') {
-          steps {
-            sh '''
+    stage('Lint + Test') {
+      steps {
+        sh '''
+          set -eux
+          command -v docker >/dev/null
+          docker run --rm \
+            -u root:root \
+            -v "$PWD":/ws \
+            -w /ws \
+            -e PIP_DISABLE_PIP_VERSION_CHECK \
+            -e PYTHONDONTWRITEBYTECODE \
+            "${PYTHON_IMAGE}" \
+            bash -lc '
               set -eux
               python -m venv .venv
               . .venv/bin/activate
               pip install -U pip
               pip install -e ".[dev]"
-            '''
-          }
-        }
-
-        stage('Lint') {
-          steps {
-            sh '''
-              set -eux
-              . .venv/bin/activate
               ruff check app/ tests/
-            '''
-          }
-        }
-
-        stage('Test + coverage') {
-          steps {
-            sh '''
-              set -eux
-              . .venv/bin/activate
               mkdir -p reports
               pytest tests/ \
                 --ignore=tests/e2e \
@@ -84,38 +62,32 @@ pipeline {
                 --cov-report=term-missing \
                 --junitxml=reports/junit.xml \
                 -q
-            '''
-          }
-          post {
-            always {
-              junit allowEmptyResults: true, testResults: 'reports/junit.xml'
-              stash name: 'coverage', includes: 'coverage.xml', allowEmpty: true
-            }
-          }
-        }
+            '
+        '''
       }
       post {
         always {
+          junit allowEmptyResults: true, testResults: 'reports/junit.xml'
           archiveArtifacts artifacts: 'coverage.xml,reports/junit.xml', allowEmptyArchive: true
         }
       }
     }
 
     stage('SonarQube') {
-      agent {
-        docker {
-          image 'sonarsource/sonar-scanner-cli:11'
-          args '--entrypoint='
-        }
-      }
       steps {
-        checkout scm
-        unstash 'coverage'
         withSonarQubeEnv("${SONAR_SERVER_NAME}") {
           sh '''
             set -eux
+            command -v docker >/dev/null
             BRANCH="${CHANGE_BRANCH:-${BRANCH_NAME:-main}}"
-            sonar-scanner \
+            # withSonarQubeEnv fournit SONAR_HOST_URL + SONAR_AUTH_TOKEN
+            docker run --rm \
+              --entrypoint sonar-scanner \
+              -e SONAR_HOST_URL \
+              -e SONAR_TOKEN="${SONAR_AUTH_TOKEN}" \
+              -v "$PWD":/usr/src \
+              -w /usr/src \
+              "${SONAR_SCANNER_IMAGE}" \
               -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
               -Dsonar.branch.name="${BRANCH}"
           '''
@@ -124,7 +96,6 @@ pipeline {
     }
 
     stage('Quality Gate') {
-      agent any
       steps {
         timeout(time: 10, unit: 'MINUTES') {
           waitForQualityGate abortPipeline: true
