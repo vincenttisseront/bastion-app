@@ -7,6 +7,11 @@ __pycache__/
 /ansible/inventory/*.ini
 !/ansible/inventory/*.ini.example
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+reports/
+.scannerwork/
 node_modules/
 test-results/
 playwright-report/

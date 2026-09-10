@@ -17,6 +17,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
+from app.bastion.ci_bridge_paths import (
+    is_jenkins_ci_webhook_request,
+    is_sonarqube_api_request,
+)
 from app.bastion.teleport_agent_paths import is_teleport_agent_request
 from app.auth import get_realm_proxy_url, is_rfc1918
 from app.breakglass import (
@@ -378,6 +382,20 @@ async def subdomain_auth(
         return Response(
             status_code=200,
             headers={"X-Auth-Source": "teleport-agent"},
+        )
+
+    # Jenkins ← SonarQube quality-gate webhook (plugin authenticates the payload).
+    if is_jenkins_ci_webhook_request(original_uri, app):
+        return Response(
+            status_code=200,
+            headers={"X-Auth-Source": "jenkins-sonar-webhook"},
+        )
+
+    # SonarQube scanner / Web API — bearer token checked by Sonar, not Bastion.
+    if is_sonarqube_api_request(original_uri, app):
+        return Response(
+            status_code=200,
+            headers={"X-Auth-Source": "sonarqube-api"},
         )
 
     # 3a. Prefer native bastion_session (same cutover as /internal/oauth2-auth),
