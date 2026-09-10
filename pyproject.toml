@@ -58,6 +58,13 @@ app = ["templates/**/*", "static/**/*"]
 target-version = "py311"
 line-length = 100
 
+[tool.ruff.lint]
+# Keep select broad for local `ruff check --fix`; Jenkins Soft-fails (see Jenkinsfile).
+# FastAPI Depends()/Form()/File() in defaults is intentional (B008 false positive).
+ignore = [
+  "B008",
+]
+
 [tool.ruff.lint.per-file-ignores]
 "app/audit/event_catalog.py" = ["E501"]
 
