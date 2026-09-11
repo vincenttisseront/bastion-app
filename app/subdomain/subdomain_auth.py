@@ -17,11 +17,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
-from app.bastion.ci_bridge_paths import (
-    is_jenkins_ci_webhook_request,
-    is_sonarqube_api_request,
-)
-from app.bastion.teleport_agent_paths import is_teleport_agent_request
+from app.bastion.m2m_policy import app_uri_is_m2m_bypass, m2m_credential_allows
 from app.auth import get_realm_proxy_url, is_rfc1918
 from app.breakglass import (
     COOKIE_NAME,
@@ -377,25 +373,20 @@ async def subdomain_auth(
             ip_address=client_ip,
         )
 
-    # Teleport node agents / reverse tunnel — no portal cookies; auth with Teleport.
-    if is_teleport_agent_request(original_uri, app):
+    # Declarative M2M: path bypass (defense in depth if auth_request still hits)
+    # or Basic/Bearer on the same URL as browser SSO (upstream validates).
+    if app_uri_is_m2m_bypass(app, original_uri):
         return Response(
             status_code=200,
-            headers={"X-Auth-Source": "teleport-agent"},
+            headers={"X-Auth-Source": "m2m-path-bypass"},
         )
-
-    # Jenkins ← SonarQube quality-gate webhook (plugin authenticates the payload).
-    if is_jenkins_ci_webhook_request(original_uri, app):
+    m2m_source = m2m_credential_allows(
+        app, request.headers.get("Authorization")
+    )
+    if m2m_source:
         return Response(
             status_code=200,
-            headers={"X-Auth-Source": "jenkins-sonar-webhook"},
-        )
-
-    # SonarQube scanner / Web API — bearer token checked by Sonar, not Bastion.
-    if is_sonarqube_api_request(original_uri, app):
-        return Response(
-            status_code=200,
-            headers={"X-Auth-Source": "sonarqube-api"},
+            headers={"X-Auth-Source": m2m_source},
         )
 
     # 3a. Prefer native bastion_session (same cutover as /internal/oauth2-auth),

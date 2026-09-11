@@ -505,6 +505,8 @@ function initAccessModeForm() {
     var showEas = mode === 'subdomain_proxy';
     if (easWrap) easWrap.hidden = !showEas;
     if (easHelp) easHelp.hidden = !showEas;
+    var m2mWrap = document.getElementById('m2m-access-wrap');
+    if (m2mWrap) m2mWrap.hidden = !showEas;
     var tlsWrap = document.getElementById('upstream-tls-verify-wrap');
     var tlsHelp = document.getElementById('upstream-tls-verify-help');
     var showTls = mode !== 'sso_gate';
