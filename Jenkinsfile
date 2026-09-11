@@ -136,10 +136,21 @@ pipeline {
         withSonarQubeEnv("${SONAR_SERVER_NAME}") {
           // Community Build rejects sonar.branch.name (Developer+ only).
           // Analyze the default branch / PR head as a single project key.
+          // Lint+Test runs the python image as root, so coverage.xml / reports
+          // are root-owned; the scanner image's default user then cannot create
+          // .scannerwork (AccessDeniedException). Run scanner as root and reset
+          // the workdir first.
           sh '''
             set -eux
             docker run --rm \
               --volumes-from "${JENKINS_CONTAINER_NAME}" \
+              -u root:root \
+              -w "${WORKSPACE}" \
+              "${PYTHON_IMAGE}" \
+              bash -lc 'rm -rf .scannerwork && mkdir -p .scannerwork && chmod -R a+rwX .scannerwork coverage.xml reports 2>/dev/null || true'
+            docker run --rm \
+              --volumes-from "${JENKINS_CONTAINER_NAME}" \
+              -u root:root \
               --entrypoint sonar-scanner \
               -e SONAR_HOST_URL \
               -e SONAR_TOKEN="${SONAR_AUTH_TOKEN}" \
