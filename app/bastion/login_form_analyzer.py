@@ -20,6 +20,13 @@ MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MiB
 _USERNAME_TOKENS = ("user", "login", "email", "identifiant")
 _USERNAME_TOKEN_RE = re.compile("|".join(_USERNAME_TOKENS), re.IGNORECASE)
 
+_PORTAL_REDIRECT_MESSAGE = (
+    "La page redirige vers le portail Bastion (page de connexion SSO). "
+    "Ce n'est pas le formulaire de l'application — utilisez une URL qui "
+    "expose le HTML de login de l'app elle-même, ou renseignez les champs "
+    "manuellement."
+)
+
 
 class AnalyzeLoginFormError(Exception):
     """Structured analysis failure suitable for JSON API responses."""
@@ -29,6 +36,46 @@ class AnalyzeLoginFormError(Exception):
         self.error = error
         self.message = message
         self.status_code = status_code
+
+
+def _hostname(url: str) -> str:
+    try:
+        return (urlparse(url).hostname or "").strip().lower().rstrip(".")
+    except Exception:
+        return ""
+
+
+def is_portal_url(url: str, portal_domain: str | None) -> bool:
+    """True when ``url`` targets the Bastion portal host (not an app)."""
+    portal = (portal_domain or "").strip().lower().rstrip(".")
+    if not portal:
+        return False
+    # Bare hostname expected; tolerate accidental URL-shaped values.
+    if "://" in portal or "/" in portal or ":" in portal:
+        portal = _hostname(portal if "://" in portal else f"https://{portal}")
+    if not portal:
+        return False
+    host = _hostname(url)
+    return bool(host) and host == portal
+
+
+def _reject_if_portal(url: str, portal_domain: str | None, *, via: str) -> None:
+    if not is_portal_url(url, portal_domain):
+        return
+    if via == "entered":
+        raise AnalyzeLoginFormError(
+            "portal_url",
+            (
+                "L'URL pointe vers le portail Bastion — ce n'est pas une URL "
+                "d'application. Indiquez l'URL de login de l'app cible."
+            ),
+            status_code=400,
+        )
+    raise AnalyzeLoginFormError(
+        "redirected_to_portal",
+        _PORTAL_REDIRECT_MESSAGE,
+        status_code=400,
+    )
 
 
 def is_likely_dynamic(value: str) -> bool:
@@ -217,9 +264,19 @@ async def _read_body_limited(response: httpx.Response) -> str:
         return raw.decode("utf-8", errors="replace")
 
 
-async def fetch_login_page(url: str, *, tls_verify: bool = False) -> tuple[str, str]:
-    """GET the page; follow http(s) redirects (max 5). Private/LAN hosts are allowed."""
+async def fetch_login_page(
+    url: str,
+    *,
+    tls_verify: bool = False,
+    portal_domain: str | None = None,
+) -> tuple[str, str]:
+    """GET the page; follow http(s) redirects (max 5). Private/LAN hosts are allowed.
+
+    Redirects (and final responses) on the Bastion portal host are rejected — that
+    page is the portal SSO login, never the target app's form.
+    """
     current = validate_analyze_url(url)
+    _reject_if_portal(current, portal_domain, via="entered")
     headers = {"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml,*/*"}
     try:
         async with httpx.AsyncClient(
@@ -247,6 +304,7 @@ async def fetch_login_page(url: str, *, tls_verify: bool = False) -> tuple[str, 
                                 status_code=400,
                             )
                         current = validate_analyze_url(next_url)
+                        _reject_if_portal(current, portal_domain, via="redirect")
                         continue
 
                     if response.status_code >= 400:
@@ -257,6 +315,7 @@ async def fetch_login_page(url: str, *, tls_verify: bool = False) -> tuple[str, 
                         )
                     text = await _read_body_limited(response)
                     final_url = str(response.url)
+                    _reject_if_portal(final_url, portal_domain, via="fetched")
                     return final_url, text
 
             raise AnalyzeLoginFormError(
@@ -282,10 +341,28 @@ async def fetch_login_page(url: str, *, tls_verify: bool = False) -> tuple[str, 
         ) from exc
 
 
-async def analyze_login_form_url(url: str, *, tls_verify: bool = False) -> dict[str, Any]:
+async def analyze_login_form_url(
+    url: str,
+    *,
+    tls_verify: bool = False,
+    portal_domain: str | None = None,
+) -> dict[str, Any]:
     """Fetch and analyze a login page URL. Returns the §3 JSON payload."""
-    final_url, html = await fetch_login_page(url, tls_verify=tls_verify)
+    final_url, html = await fetch_login_page(
+        url, tls_verify=tls_verify, portal_domain=portal_domain
+    )
     forms = analyze_html(html, final_url)
+    raw_count = len(forms)
+    # Never propose a form whose action posts back to the Bastion portal.
+    forms = [
+        f for f in forms if not is_portal_url(str(f.get("action") or ""), portal_domain)
+    ]
+    if raw_count and not forms:
+        raise AnalyzeLoginFormError(
+            "redirected_to_portal",
+            _PORTAL_REDIRECT_MESSAGE,
+            status_code=400,
+        )
     if not forms:
         raise AnalyzeLoginFormError(
             "no_form_found",

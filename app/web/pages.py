@@ -2363,6 +2363,7 @@ async def admin_analyze_login_form(
     request: Request,
     db: Session = Depends(get_db),
     user=Depends(require_admin),
+    settings: Settings = Depends(get_settings),
 ):
     """Fetch a remote login page and detect form field names (no credentials sent)."""
     from app.bastion.login_form_analyzer import (
@@ -2374,6 +2375,7 @@ async def admin_analyze_login_form(
         result = await analyze_login_form_url(
             body.url.strip(),
             tls_verify=bool(body.tls_verify),
+            portal_domain=settings.portal_domain or "",
         )
     except AnalyzeLoginFormError as exc:
         log_action(

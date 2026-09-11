@@ -59,14 +59,13 @@ async def test_fetch_allows_redirect_to_private_ip():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_fetch_rejects_redirect_to_non_http_scheme():
-    public = "https://public.example/login"
-    respx.get(public).mock(
-        return_value=Response(302, headers={"Location": "file:///etc/passwd"})
-    )
+async def test_fetch_rejects_redirect_to_portal_host():
+    app_url = "https://jenkins.example.com/login"
+    portal = "https://portal.example.com/auth/login"
+    respx.get(app_url).mock(return_value=Response(302, headers={"Location": portal}))
     with pytest.raises(AnalyzeLoginFormError) as exc:
-        await mod.fetch_login_page(public)
-    assert exc.value.error == "invalid_url"
+        await mod.fetch_login_page(app_url, portal_domain="portal.example.com")
+    assert exc.value.error == "redirected_to_portal"
 
 
 @pytest.mark.asyncio
