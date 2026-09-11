@@ -6,6 +6,7 @@ import json
 from datetime import timedelta
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -350,7 +351,7 @@ def test_syslog_tls_delivery_mock():
         protocol="syslog_tls",
         syslog_host="siem.test",
         syslog_port=6514,
-        syslog_tls_verify=False,
+        syslog_tls_verify=True,
         webhook_url="",
         webhook_auth_type="none",
         webhook_auth_configured=False,
@@ -379,6 +380,30 @@ def test_syslog_tls_delivery_mock():
     # RFC5424 header: no fractional seconds (Wazuh predecoder truncates hostname otherwise).
     assert " bastion BastionPro-Sentinel " in raw
     assert ".034Z" not in raw.split(" CEF:", 1)[0]
+
+
+def test_syslog_tls_rejects_verify_disabled():
+    from app.siem.settings_service import SiemForwardingConfig
+    from app.siem.transport import SiemDeliveryError, deliver_syslog_tls
+
+    config = SiemForwardingConfig(
+        enabled=True,
+        protocol="syslog_tls",
+        syslog_host="siem.test",
+        syslog_port=6514,
+        syslog_tls_verify=False,
+        webhook_url="",
+        webhook_auth_type="none",
+        webhook_auth_configured=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        last_success_at=None,
+    )
+    with pytest.raises(SiemDeliveryError, match="verification is required"):
+        deliver_syslog_tls(_sample_entry(), config, sock_factory=lambda: None)
+
 
 
 def test_outbox_retry_then_success(db_session: Session, monkeypatch):
