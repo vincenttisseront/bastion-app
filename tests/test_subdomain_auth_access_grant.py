@@ -234,17 +234,18 @@ def test_subdomain_auth_no_warning_without_crushauth_or_on_normal_uri(
     respx.get(OIDC_URL).mock(return_value=_oidc_ok())
 
     with caplog.at_level(logging.WARNING, logger="app.subdomain.subdomain_auth"):
-        # login.html but no CrushAuth cookie (fresh SSO redirect) → silent.
+        # login.html but no CrushAuth cookie → no-app-session (impersonate), silent.
         resp1 = client.get(
             "/internal/subdomain-auth",
             headers=_auth_headers(uri="/WebInterface/login.html"),
         )
-        # Normal UI path with CrushAuth → silent.
+        # Normal UI path with CrushAuth → allow, silent.
         headers = _auth_headers(uri="/WebInterface/new-ui/index.html")
         headers["Cookie"] = "_oauth2_proxy=valid; CrushAuth=abc123; currentAuth=c123"
         resp2 = client.get("/internal/subdomain-auth", headers=headers)
 
-    assert resp1.status_code == 200
+    assert resp1.status_code == 401
+    assert resp1.headers.get("x-auth-error") == "no-app-session"
     assert resp2.status_code == 200
     assert not [r for r in caplog.records if "CrushFTP login bounce" in r.message]
 
@@ -798,13 +799,15 @@ def test_subdomain_auth_oauth2_unreachable_returns_401_not_503(client, db_sessio
 def test_subdomain_auth_teleport_agent_webapi_find_bypasses_sso(
     client, db_session
 ):
-    """Node agents must reach Teleport without portal oauth2 (no bastion cookies)."""
+    """M2M path bypass must reach upstream without portal oauth2."""
     import httpx
+    import json
 
     _override_settings(client, _settings())
     _realm(db_session)
     app = _app(db_session, slug="teleport")
     app.robotic_driver = "teleport"
+    app.m2m_bypass_paths = json.dumps(["/webapi/find", "/webapi/host/"])
     db_session.add(app)
     db_session.commit()
     respx.get(OIDC_URL).mock(side_effect=httpx.ConnectError("oauth2-proxy down"))
@@ -818,7 +821,51 @@ def test_subdomain_auth_teleport_agent_webapi_find_bypasses_sso(
     )
 
     assert resp.status_code == 200
-    assert resp.headers.get("x-auth-source") == "teleport-agent"
+    assert resp.headers.get("x-auth-source") == "m2m-path-bypass"
+
+
+@respx.mock
+def test_subdomain_auth_m2m_basic_same_url(client, db_session):
+    import httpx
+
+    _override_settings(client, _settings())
+    _realm(db_session)
+    app = _app(db_session, slug="wiki")
+    app.m2m_accept_basic = True
+    db_session.add(app)
+    db_session.commit()
+    respx.get(OIDC_URL).mock(side_effect=httpx.ConnectError("oauth2-proxy down"))
+
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            **_auth_headers("wiki.ar-systems.fr"),
+            "X-Original-URI": "/page",
+            "Authorization": "Basic dXNlcjpwYXNz",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-auth-source") == "m2m-basic"
+
+
+@respx.mock
+def test_subdomain_auth_m2m_basic_rejected_when_flag_off(client, db_session):
+    import httpx
+
+    _override_settings(client, _settings())
+    _realm(db_session)
+    _app(db_session, slug="wiki")
+    respx.get(OIDC_URL).mock(side_effect=httpx.ConnectError("oauth2-proxy down"))
+
+    resp = client.get(
+        "/internal/subdomain-auth",
+        headers={
+            **_auth_headers("wiki.ar-systems.fr"),
+            "X-Original-URI": "/page",
+            "Authorization": "Basic dXNlcjpwYXNz",
+        },
+    )
+    assert resp.status_code == 401
 
 
 @respx.mock

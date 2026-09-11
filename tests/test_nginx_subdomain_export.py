@@ -387,9 +387,20 @@ def test_portal_redirect_no_app_session_routes_to_impersonate():
         label="Teleport",
         upstream_url="https://10.0.0.5:3080",
         access_mode="subdomain_proxy",
-        public_fqdn="teleport.ar-systems.fr",
+        public_fqdn="teleport.example.com",
         robotic_driver="teleport",
         enabled=True,
+        m2m_bypass_paths=json.dumps(
+            [
+                "/webapi/find",
+                "/webapi/ping",
+                "/webapi/connectionupgrade",
+                "/webapi/host/",
+                "/v1/webapi/",
+                "/v2/webapi/",
+            ]
+        ),
+        m2m_bypass_long_timeout=True,
     )
     block = generate_subdomain_server_block(app, _settings())
     assert "@portal_redirect_teleport {" in block
@@ -402,10 +413,12 @@ def test_portal_redirect_no_app_session_routes_to_impersonate():
     assert "location ^~ /webapi/host/ {" in block
     find_loc = block.split("location = /webapi/find {", 1)[1].split("    }", 1)[0]
     assert "auth_request off;" in find_loc
+    assert "proxy_read_timeout 3600s;" in find_loc
 
 
-def test_jenkins_sonarqube_webhook_location_bypasses_sso():
-    app = App(
+def test_m2m_bypass_paths_emit_locations_not_slug_heuristics():
+    """Slug alone must not create bypass; only m2m_bypass_paths does."""
+    bare = App(
         slug="jenkins",
         label="Jenkins",
         upstream_url="https://10.0.0.20/",
@@ -414,6 +427,18 @@ def test_jenkins_sonarqube_webhook_location_bypasses_sso():
         auth_mode="sso",
         enabled=True,
     )
+    assert "/sonarqube-webhook" not in generate_subdomain_server_block(bare, _settings())
+
+    app = App(
+        slug="ci",
+        label="CI",
+        upstream_url="https://10.0.0.20/",
+        access_mode="subdomain_proxy",
+        public_fqdn="ci.example.com",
+        auth_mode="sso",
+        enabled=True,
+        m2m_bypass_paths=json.dumps(["/sonarqube-webhook"]),
+    )
     block = generate_subdomain_server_block(app, _settings())
     assert "location = /sonarqube-webhook/ {" in block
     webhook = block.split("location = /sonarqube-webhook/ {", 1)[1].split("    }", 1)[0]
@@ -421,18 +446,20 @@ def test_jenkins_sonarqube_webhook_location_bypasses_sso():
     assert "modsecurity off;" in webhook
 
 
-def test_sonarqube_api_location_bypasses_sso():
+def test_m2m_bypass_prefix_api_location():
     app = App(
-        slug="sonarqube",
-        label="SonarQube",
+        slug="code-quality",
+        label="Code quality",
         upstream_url="https://10.0.0.21:9000/",
         access_mode="subdomain_proxy",
-        public_fqdn="sonarqube.example.com",
+        public_fqdn="sonar.example.com",
         auth_mode="sso",
         enabled=True,
+        m2m_bypass_paths=json.dumps(["/api/"]),
     )
     block = generate_subdomain_server_block(app, _settings())
     assert "location ^~ /api/ {" in block
     api = block.split("location ^~ /api/ {", 1)[1].split("    }", 1)[0]
     assert "auth_request off;" in api
     assert "modsecurity off;" in api
+    assert "proxy_set_header Authorization $http_authorization;" in block

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
 from app.bastion.bastion_fields import normalize_sso_bridge
+from app.bastion.m2m_policy import bypass_paths_for_app
 from app.bastion.upstream_proxy import upstream_origin
 from app.bastion.upstream_tls import (
     nginx_proxy_ssl_verify_directive,
@@ -64,6 +65,10 @@ def subdomain_app_inventory_entry(app: App, settings: Settings) -> dict[str, Any
         "session_cookie_hop": True,
         "hop_path": "/.bastion/session-cookies",
         "allow_activesync": bool(getattr(app, "allow_activesync", False)),
+        "m2m_accept_basic": bool(getattr(app, "m2m_accept_basic", False)),
+        "m2m_accept_bearer": bool(getattr(app, "m2m_accept_bearer", False)),
+        "m2m_bypass_paths": bypass_paths_for_app(app),
+        "m2m_bypass_long_timeout": bool(getattr(app, "m2m_bypass_long_timeout", False)),
     }
 
 
@@ -192,25 +197,7 @@ def _is_crushftp_app(app: App) -> bool:
     return driver == "crushftp" or provision == "crushftp"
 
 
-def _is_teleport_app(app: App) -> bool:
-    from app.bastion.teleport_agent_paths import is_teleport_app
-
-    return is_teleport_app(app)
-
-
-def _is_jenkins_ci_app(app: App) -> bool:
-    from app.bastion.ci_bridge_paths import is_jenkins_ci_app
-
-    return is_jenkins_ci_app(app)
-
-
-def _is_sonarqube_ci_app(app: App) -> bool:
-    from app.bastion.ci_bridge_paths import is_sonarqube_ci_app
-
-    return is_sonarqube_ci_app(app)
-
-
-def _teleport_agent_proxy_lines(
+def _m2m_bypass_proxy_lines(
     *,
     ssl_lines: list[str],
     forwarded_ip_lines: list[str],
@@ -218,8 +205,19 @@ def _teleport_agent_proxy_lines(
     redirect_lines: list[str],
     fqdn_esc: str,
     upstream_host_esc: str,
+    long_timeout: bool,
 ) -> list[str]:
     """Direct upstream proxy — no auth_request, no trusted-header injection."""
+    read_timeout = "3600s" if long_timeout else "120s"
+    send_timeout = "3600s" if long_timeout else "120s"
+    upgrade_lines = (
+        [
+            "        proxy_set_header Upgrade $http_upgrade;",
+            "        proxy_set_header Connection $connection_upgrade;",
+        ]
+        if long_timeout
+        else []
+    )
     return [
         "        proxy_pass $app_upstream;",
         *redirect_lines,
@@ -229,15 +227,15 @@ def _teleport_agent_proxy_lines(
         "        proxy_buffer_size 128k;",
         "        proxy_buffers 8 128k;",
         "        proxy_busy_buffers_size 256k;",
-        "        proxy_set_header Upgrade $http_upgrade;",
-        "        proxy_set_header Connection $connection_upgrade;",
+        *upgrade_lines,
         "        proxy_connect_timeout 60s;",
-        "        proxy_read_timeout 3600s;",
-        "        proxy_send_timeout 3600s;",
+        f"        proxy_read_timeout {read_timeout};",
+        f"        proxy_send_timeout {send_timeout};",
         *ssl_lines,
         "        proxy_set_header Host $host;",
         *forwarded_ip_lines,
         "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        "        proxy_set_header Authorization $http_authorization;",
         *cookie_lines,
         "        proxy_cookie_path / /;",
         f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
@@ -245,8 +243,8 @@ def _teleport_agent_proxy_lines(
     ]
 
 
-def _teleport_agent_locations(
-    slug: str,
+def _m2m_bypass_locations(
+    app: App,
     *,
     ssl_lines: list[str],
     forwarded_ip_lines: list[str],
@@ -255,93 +253,29 @@ def _teleport_agent_locations(
     fqdn_esc: str,
     upstream_host_esc: str,
 ) -> list[str]:
-    """Agent/reverse-tunnel paths — bypass portal SSO (Teleport handles auth)."""
-    proxy = _teleport_agent_proxy_lines(
+    """SSO-bypass locations from App.m2m_bypass_paths (declarative)."""
+    from app.bastion.m2m_policy import bypass_paths_for_app, nginx_location_specs
+
+    paths = bypass_paths_for_app(app)
+    if not paths:
+        return []
+    long_timeout = bool(getattr(app, "m2m_bypass_long_timeout", False))
+    proxy = _m2m_bypass_proxy_lines(
         ssl_lines=ssl_lines,
         forwarded_ip_lines=forwarded_ip_lines,
         cookie_lines=cookie_lines,
         redirect_lines=redirect_lines,
         fqdn_esc=fqdn_esc,
         upstream_host_esc=upstream_host_esc,
+        long_timeout=long_timeout,
     )
     blocks: list[str] = [
-        "    # Teleport agents — reverse tunnel / TLS-routing (no portal SSO).",
+        "    # M2M path bypass (m2m_bypass_paths) — no portal SSO; upstream auth.",
     ]
-    for path in ("/webapi/find", "/webapi/ping", "/webapi/connectionupgrade"):
+    for loc_spec, _kind in nginx_location_specs(paths):
         blocks.extend(
             [
-                f"    location = {path} {{",
-                "        auth_request off;",
-                "        modsecurity off;",
-                *proxy,
-                "    }",
-                "",
-            ]
-        )
-    blocks.extend(
-        [
-            "    location ^~ /webapi/host/ {",
-            "        auth_request off;",
-            "        modsecurity off;",
-            *proxy,
-            "    }",
-            "",
-            "    location ~* ^/v[12]/webapi/.+/connect/ws {",
-            "        auth_request off;",
-            "        modsecurity off;",
-            *proxy,
-            "    }",
-            "",
-        ]
-    )
-    del slug  # reserved for future per-app tuning
-    return blocks
-
-
-def _ci_bridge_locations(
-    *,
-    ssl_lines: list[str],
-    forwarded_ip_lines: list[str],
-    cookie_lines: list[str],
-    redirect_lines: list[str],
-    fqdn_esc: str,
-    upstream_host_esc: str,
-    jenkins: bool,
-    sonarqube: bool,
-) -> list[str]:
-    """Machine-to-machine CI paths — no portal SSO (token / plugin auth upstream)."""
-    proxy = _teleport_agent_proxy_lines(
-        ssl_lines=ssl_lines,
-        forwarded_ip_lines=forwarded_ip_lines,
-        cookie_lines=cookie_lines,
-        redirect_lines=redirect_lines,
-        fqdn_esc=fqdn_esc,
-        upstream_host_esc=upstream_host_esc,
-    )
-    blocks: list[str] = []
-    if jenkins:
-        blocks.extend(
-            [
-                "    # Jenkins ← SonarQube quality-gate webhook (no portal SSO).",
-                "    location = /sonarqube-webhook {",
-                "        auth_request off;",
-                "        modsecurity off;",
-                *proxy,
-                "    }",
-                "",
-                "    location = /sonarqube-webhook/ {",
-                "        auth_request off;",
-                "        modsecurity off;",
-                *proxy,
-                "    }",
-                "",
-            ]
-        )
-    if sonarqube:
-        blocks.extend(
-            [
-                "    # SonarQube Web API — scanner uses bearer token (not bastion_session).",
-                "    location ^~ /api/ {",
+                f"    location {loc_spec} {{",
                 "        auth_request off;",
                 "        modsecurity off;",
                 *proxy,
@@ -487,6 +421,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         *cookie_lines,
         "        proxy_cookie_path / /;",
         f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
+        # Forward client Authorization for same-URL M2M (Basic/Bearer → upstream).
+        "        proxy_set_header Authorization $http_authorization;",
         *(
             ["        proxy_hide_header WWW-Authenticate;"]
             if crushftp
@@ -628,31 +564,17 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
                 upstream_tls_verify=tls_verify,
             )
         )
-    if _is_teleport_app(app):
-        lines.extend(
-            _teleport_agent_locations(
-                slug,
-                ssl_lines=ssl_lines,
-                forwarded_ip_lines=forwarded_ip_lines,
-                cookie_lines=cookie_lines,
-                redirect_lines=redirect_lines,
-                fqdn_esc=fqdn_esc,
-                upstream_host_esc=upstream_host_esc,
-            )
+    lines.extend(
+        _m2m_bypass_locations(
+            app,
+            ssl_lines=ssl_lines,
+            forwarded_ip_lines=forwarded_ip_lines,
+            cookie_lines=cookie_lines,
+            redirect_lines=redirect_lines,
+            fqdn_esc=fqdn_esc,
+            upstream_host_esc=upstream_host_esc,
         )
-    if _is_jenkins_ci_app(app) or _is_sonarqube_ci_app(app):
-        lines.extend(
-            _ci_bridge_locations(
-                ssl_lines=ssl_lines,
-                forwarded_ip_lines=forwarded_ip_lines,
-                cookie_lines=cookie_lines,
-                redirect_lines=redirect_lines,
-                fqdn_esc=fqdn_esc,
-                upstream_host_esc=upstream_host_esc,
-                jenkins=_is_jenkins_ci_app(app),
-                sonarqube=_is_sonarqube_ci_app(app),
-            )
-        )
+    )
     if crushftp:
         # Auth gate only — CrushFTP Cookie filter is in the named location below.
         location_slash = [

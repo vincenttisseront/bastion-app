@@ -196,6 +196,34 @@
         </div>
         {% endif %}
 
+        <div id="m2m-access-wrap" {% if app.access_mode != 'subdomain_proxy' %}hidden{% endif %}>
+          <h4 class="form-section-title" style="margin-top:var(--sp-4);font-size:1rem;">Accès machine (M2M)</h4>
+          <p class="form-help" id="m2m-access-help">
+            Même URL que le navigateur : Basic/Bearer acceptés sans cookie SSO
+            (l’upstream doit valider le secret). Les chemins listés contournent le SSO
+            (webhooks, agents) — l’upstream authentifie.
+          </p>
+          <label class="form-check">
+            <input type="checkbox" name="m2m_accept_basic" id="m2m_accept_basic"{% if app.m2m_accept_basic %} checked{% endif %}>
+            Accepter HTTP Basic (même URL)
+          </label>
+          <label class="form-check">
+            <input type="checkbox" name="m2m_accept_bearer" id="m2m_accept_bearer"{% if app.m2m_accept_bearer %} checked{% endif %}>
+            Accepter Bearer (même URL)
+          </label>
+          <div class="form-group">
+            <label class="form-label" for="m2m_bypass_paths">Chemins sans SSO (un par ligne)</label>
+            <textarea id="m2m_bypass_paths" name="m2m_bypass_paths" class="form-input mono" rows="4"
+              placeholder="/webhook&#10;/api/">{{ m2m_bypass_paths_text | default('') }}</textarea>
+            <p class="form-help">Préfixe avec « / » final (ex. <span class="mono">/api/</span>) ou chemin exact. Interdit : <span class="mono">/</span> seul.</p>
+            {% if errors.m2m_bypass_paths %}<div class="form-error">{{ errors.m2m_bypass_paths }}</div>{% endif %}
+          </div>
+          <label class="form-check">
+            <input type="checkbox" name="m2m_bypass_long_timeout" id="m2m_bypass_long_timeout"{% if app.m2m_bypass_long_timeout %} checked{% endif %}>
+            Timeouts longs / WebSocket sur ces chemins
+          </label>
+        </div>
+
         <label class="form-check" id="upstream-tls-verify-wrap" {% if app.access_mode == 'sso_gate' %}hidden{% endif %}>
           <input type="checkbox" name="upstream_tls_verify" id="upstream_tls_verify"{% if app.upstream_tls_verify %} checked{% endif %}>
           Vérifier le certificat TLS de l’upstream (depuis le bastion)

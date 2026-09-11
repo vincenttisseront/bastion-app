@@ -66,6 +66,14 @@ class App(Base):
     # EAS per-device gate: only approved devices sync. Meaningless without allow_activesync.
     activesync_device_control = Column(Boolean, default=False, nullable=False)
     activesync_device_control_enabled_at = Column(DateTime(timezone=True), nullable=True)
+    # Machine-to-machine on subdomain_proxy (declarative — no product-name heuristics).
+    # Basic/Bearer: same URL as browser SSO; upstream validates the credential.
+    m2m_accept_basic = Column(Boolean, default=False, nullable=False)
+    m2m_accept_bearer = Column(Boolean, default=False, nullable=False)
+    # JSON list of path prefixes/exacts that skip portal SSO (webhooks, agent APIs).
+    m2m_bypass_paths = Column(Text, nullable=True)
+    # Long proxy timeouts + WebSocket upgrade headers on m2m_bypass_paths locations.
+    m2m_bypass_long_timeout = Column(Boolean, default=False, nullable=False)
     # Verify upstream TLS cert from bastion (robotic httpx + nginx). Off for LAN/self-signed.
     upstream_tls_verify = Column(Boolean, default=False, nullable=False)
     healthcheck_url = Column(String, nullable=True)

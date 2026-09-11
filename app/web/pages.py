@@ -14,6 +14,11 @@ from app.access_modes import (
     normalize_access_mode,
     validate_app_access_fields,
 )
+from app.bastion.m2m_policy import (
+    bypass_paths_for_app,
+    m2m_flags_for,
+    normalize_bypass_paths,
+)
 from app.bastion.bastion_fields import (
     PROVISIONING_DRIVER_LABELS,
     normalize_auth_mode,
@@ -191,6 +196,42 @@ def _apply_auth_config(
     app.credential_mode = normalize_credential_mode(credential_mode)
     app.identity_format = normalize_identity_format(identity_format)
     app.injected_cookie_scope = normalize_injected_cookie_scope(injected_cookie_scope)
+
+
+def _m2m_bypass_paths_text(app: App | None = None, raw: str | None = None) -> str:
+    if raw is not None:
+        paths, _ = normalize_bypass_paths(raw)
+        return "\n".join(paths)
+    if app is None:
+        return ""
+    return "\n".join(bypass_paths_for_app(app))
+
+
+def _apply_m2m_config(
+    app: App,
+    *,
+    access_mode: str,
+    m2m_accept_basic: bool,
+    m2m_accept_bearer: bool,
+    m2m_bypass_paths_raw: str,
+    m2m_bypass_long_timeout: bool,
+) -> dict[str, str]:
+    """Apply M2M fields; return validation errors (empty if ok)."""
+    paths, path_errors = normalize_bypass_paths(m2m_bypass_paths_raw)
+    if path_errors:
+        return {"m2m_bypass_paths": "; ".join(path_errors)}
+    flags = m2m_flags_for(
+        access_mode,
+        m2m_accept_basic=m2m_accept_basic,
+        m2m_accept_bearer=m2m_accept_bearer,
+        m2m_bypass_paths=paths,
+        m2m_bypass_long_timeout=m2m_bypass_long_timeout,
+    )
+    app.m2m_accept_basic = flags["m2m_accept_basic"]
+    app.m2m_accept_bearer = flags["m2m_accept_bearer"]
+    app.m2m_bypass_paths = flags["m2m_bypass_paths"]
+    app.m2m_bypass_long_timeout = flags["m2m_bypass_long_timeout"]
+    return {}
 
 
 def _apply_crushftp_admin_config(
@@ -1964,6 +2005,10 @@ def admin_apps_create(
                 "description": "",
                 "allow_activesync": False,
                 "upstream_tls_verify": False,
+                "m2m_accept_basic": False,
+                "m2m_accept_bearer": False,
+                "m2m_bypass_paths_text": "",
+                "m2m_bypass_long_timeout": False,
                 **_auth_form_values(),
             },
             errors={},
@@ -1982,6 +2027,10 @@ def admin_apps_create_post(
     description: str = Form(""),
     allow_activesync: str | None = Form(None),
     upstream_tls_verify: str | None = Form(None),
+    m2m_accept_basic: str | None = Form(None),
+    m2m_accept_bearer: str | None = Form(None),
+    m2m_bypass_paths: str = Form(""),
+    m2m_bypass_long_timeout: str | None = Form(None),
     auth_mode: str = Form("sso"),
     sso_bridge: str = Form("trusted_headers"),
     login_form_url: str = Form(""),
@@ -2014,6 +2063,10 @@ def admin_apps_create_post(
         "description": description,
         "allow_activesync": allow_activesync == "on",
         "upstream_tls_verify": upstream_tls_verify == "on",
+        "m2m_accept_basic": m2m_accept_basic == "on",
+        "m2m_accept_bearer": m2m_accept_bearer == "on",
+        "m2m_bypass_paths_text": m2m_bypass_paths or "",
+        "m2m_bypass_long_timeout": m2m_bypass_long_timeout == "on",
         **auth_values,
     }
     errors = validate_app_access_fields(mode, upstream_url, fqdn)
@@ -2029,6 +2082,9 @@ def admin_apps_create_post(
             sso_bridge=sso_bridge,
         )
     )
+    _, m2m_path_errs = normalize_bypass_paths(m2m_bypass_paths)
+    if m2m_path_errs:
+        errors["m2m_bypass_paths"] = "; ".join(m2m_path_errs)
     if len((description or "").strip()) > _DESC_MAX:
         errors["description"] = f"La description ne doit pas dépasser {_DESC_MAX} caractères."
     if db.query(App).filter_by(slug=slug).first():
@@ -2051,6 +2107,14 @@ def admin_apps_create_post(
         mode,
         allow_activesync=allow_activesync == "on",
         device_control=False,
+    )
+    _apply_m2m_config(
+        app,
+        access_mode=mode,
+        m2m_accept_basic=m2m_accept_basic == "on",
+        m2m_accept_bearer=m2m_accept_bearer == "on",
+        m2m_bypass_paths_raw=m2m_bypass_paths,
+        m2m_bypass_long_timeout=m2m_bypass_long_timeout == "on",
     )
     _apply_auth_config(
         app,
@@ -2108,6 +2172,7 @@ def admin_apps_edit(
             settings,
             app=app,
             errors={},
+            m2m_bypass_paths_text=_m2m_bypass_paths_text(app),
             logo_url=logo_public_url(app),
             vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
             rbac_grant_count=rbac_grant_count,
@@ -2128,6 +2193,10 @@ def admin_apps_edit_post(
     enabled: str | None = Form(None),
     allow_activesync: str | None = Form(None),
     upstream_tls_verify: str | None = Form(None),
+    m2m_accept_basic: str | None = Form(None),
+    m2m_accept_bearer: str | None = Form(None),
+    m2m_bypass_paths: str = Form(""),
+    m2m_bypass_long_timeout: str | None = Form(None),
     auth_mode: str = Form("sso"),
     sso_bridge: str = Form("trusted_headers"),
     login_form_url: str = Form(""),
@@ -2167,6 +2236,17 @@ def admin_apps_edit_post(
             sso_bridge=sso_bridge,
         )
     )
+    m2m_errs = _apply_m2m_config(
+        app,
+        access_mode=mode,
+        m2m_accept_basic=m2m_accept_basic == "on",
+        m2m_accept_bearer=m2m_accept_bearer == "on",
+        m2m_bypass_paths_raw=m2m_bypass_paths,
+        m2m_bypass_long_timeout=m2m_bypass_long_timeout == "on",
+    )
+    # Re-apply only for validation when we will error-return; on success keep applied.
+    if m2m_errs:
+        errors.update(m2m_errs)
     if len((description or "").strip()) > _DESC_MAX:
         errors["description"] = f"La description ne doit pas dépasser {_DESC_MAX} caractères."
     if errors:
@@ -2219,6 +2299,7 @@ def admin_apps_edit_post(
                 settings,
                 app=app,
                 errors=errors,
+                m2m_bypass_paths_text=m2m_bypass_paths or "",
                 logo_url=logo_public_url(app),
                 vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
                 rbac_grant_count=rbac_grant_count,
@@ -2279,6 +2360,7 @@ def admin_apps_edit_post(
                 settings,
                 app=app,
                 errors=errors,
+                m2m_bypass_paths_text=_m2m_bypass_paths_text(app),
                 logo_url=logo_public_url(app),
                 vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
                 rbac_grant_count=rbac_grant_count,
@@ -2294,6 +2376,7 @@ def admin_apps_edit_post(
     app.allow_activesync = allow_activesync == "on" and mode == "subdomain_proxy"
     app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
     app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
+    # M2M already applied above when validation passed
     _apply_auth_config(
         app,
         auth_mode=auth_mode,

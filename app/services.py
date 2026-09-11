@@ -15,6 +15,7 @@ from app.access_modes import (
 )
 from app.audit import log_action
 from app.bastion.bastion_fields import normalize_auth_mode, normalize_sso_bridge
+from app.bastion.m2m_policy import m2m_flags_for, normalize_bypass_paths
 from app.database import get_db
 from app.models import App
 from app.rbac.effective_access_service import get_effective_apps_for_user
@@ -58,6 +59,10 @@ class AppCreate(BaseModel):
     healthcheck_url: str | None = None
     enabled: bool = True
     allow_activesync: bool = False
+    m2m_accept_basic: bool = False
+    m2m_accept_bearer: bool = False
+    m2m_bypass_paths: str | None = None
+    m2m_bypass_long_timeout: bool = False
     upstream_tls_verify: bool = False
     tile_icon: str | None = None
     description: str | None = None
@@ -85,6 +90,10 @@ class AppUpdate(BaseModel):
     healthcheck_url: str | None = None
     enabled: bool | None = None
     allow_activesync: bool | None = None
+    m2m_accept_basic: bool | None = None
+    m2m_accept_bearer: bool | None = None
+    m2m_bypass_paths: str | None = None
+    m2m_bypass_long_timeout: bool | None = None
     upstream_tls_verify: bool | None = None
     tile_icon: str | None = None
     description: str | None = None
@@ -111,6 +120,10 @@ class AppOut(BaseModel):
     healthcheck_url: str | None
     enabled: bool
     allow_activesync: bool = False
+    m2m_accept_basic: bool = False
+    m2m_accept_bearer: bool = False
+    m2m_bypass_paths: str | None = None
+    m2m_bypass_long_timeout: bool = False
     upstream_tls_verify: bool = False
     tile_icon: str | None
     description: str | None = None
@@ -219,6 +232,18 @@ def create_app(
             device_control=payload.get("activesync_device_control", False),
         )
     )
+    paths, path_errs = normalize_bypass_paths(payload.get("m2m_bypass_paths"))
+    if path_errs:
+        raise HTTPException(status_code=422, detail={"m2m_bypass_paths": path_errs})
+    payload.update(
+        m2m_flags_for(
+            mode,
+            m2m_accept_basic=payload.get("m2m_accept_basic", False),
+            m2m_accept_bearer=payload.get("m2m_accept_bearer", False),
+            m2m_bypass_paths=paths,
+            m2m_bypass_long_timeout=payload.get("m2m_bypass_long_timeout", False),
+        )
+    )
     if mode == "sso_gate":
         payload["upstream_tls_verify"] = False
     elif "upstream_tls_verify" in payload:
@@ -262,6 +287,33 @@ def update_app(
                 allow_activesync=updates.get("allow_activesync", app.allow_activesync),
                 device_control=updates.get(
                     "activesync_device_control", app.activesync_device_control
+                ),
+            )
+        )
+    m2m_keys = (
+        "m2m_accept_basic",
+        "m2m_accept_bearer",
+        "m2m_bypass_paths",
+        "m2m_bypass_long_timeout",
+    )
+    if mode != "subdomain_proxy" or any(k in updates for k in m2m_keys):
+        raw_paths = updates.get("m2m_bypass_paths", app.m2m_bypass_paths)
+        paths, path_errs = normalize_bypass_paths(raw_paths)
+        if path_errs and "m2m_bypass_paths" in updates:
+            raise HTTPException(status_code=422, detail={"m2m_bypass_paths": path_errs})
+        updates.update(
+            m2m_flags_for(
+                mode,
+                m2m_accept_basic=updates.get(
+                    "m2m_accept_basic", getattr(app, "m2m_accept_basic", False)
+                ),
+                m2m_accept_bearer=updates.get(
+                    "m2m_accept_bearer", getattr(app, "m2m_accept_bearer", False)
+                ),
+                m2m_bypass_paths=paths,
+                m2m_bypass_long_timeout=updates.get(
+                    "m2m_bypass_long_timeout",
+                    getattr(app, "m2m_bypass_long_timeout", False),
                 ),
             )
         )
