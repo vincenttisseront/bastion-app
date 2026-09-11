@@ -97,8 +97,18 @@ def db_session(db_engine):
 def client(db_engine, monkeypatch):
     from fastapi import Request
 
+    import app.database as database_mod
+    import app.main as main_mod
+
     session_factory = sessionmaker(autocommit=False, autoflush=False, bind=db_engine)
-    # Middleware opens its own session (request.state.db is already closed).
+    # Lifespan does create_all(bind=engine) + SessionLocal() on the *module*
+    # globals. Default DATABASE_URL points at /var/lib/sso-portal/portal.db,
+    # which does not exist in CI containers → "unable to open database file".
+    # Point those globals at the same in-memory engine as get_db overrides.
+    monkeypatch.setattr(database_mod, "engine", db_engine)
+    monkeypatch.setattr(database_mod, "SessionLocal", session_factory)
+    monkeypatch.setattr(main_mod, "engine", db_engine)
+    # Middleware opened its own session (request.state.db is already closed).
     monkeypatch.setattr(
         "app.breakglass_cookie_middleware.SessionLocal",
         session_factory,

@@ -66,10 +66,15 @@ pipeline {
               -e PIP_DISABLE_PIP_VERSION_CHECK \
               -e PYTHONDONTWRITEBYTECODE \
               -e PYTHONUNBUFFERED \
+              -e PORTAL_ENVIRONMENT=test \
+              -e DATABASE_URL=sqlite:////tmp/bastion-ci-portal.db \
               "${PYTHON_IMAGE}" \
               bash -lc '
                 set -eux
                 test -f pyproject.toml
+                # Safety net if any import still opens the module-level engine
+                # before conftest patches lifespan onto in-memory sqlite.
+                mkdir -p /tmp
                 # Reuse workspace venv across builds (volume-backed) to save minutes.
                 if [ ! -x .venv/bin/python ]; then
                   python -m venv .venv
