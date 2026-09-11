@@ -713,13 +713,14 @@ function initLoginFormAnalyzer() {
     var entered = (enteredUrl || urlInput.value || '').trim();
     var portalDomain = '';
     var fqdnEl = document.getElementById('public_fqdn');
-    if (fqdnEl) portalDomain = (fqdnEl.getAttribute('data-portal-domain') || '').trim().toLowerCase();
+    if (fqdnEl) portalDomain = (fqdnEl.dataset.portalDomain || '').trim().toLowerCase();
     var actionIsPortal = false;
     if (action && portalDomain) {
       try {
         var actionHost = new URL(action).hostname.toLowerCase();
         actionIsPortal = actionHost === portalDomain;
       } catch (e) {
+        // Relative or invalid action URL — not an absolute portal host.
         actionIsPortal = false;
       }
     }
