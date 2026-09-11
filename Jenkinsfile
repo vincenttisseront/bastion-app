@@ -36,6 +36,12 @@ pipeline {
     SONAR_SCANNER_IMAGE = 'sonarsource/sonar-scanner-cli:12'
     // Doit matcher container_name du compose Jenkins
     JENKINS_CONTAINER_NAME = "${env.JENKINS_CONTAINER_NAME ?: 'jenkins'}"
+    // Réseau Docker partagé jenkins ↔ sonarqube (inspect: NetworkSettings.Networks).
+    // Sans ça, `docker run` sonar-scanner est sur bridge et ne résout pas
+    // http://sonarqube:9000 (ou passe par une URL publique/proxy qui casse le protobuf).
+    SONAR_DOCKER_NETWORK = "${env.SONAR_DOCKER_NETWORK ?: 'external'}"
+    // URL interne (hostname Docker). Préférer ça dans Jenkins → SonarQube servers.
+    SONAR_INTERNAL_URL = "${env.SONAR_INTERNAL_URL ?: 'http://sonarqube:9000'}"
   }
 
   stages {
@@ -148,11 +154,14 @@ pipeline {
                 -w "${WORKSPACE}" \
                 "${PYTHON_IMAGE}" \
                 bash -lc "rm -rf .scannerwork && mkdir -p .scannerwork && chmod -R a+rwX .scannerwork coverage.xml reports 2>/dev/null || true"
+              # Join the same Docker network as sonarqube; force internal URL so
+              # /batch/project.protobuf is not mangled by a reverse-proxy/WAF.
               docker run --rm \
                 --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                --network "${SONAR_DOCKER_NETWORK}" \
                 -u root:root \
                 --entrypoint sonar-scanner \
-                -e SONAR_HOST_URL \
+                -e SONAR_HOST_URL="${SONAR_INTERNAL_URL}" \
                 -e SONAR_TOKEN="${SONAR_AUTH_TOKEN}" \
                 -w "${WORKSPACE}" \
                 "${SONAR_SCANNER_IMAGE}" \
