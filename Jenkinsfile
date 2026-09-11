@@ -28,6 +28,8 @@ pipeline {
   environment {
     PIP_DISABLE_PIP_VERSION_CHECK = '1'
     PYTHONDONTWRITEBYTECODE = '1'
+    // Keep durable-task log alive: Python + tee must flush during long pytest.
+    PYTHONUNBUFFERED = '1'
     SONAR_SERVER_NAME = "${env.SONAR_SERVER_NAME ?: 'SonarQube'}"
     SONAR_PROJECT_KEY = "${env.SONAR_PROJECT_KEY ?: 'bastion-app'}"
     PYTHON_IMAGE = 'python:3.12-bookworm'
@@ -52,52 +54,74 @@ pipeline {
 
     stage('Lint + Test') {
       steps {
-        sh '''
-          set -eux
-          docker run --rm \
-            --volumes-from "${JENKINS_CONTAINER_NAME}" \
-            -u root:root \
-            -w "${WORKSPACE}" \
-            -e PIP_DISABLE_PIP_VERSION_CHECK \
-            -e PYTHONDONTWRITEBYTECODE \
-            "${PYTHON_IMAGE}" \
-            bash -lc '
-              set -eux
-              test -f pyproject.toml
-              # Reuse workspace venv across builds (volume-backed) to save minutes.
-              if [ ! -x .venv/bin/python ]; then
-                python -m venv .venv
-              fi
-              . .venv/bin/activate
-              pip install -U pip
-              pip install -e ".[dev]"
-              mkdir -p reports
-              # Soft gate: large historical ruff debt must not block coverage/Sonar.
-              # Failures stay visible in the console and reports/ruff.txt.
-              set +e
-              ruff check app/ tests/ 2>&1 | tee reports/ruff.txt
-              set -e
-              # Soft gate: historical pytest failures / flaky ERROR fixtures must
-              # not block Sonar. Exit code is recorded; junit + coverage still archive.
-              set +e
-              pytest tests/ \
-                --ignore=tests/e2e \
-                --cov=app \
-                --cov-report=xml:coverage.xml \
-                --cov-report=term \
-                --junitxml=reports/junit.xml \
-                -q 2>&1 | tee reports/pytest.txt
-              PYTEST_RC=${PIPESTATUS[0]}
-              set -e
-              echo "pytest_exit=${PYTEST_RC}" | tee reports/pytest.exit
-              test -f coverage.xml
-            '
-        '''
+        // Soft gate: ruff/pytest non-zero, durable-task kill (-1), or missing
+        // coverage must not skip SonarQube / Quality Gate.
+        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+          sh '''
+            set -eux
+            docker run --rm \
+              --volumes-from "${JENKINS_CONTAINER_NAME}" \
+              -u root:root \
+              -w "${WORKSPACE}" \
+              -e PIP_DISABLE_PIP_VERSION_CHECK \
+              -e PYTHONDONTWRITEBYTECODE \
+              -e PYTHONUNBUFFERED \
+              "${PYTHON_IMAGE}" \
+              bash -lc '
+                set -eux
+                test -f pyproject.toml
+                # Reuse workspace venv across builds (volume-backed) to save minutes.
+                if [ ! -x .venv/bin/python ]; then
+                  python -m venv .venv
+                fi
+                . .venv/bin/activate
+                pip install -U pip
+                pip install -e ".[dev]"
+                mkdir -p reports
+
+                # Touch Jenkins durable-task log every 60s (JENKINS-48300).
+                (
+                  while true; do
+                    echo "[ci-heartbeat] $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                    sleep 60
+                  done
+                ) &
+                HEARTBEAT_PID=$!
+                trap "kill ${HEARTBEAT_PID} 2>/dev/null || true" EXIT
+
+                # Soft gate: large historical ruff debt must not block coverage/Sonar.
+                # Failures stay visible in the console and reports/ruff.txt.
+                set +e
+                ruff check app/ tests/ 2>&1 | tee reports/ruff.txt
+                set -e
+
+                # Soft gate: historical pytest failures / flaky ERROR fixtures must
+                # not block Sonar. Exit code is recorded; junit + coverage still archive.
+                # -o console_output_style=count forces periodic progress lines.
+                set +e
+                pytest tests/ \
+                  --ignore=tests/e2e \
+                  --cov=app \
+                  --cov-report=xml:coverage.xml \
+                  --cov-report=term \
+                  --junitxml=reports/junit.xml \
+                  -o console_output_style=count \
+                  -q 2>&1 | tee reports/pytest.txt
+                PYTEST_RC=${PIPESTATUS[0]}
+                set -e
+                echo "pytest_exit=${PYTEST_RC}" | tee reports/pytest.exit
+                if [ ! -f coverage.xml ]; then
+                  echo "coverage.xml missing (pytest interrupted or soft-failed early)" \
+                    | tee reports/coverage.missing
+                fi
+              '
+          '''
+        }
       }
       post {
         always {
           junit allowEmptyResults: true, testResults: 'reports/junit.xml'
-          archiveArtifacts artifacts: 'coverage.xml,reports/junit.xml,reports/ruff.txt,reports/pytest.txt,reports/pytest.exit', allowEmptyArchive: true
+          archiveArtifacts artifacts: 'coverage.xml,reports/junit.xml,reports/ruff.txt,reports/pytest.txt,reports/pytest.exit,reports/coverage.missing', allowEmptyArchive: true
         }
       }
     }
