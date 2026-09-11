@@ -134,9 +134,10 @@ pipeline {
     stage('SonarQube') {
       steps {
         withSonarQubeEnv("${SONAR_SERVER_NAME}") {
+          // Community Build rejects sonar.branch.name (Developer+ only).
+          // Analyze the default branch / PR head as a single project key.
           sh '''
             set -eux
-            BRANCH="${CHANGE_BRANCH:-${BRANCH_NAME:-main}}"
             docker run --rm \
               --volumes-from "${JENKINS_CONTAINER_NAME}" \
               --entrypoint sonar-scanner \
@@ -144,8 +145,7 @@ pipeline {
               -e SONAR_TOKEN="${SONAR_AUTH_TOKEN}" \
               -w "${WORKSPACE}" \
               "${SONAR_SCANNER_IMAGE}" \
-              -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
-              -Dsonar.branch.name="${BRANCH}"
+              -Dsonar.projectKey="${SONAR_PROJECT_KEY}"
           '''
         }
       }
