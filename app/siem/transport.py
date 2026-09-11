@@ -31,17 +31,6 @@ def _rfc5424_message(cef_body: str, *, hostname: str = "bastion") -> bytes:
     return msg.encode("utf-8")
 
 
-def _syslog_ssl_context(*, verify: bool) -> ssl.SSLContext:
-    """TLS context for SIEM syslog. Verify on by default; admin may opt out for lab CAs."""
-    if verify:
-        return ssl.create_default_context()
-    # Intentional admin opt-out (self-signed / private SIEM collectors).
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False  # NOSONAR python:S5527 — explicit syslog_tls_verify=False
-    ctx.verify_mode = ssl.CERT_NONE  # NOSONAR python:S4830 — explicit syslog_tls_verify=False
-    return ctx
-
-
 def deliver_syslog_tls(
     entry: dict[str, Any],
     config: SiemForwardingConfig,
@@ -52,14 +41,18 @@ def deliver_syslog_tls(
     port = config.syslog_port
     if not host:
         raise SiemDeliveryError("syslog_host empty")
+    if not config.syslog_tls_verify:
+        raise SiemDeliveryError(
+            "syslog TLS verification is required — trust the collector CA on the host "
+            "(syslog_tls_verify cannot be disabled)"
+        )
     body = format_cef(entry)
     payload = _rfc5424_message(body)
-    verify = bool(config.syslog_tls_verify)
-    ctx = _syslog_ssl_context(verify=verify)
+    ctx = ssl.create_default_context()
 
     def _connect():
         raw = socket.create_connection((host, port), timeout=15)
-        return ctx.wrap_socket(raw, server_hostname=host if verify else None)
+        return ctx.wrap_socket(raw, server_hostname=host)
 
     connect = sock_factory or _connect
     try:

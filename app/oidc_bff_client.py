@@ -33,6 +33,7 @@ _AUTH_PATH = "/realms/{realm}/protocol/openid-connect/auth"
 _TOKEN_PATH = "/realms/{realm}/protocol/openid-connect/token"
 _DISCOVERY_PATH = "/realms/{realm}/.well-known/openid-configuration"
 _ALLOWED_JWT_ALGS = frozenset({"RS256", "RS384", "RS512", "ES256", "ES384", "ES512"})
+_JWT_UNREADABLE = "JWT OIDC illisible"
 
 ATTEMPT_TTL_SECONDS = 300
 MAX_OTP_FAILURES = 3
@@ -342,10 +343,11 @@ def _jwt_header_unverified(raw: str) -> dict[str, Any]:
         padded = part + ("=" * (-len(part) % 4))
         data = base64.urlsafe_b64decode(padded.encode("ascii"))
         header = json.loads(data)
-    except (ValueError, json.JSONDecodeError, UnicodeError) as exc:
-        raise OidcBffError("JWT OIDC illisible") from exc
+    except ValueError as exc:
+        # JSONDecodeError and UnicodeError are ValueError subclasses.
+        raise OidcBffError(_JWT_UNREADABLE) from exc
     if not isinstance(header, dict):
-        raise OidcBffError("JWT OIDC illisible")
+        raise OidcBffError(_JWT_UNREADABLE)
     return header
 
 
@@ -359,7 +361,7 @@ def _verify_oidc_jwt(
     """Verify JWT signature + standard claims against Keycloak JWKS."""
     raw = (token or "").strip()
     if not raw or raw.count(".") != 2:
-        raise OidcBffError("JWT OIDC illisible")
+        raise OidcBffError(_JWT_UNREADABLE)
     header = _jwt_header_unverified(raw)
     alg = str(header.get("alg") or "")
     if alg not in _ALLOWED_JWT_ALGS:
@@ -1076,7 +1078,8 @@ async def submit_headless_otp(
     try:
         cookies = json.loads(decrypt_secret(row.keycloak_cookies_encrypted, settings))
         form_blob = json.loads(decrypt_secret(row.otp_form_encrypted, settings))
-    except (ValueError, json.JSONDecodeError, TypeError):
+    except (ValueError, TypeError):
+        # JSONDecodeError is a ValueError subclass.
         db.delete(row)
         db.flush()
         raise InvalidCredentialsError("Identifiants invalides") from None
