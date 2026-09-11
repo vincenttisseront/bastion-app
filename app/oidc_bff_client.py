@@ -335,6 +335,20 @@ def _jwk_to_key(jwk: dict[str, Any]) -> Any:
     return jwt.algorithms.RSAAlgorithm.from_jwk(raw)
 
 
+def _jwt_header_unverified(raw: str) -> dict[str, Any]:
+    """Decode JWT header JSON only (alg/kid). Signature is verified by jwt.decode."""
+    try:
+        part = raw.split(".", 1)[0]
+        padded = part + ("=" * (-len(part) % 4))
+        data = base64.urlsafe_b64decode(padded.encode("ascii"))
+        header = json.loads(data)
+    except (ValueError, json.JSONDecodeError, UnicodeError) as exc:
+        raise OidcBffError("JWT OIDC illisible") from exc
+    if not isinstance(header, dict):
+        raise OidcBffError("JWT OIDC illisible")
+    return header
+
+
 def _verify_oidc_jwt(
     token: str,
     *,
@@ -346,10 +360,7 @@ def _verify_oidc_jwt(
     raw = (token or "").strip()
     if not raw or raw.count(".") != 2:
         raise OidcBffError("JWT OIDC illisible")
-    try:
-        header = jwt.get_unverified_header(raw)
-    except jwt.PyJWTError as exc:
-        raise OidcBffError("JWT OIDC illisible") from exc
+    header = _jwt_header_unverified(raw)
     alg = str(header.get("alg") or "")
     if alg not in _ALLOWED_JWT_ALGS:
         raise OidcBffError(f"Algorithme JWT refusé ({alg or 'missing'})")

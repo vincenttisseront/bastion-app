@@ -1302,21 +1302,20 @@ def enrich_session_groups_sso_logout(
 ) -> list[dict[str, Any]]:
     """Attach residual SSO logout badges from audits when session stamp is missing."""
     by_id = recent_sso_logout_by_identity(db)
-    if not by_id:
-        return groups
-    for g in groups:
-        if g.get("sso_logout"):
-            continue
-        if not g.get("has_oidc"):
-            continue
-        email = (g.get("user_email") or "").strip().lower()
-        user = (g.get("user") or "").strip().lower()
-        badge = by_id.get(email) or by_id.get(user)
-        if badge:
-            g["sso_logout"] = badge
-            for s in g.get("sessions") or []:
-                if s.get("auth_family") == "oidc" and not s.get("sso_logout"):
-                    s["sso_logout"] = badge
+    if by_id:
+        for g in groups:
+            if g.get("sso_logout"):
+                continue
+            if not g.get("has_oidc"):
+                continue
+            email = (g.get("user_email") or "").strip().lower()
+            user = (g.get("user") or "").strip().lower()
+            badge = by_id.get(email) or by_id.get(user)
+            if badge:
+                g["sso_logout"] = badge
+                for s in g.get("sessions") or []:
+                    if s.get("auth_family") == "oidc" and not s.get("sso_logout"):
+                        s["sso_logout"] = badge
     return groups
 
 
