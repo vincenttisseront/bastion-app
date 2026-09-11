@@ -454,6 +454,7 @@ function initAccessModeForm() {
   var genericFields = document.getElementById('generic-form-fields');
   var wsseHelp = document.getElementById('generic-wsse-help');
   var analyzeBtn = document.getElementById('btn-analyze-login-form');
+  var analyzePanel = document.getElementById('login-form-analyze-panel');
   var labelSso = document.querySelector('[data-portal-entry-label-sso]');
   var labelGeneric = document.querySelector('[data-portal-entry-label-generic]');
   var reqOidc = document.querySelector('[data-portal-entry-req-oidc]');
@@ -561,7 +562,13 @@ function initAccessModeForm() {
     if (helpGeneric) helpGeneric.hidden = !isGenericForm;
     if (analyzeBtn) {
       analyzeBtn.hidden = !isGenericForm;
-      if (!isGenericForm) analyzeBtn.disabled = true;
+      if (!isGenericForm) {
+        analyzeBtn.disabled = true;
+        if (analyzePanel) {
+          analyzePanel.hidden = true;
+          analyzePanel.innerHTML = '';
+        }
+      }
     }
   }
 
@@ -704,10 +711,26 @@ function initLoginFormAnalyzer() {
 
     var action = form.action || '';
     var entered = (enteredUrl || urlInput.value || '').trim();
-    if (action && entered && action !== entered) {
+    var portalDomain = '';
+    var fqdnEl = document.getElementById('public_fqdn');
+    if (fqdnEl) portalDomain = (fqdnEl.getAttribute('data-portal-domain') || '').trim().toLowerCase();
+    var actionIsPortal = false;
+    if (action && portalDomain) {
+      try {
+        var actionHost = new URL(action).hostname.toLowerCase();
+        actionIsPortal = actionHost === portalDomain;
+      } catch (e) {
+        actionIsPortal = false;
+      }
+    }
+    if (action && entered && action !== entered && !actionIsPortal) {
       html += '<p class="form-help">Action détectée : <span class="mono">' + escapeHtml(action) + '</span></p>';
       html += '<button type="button" class="btn btn-secondary btn-sm" data-use-detected-action="' +
         escapeHtml(action) + '">Utiliser l\'URL détectée à la place</button>';
+    } else if (actionIsPortal) {
+      html += '<p class="form-help" style="color:var(--warn)">';
+      html += 'L\'action du formulaire pointe vers le portail Bastion — ignorée (ce n\'est pas l\'URL de l\'application).';
+      html += '</p>';
     }
 
     var hidden = form.hidden_fields || [];

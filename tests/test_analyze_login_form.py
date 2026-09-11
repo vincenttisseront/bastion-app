@@ -258,9 +258,64 @@ def test_analyze_login_form_endpoint_invalid_url(client):
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_analyze_rejects_redirect_to_portal():
+    """App behind bastion SSO must not surface portal /auth/login as detected action."""
+    app_url = "https://jenkins.example.com/securityRealm/commenceLogin?from=%2F"
+    portal_login = "https://portal.example.com/auth/login"
+    respx.get(app_url).mock(
+        return_value=Response(302, headers={"Location": portal_login})
+    )
+    with pytest.raises(AnalyzeLoginFormError) as exc_info:
+        await analyze_login_form_url(app_url, portal_domain="portal.example.com")
+    assert exc_info.value.error == "redirected_to_portal"
+    assert "portail" in exc_info.value.message.lower()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_analyze_rejects_entered_portal_url():
+    with pytest.raises(AnalyzeLoginFormError) as exc_info:
+        await analyze_login_form_url(
+            "https://portal.example.com/auth/login",
+            portal_domain="portal.example.com",
+        )
+    assert exc_info.value.error == "portal_url"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_analyze_rejects_portal_form_action_on_app_host():
+    """HTML on app host whose form posts to the portal must not be proposed."""
+    html = """
+    <form method="post" action="https://portal.example.com/auth/login">
+      <input type="hidden" name="rd" value="/apps">
+      <input type="hidden" name="realm" value="default">
+      <input type="text" name="username">
+      <input type="password" name="password">
+    </form>
+    """
+    respx.get(PAGE_URL).mock(return_value=Response(200, text=html))
+    with pytest.raises(AnalyzeLoginFormError) as exc_info:
+        await analyze_login_form_url(PAGE_URL, portal_domain="portal.example.com")
+    assert exc_info.value.error == "redirected_to_portal"
+
+
+def test_is_portal_url():
+    from app.bastion.login_form_analyzer import is_portal_url
+
+    assert is_portal_url("https://portal.example.com/auth/login", "portal.example.com")
+    assert not is_portal_url(
+        "https://jenkins.example.com/login", "portal.example.com"
+    )
+    assert not is_portal_url("https://portal.example.com/auth/login", "")
+    assert not is_portal_url("https://portal.example.com/auth/login", None)
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_analyze_login_form_allows_private_rfc1918(client):
     """Internal apps (RFC1918) must not be blocked — primary bastion use case."""
-    url = "https://dolibarr.ar-systems.fr/"
+    url = "https://dolibarr.example.com/"
     html = """
     <form action="/index.php?mainmenu=home" method="post">
       <input type="text" name="username">
