@@ -401,8 +401,9 @@ def test_syslog_tls_rejects_verify_disabled():
         retry_max_age_minutes=60,
         last_success_at=None,
     )
+    entry = _sample_entry()
     with pytest.raises(SiemDeliveryError, match="verification is required"):
-        deliver_syslog_tls(_sample_entry(), config, sock_factory=lambda: None)
+        deliver_syslog_tls(entry, config, sock_factory=lambda: None)
 
 
 

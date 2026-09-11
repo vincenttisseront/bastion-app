@@ -264,6 +264,25 @@ async def _read_body_limited(response: httpx.Response) -> str:
         return raw.decode("utf-8", errors="replace")
 
 
+def _next_redirect_url(response: httpx.Response) -> str:
+    """Validate Location and return the absolute http(s) redirect target."""
+    location = response.headers.get("location")
+    if not location:
+        raise AnalyzeLoginFormError(
+            "fetch_failed",
+            "Redirection sans en-tête Location.",
+            status_code=502,
+        )
+    next_url = urljoin(str(response.url), location)
+    if urlparse(next_url).scheme not in ("http", "https"):
+        raise AnalyzeLoginFormError(
+            "invalid_url",
+            "Redirection vers un schéma non autorisé.",
+            status_code=400,
+        )
+    return validate_analyze_url(next_url)
+
+
 async def fetch_login_page(
     url: str,
     *,
@@ -288,22 +307,8 @@ async def fetch_login_page(
             for _ in range(MAX_REDIRECTS + 1):
                 async with client.stream("GET", current) as response:
                     if response.is_redirect:
-                        location = response.headers.get("location")
-                        if not location:
-                            raise AnalyzeLoginFormError(
-                                "fetch_failed",
-                                "Redirection sans en-tête Location.",
-                                status_code=502,
-                            )
-                        next_url = urljoin(str(response.url), location)
                         await response.aread()
-                        if urlparse(next_url).scheme not in ("http", "https"):
-                            raise AnalyzeLoginFormError(
-                                "invalid_url",
-                                "Redirection vers un schéma non autorisé.",
-                                status_code=400,
-                            )
-                        current = validate_analyze_url(next_url)
+                        current = _next_redirect_url(response)
                         _reject_if_portal(current, portal_domain, via="redirect")
                         continue
 
