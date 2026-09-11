@@ -927,7 +927,7 @@ def maybe_notify_owner_new_pending(
 
         if settings is None:
             settings = get_settings()
-        row = ensure_portal_settings(db)
+        row = ensure_portal_settings(db, settings)
         if not smtp_configured(row):
             return
         domain = (getattr(settings, "portal_domain", None) or "").strip()

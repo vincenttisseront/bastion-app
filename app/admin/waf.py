@@ -388,7 +388,7 @@ def admin_waf_quick_toggle(
 ):
     """Toggle CRS or anti-bruteforce from Sentinel dashboard."""
     from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON
-    from app.security.banning.service import update_policy_misc
+    from app.security.banning.service import get_or_create_policy, update_policy_misc
 
     response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
     actor = _actor(user)
@@ -396,9 +396,12 @@ def admin_waf_quick_toggle(
     turn_on = enabled == "on"
     try:
         if toggle == "bruteforce":
+            current = get_or_create_policy(db)
             update_policy_misc(
                 db,
                 enabled=turn_on,
+                breakglass_allow_cidrs=current.breakglass_allow_cidrs or "",
+                breakglass_deny_cidrs=current.breakglass_deny_cidrs or "",
                 actor=actor,
                 ip_address=ip,
             )

@@ -190,10 +190,10 @@ def wait_for_host_apply(
 ) -> dict[str, Any]:
     """Wait for host apply to leave pending and return the latest status."""
     deadline = time.monotonic() + max(0.0, timeout_sec)
+    state: dict[str, Any] = {}
     while True:
         state = read_host_apply_status(settings)
-        if host_apply_is_terminal(state.get("status")):
-            return state
-        if time.monotonic() >= deadline:
-            return state
+        if host_apply_is_terminal(state.get("status")) or time.monotonic() >= deadline:
+            break
         time.sleep(max(0.05, poll_interval_sec))
+    return state
