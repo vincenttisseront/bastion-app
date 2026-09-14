@@ -4,6 +4,10 @@
 // dans le volume jenkins_data, PAS sur le FS hôte. Il faut donc
 // `--volumes-from <conteneur jenkins>` (pas `-v $PWD:/ws`).
 //
+// Ce couplage impose d'exécuter le job sur le contrôleur (même Docker host
+// que le conteneur `jenkins`). Les agents inbound distants n'ont ni ce
+// conteneur ni le volume workspace — ne pas utiliser `agent any`.
+//
 // Prérequis compose Jenkins :
 //   - container_name: jenkins  (ou JENKINS_CONTAINER_NAME)
 //   - /var/run/docker.sock + /usr/bin/docker
@@ -11,9 +15,10 @@
 // Prérequis Jenkins UI :
 //   - Plugin SonarQube Scanner + serveur nommé SonarQube + token
 //   - Webhook Sonar → /sonarqube-webhook/
+//   - nœud built-in (affichage « contrôleur ») avec label `built-in`
 
 pipeline {
-  agent any
+  agent { label 'built-in' }
 
   options {
     timestamps()
