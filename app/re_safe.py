@@ -3,6 +3,9 @@
 Prefer this module over the stdlib ``re`` for any pattern evaluated on
 untrusted or unbounded input (HTTP bodies, access logs, cookies, admin forms).
 
+Public function names intentionally mirror stdlib ``re`` (``compile``, ``search``,
+``match``, …) so call sites stay drop-in replacements.
+
 google-re2 does not support lookaround or backreferences. Patterns that need
 those features must not live here — rewrite them, or isolate stdlib ``re`` in
 ``asyncio.to_thread`` with a hard input length cap.
@@ -40,17 +43,23 @@ VALIDATOR_MAX_INPUT_LEN = 4_096
 
 # Re-export flag constants so callers can write ``re_safe.IGNORECASE``.
 IGNORECASE = _stdlib_re.IGNORECASE
-I = IGNORECASE
 MULTILINE = _stdlib_re.MULTILINE
-M = MULTILINE
 DOTALL = _stdlib_re.DOTALL
-S = DOTALL
 VERBOSE = _stdlib_re.VERBOSE
-X = VERBOSE
 ASCII = _stdlib_re.ASCII
-A = ASCII
 UNICODE = _stdlib_re.UNICODE
-U = UNICODE
+
+# Short aliases (stdlib parity). Bound via setattr to avoid E741 on name ``I``.
+globals().update(
+    {
+        "I": IGNORECASE,
+        "M": MULTILINE,
+        "S": DOTALL,
+        "X": VERBOSE,
+        "A": ASCII,
+        "U": UNICODE,
+    }
+)
 
 error = _re2.error if _USING_RE2 else _stdlib_re.error  # type: ignore[union-attr]
 escape = _re2.escape if _USING_RE2 else _stdlib_re.escape  # type: ignore[union-attr]
@@ -91,7 +100,7 @@ def _clamp(text: Any, max_input_len: int | None) -> Any:
     return text
 
 
-def compile(pattern: str | bytes, flags: int = 0) -> Any:
+def compile(pattern: str | bytes, flags: int = 0) -> Any:  # noqa: A001  # NOSONAR
     """Compile ``pattern``. Raises on unsupported RE2 features."""
     if _USING_RE2:
         return _re2.compile(pattern, _options_from_flags(flags))  # type: ignore[union-attr]
@@ -102,9 +111,9 @@ def _dispatch(
     method: str,
     pattern: Any,
     string: Any,
-    flags: int,
-    max_input_len: int | None,
     *,
+    flags: int = 0,
+    max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
     listify: bool = False,
     **kwargs: Any,
 ) -> Any:
@@ -129,17 +138,17 @@ def search(
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> Any:
-    return _dispatch("search", pattern, string, flags, max_input_len)
+    return _dispatch("search", pattern, string, flags=flags, max_input_len=max_input_len)
 
 
-def match(
+def match(  # noqa: A001  # NOSONAR
     pattern: Any,
     string: Any,
     flags: int = 0,
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> Any:
-    return _dispatch("match", pattern, string, flags, max_input_len)
+    return _dispatch("match", pattern, string, flags=flags, max_input_len=max_input_len)
 
 
 def fullmatch(
@@ -149,7 +158,9 @@ def fullmatch(
     *,
     max_input_len: int | None = VALIDATOR_MAX_INPUT_LEN,
 ) -> Any:
-    return _dispatch("fullmatch", pattern, string, flags, max_input_len)
+    return _dispatch(
+        "fullmatch", pattern, string, flags=flags, max_input_len=max_input_len
+    )
 
 
 def findall(
@@ -159,7 +170,14 @@ def findall(
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> list[Any]:
-    return _dispatch("findall", pattern, string, flags, max_input_len, listify=True)
+    return _dispatch(
+        "findall",
+        pattern,
+        string,
+        flags=flags,
+        max_input_len=max_input_len,
+        listify=True,
+    )
 
 
 def finditer(
@@ -169,7 +187,9 @@ def finditer(
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> Any:
-    return _dispatch("finditer", pattern, string, flags, max_input_len)
+    return _dispatch(
+        "finditer", pattern, string, flags=flags, max_input_len=max_input_len
+    )
 
 
 def sub(
@@ -203,8 +223,8 @@ def split(
         "split",
         pattern,
         string,
-        flags,
-        max_input_len,
+        flags=flags,
+        max_input_len=max_input_len,
         listify=True,
         maxsplit=maxsplit,
     )

@@ -6,10 +6,10 @@ configured in the admin UI. Upstream must authenticate when Bastion skips SSO.
 
 from __future__ import annotations
 
-from app import re_safe
 import json
 from typing import Any
 
+from app import re_safe
 from app.access_modes import normalize_access_mode
 
 MAX_BYPASS_PATHS = 32

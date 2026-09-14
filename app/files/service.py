@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app import re_safe
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import Iterator, Sequence
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.files.blob_crypto import (
     DEFAULT_CHUNK_SIZE,
     iter_decrypted_chunks,

@@ -51,7 +51,8 @@ def admin_configuration_page(
 ):
     from app.db.hot_store import get_hot_store_status
     from app.mail.mta_sts_service import mta_sts_public_status
-    from app.siem.settings_service import ensure_siem_settings, public_status as siem_public_status
+    from app.siem.settings_service import ensure_siem_settings
+    from app.siem.settings_service import public_status as siem_public_status
 
     row = ensure_portal_settings(db, settings)
     siem_settings = ensure_siem_settings(db)

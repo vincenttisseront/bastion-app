@@ -8,9 +8,9 @@ bastion-app writes a sentinel under ``portal_data_dir``; a host systemd path uni
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-import time
 from typing import Any
 
 from app.sso_settings import Settings

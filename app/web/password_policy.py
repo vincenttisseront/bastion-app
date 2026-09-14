@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-
 from app import re_safe
+
 MIN_PASSWORD_LEN = 12
 
 _PUNCT_RE = re_safe.compile(r"[^\w\s]", re_safe.UNICODE)

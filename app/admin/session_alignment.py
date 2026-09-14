@@ -6,13 +6,13 @@ Target: cookie_expire=12h, cookie_refresh=1h, Keycloak ssoSessionMaxLifespan ≤
 
 from __future__ import annotations
 
-from app import re_safe
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.admin.export import (
     core_static_realm_slugs,
     generate_oauth2_proxy_config,

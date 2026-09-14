@@ -7,11 +7,11 @@ stub on the portal default_server — without a second default_server.
 
 from __future__ import annotations
 
-from app import re_safe
 from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.access_modes import normalize_access_mode
 from app.models import App
 from app.sso_settings import Settings

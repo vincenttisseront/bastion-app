@@ -16,7 +16,6 @@ regenerate nginx deny lists.
 
 from __future__ import annotations
 
-from app import re_safe
 import json
 import logging
 import shutil
@@ -27,6 +26,7 @@ from typing import Any, Callable
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.models import SecurityBan, WafExclusion, WafProfile
 from app.sso_settings import Settings
 

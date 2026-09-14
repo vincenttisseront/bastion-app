@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy.orm import Session
@@ -15,7 +15,6 @@ from app.audit import log_action
 from app.bastion.bastion_fields import normalize_credential_mode
 from app.bastion.drivers.base import RoboticLoginError
 from app.bastion.drivers.crushftp import CrushFTPDriver
-from app.bastion.drivers.teleport import TeleportDriver, resolve_teleport_login_base_url
 from app.bastion.drivers.generic import (
     DriverAuthRejectedError,
     DriverUpstreamError,
@@ -25,6 +24,7 @@ from app.bastion.drivers.generic import (
     generic_wsse_header,
     public_host_binding_headers,
 )
+from app.bastion.drivers.teleport import TeleportDriver, resolve_teleport_login_base_url
 from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.models import App
 from app.robotic.robotic_session_cookies import normalize_injected_cookie_scope

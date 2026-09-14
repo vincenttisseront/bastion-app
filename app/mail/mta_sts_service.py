@@ -6,7 +6,6 @@ nginx ``return 200`` (no upstream). Does not enforce SMTP; that stays on the MTA
 
 from __future__ import annotations
 
-from app import re_safe
 import hashlib
 import ipaddress
 import logging
@@ -15,6 +14,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.audit import log_action
 from app.bastion.nginx_known_hosts_export import normalize_hostname
 from app.models import PortalSettings, utcnow

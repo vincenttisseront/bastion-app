@@ -31,12 +31,12 @@ from app.bastion.drivers.base_provisioning import (
 )
 from app.bastion.drivers.registry import get_provisioning_driver
 from app.models import (
+    BASTION_ACCOUNT_ORIGIN_BASTION,
+    BASTION_ACCOUNT_ORIGIN_KEYCLOAK,
     AccessGrant,
     App,
     BastionAccount,
     BastionAccountProvisioning,
-    BASTION_ACCOUNT_ORIGIN_BASTION,
-    BASTION_ACCOUNT_ORIGIN_KEYCLOAK,
     RBACGroup,
     RealmConfig,
     UserAppCredential,

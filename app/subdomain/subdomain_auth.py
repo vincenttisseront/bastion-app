@@ -15,16 +15,16 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.audit import log_action
-from app.bastion.m2m_policy import app_uri_is_m2m_bypass, m2m_credential_allows
 from app.auth import get_realm_proxy_url, is_rfc1918
+from app.bastion.m2m_policy import app_uri_is_m2m_bypass, m2m_credential_allows
 from app.breakglass import (
     COOKIE_NAME,
     process_breakglass_auth_request,
 )
 from app.database import get_db, release_db_connection
 from app.models import App
-from app import re_safe
 from app.rbac.effective_access_service import user_can_launch_application
 from app.request_client_ip import client_ip_from_request
 from app.robotic.app_session_presence import has_app_session_cookie

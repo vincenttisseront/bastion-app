@@ -6,7 +6,6 @@ Deliberately no auth_request, oauth2-proxy, hop, or FastAPI /internal/* dependen
 
 from __future__ import annotations
 
-from app import re_safe
 import json
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.access_modes import normalize_access_mode
 from app.bastion.upstream_proxy import upstream_origin
 from app.bastion.upstream_tls import (

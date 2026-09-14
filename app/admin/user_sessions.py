@@ -16,10 +16,10 @@ from app.models import BastionAccount, RealmConfig
 from app.oidc_bff import revoke_oidc_sessions_for_identity
 from app.rbac.keycloak_admin import (
     SSO_LOGOUT_RESIDUAL_NOTE,
+    _admin_get,
     fetch_keycloak_user,
     logout_keycloak_user,
     search_keycloak_users,
-    _admin_get,
 )
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings

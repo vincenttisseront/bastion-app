@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app import re_safe
 import hashlib
 import io
 import logging
@@ -10,6 +9,7 @@ from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
 
+from app import re_safe
 from app.models import App
 from app.sso_settings import Settings, get_settings
 

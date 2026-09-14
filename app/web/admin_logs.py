@@ -15,6 +15,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.audit import compute_integrity, log_action
+from app.audit.event_catalog import DOMAINS, EVENTS, Severity
 from app.database import SessionLocal, get_db
 from app.db.hot_store import hot_read
 from app.models import AdminLogsUserPrefs, AuditLog, SavedLogView, utcnow
@@ -30,7 +31,6 @@ from app.web.admin_logs_query import (
     parse_status_list,
     serialize_audit_row,
 )
-from app.audit.event_catalog import DOMAINS, EVENTS, Severity
 from app.web.audit_export import build_audit_csv_export, build_audit_pdf_export
 from app.web.constants import APP_VERSION
 from app.web.container_logs_settings import get_container_logs_config

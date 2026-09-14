@@ -371,8 +371,9 @@ def collect_waf_dashboard_ips(
             add(str(atk.get("ip") or ""))
 
     if db is not None:
-        from app.models import PendingHost
         from datetime import timedelta
+
+        from app.models import PendingHost
 
         since = datetime.now(timezone.utc) - timedelta(hours=24)
         rows = (

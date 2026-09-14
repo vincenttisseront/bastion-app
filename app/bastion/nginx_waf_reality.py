@@ -12,7 +12,6 @@ Never writes SecRuleEngine or include chains.
 
 from __future__ import annotations
 
-from app import re_safe
 import json
 import os
 from datetime import datetime, timezone
@@ -21,6 +20,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.bastion.nginx_waf_export import (
     MODE_DETECTION,
     MODE_OFF,

@@ -41,11 +41,6 @@ from app.rbac.account_service import (
     send_account_credentials_email,
     update_bastion_account_identity,
 )
-from app.rbac.user_identity import (
-    derive_username_from_names,
-    format_identity_first_name,
-    format_identity_last_name,
-)
 from app.rbac.grants_service import (
     ACCESS_LEVELS,
     SYSTEM_ROLES,
@@ -54,6 +49,11 @@ from app.rbac.grants_service import (
     serialize_grant,
 )
 from app.rbac.keycloak_admin import fetch_keycloak_user, fetch_user_groups
+from app.rbac.user_identity import (
+    derive_username_from_names,
+    format_identity_first_name,
+    format_identity_last_name,
+)
 from app.sso_settings import Settings, get_settings
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect

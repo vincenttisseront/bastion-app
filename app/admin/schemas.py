@@ -61,13 +61,14 @@ class RealmConfigBase(BaseModel):
         if not lines:
             return None
         return "\n".join(lines)
+
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
         stripped = value.strip()
         if not stripped:
             raise ValueError("Le nom est requis")
-        if len(stripped) > 100:
+        if len(stripped) > _MAX_NAME:
             raise ValueError("Le nom ne doit pas dépasser 100 caractères")
         return stripped
 

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from app import re_safe
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.access_modes import normalize_access_mode, validate_app_access_fields
 from app.admin.export import export_app_catalogue_files
 from app.audit import log_action

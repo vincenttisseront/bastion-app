@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from app import re_safe
 import json
 import os
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.audit import log_action
 from app.models import ContainerLogsSettings, utcnow
 

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from app import re_safe
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
+
+from app import re_safe
 
 DOMAINS: frozenset[str] = frozenset(
     {

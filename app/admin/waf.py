@@ -485,8 +485,8 @@ def admin_waf_reactivate(
     user=Depends(require_admin),
 ):
     """Réactive ModSecurity portal (DetectionOnly) avec smoke + rollback auto."""
-    from app.bastion.waf_reactivation import reactivate_engine
     from app.audit import log_action
+    from app.bastion.waf_reactivation import reactivate_engine
 
     result = reactivate_engine(
         db,
@@ -541,8 +541,8 @@ def admin_waf_reactivate_subdomain(
     user=Depends(require_admin),
 ):
     """Réactive ModSecurity subdomain (DetectionOnly) avec smoke + rollback auto."""
-    from app.bastion.waf_reactivation import reactivate_subdomain_engine
     from app.audit import log_action
+    from app.bastion.waf_reactivation import reactivate_subdomain_engine
 
     result = reactivate_subdomain_engine(
         db,
@@ -596,8 +596,8 @@ def admin_waf_promote_subdomain_on(
     user=Depends(require_admin),
 ):
     """Passe ModSecurity subdomain de DetectionOnly à On (smoke + rollback DetectionOnly)."""
-    from app.bastion.waf_reactivation import promote_subdomain_engine_to_on
     from app.audit import log_action
+    from app.bastion.waf_reactivation import promote_subdomain_engine_to_on
 
     result = promote_subdomain_engine_to_on(
         db,
@@ -651,9 +651,9 @@ def admin_waf_disarm(
     user=Depends(require_admin),
 ):
     """Coupe immédiatement ModSecurity portal (Off + connector off)."""
-    from app.bastion.waf_reactivation import disarm_engine
     from app.audit import log_action
     from app.bastion.nginx_waf_export import MODE_OFF, ensure_active_profile
+    from app.bastion.waf_reactivation import disarm_engine
 
     response = RedirectResponse(url="/admin/security/waf#profile", status_code=302)
     if confirm_disarm != "on":

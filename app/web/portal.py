@@ -12,12 +12,12 @@ from app.audit import log_action
 from app.database import get_db
 from app.models import App, RealmConfig
 from app.rbac.effective_access_service import get_effective_apps_for_user
+from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
 from app.subdomain import activesync_device_service as device_service
 from app.subdomain.activesync_device_service import DeviceDecisionError
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
-from app.request_client_ip import client_ip_from_request
 from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
 from app.web.user_context import UserContext, is_portal_admin, require_user_enriched
@@ -76,9 +76,9 @@ def _effective_tiles(db: Session, user: UserContext) -> list[dict]:
         normalize_credential_mode,
         resolve_identity_login_username,
     )
+    from app.vault.user_app_credential_service import needs_individual_credential_setup
     from app.web.app_logos import logo_public_url
     from app.web.portal_enrichment import enrich_tile
-    from app.vault.user_app_credential_service import needs_individual_credential_setup
 
     entries = get_effective_apps_for_user(
         db,

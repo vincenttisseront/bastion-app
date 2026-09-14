@@ -17,9 +17,9 @@ import anyio
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.access_modes import normalize_access_mode
 from app.models import App, PortalSettings
-from app import re_safe
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -319,17 +319,28 @@ def _take_quoted(text: str, start: int) -> tuple[str, int] | None:
     return text[start + 1 : end], end + 1
 
 
-def _parse_access_head(raw: str) -> dict[str, str] | None:
-    """Parse nginx access head fields; return None if the line shape is unknown."""
-    # remote_addr
-    sp = raw.find(" ")
+def _take_token(text: str) -> tuple[str, str] | None:
+    """Split ``text`` on the first space into ``(token, remainder)``."""
+    sp = text.find(" ")
     if sp < 0:
         return None
-    remote_addr = raw[:sp]
-    rest = raw[sp + 1 :]
-    if not rest.startswith("- "):
+    return text[:sp], text[sp + 1 :]
+
+
+def _take_quoted_field(text: str) -> tuple[str, str] | None:
+    """Read a leading quoted field; return ``(value, remainder)``."""
+    taken = _take_quoted(text, 0)
+    if taken is None:
         return None
-    rest = rest[2:]
+    value, idx = taken
+    rest = text[idx:]
+    if rest.startswith(" "):
+        rest = rest[1:]
+    return value, rest
+
+
+def _parse_remote_user_and_time(rest: str) -> tuple[str, str, str] | None:
+    """Parse ``remote_user [time_local] …`` → user, time, remainder."""
     bracket = rest.find(" [")
     if bracket < 0:
         return None
@@ -338,59 +349,65 @@ def _parse_access_head(raw: str) -> dict[str, str] | None:
     close = rest.find("] ")
     if close < 0:
         return None
-    time_local = rest[:close]
-    rest = rest[close + 2 :]
+    return remote_user, rest[:close], rest[close + 2 :]
 
+
+def _parse_optional_host(rest: str) -> tuple[str, str] | None:
+    """Parse optional ``host=…`` then the request quote; return host + rest at quote."""
     host = ""
     if rest.startswith("host="):
         hq = rest.find(' "')
         if hq < 0:
             return None
         host = rest[5:hq]
-        rest = rest[hq + 1 :]  # leading quote of request
+        rest = rest[hq + 1 :]
     if not rest.startswith('"'):
         return None
+    return host, rest
 
-    taken = _take_quoted(rest, 0)
-    if taken is None:
-        return None
-    request, idx = taken
-    rest = rest[idx:]
-    if not rest.startswith(" "):
-        return None
-    rest = rest[1:]
 
-    # status body_bytes
-    sp1 = rest.find(" ")
-    if sp1 < 0:
+def _parse_access_head(raw: str) -> dict[str, str] | None:
+    """Parse nginx access head fields; return None if the line shape is unknown."""
+    first = _take_token(raw)
+    if first is None:
         return None
-    status = rest[:sp1]
+    remote_addr, rest = first
+    if not rest.startswith("- "):
+        return None
+    user_time = _parse_remote_user_and_time(rest[2:])
+    if user_time is None:
+        return None
+    remote_user, time_local, rest = user_time
+    host_part = _parse_optional_host(rest)
+    if host_part is None:
+        return None
+    host, rest = host_part
+    req_part = _take_quoted_field(rest)
+    if req_part is None:
+        return None
+    request, rest = req_part
+    status_part = _take_token(rest)
+    if status_part is None:
+        return None
+    status, rest = status_part
     if not status.isdigit():
         return None
-    rest = rest[sp1 + 1 :]
-    sp2 = rest.find(" ")
-    if sp2 < 0:
+    bytes_part = _take_token(rest)
+    if bytes_part is None:
         return None
-    body_bytes = rest[:sp2]
-    rest = rest[sp2 + 1 :]
+    body_bytes, rest = bytes_part
     if not rest.startswith('"'):
         return None
-
-    taken = _take_quoted(rest, 0)
-    if taken is None:
+    ref_part = _take_quoted_field(rest)
+    if ref_part is None:
         return None
-    referer, idx = taken
-    rest = rest[idx:]
-    if not rest.startswith(" "):
-        return None
-    rest = rest[1:]
+    referer, rest = ref_part
     if not rest.startswith('"'):
         return None
-    taken = _take_quoted(rest, 0)
-    if taken is None:
+    ua_part = _take_quoted_field(rest)
+    if ua_part is None:
         return None
-    user_agent, idx = taken
-    kv = rest[idx:].lstrip()
+    user_agent, kv = ua_part
     return {
         "remote_addr": remote_addr,
         "remote_user": remote_user,
@@ -401,7 +418,7 @@ def _parse_access_head(raw: str) -> dict[str, str] | None:
         "body_bytes_sent": body_bytes,
         "referer": referer,
         "user_agent": user_agent,
-        "kv": kv,
+        "kv": kv.lstrip(),
     }
 
 

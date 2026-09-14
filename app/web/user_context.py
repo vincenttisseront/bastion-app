@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app import re_safe
 import logging
 import threading
 import time
@@ -11,6 +10,7 @@ from dataclasses import dataclass
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.breakglass import (
     COOKIE_NAME,
     decode_breakglass_token_with_fallback,

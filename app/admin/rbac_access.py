@@ -3,19 +3,26 @@
 from __future__ import annotations
 
 import logging
-
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import ValidationError
-from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, or_
+from sqlalchemy.orm import Session, joinedload
 
 from app.audit import log_action
 from app.bastion.bastion_fields import vault_enabled_for_app
 from app.database import get_db
-from app.models import AccessGrant, App, BastionAccount, BastionAccountProvisioning, FileResource, RBACGroup, RealmConfig
+from app.models import (
+    AccessGrant,
+    App,
+    BastionAccount,
+    BastionAccountProvisioning,
+    FileResource,
+    RBACGroup,
+    RealmConfig,
+)
 from app.rbac.grants_service import (
     ACCESS_LEVELS,
     SYSTEM_ROLES,
@@ -693,8 +700,8 @@ async def admin_rbac_users_page(
     kc_search_error: str | None = None
     if search_q and len(search_q) >= 2 and selected_realm is not None:
         try:
-            from app.rbac.keycloak_admin import search_keycloak_users
             from app.rbac.grants_service import serialize_user_search_result
+            from app.rbac.keycloak_admin import search_keycloak_users
 
             raw_hits = await search_keycloak_users(
                 selected_realm, search_q, settings, max_results=20
