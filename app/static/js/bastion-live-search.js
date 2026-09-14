@@ -45,8 +45,8 @@
     document.querySelectorAll("form[data-live-search]").forEach(function (form) {
       if (form.dataset.liveSearchBound === "1") return;
       form.dataset.liveSearchBound = "1";
-      var delay = parseInt(form.getAttribute("data-live-delay") || "320", 10);
-      if (!isFinite(delay) || delay < 0) delay = 320;
+      var delay = Number.parseInt(form.getAttribute("data-live-delay") || "320", 10);
+      if (!Number.isFinite(delay) || delay < 0) delay = 320;
 
       var submitDebounced = debounce(function () {
         submitForm(form);
@@ -83,8 +83,8 @@
       input.dataset.liveFilterBound = "1";
       var targetSel = input.getAttribute("data-live-filter");
       if (!targetSel) return;
-      var delay = parseInt(input.getAttribute("data-live-delay") || "120", 10);
-      if (!isFinite(delay) || delay < 0) delay = 120;
+      var delay = Number.parseInt(input.getAttribute("data-live-delay") || "120", 10);
+      if (!Number.isFinite(delay) || delay < 0) delay = 120;
 
       var apply = debounce(function () {
         var q = fold(input.value || "").trim();

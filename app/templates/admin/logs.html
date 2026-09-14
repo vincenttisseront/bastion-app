@@ -507,11 +507,11 @@
   var prev = document.getElementById('page-prev');
   var next = document.getElementById('page-next');
   if (prev) {
-    var cur = parseInt(new URLSearchParams(location.search).get('page') || '1', 10);
+    var cur = Number.parseInt(new URLSearchParams(location.search).get('page') || '1', 10);
     prev.href = buildPageHref(Math.max(1, cur - 1));
   }
   if (next) {
-    var cur2 = parseInt(new URLSearchParams(location.search).get('page') || '1', 10);
+    var cur2 = Number.parseInt(new URLSearchParams(location.search).get('page') || '1', 10);
     next.href = buildPageHref(cur2 + 1);
   }
 

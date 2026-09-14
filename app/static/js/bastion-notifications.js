@@ -70,7 +70,7 @@
     }
 
     function updateBadge(count) {
-      var n = parseInt(count, 10) || 0;
+      var n = Number.parseInt(count, 10) || 0;
       if (countEl) {
         if (n > 0) {
           countEl.hidden = false;

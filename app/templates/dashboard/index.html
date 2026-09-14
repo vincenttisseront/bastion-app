@@ -168,8 +168,8 @@
   var root = document.getElementById('dashboard-live');
   if (!root) return;
 
-  var pollMs = parseInt(root.getAttribute('data-poll-ms') || '8000', 10);
-  if (!isFinite(pollMs) || pollMs < 3000) pollMs = 8000;
+  var pollMs = Number.parseInt(root.getAttribute('data-poll-ms') || '8000', 10);
+  if (!Number.isFinite(pollMs) || pollMs < 3000) pollMs = 8000;
   var timer = null;
   var inFlight = false;
 

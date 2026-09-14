@@ -173,7 +173,7 @@
         delete pending[k];
       } else {
         pending[k] = {
-          module_id: parseInt(el.getAttribute('data-module-id'), 10),
+          module_id: Number.parseInt(el.getAttribute('data-module-id'), 10),
           field: el.getAttribute('data-field'),
           value: el.checked,
         };

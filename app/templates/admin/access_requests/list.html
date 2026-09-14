@@ -50,7 +50,8 @@
           <td style="white-space:nowrap;">
             {% if r.status == 'pending' %}
             <form method="post" action="/admin/access-requests/{{ r.id }}/approve" style="display:inline-flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap;">
-              <select name="realm_id" class="form-input" required style="min-width:10rem; width:auto; display:inline-block;" title="Realm cible">
+              <label class="visually-hidden" for="approve-realm-{{ r.id }}">Realm cible</label>
+              <select id="approve-realm-{{ r.id }}" name="realm_id" class="form-input" required style="min-width:10rem; width:auto; display:inline-block;">
                 <option value="">— Realm —</option>
                 {% for realm in approve_realms %}
                 <option value="{{ realm.id }}">{{ realm.name }} ({{ realm.slug }})</option>
