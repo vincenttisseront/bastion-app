@@ -1,8 +1,8 @@
-"""Seed rules for migration 076 (legacy heuristics → declarative columns)."""
+"""Seed rules for M2M bypass migrations (legacy heuristics → declarative columns)."""
 
 from __future__ import annotations
 
-from app.bastion.m2m_policy import TELEPORT_SEED_BYPASS_PATHS
+from app.bastion.m2m_policy import JENKINS_SEED_BYPASS_PATHS, TELEPORT_SEED_BYPASS_PATHS
 
 
 def _seed_row(
@@ -22,8 +22,11 @@ def _seed_row(
     )
     paths: list[str] = []
     long_timeout = False
-    if "jenkins" in hay and "/sonarqube-webhook" not in paths:
-        paths.append("/sonarqube-webhook")
+    if "jenkins" in hay:
+        for p in JENKINS_SEED_BYPASS_PATHS:
+            if p not in paths:
+                paths.append(p)
+        long_timeout = True
     if "sonar" in hay and "/api/" not in paths:
         paths.append("/api/")
     driver = (robotic_driver or "").strip().lower()
@@ -44,8 +47,10 @@ def test_seed_jenkins_and_sonar_and_teleport():
         robotic_driver=None,
         provisioning_driver=None,
     )
-    assert j_paths == ["/sonarqube-webhook"]
-    assert j_long is False
+    assert "/sonarqube-webhook" in j_paths
+    assert "/jnlpJars/" in j_paths
+    assert "/computer/" in j_paths
+    assert j_long is True
 
     s_paths, _ = _seed_row(
         slug="code",
