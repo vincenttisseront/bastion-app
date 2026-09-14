@@ -115,6 +115,7 @@ def set_temporary_password_reveal(
         value=_sign_reveal_payload(payload, secret),
         max_age=_REVEAL_PW_MAX_AGE,
         httponly=True,
+        secure=True,
         samesite="lax",
         path="/",
     )
@@ -166,7 +167,9 @@ def pop_temporary_password_reveal(
 
 
 def clear_temporary_password_reveal(response: Response) -> None:
-    response.delete_cookie(key=_REVEAL_PW_COOKIE, path="/", samesite="lax")
+    response.delete_cookie(
+        key=_REVEAL_PW_COOKIE, path="/", samesite="lax", secure=True
+    )
 
 
 def _ctx(request: Request, settings: Settings, **extra):

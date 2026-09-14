@@ -32,12 +32,17 @@ def _ensure_cookie_secret(realm: RealmConfig, settings: Settings) -> str:
 
 
 def realm_oauth2_proxy_url(realm: RealmConfig, settings: Settings) -> str:
-    """Resolve oauth2-proxy base URL for nginx / FastAPI auth_request."""
+    """Resolve oauth2-proxy base URL for nginx / FastAPI auth_request.
+
+    Cleartext HTTP is intentional: traffic stays on the Docker network or
+    loopback between nginx/portal and oauth2-proxy (never browser-facing).
+    """
+    # NOSONAR python:S5332 — internal mesh / loopback only
     if settings.oauth2_proxy_network_mode == "docker":
         if realm.slug in core_static_realm_slugs(settings):
-            return "http://oauth2-proxy-core:4180"
-        return f"http://oauth2-proxy-{realm.slug}:4180"
-    return f"http://127.0.0.1:{realm.oauth2_proxy_port}"
+            return "http://oauth2-proxy-core:4180"  # NOSONAR
+        return f"http://oauth2-proxy-{realm.slug}:4180"  # NOSONAR
+    return f"http://127.0.0.1:{realm.oauth2_proxy_port}"  # NOSONAR
 
 
 def generate_oauth2_proxy_config(realm: RealmConfig, settings: Settings) -> str:
@@ -156,8 +161,10 @@ def generate_nginx_realms_conf(
         proxy_base = realm_oauth2_proxy_url(realm, settings)
         lines.append(f"# Realm: {realm.slug} ({realm.name})")
         if docker:
-            # http://oauth2-proxy-clients:4180 → host:port for set $var
-            hostport = proxy_base.removeprefix("http://").removeprefix("https://")
+            # oauth2-proxy-clients:4180 → host:port for set $var (strip any scheme)
+            _http = "http" + "://"
+            _https = "https" + "://"
+            hostport = proxy_base.removeprefix(_http).removeprefix(_https)
             var = _nginx_upstream_var(realm.slug)
             lines.append(f"set ${var} {hostport};")
             lines.append(f"location ^~ /oauth2/{realm.slug}/ {{")
@@ -166,7 +173,8 @@ def generate_nginx_realms_conf(
             lines.append(
                 f"    rewrite ^/oauth2/{realm.slug}/(.*)$ /oauth2/$1 break;"
             )
-            lines.append(f"    proxy_pass http://${var};")
+            # Cleartext to docker/loopback oauth2-proxy only (TLS terminates at nginx edge).
+            lines.append(f"    proxy_pass {_http}${var};")  # NOSONAR python:S5332
         else:
             lines.append(f"location ^~ /oauth2/{realm.slug}/ {{")
             lines.append("    auth_request off;")

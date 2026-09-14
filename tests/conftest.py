@@ -145,7 +145,7 @@ def client(db_engine, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_settings] = override_get_settings
-    with TrustedHeadersTestClient(app) as test_client:
+    with TrustedHeadersTestClient(app, base_url="https://testserver") as test_client:
         yield test_client
     app.dependency_overrides.clear()
 

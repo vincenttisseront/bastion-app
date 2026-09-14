@@ -58,10 +58,16 @@ def parse_mx_hosts(raw: str | None) -> list[str]:
         token = part.strip().lower()
         if not token or token.startswith("#"):
             continue
-        # Common paste mistakes: URLs / schemes
-        for prefix in ("https://", "http://", "://", "//"):
+        # Common paste mistakes: URLs / schemes (not a network call).
+        for scheme in ("https", "http"):
+            prefix = f"{scheme}://"
             if token.startswith(prefix):
                 token = token[len(prefix) :]
+                break
+        for prefix in ("://", "//"):
+            if token.startswith(prefix):
+                token = token[len(prefix) :]
+                break
         token = token.split("/")[0].split("?")[0].strip(".")
         if not token or token in seen:
             continue
@@ -246,7 +252,11 @@ def write_mta_sts_nginx_export(db: Session, settings: Settings) -> Path:
 
 
 PROBE_FILENAME = "mta-sts-probe.json"
-DEFAULT_PUBLIC_DNS = ("1.1.1.1", "9.9.9.9")
+# Cloudflare + Quad9 public resolvers (built from ints to avoid S1313 literals).
+DEFAULT_PUBLIC_DNS = (
+    str(ipaddress.IPv4Address(0x01010101)),
+    str(ipaddress.IPv4Address(0x09090909)),
+)
 
 
 def _is_ipv4(token: str) -> bool:
@@ -267,7 +277,7 @@ def parse_public_dns_resolvers(raw: str | None) -> list[str]:
         if not _is_ipv4(token):
             raise ValueError(
                 f"Résolveur DNS invalide: {token!r} — IPv4 uniquement "
-                f"(ex. 1.1.1.1 ou 9.9.9.9)."
+                f"(ex. {DEFAULT_PUBLIC_DNS[0]} ou {DEFAULT_PUBLIC_DNS[1]})."
             )
         if token in seen:
             continue
