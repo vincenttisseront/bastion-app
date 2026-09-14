@@ -637,7 +637,7 @@
 
   if (testPortBtn && portInput) {
     testPortBtn.addEventListener('click', async function () {
-      const port = parseInt(portInput.value, 10);
+      const port = Number.parseInt(portInput.value, 10);
       if (!port) { showPortMsg(false, 'Port invalide'); return; }
       testPortBtn.disabled = true;
       try {

@@ -30,6 +30,7 @@
         </svg>
         <span>Glisser-déposer un fichier ici, ou cliquer pour parcourir</span>
       </div>
+      <label class="visually-hidden" for="file-deposit-input">Choisir un fichier à déposer</label>
       <input type="file" id="file-deposit-input" hidden>
     </div>
 
@@ -171,7 +172,8 @@
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '')
       .replace(/-{2,}/g, '-');
   }
 

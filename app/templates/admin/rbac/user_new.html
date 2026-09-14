@@ -256,7 +256,8 @@
       return foldAscii(raw)
         .replace(/\s+/g, "-")
         .replace(/[^a-z0-9-]+/g, "")
-        .replace(/^-+|-+$/g, "");
+        .replace(/^-+/, "")
+        .replace(/-+$/, "");
     }
 
     function titleCaseToken(token) {

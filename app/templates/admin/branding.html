@@ -158,7 +158,8 @@
       {% endif %}
       <form method="post" action="/admin/branding/logo" enctype="multipart/form-data"
             style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
-        <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required>
+        <label class="visually-hidden" for="branding-logo-file">Fichier logo</label>
+        <input type="file" id="branding-logo-file" name="file" accept="image/png,image/jpeg,image/webp" required>
         <button type="submit" class="btn btn-secondary btn-sm">Uploader le logo</button>
       </form>
     </div>
@@ -183,7 +184,8 @@
       {% endif %}
       <form method="post" action="/admin/branding/favicon" enctype="multipart/form-data"
             style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
-        <input type="file" name="file" accept="image/png,image/x-icon,.ico" required>
+        <label class="visually-hidden" for="branding-favicon-file">Fichier favicon</label>
+        <input type="file" id="branding-favicon-file" name="file" accept="image/png,image/x-icon,.ico" required>
         <button type="submit" class="btn btn-secondary btn-sm">Uploader le favicon</button>
       </form>
     </div>
@@ -225,9 +227,9 @@
   function hexToRgb(hex) {
     var raw = hex.replace('#', '');
     return [
-      parseInt(raw.slice(0, 2), 16),
-      parseInt(raw.slice(2, 4), 16),
-      parseInt(raw.slice(4, 6), 16)
+      Number.parseInt(raw.slice(0, 2), 16),
+      Number.parseInt(raw.slice(2, 4), 16),
+      Number.parseInt(raw.slice(4, 6), 16)
     ];
   }
   function rgba(hex, a) {

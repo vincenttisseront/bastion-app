@@ -46,16 +46,16 @@
       <input type="search" id="dep-filter-q" class="form-input" placeholder="Nom du paquet…" autocomplete="off">
     </div>
     <div class="form-group dep-toolbar-filter">
-      <label class="form-label">Filtre</label>
-      <div class="dep-toolbar-btns">
+      <div class="form-label" id="dep-filter-label">Filtre</div>
+      <div class="dep-toolbar-btns" role="group" aria-labelledby="dep-filter-label">
         {% set show_outdated_filter = summary.outdated and (python_outdated or npm_outdated) %}
         <button type="button" class="btn {% if show_outdated_filter %}btn-secondary{% else %}btn-ghost{% endif %} btn-sm dep-filter-btn{% if show_outdated_filter %} active{% endif %}" data-filter="outdated" id="dep-filter-outdated">MAJ disponibles{% if summary.outdated %} ({{ summary.outdated }}){% endif %}</button>
         <button type="button" class="btn {% if show_outdated_filter %}btn-ghost{% else %}btn-secondary{% endif %} btn-sm dep-filter-btn{% if not show_outdated_filter %} active{% endif %}" data-filter="all" id="dep-filter-all">Tous</button>
       </div>
     </div>
     <div class="form-group dep-toolbar-plan">
-      <label class="form-label">Plan de MAJ</label>
-      <div class="dep-toolbar-btns">
+      <div class="form-label" id="dep-plan-label">Plan de MAJ</div>
+      <div class="dep-toolbar-btns" role="group" aria-labelledby="dep-plan-label">
         <button type="button" class="btn btn-ghost btn-sm" id="dep-select-outdated">Tout sélectionner (MAJ)</button>
         <button type="button" class="btn btn-secondary btn-sm" id="dep-export-plan">Exporter le plan (JSON)</button>
       </div>
@@ -384,8 +384,8 @@
           av = a.getAttribute('data-type') || '';
           bv = b.getAttribute('data-type') || '';
         } else {
-          av = parseInt(a.getAttribute('data-status-rank') || '0', 10);
-          bv = parseInt(b.getAttribute('data-status-rank') || '0', 10);
+          av = Number.parseInt(a.getAttribute('data-status-rank') || '0', 10);
+          bv = Number.parseInt(b.getAttribute('data-status-rank') || '0', 10);
           return asc ? av - bv : bv - av;
         }
         if (av < bv) return asc ? -1 : 1;

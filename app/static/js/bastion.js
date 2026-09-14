@@ -144,8 +144,8 @@ function initInfraApplyWait() {
   var root = document.getElementById('infrastructure-apply-wait');
   if (!root) return;
   var refreshUrl = root.getAttribute('data-refresh-url') || '';
-  var pollMs = parseInt(root.getAttribute('data-poll-ms') || '2000', 10);
-  var startedAt = parseInt(root.getAttribute('data-started-at') || '0', 10);
+  var pollMs = Number.parseInt(root.getAttribute('data-poll-ms') || '2000', 10);
+  var startedAt = Number.parseInt(root.getAttribute('data-started-at') || '0', 10);
   var elapsedEl = document.getElementById('wait-elapsed');
   if (startedAt > 0 && elapsedEl) {
     window.setInterval(function () {
@@ -163,7 +163,8 @@ function slugify(str) {
   return str.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().trim()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
 }
 
 var SIDEBAR_ACCORDION_KEY = 'bastion-nav-accordion';
@@ -397,12 +398,12 @@ function normalizeHostname(value) {
     try {
       var href = raw.indexOf('://') !== -1 ? raw : ('https://' + raw);
       var host = new URL(href).hostname || '';
-      return host.replace(/^\.+|\.+$/g, '');
+      return host.replace(/^\.+/, '').replace(/\.+$/, '');
     } catch (e) {
       /* fall through */
     }
   }
-  raw = raw.replace(/^\.+|\.+$/g, '');
+  raw = raw.replace(/^\.+/, '').replace(/\.+$/, '');
   // host:port (not IPv6)
   var portMatch = raw.match(/^([^:]+):(\d+)$/);
   if (portMatch) return portMatch[1];
@@ -801,7 +802,7 @@ function initLoginFormAnalyzer() {
     panel.hidden = false;
     panel.querySelectorAll('[data-form-idx]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var idx = parseInt(btn.getAttribute('data-form-idx'), 10);
+        var idx = Number.parseInt(btn.getAttribute('data-form-idx'), 10);
         applyForm(forms[idx], enteredUrl);
       });
     });
