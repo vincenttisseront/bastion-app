@@ -241,7 +241,8 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("IP_GEOLOC_ENABLED", "ip_geoloc_enabled"),
     )
     ip_geoloc_base_url: str = Field(
-        default="http://ip-api.com",
+        # Free tier is HTTP-only (Pro HTTPS via env override).
+        default="http://ip-api.com",  # NOSONAR python:S5332
         validation_alias=AliasChoices("IP_GEOLOC_BASE_URL", "ip_geoloc_base_url"),
     )
     ip_geoloc_lang: str = Field(

@@ -630,7 +630,8 @@ class RealmConfig(Base):
 
     @property
     def oauth2_proxy_url(self) -> str:
-        return f"http://127.0.0.1:{self.oauth2_proxy_port}"
+        # Loopback to local oauth2-proxy process (not browser-facing).
+        return f"http://127.0.0.1:{self.oauth2_proxy_port}"  # NOSONAR python:S5332
 
 
 # BastionAccount lifecycle statuses (String column + Python constants, no SQL Enum —

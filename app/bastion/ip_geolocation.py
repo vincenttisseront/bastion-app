@@ -161,9 +161,10 @@ def _fetch_batch(
 ) -> dict[str, dict[str, Any]]:
     if not ips:
         return {}
-    base = (getattr(settings, "ip_geoloc_base_url", None) or "http://ip-api.com").rstrip(
-        "/"
-    )
+    # Free ip-api.com is HTTP-only; HTTPS requires their Pro endpoint via settings.
+    base = (  # NOSONAR python:S5332
+        getattr(settings, "ip_geoloc_base_url", None) or "http://ip-api.com"  # NOSONAR
+    ).rstrip("/")
     lang = getattr(settings, "ip_geoloc_lang", "fr") or "fr"
     url = f"{base}/batch?fields={DEFAULT_FIELDS}&lang={lang}"
     try:
