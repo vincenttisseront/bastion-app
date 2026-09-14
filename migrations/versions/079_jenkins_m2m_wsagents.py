@@ -1,4 +1,4 @@
-"""Backfill Jenkins agent M2M bypass paths (/jnlpJars/, /computer/, …)."""
+"""Backfill /wsagents/ M2M bypass on Jenkins apps (inbound WebSocket agents)."""
 
 from __future__ import annotations
 
@@ -8,20 +8,12 @@ from typing import Sequence, Union
 from alembic import op
 from sqlalchemy import inspect, text
 
-revision: str = "078_jenkins_m2m_agents"
-down_revision: Union[str, None] = "077_teleport_m2m_scripts"
+revision: str = "079_jenkins_m2m_wsagents"
+down_revision: Union[str, None] = "078_jenkins_m2m_agents"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# Keep in sync with app.bastion.m2m_policy.JENKINS_SEED_BYPASS_PATHS.
-_JENKINS_SEED = (
-    "/sonarqube-webhook",
-    "/jnlpJars/",
-    "/computer/",
-    "/wsagents/",
-    "/tcpSlaveAgentListener",
-    "/tcpSlaveAgentListener/",
-)
+_WSAGENTS = "/wsagents/"
 
 
 def upgrade() -> None:
@@ -57,10 +49,9 @@ def upgrade() -> None:
             except (json.JSONDecodeError, TypeError):
                 paths = []
         changed = False
-        for p in _JENKINS_SEED:
-            if p not in paths:
-                paths.append(p)
-                changed = True
+        if _WSAGENTS not in paths:
+            paths.append(_WSAGENTS)
+            changed = True
         need_long = not bool(long_to)
         if not changed and not need_long:
             continue

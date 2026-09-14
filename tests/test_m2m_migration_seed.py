@@ -50,6 +50,7 @@ def test_seed_jenkins_and_sonar_and_teleport():
     assert "/sonarqube-webhook" in j_paths
     assert "/jnlpJars/" in j_paths
     assert "/computer/" in j_paths
+    assert "/wsagents/" in j_paths
     assert j_long is True
 
     s_paths, _ = _seed_row(

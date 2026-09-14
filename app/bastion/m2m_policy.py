@@ -36,6 +36,7 @@ JENKINS_SEED_BYPASS_PATHS: tuple[str, ...] = (
     "/sonarqube-webhook",
     "/jnlpJars/",
     "/computer/",
+    "/wsagents/",
     "/tcpSlaveAgentListener",
     "/tcpSlaveAgentListener/",
 )
