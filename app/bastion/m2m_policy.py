@@ -30,6 +30,16 @@ TELEPORT_SEED_BYPASS_PATHS: tuple[str, ...] = (
     "/scripts/",
 )
 
+# Suggested bypass paths for Jenkins behind Bastion SSO (agents + CI webhooks).
+# agent.jar download and inbound/WebSocket agent traffic must not hit portal HTML.
+JENKINS_SEED_BYPASS_PATHS: tuple[str, ...] = (
+    "/sonarqube-webhook",
+    "/jnlpJars/",
+    "/computer/",
+    "/tcpSlaveAgentListener",
+    "/tcpSlaveAgentListener/",
+)
+
 
 def path_only(uri: str) -> str:
     raw = (uri or "").split("?", 1)[0].strip() or "/"

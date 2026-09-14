@@ -432,6 +432,7 @@ def test_m2m_bypass_paths_emit_locations_not_slug_heuristics():
         enabled=True,
     )
     assert "/sonarqube-webhook" not in generate_subdomain_server_block(bare, _settings())
+    assert "/jnlpJars/" not in generate_subdomain_server_block(bare, _settings())
 
     app = App(
         slug="ci",
@@ -441,13 +442,20 @@ def test_m2m_bypass_paths_emit_locations_not_slug_heuristics():
         public_fqdn="ci.example.com",
         auth_mode="sso",
         enabled=True,
-        m2m_bypass_paths=json.dumps(["/sonarqube-webhook"]),
+        m2m_bypass_paths=json.dumps(
+            ["/sonarqube-webhook", "/jnlpJars/", "/computer/"]
+        ),
+        m2m_bypass_long_timeout=True,
     )
     block = generate_subdomain_server_block(app, _settings())
     assert "location = /sonarqube-webhook/ {" in block
     webhook = block.split("location = /sonarqube-webhook/ {", 1)[1].split("    }", 1)[0]
     assert "auth_request off;" in webhook
     assert "modsecurity off;" in webhook
+    assert "location ^~ /jnlpJars/ {" in block
+    jars = block.split("location ^~ /jnlpJars/ {", 1)[1].split("    }", 1)[0]
+    assert "auth_request off;" in jars
+    assert "location ^~ /computer/ {" in block
 
 
 def test_m2m_bypass_prefix_api_location():
