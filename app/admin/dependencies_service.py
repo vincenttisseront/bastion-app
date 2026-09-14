@@ -94,6 +94,27 @@ def package_json_path(root: Path | None = None) -> Path:
     return (root or resolve_manifest_root()) / _PACKAGE_JSON
 
 
+_VERSION_OP_PREFIXES = ("===", "==", ">=", "<=", "~=", "!=", "^", "~", "=", ">")
+_VERSION_OP_AFTER_EXTRAS = (">=", "<=", "==", "=", ">", "^", "~")
+
+
+def _strip_leading_version_op(cleaned: str, prefixes: tuple[str, ...]) -> str:
+    for prefix in prefixes:
+        if cleaned.startswith(prefix):
+            return cleaned[len(prefix) :].strip()
+    return cleaned
+
+
+def _strip_pep508_extras(cleaned: str) -> str:
+    """Drop ``[extras]`` remnant then any trailing version operator."""
+    if not cleaned.startswith("["):
+        return cleaned
+    bracket = cleaned.find("]")
+    if bracket == -1:
+        return cleaned
+    return _strip_leading_version_op(cleaned[bracket + 1 :].strip(), _VERSION_OP_AFTER_EXTRAS)
+
+
 def normalize_version_token(value: str | None) -> str | None:
     """
     Extract a comparable version from lock values or range constraints.
@@ -108,23 +129,10 @@ def normalize_version_token(value: str | None) -> str | None:
         return None
     cleaned = cleaned.split(",", 1)[0].strip()
     cleaned = cleaned.split("||", 1)[0].strip()
-    for prefix in ("===", "==", ">=", "<=", "~=", "!=", "^", "~", "=", ">"):
-        if cleaned.startswith(prefix):
-            cleaned = cleaned[len(prefix) :].strip()
-            break
-    # Drop extras remnant like ``[standard]0.49`` after partial strip.
-    if cleaned.startswith("["):
-        bracket = cleaned.find("]")
-        if bracket != -1:
-            cleaned = cleaned[bracket + 1 :].strip()
-            for prefix in (">=", "<=", "==", "=", ">", "^", "~"):
-                if cleaned.startswith(prefix):
-                    cleaned = cleaned[len(prefix) :].strip()
-                    break
+    cleaned = _strip_leading_version_op(cleaned, _VERSION_OP_PREFIXES)
+    cleaned = _strip_pep508_extras(cleaned)
     m = _VERSION_TOKEN_RE.search(cleaned)
-    if not m:
-        return None
-    return m.group("ver")
+    return m.group("ver") if m else None
 
 
 def parse_version(value: str | None) -> Version | None:
@@ -203,6 +211,41 @@ def _resolve_python_installed(declared_name: str) -> str | None:
         return None
 
 
+def _missing_manifest_or_empty(
+    path: Path, *, require_manifest: bool, hint: str = "vérifier le Dockerfile"
+) -> list[LocalDependency]:
+    msg = f"{path.name} introuvable dans le conteneur ({path}) — {hint}"
+    logger.error(msg)
+    if require_manifest:
+        raise ManifestMissingError(path, hint=hint)
+    return []
+
+
+def _python_dep_from_spec(
+    spec: str,
+    dep_type: str,
+    *,
+    seen: set[str],
+    version_resolver,
+) -> LocalDependency | None:
+    name = _requirement_name(spec)
+    if not name:
+        return None
+    key = name.lower()
+    if key in seen:
+        return None
+    seen.add(key)
+    installed = version_resolver(name)
+    return LocalDependency(
+        ecosystem="python",
+        name=name,
+        declared_version=_declared_constraint(str(spec), name),
+        current_version=installed if installed else "—",
+        dep_type=dep_type,
+        notes=None if installed else "not_installed",
+    )
+
+
 def parse_python_dependencies(
     pyproject_file: Path | None = None,
     *,
@@ -211,14 +254,7 @@ def parse_python_dependencies(
 ) -> list[LocalDependency]:
     path = pyproject_file or pyproject_path()
     if not path.is_file():
-        msg = (
-            f"pyproject.toml introuvable dans le conteneur ({path}) — "
-            "vérifier le Dockerfile"
-        )
-        logger.error(msg)
-        if require_manifest:
-            raise ManifestMissingError(path, hint="vérifier le Dockerfile")
-        return []
+        return _missing_manifest_or_empty(path, require_manifest=require_manifest)
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     project = data.get("project") or {}
     runtime_specs = list(project.get("dependencies") or [])
@@ -227,48 +263,19 @@ def parse_python_dependencies(
 
     out: list[LocalDependency] = []
     seen: set[str] = set()
-
-    def add(spec: str, dep_type: str) -> None:
-        name = _requirement_name(spec)
-        if not name:
-            return
-        key = name.lower()
-        if key in seen:
-            return
-        seen.add(key)
-        declared = _declared_constraint(str(spec), name)
-        installed = version_resolver(name)
-        if installed:
-            current = installed
-            notes = None
-        else:
-            current = "—"
-            notes = "not_installed"
-        out.append(
-            LocalDependency(
-                ecosystem="python",
-                name=name,
-                declared_version=declared,
-                current_version=current,
-                dep_type=dep_type,
-                notes=notes,
-            )
-        )
-
     for spec in runtime_specs:
-        add(str(spec), "runtime")
+        dep = _python_dep_from_spec(str(spec), "runtime", seen=seen, version_resolver=version_resolver)
+        if dep is not None:
+            out.append(dep)
     for spec in dev_specs:
-        add(str(spec), "dev")
+        dep = _python_dep_from_spec(str(spec), "dev", seen=seen, version_resolver=version_resolver)
+        if dep is not None:
+            out.append(dep)
     return out
 
 
-def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
-    """Best-effort parse of pnpm-lock.yaml without a YAML dependency for package versions."""
-    versions: dict[str, str] = {}
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return versions
+def _iter_pnpm_package_bodies(text: str):
+    """Yield package key bodies under the ``packages:`` section of a pnpm lockfile."""
     in_packages = False
     for line in text.splitlines():
         if line.startswith("packages:"):
@@ -283,17 +290,72 @@ def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
             continue
         if body[0] in "'\"":
             body = body[1:]
-        # /@scope/name@version or /name@version (pnpm packages keys)
-        if not body.startswith("/"):
+        yield body
+
+
+def _pnpm_name_version(body: str) -> tuple[str, str] | None:
+    # /@scope/name@version or /name@version (pnpm packages keys)
+    if not body.startswith("/"):
+        return None
+    at = body.rfind("@")
+    if at <= 1:
+        return None
+    name = body[1:at]
+    ver = body[at + 1 :].rstrip(":'\"")
+    if name and ver:
+        return name, ver
+    return None
+
+
+def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
+    """Best-effort parse of pnpm-lock.yaml without a YAML dependency for package versions."""
+    versions: dict[str, str] = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return versions
+    for body in _iter_pnpm_package_bodies(text):
+        parsed = _pnpm_name_version(body)
+        if parsed is None:
             continue
-        at = body.rfind("@")
-        if at <= 1:
-            continue
-        name = body[1:at]
-        ver = body[at + 1 :].rstrip(":'\"")
-        if name and ver and name not in versions:
+        name, ver = parsed
+        if name not in versions:
             versions[name] = ver
     return versions
+
+
+def _npm_lock_package_entry(
+    key: str, meta: Any
+) -> tuple[str, dict[str, Any]] | None:
+    if not key:
+        return None
+    prefix = "node_modules/"
+    if not key.startswith(prefix):
+        return None
+    rest = key[len(prefix) :]
+    # Prefer top-level installs (skip nested node_modules copies)
+    if "/node_modules/" in rest:
+        return None
+    ver = (meta or {}).get("version")
+    if not ver:
+        return None
+    is_dev = bool((meta or {}).get("dev"))
+    return rest, {
+        "version": str(ver),
+        "dep_type": "dev" if is_dev else "runtime",
+    }
+
+
+def _entries_from_package_lock(lock_path: Path) -> dict[str, dict[str, Any]]:
+    data = json.loads(lock_path.read_text(encoding="utf-8"))
+    entries: dict[str, dict[str, Any]] = {}
+    for key, meta in (data.get("packages") or {}).items():
+        parsed = _npm_lock_package_entry(key, meta)
+        if parsed is None:
+            continue
+        name, entry = parsed
+        entries[name] = entry
+    return entries
 
 
 def _load_npm_lock_entries(repo_root: Path) -> dict[str, dict[str, Any]] | None:
@@ -304,28 +366,7 @@ def _load_npm_lock_entries(repo_root: Path) -> dict[str, dict[str, Any]] | None:
     lock_path = repo_root / "package-lock.json"
     pnpm_path = repo_root / "pnpm-lock.yaml"
     if lock_path.is_file():
-        data = json.loads(lock_path.read_text(encoding="utf-8"))
-        packages = data.get("packages") or {}
-        entries: dict[str, dict[str, Any]] = {}
-        for key, meta in packages.items():
-            if not key or key == "":
-                continue
-            prefix = "node_modules/"
-            if not key.startswith(prefix):
-                continue
-            rest = key[len(prefix) :]
-            # Prefer top-level installs (skip nested node_modules copies)
-            if "/node_modules/" in rest:
-                continue
-            ver = (meta or {}).get("version")
-            if not ver:
-                continue
-            is_dev = bool((meta or {}).get("dev"))
-            entries[rest] = {
-                "version": str(ver),
-                "dep_type": "dev" if is_dev else "runtime",
-            }
-        return entries
+        return _entries_from_package_lock(lock_path)
     if pnpm_path.is_file():
         versions = _parse_pnpm_lock_versions(pnpm_path)
         return {
@@ -333,6 +374,63 @@ def _load_npm_lock_entries(repo_root: Path) -> dict[str, dict[str, Any]] | None:
             for name, ver in versions.items()
         }
     return None
+
+
+def _npm_direct_specs(data: dict[str, Any]) -> dict[str, tuple[str, str]]:
+    direct_specs: dict[str, tuple[str, str]] = {}
+    for name, spec in dict(data.get("dependencies") or {}).items():
+        direct_specs[str(name)] = (str(spec), "runtime")
+    for name, spec in dict(data.get("devDependencies") or {}).items():
+        direct_specs[str(name)] = (str(spec), "dev")
+    return direct_specs
+
+
+def _npm_unlocked_directs(
+    direct_specs: dict[str, tuple[str, str]],
+) -> list[LocalDependency]:
+    out: list[LocalDependency] = []
+    for name, (declared, dep_type) in sorted(direct_specs.items()):
+        out.append(
+            LocalDependency(
+                ecosystem="npm",
+                name=name,
+                declared_version=declared,
+                current_version=declared,
+                dep_type=dep_type,
+                notes="unlocked",
+                is_direct=True,
+            )
+        )
+    return out
+
+
+def _npm_locked_dependency(
+    name: str,
+    direct_specs: dict[str, tuple[str, str]],
+    locked: dict[str, dict[str, Any]],
+) -> LocalDependency:
+    is_direct = name in direct_specs
+    if is_direct:
+        declared, dep_type = direct_specs[name]
+    else:
+        declared = ""
+        dep_type = locked.get(name, {}).get("dep_type", "runtime")
+    if name in locked:
+        current = locked[name]["version"]
+        notes = None
+    else:
+        # Declared in package.json but missing from lock (edge case)
+        current = declared or "—"
+        notes = "unlocked"
+    return LocalDependency(
+        ecosystem="npm",
+        name=name,
+        declared_version=declared,
+        current_version=current,
+        dep_type=dep_type,
+        notes=notes,
+        is_direct=is_direct,
+    )
 
 
 def parse_npm_dependencies(
@@ -350,70 +448,16 @@ def parse_npm_dependencies(
     root = repo_root or resolve_manifest_root()
     pkg_path = package_json_file or (root / _PACKAGE_JSON)
     if not pkg_path.is_file():
-        msg = (
-            f"{_PACKAGE_JSON} introuvable dans le conteneur ({pkg_path}) — "
-            "vérifier le Dockerfile"
-        )
-        logger.error(msg)
-        if require_manifest:
-            raise ManifestMissingError(pkg_path, hint="vérifier le Dockerfile")
-        return []
+        return _missing_manifest_or_empty(pkg_path, require_manifest=require_manifest)
     data = json.loads(pkg_path.read_text(encoding="utf-8"))
-    deps = dict(data.get("dependencies") or {})
-    dev_deps = dict(data.get("devDependencies") or {})
-    direct_specs: dict[str, tuple[str, str]] = {}
-    for name, spec in deps.items():
-        direct_specs[str(name)] = (str(spec), "runtime")
-    for name, spec in dev_deps.items():
-        direct_specs[str(name)] = (str(spec), "dev")
-
+    direct_specs = _npm_direct_specs(data)
     locked = _load_npm_lock_entries(root)
-    out: list[LocalDependency] = []
-
     if locked is None:
-        # No lockfile: fall back to package.json directs only
-        for name, (declared, dep_type) in sorted(direct_specs.items()):
-            out.append(
-                LocalDependency(
-                    ecosystem="npm",
-                    name=name,
-                    declared_version=declared,
-                    current_version=declared,
-                    dep_type=dep_type,
-                    notes="unlocked",
-                    is_direct=True,
-                )
-            )
-        return out
-
-    # Lockfile is source of truth: every top-level package entry
+        return _npm_unlocked_directs(direct_specs)
     all_names = set(locked.keys()) | set(direct_specs.keys())
-    for name in sorted(all_names):
-        is_direct = name in direct_specs
-        if is_direct:
-            declared, dep_type = direct_specs[name]
-        else:
-            declared = ""
-            dep_type = locked.get(name, {}).get("dep_type", "runtime")
-        if name in locked:
-            current = locked[name]["version"]
-            notes = None
-        else:
-            # Declared in package.json but missing from lock (edge case)
-            current = declared or "—"
-            notes = "unlocked"
-        out.append(
-            LocalDependency(
-                ecosystem="npm",
-                name=name,
-                declared_version=declared,
-                current_version=current,
-                dep_type=dep_type,
-                notes=notes,
-                is_direct=is_direct,
-            )
-        )
-    return out
+    return [
+        _npm_locked_dependency(name, direct_specs, locked) for name in sorted(all_names)
+    ]
 
 
 def _http_client(client: httpx.Client | None = None) -> tuple[httpx.Client, bool]:
@@ -432,6 +476,22 @@ def _http_client(client: httpx.Client | None = None) -> tuple[httpx.Client, bool
     )
 
 
+def _should_retry_registry_error(exc: Exception) -> bool:
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return True
+    code = exc.response.status_code
+    return code >= 500 or code in (408, 429)
+
+
+def _fetch_registry_json(http: httpx.Client, url: str) -> dict[str, Any]:
+    resp = http.get(url)
+    resp.raise_for_status()
+    data = resp.json()
+    if not isinstance(data, dict):
+        raise ValueError("registry payload is not an object")
+    return data
+
+
 def _get_json_with_retry(
     http: httpx.Client,
     url: str,
@@ -442,20 +502,10 @@ def _get_json_with_retry(
     attempts = max(1, retries + 1)
     for attempt in range(attempts):
         try:
-            resp = http.get(url)
-            resp.raise_for_status()
-            data = resp.json()
-            if not isinstance(data, dict):
-                raise ValueError("registry payload is not an object")
-            return data
+            return _fetch_registry_json(http, url)
         except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
             last_exc = exc
-            # Do not retry hard client errors except 408/429.
-            if isinstance(exc, httpx.HTTPStatusError):
-                code = exc.response.status_code
-                if code < 500 and code not in (408, 429):
-                    raise
-            if attempt + 1 >= attempts:
+            if not _should_retry_registry_error(exc) or attempt + 1 >= attempts:
                 raise
             logger.debug("registry retry url=%s attempt=%s err=%s", url, attempt + 1, exc)
     assert last_exc is not None
