@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.admin.export import compute_redirect_uri, generate_nginx_realms_conf
@@ -22,13 +22,13 @@ router = APIRouter(
 
 
 class RealmCreate(BaseModel):
-    slug: str
-    name: str
-    issuer_url: str
-    client_id: str
-    client_secret: str
+    slug: str = Field(max_length=40)
+    name: str = Field(max_length=100)
+    issuer_url: str = Field(max_length=2048)
+    client_id: str = Field(max_length=256)
+    client_secret: str = Field(max_length=512)
     oauth2_proxy_port: int
-    scopes: str = "openid profile email"
+    scopes: str = Field(default="openid profile email", max_length=512)
     is_default: bool = False
     enabled: bool = False
 

@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
-_SENSITIVE_PATTERNS = re.compile(
-    r"(?i)(client_secret|password|passwd|token|api[_-]?key|authorization|bearer)\s*[:=]\s*['\"]?[^\s'\",}]+",
+from app import re_safe
+
+_SENSITIVE_PATTERNS = re_safe.compile(
+    r"(?i)(client_secret|password|passwd|token|api[_-]?key|authorization|bearer)"
+    r"\s*[:=]\s*['\"]?[^\s'\",}]{1,512}",
 )
 
-_SENSITIVE_KEYS = re.compile(
+_SENSITIVE_KEYS = re_safe.compile(
     r"(?i)^(client_secret|password|passwd|token|access_token|refresh_token|api_key|secret)$"
 )
 

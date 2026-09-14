@@ -10,12 +10,12 @@ import ipaddress
 import json
 import logging
 import os
-import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from app import re_safe
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -210,7 +210,7 @@ _DETECTION_PREFIX_MIN = 913
 _DETECTION_PREFIX_MAX = 944
 
 # Extract collection:name from ModSec matched-data text — never the matched value.
-_MATCHED_WITHIN_RE = re.compile(
+_MATCHED_WITHIN_RE = re_safe.compile(
     r"(?i)\bwithin\s+"
     r"(ARGS(?:_GET|_POST|_NAMES)?|REQUEST_COOKIES(?:_NAMES)?|REQUEST_HEADERS(?:_NAMES)?)"
     r"(?::([A-Za-z0-9._\-]+))?"
@@ -225,7 +225,8 @@ _COLLECTION_TO_SCOPE: dict[str, str] = {
     "REQUEST_HEADERS": "headers",
     "REQUEST_HEADERS_NAMES": "headers",
 }
-_MATCHED_DATA_VALUE_RE = re.compile(r"(?i)Matched Data:\s*.+")
+# Redact Matched Data payloads (RE2: unbounded class OK — linear time).
+_MATCHED_DATA_VALUE_RE = re_safe.compile(r"(?i)Matched Data:\s*[^\n\r]*")
 
 
 def extract_modsec_matched_target(*texts: str | None) -> tuple[str | None, str | None]:
@@ -246,7 +247,7 @@ def extract_modsec_matched_target(*texts: str | None) -> tuple[str | None, str |
             continue
         if not name:
             continue
-        if not re.fullmatch(r"[A-Za-z0-9._\-]+", name):
+        if not re_safe.fullmatch(r"[A-Za-z0-9._\-]+", name):
             continue
         return kind, name
     return None, None

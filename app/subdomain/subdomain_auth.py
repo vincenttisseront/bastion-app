@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import re
 from typing import Mapping, Optional
 
 import httpx
@@ -25,6 +24,7 @@ from app.breakglass import (
 )
 from app.database import get_db, release_db_connection
 from app.models import App
+from app import re_safe
 from app.rbac.effective_access_service import user_can_launch_application
 from app.request_client_ip import client_ip_from_request
 from app.robotic.app_session_presence import has_app_session_cookie
@@ -38,7 +38,7 @@ router = APIRouter(tags=["subdomain-auth"])
 
 # CrushFTP bounces invalidated sessions to this URI (302 + cookie wipe).
 _CRUSHFTP_LOGIN_URI = "/WebInterface/login.html"
-_CRUSHAUTH_RE = re.compile(r"(?:^|;\s*)CrushAuth=([^;]+)")
+_CRUSHAUTH_RE = re_safe.compile(r"(?:^|;\s*)CrushAuth=([^;]+)")
 
 
 def _warn_crushftp_login_bounce(

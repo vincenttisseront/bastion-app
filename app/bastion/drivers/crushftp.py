@@ -4,40 +4,74 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass
 from urllib.parse import quote, urljoin
 
 import httpx
 
 from app.bastion.drivers.base import RoboticDriver, RoboticLoginError
+from app import re_safe
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 5.0
-_SUCCESS_RE = re.compile(r"<response>\s*success\s*</response>", re.IGNORECASE)
-_RESPONSE_OK_RE = re.compile(r"<response>\s*OK\s*</response>", re.IGNORECASE)
-_RESPONSE_STATUS_OK_RE = re.compile(
-    r"<response_status>\s*OK\s*</response_status>", re.IGNORECASE
+_SUCCESS_RE = re_safe.compile(r"<response>\s*success\s*</response>", re_safe.IGNORECASE)
+_RESPONSE_OK_RE = re_safe.compile(r"<response>\s*OK\s*</response>", re_safe.IGNORECASE)
+_RESPONSE_STATUS_OK_RE = re_safe.compile(
+    r"<response_status>\s*OK\s*</response_status>", re_safe.IGNORECASE
 )
-_FAILURE_RE = re.compile(r"<response>\s*(failure|error)\s*</response>", re.IGNORECASE)
-_USERNAME_RE = re.compile(
-    r"<username>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</username>",
-    re.IGNORECASE,
-)
-_LISTING_SUBITEM_RE = re.compile(
-    r"<listing_subitem[^>]*>(.*?)</listing_subitem>",
-    re.IGNORECASE | re.DOTALL,
-)
-_LISTING_NAME_RE = re.compile(
-    r"<name>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</name>",
-    re.IGNORECASE,
-)
-_LISTING_TYPE_RE = re.compile(
-    r"<type>\s*(?:<!\[CDATA\[)?\s*([^<\]]+?)\s*(?:\]\]>)?\s*</type>",
-    re.IGNORECASE,
-)
+_FAILURE_RE = re_safe.compile(r"<response>\s*(failure|error)\s*</response>", re_safe.IGNORECASE)
 _SKIP_FOLDER_NAMES = frozenset({".", "..", ""})
+
+
+def _strip_cdata(raw: str) -> str:
+    """Unwrap a single CDATA section if present; otherwise return stripped text."""
+    text = (raw or "").strip()
+    if len(text) >= 12 and text[:9].upper() == "<![CDATA[" and text.endswith("]]>"):
+        return text[9:-3].strip()
+    return text
+
+
+def _xml_tag_inner(xml: str, tag: str) -> str | None:
+    """First ``<tag>…</tag>`` inner text (ASCII case-insensitive). No regex / ReDoS."""
+    if not xml or not tag:
+        return None
+    lo = xml.lower()
+    open_t = f"<{tag.lower()}>"
+    close_t = f"</{tag.lower()}>"
+    start = lo.find(open_t)
+    if start < 0:
+        return None
+    start += len(open_t)
+    end = lo.find(close_t, start)
+    if end < 0:
+        return None
+    return _strip_cdata(xml[start:end])
+
+
+def _iter_listing_subitem_blocks(xml: str) -> list[str]:
+    """Split CrushFTP ``<listing_subitem…>…</listing_subitem>`` bodies without regex."""
+    if not xml:
+        return []
+    lo = xml.lower()
+    open_prefix = "<listing_subitem"
+    close_t = "</listing_subitem>"
+    blocks: list[str] = []
+    pos = 0
+    while True:
+        start = lo.find(open_prefix, pos)
+        if start < 0:
+            break
+        gt = lo.find(">", start)
+        if gt < 0:
+            break
+        inner_start = gt + 1
+        end = lo.find(close_t, inner_start)
+        if end < 0:
+            break
+        blocks.append(xml[inner_start:end])
+        pos = end + len(close_t)
+    return blocks
 
 
 @dataclass(frozen=True)
@@ -109,7 +143,7 @@ def _login_reject_hint(text: str, status: int) -> str:
 def _body_excerpt(text: str, limit: int = 200) -> str:
     """Whitespace-collapsed body excerpt for WARNING logs (login responses only —
     they never echo credentials; at worst the username)."""
-    collapsed = re.sub(r"\s+", " ", (text or "").strip())
+    collapsed = re_safe.sub(r"\s+", " ", (text or "").strip())
     return collapsed[:limit] + ("…" if len(collapsed) > limit else "")
 
 
@@ -242,12 +276,12 @@ class CrushFTPDriver(RoboticDriver):
                 _body_excerpt(text),
             )
             raise RoboticLoginError("CrushFTP getUsername rejected")
-        match = _USERNAME_RE.search(text)
-        if not match:
+        username = _xml_tag_inner(text, "username")
+        if username is None:
             raise RoboticLoginError(
                 "CrushFTP getUsername missing username despite success"
             )
-        username = match.group(1).strip()
+        username = username.strip()
         if not username or username.lower() in ("failure", "error", "anonymous"):
             raise RoboticLoginError("CrushFTP getUsername identity check failed")
         return username
@@ -414,15 +448,13 @@ def parse_crushftp_directory_names(body: str) -> list[str]:
             return _dedupe_preserve(names)
 
     # XML listing_subitem blocks.
-    for block in _LISTING_SUBITEM_RE.findall(text):
-        name_m = _LISTING_NAME_RE.search(block)
-        type_m = _LISTING_TYPE_RE.search(block)
-        if not name_m:
+    for block in _iter_listing_subitem_blocks(text):
+        name = (_xml_tag_inner(block, "name") or "").rstrip("/")
+        if not name:
             continue
-        name = name_m.group(1).strip().rstrip("/")
         if "/" in name:
             name = name.rsplit("/", 1)[-1]
-        typ = (type_m.group(1).strip().upper() if type_m else "")
+        typ = (_xml_tag_inner(block, "type") or "").upper()
         if typ in ("FILE", "FILELINK"):
             continue
         if not name or name in _SKIP_FOLDER_NAMES:

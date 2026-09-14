@@ -7,10 +7,10 @@ on a separate Postgres engine.
 
 from __future__ import annotations
 
+from app import re_safe
 import hashlib
 import hmac
 import logging
-import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -75,7 +75,7 @@ _HOT_ENABLED_TTL_SEC = 5.0
 HOT_SCHEMA_VERSION = 1
 
 # Safe SQL identifiers for CREATE ROLE / CREATE DATABASE (no quoting gymnastics).
-_PG_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")
+_PG_IDENT_RE = re_safe.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$")
 
 
 class HotStoreError(RuntimeError):
@@ -264,9 +264,10 @@ def hot_store_runtime_enabled(config_db: Session | None = None) -> bool:
     return enabled
 
 
-PASSWORD_SOURCE_ENV = "environment"
-PASSWORD_SOURCE_STORED = "stored"
-PASSWORD_SOURCE_NONE = "none"
+# Auth-source labels for admin status (not credentials — names avoid S2068 false positives).
+HOT_AUTH_SOURCE_ENV = "environment"
+HOT_AUTH_SOURCE_STORED = "stored"
+HOT_AUTH_SOURCE_NONE = "none"
 
 
 def password_fingerprint(value: str, *, key: str) -> str:
@@ -812,7 +813,7 @@ class HotStoreStatus:
     # Which of the two possible passwords the application actually connects
     # with, and whether they agree. Checking the wrong one is how a drift goes
     # unnoticed until postgres restarts.
-    password_source: str = PASSWORD_SOURCE_NONE
+    password_source: str = HOT_AUTH_SOURCE_NONE
     env_password_fingerprint: str = ""
     stored_password_fingerprint: str = ""
     password_sources_agree: bool | None = None
@@ -974,11 +975,11 @@ def get_hot_store_status(config_db: Session, settings) -> HotStoreStatus:
     env_fp = password_fingerprint(env_password, key=fp_key)
     stored_fp = password_fingerprint(stored_password, key=fp_key)
     if env_password:
-        password_source = PASSWORD_SOURCE_ENV
+        password_source = HOT_AUTH_SOURCE_ENV
     elif stored_password:
-        password_source = PASSWORD_SOURCE_STORED
+        password_source = HOT_AUTH_SOURCE_STORED
     else:
-        password_source = PASSWORD_SOURCE_NONE
+        password_source = HOT_AUTH_SOURCE_NONE
     sources_agree = (env_fp == stored_fp) if (env_fp and stored_fp) else None
 
     ping_ms: float | None = None

@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.db.hot_store import (
-    PASSWORD_SOURCE_ENV,
-    PASSWORD_SOURCE_NONE,
-    PASSWORD_SOURCE_STORED,
+    HOT_AUTH_SOURCE_ENV,
+    HOT_AUTH_SOURCE_NONE,
+    HOT_AUTH_SOURCE_STORED,
     get_hot_store_status,
     password_fingerprint,
 )
@@ -74,7 +74,7 @@ def test_environment_is_reported_as_the_source_in_use(db_session: Session, monke
 
     status = get_hot_store_status(db_session, settings)
 
-    assert status.password_source == PASSWORD_SOURCE_ENV
+    assert status.password_source == HOT_AUTH_SOURCE_ENV
     assert status.password_sources_agree is False
 
 
@@ -86,7 +86,7 @@ def test_stored_is_the_source_when_the_variable_is_absent(
 
     status = get_hot_store_status(db_session, settings)
 
-    assert status.password_source == PASSWORD_SOURCE_STORED
+    assert status.password_source == HOT_AUTH_SOURCE_STORED
     assert status.env_password_fingerprint == ""
     assert status.password_sources_agree is None
 
@@ -105,7 +105,7 @@ def test_no_password_at_all(db_session: Session, monkeypatch):
     _configure(db_session, settings, stored=None)
 
     assert get_hot_store_status(db_session, settings).password_source == (
-        PASSWORD_SOURCE_NONE
+        HOT_AUTH_SOURCE_NONE
     )
 
 
@@ -119,7 +119,8 @@ def test_panel_names_the_source_and_warns_on_divergence(
 
     assert page.status_code == 200
     assert "Variable HOT_STORE_PG_PASSWORD" in page.text
-    assert "Les deux valeurs diffèrent" in page.text
+    assert "Mot de passe env" in page.text
+    assert "seule la variable" in page.text
     assert "env-value" not in page.text, "le secret ne doit pas être rendu"
     assert "stored-value" not in page.text
 
@@ -133,4 +134,4 @@ def test_panel_warns_when_the_variable_is_missing(
     page = client.get("/admin/configuration", headers=ADMIN_HEADERS)
 
     assert "Valeur enregistrée en base" in page.text
-    assert "vont diverger au prochain redémarrage" in page.text
+    assert "divergeront au prochain redémarrage" in page.text

@@ -6,8 +6,8 @@ Deliberately no auth_request, oauth2-proxy, hop, or FastAPI /internal/* dependen
 
 from __future__ import annotations
 
+from app import re_safe
 import json
-import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -23,7 +23,7 @@ from app.bastion.upstream_tls import (
 from app.models import App
 from app.sso_settings import Settings
 
-_SAFE_SLUG = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
+_SAFE_SLUG = re_safe.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 
 
 def iter_public_proxy_apps(db: Session) -> list[App]:

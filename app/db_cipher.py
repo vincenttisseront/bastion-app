@@ -10,9 +10,9 @@ PRAGMA key is applied via SQLAlchemy connect event — never in the URL.
 
 from __future__ import annotations
 
+from app import re_safe
 import logging
 import os
-import re
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,7 +26,7 @@ from app.vault.encryption_key_store import resolve_keys_dir
 logger = logging.getLogger(__name__)
 
 DB_ENCRYPTION_KEY_FILENAME = "db_encryption.key"
-_HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
+_HEX64 = re_safe.compile(r"^[0-9a-fA-F]{64}$")
 
 
 class DbEncryptionError(RuntimeError):

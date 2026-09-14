@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-import re
+from app import re_safe
 import unicodedata
 
-_USERNAME_PART_RE = re.compile(r"[^a-z0-9-]+")
-_USERNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
+_USERNAME_PART_RE = re_safe.compile(r"[^a-z0-9-]+")
+
+
+def _is_username_label(part: str) -> bool:
+    if not part or not part[0].isalnum() or not part[-1].isalnum():
+        return False
+    return all(ch.isalnum() or ch == "-" for ch in part)
 
 
 def _fold_ascii(value: str) -> str:
@@ -33,7 +38,7 @@ def format_identity_first_name(raw: str) -> str:
         return seg[0].upper() + seg[1:].lower()
 
     out: list[str] = []
-    for token in re.split(r"(\s+|-)", text):
+    for token in re_safe.split(r"(\s+|-)", text):
         if token in {"", " ", "-"} or token.isspace():
             out.append(token if token != "" else " ")
             continue
@@ -64,7 +69,8 @@ def derive_username_from_names(first_name: str, last_name: str) -> str:
 
 
 def is_valid_derived_username(username: str) -> bool:
-    return bool(_USERNAME_RE.match((username or "").strip()))
+    parts = (username or "").strip().split(".")
+    return len(parts) == 2 and all(_is_username_label(p) for p in parts)
 
 
 def parse_identity_from_username(username: str) -> tuple[str, str] | None:

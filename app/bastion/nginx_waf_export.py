@@ -16,9 +16,9 @@ regenerate nginx deny lists.
 
 from __future__ import annotations
 
+from app import re_safe
 import json
 import logging
-import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -252,7 +252,7 @@ def _modsec_quote(value: str) -> str:
 
 def _modsec_comment(text: str) -> str:
     """ASCII-safe ModSecurity comment body (never starts a macro / never has quotes)."""
-    safe = re.sub(r"[^\x20-\x7e]", "?", text or "")
+    safe = re_safe.sub(r"[^\x20-\x7e]", "?", text or "")
     return safe.replace("%", "pct").replace('"', "'")
 
 

@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import base64
 import binascii
-import re
 from urllib.parse import parse_qs, urlsplit
+
+from app import re_safe
 
 # DeviceId is an opaque client-generated token: never lowercased, only bounded.
 MAX_DEVICE_ID_LEN = 128
@@ -25,12 +26,12 @@ MAX_DEVICE_TYPE_LEN = 64
 _DEVICE_ID_KEYS = ("DeviceId", "deviceId", "device_id", "DeviceID", "deviceid")
 _DEVICE_TYPE_KEYS = ("DeviceType", "deviceType", "device_type", "devicetype")
 
-_AUTODISCOVER_PATH_RE = re.compile(r"(?i)^/(AutoDiscover|autodiscover)(/|$)")
-_ACTIVESYNC_PATH_RE = re.compile(r"(?i)^/Microsoft-Server-ActiveSync")
+_AUTODISCOVER_PATH_RE = re_safe.compile(r"(?i)^/(AutoDiscover|autodiscover)(/|$)")
+_ACTIVESYNC_PATH_RE = re_safe.compile(r"(?i)^/Microsoft-Server-ActiveSync")
 
 # A base64 query has no key/value separator and no parameter separator; '=' may
 # only appear as trailing padding.
-_BASE64_QUERY_RE = re.compile(r"^[A-Za-z0-9+/_-]+={0,2}$")
+_BASE64_QUERY_RE = re_safe.compile(r"^[A-Za-z0-9+/_-]+={0,2}$")
 
 # Why no device could be extracted. Reported on the unidentified audit event so
 # the gap can be diagnosed instead of merely counted.

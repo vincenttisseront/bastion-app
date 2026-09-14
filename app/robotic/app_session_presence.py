@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import re
-
+from app import re_safe
 from app.access_modes import uses_cookie_impersonation
 from app.models import App
 
-_TELEPORT_SESSION_RE = re.compile(
+_TELEPORT_SESSION_RE = re_safe.compile(
     r"(?:^|;\s*)(?:__Host-session|__Secure-session)=([^;]+)",
-    re.IGNORECASE,
+    re_safe.IGNORECASE,
 )
-_CRUSHAUTH_RE = re.compile(r"(?:^|;\s*)CrushAuth=([^;]+)", re.IGNORECASE)
+_CRUSHAUTH_RE = re_safe.compile(r"(?:^|;\s*)CrushAuth=([^;]+)", re_safe.IGNORECASE)
 
 
 def has_app_session_cookie(app: App, cookie_header: str) -> bool:

@@ -2431,12 +2431,12 @@ def admin_apps_edit_post(
     )
 
 class _VaultCredentialBody(BaseModel):
-    robotic_username: str = Field(min_length=1)
-    password: str = Field(min_length=1)
+    robotic_username: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=1, max_length=512)
 
 
 class _AnalyzeLoginFormBody(BaseModel):
-    url: str = Field(min_length=1)
+    url: str = Field(min_length=1, max_length=2048)
     tls_verify: bool = False
 
 

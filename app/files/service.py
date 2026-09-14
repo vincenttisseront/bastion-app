@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from app import re_safe
 import hashlib
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Sequence
@@ -29,7 +29,7 @@ from app.rbac.effective_access_service import ACCESS_LEVEL_RANK
 from app.sso_settings import Settings, get_settings
 
 FILE_STORAGE_SUBDIR = Path("private") / "files"
-_SAFE_SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_SAFE_SLUG = re_safe.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CHANNELS = frozenset({"beta", "stable"})
 VERSION_STATUSES = frozenset({"active", "archived"})
 
@@ -126,8 +126,8 @@ def validate_slug(slug: str) -> str:
 
 def slugify_label(label: str) -> str:
     value = (label or "").strip().lower()
-    value = re.sub(r"[^a-z0-9]+", "-", value)
-    value = re.sub(r"-{2,}", "-", value).strip("-")
+    value = re_safe.sub(r"[^a-z0-9]+", "-", value)
+    value = re_safe.sub(r"-{2,}", "-", value).strip("-")
     return value or "file"
 
 

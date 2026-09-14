@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from app import re_safe
 import hashlib
 import io
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +23,8 @@ BRANDING_SETTINGS_ID = 1
 BRANDING_SUBDIR = Path("uploads") / "branding"
 MEDIA_URL_PREFIX = "/media/branding"
 MAX_FAVICON_BYTES = 256 * 1024
-_SAFE_FILENAME = re.compile(r"^[A-Za-z0-9._-]+$")
-_HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+_SAFE_FILENAME = re_safe.compile(r"^[A-Za-z0-9._-]+$")
+_HEX_COLOR = re_safe.compile(r"^#[0-9A-Fa-f]{6}$")
 
 DEFAULTS: dict[str, Any] = {
     "company_name": "Portail sécurisé",

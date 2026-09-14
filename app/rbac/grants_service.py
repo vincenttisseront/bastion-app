@@ -7,7 +7,7 @@ import logging
 from collections import defaultdict
 from typing import Any
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -27,17 +27,17 @@ SYSTEM_ROLES: dict[str, str] = {
 
 
 class AccessGrantCreate(BaseModel):
-    subject_type: str
+    subject_type: str = Field(max_length=32)
     rbac_group_id: int | None = None
-    keycloak_user_id: str | None = None
-    user_display_cache: str | None = None
-    resource_type: str
+    keycloak_user_id: str | None = Field(default=None, max_length=128)
+    user_display_cache: str | None = Field(default=None, max_length=256)
+    resource_type: str = Field(max_length=32)
     application_id: int | None = None
-    system_role: str | None = None
+    system_role: str | None = Field(default=None, max_length=64)
     rbac_role_id: int | None = None
     file_id: int | None = None
     folder_id: int | None = None
-    access_level: str = "view"
+    access_level: str = Field(default="view", max_length=16)
 
     @field_validator("subject_type")
     @classmethod

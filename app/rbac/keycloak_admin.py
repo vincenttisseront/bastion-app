@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from app import re_safe
 import asyncio
 import logging
-import re
 from urllib.parse import quote
 
 import httpx
@@ -1011,7 +1011,7 @@ def parse_groups_sync_include(raw: str | None) -> list[str]:
 
 def _norm_group_token(value: str) -> str:
     """Collapse spaces / hyphens / underscores so « ARSYSTEMS Users » ≈ « ARSYSTEMS-Users »."""
-    return re.sub(r"[\s_\-]+", "", (value or "").strip().lower())
+    return re_safe.sub(r"[\s_\-]+", "", (value or "").strip().lower())
 
 
 def group_matches_sync_include(name: str, path: str, include: list[str]) -> bool:

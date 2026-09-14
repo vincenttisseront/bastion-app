@@ -6,8 +6,8 @@ configured in the admin UI. Upstream must authenticate when Bastion skips SSO.
 
 from __future__ import annotations
 
+from app import re_safe
 import json
-import re
 from typing import Any
 
 from app.access_modes import normalize_access_mode
@@ -16,7 +16,7 @@ MAX_BYPASS_PATHS = 32
 MAX_PATH_LEN = 256
 
 # Characters that would turn a path into an nginx regex / injection hazard.
-_FORBIDDEN_PATH_CHARS = re.compile(r"[*?\[\]{}()\\<>\s\"'`|;$]")
+_FORBIDDEN_PATH_CHARS = re_safe.compile(r"[*?\[\]{}()\\<>\s\"'`|;$]")
 
 # Suggested bypass paths when provisioning a Teleport app (UI / seed / backfill).
 # Includes agent APIs and public install scripts (/scripts/<token>/install-*.sh).

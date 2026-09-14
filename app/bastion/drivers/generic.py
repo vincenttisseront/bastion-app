@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
-import re
 import secrets
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urlunparse
@@ -17,6 +16,7 @@ from app.bastion.drivers.base import DriverLoginError, DriverLoginResult
 from app.bastion.upstream_tls import resolve_upstream_tls_verify
 from app.access_modes import normalize_access_mode
 from app.models import App
+from app import re_safe
 from app.vault.user_app_credential_service import ResolvedCredential
 
 logger = logging.getLogger(__name__)
@@ -29,22 +29,13 @@ _JSON_COOKIE_KEYS: tuple[str, ...] = (
     "csrf",
 )
 
-# QNAP QTS authLogin.cgi XML (authPassed / authSid).
-_QNAP_AUTH_PASSED_RE = re.compile(
-    r"<authPassed>\s*(?:<!\[CDATA\[)?\s*([01])",
-    re.IGNORECASE,
+# QNAP QTS authLogin.cgi XML (authPassed / authSid) — string parse, no CDATA-optional regex.
+_HIDDEN_INPUT_TYPE_RE = re_safe.compile(
+    r"""\btype\s*=\s*["']hidden["']""",
+    re_safe.IGNORECASE,
 )
-_QNAP_AUTH_SID_RE = re.compile(
-    r"<authSid>\s*(?:<!\[CDATA\[)?\s*([^\]<\s]+)",
-    re.IGNORECASE,
-)
-
-_HIDDEN_INPUT_RE = re.compile(
-    r"""<input\b(?=[^>]*\btype\s*=\s*["']hidden["'])[^>]*>""",
-    re.IGNORECASE,
-)
-_ATTR_RE = re.compile(
-    r"""([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""",
+_ATTR_RE = re_safe.compile(
+    r"""([a-zA-Z_:][-a-zA-Z0-9_:.]*)=("([^"]*)"|'([^']*)'|([^\s>]+))""",
 )
 
 # Headers mirrored from the browser so apps like grommunio-web store a matching
@@ -110,11 +101,24 @@ def _cookies_from_json_body(response: httpx.Response) -> dict[str, str]:
 def extract_hidden_form_fields(html: str) -> dict[str, str]:
     """Extract ``<input type="hidden" name=… value=…>`` pairs (CSRF tokens, etc.)."""
     out: dict[str, str] = {}
-    for tag in _HIDDEN_INPUT_RE.findall(html or ""):
+    text = html or ""
+    lower = text.lower()
+    pos = 0
+    while True:
+        start = lower.find("<input", pos)
+        if start < 0:
+            break
+        end = text.find(">", start)
+        if end < 0:
+            break
+        tag = text[start : end + 1]
+        pos = end + 1
+        if not _HIDDEN_INPUT_TYPE_RE.search(tag):
+            continue
         attrs: dict[str, str] = {}
         for match in _ATTR_RE.finditer(tag):
             key = match.group(1).lower()
-            attrs[key] = match.group(2) or match.group(3) or match.group(4) or ""
+            attrs[key] = match.group(3) or match.group(4) or match.group(5) or ""
         name = attrs.get("name")
         if name:
             out[name] = attrs.get("value", "")
@@ -137,6 +141,34 @@ def _qnap_encode_pwd(password: str) -> str:
     return base64.b64encode(password.encode("utf-8")).decode("ascii")
 
 
+def _qnap_xml_tag_inner(body: str, tag: str) -> str | None:
+    """Inner text of first ``<tag>…`` (optional CDATA), case-insensitive."""
+    if not body or not tag:
+        return None
+    lo = body.lower()
+    open_t = f"<{tag.lower()}>"
+    start = lo.find(open_t)
+    if start < 0:
+        return None
+    start += len(open_t)
+    # Stop at closing tag or next open angle if truncated.
+    close_t = f"</{tag.lower()}>"
+    end = lo.find(close_t, start)
+    if end < 0:
+        end = lo.find("<", start)
+        if end < 0:
+            end = len(body)
+    raw = body[start:end].strip()
+    if len(raw) >= 12 and raw[:9].upper() == "<![CDATA[" and raw.endswith("]]>"):
+        raw = raw[9:-3].strip()
+    elif raw.upper().startswith("<![CDATA["):
+        raw = raw[9:]
+        if raw.endswith("]]>"):
+            raw = raw[:-3]
+        raw = raw.strip()
+    return raw or None
+
+
 def _qnap_parse_login_xml(body: str) -> tuple[bool | None, str | None]:
     """
     Parse QTS authLogin.cgi XML.
@@ -145,14 +177,15 @@ def _qnap_parse_login_xml(body: str) -> tuple[bool | None, str | None]:
     """
     if not body:
         return None, None
+    passed_raw = _qnap_xml_tag_inner(body, "authPassed")
     passed: bool | None = None
-    m_pass = _QNAP_AUTH_PASSED_RE.search(body)
-    if m_pass:
-        passed = m_pass.group(1) == "1"
-    sid: str | None = None
-    m_sid = _QNAP_AUTH_SID_RE.search(body)
-    if m_sid:
-        sid = (m_sid.group(1) or "").strip() or None
+    if passed_raw in ("0", "1"):
+        passed = passed_raw == "1"
+    sid_raw = _qnap_xml_tag_inner(body, "authSid")
+    sid = (sid_raw or "").strip() or None
+    # SID tokens never include whitespace / brackets.
+    if sid is not None:
+        sid = "".join(ch for ch in sid if ch not in " \t\r\n]<>") or None
     return passed, sid
 
 
@@ -497,7 +530,11 @@ def generic_wsse_header(
     created_ts = created or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     # Digest input: raw nonce bytes + created (UTF-8) + password (UTF-8) — NOT nonce_b64.
     digest_input = nonce_bytes + created_ts.encode("utf-8") + password.encode("utf-8")
-    digest = base64.b64encode(hashlib.sha1(digest_input).digest()).decode("ascii")  # noqa: S324
+    # WS-Security UsernameToken PasswordDigest = Base64(SHA-1(nonce+created+password)).
+    # Protocol-mandated SHA-1 — not a password-storage hash; do not "upgrade" to SHA-2/Argon2.
+    digest = base64.b64encode(
+        hashlib.sha1(digest_input).digest()  # noqa: S324  # NOSONAR python:S4790
+    ).decode("ascii")
     return (
         f'UsernameToken Username="{username}", PasswordDigest="{digest}", '
         f'Nonce="{nonce_b64}", Created="{created_ts}"'

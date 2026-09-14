@@ -29,6 +29,8 @@ dependencies = [
     "alembic>=1.19.0",
     "apscheduler>=3.10.4",
     "packaging>=26.3",
+    # Linear-time regex engine (ReDoS hardening) — see app/re_safe.py.
+    "google-re2>=1.1",
     # Self-hosted ALTCHA proof-of-work captcha (access-request form).
     "altcha>=1.0.0",
     # Postgres driver for optional hot store (sessions/audit).

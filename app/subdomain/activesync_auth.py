@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import logging
-import re
 import time
 from typing import Mapping
 
@@ -12,6 +11,7 @@ import httpx
 from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.audit import log_action
 from app.auth import get_realm_proxy_url
 from app.breakglass import COOKIE_NAME, process_breakglass_auth_request
@@ -33,7 +33,7 @@ router = APIRouter(tags=["activesync-auth"])
 _allow_log_ts: dict[tuple[str, str, str, str], float] = {}
 _ALLOW_LOG_INTERVAL_SEC = 60.0
 
-_EAS_PATH_RE = re.compile(
+_EAS_PATH_RE = re_safe.compile(
     r"(?i)^/(Microsoft-Server-ActiveSync|(AutoDiscover|autodiscover)(/|$))",
 )
 

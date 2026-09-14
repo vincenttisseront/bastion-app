@@ -9,20 +9,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
+import anyio
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode
 from app.models import App, PortalSettings
+from app import re_safe
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
 
-_SAFE_SLUG = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
+_SAFE_SLUG = re_safe.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 _LOGGABLE_MODES = frozenset({"public_proxy", "subdomain_proxy"})
 MTA_STS_LOG_SLUG = "mta-sts"
 _DEFAULT_TAIL = 200
@@ -30,20 +32,8 @@ _MAX_TAIL = 5000
 
 # Bastion nginx ``log_format app`` (see docker/nginx/nginx.conf).
 # remote_user may contain spaces (ActiveSync: ``A.R. Systems\user@…``).
-# Fixed head + flexible trailing kv (old and new formats parse the same way).
-_APP_ACCESS_HEAD_RE = re.compile(
-    r"^(?P<remote_addr>\S+) - (?P<remote_user>.+?) \[(?P<time_local>[^\]]+)\] "
-    r"host=(?P<host>\S+) \"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+) "
-    r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\"\s*(?P<kv>.*)$"
-)
-# Legacy ``portal`` / default ``combined`` (no host=) — e.g. older mta-sts.access.log.
-_COMBINED_ACCESS_HEAD_RE = re.compile(
-    r"^(?P<remote_addr>\S+) - (?P<remote_user>.+?) \[(?P<time_local>[^\]]+)\] "
-    r"\"(?P<request>[^\"]*)\" (?P<status>\d+) (?P<body_bytes_sent>\S+) "
-    r"\"(?P<referer>[^\"]*)\" \"(?P<user_agent>[^\"]*)\"\s*(?P<kv>.*)$"
-)
-_KV_RE = re.compile(r'(\w+)=(?:"([^"]*)"|(\S*))')
-_NGINX_HEX_ESCAPE_RE = re.compile(r"\\x([0-9A-Fa-f]{2})")
+# Parsed with string splits (no ReDoS-prone .+? / .* tails).
+_NGINX_HEX_ESCAPE_RE = re_safe.compile(r"\\x([0-9A-Fa-f]{2})")
 
 # Short nginx log keys → entry field names.
 _KV_ALIASES: dict[str, str] = {
@@ -257,7 +247,7 @@ def _decode_nginx_escapes(value: str) -> str:
     if not value or "\\x" not in value:
         return value
 
-    def _repl(match: re.Match[str]) -> str:
+    def _repl(match: Any) -> str:
         try:
             return chr(int(match.group(1), 16))
         except ValueError:
@@ -283,11 +273,136 @@ def _status_class(status: str) -> str:
 def _parse_kv_tail(kv: str) -> dict[str, str]:
     """Map trailing ``key=value`` / ``key="value"`` tokens to entry fields."""
     out = {name: "" for name in _EMPTY_META_FIELDS}
-    for short, quoted, bare in _KV_RE.findall(kv or ""):
+    text = (kv or "").strip()
+    i = 0
+    n = len(text)
+    while i < n:
+        while i < n and text[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        eq = text.find("=", i)
+        if eq < 0:
+            break
+        short = text[i:eq]
+        if not short.isidentifier() and not short.replace("_", "").isalnum():
+            # Allow simple nginx short keys (rt, uct, …).
+            if not short or not all(ch.isalnum() or ch == "_" for ch in short):
+                break
+        j = eq + 1
+        if j < n and text[j] == '"':
+            j += 1
+            end = text.find('"', j)
+            if end < 0:
+                break
+            value = text[j:end]
+            i = end + 1
+        else:
+            end = j
+            while end < n and not text[end].isspace():
+                end += 1
+            value = text[j:end]
+            i = end
         field = _KV_ALIASES.get(short)
         if field:
-            out[field] = quoted if quoted else bare
+            out[field] = value
     return out
+
+
+def _take_quoted(text: str, start: int) -> tuple[str, int] | None:
+    """Read a ``"…"`` field starting at ``start`` (must be on the quote)."""
+    if start >= len(text) or text[start] != '"':
+        return None
+    end = text.find('"', start + 1)
+    if end < 0:
+        return None
+    return text[start + 1 : end], end + 1
+
+
+def _parse_access_head(raw: str) -> dict[str, str] | None:
+    """Parse nginx access head fields; return None if the line shape is unknown."""
+    # remote_addr
+    sp = raw.find(" ")
+    if sp < 0:
+        return None
+    remote_addr = raw[:sp]
+    rest = raw[sp + 1 :]
+    if not rest.startswith("- "):
+        return None
+    rest = rest[2:]
+    bracket = rest.find(" [")
+    if bracket < 0:
+        return None
+    remote_user = rest[:bracket]
+    rest = rest[bracket + 2 :]
+    close = rest.find("] ")
+    if close < 0:
+        return None
+    time_local = rest[:close]
+    rest = rest[close + 2 :]
+
+    host = ""
+    if rest.startswith("host="):
+        hq = rest.find(' "')
+        if hq < 0:
+            return None
+        host = rest[5:hq]
+        rest = rest[hq + 1 :]  # leading quote of request
+    if not rest.startswith('"'):
+        return None
+
+    taken = _take_quoted(rest, 0)
+    if taken is None:
+        return None
+    request, idx = taken
+    rest = rest[idx:]
+    if not rest.startswith(" "):
+        return None
+    rest = rest[1:]
+
+    # status body_bytes
+    sp1 = rest.find(" ")
+    if sp1 < 0:
+        return None
+    status = rest[:sp1]
+    if not status.isdigit():
+        return None
+    rest = rest[sp1 + 1 :]
+    sp2 = rest.find(" ")
+    if sp2 < 0:
+        return None
+    body_bytes = rest[:sp2]
+    rest = rest[sp2 + 1 :]
+    if not rest.startswith('"'):
+        return None
+
+    taken = _take_quoted(rest, 0)
+    if taken is None:
+        return None
+    referer, idx = taken
+    rest = rest[idx:]
+    if not rest.startswith(" "):
+        return None
+    rest = rest[1:]
+    if not rest.startswith('"'):
+        return None
+    taken = _take_quoted(rest, 0)
+    if taken is None:
+        return None
+    user_agent, idx = taken
+    kv = rest[idx:].lstrip()
+    return {
+        "remote_addr": remote_addr,
+        "remote_user": remote_user,
+        "time_local": time_local,
+        "host": host,
+        "request": request,
+        "status": status,
+        "body_bytes_sent": body_bytes,
+        "referer": referer,
+        "user_agent": user_agent,
+        "kv": kv,
+    }
 
 
 def _entry_from_groups(
@@ -348,17 +463,9 @@ def parse_app_access_line(line: str, *, index: int = 0) -> dict[str, object] | N
     raw = (line or "").rstrip("\r\n")
     if not raw.strip():
         return None
-    m = _APP_ACCESS_HEAD_RE.match(raw)
-    if m:
-        g = m.groupdict()
+    g = _parse_access_head(raw)
+    if g:
         kv = g.pop("kv", "") or ""
-        g.update(_parse_kv_tail(kv))
-        return _entry_from_groups(raw, g, index=index, parse_ok=True)
-    m = _COMBINED_ACCESS_HEAD_RE.match(raw)
-    if m:
-        g = m.groupdict()
-        kv = g.pop("kv", "") or ""
-        g["host"] = ""
         g.update(_parse_kv_tail(kv))
         return _entry_from_groups(raw, g, index=index, parse_ok=True)
     empty = {name: "" for name in _EMPTY_META_FIELDS}
@@ -454,9 +561,9 @@ async def iter_access_log_follow(
                 continue
             if size == offset:
                 continue
-            with path.open("rb") as fh:
-                fh.seek(offset)
-                data = fh.read()
+            async with await anyio.open_file(path, "rb") as fh:
+                await fh.seek(offset)
+                data = await fh.read()
             offset = size
             if data:
                 yield data.decode("utf-8", errors="replace")

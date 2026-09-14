@@ -6,7 +6,7 @@ Target: cookie_expire=12h, cookie_refresh=1h, Keycloak ssoSessionMaxLifespan ≤
 
 from __future__ import annotations
 
-import re
+from app import re_safe
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -59,17 +59,17 @@ class RealmSessionAlignment:
         return asdict(self)
 
 
-_COOKIE_RE = re.compile(
+_COOKIE_RE = re_safe.compile(
     r'^\s*cookie_(expire|refresh)\s*=\s*"([^"]+)"\s*$',
-    re.MULTILINE,
+    re_safe.MULTILINE,
 )
-_COOKIE_FLAG_RE = re.compile(
+_COOKIE_FLAG_RE = re_safe.compile(
     r'^\s*cookie_(secure|httponly)\s*=\s*(true|false)\s*$',
-    re.MULTILINE | re.IGNORECASE,
+    re_safe.MULTILINE | re_safe.IGNORECASE,
 )
-_COOKIE_SAMESITE_RE = re.compile(
+_COOKIE_SAMESITE_RE = re_safe.compile(
     r'^\s*cookie_samesite\s*=\s*"([^"]+)"\s*$',
-    re.MULTILINE | re.IGNORECASE,
+    re_safe.MULTILINE | re_safe.IGNORECASE,
 )
 
 
@@ -103,7 +103,7 @@ def _duration_to_seconds(value: str | None) -> int | None:
     if not value:
         return None
     text = value.strip().lower()
-    m = re.fullmatch(r"(\d+)\s*([smhd])?", text)
+    m = re_safe.fullmatch(r"(\d+)\s*([smhd])?", text)
     if not m:
         return None
     n = int(m.group(1))

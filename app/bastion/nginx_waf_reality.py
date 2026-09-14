@@ -12,9 +12,9 @@ Never writes SecRuleEngine or include chains.
 
 from __future__ import annotations
 
+from app import re_safe
 import json
 import os
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -35,21 +35,21 @@ WAF_FAMILIES = ("portal", "subdomain", "public")
 SNAPSHOT_SCHEMA_VERSION = 1
 DEFAULT_STALE_MINUTES = 15
 
-_SEC_ENGINE_RE = re.compile(
-    r"^\s*SecRuleEngine\s+(Off|On|DetectionOnly)\s*(?:#.*)?$",
-    re.MULTILINE | re.IGNORECASE,
+_SEC_ENGINE_RE = re_safe.compile(
+    r"^\s*SecRuleEngine\s+(Off|On|DetectionOnly)\b",
+    re_safe.MULTILINE | re_safe.IGNORECASE,
 )
-_INCLUDE_RE = re.compile(
-    r'^\s*Include\s+(/etc/nginx/modsecurity/[^\s#]+|/etc/nginx/modsecurity/generated/[^\s#]+)\s*(?:#.*)?$',
-    re.MULTILINE,
+_INCLUDE_RE = re_safe.compile(
+    r"^\s*Include\s+(/etc/nginx/modsecurity/[^\s#]+|/etc/nginx/modsecurity/generated/[^\s#]+)",
+    re_safe.MULTILINE,
 )
-_THRESHOLD_RE = re.compile(
+_THRESHOLD_RE = re_safe.compile(
     r"setvar:tx\.inbound_anomaly_score_threshold=(\d+)",
-    re.IGNORECASE,
+    re_safe.IGNORECASE,
 )
-_ADD_HEADER_RE = re.compile(
+_ADD_HEADER_RE = re_safe.compile(
     r'add_header\s+(\S+)\s+"([^"]*)"\s+always\s*;',
-    re.IGNORECASE,
+    re_safe.IGNORECASE,
 )
 
 _ENGINE_NORM = {
