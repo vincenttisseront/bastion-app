@@ -443,7 +443,7 @@ def test_m2m_bypass_paths_emit_locations_not_slug_heuristics():
         auth_mode="sso",
         enabled=True,
         m2m_bypass_paths=json.dumps(
-            ["/sonarqube-webhook", "/jnlpJars/", "/computer/"]
+            ["/sonarqube-webhook", "/jnlpJars/", "/computer/", "/wsagents/"]
         ),
         m2m_bypass_long_timeout=True,
     )
@@ -456,6 +456,12 @@ def test_m2m_bypass_paths_emit_locations_not_slug_heuristics():
     jars = block.split("location ^~ /jnlpJars/ {", 1)[1].split("    }", 1)[0]
     assert "auth_request off;" in jars
     assert "location ^~ /computer/ {" in block
+    assert "location ^~ /wsagents/ {" in block
+    ws = block.split("location ^~ /wsagents/ {", 1)[1].split("    }", 1)[0]
+    assert "auth_request off;" in ws
+    assert "proxy_set_header Upgrade $http_upgrade;" in ws
+    assert "proxy_set_header Connection $connection_upgrade;" in ws
+    assert "proxy_read_timeout 3600s;" in ws
 
 
 def test_m2m_bypass_prefix_api_location():
