@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+from app import re_safe
 from sqlalchemy.orm import Session
 
 from app.access_modes import normalize_access_mode, validate_app_access_fields
@@ -13,13 +13,13 @@ from app.models import App, PendingHost, utcnow
 from app.security.banning.engine import find_active_ban, record_unknown_host_refusal
 from app.sso_settings import Settings
 
-_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
+_SLUG_RE = re_safe.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
 
 # Ansible Traefik/nginx catch-all smoke (traefik_catchall.yml) fabricates
 # Host: discovery-probe-<epoch>.<domain> + URI /probe-discovery — not real apps.
-_INFRA_DISCOVERY_PROBE_HOST = re.compile(
+_INFRA_DISCOVERY_PROBE_HOST = re_safe.compile(
     r"^discovery-probe-\d+(\.|$)",
-    re.IGNORECASE,
+    re_safe.IGNORECASE,
 )
 
 
@@ -48,11 +48,11 @@ def purge_infra_discovery_probes(db: Session) -> int:
 
 def suggest_slug(hostname: str) -> str:
     label = (hostname or "").split(".")[0].lower()
-    label = re.sub(r"[^a-z0-9-]+", "-", label).strip("-")
+    label = re_safe.sub(r"[^a-z0-9-]+", "-", label).strip("-")
     if not label:
         label = "app"
     if not _SLUG_RE.match(label):
-        label = re.sub(r"^-+|-+$", "", label) or "app"
+        label = re_safe.sub(r"^-+|-+$", "", label) or "app"
     return label[:64]
 
 

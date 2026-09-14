@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup, Tag
+
+from app import re_safe
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,9 @@ MAX_REDIRECTS = 5
 MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MiB
 
 _USERNAME_TOKENS = ("user", "login", "email", "identifiant")
-_USERNAME_TOKEN_RE = re.compile("|".join(_USERNAME_TOKENS), re.IGNORECASE)
+_USERNAME_TOKEN_RE = re_safe.compile(
+    "|".join(_USERNAME_TOKENS), re_safe.IGNORECASE
+)
 
 _PORTAL_REDIRECT_MESSAGE = (
     "La page redirige vers le portail Bastion (page de connexion SSO). "
@@ -89,7 +92,7 @@ def is_likely_dynamic(value: str) -> bool:
     has_lower = any(c.islower() for c in text)
     if has_digit and has_alpha and has_upper and has_lower:
         return True
-    if has_digit and has_alpha and re.fullmatch(r"[A-Za-z0-9+/=_\-.]+", text):
+    if has_digit and has_alpha and re_safe.fullmatch(r"[A-Za-z0-9+/=_\-.]+", text):
         return True
     if len(text) > 20 and all(c in "0123456789abcdefABCDEF" for c in text):
         return True

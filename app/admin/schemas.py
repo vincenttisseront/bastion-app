@@ -2,31 +2,43 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
-SLUG_PATTERN = re.compile(r"^[a-z0-9-]{2,40}$")
+from app import re_safe
+
+SLUG_PATTERN = re_safe.compile(r"^[a-z0-9-]{2,40}$")
+
+# Bounds applied before regex so ASGI handlers never feed unbounded strings to matchers.
+_MAX_NAME = 100
+_MAX_SLUG = 40
+_MAX_URL = 2048
+_MAX_CLIENT_ID = 256
+_MAX_SECRET = 512
+_MAX_SCOPES = 512
+_MAX_GROUPS_SYNC = 16_384
 
 
 class RealmConfigBase(BaseModel):
-    name: str
-    issuer_url: str
-    client_id: str
+    name: str = Field(max_length=_MAX_NAME)
+    issuer_url: str = Field(max_length=_MAX_URL)
+    client_id: str = Field(max_length=_MAX_CLIENT_ID)
     oauth2_proxy_port: int
-    scopes: str = "openid profile email"
+    scopes: str = Field(default="openid profile email", max_length=_MAX_SCOPES)
     is_default: bool = False
     enabled: bool = False
-    keycloak_admin_client_id: str | None = None
-    keycloak_admin_client_secret: str | None = None
+    keycloak_admin_client_id: str | None = Field(default=None, max_length=_MAX_CLIENT_ID)
+    keycloak_admin_client_secret: str | None = Field(default=None, max_length=_MAX_SECRET)
     # Provisioning (WRITE) service account — distinct from the sync account above.
-    keycloak_provision_client_id: str | None = None
-    keycloak_provision_client_secret: str | None = None
+    keycloak_provision_client_id: str | None = Field(default=None, max_length=_MAX_CLIENT_ID)
+    keycloak_provision_client_secret: str | None = Field(
+        default=None, max_length=_MAX_SECRET
+    )
     # Explicit opt-in checkbox — never auto-derived from credentials presence.
     provisioning_enabled: bool = False
     # Optional allowlist of Keycloak group names/paths (newline-separated).
-    groups_sync_include: str | None = None
+    groups_sync_include: str | None = Field(default=None, max_length=_MAX_GROUPS_SYNC)
     # Access requests + credential-email policy (per-realm).
     # SMTP connection itself is global (PortalSettings / Admin → Configuration).
     access_request_enabled: bool = False
@@ -91,8 +103,8 @@ class RealmConfigBase(BaseModel):
 
 
 class RealmConfigCreate(RealmConfigBase):
-    slug: str
-    client_secret: str
+    slug: str = Field(max_length=_MAX_SLUG)
+    client_secret: str = Field(max_length=_MAX_SECRET)
 
     @field_validator("slug")
     @classmethod
@@ -129,7 +141,7 @@ class RealmConfigCreate(RealmConfigBase):
 
 
 class RealmConfigUpdate(RealmConfigBase):
-    client_secret: str | None = None
+    client_secret: str | None = Field(default=None, max_length=_MAX_SECRET)
 
     @field_validator("client_secret")
     @classmethod
@@ -147,9 +159,9 @@ class RealmConfigUpdate(RealmConfigBase):
 
 
 class RealmTestBody(BaseModel):
-    issuer_url: str
-    client_id: str
-    client_secret: str
+    issuer_url: str = Field(max_length=_MAX_URL)
+    client_id: str = Field(max_length=_MAX_CLIENT_ID)
+    client_secret: str = Field(max_length=_MAX_SECRET)
 
     @field_validator("issuer_url")
     @classmethod

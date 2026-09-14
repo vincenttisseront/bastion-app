@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from app import re_safe
 import json
 import os
-import re
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -14,7 +14,7 @@ from app.models import ContainerLogsSettings, utcnow
 
 CONTAINER_LOGS_SETTINGS_ID = 1
 DEFAULT_ALLOWED_CONTAINERS = ["bastion-app", "bastion-nginx", "nginx"]
-_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
+_NAME_RE = re_safe.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
 
 
 @dataclass(frozen=True)

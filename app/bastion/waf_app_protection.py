@@ -7,7 +7,7 @@ in the live nginx snapshot. SSO Gate apps are never marked — no bastion proxy.
 
 from __future__ import annotations
 
-import re
+from app import re_safe
 from pathlib import Path
 from typing import Any
 
@@ -24,8 +24,8 @@ from app.bastion.waf_reactivation import (
 )
 from app.sso_settings import Settings
 
-_CONNECTOR_ON_RE = re.compile(
-    r"^\s*modsecurity\s+on\s*;", re.IGNORECASE | re.MULTILINE
+_CONNECTOR_ON_RE = re_safe.compile(
+    r"^\s*modsecurity\s+on\s*;", re_safe.IGNORECASE | re_safe.MULTILINE
 )
 
 _FAMILY_SWITCH_PATH = {

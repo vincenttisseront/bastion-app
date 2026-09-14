@@ -1,7 +1,7 @@
 """Public access-request queue — self-registration awaiting admin approval."""
 from __future__ import annotations
+from app import re_safe
 import logging
-import re
 from sqlalchemy.orm import Session, joinedload
 from app.audit import log_action
 from app.mail.smtp_service import SmtpError, get_smtp_config, send_email
@@ -15,7 +15,7 @@ from app.rbac.account_service import (
 )
 from app.sso_settings import Settings
 logger = logging.getLogger(__name__)
-_USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{2,64}$")
+_USERNAME_RE = re_safe.compile(r"^[a-zA-Z0-9._-]{2,64}$")
 _MAX_PENDING_PER_IP = 5
 _MAX_MESSAGE_LEN = 1000
 # Generic copy — do not reveal whether username/email already exists (enumeration).

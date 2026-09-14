@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,6 +13,7 @@ from app.audit.event_catalog import (
     historical_severity_from_result,
     resolve_event,
 )
+from app import re_safe
 from app.subdomain.eas_device import device_id_from_detail
 from app.web.constants import APP_VERSION
 
@@ -22,19 +22,17 @@ PRODUCT = "BastionPro-Sentinel"
 
 # CEF extension values MUST escape: backslash, equals, pipe (ArcSight CEF).
 # Order in the character class does not matter — single-pass replacement is fine.
-_CEF_ESCAPE = re.compile(r"([\\|=])")
+_CEF_ESCAPE = re_safe.compile(r"([\\|=])")
 
 # Practical syslog payload budget (bytes) for cs1 + framing overhead.
 _CEF_CS1_MAX = 3500
 
-_EMAIL_RE = re.compile(
-    r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"
+_EMAIL_RE = re_safe.compile(
+    r"[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9.\-]{1,253}\.[A-Za-z]{2,24}"
 )
-# Markdown / mail-client artefacts sometimes leak into pasted or proxied values.
-_MAILTO_RE = re.compile(r"\[?\s*mailto:([^\]\s?]+)\s*\]?", re.IGNORECASE)
-_UUID_RE = re.compile(
+_UUID_RE = re_safe.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
+    re_safe.IGNORECASE,
 )
 
 
@@ -74,12 +72,20 @@ def _cef_escape(value: str) -> str:
 
 def _strip_mailto_artifacts(value: str) -> str:
     """Remove ``mailto:`` / ``[mailto:…]`` wrappers if a client injected them."""
-    prev = None
     out = value
-    while prev != out:
-        prev = out
-        out = _MAILTO_RE.sub(r"\1", out)
-    return out
+    while True:
+        lower = out.lower()
+        idx = lower.find("mailto:")
+        if idx < 0:
+            return out
+        start = idx - 1 if idx > 0 and out[idx - 1] == "[" else idx
+        cursor = idx + len("mailto:")
+        while cursor < len(out) and out[cursor] not in "]\n\r\t ?#":
+            cursor += 1
+        email = out[idx + len("mailto:") : cursor]
+        if cursor < len(out) and out[cursor] == "]":
+            cursor += 1
+        out = out[:start] + email + out[cursor:]
 
 
 def _iso_ts(entry: dict[str, Any]) -> str:

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import re
 
 
+from app import re_safe
 def normalize_organization_name(raw: str | None) -> str:
     """Trim + collapse whitespace — display name used as Keycloak/RBAC group name."""
     return " ".join((raw or "").split()).strip()
@@ -18,4 +18,4 @@ def organization_match_key(raw: str | None) -> str:
     text = (raw or "").strip()
     if "/" in text:
         text = text.rstrip("/").rsplit("/", 1)[-1]
-    return re.sub(r"[^a-z0-9]+", "", text.lower())
+    return re_safe.sub(r"[^a-z0-9]+", "", text.lower())

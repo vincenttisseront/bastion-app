@@ -6,9 +6,10 @@ nginx ``return 200`` (no upstream). Does not enforce SMTP; that stays on the MTA
 
 from __future__ import annotations
 
+from app import re_safe
 import hashlib
+import ipaddress
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
@@ -27,19 +28,33 @@ DEFAULT_MAX_AGE = 604800  # 7 days
 MIN_MAX_AGE = 86400
 MAX_MAX_AGE = 31557600  # ~1 year
 
-_MX_SAFE = re.compile(
-    r"^(\*\.)?[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
-)
-_DOMAIN_SAFE = re.compile(
-    r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$"
-)
+
+def _is_dns_label(label: str) -> bool:
+    if not label or len(label) > 63:
+        return False
+    if label[0] == "-" or label[-1] == "-":
+        return False
+    return all(ch.isalnum() or ch == "-" for ch in label)
+
+
+def _is_domain_hostname(host: str, *, allow_wildcard: bool = False) -> bool:
+    """Validate DNS hostname (and optional ``*.`` MX wildcard) without nested regex."""
+    h = (host or "").strip().lower()
+    if allow_wildcard and h.startswith("*."):
+        h = h[2:]
+    if not h or len(h) > 253 or h.startswith("*"):
+        return False
+    labels = h.split(".")
+    if len(labels) < 2:
+        return False
+    return all(_is_dns_label(lbl) for lbl in labels)
 
 
 def parse_mx_hosts(raw: str | None) -> list[str]:
     """Split MX patterns from textarea (newline / comma). Strips URL junk."""
     out: list[str] = []
     seen: set[str] = set()
-    for part in re.split(r"[\n,;]+", raw or ""):
+    for part in re_safe.split(r"[\n,;]+", raw or ""):
         token = part.strip().lower()
         if not token or token.startswith("#"):
             continue
@@ -57,7 +72,7 @@ def parse_mx_hosts(raw: str | None) -> list[str]:
 
 def validate_mail_domain(domain: str) -> str:
     host = normalize_hostname(domain) or ""
-    if not host or not _DOMAIN_SAFE.match(host):
+    if not host or not _is_domain_hostname(host):
         raise ValueError(
             "Domaine mail invalide — ex. example.com (sans schéma http/https)."
         )
@@ -71,7 +86,7 @@ def validate_mx_hosts(hosts: list[str]) -> list[str]:
         raise ValueError("Au moins un hôte MX est requis (ex. mail.example.com).")
     cleaned: list[str] = []
     for h in hosts:
-        if not _MX_SAFE.match(h):
+        if not _is_domain_hostname(h, allow_wildcard=True):
             raise ValueError(
                 f"Hôte MX invalide: {h!r} — utilisez un hostname "
                 f"(mail.example.com) ou un joker (*.example.com), pas une URL."
@@ -232,20 +247,24 @@ def write_mta_sts_nginx_export(db: Session, settings: Settings) -> Path:
 
 PROBE_FILENAME = "mta-sts-probe.json"
 DEFAULT_PUBLIC_DNS = ("1.1.1.1", "9.9.9.9")
-_IPV4 = re.compile(
-    r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$"
-)
+
+
+def _is_ipv4(token: str) -> bool:
+    try:
+        return isinstance(ipaddress.ip_address(token), ipaddress.IPv4Address)
+    except ValueError:
+        return False
 
 
 def parse_public_dns_resolvers(raw: str | None) -> list[str]:
     """Parse admin textarea of public recursive DNS IPs (IPv4)."""
     out: list[str] = []
     seen: set[str] = set()
-    for part in re.split(r"[\n,; ]+", raw or ""):
+    for part in re_safe.split(r"[\n,; ]+", raw or ""):
         token = part.strip()
         if not token or token.startswith("#"):
             continue
-        if not _IPV4.match(token):
+        if not _is_ipv4(token):
             raise ValueError(
                 f"Résolveur DNS invalide: {token!r} — IPv4 uniquement "
                 f"(ex. 1.1.1.1 ou 9.9.9.9)."

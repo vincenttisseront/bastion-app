@@ -8,7 +8,7 @@ serial when the DeviceId carries one (``Appl`` + serial is the common iOS form).
 
 from __future__ import annotations
 
-import re
+from app import re_safe
 
 # Product-type tokens seen in Apple EAS User-Agents (``Apple-iPhone14,5/…``).
 # Keep the map short: unknown tokens still surface as raw ``iPhone14,5``.
@@ -55,13 +55,15 @@ _APPLE_PRODUCT_TYPES: dict[str, str] = {
     "iPad14,1": "iPad mini (6e gén.)",
 }
 
-_APPLE_PRODUCT_RE = re.compile(
+_APPLE_PRODUCT_RE = re_safe.compile(
     r"Apple-(?P<kind>iPhone|iPad|iPod)(?P<product>\d+,\d+)?(?:C\d+)?/(?P<build>[\d.]+)",
-    re.I,
+    re_safe.IGNORECASE,
 )
-_APPL_SERIAL_RE = re.compile(r"^Appl(?P<serial>[A-Za-z0-9]{8,20})$", re.I)
+_APPL_SERIAL_RE = re_safe.compile(
+    r"^Appl(?P<serial>[A-Za-z0-9]{8,20})$", re_safe.IGNORECASE
+)
 # Bare serials on some iOS builds (no ``Appl`` prefix) — Apple serials are 10–12.
-_BARE_APPLE_SERIAL_RE = re.compile(r"^[A-Z0-9]{10,12}$", re.I)
+_BARE_APPLE_SERIAL_RE = re_safe.compile(r"^[A-Z0-9]{10,12}$", re_safe.IGNORECASE)
 _APPLE_DEVICE_TYPES = frozenset({"iphone", "ipad", "ipod"})
 _CLIENT_KIND_LABELS = {
     "iphone": "iPhone",

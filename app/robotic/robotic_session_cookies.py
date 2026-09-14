@@ -14,7 +14,6 @@ Two cookie categories must stay distinct:
 from __future__ import annotations
 
 import logging
-import re
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -35,8 +34,6 @@ INJECTED_COOKIE_SCOPE_LABELS = {
 
 CookieScope = Literal["host_only", "wide_domain"]
 
-_HOST_PORT_RE = re.compile(r"^(.+):(\d+)$")
-
 
 def normalize_hostname(value: str | None) -> str:
     """
@@ -55,10 +52,11 @@ def normalize_hostname(value: str | None) -> str:
         if host:
             return host
     raw = raw.strip(".")
-    match = _HOST_PORT_RE.match(raw)
-    if match and match.group(1).count(":") == 0:
-        # host:port (not IPv6)
-        return match.group(1).strip(".")
+    # host:port (not IPv6) — rsplit avoids greedy `.+:digits` ReDoS.
+    if raw.count(":") == 1:
+        host, port = raw.rsplit(":", 1)
+        if port.isdigit():
+            return host.strip(".")
     # Bracketed IPv6 with optional port — urlparse handles best via // prefix
     if raw.startswith("["):
         parsed = urlparse(f"//{raw}")

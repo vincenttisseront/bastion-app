@@ -269,8 +269,10 @@ def _html_indicates_unsupported_flow(html: str) -> str | None:
     if "login-actions/required-action" in (html or ""):
         return "required action Keycloak (mise à jour mot de passe / profil / …)"
     title = soup.find("title")
-    if title and "update password" in title.get_text(" ", strip=True).lower():
-        return "required action: update password"
+    if title is not None:
+        title_text = title.get_text(" ", strip=True).lower()
+        if "update password" in title_text:
+            return "required action: update password"
     return None
 
 

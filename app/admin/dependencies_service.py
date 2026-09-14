@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from app import re_safe
 import json
 import logging
 import os
-import re
 import tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -38,12 +38,10 @@ _PYTHON_DIST_ALIASES: dict[str, str] = {
     "pyyaml": "PyYAML",
 }
 
-_REQ_NAME_RE = re.compile(
-    r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?",
-)
-# First version-like token inside a constraint / lock value.
-_VERSION_TOKEN_RE = re.compile(
-    r"v?(?P<ver>\d+(?:\.\d+){0,3}(?:[a-zA-Z0-9._+-]*)?)",
+_REQ_NAME_RE = re_safe.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
+# First version-like token inside a constraint / lock value (bounded segments).
+_VERSION_TOKEN_RE = re_safe.compile(
+    r"v?(?P<ver>\d{1,6}(?:\.\d{1,6}){0,3}[a-zA-Z0-9._+-]{0,32})",
 )
 
 
@@ -156,18 +154,26 @@ def compute_status(current: str | None, latest: str | None) -> str:
 
 
 def _requirement_name(spec: str) -> str | None:
-    m = _REQ_NAME_RE.match(spec.strip())
+    s = spec.strip()
+    m = _REQ_NAME_RE.match(s)
     return m.group(1) if m else None
 
 
 def _declared_constraint(spec: str, name: str) -> str:
     """Return constraint part of a requirement (e.g. '>=0.115' or '[standard]>=0.49')."""
     s = spec.strip()
-    m = re.match(rf"(?i)^{re.escape(name)}(\[[^\]]*\])?(.*)$", s)
-    if not m:
+    prefix = name
+    if not s.lower().startswith(prefix.lower()):
         return s
-    extras = m.group(1) or ""
-    rest = (m.group(2) or "").strip()
+    rest = s[len(prefix) :]
+    extras = ""
+    if rest.startswith("["):
+        close = rest.find("]")
+        if close < 0:
+            return s
+        extras = rest[: close + 1]
+        rest = rest[close + 1 :]
+    rest = rest.strip()
     if extras and rest:
         return f"{extras}{rest}"
     if extras:
@@ -258,9 +264,6 @@ def parse_python_dependencies(
 def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
     """Best-effort parse of pnpm-lock.yaml without a YAML dependency for package versions."""
     versions: dict[str, str] = {}
-    pkg_re = re.compile(
-        r"^\s{2}['\"]?(?:/(?P<scoped>@[^/@]+/[^/@]+)|(?P<name>[^/@][^@]*))@(?P<ver>[^:'\"]+)"
-    )
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -272,13 +275,21 @@ def _parse_pnpm_lock_versions(path: Path) -> dict[str, str]:
             continue
         if in_packages and line and not line.startswith(" ") and not line.startswith("\t"):
             break
-        if not in_packages:
+        if not in_packages or not line.startswith("  "):
             continue
-        m = pkg_re.match(line)
-        if not m:
+        body = line[2:].strip()
+        if not body or body.startswith("#"):
             continue
-        name = m.group("scoped") or m.group("name")
-        ver = m.group("ver")
+        if body[0] in "'\"":
+            body = body[1:]
+        # /@scope/name@version or /name@version (pnpm packages keys)
+        if not body.startswith("/"):
+            continue
+        at = body.rfind("@")
+        if at <= 1:
+            continue
+        name = body[1:at]
+        ver = body[at + 1 :].rstrip(":'\"")
         if name and ver and name not in versions:
             versions[name] = ver
     return versions

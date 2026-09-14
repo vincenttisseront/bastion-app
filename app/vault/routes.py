@@ -35,8 +35,8 @@ router = APIRouter(
 
 
 class CredentialSetBody(BaseModel):
-    robotic_username: str = Field(min_length=1)
-    password: str = Field(min_length=1)
+    robotic_username: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=1, max_length=512)
 
 
 class CredentialOut(BaseModel):

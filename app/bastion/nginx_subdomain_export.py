@@ -6,8 +6,8 @@ Target architecture: Traefik/edge terminates TLS → bastion-nginx:8080 (Host-ba
 
 from __future__ import annotations
 
+from app import re_safe
 import json
-import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -25,7 +25,7 @@ from app.bastion.upstream_tls import (
 from app.models import App
 from app.sso_settings import Settings
 
-_SAFE_SLUG = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
+_SAFE_SLUG = re_safe.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 
 
 def iter_subdomain_proxy_apps(db: Session) -> list[App]:
@@ -347,7 +347,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         ]
         # CrushFTP often emits Absolute Location: http(s)://<upstream-ip>/...
         # With proxy_redirect off the browser leaves the SSO vhost (IP login).
-        upstream_host_re = re.escape(upstream_host)
+        upstream_host_re = re_safe.escape(upstream_host)
         redirect_lines = [
             f"        proxy_redirect http://{upstream_host_esc}/ "
             f"https://{fqdn_esc}/;",

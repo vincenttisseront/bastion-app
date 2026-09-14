@@ -7,7 +7,7 @@ stub on the portal default_server — without a second default_server.
 
 from __future__ import annotations
 
-import re
+from app import re_safe
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -16,11 +16,11 @@ from app.access_modes import normalize_access_mode
 from app.models import App
 from app.sso_settings import Settings
 
-_SERVER_NAME_RE = re.compile(
-    r"^\s*server_name\s+([^;]+);",
-    re.IGNORECASE | re.MULTILINE,
+_SERVER_NAME_RE = re_safe.compile(
+    r"^\s*server_name\s+([^;\n]{1,500});",
+    re_safe.IGNORECASE | re_safe.MULTILINE,
 )
-_SAFE_HOST = re.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
+_SAFE_HOST = re_safe.compile(r"^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$")
 
 
 def normalize_hostname(raw: str | None) -> str | None:

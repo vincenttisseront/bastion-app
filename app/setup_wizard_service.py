@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+from app import re_safe
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -24,10 +24,25 @@ _PLACEHOLDER_DOMAINS = frozenset(
         "example.com",
     }
 )
-_DOMAIN_RE = re.compile(
-    r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
-)
-_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+
+
+def _is_portal_domain_hostname(host: str) -> bool:
+    if not host or len(host) > 253:
+        return False
+    labels = host.split(".")
+    if len(labels) < 2:
+        return False
+    for lbl in labels:
+        if not lbl or len(lbl) > 63:
+            return False
+        if lbl[0] == "-" or lbl[-1] == "-":
+            return False
+        if not all(ch.isalnum() or ch == "-" for ch in lbl):
+            return False
+    return True
+
+
+_SLUG_RE = re_safe.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
 
 SITE_ENV_FILENAME = "bastion-site.env"
 
@@ -118,7 +133,7 @@ def update_site_identity(
 ) -> PortalSettings:
     domain = normalize_portal_domain(portal_domain)
     slug = normalize_realm_slug(default_realm_slug)
-    if not domain or domain in _PLACEHOLDER_DOMAINS or not _DOMAIN_RE.match(domain):
+    if not domain or domain in _PLACEHOLDER_DOMAINS or not _is_portal_domain_hostname(domain):
         raise ValueError(
             "Indiquez un FQDN portail valide (ex. portal.votredomaine.tld)."
         )
@@ -208,7 +223,7 @@ def get_setup_status(db: Session, settings: Settings) -> SetupStatus:
     token_ok = bool((settings.vault_portal_internal_token or "").strip())
 
     domain_ok = portal_domain not in _PLACEHOLDER_DOMAINS and bool(
-        _DOMAIN_RE.match(portal_domain)
+        _is_portal_domain_hostname(portal_domain)
     )
 
     # Mature installs (real domain via .env + default realm) are not nagged.

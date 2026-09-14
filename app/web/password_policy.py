@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import re
 
+from app import re_safe
 MIN_PASSWORD_LEN = 12
 
-_PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
+_PUNCT_RE = re_safe.compile(r"[^\w\s]", re_safe.UNICODE)
 
 PASSWORD_POLICY_RULES: tuple[dict[str, str], ...] = (
     {"id": "length", "label": f"Au moins {MIN_PASSWORD_LEN} caractères"},

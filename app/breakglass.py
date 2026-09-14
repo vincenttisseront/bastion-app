@@ -50,8 +50,8 @@ admin_router = APIRouter(prefix="/api/admin/breakglass", tags=["breakglass"])
 
 
 class BreakglassLoginBody(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=256)
+    password: str = Field(max_length=512)
 
 
 class BreakglassRevokeBody(BaseModel):

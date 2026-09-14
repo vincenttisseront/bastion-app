@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+from app import re_safe
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
@@ -30,7 +30,7 @@ CODE_ALIASES: dict[str, str] = {
     "BST-ADM-1030": "BST-MTA-1001",
 }
 
-_CODE_RE = re.compile(r"^BST-([A-Z]{3,5})-(\d{4})$")
+_CODE_RE = re_safe.compile(r"^BST-([A-Z]{3,5})-(\d{4})$")
 
 
 class Severity(str, Enum):

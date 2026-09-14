@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from app import re_safe
 import logging
-import re
 import threading
 import time
 from dataclasses import dataclass
@@ -30,9 +30,9 @@ from app.sso_settings import Settings, get_settings
 logger = logging.getLogger(__name__)
 
 # Keycloak subject UUIDs must never be shown as a display name.
-_UUID_RE = re.compile(
+_UUID_RE = re_safe.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
+    re_safe.IGNORECASE,
 )
 
 _IDENTITY_HEADER_NAMES = frozenset(

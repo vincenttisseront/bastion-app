@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from app import re_safe
 import hashlib
 import io
 import logging
-import re
 from pathlib import Path
 
 from PIL import Image, UnidentifiedImageError
@@ -19,7 +19,7 @@ LOGO_SUBDIR = Path("uploads") / "app-logos"
 MEDIA_URL_PREFIX = "/media/app-logos"
 MAX_LOGO_BYTES = 512 * 1024
 LOGO_SIZE = (128, 128)
-_SAFE_FILENAME = re.compile(r"^[A-Za-z0-9._-]+$")
+_SAFE_FILENAME = re_safe.compile(r"^[A-Za-z0-9._-]+$")
 
 # Content-sniffed formats only — SVG deliberately excluded (XSS risk).
 _FORMAT_EXT = {
