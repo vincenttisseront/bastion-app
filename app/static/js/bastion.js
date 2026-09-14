@@ -159,12 +159,38 @@ function initInfraApplyWait() {
   }, Math.max(1000, pollMs));
 }
 
+/** Strip leading and trailing occurrences of a single character (no regex). */
+function stripEdgeChar(str, ch) {
+  var s = String(str || '');
+  var start = 0;
+  var end = s.length;
+  while (start < end && s.charAt(start) === ch) start += 1;
+  while (end > start && s.charAt(end - 1) === ch) end -= 1;
+  return s.slice(start, end);
+}
+
+/** Map non [a-z0-9] runs to a single dash without quantified regexes. */
+function slugifyAlnumDashes(str) {
+  var s = String(str || '');
+  var out = '';
+  var prevDash = false;
+  for (var i = 0; i < s.length; i += 1) {
+    var c = s.charAt(i);
+    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+      out += c;
+      prevDash = false;
+    } else if (!prevDash) {
+      out += '-';
+      prevDash = true;
+    }
+  }
+  return stripEdgeChar(out, '-');
+}
+
 function slugify(str) {
-  return str.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase().trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '');
+  return slugifyAlnumDashes(
+    str.toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  );
 }
 
 var SIDEBAR_ACCORDION_KEY = 'bastion-nav-accordion';
@@ -398,15 +424,27 @@ function normalizeHostname(value) {
     try {
       var href = raw.indexOf('://') !== -1 ? raw : ('https://' + raw);
       var host = new URL(href).hostname || '';
-      return host.replace(/^\.+/, '').replace(/\.+$/, '');
+      return stripEdgeChar(host, '.');
     } catch (e) {
       /* fall through */
     }
   }
-  raw = raw.replace(/^\.+/, '').replace(/\.+$/, '');
+  raw = stripEdgeChar(raw, '.');
   // host:port (not IPv6)
-  var portMatch = raw.match(/^([^:]+):(\d+)$/);
-  if (portMatch) return portMatch[1];
+  var colon = raw.indexOf(':');
+  if (colon > 0 && raw.indexOf(':', colon + 1) === -1) {
+    var hostPart = raw.slice(0, colon);
+    var portPart = raw.slice(colon + 1);
+    var allDigits = portPart.length > 0;
+    for (var pi = 0; pi < portPart.length; pi += 1) {
+      var pc = portPart.charAt(pi);
+      if (pc < '0' || pc > '9') {
+        allDigits = false;
+        break;
+      }
+    }
+    if (allDigits) return hostPart;
+  }
   return raw;
 }
 
