@@ -13,6 +13,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.audit import log_action
+from app.ip_cidrs import DEFAULT_RFC1918_CIDRS
 from app.models import (
     AuditLog,
     SecurityAllowlistEntry,
@@ -39,12 +40,7 @@ TARGET_IP = "ip"
 TARGET_USERNAME = "username"
 
 # Same defaults as Settings.rfc1918_cidrs — used when evaluating break-glass ban exemption.
-_DEFAULT_RFC1918_CIDRS: tuple[str, ...] = (
-    "10.0.0.0/8",
-    "172.16.0.0/12",
-    "192.168.0.0/16",
-    "127.0.0.1/32",
-)
+_DEFAULT_RFC1918_CIDRS: tuple[str, ...] = DEFAULT_RFC1918_CIDRS
 
 DEFAULT_RULES: dict[str, dict] = {
     RULE_HAMMERING: {

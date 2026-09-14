@@ -6,6 +6,8 @@ from typing import Annotated, Any
 from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.ip_cidrs import DEFAULT_RFC1918_CIDRS, DEFAULT_TRUSTED_PROXY_CIDRS
+
 
 def _parse_csv_or_json_list(value: Any, default: list[str]) -> list[str]:
     if value is None:
@@ -342,13 +344,13 @@ class Settings(BaseSettings):
         ),
     )
     rfc1918_cidrs: Annotated[list[str], NoDecode] = Field(
-        default=["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1/32"]
+        default=list(DEFAULT_RFC1918_CIDRS)
     )
     # TCP peers allowed to set X-Real-IP / X-Forwarded-For (nginx-bastion → FastAPI).
     # Do NOT include the public Internet or the DMZ reverse alone — only the hop
     # that terminates TLS toward the app (docker vpcbr / loopback).
     trusted_proxy_cidrs: Annotated[list[str], NoDecode] = Field(
-        default=["10.5.0.0/16", "172.17.0.0/16", "127.0.0.0/8"],
+        default=list(DEFAULT_TRUSTED_PROXY_CIDRS),
         validation_alias=AliasChoices(
             "TRUSTED_PROXY_CIDRS",
             "trusted_proxy_cidrs",
@@ -405,7 +407,7 @@ class Settings(BaseSettings):
     def parse_rfc1918_cidrs(cls, value: Any) -> list[str]:
         return _parse_csv_or_json_list(
             value,
-            default=["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1/32"],
+            default=list(DEFAULT_RFC1918_CIDRS),
         )
 
     @field_validator("trusted_proxy_cidrs", mode="before")
@@ -413,7 +415,7 @@ class Settings(BaseSettings):
     def parse_trusted_proxy_cidrs(cls, value: Any) -> list[str]:
         return _parse_csv_or_json_list(
             value,
-            default=["10.5.0.0/16", "172.17.0.0/16", "127.0.0.0/8"],
+            default=list(DEFAULT_TRUSTED_PROXY_CIDRS),
         )
 
     @field_validator("environment", mode="before")

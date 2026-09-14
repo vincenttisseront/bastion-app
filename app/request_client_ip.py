@@ -19,24 +19,18 @@ from typing import Any
 
 from fastapi import Request
 
+from app.ip_cidrs import DEFAULT_TRUSTED_PROXY_CIDRS, INFRA_HOP_NETWORKS
+
 logger = logging.getLogger(__name__)
 
 # Intermediate hops that are never the end-user client.
 # Do NOT mark the whole 172.24.0.0/16 as infra: that is the corp/DMZ LAN where
 # workstations live. Only the nginx edge host itself.
-_INFRA_NETWORKS = (
-    ipaddress.ip_network("10.5.0.0/16"),  # docker vpcbr (nginx ↔ app)
-    ipaddress.ip_network("172.17.0.0/16"),  # default docker bridge
-    ipaddress.ip_network("127.0.0.0/8"),
-)
+_INFRA_NETWORKS = INFRA_HOP_NETWORKS
 
 # TCP peers from which FastAPI may honour X-Real-IP / X-Forwarded-For.
 # Default = nginx-bastion → app on docker (+ loopback for TestClient / local).
-_DEFAULT_TRUSTED_PROXY_CIDRS = (
-    "10.5.0.0/16",
-    "172.17.0.0/16",
-    "127.0.0.0/8",
-)
+_DEFAULT_TRUSTED_PROXY_CIDRS = DEFAULT_TRUSTED_PROXY_CIDRS
 
 # Set SESSIONS_IP_PROBE=1 to log the three sources on every resolve (temporary diag).
 _IP_PROBE = os.environ.get("SESSIONS_IP_PROBE", "").strip().lower() in (
