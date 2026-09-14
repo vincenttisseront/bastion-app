@@ -65,18 +65,20 @@ def _options_from_flags(flags: int = 0) -> Any:
     """Map stdlib ``re`` flags to ``re2.Options`` (or pass flags through on fallback)."""
     if not _USING_RE2:
         return flags
-    assert _re2 is not None
     if flags & VERBOSE:
         raise ValueError(
             "re_safe: VERBOSE/X is not supported with google-re2 — expand the pattern"
         )
-    opts = _re2.Options()
+    opts = _re2.Options()  # type: ignore[union-attr]
     if flags & IGNORECASE:
         opts.case_sensitive = False
     if flags & DOTALL:
         opts.dot_nl = True
     if flags & MULTILINE:
-        # RE2 default one_line=False already allows ^/$ near newlines.
+        # one_line only applies in POSIX mode; keep Perl classes (\d, \w, …).
+        opts.posix_syntax = True
+        opts.perl_classes = True
+        opts.word_boundary = True
         opts.one_line = False
     return opts
 
@@ -92,9 +94,32 @@ def _clamp(text: Any, max_input_len: int | None) -> Any:
 def compile(pattern: str | bytes, flags: int = 0) -> Any:
     """Compile ``pattern``. Raises on unsupported RE2 features."""
     if _USING_RE2:
-        assert _re2 is not None
-        return _re2.compile(pattern, _options_from_flags(flags))
+        return _re2.compile(pattern, _options_from_flags(flags))  # type: ignore[union-attr]
     return _stdlib_re.compile(pattern, flags)
+
+
+def _dispatch(
+    method: str,
+    pattern: Any,
+    string: Any,
+    flags: int,
+    max_input_len: int | None,
+    *,
+    listify: bool = False,
+    **kwargs: Any,
+) -> Any:
+    """Call ``method`` on RE2 or stdlib, with optional input clamping."""
+    string = _clamp(string, max_input_len)
+    if isinstance(pattern, str):
+        if _USING_RE2:
+            kwargs["options"] = _options_from_flags(flags)
+            result = getattr(_re2, method)(pattern, string, **kwargs)
+        else:
+            kwargs["flags"] = flags
+            result = getattr(_stdlib_re, method)(pattern, string, **kwargs)
+    else:
+        result = getattr(pattern, method)(string, **kwargs)
+    return list(result) if listify else result
 
 
 def search(
@@ -104,15 +129,7 @@ def search(
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> Any:
-    string = _clamp(string, max_input_len)
-    if _USING_RE2:
-        assert _re2 is not None
-        if isinstance(pattern, str):
-            return _re2.search(pattern, string, _options_from_flags(flags))
-        return pattern.search(string)
-    if isinstance(pattern, str):
-        return _stdlib_re.search(pattern, string, flags)
-    return pattern.search(string)
+    return _dispatch("search", pattern, string, flags, max_input_len)
 
 
 def match(
@@ -122,15 +139,7 @@ def match(
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> Any:
-    string = _clamp(string, max_input_len)
-    if _USING_RE2:
-        assert _re2 is not None
-        if isinstance(pattern, str):
-            return _re2.match(pattern, string, _options_from_flags(flags))
-        return pattern.match(string)
-    if isinstance(pattern, str):
-        return _stdlib_re.match(pattern, string, flags)
-    return pattern.match(string)
+    return _dispatch("match", pattern, string, flags, max_input_len)
 
 
 def fullmatch(
@@ -140,15 +149,7 @@ def fullmatch(
     *,
     max_input_len: int | None = VALIDATOR_MAX_INPUT_LEN,
 ) -> Any:
-    string = _clamp(string, max_input_len)
-    if _USING_RE2:
-        assert _re2 is not None
-        if isinstance(pattern, str):
-            return _re2.fullmatch(pattern, string, _options_from_flags(flags))
-        return pattern.fullmatch(string)
-    if isinstance(pattern, str):
-        return _stdlib_re.fullmatch(pattern, string, flags)
-    return pattern.fullmatch(string)
+    return _dispatch("fullmatch", pattern, string, flags, max_input_len)
 
 
 def findall(
@@ -158,15 +159,7 @@ def findall(
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> list[Any]:
-    string = _clamp(string, max_input_len)
-    if _USING_RE2:
-        assert _re2 is not None
-        if isinstance(pattern, str):
-            return list(_re2.findall(pattern, string, _options_from_flags(flags)))
-        return list(pattern.findall(string))
-    if isinstance(pattern, str):
-        return _stdlib_re.findall(pattern, string, flags)
-    return pattern.findall(string)
+    return _dispatch("findall", pattern, string, flags, max_input_len, listify=True)
 
 
 def finditer(
@@ -176,15 +169,7 @@ def finditer(
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> Any:
-    string = _clamp(string, max_input_len)
-    if _USING_RE2:
-        assert _re2 is not None
-        if isinstance(pattern, str):
-            return _re2.finditer(pattern, string, _options_from_flags(flags))
-        return pattern.finditer(string)
-    if isinstance(pattern, str):
-        return _stdlib_re.finditer(pattern, string, flags)
-    return pattern.finditer(string)
+    return _dispatch("finditer", pattern, string, flags, max_input_len)
 
 
 def sub(
@@ -197,12 +182,11 @@ def sub(
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> Any:
     string = _clamp(string, max_input_len)
-    if _USING_RE2:
-        assert _re2 is not None
-        if isinstance(pattern, str):
-            return _re2.sub(pattern, repl, string, count=count, options=_options_from_flags(flags))
-        return pattern.sub(repl, string, count=count)
     if isinstance(pattern, str):
+        if _USING_RE2:
+            return _re2.sub(  # type: ignore[union-attr]
+                pattern, repl, string, count=count, options=_options_from_flags(flags)
+            )
         return _stdlib_re.sub(pattern, repl, string, count=count, flags=flags)
     return pattern.sub(repl, string, count=count)
 
@@ -215,19 +199,12 @@ def split(
     *,
     max_input_len: int | None = DEFAULT_MAX_INPUT_LEN,
 ) -> list[Any]:
-    string = _clamp(string, max_input_len)
-    if _USING_RE2:
-        assert _re2 is not None
-        if isinstance(pattern, str):
-            return list(
-                _re2.split(
-                    pattern,
-                    string,
-                    maxsplit=maxsplit,
-                    options=_options_from_flags(flags),
-                )
-            )
-        return list(pattern.split(string, maxsplit=maxsplit))
-    if isinstance(pattern, str):
-        return _stdlib_re.split(pattern, string, maxsplit=maxsplit, flags=flags)
-    return pattern.split(string, maxsplit=maxsplit)
+    return _dispatch(
+        "split",
+        pattern,
+        string,
+        flags,
+        max_input_len,
+        listify=True,
+        maxsplit=maxsplit,
+    )
