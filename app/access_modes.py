@@ -137,6 +137,31 @@ def upstream_entry_path(app) -> str:
     return "/"
 
 
+def _root_https_url(fqdn: str, *, trailing_slash: bool) -> str:
+    return f"https://{fqdn}/" if trailing_slash else f"https://{fqdn}"
+
+
+def _query_suffix(query: str | None) -> str:
+    return f"?{query}" if query else ""
+
+
+def _compose_public_https(
+    fqdn: str,
+    path: str,
+    query: str = "",
+    *,
+    root_trailing_slash: bool = False,
+) -> str:
+    """Build ``https://{fqdn}{path}{query}`` with optional root trailing slash."""
+    if path != "/":
+        return f"https://{fqdn}{path}{query}"
+    if not query:
+        return _root_https_url(fqdn, trailing_slash=root_trailing_slash)
+    if root_trailing_slash:
+        return f"https://{fqdn}/{query}"
+    return f"https://{fqdn}{query}"
+
+
 def public_app_entry_url(app, *, root_trailing_slash: bool = False) -> str | None:
     """``https://{public_fqdn}`` (+ entry path/query from ``login_form_url`` when set)."""
     fqdn = (getattr(app, "public_fqdn", None) or "").strip()
@@ -147,17 +172,18 @@ def public_app_entry_url(app, *, root_trailing_slash: bool = False) -> str | Non
     if login_raw:
         parsed = urlparse(login_raw)
         path = _normalize_browser_entry_path(parsed.path or "/")
-        query = f"?{parsed.query}" if parsed.query else ""
-        if path == "/" and not query:
-            return f"https://{fqdn}/" if root_trailing_slash else f"https://{fqdn}"
-        if path == "/":
-            return f"https://{fqdn}/{query}" if root_trailing_slash else f"https://{fqdn}{query}"
-        return f"https://{fqdn}{path}{query}"
+        return _compose_public_https(
+            fqdn,
+            path,
+            _query_suffix(parsed.query),
+            root_trailing_slash=root_trailing_slash,
+        )
 
-    path = upstream_entry_path(app)
-    if path == "/":
-        return f"https://{fqdn}/" if root_trailing_slash else f"https://{fqdn}"
-    return f"https://{fqdn}{path}"
+    return _compose_public_https(
+        fqdn,
+        upstream_entry_path(app),
+        root_trailing_slash=root_trailing_slash,
+    )
 
 
 def validate_app_access_fields(

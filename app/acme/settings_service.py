@@ -140,61 +140,85 @@ def _read_cert_meta(cert_path: Path) -> dict[str, Any]:
     }
 
 
+def _load_domain_cert_meta(
+    root: Path, fqdn: str
+) -> tuple[bool, dict[str, Any]]:
+    """Return ``(has_cert, meta)``; parse failures are treated as missing."""
+    cert_path = root / fqdn / "fullchain.pem"
+    key_path = root / fqdn / "privkey.pem"
+    if not (cert_path.is_file() and key_path.is_file()):
+        return False, {}
+    try:
+        return True, _read_cert_meta(cert_path)
+    except Exception as exc:
+        logger.warning("acme: cannot parse cert for %s: %s", fqdn, exc)
+        return False, {}
+
+
+def _classify_cert_status(
+    *,
+    has_cert: bool,
+    is_placeholder: bool,
+    not_after: Any,
+    days_left: Any,
+    now: datetime,
+) -> tuple[str, bool]:
+    """Return ``(status, renew_due)`` for a domain cert snapshot."""
+    if not has_cert:
+        return "missing", True
+    if is_placeholder:
+        return "placeholder", True
+    if isinstance(not_after, datetime) and not_after <= now:
+        return "expired", True
+    if isinstance(days_left, int) and days_left <= RENEW_SOON_DAYS:
+        return "renew_soon", True
+    return "ok", False
+
+
+def _domain_status_from_entry(
+    entry: dict[str, Any],
+    root: Path,
+    now: datetime,
+) -> AcmeDomainStatus | None:
+    fqdn = str(entry.get("fqdn") or "").strip()
+    if not fqdn:
+        return None
+    has_cert, meta = _load_domain_cert_meta(root, fqdn)
+    days_left = meta.get("days_left")
+    is_placeholder = bool(meta.get("is_placeholder"))
+    not_after = meta.get("not_after")
+    status, renew_due = _classify_cert_status(
+        has_cert=has_cert,
+        is_placeholder=is_placeholder,
+        not_after=not_after,
+        days_left=days_left,
+        now=now,
+    )
+    return AcmeDomainStatus(
+        fqdn=fqdn,
+        slug=str(entry.get("slug") or ""),
+        family=str(entry.get("family") or "public_proxy"),
+        upstream_url=str(entry.get("upstream_url") or ""),
+        has_cert=has_cert,
+        is_placeholder=is_placeholder,
+        not_before=meta.get("not_before"),
+        not_after=not_after if isinstance(not_after, datetime) else None,
+        days_left=days_left if isinstance(days_left, int) else None,
+        renew_due=renew_due,
+        issuer=meta.get("issuer"),
+        status=status,
+    )
+
+
 def list_domain_statuses(db: Session, settings: Settings) -> list[AcmeDomainStatus]:
     manifest = build_acme_domains_manifest(db, settings)
     root = certs_dir(settings)
-    out: list[AcmeDomainStatus] = []
     now = datetime.now(timezone.utc)
+    out: list[AcmeDomainStatus] = []
     for entry in manifest.get("domains", []):
-        fqdn = str(entry.get("fqdn") or "").strip()
-        if not fqdn:
-            continue
-        cert_path = root / fqdn / "fullchain.pem"
-        key_path = root / fqdn / "privkey.pem"
-        has_cert = cert_path.is_file() and key_path.is_file()
-        meta: dict[str, Any] = {}
-        if has_cert:
-            try:
-                meta = _read_cert_meta(cert_path)
-            except Exception as exc:
-                logger.warning("acme: cannot parse cert for %s: %s", fqdn, exc)
-                has_cert = False
-
-        days_left = meta.get("days_left")
-        is_placeholder = bool(meta.get("is_placeholder"))
-        not_after = meta.get("not_after")
-        if not has_cert:
-            status = "missing"
-            renew_due = True
-        elif is_placeholder:
-            status = "placeholder"
-            renew_due = True
-        elif isinstance(not_after, datetime) and not_after <= now:
-            status = "expired"
-            renew_due = True
-        elif isinstance(days_left, int) and days_left <= RENEW_SOON_DAYS:
-            status = "renew_soon"
-            renew_due = True
-        else:
-            status = "ok"
-            renew_due = False
-
-        out.append(
-            AcmeDomainStatus(
-                fqdn=fqdn,
-                slug=str(entry.get("slug") or ""),
-                family=str(entry.get("family") or "public_proxy"),
-                upstream_url=str(entry.get("upstream_url") or ""),
-                has_cert=has_cert,
-                is_placeholder=is_placeholder,
-                not_before=meta.get("not_before"),
-                not_after=not_after if isinstance(not_after, datetime) else None,
-                days_left=days_left if isinstance(days_left, int) else None,
-                renew_due=renew_due,
-                issuer=meta.get("issuer"),
-                status=status,
-            )
-        )
+        status = _domain_status_from_entry(entry, root, now)
+        if status is not None:
+            out.append(status)
     return out
 
 
@@ -408,43 +432,58 @@ def sidecar_running(settings: Settings) -> bool:
     return (certs_dir(settings) / ".reconcile_running").is_file()
 
 
-def sync_reconcile_from_sidecar(db: Session, settings: Settings, *, actor: str = "acme-sidecar") -> bool:
+def _parse_sidecar_finished_at(finished: str) -> datetime:
+    try:
+        return datetime.fromisoformat(finished.replace("Z", "+00:00"))
+    except ValueError:
+        return utcnow()
+
+
+def _should_promote_sidecar_result(
+    *,
+    prev_status: str,
+    prev_at: datetime | None,
+    finished_dt: datetime,
+) -> bool:
+    if prev_status == "pending" or prev_at is None:
+        return True
+    prev = prev_at if prev_at.tzinfo else prev_at.replace(tzinfo=timezone.utc)
+    return finished_dt > prev
+
+
+def _normalize_reconcile_status(status: str) -> str:
+    return status if status in ("ok", "error", "skipped", "pending") else "ok"
+
+
+def sync_reconcile_from_sidecar(
+    db: Session, settings: Settings, *, actor: str = "acme-sidecar"
+) -> bool:
     """If DB says pending and sidecar finished, promote last-run.json into AcmeSettings."""
     row = ensure_acme_settings(db)
     last = read_acme_last_run(settings)
     if not last:
         return False
     finished = str(last.get("finished_at") or "").strip()
-    status = str(last.get("status") or "ok").strip() or "ok"
-    message = str(last.get("message") or "").strip()
     if not finished:
         return False
 
-    # Only overwrite when pending, or when sidecar finished after our pending stamp.
+    status = str(last.get("status") or "ok").strip() or "ok"
+    message = str(last.get("message") or "").strip()
+    finished_dt = _parse_sidecar_finished_at(finished)
     prev_status = (row.last_reconcile_status or "").strip()
-    prev_at = row.last_reconcile_at
-    try:
-        finished_dt = datetime.fromisoformat(finished.replace("Z", "+00:00"))
-    except ValueError:
-        finished_dt = utcnow()
 
-    if prev_status == "pending":
-        should = True
-    elif prev_at is None:
-        should = True
-    else:
-        prev = prev_at if prev_at.tzinfo else prev_at.replace(tzinfo=timezone.utc)
-        should = finished_dt > prev
-
-    if not should:
+    if not _should_promote_sidecar_result(
+        prev_status=prev_status,
+        prev_at=row.last_reconcile_at,
+        finished_dt=finished_dt,
+    ):
         return False
-
     if sidecar_running(settings) and prev_status == "pending":
-        # Still running — keep pending, but refresh message from partial progress via logs UI
+        # Still running — keep pending; UI polls logs for partial progress.
         return False
 
     row.last_reconcile_at = finished_dt
-    row.last_reconcile_status = status if status in ("ok", "error", "skipped", "pending") else "ok"
+    row.last_reconcile_status = _normalize_reconcile_status(status)
     row.last_reconcile_message = message[:2000] if message else row.last_reconcile_message
     row.updated_by = actor
     db.commit()

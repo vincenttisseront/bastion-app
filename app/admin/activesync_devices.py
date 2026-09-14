@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-activesync-devices"])
 
+PENDING_DEVICES_PENDING_HREF = "/admin/pending-devices?status=pending"
+_DEVICE_NOT_FOUND = {404: {"description": "Appareil introuvable"}}
+_APP_NOT_FOUND = {404: {"description": "Application introuvable"}}
+
 _STATUS_BADGES: dict[str, tuple[str, str]] = {
     ACTIVESYNC_DEVICE_APPROVED: ("badge-ok", "Approuvé"),
     ACTIVESYNC_DEVICE_PENDING: ("badge-warn", "En attente"),
@@ -274,7 +278,10 @@ def admin_pending_devices_list(
     )
 
 
-@router.post("/admin/activesync/devices/{device_id}/block")
+@router.post(
+    "/admin/activesync/devices/{device_id}/block",
+    responses=_DEVICE_NOT_FOUND,
+)
 def admin_activesync_device_block(
     device_id: int,
     reason: str = Form(""),
@@ -285,7 +292,7 @@ def admin_activesync_device_block(
 ):
     device = _device_or_404(db, device_id)
     secret = settings.vault_portal_internal_token or "dev"
-    dest = _safe_redirect_url(redirect_url, "/admin/pending-devices?status=pending")
+    dest = _safe_redirect_url(redirect_url, PENDING_DEVICES_PENDING_HREF)
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
     try:
@@ -302,7 +309,10 @@ def admin_activesync_device_block(
     return response
 
 
-@router.post("/admin/activesync/devices/{device_id}/unblock")
+@router.post(
+    "/admin/activesync/devices/{device_id}/unblock",
+    responses=_DEVICE_NOT_FOUND,
+)
 def admin_activesync_device_unblock(
     device_id: int,
     redirect_url: str = Form(""),
@@ -312,7 +322,7 @@ def admin_activesync_device_unblock(
 ):
     device = _device_or_404(db, device_id)
     secret = settings.vault_portal_internal_token or "dev"
-    dest = _safe_redirect_url(redirect_url, "/admin/pending-devices?status=pending")
+    dest = _safe_redirect_url(redirect_url, PENDING_DEVICES_PENDING_HREF)
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
     device_service.admin_unblock_device(db, device, actor=_actor(user))
@@ -320,7 +330,10 @@ def admin_activesync_device_unblock(
     return response
 
 
-@router.post("/admin/activesync/devices/{device_id}/approve")
+@router.post(
+    "/admin/activesync/devices/{device_id}/approve",
+    responses=_DEVICE_NOT_FOUND,
+)
 def admin_activesync_device_approve(
     device_id: int,
     redirect_url: str = Form(""),
@@ -330,7 +343,7 @@ def admin_activesync_device_approve(
 ):
     device = _device_or_404(db, device_id)
     secret = settings.vault_portal_internal_token or "dev"
-    dest = _safe_redirect_url(redirect_url, "/admin/pending-devices?status=pending")
+    dest = _safe_redirect_url(redirect_url, PENDING_DEVICES_PENDING_HREF)
     response = RedirectResponse(url=dest, status_code=302)
     label = shorten_device_id(device.device_id)
     device_service.admin_approve_device(db, device, actor=_actor(user))
@@ -371,7 +384,10 @@ def _utcnow_days_since(when) -> int:
     return max(0, (now - when).days)
 
 
-@router.get("/admin/apps/{slug}/activesync/devices/preview")
+@router.get(
+    "/admin/apps/{slug}/activesync/devices/preview",
+    responses=_APP_NOT_FOUND,
+)
 def admin_activesync_control_preview(
     slug: str,
     request: Request,
@@ -414,7 +430,10 @@ def admin_activesync_control_preview(
     )
 
 
-@router.post("/admin/apps/{slug}/activesync/devices/enable")
+@router.post(
+    "/admin/apps/{slug}/activesync/devices/enable",
+    responses=_APP_NOT_FOUND,
+)
 def admin_activesync_control_enable(
     slug: str,
     db: Session = Depends(get_db),
@@ -445,7 +464,10 @@ def admin_activesync_control_enable(
     return response
 
 
-@router.post("/admin/apps/{slug}/activesync/devices/disable")
+@router.post(
+    "/admin/apps/{slug}/activesync/devices/disable",
+    responses=_APP_NOT_FOUND,
+)
 def admin_activesync_control_disable(
     slug: str,
     db: Session = Depends(get_db),

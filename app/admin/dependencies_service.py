@@ -29,6 +29,7 @@ LOOKUP_TIMEOUT_SECONDS = 12.0
 LOOKUP_MAX_WORKERS = 8
 LOOKUP_RETRIES = 1
 REFRESH_THROTTLE_SECONDS = 30.0
+_PACKAGE_JSON = "package.json"
 _USER_AGENT = "BastionPro-Dependencies/1.0 (+https://github.com/vincenttisseront/bastion-app)"
 
 # Declared name (after stripping extras) → importlib.metadata distribution name.
@@ -80,7 +81,7 @@ def resolve_manifest_root() -> Path:
         return Path(env)
     source_root = Path(__file__).resolve().parents[2]
     for candidate in (Path("/app"), Path.cwd(), source_root):
-        if (candidate / "pyproject.toml").is_file() or (candidate / "package.json").is_file():
+        if (candidate / "pyproject.toml").is_file() or (candidate / _PACKAGE_JSON).is_file():
             return candidate
     return Path("/app")
 
@@ -90,7 +91,7 @@ def pyproject_path(root: Path | None = None) -> Path:
 
 
 def package_json_path(root: Path | None = None) -> Path:
-    return (root or resolve_manifest_root()) / "package.json"
+    return (root or resolve_manifest_root()) / _PACKAGE_JSON
 
 
 def normalize_version_token(value: str | None) -> str | None:
@@ -347,10 +348,10 @@ def parse_npm_dependencies(
     declared ranges; transitive lockfile packages are included with is_direct=False.
     """
     root = repo_root or resolve_manifest_root()
-    pkg_path = package_json_file or (root / "package.json")
+    pkg_path = package_json_file or (root / _PACKAGE_JSON)
     if not pkg_path.is_file():
         msg = (
-            f"package.json introuvable dans le conteneur ({pkg_path}) — "
+            f"{_PACKAGE_JSON} introuvable dans le conteneur ({pkg_path}) — "
             "vérifier le Dockerfile"
         )
         logger.error(msg)
