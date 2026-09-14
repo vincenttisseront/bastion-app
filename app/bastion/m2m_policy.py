@@ -146,22 +146,24 @@ def bypass_paths_for_app(app: Any) -> list[str]:
     return paths
 
 
+def _entry_matches_bypass(req: str, raw: str, entry: str) -> bool:
+    """Match one declared bypass entry against a normalized request path."""
+    if entry.endswith("/"):
+        prefix = entry.rstrip("/") or "/"
+        return (
+            req == prefix
+            or req.startswith(prefix + "/")
+            or raw.startswith(entry)
+        )
+    exact = entry.rstrip("/") or "/"
+    return req == exact
+
+
 def uri_matches_bypass(uri: str, paths: list[str]) -> bool:
     """True when request path equals an exact entry or sits under a prefix entry."""
-    req = path_only(uri).rstrip("/") or "/"
-    for entry in paths:
-        if entry.endswith("/"):
-            prefix = entry.rstrip("/") or "/"
-            if req == prefix or req.startswith(prefix + "/"):
-                return True
-            # Also match the bare prefix with trailing slash form
-            if path_only(uri).startswith(entry):
-                return True
-        else:
-            exact = entry.rstrip("/") or "/"
-            if req == exact:
-                return True
-    return False
+    raw = path_only(uri)
+    req = raw.rstrip("/") or "/"
+    return any(_entry_matches_bypass(req, raw, entry) for entry in paths)
 
 
 def app_uri_is_m2m_bypass(app: Any, uri: str) -> bool:
