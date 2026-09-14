@@ -66,6 +66,7 @@ def test_seed_jenkins_and_sonar_and_teleport():
     assert t_long is True
     assert "/webapi/find" in t_paths
     assert "/webapi/host/" in t_paths
+    assert "/scripts/" in t_paths
 
     w_paths, w_long = _seed_row(
         slug="wiki",

@@ -22,6 +22,7 @@ _TELEPORT_SEED = (
     "/webapi/host/",
     "/v1/webapi/",
     "/v2/webapi/",
+    "/scripts/",
 )
 
 

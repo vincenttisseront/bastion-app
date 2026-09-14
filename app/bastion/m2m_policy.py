@@ -18,7 +18,8 @@ MAX_PATH_LEN = 256
 # Characters that would turn a path into an nginx regex / injection hazard.
 _FORBIDDEN_PATH_CHARS = re.compile(r"[*?\[\]{}()\\<>\s\"'`|;$]")
 
-# Teleport agent paths historically hard-coded — used only by one-shot migration seed.
+# Suggested bypass paths when provisioning a Teleport app (UI / seed / backfill).
+# Includes agent APIs and public install scripts (/scripts/<token>/install-*.sh).
 TELEPORT_SEED_BYPASS_PATHS: tuple[str, ...] = (
     "/webapi/find",
     "/webapi/ping",
@@ -26,6 +27,7 @@ TELEPORT_SEED_BYPASS_PATHS: tuple[str, ...] = (
     "/webapi/host/",
     "/v1/webapi/",
     "/v2/webapi/",
+    "/scripts/",
 )
 
 

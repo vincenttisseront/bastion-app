@@ -398,6 +398,7 @@ def test_portal_redirect_no_app_session_routes_to_impersonate():
                 "/webapi/host/",
                 "/v1/webapi/",
                 "/v2/webapi/",
+                "/scripts/",
             ]
         ),
         m2m_bypass_long_timeout=True,
@@ -411,9 +412,12 @@ def test_portal_redirect_no_app_session_routes_to_impersonate():
     assert "location = /webapi/find {" in block
     assert "location = /webapi/connectionupgrade {" in block
     assert "location ^~ /webapi/host/ {" in block
+    assert "location ^~ /scripts/ {" in block
     find_loc = block.split("location = /webapi/find {", 1)[1].split("    }", 1)[0]
     assert "auth_request off;" in find_loc
     assert "proxy_read_timeout 3600s;" in find_loc
+    scripts_loc = block.split("location ^~ /scripts/ {", 1)[1].split("    }", 1)[0]
+    assert "auth_request off;" in scripts_loc
 
 
 def test_m2m_bypass_paths_emit_locations_not_slug_heuristics():
