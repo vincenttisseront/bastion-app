@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from app import re_safe
 from datetime import timedelta, timezone
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.audit import log_action
 from app.models import AccessGrant, ActiveSession, BastionAccount, PendingUser, utcnow
 from app.web.user_context import is_breakglass_email
 
 _UUID_RE = re_safe.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re_safe.I,
+    re_safe.IGNORECASE,
 )
 
 _PROTOCOL_BREAKGLASS = "BREAKGLASS"

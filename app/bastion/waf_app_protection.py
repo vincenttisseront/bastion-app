@@ -7,10 +7,10 @@ in the live nginx snapshot. SSO Gate apps are never marked — no bastion proxy.
 
 from __future__ import annotations
 
-from app import re_safe
 from pathlib import Path
 from typing import Any
 
+from app import re_safe
 from app.access_modes import normalize_access_mode
 from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_ON
 from app.bastion.nginx_waf_reality import (

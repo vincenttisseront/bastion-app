@@ -1,8 +1,11 @@
 """Public access-request queue — self-registration awaiting admin approval."""
 from __future__ import annotations
-from app import re_safe
+
 import logging
+
 from sqlalchemy.orm import Session, joinedload
+
+from app import re_safe
 from app.audit import log_action
 from app.mail.smtp_service import SmtpError, get_smtp_config, send_email
 from app.models import AccessRequest, BastionAccount, RealmConfig, utcnow
@@ -14,6 +17,7 @@ from app.rbac.account_service import (
     send_account_credentials_email,
 )
 from app.sso_settings import Settings
+
 logger = logging.getLogger(__name__)
 _USERNAME_RE = re_safe.compile(r"^[a-zA-Z0-9._-]{2,64}$")
 _MAX_PENDING_PER_IP = 5

@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+from app import re_safe
 from app.audit.event_catalog import (
     CEF_SEVERITY,
     Severity,
@@ -13,7 +14,6 @@ from app.audit.event_catalog import (
     historical_severity_from_result,
     resolve_event,
 )
-from app import re_safe
 from app.subdomain.eas_device import device_id_from_detail
 from app.web.constants import APP_VERSION
 

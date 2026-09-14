@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -14,11 +15,10 @@ from app.access_modes import (
     normalize_access_mode,
     validate_app_access_fields,
 )
-from app.bastion.m2m_policy import (
-    bypass_paths_for_app,
-    m2m_flags_for,
-    normalize_bypass_paths,
-)
+from app.admin.export import export_app_catalogue_files
+from app.admin.infra_host_apply import request_host_apply
+from app.audit import list_audit_entries, log_action
+from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
 from app.bastion.bastion_fields import (
     PROVISIONING_DRIVER_LABELS,
     normalize_auth_mode,
@@ -30,14 +30,16 @@ from app.bastion.bastion_fields import (
     validate_generic_form_fields,
     vault_enabled_for_app,
 )
-from app.robotic.robotic_session_cookies import normalize_injected_cookie_scope
-from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
-from app.admin.export import export_app_catalogue_files
-from app.admin.infra_host_apply import request_host_apply
-from app.web.admin_infrastructure import host_apply_wait_redirect
-from app.audit import list_audit_entries, log_action
-from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
-from app.auth_flow import get_default_idp_realm, oauth2_start_url, resolve_rd, setup_url
+from app.bastion.m2m_policy import (
+    bypass_paths_for_app,
+    m2m_flags_for,
+    normalize_bypass_paths,
+)
+from app.bastion.pending_host_service import (
+    approve_pending_host,
+    reject_pending_host,
+    suggest_slug,
+)
 from app.breakglass import (
     COOKIE_NAME,
     clear_breakglass_cookie,
@@ -55,30 +57,17 @@ from app.breakglass_store import (
 )
 from app.database import get_db
 from app.db.hot_store import hot_read
+from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
 from app.models import AccessGrant, App, PendingHost, PendingUser, RBACGroup, RealmConfig
-from app.bastion.pending_host_service import (
-    approve_pending_host,
-    reject_pending_host,
-    suggest_slug,
-)
-from app.robotic.robotic_session_cookies import shared_parent_domain
-from app.sso_settings import Settings, get_settings
-from app.web.app_logos import (
-    LogoValidationError,
-    clear_app_logo,
-    logo_public_url,
-    save_app_logo,
-)
-from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
-from app.web.metrics_service import get_dashboard_metrics
 from app.request_client_ip import client_ip_from_request
-from app.web.sessions_service import (
-    build_session_groups,
-    get_active_sessions,
-    touch_portal_session,
+from app.robotic.robotic_session_cookies import (
+    normalize_injected_cookie_scope,
+    shared_parent_domain,
 )
-from app.web.templates import render
+from app.robotic.session_cookie_hop import redirect_via_subdomain_sso_mirror
+from app.secret_crypto import encrypt_secret
+from app.sso_settings import Settings, get_settings
+from app.testing_framework.throttle import throttle_retry_after
 from app.vault.app_credential_service import (
     EncryptionNotConfiguredError,
     VaultError,
@@ -95,10 +84,23 @@ from app.vault.user_app_credential_service import (
     has_user_override,
     set_user_credential,
 )
-from app.secret_crypto import encrypt_secret
-from app.testing_framework.throttle import throttle_retry_after
+from app.web.admin_infrastructure import host_apply_wait_redirect
+from app.web.app_logos import (
+    LogoValidationError,
+    clear_app_logo,
+    logo_public_url,
+    save_app_logo,
+)
+from app.web.constants import APP_VERSION
+from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
+from app.web.metrics_service import get_dashboard_metrics
+from app.web.sessions_service import (
+    build_session_groups,
+    get_active_sessions,
+    touch_portal_session,
+)
+from app.web.templates import render
 from app.web.user_context import get_user_context, is_portal_admin, require_admin, require_user
-from pydantic import BaseModel, Field
 
 router = APIRouter(tags=["pages"])
 # Authenticated (non-admin) pages — new routes inherit require_user.
@@ -2961,14 +2963,14 @@ async def admin_rbac(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    from sqlalchemy import func
+
+    from app.models import AccessGrant, GroupAppCredential
     from app.rbac.governance_service import (
         excess_permission_alerts,
         role_distribution_summary,
     )
     from app.rbac.permission_seed import seed_governance_rbac
-    from app.models import AccessGrant, GroupAppCredential
-
-    from sqlalchemy import func
 
     seed_governance_rbac(db)
     db.commit()

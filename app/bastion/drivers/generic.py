@@ -11,12 +11,12 @@ from urllib.parse import urlparse, urlunparse
 
 import httpx
 
+from app import re_safe
+from app.access_modes import normalize_access_mode
 from app.bastion.bastion_fields import parse_login_extra_fields
 from app.bastion.drivers.base import DriverLoginError, DriverLoginResult
 from app.bastion.upstream_tls import resolve_upstream_tls_verify
-from app.access_modes import normalize_access_mode
 from app.models import App
-from app import re_safe
 from app.vault.user_app_credential_service import ResolvedCredential
 
 logger = logging.getLogger(__name__)

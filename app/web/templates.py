@@ -5,10 +5,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.access_modes import app_launch_url
-from app.bastion.bastion_fields import app_driver_badge_label
 from markupsafe import Markup
 from starlette.templating import Jinja2Templates
+
+from app.access_modes import app_launch_url
+from app.bastion.bastion_fields import app_driver_badge_label
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))

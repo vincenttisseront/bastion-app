@@ -69,8 +69,9 @@ def admin_rbac_governance(
     db.commit()
 
     history = []
-    from app.models import AuditLog
     from sqlalchemy import desc
+
+    from app.models import AuditLog
 
     history = (
         db.query(AuditLog)

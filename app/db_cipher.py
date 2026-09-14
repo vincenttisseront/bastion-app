@@ -10,7 +10,6 @@ PRAGMA key is applied via SQLAlchemy connect event — never in the URL.
 
 from __future__ import annotations
 
-from app import re_safe
 import logging
 import os
 import stat
@@ -20,6 +19,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
+from app import re_safe
 from app.sso_settings import Settings
 from app.vault.encryption_key_store import resolve_keys_dir
 

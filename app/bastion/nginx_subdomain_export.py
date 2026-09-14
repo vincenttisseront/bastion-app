@@ -6,7 +6,6 @@ Target architecture: Traefik/edge terminates TLS → bastion-nginx:8080 (Host-ba
 
 from __future__ import annotations
 
-from app import re_safe
 import json
 from pathlib import Path
 from typing import Any
@@ -14,6 +13,7 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.access_modes import normalize_access_mode
 from app.bastion.bastion_fields import normalize_sso_bridge
 from app.bastion.m2m_policy import bypass_paths_for_app

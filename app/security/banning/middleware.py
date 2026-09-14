@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from app.api_errors import api_error_response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.api_errors import api_error_response
 from app.database import SessionLocal
 from app.request_client_ip import client_ip_from_request
 from app.security.banning.engine import (

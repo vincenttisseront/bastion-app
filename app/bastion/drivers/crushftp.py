@@ -9,8 +9,8 @@ from urllib.parse import quote, urljoin
 
 import httpx
 
-from app.bastion.drivers.base import RoboticDriver, RoboticLoginError
 from app import re_safe
+from app.bastion.drivers.base import RoboticDriver, RoboticLoginError
 
 logger = logging.getLogger(__name__)
 

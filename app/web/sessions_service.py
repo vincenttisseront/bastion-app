@@ -14,7 +14,12 @@ from sqlalchemy.orm import Session
 from app.audit import log_action
 from app.database import get_db
 from app.models import ActiveSession, App, AuditLog, utcnow
-from app.request_client_ip import client_ip_from_request, client_ip_probe, is_infra_hop, prefer_client_ip
+from app.request_client_ip import (
+    client_ip_from_request,
+    client_ip_probe,
+    is_infra_hop,
+    prefer_client_ip,
+)
 from app.sso_settings import Settings, get_settings
 from app.user_agent_label import summarize_user_agent
 from app.web.user_context import UserContext, is_portal_admin, require_admin, require_user

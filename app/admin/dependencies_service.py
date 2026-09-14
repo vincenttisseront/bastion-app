@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app import re_safe
 import json
 import logging
 import os
@@ -20,6 +19,7 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.models import DependencySnapshot, utcnow
 from app.testing_framework.throttle import throttle_retry_after
 

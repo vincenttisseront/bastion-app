@@ -24,14 +24,15 @@ from app.bastion.modsec_audit_aggregator import (
     format_rule_chain_display,
     read_aggregator_state,
     read_audit_summary,
-    resolve_audit_summary_path,
-    rule_label,
     resolve_aggregator_state_path,
+    resolve_audit_summary_path,
     resolve_modsec_audit_log_path,
+    rule_label,
 )
 from app.bastion.nginx_waf_export import MODE_DETECTION, MODE_OFF, MODE_ON, list_promoted_deny_ips
 from app.bastion.nginx_waf_reality import portal_engine_mode, resolve_nginx_waf_snapshot_path
 from app.bastion.waf_charts import (
+    _empty_panel,
     render_attack_heatmap,
     render_dual_area_chart,
     render_family_breakdown,
@@ -39,10 +40,9 @@ from app.bastion.waf_charts import (
     render_horizontal_bars,
     render_owasp_bars,
     render_series_chart,
-    _empty_panel,
 )
 from app.models import App, AuditLog, PendingHost, SecurityBanRule, WafProfile
-from app.security.banning.service import list_active_bans, list_ban_rules, get_or_create_policy
+from app.security.banning.service import get_or_create_policy, list_active_bans, list_ban_rules
 from app.sso_settings import Settings
 
 CRS_INACTIVE_CAUSE = "Moteur ModSecurity désarmé (Off)."
@@ -157,7 +157,11 @@ def build_reactivation_panel(
 ) -> dict[str, Any]:
     """Réactivation / coupure moteur CRS (portail + sous-domaines)."""
     from app.bastion.nginx_waf_reality import subdomain_engine_mode
-    from app.bastion.waf_reactivation import list_subdomain_smoke_hosts, read_arm_state, read_subdomain_armed
+    from app.bastion.waf_reactivation import (
+        list_subdomain_smoke_hosts,
+        read_arm_state,
+        read_subdomain_armed,
+    )
 
     real = portal_engine_mode(active)
     subdomain_real = subdomain_engine_mode(active)

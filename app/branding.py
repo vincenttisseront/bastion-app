@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app import re_safe
 import hashlib
 import io
 import logging
@@ -12,6 +11,7 @@ from typing import Any
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.audit import log_action
 from app.models import BrandingSettings, utcnow
 from app.sso_settings import Settings, get_settings

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from app import re_safe
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.audit import log_action
 from app.auth_flow import get_default_idp_realm
 from app.breakglass_store import has_active_breakglass_account

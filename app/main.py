@@ -1,9 +1,8 @@
 """FastAPI entrypoint — SSO portal + Bastion Pro UI."""
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-import logging
-
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -12,51 +11,52 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api_errors import api_error_from_detail, api_error_response
-from app.auth import router as auth_router
-from app.admin.infrastructure import router as infrastructure_router
-from app.bastion.unknown_host_routes import router as unknown_host_router
-from app.admin.realms import router as admin_realms_router
 from app.admin.acme import router as admin_acme_router
-from app.admin.waf import router as admin_waf_router
 from app.admin.activesync_devices import router as admin_activesync_devices_router
+from app.admin.files import router as admin_files_router
+from app.admin.infrastructure import router as infrastructure_router
 from app.admin.rbac_access import router as admin_rbac_access_router
 from app.admin.rbac_accounts import router as admin_rbac_accounts_router
 from app.admin.rbac_governance import router as admin_rbac_governance_router
 from app.admin.rbac_groups import router as admin_rbac_groups_router
-from app.admin.files import router as admin_files_router
-from app.files.routes import router as files_browser_router
+from app.admin.realms import router as admin_realms_router
 from app.admin.user_sessions import router as admin_user_sessions_router
+from app.admin.waf import router as admin_waf_router
+from app.api_errors import api_error_from_detail, api_error_response
+from app.auth import router as auth_router
+from app.bastion.unknown_host_routes import router as unknown_host_router
 from app.breakglass import admin_router as breakglass_admin_router
 from app.breakglass import router as breakglass_router
-from app.oidc_bff import router as oidc_bff_router
+from app.breakglass_cookie_middleware import BreakglassCookieRotationMiddleware
 from app.database import engine
+from app.files.routes import router as files_browser_router
 from app.health_scheduler import start_health_scheduler, stop_health_scheduler
 from app.logging_config import configure_logging
-from app.breakglass_cookie_middleware import BreakglassCookieRotationMiddleware
 from app.logging_middleware import RequestIdMiddleware
 from app.models import Base
+from app.oidc_bff import router as oidc_bff_router
 from app.realm_service import router as realm_router
 from app.robotic.client_open_action import router as robotic_router
 from app.robotic.session_cookie_hop import router as session_cookie_hop_router
 from app.services import authenticated_router as apps_read_router
 from app.services import router as apps_router
-from app.subdomain.subdomain_auth import router as subdomain_router
+from app.sso_settings import get_settings
 from app.subdomain.activesync_auth import router as activesync_router
+from app.subdomain.subdomain_auth import router as subdomain_router
 from app.vault.routes import router as vault_router
 from app.web.admin_branding import router as admin_branding_router
 from app.web.admin_configuration import router as admin_configuration_router
-from app.web.admin_setup_wizard import router as admin_setup_wizard_router
 from app.web.admin_dependencies import router as admin_dependencies_router
 from app.web.admin_infrastructure import router as admin_infrastructure_router
 from app.web.admin_logs import router as admin_logs_router
-from app.web.notifications_routes import router as admin_notifications_router
+from app.web.admin_setup_wizard import router as admin_setup_wizard_router
 from app.web.audit_service import router as audit_router
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.global_search import router as global_search_router
 from app.web.health_service import router as health_router
 from app.web.metrics_service import router as metrics_router
+from app.web.notifications_routes import router as admin_notifications_router
 from app.web.pages import admin_router as pages_admin_router
 from app.web.pages import authenticated_router as pages_user_router
 from app.web.pages import router as pages_router
@@ -65,7 +65,6 @@ from app.web.sessions_service import admin_router as sessions_admin_router
 from app.web.sessions_service import router as sessions_router
 from app.web.templates import render
 from app.web.user_context import require_admin
-from app.sso_settings import get_settings
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("app.main")
@@ -77,6 +76,7 @@ async def lifespan(app: FastAPI):
     configure_logging(settings)
 
     Base.metadata.create_all(bind=engine)
+    from app.branding import ensure_branding_dir
     from app.database import SessionLocal
     from app.db.hot_store import sync_hot_engine_from_config
     from app.runtime_secrets_service import (
@@ -87,7 +87,6 @@ async def lifespan(app: FastAPI):
         EncryptionKeyStoreError,
         ensure_encryption_key,
     )
-    from app.branding import ensure_branding_dir
     from app.web.app_logos import ensure_logo_dir
 
     db = SessionLocal()

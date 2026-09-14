@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from app import re_safe
 import unicodedata
+
+from app import re_safe
 
 _USERNAME_PART_RE = re_safe.compile(r"[^a-z0-9-]+")
 

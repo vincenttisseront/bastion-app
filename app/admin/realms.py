@@ -20,18 +20,23 @@ from app.admin.export import (
 from app.admin.oidc_test import test_oidc_connection
 from app.admin.ports import NoAvailablePortError, get_next_available_port, test_port_available
 from app.admin.schemas import (
+    PortTestBody,
     RealmConfigCreate,
     RealmConfigUpdate,
-    PortTestBody,
     RealmTestBody,
     validation_errors_response,
 )
-from app.testing_framework.throttle import throttle_retry_after
 from app.audit import log_action
 from app.database import get_db
 from app.models import RealmConfig
-from app.secret_crypto import decrypt_secret, encrypt_secret, encryption_config_error, encryption_configured
+from app.secret_crypto import (
+    decrypt_secret,
+    encrypt_secret,
+    encryption_config_error,
+    encryption_configured,
+)
 from app.sso_settings import Settings, get_settings
+from app.testing_framework.throttle import throttle_retry_after
 from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
 from app.web.templates import render

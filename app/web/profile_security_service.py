@@ -12,8 +12,12 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.models import OidcSession, RealmConfig, utcnow
-from app.oidc_bff import _coerce_utc, purge_expired_oidc_sessions
-from app.oidc_bff import revoke_oidc_jti, validate_oidc_session_cookie
+from app.oidc_bff import (
+    _coerce_utc,
+    purge_expired_oidc_sessions,
+    revoke_oidc_jti,
+    validate_oidc_session_cookie,
+)
 from app.oidc_bff_client import (
     InvalidCredentialsError,
     UnsupportedAuthFlowError,

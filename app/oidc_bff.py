@@ -32,6 +32,10 @@ from app.oidc_bff_client import (
     submit_headless_otp,
 )
 from app.request_client_ip import client_ip_from_request
+from app.security.banning.engine import (
+    clear_failed_login_counters,
+    evaluate_login_attempt,
+)
 from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import (
     clear_failures,
@@ -39,10 +43,6 @@ from app.testing_framework.throttle import (
     record_failure,
 )
 from app.web.templates import render
-from app.security.banning.engine import (
-    clear_failed_login_counters,
-    evaluate_login_attempt,
-)
 
 logger = logging.getLogger(__name__)
 

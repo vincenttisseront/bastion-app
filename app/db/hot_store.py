@@ -7,7 +7,6 @@ on a separate Postgres engine.
 
 from __future__ import annotations
 
-from app import re_safe
 import hashlib
 import hmac
 import logging
@@ -23,6 +22,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
+from app import re_safe
 from app.models import (
     ActiveSession,
     AuditLog,

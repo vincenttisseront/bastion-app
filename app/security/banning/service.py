@@ -17,11 +17,11 @@ from app.models import (
 from app.security.banning.engine import (
     TARGET_IP,
     TARGET_USERNAME,
+    _normalize_username,
     apply_ban,
     clear_failed_login_counters,
     ensure_security_defaults,
     get_policy,
-    _normalize_username,
 )
 
 

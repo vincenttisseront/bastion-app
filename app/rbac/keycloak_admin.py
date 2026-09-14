@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from app import re_safe
 import asyncio
 import logging
 from urllib.parse import quote
@@ -10,6 +9,7 @@ from urllib.parse import quote
 import httpx
 from sqlalchemy.orm import Session
 
+from app import re_safe
 from app.models import RBACGroup, RealmConfig, utcnow
 from app.secret_crypto import decrypt_secret
 from app.sso_settings import Settings

@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models import BastionAccount, BastionAccountProvisioning
 
-
 DEFAULT_PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
 
