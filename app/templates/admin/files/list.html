@@ -166,20 +166,60 @@
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   }
 
+  function stripEdgeChar(str, ch) {
+    var s = String(str || '');
+    var start = 0;
+    var end = s.length;
+    while (start < end && s.charAt(start) === ch) start += 1;
+    while (end > start && s.charAt(end - 1) === ch) end -= 1;
+    return s.slice(start, end);
+  }
+
   function slugify(text) {
-    return String(text || '')
+    var s = String(text || '')
       .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+/, '')
-      .replace(/-+$/, '')
-      .replace(/-{2,}/g, '-');
+      .trim();
+    var out = '';
+    var prevDash = false;
+    for (var i = 0; i < s.length; i += 1) {
+      var c = s.charAt(i);
+      if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+        out += c;
+        prevDash = false;
+      } else if (!prevDash) {
+        out += '-';
+        prevDash = true;
+      }
+    }
+    return stripEdgeChar(out, '-');
   }
 
   function labelFromFilename(name) {
-    var base = String(name || '').replace(/\.[^.]+$/, '');
-    return base.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    var base = String(name || '');
+    var dot = base.lastIndexOf('.');
+    if (dot > 0) base = base.slice(0, dot);
+    var out = '';
+    var prevSpace = false;
+    for (var i = 0; i < base.length; i += 1) {
+      var c = base.charAt(i);
+      if (c === '_' || c === '-') {
+        if (!prevSpace) {
+          out += ' ';
+          prevSpace = true;
+        }
+      } else if (c === ' ' || c === '\t') {
+        if (!prevSpace) {
+          out += ' ';
+          prevSpace = true;
+        }
+      } else {
+        out += c;
+        prevSpace = false;
+      }
+    }
+    return out.trim();
   }
 
   function extractSemVer(name) {
