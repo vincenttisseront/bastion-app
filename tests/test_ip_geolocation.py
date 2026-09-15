@@ -39,6 +39,21 @@ def test_is_public_ip_filters_private():
     assert not is_public_ip("")
 
 
+def test_reserved_class_e_is_not_lan_hint():
+    """240.0.0.0/4 may be is_private in recent Python — still not « Réseau interne »."""
+    from app.bastion.ip_geolocation import is_lan_ip, ip_lookup_url, origin_from_geoloc
+
+    reserved = "247.149.120.18"
+    assert not is_lan_ip(reserved)
+    assert is_lan_ip("10.0.0.5")
+    assert is_lan_ip("127.0.0.1")
+    origin = origin_from_geoloc(reserved, None)
+    assert origin["hint"] == "IP réservée / non routable"
+    assert "interne" not in origin["hint"].lower()
+    assert ip_lookup_url(reserved) == "https://whatismyipaddress.com/ip/247.149.120.18"
+    assert ip_lookup_url("not-an-ip") is None
+
+
 def test_origin_from_geoloc_success():
     geo = {
         "status": "success",
