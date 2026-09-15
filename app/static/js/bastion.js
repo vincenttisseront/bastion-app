@@ -416,37 +416,54 @@ var ACCESS_MODE_COPY = {
   }
 };
 
+function looksLikeUrlOrPath(raw) {
+  return raw.includes('://') || raw.includes('/') || raw.includes('?') || raw.includes('#');
+}
+
+function hostnameFromUrlish(raw) {
+  var href = raw.includes('://') ? raw : ('https://' + raw);
+  try {
+    return new URL(href).hostname || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** Hostname of an absolute URL, or '' if relative/invalid. */
+function absoluteUrlHostname(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch (e) {
+    return '';
+  }
+}
+
+function isAllAsciiDigits(s) {
+  if (!s) return false;
+  for (var i = 0; i < s.length; i += 1) {
+    var c = s.charAt(i);
+    if (c < '0' || c > '9') return false;
+  }
+  return true;
+}
+
+/** Strip a single trailing :port (not IPv6). Empty string if not host:port. */
+function stripTrailingPort(raw) {
+  var colon = raw.indexOf(':');
+  if (colon <= 0 || raw.includes(':', colon + 1)) return '';
+  var hostPart = raw.slice(0, colon);
+  return isAllAsciiDigits(raw.slice(colon + 1)) ? hostPart : '';
+}
+
 function normalizeHostname(value) {
   var raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
-  // URL or path-ish input → use the browser URL parser
-  if (raw.includes('://') || raw.includes('/') || raw.includes('?') || raw.includes('#')) {
-    var href = raw.includes('://') ? raw : ('https://' + raw);
-    var host = '';
-    try {
-      host = new URL(href).hostname || '';
-    } catch (e) {
-      // Intentionally ignored: malformed URL input falls through to host:port / raw handling
-    }
+  if (looksLikeUrlOrPath(raw)) {
+    var host = hostnameFromUrlish(raw);
     if (host) return stripEdgeChar(host, '.');
   }
   raw = stripEdgeChar(raw, '.');
-  // host:port (not IPv6)
-  var colon = raw.indexOf(':');
-  if (colon > 0 && !raw.includes(':', colon + 1)) {
-    var hostPart = raw.slice(0, colon);
-    var portPart = raw.slice(colon + 1);
-    var allDigits = portPart.length > 0;
-    for (var pi = 0; pi < portPart.length; pi += 1) {
-      var pc = portPart.charAt(pi);
-      if (pc < '0' || pc > '9') {
-        allDigits = false;
-        break;
-      }
-    }
-    if (allDigits) return hostPart;
-  }
-  return raw;
+  return stripTrailingPort(raw) || raw;
 }
 
 function sharedParentDomain(fqdn, portalDomain) {
@@ -756,16 +773,7 @@ function initLoginFormAnalyzer() {
     var portalDomain = '';
     var fqdnEl = document.getElementById('public_fqdn');
     if (fqdnEl) portalDomain = (fqdnEl.dataset.portalDomain || '').trim().toLowerCase();
-    var actionIsPortal = false;
-    if (action && portalDomain) {
-      try {
-        var actionHost = new URL(action).hostname.toLowerCase();
-        actionIsPortal = actionHost === portalDomain;
-      } catch (e) {
-        // Relative or invalid action URL — not an absolute portal host.
-        actionIsPortal = false;
-      }
-    }
+    var actionIsPortal = !!(action && portalDomain && absoluteUrlHostname(action) === portalDomain);
     if (action && entered && action !== entered && !actionIsPortal) {
       html += '<p class="form-help">Action détectée : <span class="mono">' + escapeHtml(action) + '</span></p>';
       html += '<button type="button" class="btn btn-secondary btn-sm" data-use-detected-action="' +
