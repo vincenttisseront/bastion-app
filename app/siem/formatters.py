@@ -70,19 +70,22 @@ def _cef_escape(value: str) -> str:
     return _CEF_ESCAPE.sub(r"\\\1", value.replace("\n", " ").replace("\r", " "))
 
 
+_MAILTO_PREFIX = "mailto:"
+
+
 def _strip_mailto_artifacts(value: str) -> str:
     """Remove ``mailto:`` / ``[mailto:…]`` wrappers if a client injected them."""
     out = value
     while True:
         lower = out.lower()
-        idx = lower.find("mailto:")
+        idx = lower.find(_MAILTO_PREFIX)
         if idx < 0:
             return out
         start = idx - 1 if idx > 0 and out[idx - 1] == "[" else idx
-        cursor = idx + len("mailto:")
+        cursor = idx + len(_MAILTO_PREFIX)
         while cursor < len(out) and out[cursor] not in "]\n\r\t ?#":
             cursor += 1
-        email = out[idx + len("mailto:") : cursor]
+        email = out[idx + len(_MAILTO_PREFIX) : cursor]
         if cursor < len(out) and out[cursor] == "]":
             cursor += 1
         out = out[:start] + email + out[cursor:]

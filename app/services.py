@@ -36,6 +36,20 @@ router = APIRouter(
     dependencies=[Depends(require_internal_token)],
 )
 
+_APP_NOT_FOUND = {404: {"description": "Application introuvable"}}
+_APP_CREATE_RESPONSES = {
+    409: {"description": "Un slug d'application identique existe déjà"},
+    422: {
+        "description": "Validation access_mode / public_fqdn / m2m_bypass_paths",
+    },
+}
+_APP_UPDATE_RESPONSES = {
+    **_APP_NOT_FOUND,
+    422: {
+        "description": "Validation access_mode / public_fqdn / m2m_bypass_paths",
+    },
+}
+
 
 class AppCreate(BaseModel):
     slug: str
@@ -185,7 +199,11 @@ def list_apps(
     return [_app_to_out(app) for app in _apps_visible_to_user(db, user, settings)]
 
 
-@authenticated_router.get("/{slug}", response_model=AppOut)
+@authenticated_router.get(
+    "/{slug}",
+    response_model=AppOut,
+    responses=_APP_NOT_FOUND,
+)
 def get_app(
     slug: str,
     db: Session = Depends(get_db),
@@ -201,7 +219,12 @@ def get_app(
     return _app_to_out(app)
 
 
-@router.post("", response_model=AppOut, status_code=201)
+@router.post(
+    "",
+    response_model=AppOut,
+    status_code=201,
+    responses=_APP_CREATE_RESPONSES,
+)
 def create_app(
     body: AppCreate,
     request: Request,
@@ -244,10 +267,7 @@ def create_app(
             m2m_bypass_long_timeout=payload.get("m2m_bypass_long_timeout", False),
         )
     )
-    if mode == "sso_gate":
-        payload["upstream_tls_verify"] = False
-    elif "upstream_tls_verify" in payload:
-        payload["upstream_tls_verify"] = bool(payload["upstream_tls_verify"])
+    _apply_upstream_tls_verify(payload, mode)
     app = App(**payload)
     db.add(app)
     db.commit()
@@ -263,7 +283,80 @@ def create_app(
     return _app_to_out(app)
 
 
-@router.put("/{slug}", response_model=AppOut)
+def _apply_upstream_tls_verify(target: dict, mode: str) -> None:
+    if mode == "sso_gate":
+        target["upstream_tls_verify"] = False
+    elif "upstream_tls_verify" in target:
+        target["upstream_tls_verify"] = bool(target["upstream_tls_verify"])
+
+
+def _apply_activesync_on_update(updates: dict, app: App, mode: str) -> None:
+    if mode == "subdomain_proxy" and "allow_activesync" not in updates:
+        return
+    updates["allow_activesync"], updates["activesync_device_control"] = (
+        activesync_flags_for(
+            mode,
+            allow_activesync=updates.get("allow_activesync", app.allow_activesync),
+            device_control=updates.get(
+                "activesync_device_control", app.activesync_device_control
+            ),
+        )
+    )
+
+
+_M2M_UPDATE_KEYS = (
+    "m2m_accept_basic",
+    "m2m_accept_bearer",
+    "m2m_bypass_paths",
+    "m2m_bypass_long_timeout",
+)
+
+
+def _apply_m2m_on_update(updates: dict, app: App, mode: str) -> dict | None:
+    """Merge M2M flags into ``updates``. Return a 422 detail dict on path errors."""
+    if mode == "subdomain_proxy" and not any(k in updates for k in _M2M_UPDATE_KEYS):
+        return None
+    raw_paths = updates.get("m2m_bypass_paths", app.m2m_bypass_paths)
+    paths, path_errs = normalize_bypass_paths(raw_paths)
+    if path_errs and "m2m_bypass_paths" in updates:
+        return {"m2m_bypass_paths": path_errs}
+    updates.update(
+        m2m_flags_for(
+            mode,
+            m2m_accept_basic=updates.get(
+                "m2m_accept_basic", getattr(app, "m2m_accept_basic", False)
+            ),
+            m2m_accept_bearer=updates.get(
+                "m2m_accept_bearer", getattr(app, "m2m_accept_bearer", False)
+            ),
+            m2m_bypass_paths=paths,
+            m2m_bypass_long_timeout=updates.get(
+                "m2m_bypass_long_timeout",
+                getattr(app, "m2m_bypass_long_timeout", False),
+            ),
+        )
+    )
+    return None
+
+
+def _apply_auth_bridge_on_update(updates: dict, app: App) -> None:
+    if "auth_mode" not in updates and "sso_bridge" not in updates:
+        return
+    auth = normalize_auth_mode(updates.get("auth_mode", app.auth_mode))
+    if "auth_mode" in updates:
+        updates["auth_mode"] = auth
+    updates["sso_bridge"] = (
+        normalize_sso_bridge(updates.get("sso_bridge", getattr(app, "sso_bridge", None)))
+        if auth == "sso"
+        else "trusted_headers"
+    )
+
+
+@router.put(
+    "/{slug}",
+    response_model=AppOut,
+    responses=_APP_UPDATE_RESPONSES,
+)
 def update_app(
     slug: str,
     body: AppUpdate,
@@ -280,56 +373,12 @@ def update_app(
         raise HTTPException(status_code=422, detail=field_errors)
     if "access_mode" in updates:
         updates["access_mode"] = mode
-    if mode != "subdomain_proxy" or "allow_activesync" in updates:
-        updates["allow_activesync"], updates["activesync_device_control"] = (
-            activesync_flags_for(
-                mode,
-                allow_activesync=updates.get("allow_activesync", app.allow_activesync),
-                device_control=updates.get(
-                    "activesync_device_control", app.activesync_device_control
-                ),
-            )
-        )
-    m2m_keys = (
-        "m2m_accept_basic",
-        "m2m_accept_bearer",
-        "m2m_bypass_paths",
-        "m2m_bypass_long_timeout",
-    )
-    if mode != "subdomain_proxy" or any(k in updates for k in m2m_keys):
-        raw_paths = updates.get("m2m_bypass_paths", app.m2m_bypass_paths)
-        paths, path_errs = normalize_bypass_paths(raw_paths)
-        if path_errs and "m2m_bypass_paths" in updates:
-            raise HTTPException(status_code=422, detail={"m2m_bypass_paths": path_errs})
-        updates.update(
-            m2m_flags_for(
-                mode,
-                m2m_accept_basic=updates.get(
-                    "m2m_accept_basic", getattr(app, "m2m_accept_basic", False)
-                ),
-                m2m_accept_bearer=updates.get(
-                    "m2m_accept_bearer", getattr(app, "m2m_accept_bearer", False)
-                ),
-                m2m_bypass_paths=paths,
-                m2m_bypass_long_timeout=updates.get(
-                    "m2m_bypass_long_timeout",
-                    getattr(app, "m2m_bypass_long_timeout", False),
-                ),
-            )
-        )
-    if mode == "sso_gate":
-        updates["upstream_tls_verify"] = False
-    elif "upstream_tls_verify" in updates:
-        updates["upstream_tls_verify"] = bool(updates["upstream_tls_verify"])
-    if "auth_mode" in updates or "sso_bridge" in updates:
-        auth = normalize_auth_mode(updates.get("auth_mode", app.auth_mode))
-        if "auth_mode" in updates:
-            updates["auth_mode"] = auth
-        updates["sso_bridge"] = (
-            normalize_sso_bridge(updates.get("sso_bridge", getattr(app, "sso_bridge", None)))
-            if auth == "sso"
-            else "trusted_headers"
-        )
+    _apply_activesync_on_update(updates, app, mode)
+    m2m_err = _apply_m2m_on_update(updates, app, mode)
+    if m2m_err:
+        raise HTTPException(status_code=422, detail=m2m_err)
+    _apply_upstream_tls_verify(updates, mode)
+    _apply_auth_bridge_on_update(updates, app)
     for key, value in updates.items():
         setattr(app, key, value)
     app.updated_at = datetime.now(timezone.utc)
@@ -347,7 +396,11 @@ def update_app(
     return _app_to_out(app)
 
 
-@router.delete("/{slug}", status_code=204)
+@router.delete(
+    "/{slug}",
+    status_code=204,
+    responses=_APP_NOT_FOUND,
+)
 def delete_app(
     slug: str,
     request: Request,

@@ -21,25 +21,31 @@ _OS_PATTERNS: list[tuple[str, object]] = [
 ]
 
 
-def summarize_user_agent(ua: str | None) -> str:
-    """Return e.g. 'Firefox 152 / Windows' or '—' if empty/unknown."""
-    raw = (ua or "").strip()
-    if not raw:
-        return "—"
-    browser = None
+def _match_browser(raw: str) -> str | None:
     for name, pat in _BROWSER_PATTERNS:
         m = pat.search(raw)
         if not m:
             continue
         if name == "Safari" and "Safari/" not in raw:
             continue
-        browser = f"{name} {m.group(1)}"
-        break
-    os_name = None
+        return f"{name} {m.group(1)}"
+    return None
+
+
+def _match_os(raw: str) -> str | None:
     for name, pat in _OS_PATTERNS:
         if pat.search(raw):
-            os_name = name
-            break
+            return name
+    return None
+
+
+def summarize_user_agent(ua: str | None) -> str:
+    """Return e.g. 'Firefox 152 / Windows' or '—' if empty/unknown."""
+    raw = (ua or "").strip()
+    if not raw:
+        return "—"
+    browser = _match_browser(raw)
+    os_name = _match_os(raw)
     if browser and os_name:
         return f"{browser} / {os_name}"
     if browser:

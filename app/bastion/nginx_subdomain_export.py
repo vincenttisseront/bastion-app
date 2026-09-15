@@ -27,6 +27,14 @@ from app.sso_settings import Settings
 
 _SAFE_SLUG = re_safe.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 
+# Indented nginx snippet lines reused across location blocks (Sonar S1192).
+_NGX_PROXY_HOST = "        proxy_set_header Host $host;"
+_NGX_PROXY_AUTHORIZATION = "        proxy_set_header Authorization $http_authorization;"
+_NGX_PROXY_PASS_REQUEST_HEADERS = "        proxy_pass_request_headers on;"
+_NGX_PROXY_X_AUTH_USER = "        proxy_set_header X-Auth-User $auth_user;"
+_NGX_PROXY_X_AUTH_APP = "        proxy_set_header X-Auth-App $auth_app;"
+_NGX_PROXY_X_AUTH_SOURCE = "        proxy_set_header X-Auth-Source $auth_source;"
+
 
 def iter_subdomain_proxy_apps(db: Session) -> list[App]:
     """Enabled apps with subdomain_proxy + public_fqdn (ordered by slug)."""
@@ -135,20 +143,20 @@ def _activesync_locations(
         "        proxy_send_timeout 3600s;",
         "        proxy_connect_timeout 60s;",
         *ssl_lines,
-        "        proxy_set_header Host $host;",
+        _NGX_PROXY_HOST,
         "        proxy_set_header X-Real-IP $remote_addr;",
         "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
         "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
         "        # Upstream (grommunio) validates Basic; auth_request only gates access.",
-        "        proxy_set_header Authorization $http_authorization;",
-        "        proxy_pass_request_headers on;",
+        _NGX_PROXY_AUTHORIZATION,
+        _NGX_PROXY_PASS_REQUEST_HEADERS,
         "",
         "        auth_request_set $auth_user $upstream_http_x_auth_user;",
         "        auth_request_set $auth_app $upstream_http_x_auth_app;",
         "        auth_request_set $auth_source $upstream_http_x_auth_source;",
-        "        proxy_set_header X-Auth-User $auth_user;",
-        "        proxy_set_header X-Auth-App $auth_app;",
-        "        proxy_set_header X-Auth-Source $auth_source;",
+        _NGX_PROXY_X_AUTH_USER,
+        _NGX_PROXY_X_AUTH_APP,
+        _NGX_PROXY_X_AUTH_SOURCE,
         "    }",
         "",
         "    location ~* ^/(AutoDiscover|autodiscover)/ {",
@@ -167,18 +175,18 @@ def _activesync_locations(
         "        proxy_read_timeout 120s;",
         "        proxy_send_timeout 120s;",
         *ssl_lines,
-        "        proxy_set_header Host $host;",
+        _NGX_PROXY_HOST,
         "        proxy_set_header X-Real-IP $remote_addr;",
         "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
         "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
-        "        proxy_set_header Authorization $http_authorization;",
+        _NGX_PROXY_AUTHORIZATION,
         "",
         "        auth_request_set $auth_user $upstream_http_x_auth_user;",
         "        auth_request_set $auth_app $upstream_http_x_auth_app;",
         "        auth_request_set $auth_source $upstream_http_x_auth_source;",
-        "        proxy_set_header X-Auth-User $auth_user;",
-        "        proxy_set_header X-Auth-App $auth_app;",
-        "        proxy_set_header X-Auth-Source $auth_source;",
+        _NGX_PROXY_X_AUTH_USER,
+        _NGX_PROXY_X_AUTH_APP,
+        _NGX_PROXY_X_AUTH_SOURCE,
         "    }",
         "",
         f"    location @activesync_unauthorized_{slug} {{",
@@ -232,10 +240,10 @@ def _m2m_bypass_proxy_lines(
         f"        proxy_read_timeout {read_timeout};",
         f"        proxy_send_timeout {send_timeout};",
         *ssl_lines,
-        "        proxy_set_header Host $host;",
+        _NGX_PROXY_HOST,
         *forwarded_ip_lines,
         "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
-        "        proxy_set_header Authorization $http_authorization;",
+        _NGX_PROXY_AUTHORIZATION,
         *cookie_lines,
         "        proxy_cookie_path / /;",
         f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
@@ -380,13 +388,13 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     # Identity from auth_request only (never $http_*) — trusted-header SSO for
     # upstreams (Open WebUI WEBUI_AUTH_TRUSTED_*, Authelia-style apps, …).
     proxy_auth_header_lines = [
-        "        proxy_set_header X-Auth-User $auth_user;",
-        "        proxy_set_header X-Auth-App $auth_app;",
+        _NGX_PROXY_X_AUTH_USER,
+        _NGX_PROXY_X_AUTH_APP,
         "        proxy_set_header X-Auth-Email $auth_email;",
         "        proxy_set_header X-Auth-Preferred-Username $auth_preferred;",
         "        proxy_set_header X-Auth-Display-Name $auth_display;",
         "        proxy_set_header X-Auth-Groups $auth_groups;",
-        "        proxy_set_header X-Auth-Source $auth_source;",
+        _NGX_PROXY_X_AUTH_SOURCE,
         "        proxy_set_header X-Forwarded-Email $auth_email;",
         "        proxy_set_header X-Forwarded-User $auth_display;",
         "        proxy_set_header X-Forwarded-Preferred-Username $auth_preferred;",
@@ -415,14 +423,14 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_read_timeout 3600s;",
         "        proxy_send_timeout 3600s;",
         *ssl_lines,
-        "        proxy_set_header Host $host;",
+        _NGX_PROXY_HOST,
         *forwarded_ip_lines,
         "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
         *cookie_lines,
         "        proxy_cookie_path / /;",
         f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
         # Forward client Authorization for same-URL M2M (Basic/Bearer → upstream).
-        "        proxy_set_header Authorization $http_authorization;",
+        _NGX_PROXY_AUTHORIZATION,
         *(
             ["        proxy_hide_header WWW-Authenticate;"]
             if crushftp

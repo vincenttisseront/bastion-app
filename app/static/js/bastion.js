@@ -55,17 +55,17 @@ document.addEventListener('DOMContentLoaded', function () {
         form.dataset.bastionConfirmOk = '';
         return;
       }
-      var msg = form.getAttribute('data-confirm');
+      var msg = form.dataset.confirm;
       if (!msg) return;
       e.preventDefault();
       e.stopPropagation();
       if (!window.bastionConfirm) return;
       window
         .bastionConfirm({
-          title: form.getAttribute('data-confirm-title') || 'Confirmation',
+          title: form.dataset.confirmTitle || 'Confirmation',
           message: msg,
-          confirmLabel: form.getAttribute('data-confirm-label') || 'Confirmer',
-          danger: form.getAttribute('data-confirm-danger') !== '0',
+          confirmLabel: form.dataset.confirmLabel || 'Confirmer',
+          danger: form.dataset.confirmDanger !== '0',
         })
         .then(function (ok) {
           if (!ok) return;
@@ -143,9 +143,9 @@ document.addEventListener('DOMContentLoaded', function () {
 function initInfraApplyWait() {
   var root = document.getElementById('infrastructure-apply-wait');
   if (!root) return;
-  var refreshUrl = root.getAttribute('data-refresh-url') || '';
-  var pollMs = Number.parseInt(root.getAttribute('data-poll-ms') || '2000', 10);
-  var startedAt = Number.parseInt(root.getAttribute('data-started-at') || '0', 10);
+  var refreshUrl = root.dataset.refreshUrl || '';
+  var pollMs = Number.parseInt(root.dataset.pollMs || '2000', 10);
+  var startedAt = Number.parseInt(root.dataset.startedAt || '0', 10);
   var elapsedEl = document.getElementById('wait-elapsed');
   if (startedAt > 0 && elapsedEl) {
     window.setInterval(function () {
@@ -243,7 +243,7 @@ function initSidebarNav() {
   function persistExclusive() {
     var openId = null;
     accordions.forEach(function (el) {
-      if (el.open) openId = el.getAttribute('data-nav-accordion');
+      if (el.open) openId = el.dataset.navAccordion;
     });
     writeAccordionState({ exclusive: openId });
   }
@@ -257,32 +257,32 @@ function initSidebarNav() {
     });
     var restoreId = exclusiveAccordionId(readAccordionState());
     // Suppress toggle handlers while syncing open state (details fire toggle on .open=).
-    root.setAttribute('data-accordion-syncing', '1');
+    root.dataset.accordionSyncing = '1';
     accordions.forEach(function (el) {
       if (activeEl) {
         el.open = el === activeEl;
       } else if (restoreId) {
-        el.open = el.getAttribute('data-nav-accordion') === restoreId;
+        el.open = el.dataset.navAccordion === restoreId;
       } else {
         el.open = false;
       }
     });
-    root.removeAttribute('data-accordion-syncing');
+    delete root.dataset.accordionSyncing;
   }
 
   applyExclusiveOpen();
 
   // Bind once — initSidebarNav is also called when clearing the filter.
-  if (!root.getAttribute('data-accordion-bound')) {
-    root.setAttribute('data-accordion-bound', '1');
+  if (!root.dataset.accordionBound) {
+    root.dataset.accordionBound = '1';
     accordions.forEach(function (el) {
       el.addEventListener('toggle', function () {
-        if (root.getAttribute('data-nav-filtering') === '1') return;
-        if (root.getAttribute('data-accordion-syncing') === '1') return;
+        if (root.dataset.navFiltering === '1') return;
+        if (root.dataset.accordionSyncing === '1') return;
         if (el.open) {
-          root.setAttribute('data-accordion-syncing', '1');
+          root.dataset.accordionSyncing = '1';
           closeOthers(el);
-          root.removeAttribute('data-accordion-syncing');
+          delete root.dataset.accordionSyncing;
         }
         persistExclusive();
       });
@@ -302,11 +302,11 @@ function filterSidebarNav(query) {
 
   var q = (query || '').trim().toLowerCase();
   var filtering = q.length > 0;
-  root.setAttribute('data-nav-filtering', filtering ? '1' : '0');
+  root.dataset.navFiltering = filtering ? '1' : '0';
 
   var items = root.querySelectorAll('[data-nav-label]');
   items.forEach(function (item) {
-    var label = (item.getAttribute('data-nav-label') || item.textContent || '').toLowerCase();
+    var label = (item.dataset.navLabel || item.textContent || '').toLowerCase();
     var match = !filtering || label.indexOf(q) !== -1;
     item.hidden = !match;
     item.classList.toggle('is-nav-filter-miss', filtering && !match);
@@ -508,7 +508,7 @@ function initAccessModeForm() {
     if (!fqdnCookieWarn || !fqdnInput) return;
     var mode = select.value;
     var fqdn = (fqdnInput.value || '').trim();
-    var portalDomain = fqdnInput.getAttribute('data-portal-domain') || '';
+    var portalDomain = fqdnInput.dataset.portalDomain || '';
     var show =
       mode === 'subdomain_proxy' &&
       fqdn.length > 0 &&
@@ -816,7 +816,7 @@ function initLoginFormAnalyzer() {
     var useBtn = panel.querySelector('[data-use-detected-action]');
     if (useBtn) {
       useBtn.addEventListener('click', function () {
-        urlInput.value = useBtn.getAttribute('data-use-detected-action') || '';
+        urlInput.value = useBtn.dataset.useDetectedAction || '';
         syncAnalyzeButton();
         useBtn.remove();
       });
@@ -840,7 +840,7 @@ function initLoginFormAnalyzer() {
     panel.hidden = false;
     panel.querySelectorAll('[data-form-idx]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var idx = Number.parseInt(btn.getAttribute('data-form-idx'), 10);
+        var idx = Number.parseInt(btn.dataset.formIdx, 10);
         applyForm(forms[idx], enteredUrl);
       });
     });

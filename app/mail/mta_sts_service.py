@@ -50,26 +50,34 @@ def _is_domain_hostname(host: str, *, allow_wildcard: bool = False) -> bool:
     return all(_is_dns_label(lbl) for lbl in labels)
 
 
+def _strip_leading_scheme_junk(token: str) -> str:
+    """Drop pasted URL schemes (``https://``, ``://``, ``//``) from an MX token."""
+    for scheme in ("https", "http"):
+        prefix = f"{scheme}://"
+        if token.startswith(prefix):
+            return token[len(prefix) :]
+    for prefix in ("://", "//"):
+        if token.startswith(prefix):
+            return token[len(prefix) :]
+    return token
+
+
+def _normalize_mx_token(part: str) -> str | None:
+    token = part.strip().lower()
+    if not token or token.startswith("#"):
+        return None
+    token = _strip_leading_scheme_junk(token)
+    token = token.split("/")[0].split("?")[0].strip(".")
+    return token or None
+
+
 def parse_mx_hosts(raw: str | None) -> list[str]:
     """Split MX patterns from textarea (newline / comma). Strips URL junk."""
     out: list[str] = []
     seen: set[str] = set()
     for part in re_safe.split(r"[\n,;]+", raw or ""):
-        token = part.strip().lower()
-        if not token or token.startswith("#"):
-            continue
-        # Common paste mistakes: URLs / schemes (not a network call).
-        for scheme in ("https", "http"):
-            prefix = f"{scheme}://"
-            if token.startswith(prefix):
-                token = token[len(prefix) :]
-                break
-        for prefix in ("://", "//"):
-            if token.startswith(prefix):
-                token = token[len(prefix) :]
-                break
-        token = token.split("/")[0].split("?")[0].strip(".")
-        if not token or token in seen:
+        token = _normalize_mx_token(part)
+        if token is None or token in seen:
             continue
         seen.add(token)
         out.append(token)
