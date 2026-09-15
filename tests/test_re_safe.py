@@ -106,7 +106,7 @@ def test_rejects_overlong_counted_repeat():
     """RE2 MaxRepeat is 1000 — facade must fail fast on compile."""
     if not re_safe.using_re2():
         return
-    with pytest.raises(Exception):
+    with pytest.raises(re_safe.error, match="invalid repetition size"):
         re_safe.compile(r"a{0,1001}")
 
 
