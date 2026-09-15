@@ -420,19 +420,20 @@ function normalizeHostname(value) {
   var raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
   // URL or path-ish input → use the browser URL parser
-  if (raw.indexOf('://') !== -1 || raw.indexOf('/') !== -1 || raw.indexOf('?') !== -1 || raw.indexOf('#') !== -1) {
+  if (raw.includes('://') || raw.includes('/') || raw.includes('?') || raw.includes('#')) {
+    var href = raw.includes('://') ? raw : ('https://' + raw);
+    var host = '';
     try {
-      var href = raw.indexOf('://') !== -1 ? raw : ('https://' + raw);
-      var host = new URL(href).hostname || '';
-      return stripEdgeChar(host, '.');
+      host = new URL(href).hostname || '';
     } catch (e) {
-      /* fall through */
+      // Intentionally ignored: malformed URL input falls through to host:port / raw handling
     }
+    if (host) return stripEdgeChar(host, '.');
   }
   raw = stripEdgeChar(raw, '.');
   // host:port (not IPv6)
   var colon = raw.indexOf(':');
-  if (colon > 0 && raw.indexOf(':', colon + 1) === -1) {
+  if (colon > 0 && !raw.includes(':', colon + 1)) {
     var hostPart = raw.slice(0, colon);
     var portPart = raw.slice(colon + 1);
     var allDigits = portPart.length > 0;
