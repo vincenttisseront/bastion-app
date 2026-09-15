@@ -204,12 +204,7 @@
     var prevSpace = false;
     for (var i = 0; i < base.length; i += 1) {
       var c = base.charAt(i);
-      if (c === '_' || c === '-') {
-        if (!prevSpace) {
-          out += ' ';
-          prevSpace = true;
-        }
-      } else if (c === ' ' || c === '\t') {
+      if (c === '_' || c === '-' || c === ' ' || c === '\t') {
         if (!prevSpace) {
           out += ' ';
           prevSpace = true;

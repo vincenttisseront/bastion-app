@@ -219,7 +219,7 @@
       {{ managed }} étendue{{ 's' if managed != 1 else '' }}
       {% endif %}
     </p>
-    <div class="portal-view-toggle" role="group" aria-label="Mode d’affichage">
+    <fieldset class="portal-view-toggle" aria-label="Mode d’affichage">
       <button type="button" class="portal-view-btn is-active" data-apps-view="grid" aria-pressed="true" title="Vue grille">
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
@@ -234,7 +234,7 @@
         </svg>
         <span class="visually-hidden">Liste</span>
       </button>
-    </div>
+    </fieldset>
   </div>
 
   <div class="portal-apps-workspace">

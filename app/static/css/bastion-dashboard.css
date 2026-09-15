@@ -154,7 +154,10 @@
 
 /* Catalogue */
 .catalogue-toolbar{display:flex;gap:var(--sp-3);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-4)}
-.filter-group{display:flex;gap:var(--sp-1);flex-wrap:wrap}
+.filter-group{
+  display:flex;gap:var(--sp-1);flex-wrap:wrap;
+  border:0;margin:0;padding:0;min-inline-size:0;
+}
 .filter-chip{padding:3px 10px;border-radius:var(--r-full);font-size:var(--fs-xs);font-weight:700;cursor:pointer;border:1px solid transparent;transition:all var(--t-fast);opacity:.55;background:transparent;color:var(--text-2)}
 .filter-chip.active{opacity:1}
 .filter-chip[data-filter="all"].active{background:rgba(71,85,105,.15);color:var(--text);border-color:var(--border)}
