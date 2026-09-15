@@ -171,7 +171,7 @@
                   placeholder="Veuillez décrire la raison de votre demande d’accès…">{{ form_values.message or '' }}</textarea>
       </div>
 
-      <div class="captcha-panel" role="group" aria-labelledby="captcha_label">
+      <fieldset class="captcha-panel" aria-labelledby="captcha_label">
         <div class="captcha-panel__head">
           <div class="captcha-panel__copy">
             <p class="captcha-panel__eyebrow" id="captcha_label">Validation de sécurité</p>
@@ -191,7 +191,7 @@
             <p class="form-help">JavaScript est requis pour la vérification anti-robot.</p>
           </noscript>
         </div>
-      </div>
+      </fieldset>
 
       <div class="access-form__footer">
         <a href="/login" class="access-form__back">Retour à la connexion</a>

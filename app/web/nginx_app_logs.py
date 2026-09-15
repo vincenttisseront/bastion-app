@@ -270,6 +270,54 @@ def _status_class(status: str) -> str:
     return "muted"
 
 
+def _skip_spaces(text: str, i: int) -> int:
+    n = len(text)
+    while i < n and text[i].isspace():
+        i += 1
+    return i
+
+
+def _is_kv_key(short: str) -> bool:
+    """Accept nginx short keys (``rt``, ``uct``, …) and simple identifiers."""
+    if short.isidentifier() or short.replace("_", "").isalnum():
+        return True
+    return bool(short) and all(ch.isalnum() or ch == "_" for ch in short)
+
+
+def _read_kv_value(text: str, j: int) -> tuple[str, int] | None:
+    """Read a quoted or bare value starting at ``j``; return ``(value, next_index)``."""
+    n = len(text)
+    if j < n and text[j] == '"':
+        start = j + 1
+        end = text.find('"', start)
+        if end < 0:
+            return None
+        return text[start:end], end + 1
+    end = j
+    while end < n and not text[end].isspace():
+        end += 1
+    return text[j:end], end
+
+
+def _next_kv_assignment(text: str, i: int) -> tuple[str, str, int] | None:
+    """Parse the next ``key=value`` from ``i``; return ``(key, value, next_i)``."""
+    n = len(text)
+    i = _skip_spaces(text, i)
+    if i >= n:
+        return None
+    eq = text.find("=", i)
+    if eq < 0:
+        return None
+    short = text[i:eq]
+    if not _is_kv_key(short):
+        return None
+    value_part = _read_kv_value(text, eq + 1)
+    if value_part is None:
+        return None
+    value, next_i = value_part
+    return short, value, next_i
+
+
 def _parse_kv_tail(kv: str) -> dict[str, str]:
     """Map trailing ``key=value`` / ``key="value"`` tokens to entry fields."""
     out = {name: "" for name in _EMPTY_META_FIELDS}
@@ -277,32 +325,10 @@ def _parse_kv_tail(kv: str) -> dict[str, str]:
     i = 0
     n = len(text)
     while i < n:
-        while i < n and text[i].isspace():
-            i += 1
-        if i >= n:
+        pair = _next_kv_assignment(text, i)
+        if pair is None:
             break
-        eq = text.find("=", i)
-        if eq < 0:
-            break
-        short = text[i:eq]
-        if not short.isidentifier() and not short.replace("_", "").isalnum():
-            # Allow simple nginx short keys (rt, uct, …).
-            if not short or not all(ch.isalnum() or ch == "_" for ch in short):
-                break
-        j = eq + 1
-        if j < n and text[j] == '"':
-            j += 1
-            end = text.find('"', j)
-            if end < 0:
-                break
-            value = text[j:end]
-            i = end + 1
-        else:
-            end = j
-            while end < n and not text[end].isspace():
-                end += 1
-            value = text[j:end]
-            i = end
+        short, value, i = pair
         field = _KV_ALIASES.get(short)
         if field:
             out[field] = value

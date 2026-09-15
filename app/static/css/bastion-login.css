@@ -211,7 +211,7 @@ body.page-login .main-content{
 
 .captcha-panel{
   display:flex;flex-direction:column;gap:var(--sp-3);
-  padding:var(--sp-4);
+  padding:var(--sp-4);margin:0;min-inline-size:0;
   background:var(--bg-tertiary);
   border:1px solid var(--border);
   border-radius:var(--r-lg);

@@ -18,12 +18,12 @@
     <div class="card-header">
       <span class="card-title">File d’attente · {{ rows | length }}</span>
       <div class="card-header-actions">
-        <div class="filter-group" role="group" aria-label="Filtrer par statut">
+        <fieldset class="filter-group" aria-label="Filtrer par statut">
           <a href="/admin/pending-hosts?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">En attente</a>
           <a href="/admin/pending-hosts?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">Approuvés</a>
           <a href="/admin/pending-hosts?status=rejected" class="filter-chip{% if status_filter == 'rejected' %} active{% endif %}">Rejetés</a>
           <a href="/admin/pending-hosts?status=all" class="filter-chip{% if status_filter == 'all' %} active{% endif %}">Tout</a>
-        </div>
+        </fieldset>
       </div>
     </div>
     <div class="card-body card-flush">

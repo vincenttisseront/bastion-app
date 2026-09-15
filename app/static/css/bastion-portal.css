@@ -299,6 +299,8 @@ body.page-portal > .main-content {
   align-items: center;
   gap: 2px;
   padding: 2px;
+  margin: 0;
+  min-inline-size: 0;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--bg-card);

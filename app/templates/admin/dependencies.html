@@ -47,18 +47,18 @@
     </div>
     <div class="form-group dep-toolbar-filter">
       <div class="form-label" id="dep-filter-label">Filtre</div>
-      <div class="dep-toolbar-btns" role="group" aria-labelledby="dep-filter-label">
+      <fieldset class="dep-toolbar-btns" aria-labelledby="dep-filter-label">
         {% set show_outdated_filter = summary.outdated and (python_outdated or npm_outdated) %}
         <button type="button" class="btn {% if show_outdated_filter %}btn-secondary{% else %}btn-ghost{% endif %} btn-sm dep-filter-btn{% if show_outdated_filter %} active{% endif %}" data-filter="outdated" id="dep-filter-outdated">MAJ disponibles{% if summary.outdated %} ({{ summary.outdated }}){% endif %}</button>
         <button type="button" class="btn {% if show_outdated_filter %}btn-ghost{% else %}btn-secondary{% endif %} btn-sm dep-filter-btn{% if not show_outdated_filter %} active{% endif %}" data-filter="all" id="dep-filter-all">Tous</button>
-      </div>
+      </fieldset>
     </div>
     <div class="form-group dep-toolbar-plan">
       <div class="form-label" id="dep-plan-label">Plan de MAJ</div>
-      <div class="dep-toolbar-btns" role="group" aria-labelledby="dep-plan-label">
+      <fieldset class="dep-toolbar-btns" aria-labelledby="dep-plan-label">
         <button type="button" class="btn btn-ghost btn-sm" id="dep-select-outdated">Tout sélectionner (MAJ)</button>
         <button type="button" class="btn btn-secondary btn-sm" id="dep-export-plan">Exporter le plan (JSON)</button>
-      </div>
+      </fieldset>
     </div>
   </div>
 
@@ -209,7 +209,10 @@
   .dep-toolbar .form-group{margin:0}
   .dep-toolbar-search{flex:1 1 14rem;min-width:12rem}
   .dep-toolbar-filter,.dep-toolbar-plan{flex:0 1 auto}
-  .dep-toolbar-btns{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center}
+  .dep-toolbar-btns{
+    display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;
+    border:0;margin:0;padding:0;min-inline-size:0;
+  }
   .dep-panel[hidden]{display:none!important}
   .dep-row-major td{background:color-mix(in srgb,var(--danger,#b91c1c) 6%,transparent)}
   .dep-latest-major{color:var(--danger,#b91c1c);font-weight:600}

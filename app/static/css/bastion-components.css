@@ -984,11 +984,13 @@ input:checked+.toggle-track::before{transform:translateX(18px);background:#fff}
 .logs-filters-check-group{
   display:flex;flex-wrap:wrap;gap:6px 10px;
   align-items:center;
+  border:0;margin:0;padding:0;min-inline-size:0;
 }
 .logs-filters-check-label{
   flex:0 0 4.75rem;
   font-size:10px;font-weight:700;letter-spacing:.06em;
   text-transform:uppercase;color:var(--text-3);line-height:1.2;
+  padding:0;float:none;width:auto;
 }
 .logs-filters-actions{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center}
 .logs-result-checks{
