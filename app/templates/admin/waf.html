@@ -374,11 +374,29 @@
                   data-feed-rule-id="{{ a.rule_id }}"
                   data-feed-rule-ids="{{ (a.all_rule_ids or [a.rule_id]) | join(',') }}">
                 <td class="sentinel-mono">{{ a.timestamp }}</td>
-                <td>
+                <td class="sentinel-feed-ip-cell">
                   <span class="sentinel-mono" title="{{ a.origin_hint }}{% if a.origin_country %} · {{ a.origin_country }}{% endif %}">{{ a.origin_flag }}</span>
-                  <span class="sentinel-mono">{{ a.client_ip }}</span>
+                  {% if a.ip_lookup_url %}
+                  <a class="sentinel-mono sentinel-ip-link" href="{{ a.ip_lookup_url }}"
+                     target="_blank" rel="noopener noreferrer"
+                     title="Fiche IP · whatismyipaddress.com">{{ a.client_ip }}</a>
+                  {% else %}
+                  <span class="sentinel-mono" title="{{ a.client_ip }}">{{ a.client_ip }}</span>
+                  {% endif %}
+                  {% if a.ip_logs_href %}
+                  <a class="sentinel-ip-logs" href="{{ a.ip_logs_href }}"
+                     title="Logs d’audit filtrés sur cette IP">Logs</a>
+                  {% endif %}
                 </td>
-                <td class="sentinel-mono" title="{{ a.target_title or (a.host ~ a.uri) }}">{{ a.target_display or (a.host ~ a.uri) }}</td>
+                <td class="sentinel-mono" title="{{ a.target_title or (a.host ~ a.uri) }}">
+                  {% if a.host_lookup_url and a.host and a.host != '—' %}
+                  <a class="sentinel-ip-link" href="{{ a.host_lookup_url }}"
+                     target="_blank" rel="noopener noreferrer"
+                     title="Fiche IP hôte · whatismyipaddress.com">{{ a.host }}</a>{{ a.uri if a.uri != '—' else '' }}
+                  {% else %}
+                  {{ a.target_display or (a.host ~ a.uri) }}
+                  {% endif %}
+                </td>
                 <td class="sentinel-feed-source-cell">
                   {% if a.source_kind == 'modsecurity' %}
                   <span class="sentinel-feed-source sentinel-feed-source--modsecurity" title="{{ a.source_title }}{% if a.vhost_family_label %} · {{ a.vhost_family_label }}{% endif %}">

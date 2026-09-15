@@ -65,6 +65,38 @@ def is_public_ip(ip: str) -> bool:
     )
 
 
+def parse_ip_address(ip: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    raw = (ip or "").strip()
+    if not raw or raw == "—":
+        return None
+    try:
+        return ipaddress.ip_address(raw)
+    except ValueError:
+        return None
+
+
+def is_lan_ip(ip: str) -> bool:
+    """True for loopback / link-local / classic private (RFC1918, ULA).
+
+    Class E / reserved ranges (e.g. 240.0.0.0/4) are *not* LAN: Python may
+    report ``is_private`` for them, but operators must not see « Réseau interne ».
+    """
+    addr = parse_ip_address(ip)
+    if addr is None:
+        return False
+    if addr.is_loopback or addr.is_link_local:
+        return True
+    return bool(addr.is_private and not addr.is_reserved)
+
+
+def ip_lookup_url(ip: str) -> str | None:
+    """External IP info page, or None if ``ip`` is not a valid address."""
+    addr = parse_ip_address(ip)
+    if addr is None:
+        return None
+    return f"https://whatismyipaddress.com/ip/{addr}"
+
+
 def _cache_path(settings: Settings) -> Path:
     root = Path(settings.portal_data_dir) / "cache"
     root.mkdir(parents=True, exist_ok=True)
@@ -317,11 +349,21 @@ def _network_fallback(ip: str) -> dict[str, str]:
             "city": "",
             "isp": "",
         }
-    if addr.is_private or addr.is_loopback:
+    if is_lan_ip(raw):
         return {
             "network": str(addr),
             "hint": "Réseau interne",
             "flag": "🏠",
+            "country": "",
+            "country_code": "",
+            "city": "",
+            "isp": "",
+        }
+    if addr.is_reserved or addr.is_multicast or addr.is_unspecified:
+        return {
+            "network": str(addr),
+            "hint": "IP réservée / non routable",
+            "flag": "⚠️",
             "country": "",
             "country_code": "",
             "city": "",

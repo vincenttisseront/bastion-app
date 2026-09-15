@@ -6,6 +6,7 @@ import base64
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.bastion.ip_geolocation import (
     collect_waf_dashboard_ips,
     country_flag,
+    ip_lookup_url,
     lookup_ip_origins,
     origin_from_geoloc,
     resolve_ip_geoloc_enabled,
@@ -1020,6 +1022,19 @@ def _enrich_feed_source(
             row["vhost_family_label"] = VHOST_FAMILY_LABELS.get(fam, fam)
 
 
+def _attach_ip_nav_links(row: dict[str, Any]) -> None:
+    """One-click filtered audit logs + external IP lookup for feed rows."""
+    client_ip = str(row.get("client_ip") or "").strip()
+    if client_ip and client_ip != "—":
+        row["ip_logs_href"] = f"/admin/logs?ip={quote(client_ip, safe='')}#audit"
+        row["ip_lookup_url"] = ip_lookup_url(client_ip)
+    else:
+        row["ip_logs_href"] = None
+        row["ip_lookup_url"] = None
+    host = str(row.get("host") or "").strip()
+    row["host_lookup_url"] = ip_lookup_url(host) if host and host != "—" else None
+
+
 def _apply_feed_target(row: dict[str, Any]) -> None:
     """Human-readable target column: HTTP Host + URI (not client IP, not upstream)."""
     host = str(row.get("host") or "—").strip() or "—"
@@ -1033,6 +1048,7 @@ def _apply_feed_target(row: dict[str, Any]) -> None:
         combined = f"{host}{uri}" if host != "—" else uri
         row["target_display"] = combined[:120]
         row["target_title"] = combined
+    _attach_ip_nav_links(row)
 
 
 def _event_severity(row: dict[str, Any]) -> str:

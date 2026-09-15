@@ -206,7 +206,24 @@
 #waf-page .sentinel-feed-table th:nth-child(1),
 #waf-page .sentinel-feed-table td:nth-child(1){width:9.5rem}
 #waf-page .sentinel-feed-table th:nth-child(2),
-#waf-page .sentinel-feed-table td:nth-child(2){width:9.5rem}
+#waf-page .sentinel-feed-table td:nth-child(2){width:14.5rem}
+#waf-page .sentinel-feed-ip-cell{
+  overflow:visible;text-overflow:clip;white-space:nowrap;
+}
+#waf-page .sentinel-feed-ip-cell .sentinel-ip-link,
+#waf-page .sentinel-ip-link{
+  color:inherit;text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--sentinel-muted) 55%,transparent);
+  text-underline-offset:2px;
+}
+#waf-page .sentinel-feed-ip-cell .sentinel-ip-link:hover,
+#waf-page .sentinel-ip-link:hover{
+  color:var(--accent, #2563eb);text-decoration-color:currentColor;
+}
+#waf-page .sentinel-ip-logs{
+  margin-left:.35rem;font-size:.65rem;font-weight:600;text-transform:uppercase;
+  letter-spacing:.03em;color:var(--accent, #2563eb);text-decoration:none;
+}
+#waf-page .sentinel-ip-logs:hover{text-decoration:underline}
 #waf-page .sentinel-feed-table th:nth-child(3),
 #waf-page .sentinel-feed-table td:nth-child(3){width:16%}
 #waf-page .sentinel-feed-table th:nth-child(4),
