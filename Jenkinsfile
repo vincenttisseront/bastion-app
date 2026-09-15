@@ -17,9 +17,9 @@
 // Prérequis Jenkins UI :
 //   - Plugin SonarQube Scanner + serveur nommé SonarQube + token
 //   - Webhook Sonar → /sonarqube-webhook/
-//   - Plugin HTML Publisher (rapport « TIWAP - OWASP ZAP »)
 //   - nœud built-in (affichage « contrôleur ») avec label `built-in`
-//   - Job env TIWAP_URL = URL staging de l'app vulnérable de test (DAST)
+//   - Job/global env TIWAP_URL = URL staging de l'app vulnérable de test (DAST)
+//   - Rapport HTML : artefact Jenkins reports/tiwap/*.html (pas de plugin HTML Publisher)
 
 pipeline {
   agent { label 'built-in' }
@@ -196,7 +196,7 @@ pipeline {
     }
 
     // DAST contre l'app de test exposée (indépendant de l'analyse Sonar du code).
-    // Phase 1 : rapports archivés / HTML Publisher, sans faire échouer le build (-I + exit 0).
+    // Phase 1 : rapports archivés, sans faire échouer le build (-I + exit 0).
     // Phase 2 (plus tard) : retirer exit 0 et ajouter un fichier de règles ZAP (FAIL sur
     // SQLi / XSS / Command Injection / XXE / Path Traversal). Auth TIWAP = hors scope phase 1.
     stage('TIWAP DAST - OWASP ZAP') {
@@ -216,10 +216,12 @@ pipeline {
 
               echo "Scan ZAP (full) de ${TIWAP_URL}"
               # Workspace = volume jenkins (pas le FS hôte) → volumes-from + symlink /zap/wrk.
+              # --entrypoint '' + chemin absolu : bash -lc n'a pas /zap dans le PATH image.
               set +e
               docker run --rm -t \
                 --volumes-from "${JENKINS_CONTAINER_NAME}" \
                 --network host \
+                --entrypoint '' \
                 -u root:root \
                 -e HOME=/home/zap \
                 "${ZAP_IMAGE}" \
@@ -227,7 +229,7 @@ pipeline {
                   set -eux
                   rm -rf /zap/wrk
                   ln -s '${WORKSPACE}/reports/tiwap' /zap/wrk
-                  zap-full-scan.py \
+                  /zap/zap-full-scan.py \
                     -t '${TIWAP_URL}' \
                     -r tiwap-zap-report.html \
                     -J tiwap-zap-report.json \
@@ -253,15 +255,6 @@ pipeline {
             allowEmptyArchive: true,
             fingerprint: true
           )
-          publishHTML(target: [
-            allowMissing: true,
-            alwaysLinkToLastBuild: true,
-            keepAll: true,
-            reportDir: 'reports/tiwap',
-            reportFiles: 'tiwap-zap-report.html',
-            reportName: 'TIWAP - OWASP ZAP',
-            reportTitles: 'Rapport de sécurité TIWAP'
-          ])
         }
       }
     }
