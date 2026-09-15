@@ -22,10 +22,10 @@ services:
         python /app/scripts/encrypt_portal_db.py
         alembic upgrade head
         python -m app.runtime_secrets_service
-        chown -R 65532:65532 /var/lib/sso-portal /var/lib/sso-portal-files
+        chown -R 65532:65532 /var/lib/sso-portal /var/lib/sso-portal-files 2>/dev/null || true
         if [ -d /var/lib/sso-portal/pgdata ]; then
-          chown -R 70:70 /var/lib/sso-portal/pgdata
-          chmod 700 /var/lib/sso-portal/pgdata
+          chown -R 70:70 /var/lib/sso-portal/pgdata 2>/dev/null || true
+          chmod 700 /var/lib/sso-portal/pgdata 2>/dev/null || true
         fi
     env_file:
       - .env
