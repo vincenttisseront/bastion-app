@@ -9,12 +9,12 @@
   </nav>
   <div class="page-header">
     <div>
-      <h1 class="page-title">Matrice Applications × Groupes</h1>
-      <p class="page-sub">Grants de groupe — détail utilisateur : fiche → Accès effectifs</p>
+      <h1 class="page-title">{{ _('Matrice Applications × Groupes') }}</h1>
+      <p class="page-sub">{{ _('Grants de groupe — détail utilisateur : fiche → Accès effectifs') }}</p>
     </div>
     <div class="users-row-actions">
-      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">Utilisateurs</a>
-      <a href="/admin/rbac" class="btn btn-ghost btn-sm">Groupes</a>
+      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">{{ _('Utilisateurs') }}</a>
+      <a href="/admin/rbac" class="btn btn-ghost btn-sm">{{ _('Groupes') }}</a>
     </div>
   </div>
 
@@ -22,16 +22,16 @@
 
   {% if matrix.apps and matrix.groups %}
   <div class="users-toolbar" style="margin-bottom:var(--sp-3);">
-    <input type="search" class="form-input" placeholder="Filtrer par groupe…"
+    <input type="search" class="form-input" placeholder="{{ _('Filtrer par groupe…') }}"
            autocomplete="off" data-live-filter="#rbac-matrix-table tbody tr"
-           aria-label="Filtrer la matrice" style="flex:1;min-width:12rem;height:2rem;">
+           aria-label="{{ _('Filtrer la matrice') }}" style="flex:1;min-width:12rem;height:2rem;">
   </div>
   <div class="card" style="padding:0; overflow:auto;">
     <div class="table-wrap" style="border:none;border-radius:0;">
       <table class="data-table" id="rbac-matrix-table">
         <thead>
           <tr>
-            <th>Groupe</th>
+            <th>{{ _('Groupe') }}</th>
             {% for app in matrix.apps %}
             <th class="mono" title="{{ app.slug }}">
               <a href="/admin/apps/{{ app.slug }}/edit">{{ app.label }}</a>
@@ -64,7 +64,7 @@
   {% else %}
   <div class="empty-state">
     <div class="empty-title">Matrice vide</div>
-    <div class="empty-desc">Synchronisez des groupes et créez des AccessGrant application pour alimenter cette vue.</div>
+    <div class="empty-desc">{{ _('Synchronisez des groupes et créez des AccessGrant application pour alimenter cette vue.') }}</div>
   </div>
   {% endif %}
 </div>

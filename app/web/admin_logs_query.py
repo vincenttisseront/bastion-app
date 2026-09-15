@@ -157,9 +157,11 @@ def resolve_audit_target_display(
     return host or "—", host or ""
 
 
-def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
+def serialize_audit_row(row: AuditLog, *, locale: str | None = None) -> dict[str, Any]:
     from app.audit import normalize_audit_actor
+    from app.i18n.resolve import DEFAULT_LOCALE
 
+    loc = locale or DEFAULT_LOCALE
     raw_details = row.details if isinstance(row.details, dict) else {}
     display_actor, details = normalize_audit_actor(row.actor, raw_details)
     action = row.action or ""
@@ -202,8 +204,8 @@ def serialize_audit_row(row: AuditLog) -> dict[str, Any]:
     if ev is not None:
         domain = ev.domain
         event_label = ev.label
-        event_title_fr = ev.title_fr
-        runbook = ev.runbook or ""
+        event_title_fr = ev.title(loc)
+        runbook = ev.runbook_text(loc) or ""
         ecs_category = list(ev.ecs_category)
     elif event_code:
         try:
@@ -387,6 +389,7 @@ def list_admin_log_entries(
     severity_min: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    locale: str | None = None,
 ) -> tuple[list[dict], int, list[str]]:
     statuses = parse_status_list(status)
     domain_list = parse_domain_list(domains)
@@ -424,10 +427,10 @@ def list_admin_log_entries(
     if not need_python:
         total = base.count()
         rows = base.offset(offset).limit(limit).all()
-        return [serialize_audit_row(r) for r in rows], total, action_choices
+        return [serialize_audit_row(r, locale=locale) for r in rows], total, action_choices
 
     rows = base.limit(5000).all()
-    entries = [serialize_audit_row(r) for r in rows]
+    entries = [serialize_audit_row(r, locale=locale) for r in rows]
     if ip and "/" in ip and not _aligned_v4_prefix(ip):
         entries = [e for e in entries if _ip_matches(e.get("ip_address"), ip)]
     if statuses:

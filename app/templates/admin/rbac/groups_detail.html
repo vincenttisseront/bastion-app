@@ -8,27 +8,27 @@
     <div>
       <nav class="breadcrumb-rbac" aria-label="Fil d'Ariane">
         <a href="/admin/rbac/overview">RBAC</a><span class="breadcrumb-rbac-sep">/</span>
-        <a href="/admin/rbac">Groupes</a><span class="breadcrumb-rbac-sep">/</span>{{ group.name }}
+        <a href="/admin/rbac">{{ _('Groupes') }}</a><span class="breadcrumb-rbac-sep">/</span>{{ group.name }}
       </nav>
       <h1 class="page-title">{{ group.name }}</h1>
-      <p class="page-sub mono">{{ group.path or '—' }} · Realm {{ realm.slug }}</p>
+      <p class="page-sub mono">{{ group.path or '—' }} {{ _('· Realm') }} {{ realm.slug }}</p>
     </div>
     <div class="users-row-actions">
       <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
-      <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Groupes</a>
+      <a href="/admin/rbac" class="btn btn-ghost btn-sm">{{ _('← Groupes') }}</a>
       {% if can_delete_group %}
       <form method="post" action="/admin/rbac/groups/{{ group.id }}/delete" style="display:inline;margin:0;">
         <input type="hidden" name="redirect_url" value="/admin/rbac">
         <button type="submit" class="btn btn-danger btn-sm"
                 data-confirm="Supprimer le groupe vide « {{ group.name }} » dans Keycloak et Bastion ? Les droits et comptes partagés liés seront retirés.">
-          Supprimer
+          {{ _('Supprimer') }}
         </button>
       </form>
       {% endif %}
     </div>
   </div>
 
-  <div class="tabs" role="tablist" aria-label="Fiche groupe" id="group-fiche-tabs" style="margin-bottom:var(--sp-4);">
+  <div class="tabs" role="tablist" aria-label="{{ _('Fiche groupe') }}" id="group-fiche-tabs" style="margin-bottom:var(--sp-4);">
     <a href="#membres" class="tab active" role="tab" data-tab="membres" aria-selected="true">
       Membres <span class="badge badge-muted tab-badge">{{ members | length }}</span>
     </a>
@@ -53,7 +53,7 @@
       </div>
       <div class="table-wrap" style="border:none;border-radius:0;">
         <table class="data-table">
-          <thead><tr><th>Utilisateur</th><th>Email</th><th>Statut</th></tr></thead>
+          <thead><tr><th>{{ _('Utilisateur') }}</th><th>{{ _('Email') }}</th><th>{{ _('Statut') }}</th></tr></thead>
           <tbody>
             {% for m in members %}
             <tr>
@@ -69,12 +69,12 @@
                 {% if m.enabled %}
                   <span class="badge badge-ok">Actif</span>
                 {% else %}
-                  <span class="badge badge-muted">Désactivé</span>
+                  <span class="badge badge-muted">{{ _('Désactivé') }}</span>
                 {% endif %}
               </td>
             </tr>
             {% else %}
-            <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">Aucun membre ou lecture Keycloak indisponible.</div></td></tr>
+            <tr><td colspan="3"><div class="empty-desc" style="padding:var(--sp-4);">{{ _('Aucun membre ou lecture Keycloak indisponible.') }}</div></td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -84,41 +84,41 @@
 
   <div class="group-fiche-panel" id="panel-comptes" data-panel="comptes" hidden>
     {% if not vault_apps %}
-    <div class="alert alert-warn">Aucune application vault disponible.</div>
+    <div class="alert alert-warn">{{ _('Aucune application vault disponible.') }}</div>
     {% else %}
     <div class="card" style="padding:0;">
       <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
         <span class="card-title" style="font-size:var(--fs-sm);display:inline-flex;align-items:center;gap:var(--sp-2);">
-          Comptes partagés
+          {{ _('Comptes partagés') }}
           <span class="sa-help-wrap">
-            <button type="button" class="sa-help" aria-describedby="sa-help-tip" aria-label="Aide comptes partagés">
+            <button type="button" class="sa-help" aria-describedby="sa-help-tip" aria-label="{{ _('Aide comptes partagés') }}">
               <span aria-hidden="true">?</span>
             </button>
             <span id="sa-help-tip" class="sa-help-tip" role="tooltip">
-              Compte Crush/robotic commun à tous les membres non exclus.
-              Priorité la plus haute gagne si plusieurs groupes couvrent la même app.
+              {{ _('Compte Crush/robotic commun à tous les membres non exclus.') }}
+              {{ _('Priorité la plus haute gagne si plusieurs groupes couvrent la même app.') }}
             </span>
           </span>
           <span class="badge badge-muted tab-badge">{{ group_credentials | length }}</span>
         </span>
         <div class="users-row-actions">
           <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
-          <button type="button" class="btn btn-primary btn-sm" data-sa-modal-open="add">+ Ajouter</button>
+          <button type="button" class="btn btn-primary btn-sm" data-sa-modal-open="add">{{ _('+ Ajouter') }}</button>
         </div>
       </div>
       <div class="sa-search-row">
-        <label class="visually-hidden" for="sa-search">Rechercher un compte</label>
+        <label class="visually-hidden" for="sa-search">{{ _('Rechercher un compte') }}</label>
         <input type="search" id="sa-search" class="form-input sa-search"
-               placeholder="Rechercher application, compte, membre…"
+               placeholder="{{ _('Rechercher application, compte, membre…') }}"
                autocomplete="off">
       </div>
       <div class="table-wrap" style="border:none;border-radius:0;">
         <table class="data-table" id="sa-table">
           <thead>
             <tr>
-              <th>Application</th>
-              <th>Compte</th>
-              <th>Priorité</th>
+              <th>{{ _('Application') }}</th>
+              <th>{{ _('Compte') }}</th>
+              <th>{{ _('Priorité') }}</th>
               <th>Membres</th>
               <th></th>
             </tr>
@@ -148,7 +148,7 @@
                 </div>
               </td>
               <td class="mono">{{ cred.robotic_username }}</td>
-              <td><span class="badge badge-muted" title="Priorité multi-groupes">{{ cred.priority }}</span></td>
+              <td><span class="badge badge-muted" title="{{ _('Priorité multi-groupes') }}">{{ cred.priority }}</span></td>
               <td>
                 {% if member_labels %}
                 <div class="sa-avatars" title="{{ member_labels | join(', ') }}">
@@ -179,14 +179,14 @@
                           data-username="{{ cred.robotic_username }}"
                           data-priority="{{ cred.priority }}"
                           data-excl='[{% for e in excl %}"{{ e.keycloak_user_id }}"{% if not loop.last %},{% endif %}{% endfor %}]'>
-                    Éditer
+                   {{ _('Éditer') }}
                   </button>
                   <form method="post"
                         action="/admin/rbac/groups/{{ group.id }}/credentials/{{ cred.id }}/delete"
                         class="inline-form">
                     <button type="submit" class="btn btn-ghost btn-sm"
                             data-confirm="Supprimer le compte partagé « {{ cred.robotic_username }} » pour {{ cred.app_slug }} ?">
-                      Supprimer
+                      {{ _('Supprimer') }}
                     </button>
                   </form>
                 </div>
@@ -196,7 +196,7 @@
             <tr class="sa-empty-row">
               <td colspan="5">
                 <div class="empty-desc" style="padding:var(--sp-4);">
-                  Aucun compte partagé. Utilisez « + Ajouter ».
+                  {{ _('Aucun compte partagé. Utilisez « + Ajouter ».') }}
                 </div>
               </td>
             </tr>
@@ -204,7 +204,7 @@
           </tbody>
         </table>
       </div>
-      <p class="sa-filter-empty" id="sa-filter-empty" hidden>Aucun compte ne correspond à la recherche.</p>
+      <p class="sa-filter-empty" id="sa-filter-empty" hidden>{{ _('Aucun compte ne correspond à la recherche.') }}</p>
     </div>
     {% endif %}
 
@@ -214,12 +214,12 @@
       <div class="bastion-modal-dialog bastion-modal-dialog--form"
            role="dialog" aria-modal="true" aria-labelledby="sa-modal-title" tabindex="-1">
         <div class="bastion-modal-header">
-          <h2 id="sa-modal-title" class="bastion-modal-title">Ajouter un compte partagé</h2>
+          <h2 id="sa-modal-title" class="bastion-modal-title">{{ _('Ajouter un compte partagé') }}</h2>
         </div>
         <div class="bastion-modal-body">
           <form id="sa-cred-form" method="post" action="/admin/rbac/groups/{{ group.id }}/credentials">
             <div class="form-group">
-              <label class="form-label" for="sa-app">Application <span class="req">*</span></label>
+              <label class="form-label" for="sa-app">{{ _('Application') }} <span class="req">*</span></label>
               <select id="sa-app" name="app_slug" class="form-select" required>
                 <option value="">Choisir…</option>
                 {% for a in vault_apps %}
@@ -229,38 +229,38 @@
             </div>
             <div class="form-row">
               <div class="form-group">
-                <label class="form-label" for="sa-user">Compte <span class="req">*</span></label>
+                <label class="form-label" for="sa-user">{{ _('Compte') }} <span class="req">*</span></label>
                 <input id="sa-user" type="text" name="robotic_username" class="form-input" required
                        autocomplete="off" placeholder="ex. sdis81">
               </div>
               <div class="form-group">
                 <label class="form-label" for="sa-prio">
-                  Priorité
-                  <span class="sa-field-hint" title="Plus haute = retenue si le membre est dans plusieurs groupes">?</span>
+                  {{ _('Priorité') }}
+                  <span class="sa-field-hint" title="{{ _('Plus haute = retenue si le membre est dans plusieurs groupes') }}">?</span>
                 </label>
                 <input id="sa-prio" type="number" name="priority" class="form-input" value="100" step="1">
               </div>
             </div>
             <div class="form-group">
               <label class="form-label" for="sa-pass">
-                Mot de passe <span class="req" id="sa-pass-req">*</span>
+{{ _('Mot de passe') }} <span class="req" id="sa-pass-req">*</span>
               </label>
               <input id="sa-pass" type="password" name="password" class="form-input"
                      autocomplete="new-password">
-              <p class="form-hint" id="sa-pass-hint" hidden>Laisser vide pour conserver le mot de passe actuel.</p>
+              <p class="form-hint" id="sa-pass-hint" hidden>{{ _('Laisser vide pour conserver le mot de passe actuel.') }}</p>
             </div>
           </form>
 
           <div id="sa-excl-panel" class="sa-excl-panel" hidden>
             <div class="sa-excl-head">
-              <span class="form-section-title" style="font-size:var(--fs-xs);margin:0;">Exclusions</span>
-              <span class="muted" style="font-size:var(--fs-xs);">Ces membres n’utilisent pas ce compte</span>
+              <span class="form-section-title" style="font-size:var(--fs-xs);margin:0;">{{ _('Exclusions') }}</span>
+              <span class="muted" style="font-size:var(--fs-xs);">{{ _('Ces membres n’utilisent pas ce compte') }}</span>
             </div>
             <ul id="sa-excl-chips" class="sa-chips"></ul>
             <form id="sa-excl-add-form" method="post" class="sa-excl-add">
-              <label class="visually-hidden" for="sa-excl-select">Exclure un membre</label>
+              <label class="visually-hidden" for="sa-excl-select">{{ _('Exclure un membre') }}</label>
               <select id="sa-excl-select" name="keycloak_user_id" class="form-select" required>
-                <option value="">Exclure un membre…</option>
+                <option value="">{{ _('Exclure un membre…') }}</option>
                 {% for m in members if m.id %}
                 <option value="{{ m.id }}" data-label="{{ m.username or m.email or m.id }}">{{ m.username or m.email or m.id }}</option>
                 {% endfor %}
@@ -270,8 +270,8 @@
           </div>
         </div>
         <div class="bastion-modal-footer">
-          <button type="button" class="btn btn-ghost" data-sa-modal-dismiss>Annuler</button>
-          <button type="submit" form="sa-cred-form" class="btn btn-primary" id="sa-cred-submit">Enregistrer</button>
+          <button type="button" class="btn btn-ghost" data-sa-modal-dismiss>{{ _('Annuler') }}</button>
+          <button type="submit" form="sa-cred-form" class="btn btn-primary" id="sa-cred-submit">{{ _('Enregistrer') }}</button>
         </div>
       </div>
     </div>
@@ -281,10 +281,10 @@
   <div class="group-fiche-panel" id="panel-droits" data-panel="droits" hidden>
     <div class="card" style="padding:0;">
       <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
-        <span class="card-title" style="font-size:var(--fs-sm);">Droits du groupe</span>
+        <span class="card-title" style="font-size:var(--fs-sm);">{{ _('Droits du groupe') }}</span>
         <div class="users-row-actions">
           <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice apps</a>
-          <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>+ Ajouter</button>
+          <button type="button" class="btn btn-primary btn-sm" data-grant-modal-open>{{ _('+ Ajouter') }}</button>
         </div>
       </div>
       {% with grant_rows=grant_rows, redirect_url='/admin/rbac/groups/' ~ group.id ~ '#droits', show_granted_by=true, empty_message='Aucun droit accordé à ce groupe.' %}

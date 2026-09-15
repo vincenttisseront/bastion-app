@@ -9,6 +9,8 @@ from urllib.parse import quote
 from sqlalchemy.orm import Session
 
 from app.audit import derive_severity, log_action
+from app.i18n.catalog import t
+from app.i18n.resolve import DEFAULT_LOCALE
 from app.models import (
     AccessRequest,
     ActiveSyncDevice,
@@ -196,8 +198,10 @@ def build_notification_feed(
     db: Session,
     *,
     user_email: str | None = None,
+    locale: str | None = None,
 ) -> dict[str, Any]:
     """Build badge count + actionable items for the notification panel."""
+    loc = locale or DEFAULT_LOCALE
     items: list[dict[str, Any]] = []
     now = utcnow()
     since = now - timedelta(hours=24)
@@ -229,13 +233,14 @@ def build_notification_feed(
                 "severity": "warn",
                 "category": "discovery",
                 "title": (
-                    f"{pending_count} domaine{'s' if pending_count > 1 else ''} "
-                    "en attente"
+                    t("{n} domaine en attente", loc, n=pending_count)
+                    if pending_count == 1
+                    else t("{n} domaines en attente", loc, n=pending_count)
                 ),
                 "body": (
-                    f"Dernier vu : {sample}"
+                    t("Dernier vu : {sample}", loc, sample=sample)
                     if sample
-                    else "Hôtes inconnus à approuver ou rejeter"
+                    else t("Hôtes inconnus à approuver ou rejeter", loc)
                 ),
                 "href": "/admin/pending-hosts?status=pending",
                 "time": _fmt_time(latest.last_seen_at) if latest else None,
@@ -277,14 +282,14 @@ def build_notification_feed(
                 "severity": "info",
                 "category": "identity",
                 "title": (
-                    f"{pending_user_count} nouvelle"
-                    f"{'s' if pending_user_count > 1 else ''} connexion"
-                    f"{'s' if pending_user_count > 1 else ''}"
+                    t("{n} nouvelle connexion", loc, n=pending_user_count)
+                    if pending_user_count == 1
+                    else t("{n} nouvelles connexions", loc, n=pending_user_count)
                 ),
                 "body": (
-                    f"Dernier : {latest_u.user_email}"
+                    t("Dernier : {email}", loc, email=latest_u.user_email)
                     if latest_u.user_email
-                    else "Utilisateurs SSO à valider"
+                    else t("Utilisateurs SSO à valider", loc)
                 ),
                 "href": "/admin/pending-users?status=pending",
                 "time": _fmt_time(latest_u.last_seen_at) if latest_u else None,
@@ -319,14 +324,14 @@ def build_notification_feed(
                 "severity": "info",
                 "category": "identity",
                 "title": (
-                    f"{pending_device_count} appareil"
-                    f"{'s' if pending_device_count > 1 else ''} "
-                    f"en attente"
+                    t("{n} appareil en attente", loc, n=pending_device_count)
+                    if pending_device_count == 1
+                    else t("{n} appareils en attente", loc, n=pending_device_count)
                 ),
                 "body": (
-                    f"Dernier : {latest_d.user_key}"
+                    t("Dernier : {key}", loc, key=latest_d.user_key)
                     if latest_d.user_key
-                    else "Clients ActiveSync à approuver"
+                    else t("Clients ActiveSync à approuver", loc)
                 ),
                 "href": "/admin/pending-devices?status=pending",
                 "time": _fmt_time(latest_d.last_seen_at) if latest_d else None,
@@ -360,13 +365,19 @@ def build_notification_feed(
                 "severity": "info",
                 "category": "identity",
                 "title": (
-                    f"{access_count} demande"
-                    f"{'s' if access_count > 1 else ''} d'accès"
+                    t("{n} demande d'accès", loc, n=access_count)
+                    if access_count == 1
+                    else t("{n} demandes d'accès", loc, n=access_count)
                 ),
                 "body": (
-                    f"Dernier : {latest_ar.username} ({latest_ar.email})"
+                    t(
+                        "Dernier : {username} ({email})",
+                        loc,
+                        username=latest_ar.username,
+                        email=latest_ar.email,
+                    )
                     if latest_ar.username
-                    else "Demandes publiques à approuver"
+                    else t("Demandes publiques à approuver", loc)
                 ),
                 "href": "/admin/access-requests?status=pending",
                 "time": _fmt_time(latest_ar.created_at) if latest_ar else None,
@@ -403,11 +414,15 @@ def build_notification_feed(
                 "fingerprint": f"{last.id}|{_fmt_time(last.created_at)}|{denied_total}",
                 "severity": "error",
                 "category": "security",
-                "title": f"{title_count} accès refusés (24 h)",
+                "title": t(
+                    "{count} accès refusés (24 h)",
+                    loc,
+                    count=title_count,
+                ),
                 "body": (
-                    "Dernier : " + " ".join(last_bits)
+                    t("Dernier : {bits}", loc, bits=" ".join(last_bits))
                     if last_bits
-                    else "Voir les journaux d'accès refusés"
+                    else t("Voir les journaux d'accès refusés", loc)
                 ),
                 "href": "/admin/logs?status=error",
                 "time": _fmt_time(last.created_at),
@@ -457,8 +472,16 @@ def build_notification_feed(
                 "fingerprint": f"{realm.slug}|{realm.last_test_status}",
                 "severity": "warn",
                 "category": "config",
-                "title": f"Realm « {realm.slug} » — test OIDC KO",
-                "body": f"Statut : {realm.last_test_status}",
+                "title": t(
+                    "Realm « {slug} » — test OIDC KO",
+                    loc,
+                    slug=realm.slug,
+                ),
+                "body": t(
+                    "Statut : {status}",
+                    loc,
+                    status=realm.last_test_status,
+                ),
                 "href": "/admin/realms",
                 "time": None,
                 "count": 1,
@@ -471,9 +494,18 @@ def build_notification_feed(
     visible = [i for i in items if not _is_dismissed(i, dismissed)]
     badge = sum(1 for i in visible if i.get("counts_for_badge"))
 
+    shortcuts = [
+        {
+            **sc,
+            "label": t(sc["label"], loc),
+            "hint": t(sc["hint"], loc),
+        }
+        for sc in SHORTCUTS
+    ]
+
     return {
         "count": int(badge),
         "items": visible,
-        "shortcuts": SHORTCUTS,
+        "shortcuts": shortcuts,
         "generated_at": _fmt_time(now),
     }

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Mes applications{% endblock %}
+{% block title %}{{ _('Mes applications') }}{% endblock %}
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
@@ -32,25 +32,25 @@
         <div class="app-tile-menu-badges">
           {{ status_badges(app) }}
           {% if app.access_level == 'manage' %}
-          <span class="badge badge-ok">Gérée</span>
+          <span class="badge badge-ok">{{ _('Gérée') }}</span>
           {% endif %}
           {% if locked_label == 'Configuration requise' %}
-          <span class="badge badge-warn">Configuration requise</span>
+          <span class="badge badge-warn">{{ _('Configuration requise') }}</span>
           {% elif locked_label == 'Lecture seule' %}
-          <span class="badge badge-muted">Lecture seule</span>
+          <span class="badge badge-muted">{{ _('Lecture seule') }}</span>
           {% endif %}
         </div>
         <div class="app-tile-menu-facts">
           <span>{{ app.protocol_label or 'Application' }}</span>
           {% if app.access_status %}<span>{{ app.access_status }}</span>{% endif %}
-          {% if show_password %}<span>Mot de passe requis</span>{% endif %}
+          {% if show_password %}<span>{{ _('Mot de passe requis') }}</span>{% endif %}
         </div>
         {% if app.description %}
         <p class="app-tile-menu-desc">{{ app.description }}</p>
         {% endif %}
       </div>
       {% if can_open %}
-      <button type="button" class="app-tile-menu-item" role="menuitem" data-tile-open>Ouvrir</button>
+      <button type="button" class="app-tile-menu-item" role="menuitem" data-tile-open>{{ _('Ouvrir') }}</button>
       {% endif %}
       <button
         type="button"
@@ -60,7 +60,7 @@
         data-app-id="{{ app.id }}"
         data-favorited="{{ '1' if app.is_favorite else '0' }}"
       >
-        {% if app.is_favorite %}Retirer des Accès rapides{% else %}Ajouter aux Accès rapides{% endif %}
+        {% if app.is_favorite %}{{ _('Retirer des Accès rapides') }}{% else %}{{ _('Ajouter aux Accès rapides') }}{% endif %}
       </button>
     </div>
   </div>
@@ -82,10 +82,10 @@
       class="admin-card app-tile app-tile--okta app-tile--disabled"
       data-app-id="{{ app.id }}"
       data-app-slug="{{ app.slug }}"
-      title="Cette application nécessite une configuration par votre administrateur avant le premier accès."
+      title="{{ _('Cette application nécessite une configuration par votre administrateur avant le premier accès.') }}"
       aria-disabled="true"
     >
-      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="Accès rapide">★</span>{% endif %}
+      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
       {{ app_tile_icon(app) }}
       <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
     </div>
@@ -111,7 +111,7 @@
       data-open-with-identity
       data-open-identity-url="/api/apps/{{ app.slug }}/open-with-identity"
     >
-      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="Accès rapide">★</span>{% endif %}
+      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
       {{ app_tile_icon(app) }}
       <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
     </button>
@@ -135,7 +135,7 @@
       data-app-label="{{ app.label }}"
       {% if app.access_mode != 'legacy_path_proxy' %}target="_blank" rel="noopener noreferrer"{% endif %}
     >
-      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="Accès rapide">★</span>{% endif %}
+      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
       {{ app_tile_icon(app) }}
       <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
     </a>
@@ -154,10 +154,10 @@
       class="admin-card app-tile app-tile--okta app-tile--disabled"
       data-app-id="{{ app.id }}"
       data-app-slug="{{ app.slug }}"
-      title="Accès lecture seule — ouverture non autorisée"
+      title="{{ _('Accès lecture seule — ouverture non autorisée') }}"
       aria-disabled="true"
     >
-      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="Accès rapide">★</span>{% endif %}
+      {% if app.is_favorite %}<span class="app-tile-pin" aria-hidden="true" title="{{ _('Accès rapide') }}">★</span>{% endif %}
       {{ app_tile_icon(app) }}
       <span class="app-tile-name truncate" title="{{ app.label }}">{{ app.label }}</span>
     </div>
@@ -177,46 +177,49 @@
   <div class="card" style="margin-bottom:var(--sp-4); border-color:var(--color-warn, #d97706);">
     <div class="card-body" style="display:flex; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; align-items:center;">
       <div>
-        <strong>Nouvel appareil mobile</strong>
+        <strong>{{ _('Nouvel appareil mobile') }}</strong>
         <p class="text-2" style="margin:var(--sp-1) 0 0;">
           {{ activesync_pending_count }} appareil{{ 's' if activesync_pending_count > 1 else '' }}
-          en attente de validation.
+{{ _('en attente de validation.') }}
+
         </p>
       </div>
-      <a class="btn btn-primary btn-sm" href="/profile#section-devices">Vérifier</a>
+      <a class="btn btn-primary btn-sm" href="/profile#section-devices">{{ _('Vérifier') }}</a>
     </div>
   </div>
   {% endif %}
   <section class="portal-hero">
     <div class="portal-hero-copy">
-      <p class="portal-eyebrow">Espace utilisateur</p>
+      <p class="portal-eyebrow">{{ _('Espace utilisateur') }}</p>
       <h1 class="page-title">Bonjour {{ greeting_name }}</h1>
       <p class="page-sub">
         {% if apps %}
-          {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }} via Bastion Pro
+          {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }} {{ _('via Bastion Pro') }}
+
         {% else %}
-          Aucune application disponible pour le moment
+{{ _('Aucune application disponible pour le moment') }}
+
         {% endif %}
       </p>
     </div>
     {% if apps %}
     <label class="topbar-search portal-hero-search" for="app-search">
       <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input type="search" id="app-search" placeholder="Rechercher une application…" autocomplete="off" aria-label="Recherche applications">
+      <input type="search" id="app-search" placeholder="{{ _('Rechercher une application…') }}" autocomplete="off" aria-label="{{ _('Recherche applications') }}">
     </label>
     {% endif %}
   </section>
 
   {% if apps %}
   <div class="portal-apps-toolbar">
-    <p class="portal-apps-summary" aria-label="Résumé">
+    <p class="portal-apps-summary" aria-label="{{ _('Résumé') }}">
       {{ apps | length }} application{{ 's' if apps | length != 1 else '' }}
       <span class="portal-apps-summary-sep" aria-hidden="true">·</span>
       {{ apps | selectattr('can_launch') | list | length }} ouvrable{{ 's' if (apps | selectattr('can_launch') | list | length) != 1 else '' }}
       {% set managed = apps | selectattr('access_level', 'equalto', 'manage') | list | length %}
       {% if managed %}
       <span class="portal-apps-summary-sep" aria-hidden="true">·</span>
-      {{ managed }} étendue{{ 's' if managed != 1 else '' }}
+      {{ managed }} {{ _('étendue') }}{{ 's' if managed != 1 else '' }}
       {% endif %}
     </p>
     <fieldset class="portal-view-toggle" aria-label="Mode d’affichage">
@@ -238,7 +241,7 @@
   </div>
 
   <div class="portal-apps-workspace">
-    <nav class="portal-apps-nav" aria-label="Sections applications">
+    <nav class="portal-apps-nav" aria-label="{{ _('Sections applications') }}">
       <p class="portal-apps-nav-label">Mes apps</p>
       <ul class="portal-apps-nav-list">
         {% for section in apps_sections %}
@@ -266,8 +269,7 @@
         </header>
         {% if section.is_favorites and not section.apps %}
         <p class="portal-apps-empty-fav">
-          Aucun accès rapide pour le moment. Ouvrez le menu <strong>…</strong> d’une application
-          et choisissez <em>Ajouter aux Accès rapides</em>.
+{{ _('Aucun accès rapide pour le moment. Ouvrez le menu') }} <strong>…</strong> {{ _('d’une application et choisissez') }} <em>{{ _('Ajouter aux Accès rapides') }}</em>.
         </p>
         {% else %}
         <div class="admin-grid portal-app-grid" data-apps-view="grid">
@@ -278,8 +280,8 @@
         {% endif %}
       </section>
       {% endfor %}
-      <p class="portal-apps-hint" id="portal-filter-empty" hidden>Aucune application ne correspond à votre recherche.</p>
-      <p class="portal-apps-hint">Besoin d'un accès supplémentaire&nbsp;? Contactez votre administrateur.</p>
+      <p class="portal-apps-hint" id="portal-filter-empty" hidden>{{ _('Aucune application ne correspond à votre recherche.') }}</p>
+      <p class="portal-apps-hint">{{ _("Besoin d'un accès supplémentaire&nbsp;? Contactez votre administrateur.") }}</p>
     </div>
   </div>
   {% else %}
@@ -289,8 +291,8 @@
         <rect x="2" y="7" width="20" height="14" rx="2"/>
       </svg>
     </div>
-    <div class="empty-title">Aucune application</div>
-    <div class="empty-desc">Vous n'avez accès à aucune application pour le moment. Contactez un administrateur si besoin.</div>
+    <div class="empty-title">{{ _('Aucune application') }}</div>
+    <div class="empty-desc">{{ _("Vous n'avez accès à aucune application pour le moment. Contactez un administrateur si besoin.") }}</div>
   </div>
   {% endif %}
 </main>

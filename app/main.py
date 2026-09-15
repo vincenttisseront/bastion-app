@@ -149,9 +149,11 @@ app = FastAPI(
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(BreakglassCookieRotationMiddleware)
 
+from app.i18n.middleware import LocaleMiddleware  # noqa: E402
 from app.security.banning.middleware import SecurityBanMiddleware  # noqa: E402
 
 app.add_middleware(SecurityBanMiddleware)
+app.add_middleware(LocaleMiddleware)
 
 # Neutral public aliases — registered before the /static mount.
 _PORTAL_STATIC_ALIASES = {
@@ -266,15 +268,19 @@ def _wants_json_response(request: Request) -> bool:
     return "text/html" not in accept
 
 
-def _exception_detail_message(detail: Any) -> str:
-    if isinstance(detail, str):
-        return detail
-    if isinstance(detail, list):
-        return "Données invalides — vérifiez les paramètres de la requête."
-    if isinstance(detail, dict):
-        return str(detail.get("message") or detail.get("_form") or "Requête invalide.")
-    return "Requête invalide."
+def _exception_detail_message(detail: Any, locale: str = "fr") -> str:
+    from app.i18n.catalog import t as translate
 
+    if isinstance(detail, str):
+        return translate(detail, locale)
+    if isinstance(detail, list):
+        return translate(
+            "Données invalides — vérifiez les paramètres de la requête.", locale
+        )
+    if isinstance(detail, dict):
+        raw = str(detail.get("message") or detail.get("_form") or "Requête invalide.")
+        return translate(raw, locale)
+    return translate("Requête invalide.", locale)
 
 def _html_error_fallback(path: str, request: Request, settings) -> str:
     if path.startswith("/admin/"):
@@ -317,21 +323,27 @@ def _html_client_error_response(
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    from app.i18n.middleware import get_request_locale
+
     path = request.url.path
+    locale = get_request_locale(request)
     if _json_api_path(path):
-        return api_error_from_detail(status_code=422, detail=exc.errors())
+        return api_error_from_detail(status_code=422, detail=exc.errors(), locale=locale)
     if _wants_json_response(request):
-        return api_error_from_detail(status_code=422, detail=exc.errors())
+        return api_error_from_detail(status_code=422, detail=exc.errors(), locale=locale)
     return _html_client_error_response(
         request,
         status_code=422,
-        message=_exception_detail_message(exc.errors()),
+        message=_exception_detail_message(exc.errors(), locale),
     )
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    from app.i18n.middleware import get_request_locale
+
     path = request.url.path
+    locale = get_request_locale(request)
     # Native OIDC BFF + REST APIs: return JSON (do not HTML-redirect /auth/login → itself).
     headers = dict(exc.headers) if exc.headers else None
     if _json_api_path(path):
@@ -339,6 +351,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             status_code=exc.status_code,
             detail=exc.detail,
             headers=headers,
+            locale=locale,
         )
     wants_json = _wants_json_response(request)
     if exc.status_code == 401:
@@ -347,6 +360,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
                 status_code=401,
                 detail=exc.detail,
                 headers=headers,
+                locale=locale,
             )
         return RedirectResponse(url="/auth/login", status_code=302)
     if exc.status_code == 403:
@@ -355,6 +369,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
                 status_code=403,
                 detail=exc.detail,
                 headers=headers,
+                locale=locale,
             )
         # Authenticated end-users hitting /dashboard or /admin → home launcher
         from app.web.user_context import get_user_context
@@ -374,6 +389,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
                 status_code=429,
                 detail=exc.detail,
                 headers=headers,
+                locale=locale,
             )
         settings = get_settings()
         ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
@@ -384,6 +400,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
                 status_code=503,
                 detail=exc.detail,
                 headers=headers,
+                locale=locale,
             )
         settings = get_settings()
         ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
@@ -393,30 +410,40 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             status_code=exc.status_code,
             detail=exc.detail,
             headers=headers,
+            locale=locale,
         )
     return _html_client_error_response(
         request,
         status_code=exc.status_code,
-        message=_exception_detail_message(exc.detail),
+        message=_exception_detail_message(exc.detail, locale),
     )
 
 
 @app.exception_handler(Exception)
 async def generic_exception_handler(request: Request, exc: Exception):
+    from app.i18n.catalog import t as translate
+    from app.i18n.middleware import get_request_locale
+
     logger.exception("unhandled error path=%s", request.url.path)
     if request.url.path.startswith("/api/"):
         raise exc
     accept = (request.headers.get("accept") or "").lower()
+    locale = get_request_locale(request)
     if "application/json" in accept:
         return api_error_response(
             status_code=500,
-            message="Erreur interne — l’incident a été journalisé.",
+            message=translate(
+                "Erreur interne — l’incident a été journalisé.", locale
+            ),
         )
     settings = get_settings()
     ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
     return render("errors/500.html", **ctx, status_code=500)
 
 
+from app.i18n.routes import router as locale_router  # noqa: E402
+
+app.include_router(locale_router)
 app.include_router(pages_router)
 app.include_router(pages_user_router)
 app.include_router(pages_admin_router)

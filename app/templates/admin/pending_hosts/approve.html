@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Approuver {{ row.hostname }}{% endblock %}
-{% block breadcrumb %}Admin / Domaines découverts / Approuver{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Domaines découverts') }} / Approuver{% endblock %}
 
 {% block content %}
 {% set errors = errors | default({}) %}
@@ -8,16 +8,17 @@
 <div class="page page-form">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Approuver le domaine</h1>
+      <h1 class="page-title">{{ _('Approuver le domaine') }}</h1>
       <p class="page-sub">
-        Crée une app <strong>Proxy public</strong> (sans auth bastion) et enregistre le FQDN découvert.
+{{ _('Crée une app') }} <strong>{{ _('Proxy public') }}</strong> {{ _('(sans auth bastion) et enregistre le FQDN découvert.') }}
+
       </p>
     </div>
   </div>
 
-  <div class="discovery-summary" aria-label="Hôte découvert">
+  <div class="discovery-summary" aria-label="{{ _('Hôte découvert') }}">
     <div class="discovery-summary-main">
-      <span class="discovery-summary-kicker">Host découvert</span>
+      <span class="discovery-summary-kicker">{{ _('Host découvert') }}</span>
       <code class="discovery-summary-host mono">{{ row.hostname }}</code>
     </div>
     <dl class="discovery-summary-meta">
@@ -26,11 +27,11 @@
         <dd>{{ row.hit_count }}</dd>
       </div>
       <div>
-        <dt>Dernière IP</dt>
+        <dt>{{ _('Dernière IP') }}</dt>
         <dd class="mono">{{ row.last_client_ip or '—' }}</dd>
       </div>
       <div>
-        <dt>Dernière URI</dt>
+        <dt>{{ _('Dernière URI') }}</dt>
         <dd class="mono discovery-summary-uri" title="{{ row.last_uri or '' }}">{{ row.last_uri or '—' }}</dd>
       </div>
       <div>
@@ -44,23 +45,24 @@
     <div class="form-section">
       <div class="form-section-header">
         <div>
-          <div class="form-section-title">Application</div>
-          <div class="form-section-sub">Identité catalogue + cible proxy_pass</div>
+          <div class="form-section-title">{{ _('Application') }}</div>
+          <div class="form-section-sub">{{ _('Identité catalogue + cible proxy_pass') }}</div>
         </div>
       </div>
       <div class="form-body">
         <div class="alert alert-warn">
           <div class="alert-body">
-            Mode <strong>public_proxy</strong> : aucune auth bastion (pas de SSO / RBAC).
-            Le trafic est relayé tel quel vers le backend. À utiliser seulement si l’app
-            gère elle-même l’accès, ou si elle doit être publique.
+            Mode <strong>public_proxy</strong> {{ _(': aucune auth bastion (pas de SSO / RBAC).') }}
+
+            {{ _('Le trafic est relayé tel quel vers le backend. À utiliser seulement si l’app') }}
+            {{ _('gère elle-même l’accès, ou si elle doit être publique.') }}
           </div>
         </div>
 
         <div class="form-group">
-          <span class="form-label">Domaine public</span>
+          <span class="form-label">{{ _('Domaine public') }}</span>
           <div class="form-readonly mono" aria-readonly="true">{{ row.hostname }}</div>
-          <p class="form-help">Issu de la découverte — non modifiable.</p>
+          <p class="form-help">{{ _('Issu de la découverte — non modifiable.') }}</p>
         </div>
 
         <div class="form-row">
@@ -70,19 +72,19 @@
                    id="slug" name="slug" value="{{ form_values.slug }}"
                    required pattern="[a-z0-9-]+" autocomplete="off">
             {% if errors.slug %}<div class="form-error">{{ errors.slug }}</div>{% endif %}
-            <p class="form-help">Identifiant interne (RBAC, audit).</p>
+            <p class="form-help">{{ _('Identifiant interne (RBAC, audit).') }}</p>
           </div>
           <div class="form-group">
-            <label class="form-label" for="label">Libellé <span class="req">*</span></label>
+            <label class="form-label" for="label">{{ _('Libellé') }} <span class="req">*</span></label>
             <input class="form-input{% if errors.label %} is-invalid{% endif %}"
                    id="label" name="label" value="{{ form_values.label }}" required>
             {% if errors.label %}<div class="form-error">{{ errors.label }}</div>{% endif %}
-            <p class="form-help">Nom affiché dans l’admin.</p>
+            <p class="form-help">{{ _('Nom affiché dans l’admin.') }}</p>
           </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="upstream_url">URL backend interne (proxy_pass) <span class="req">*</span></label>
+          <label class="form-label" for="upstream_url">{{ _('URL backend interne (proxy_pass)') }} <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
@@ -94,14 +96,14 @@
                    autocomplete="off">
           </div>
           {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}
-          <p class="form-help">Cible Docker / IP LAN (ex. <span class="mono">https://10.0.31.103</span>). Aucune auth bastion ne sera appliquée.</p>
+          <p class="form-help">Cible Docker / IP LAN (ex. <span class="mono">https://10.0.31.103</span>{{ _('). Aucune auth bastion ne sera appliquée.') }}</p>
         </div>
 
         {% if errors._form %}<div class="form-error">{{ errors._form }}</div>{% endif %}
       </div>
       <div class="form-footer">
-        <button type="submit" class="btn btn-primary">Approuver et créer</button>
-        <a href="/admin/pending-hosts" class="btn btn-ghost">Annuler</a>
+        <button type="submit" class="btn btn-primary">{{ _('Approuver et créer') }}</button>
+        <a href="/admin/pending-hosts" class="btn btn-ghost">{{ _('Annuler') }}</a>
       </div>
     </div>
   </form>

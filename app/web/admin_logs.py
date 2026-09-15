@@ -33,6 +33,7 @@ from app.web.admin_logs_query import (
 )
 from app.web.audit_export import build_audit_csv_export, build_audit_pdf_export
 from app.web.constants import APP_VERSION
+from app.i18n.middleware import get_request_locale
 from app.web.container_logs_settings import get_container_logs_config
 from app.web.docker_logs import (
     assert_container_allowed,
@@ -423,6 +424,7 @@ def admin_logs_page(
             severity_min=sev_min,
             limit=_PAGE_SIZE,
             offset=offset,
+            locale=get_request_locale(request),
         ),
         default=None,
         what="audit log entries",
@@ -589,7 +591,7 @@ async def admin_logs_stream(
                         event_code=event_code or None,
                     )
                     rows = qset.order_by(AuditLog.id.asc()).limit(50).all()
-                    entries = [serialize_audit_row(r) for r in rows]
+                    entries = [serialize_audit_row(r, locale=get_request_locale(request)) for r in rows]
                     entries = [
                         e
                         for e in entries
@@ -761,6 +763,9 @@ def admin_logs_catalogue(
     user=Depends(require_admin),
 ):
     """Read-only event catalogue for SIEM / ops (CSV/JSON export)."""
+    from app.i18n.middleware import get_request_locale
+
+    locale = get_request_locale(request)
     rows = list(EVENTS.values())
     if domain:
         d = domain.strip().upper()
@@ -776,6 +781,7 @@ def admin_logs_catalogue(
             if term in e.code.lower()
             or term in e.label.lower()
             or term in e.title_fr.lower()
+            or term in e.title(locale).lower()
             or term in (e.legacy_action or "").lower()
         ]
     rows.sort(key=lambda e: e.code)
@@ -783,12 +789,12 @@ def admin_logs_catalogue(
         {
             "code": e.code,
             "label": e.label,
-            "title_fr": e.title_fr,
+            "title_fr": e.title(locale),
             "severity": e.severity.value,
             "domain": e.domain,
             "legacy_action": e.legacy_action or "",
             "ecs_category": list(e.ecs_category),
-            "runbook": e.runbook or "",
+            "runbook": e.runbook_text(locale) or "",
             "deprecated": e.deprecated,
         }
         for e in rows

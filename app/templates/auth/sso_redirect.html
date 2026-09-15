@@ -1,13 +1,13 @@
 {% extends "base_public.html" %}
-{% block title %}Redirection SSO{% endblock %}
+{% block title %}{{ _('Redirection SSO') }}{% endblock %}
 
 {% block content %}
 <div class="login-container">
   <div class="login-card sso-redirect">
-    <div class="sso-spinner" role="status" aria-label="Redirection en cours"></div>
-    <h1 class="login-brand-title">Redirection SSO</h1>
+    <div class="sso-spinner" role="status" aria-label="{{ _('Redirection en cours') }}"></div>
+    <h1 class="login-brand-title">{{ _('Redirection SSO') }}</h1>
     <p class="login-brand-sub">
-      {% if branding.welcome_text %}{{ branding.welcome_text }}{% else %}Connexion en cours…{% endif %}
+      {% if branding.welcome_text %}{{ branding.welcome_text }}{% else %}{{ _('Connexion en cours…') }}{% endif %}
     </p>
   </div>
 </div>

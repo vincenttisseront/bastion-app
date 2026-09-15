@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="/static/css/waf-sentinel.css?v=20260902-analyse">
 {% endblock %}
 
-{% block breadcrumb %}Admin / Sécurité / WAF{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Sécurité') }} / WAF{% endblock %}
 
 
 
@@ -49,7 +49,7 @@
         {% endif %}
       </div>
 
-      <p class="page-sub">Analyse des menaces (Bilan) et configuration ModSecurity/CRS.</p>
+      <p class="page-sub">{{ _('Analyse des menaces (Bilan) et configuration ModSecurity/CRS.') }}</p>
 
     </div>
 
@@ -57,15 +57,15 @@
 
       {% if export_pending %}
 
-      <span class="badge badge-warn" id="waf-apply-badge">En attente</span>
+      <span class="badge badge-warn" id="waf-apply-badge">{{ _('En attente') }}</span>
 
       {% elif reactivation and reactivation.blocked and not reactivation.armed %}
 
-      <span class="badge badge-warn" id="waf-apply-badge" title="Mode CRS non pilotable — moteur désarmé">Mode non pilotable</span>
+      <span class="badge badge-warn" id="waf-apply-badge" title="{{ _('Mode CRS non pilotable — moteur désarmé') }}">{{ _('Mode non pilotable') }}</span>
 
       {% else %}
 
-      <span class="badge badge-ok" id="waf-apply-badge">Appliqué</span>
+      <span class="badge badge-ok" id="waf-apply-badge">{{ _('Appliqué') }}</span>
 
       {% endif %}
 
@@ -76,7 +76,7 @@
                 id="waf-apply-btn" data-export-pending="{{ 'true' if export_pending else 'false' }}"
                 data-apply-enabled="{{ 'true' if apply_enabled else 'false' }}"
                 {% if not apply_enabled %}disabled aria-disabled="true"{% endif %}
-                title="{% if apply_enabled %}Pousser les exports vers nginx{% elif not mode_pilotable %}Moteur désarmé : Appliquer pousse encore exclusions, deny IP et rate-limits{% else %}Aucun changement en attente{% endif %}">
+                title="{% if apply_enabled %}{{ _('Pousser les exports vers nginx') }}{% elif not mode_pilotable %}{{ _('Moteur désarmé : Appliquer pousse encore exclusions, deny IP et rate-limits') }}{% else %}{{ _('Aucun changement en attente') }}{% endif %}">
 
           Appliquer
 
@@ -120,11 +120,11 @@
 
   <div class="alert alert-warn waf-pending-alert waf-config-only">
 
-    <strong>Changements non poussés vers nginx</strong>
+    <strong>{{ _('Changements non poussés vers nginx') }}</strong>
 
     <ul class="waf-pending-list">
 
-      {% for d in pending_diffs %}<li>{{ d.label }} : export {{ d.export }} → souhaité {{ d.db }}</li>{% endfor %}
+      {% for d in pending_diffs %}<li>{{ d.label }} {{ _(': export') }} {{ d.export }} {{ _('→ souhaité') }} {{ d.db }}</li>{% endfor %}
 
     </ul>
 
@@ -143,13 +143,13 @@
     </div>
     <div class="waf-nav-group" data-waf-nav="config">
       <span class="waf-nav-group-label">Configuration</span>
-      <div class="tabs" role="tablist" aria-label="Configuration WAF">
-        <a href="#profile" class="tab" role="tab" data-tab="profile" id="tab-profile" aria-selected="false">Profil</a>
+      <div class="tabs" role="tablist" aria-label="{{ _('Configuration WAF') }}">
+        <a href="#profile" class="tab" role="tab" data-tab="profile" id="tab-profile" aria-selected="false">{{ _('Profil') }}</a>
         <a href="#exclusions" class="tab" role="tab" data-tab="exclusions" id="tab-exclusions" aria-selected="false">Exclusions {% if exclusions %}<span class="badge badge-muted tab-badge">{{ exclusions|length }}</span>{% endif %}</a>
-        <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">En-têtes</a>
-        <a href="#technical" class="tab" role="tab" data-tab="technical" id="tab-technical" aria-selected="false">Détails techniques</a>
+        <a href="#headers" class="tab" role="tab" data-tab="headers" id="tab-headers" aria-selected="false">{{ _('En-têtes') }}</a>
+        <a href="#technical" class="tab" role="tab" data-tab="technical" id="tab-technical" aria-selected="false">{{ _('Détails techniques') }}</a>
         {% if reactivation and reactivation.show %}
-        <a href="#reactivation" class="tab" role="tab" data-tab="reactivation" id="tab-reactivation" aria-selected="false">Réactivation</a>
+        <a href="#reactivation" class="tab" role="tab" data-tab="reactivation" id="tab-reactivation" aria-selected="false">{{ _('Réactivation') }}</a>
         {% endif %}
       </div>
     </div>
@@ -164,7 +164,7 @@
 
       {% if not exec.present %}
       <div class="waf-dash-notice waf-dash-notice--unavailable">
-        <strong>Données indisponibles</strong>
+        <strong>{{ _('Données indisponibles') }}</strong>
         <p>{{ efficiency.message }}</p>
         {% if efficiency.resolution %}<p class="waf-dash-notice-hint">{{ efficiency.resolution }}</p>{% endif %}
       </div>
@@ -172,29 +172,29 @@
 
       <section class="sentinel-exec-row" aria-label="Executive summary">
         <article class="sentinel-kpi sentinel-kpi--ok">
-          <span class="sentinel-kpi-label">Requêtes inspectées</span>
+          <span class="sentinel-kpi-label">{{ _('Requêtes inspectées') }}</span>
           <span class="sentinel-kpi-value">{{ exec.inspected }}</span>
-          <span class="sentinel-kpi-sub">Total · 24 h</span>
+          <span class="sentinel-kpi-sub">{{ _('Total · 24 h') }}</span>
         </article>
         <article class="sentinel-kpi sentinel-kpi--err">
-          <span class="sentinel-kpi-label">Menaces bloquées</span>
+          <span class="sentinel-kpi-label">{{ _('Menaces bloquées') }}</span>
           <span class="sentinel-kpi-value">
             {{ exec.blocks }}
             {% if exec.blocks_trend_pct is not none %}
             <span class="sentinel-trend {% if exec.blocks_trend_pct > 0 %}sentinel-trend--up{% elif exec.blocks_trend_pct < 0 %}sentinel-trend--down{% endif %}"
-                  title="Tendance vs première moitié de la fenêtre 24 h">
+                  title="{{ _('Tendance vs première moitié de la fenêtre 24 h') }}">
               {% if exec.blocks_trend_pct > 0 %}+{% endif %}{{ exec.blocks_trend_pct }} %
             </span>
             {% endif %}
           </span>
-          <span class="sentinel-kpi-sub">CRS + refus · 24 h</span>
+          <span class="sentinel-kpi-sub">{{ _('CRS + refus · 24 h') }}</span>
         </article>
         <article class="sentinel-kpi sentinel-kpi--ok sentinel-kpi--gauge">
-          <span class="sentinel-kpi-label">Score de santé WAF</span>
+          <span class="sentinel-kpi-label">{{ _('Score de santé WAF') }}</span>
           {{ exec.health_gauge_svg | safe }}
           {% if exec.health_breakdown %}
           <details class="sentinel-health-breakdown">
-            <summary>Détail du score</summary>
+            <summary>{{ _('Détail du score') }}</summary>
             <ul class="sentinel-health-list">
               <li class="sentinel-health-item sentinel-health-item--base">
                 <span>Base</span><span class="sentinel-health-pts">100</span>
@@ -213,22 +213,22 @@
           {% endif %}
         </article>
         <article class="sentinel-kpi sentinel-kpi--warn">
-          <span class="sentinel-kpi-label">Requêtes suspectes</span>
+          <span class="sentinel-kpi-label">{{ _('Requêtes suspectes') }}</span>
           <span class="sentinel-kpi-value">{{ exec.live_suspicious }}</span>
-          <span class="sentinel-kpi-sub">Live · 3 h + filtrage hôtes</span>
+          <span class="sentinel-kpi-sub">{{ _('Live · 3 h + filtrage hôtes') }}</span>
         </article>
       </section>
 
       {% if efficiency.status == 'measured_zero' %}
       <p class="waf-kpi-quiet" title="{{ efficiency.zero_explanation or '' }}">
-        24 h · aucune activité CRS enregistrée
+        {{ _('24 h · aucune activité CRS enregistrée') }}
       </p>
       {% endif %}
 
       <section class="sentinel-threat-stack waf-dash-grid" aria-label="Threat intelligence">
         <div class="sentinel-panel sentinel-panel--full">
           <div class="sentinel-panel-head">
-            <h3 class="sentinel-panel-title">Flux trafic vs intrusions</h3>
+            <h3 class="sentinel-panel-title">{{ _('Flux trafic vs intrusions') }}</h3>
             <span class="sentinel-panel-meta">24 h</span>
           </div>
           <div class="sentinel-chart-slot">{{ ti.traffic_area_svg | safe }}</div>
@@ -238,13 +238,13 @@
           <div class="sentinel-panel">
             <div class="sentinel-panel-head">
               <h3 class="sentinel-panel-title">Blocages CRS</h3>
-              <span class="sentinel-panel-meta">par heure · 24 h</span>
+              <span class="sentinel-panel-meta">{{ _('par heure · 24 h') }}</span>
             </div>
             <div class="sentinel-chart-slot">{{ ti.blocks_hourly_svg | safe }}</div>
           </div>
           <div class="sentinel-panel">
             <div class="sentinel-panel-head">
-              <h3 class="sentinel-panel-title">Familles de menaces</h3>
+              <h3 class="sentinel-panel-title">{{ _('Familles de menaces') }}</h3>
               <span class="sentinel-panel-meta">24 h</span>
             </div>
             <div class="sentinel-chart-slot">{{ ti.families_svg | safe }}</div>
@@ -254,8 +254,8 @@
         <div class="sentinel-threat-row">
           <div class="sentinel-panel">
             <div class="sentinel-panel-head">
-              <h3 class="sentinel-panel-title">Origine des attaques</h3>
-              <span class="sentinel-panel-meta">{% if ip_geolocation.enabled %}pays × heure · {{ ip_geolocation.provider }}{% elif ip_geolocation.env_locked %}verrouillée (serveur){% else %}désactivée{% endif %}</span>
+              <h3 class="sentinel-panel-title">{{ _('Origine des attaques') }}</h3>
+              <span class="sentinel-panel-meta">{% if ip_geolocation.enabled %}{{ _('pays × heure ·') }} {{ ip_geolocation.provider }}{% elif ip_geolocation.env_locked %}{{ _('verrouillée (serveur)') }}{% else %}{{ _('désactivée') }}{% endif %}</span>
             </div>
             <div class="sentinel-chart-slot">{{ ti.origin_heatmap_svg | safe }}</div>
           </div>
@@ -270,11 +270,11 @@
 
         <div class="sentinel-panel sentinel-panel--full sentinel-panel--rules">
           <div class="sentinel-panel-head">
-            <h3 class="sentinel-panel-title">Top règles OWASP</h3>
-            <span class="sentinel-panel-meta">Cliquez une règle pour voir les logs</span>
+            <h3 class="sentinel-panel-title">{{ _('Top règles OWASP') }}</h3>
+            <span class="sentinel-panel-meta">{{ _('Cliquez une règle pour voir les logs') }}</span>
           </div>
           {% if ti.top_rules %}
-          <ul class="sentinel-owasp-list" aria-label="Top 5 règles OWASP déclenchées">
+          <ul class="sentinel-owasp-list" aria-label="{{ _('Top 5 règles OWASP déclenchées') }}">
             {% for r in ti.top_rules %}
             <li>
               <button type="button"
@@ -283,7 +283,7 @@
                       data-waf-rule-label="{{ r.label }}"
                       data-waf-rule-count="{{ r.count }}"
                       data-waf-rule-events-b64="{{ r.events_b64 }}"
-                      title="Voir les logs associés à {{ r.rule_id }}">
+                      title="{{ _('Voir les logs associés à') }} {{ r.rule_id }}">
                 <span class="sentinel-owasp-meta">
                   <span class="sentinel-owasp-id">{{ r.rule_id }}</span>
                   <span class="sentinel-owasp-label">{{ r.label }}</span>
@@ -302,10 +302,10 @@
         </div>
       </section>
 
-      <section class="sentinel-ops-grid sentinel-ops-grid--analyse" aria-label="Bans unifiés">
+      <section class="sentinel-ops-grid sentinel-ops-grid--analyse" aria-label="{{ _('Bans unifiés') }}">
         <div class="sentinel-panel sentinel-panel--quarantine sentinel-panel--full">
           <div class="sentinel-panel-head">
-            <h3 class="sentinel-panel-title">Bans actifs (unifiés)</h3>
+            <h3 class="sentinel-panel-title">{{ _('Bans actifs (unifiés)') }}</h3>
             <span class="sentinel-panel-meta">{{ bans|length }} ban(s)</span>
           </div>
           <div class="sentinel-panel-body" id="bans-unified">
@@ -313,7 +313,7 @@
             <div class="table-wrap">
               <table class="data-table">
                 <thead>
-                  <tr><th>Cible</th><th>Raison</th><th>Expiration</th><th></th></tr>
+                  <tr><th>Cible</th><th>{{ _('Raison') }}</th><th>Expiration</th><th></th></tr>
                 </thead>
                 <tbody>
                   {% for ban in bans %}
@@ -341,8 +341,8 @@
             </div>
             {% else %}
             <div class="empty-state">
-              <div class="empty-title">Aucun ban actif</div>
-              <div class="empty-desc">Les bans manuels ou automatiques apparaîtront ici.</div>
+              <div class="empty-title">{{ _('Aucun ban actif') }}</div>
+              <div class="empty-desc">{{ _('Les bans manuels ou automatiques apparaîtront ici.') }}</div>
             </div>
             {% endif %}
           </div>
@@ -353,18 +353,18 @@
       <section class="sentinel-panel sentinel-panel--feed" aria-label="Live security feed">
         <div class="sentinel-panel-head">
           <h3 class="sentinel-panel-title">Derniers blocages</h3>
-          <span class="sentinel-panel-meta">CRS + filtrage hôtes · agrégé{% if exec.generated_at %} {{ exec.generated_at[:16] }}{% endif %}</span>
+          <span class="sentinel-panel-meta">{{ _('CRS + filtrage hôtes · agrégé') }}{% if exec.generated_at %} {{ exec.generated_at[:16] }}{% endif %}</span>
         </div>
         <div class="sentinel-feed-wrap">
           <table class="sentinel-feed-table">
             <thead>
               <tr>
                 <th>Horodatage</th>
-                <th>IP source</th>
-                <th title="Hôte HTTP + URI demandés (pas l'upstream)">Cible</th>
-                <th>Source</th>
-                <th>Règle</th>
-                <th>Action</th>
+                <th>{{ _('IP source') }}</th>
+                <th title="{{ _('Hôte HTTP + URI demandés (pas l\'upstream)') }}">Cible</th>
+                <th>{{ _('Source') }}</th>
+                <th>{{ _('Règle') }}</th>
+                <th>{{ _('Action') }}</th>
                 <th></th>
               </tr>
             </thead>
@@ -385,14 +385,14 @@
                   {% endif %}
                   {% if a.ip_logs_href %}
                   <a class="sentinel-ip-logs" href="{{ a.ip_logs_href }}"
-                     title="Logs d’audit filtrés sur cette IP">Logs</a>
+                     title="{{ _('Logs d’audit filtrés sur cette IP') }}">Logs</a>
                   {% endif %}
                 </td>
                 <td class="sentinel-mono" title="{{ a.target_title or (a.host ~ a.uri) }}">
                   {% if a.host_lookup_url and a.host and a.host != '—' %}
                   <a class="sentinel-ip-link" href="{{ a.host_lookup_url }}"
                      target="_blank" rel="noopener noreferrer"
-                     title="Fiche IP hôte · whatismyipaddress.com">{{ a.host }}</a>{{ a.uri if a.uri != '—' else '' }}
+                     title="{{ _('Fiche IP hôte · whatismyipaddress.com') }}">{{ a.host }}</a>{{ a.uri if a.uri != '—' else '' }}
                   {% else %}
                   {{ a.target_display or (a.host ~ a.uri) }}
                   {% endif %}
@@ -448,7 +448,7 @@
                     <input type="hidden" name="scope_kind" value="rule">
                     {% endif %}
                     <input type="hidden" name="reason" value="FP depuis bilan — règle {{ a.rule_id }}{% if a.matched_target_name %} ({{ a.matched_scope_kind }}:{{ a.matched_target_name }}){% endif %}">
-                    <button type="submit" class="btn btn-ghost btn-sm" title="{% if a.matched_target_name %}Exclusion {{ a.matched_scope_kind }}:{{ a.matched_target_name }}{% else %}Exclusion scopée host+URI{% endif %}">Exclure</button>
+                    <button type="submit" class="btn btn-ghost btn-sm" title="{% if a.matched_target_name %}{{ _('Exclusion') }} {{ a.matched_scope_kind }}:{{ a.matched_target_name }}{% else %}{{ _('Exclusion scopée host+URI') }}{% endif %}">{{ _('Exclure') }}</button>
                   </form>
                   <a class="btn btn-ghost btn-sm"
                      href="/admin/security/waf?exclude_rule={{ a.rule_id }}&amp;exclude_host={{ (a.host if a.host != '—' else '') | urlencode }}&amp;exclude_uri={{ (a.uri if a.uri != '—' else '') | urlencode }}&amp;exclude_scope={{ (a.matched_scope_kind or 'args') | urlencode }}&amp;exclude_target={{ (a.matched_target_name or '') | urlencode }}&amp;exclude_reason={{ ('FP depuis bilan — règle ' ~ a.rule_id) | urlencode }}#exclusions"
@@ -460,7 +460,7 @@
                     <input type="hidden" name="ban_mode" value="temporary">
                     <input type="hidden" name="ban_minutes" value="1440">
                     <input type="hidden" name="reason" value="WAF Sentinel — {{ a.rule_label or a.rule_id }}">
-                    <button type="submit" class="btn btn-ghost btn-sm">Bannir</button>
+                    <button type="submit" class="btn btn-ghost btn-sm">{{ _('Bannir') }}</button>
                   </form>
                   {% elif a.banned %}
                   <span class="badge badge-ok">banni</span>
@@ -468,7 +468,7 @@
                 </td>
               </tr>
               {% else %}
-              <tr><td colspan="7" class="muted" style="padding:1rem">Aucun blocage récent.</td></tr>
+              <tr><td colspan="7" class="muted" style="padding:1rem">{{ _('Aucun blocage récent.') }}</td></tr>
               {% endfor %}
             </tbody>
           </table>
@@ -480,8 +480,8 @@
 
       <dialog id="waf-inspect-dialog" class="sentinel-inspect-dialog">
         <div class="sentinel-inspect-head">
-          <strong id="waf-inspect-title">Détail événement</strong>
-          <button type="button" class="btn btn-ghost btn-sm" id="waf-inspect-close">Fermer</button>
+          <strong id="waf-inspect-title">{{ _('Détail événement') }}</strong>
+          <button type="button" class="btn btn-ghost btn-sm" id="waf-inspect-close">{{ _('Fermer') }}</button>
         </div>
         <div class="sentinel-inspect-body">
           <pre class="sentinel-inspect-pre" id="waf-inspect-pre"></pre>
@@ -490,8 +490,8 @@
 
       <dialog id="waf-rule-logs-dialog" class="sentinel-inspect-dialog sentinel-rule-logs-dialog">
         <div class="sentinel-inspect-head">
-          <strong id="waf-rule-logs-title">Logs règle CRS</strong>
-          <button type="button" class="btn btn-ghost btn-sm" id="waf-rule-logs-close">Fermer</button>
+          <strong id="waf-rule-logs-title">{{ _('Logs règle CRS') }}</strong>
+          <button type="button" class="btn btn-ghost btn-sm" id="waf-rule-logs-close">{{ _('Fermer') }}</button>
         </div>
         <div class="sentinel-inspect-body">
           <p class="sentinel-rule-logs-hint" id="waf-rule-logs-hint"></p>
@@ -502,7 +502,7 @@
                   <th>Horodatage</th>
                   <th>IP</th>
                   <th>Cible</th>
-                  <th>Action</th>
+                  <th>{{ _('Action') }}</th>
                   <th>Message</th>
                 </tr>
               </thead>
@@ -523,18 +523,18 @@
 
     <div class="form-section-header">
 
-      <div class="form-section-title">Profil actif</div>
+      <div class="form-section-title">{{ _('Profil actif') }}</div>
 
-      <div class="form-section-sub">Enregistrement puis <strong>Appliquer</strong> pour pousser vers nginx.</div>
+      <div class="form-section-sub">{{ _('Enregistrement puis') }} <strong>{{ _('Appliquer') }}</strong> {{ _('pour pousser vers nginx.') }}</div>
 
     </div>
 
     <div class="form-body">
 
-      <section class="sentinel-panel sentinel-panel--config-controls waf-config-only" aria-label="Contrôles rapides">
+      <section class="sentinel-panel sentinel-panel--config-controls waf-config-only" aria-label="{{ _('Contrôles rapides') }}">
         <div class="sentinel-panel-head">
-          <h3 class="sentinel-panel-title">Contrôles rapides</h3>
-          <span class="sentinel-panel-meta">Couches de protection</span>
+          <h3 class="sentinel-panel-title">{{ _('Contrôles rapides') }}</h3>
+          <span class="sentinel-panel-meta">{{ _('Couches de protection') }}</span>
         </div>
         <div class="sentinel-panel-body">
           <div class="sentinel-controls">
@@ -549,19 +549,19 @@
                 <input type="hidden" name="toggle" value="{{ ctrl.toggle }}">
                 <input type="hidden" name="enabled" value="{{ 'off' if ctrl.enabled else 'on' }}">
                 <button type="submit" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}"
-                        title="{% if ctrl.enabled %}Désactiver{% else %}Activer{% endif %} {{ ctrl.label }}"
+                        title="{% if ctrl.enabled %}{{ _('Désactiver') }}{% else %}Activer{% endif %} {{ ctrl.label }}"
                         aria-pressed="{{ 'true' if ctrl.enabled else 'false' }}"
                         aria-label="{{ ctrl.label }}"></button>
               </form>
               {% elif ctrl.readonly %}
-              <button type="button" class="sentinel-switch is-on" disabled title="Configuré dans ce formulaire"></button>
+              <button type="button" class="sentinel-switch is-on" disabled title="{{ _('Configuré dans ce formulaire') }}"></button>
               {% else %}
               <button type="button" class="sentinel-switch {% if ctrl.enabled %}is-on{% endif %}" disabled></button>
               {% endif %}
             </div>
             {% endfor %}
           </div>
-          <ul class="sentinel-layers" aria-label="Couches de protection">
+          <ul class="sentinel-layers" aria-label="{{ _('Couches de protection') }}">
             {% for layer in protection_layers %}
             <li class="sentinel-layer" title="{{ layer.detail_full or layer.detail }}">
               <span class="sentinel-layer-dot sentinel-layer-dot--{{ layer.css | replace('badge-', '') }}"></span>
@@ -579,27 +579,27 @@
 
           <div class="form-group">
 
-            <label class="form-label" for="waf_profile_preset">Préréglage</label>
+            <label class="form-label" for="waf_profile_preset">{{ _('Préréglage') }}</label>
 
             <select id="waf_profile_preset" name="profile_preset" class="form-select" aria-describedby="waf-preset-hint">
 
               <option value="Production" {% if profile.name == 'Production' %}selected{% endif %}>Production</option>
 
-              <option value="Préproduction" {% if profile.name == 'Préproduction' %}selected{% endif %}>Préproduction</option>
+              <option value="Préproduction" {% if profile.name == 'Préproduction' %}selected{% endif %}>{{ _('Préproduction') }}</option>
 
-              <option value="Développement" {% if profile.name == 'Développement' %}selected{% endif %}>Développement</option>
+              <option value="Développement" {% if profile.name == 'Développement' %}selected{% endif %}>{{ _('Développement') }}</option>
 
               <option value="Custom" {% if profile.name not in ['Production','Préproduction','Développement'] %}selected{% endif %}>Custom</option>
 
             </select>
 
-            <p class="form-help" id="waf-preset-hint">Remplit le formulaire — puis Enregistrer, puis Appliquer.</p>
+            <p class="form-help" id="waf-preset-hint">{{ _('Remplit le formulaire — puis Enregistrer, puis Appliquer.') }}</p>
 
           </div>
 
           <div class="form-group">
 
-            <label class="form-label" for="waf_mode">Mode CRS {% if not control_effect.mode %}<span class="badge badge-warn waf-not-applied">non appliqué en nginx</span>{% endif %}</label>
+            <label class="form-label" for="waf_mode">{{ _('Mode CRS') }} {% if not control_effect.mode %}<span class="badge badge-warn waf-not-applied">{{ _('non appliqué en nginx') }}</span>{% endif %}</label>
 
             <select id="waf_mode" name="mode" class="form-select" required>
 
@@ -619,7 +619,7 @@
 
           <div class="form-group">
 
-            <label class="form-label" for="waf_anomaly_threshold">Seuil d'anomalie ({{ anomaly_min }}–{{ anomaly_max }}) {% if not control_effect.anomaly_threshold %}<span class="badge badge-warn waf-not-applied">non appliqué</span>{% endif %}</label>
+            <label class="form-label" for="waf_anomaly_threshold">Seuil d'anomalie ({{ anomaly_min }}–{{ anomaly_max }}) {% if not control_effect.anomaly_threshold %}<span class="badge badge-warn waf-not-applied">{{ _('non appliqué') }}</span>{% endif %}</label>
 
             <input class="form-input" type="number" id="waf_anomaly_threshold" name="anomaly_threshold" min="{{ anomaly_min }}" max="{{ anomaly_max }}" value="{{ profile.anomaly_threshold }}" required>
 
@@ -627,7 +627,7 @@
 
           <div class="form-group">
 
-            <label class="form-label" for="waf_ip_deny_min">Promotion IP deny — min. occurrences</label>
+            <label class="form-label" for="waf_ip_deny_min">{{ _('Promotion IP deny — min. occurrences') }}</label>
 
             <input class="form-input" type="number" id="waf_ip_deny_min" name="ip_deny_min_occurrences" min="1" max="100" value="{{ profile.ip_deny_min_occurrences }}" required>
 
@@ -635,13 +635,13 @@
 
         </div>
 
-        <div class="form-section-sub">Limites de débit portail (nginx)</div>
+        <div class="form-section-sub">{{ _('Limites de débit portail (nginx)') }}</div>
 
         <div class="form-row waf-rate-grid">
 
-          <div class="form-group"><label class="form-label" for="waf_portal_login_rate">Login (r/s)</label><input class="form-input" type="number" id="waf_portal_login_rate" name="portal_login_rate" min="1" value="{{ profile.portal_login_rate }}"></div>
+          <div class="form-group"><label class="form-label" for="waf_portal_login_rate">{{ _('Login (r/s)') }}</label><input class="form-input" type="number" id="waf_portal_login_rate" name="portal_login_rate" min="1" value="{{ profile.portal_login_rate }}"></div>
 
-          <div class="form-group"><label class="form-label" for="waf_portal_login_burst">Burst login</label><input class="form-input" type="number" id="waf_portal_login_burst" name="portal_login_burst" min="0" value="{{ profile.portal_login_burst }}"></div>
+          <div class="form-group"><label class="form-label" for="waf_portal_login_burst">{{ _('Burst login') }}</label><input class="form-input" type="number" id="waf_portal_login_burst" name="portal_login_burst" min="0" value="{{ profile.portal_login_burst }}"></div>
 
           <div class="form-group"><label class="form-label" for="waf_portal_api_rate">API (r/s)</label><input class="form-input" type="number" id="waf_portal_api_rate" name="portal_api_rate" min="1" value="{{ profile.portal_api_rate }}"></div>
 
@@ -649,24 +649,24 @@
 
         </div>
 
-        <div class="form-footer form-footer-flush"><button type="submit" class="btn btn-secondary">Enregistrer le profil</button></div>
+        <div class="form-footer form-footer-flush"><button type="submit" class="btn btn-secondary">{{ _('Enregistrer le profil') }}</button></div>
 
       </form>
 
       {% if reactivation and reactivation.can_disarm %}
       <div class="waf-disarm-block alert alert-warn" style="margin-top:var(--sp-4)">
-        <strong>Moteur portail armé</strong>
-        <p class="muted">Pour couper immédiatement ModSecurity (Off) :</p>
+        <strong>{{ _('Moteur portail armé') }}</strong>
+        <p class="muted">{{ _('Pour couper immédiatement ModSecurity (Off) :') }}</p>
         <form method="post" action="/admin/security/waf/actions/disarm" class="stack"
-              data-confirm-title="Couper le moteur ModSecurity ?"
-              data-confirm="Coupe le connecteur portail (modsecurity off) et SecRuleEngine Off, puis contrôles HTTP."
+              data-confirm-title="{{ _('Couper le moteur ModSecurity ?') }}"
+              data-confirm="{{ _('Coupe le connecteur portail (modsecurity off) et SecRuleEngine Off, puis contrôles HTTP.') }}"
               data-confirm-label="Couper le moteur"
               data-confirm-danger="1">
           <label class="form-check">
             <input type="checkbox" name="confirm_disarm" value="on" required>
-            Je confirme la coupure immédiate du moteur portail
+            {{ _('Je confirme la coupure immédiate du moteur portail') }}
           </label>
-          <button type="submit" class="btn btn-secondary">Couper le moteur</button>
+          <button type="submit" class="btn btn-secondary">{{ _('Couper le moteur') }}</button>
         </form>
       </div>
       {% endif %}
@@ -682,29 +682,29 @@
   <div class="form-section waf-panel" id="exclusions" role="tabpanel" aria-labelledby="tab-exclusions" hidden>
 
     <div class="form-section-header">
-      <div class="form-section-title">Exclusions CRS</div>
-      <div class="form-section-sub">Préférer une exclusion d’argument (ARGS) à une désactivation de règle entière. Puis <strong>Appliquer</strong>.</div>
+      <div class="form-section-title">{{ _('Exclusions CRS') }}</div>
+      <div class="form-section-sub">{{ _('Préférer une exclusion d’argument (ARGS) à une désactivation de règle entière. Puis') }} <strong>{{ _('Appliquer') }}</strong>.</div>
     </div>
 
     <div class="form-body">
 
       <div class="form-footer form-footer-flush mb-4" style="justify-content:flex-start;gap:.5rem">
-        <button type="button" class="btn btn-secondary" id="waf-ex-import-btn">Importer depuis un blocage récent</button>
+        <button type="button" class="btn btn-secondary" id="waf-ex-import-btn">{{ _('Importer depuis un blocage récent') }}</button>
       </div>
 
       <form method="post" action="/admin/security/waf/exclusions/add" class="stack mb-4" id="waf-exclusion-add-form">
 
         <div class="form-group">
-          <label class="form-label" for="waf_ex_reason">Raison</label>
+          <label class="form-label" for="waf_ex_reason">{{ _('Raison') }}</label>
           <input class="form-input" type="text" id="waf_ex_reason" name="reason" required maxlength="500"
-                 placeholder="Faux positif sur l’éditeur de texte enrichi">
+                 placeholder="{{ _('Faux positif sur l’éditeur de texte enrichi') }}">
         </div>
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="waf_ex_host">Hôte</label>
+            <label class="form-label" for="waf_ex_host">{{ _('Hôte') }}</label>
             <select class="form-select is-mono" id="waf_ex_host" name="host">
-              <option value="">— tous / global (déconseillé) —</option>
+              <option value="">{{ _('— tous / global (déconseillé) —') }}</option>
               {% for h in exclusion_hosts | default([]) %}
               <option value="{{ h }}">{{ h }}</option>
               {% endfor %}
@@ -722,12 +722,12 @@
             <label class="form-label" for="waf_ex_uri_match">Correspondance URI</label>
             <select class="form-select" id="waf_ex_uri_match" name="uri_match">
               <option value="exact" selected>Exacte (@streq)</option>
-              <option value="prefix">Préfixe (@beginsWith)</option>
-              <option value="regex">Expression régulière (@rx)</option>
+              <option value="prefix">{{ _('Préfixe (@beginsWith)') }}</option>
+              <option value="regex">{{ _('Expression régulière (@rx)') }}</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="waf_ex_rule">ID règle CRS</label>
+            <label class="form-label" for="waf_ex_rule">{{ _('ID règle CRS') }}</label>
             <input class="form-input is-mono" type="text" id="waf_ex_rule" name="crs_rule_id" required
                    list="waf-crs-rule-list" placeholder="942…" autocomplete="off"
                    aria-describedby="waf-ex-rule-hint">
@@ -736,29 +736,29 @@
               <option value="{{ s.id }}">{{ s.label }}</option>
               {% endfor %}
             </datalist>
-            <p class="form-help" id="waf-ex-rule-hint">Saisie libre ou suggestions (ex. 942100 — Injection SQL).</p>
+            <p class="form-help" id="waf-ex-rule-hint">{{ _('Saisie libre ou suggestions (ex. 942100 — Injection SQL).') }}</p>
           </div>
         </div>
 
         <fieldset class="form-group waf-exclusion-scope">
-          <legend class="form-label">Cible de l’exclusion</legend>
+          <legend class="form-label">{{ _('Cible de l’exclusion') }}</legend>
           <label class="form-check">
             <input type="radio" name="exclusion_mode" value="variable" checked id="waf_ex_mode_variable" data-waf-ex-mode>
-            Ignorer une variable (recommandé) — le backend choisit <code class="mono">ruleRemoveTargetById</code>
+{{ _('Ignorer une variable (recommandé) — le backend choisit') }} <code class="mono">ruleRemoveTargetById</code>
           </label>
           <label class="form-check">
             <input type="radio" name="exclusion_mode" value="rule" id="waf_ex_mode_rule" data-waf-ex-mode>
-            Désactiver la règle entière sur cette URL — déconseillé (<code class="mono">ruleRemoveById</code>)
+{{ _('Désactiver la règle entière sur cette URL — déconseillé (') }}<code class="mono">ruleRemoveById</code>)
           </label>
         </fieldset>
 
         <input type="hidden" name="scope_kind" id="waf_ex_scope_kind" value="args">
 
         <div class="form-group" id="waf-ex-target-wrap">
-          <label class="form-label" for="waf_ex_collection">Variable à ignorer</label>
+          <label class="form-label" for="waf_ex_collection">{{ _('Variable à ignorer') }}</label>
           <div class="form-row" style="align-items:center;gap:.5rem">
-            <select class="form-select is-mono" id="waf_ex_collection" aria-label="Type de variable">
-              <option value="args" selected>ARGS (paramètre)</option>
+            <select class="form-select is-mono" id="waf_ex_collection" aria-label="{{ _('Type de variable') }}">
+              <option value="args" selected>{{ _('ARGS (paramètre)') }}</option>
               <option value="args_names">ARGS_NAMES</option>
               <option value="cookies">REQUEST_COOKIES</option>
               <option value="headers">REQUEST_HEADERS</option>
@@ -771,11 +771,12 @@
 
         <label class="form-check" id="waf-ex-global-wrap" hidden>
           <input type="checkbox" name="allow_global" value="on" id="waf_ex_allow_global">
-          Je confirme l’exclusion <strong>globale</strong> de la règle (sans host ni URI)
+{{ _('Je confirme l’exclusion') }} <strong>globale</strong> {{ _('de la règle (sans host ni URI)') }}
+
         </label>
 
         <div class="form-footer form-footer-flush">
-          <button type="submit" class="btn btn-secondary">Ajouter</button>
+          <button type="submit" class="btn btn-secondary">{{ _('Ajouter') }}</button>
         </div>
 
       </form>
@@ -784,7 +785,7 @@
 
         <table class="data-table">
 
-          <thead><tr><th>ID</th><th>Règle</th><th>Scope</th><th>Raison</th><th>Actif</th><th></th></tr></thead>
+          <thead><tr><th>ID</th><th>{{ _('Règle') }}</th><th>Scope</th><th>{{ _('Raison') }}</th><th>Actif</th><th></th></tr></thead>
 
           <tbody>
 
@@ -802,7 +803,7 @@
                 {% elif sk == 'args_names' %}ARGS_NAMES{% if ex.target_name %}:{{ ex.target_name }}{% endif %}
                 {% elif sk == 'cookies' %}REQUEST_COOKIES:{{ ex.target_name or '?' }}
                 {% elif sk == 'headers' %}REQUEST_HEADERS:{{ ex.target_name or '?' }}
-                {% else %}règle entière{% endif %}
+                {% else %}{{ _('règle entière') }}{% endif %}
                 {% if ex.host %} · {{ ex.host }}{% endif %}
                 {% if ex.uri_pattern %} · {{ ex.uri_match or 'exact' }} {{ ex.uri_pattern }}{% endif %}
               </td>
@@ -811,15 +812,15 @@
               <td class="waf-exclusion-actions">
                 {% if ex.active %}
                 <form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/disable" class="inline-form waf-disable-form">
-                  <button type="submit" class="btn btn-ghost btn-sm">Désactiver</button>
+                  <button type="submit" class="btn btn-ghost btn-sm">{{ _('Désactiver') }}</button>
                 </form>
                 {% endif %}
                 <form method="post" action="/admin/security/waf/exclusions/{{ ex.id }}/delete" class="inline-form waf-delete-form">
-                  <button type="submit" class="btn btn-ghost btn-sm">Supprimer</button>
+                  <button type="submit" class="btn btn-ghost btn-sm">{{ _('Supprimer') }}</button>
                 </form>
               </td>
             </tr>
-            {% else %}<tr><td colspan="6" class="muted">Aucune exclusion</td></tr>{% endfor %}
+            {% else %}<tr><td colspan="6" class="muted">{{ _('Aucune exclusion') }}</td></tr>{% endfor %}
 
           </tbody>
 
@@ -830,16 +831,14 @@
     </div>
 
   </div>
+{# En-têtes #}
 
-
-
-  {# En-têtes #}
 
   <div class="form-section waf-panel" id="headers" role="tabpanel" aria-labelledby="tab-headers" hidden>
 
     <div class="form-section-header">
 
-      <div class="form-section-title">En-têtes de sécurité</div>
+      <div class="form-section-title">{{ _('En-têtes de sécurité') }}</div>
 
       <div class="form-section-sub">{{ headers_panel.source_note or 'Lecture snapshot nginx.' }}</div>
 
@@ -853,7 +852,7 @@
 
         <table class="data-table">
 
-          <thead><tr><th>En-tête</th><th>Valeur</th></tr></thead>
+          <thead><tr><th>{{ _('En-tête') }}</th><th>{{ _('Valeur') }}</th></tr></thead>
 
           <tbody>{% for h in headers_panel.headers %}<tr><td class="mono">{{ h.name }}</td><td class="mono">{{ h.value }}</td></tr>{% endfor %}</tbody>
 
@@ -861,35 +860,33 @@
 
       </div>
 
-      {% else %}<div class="alert alert-warn">En-têtes non vérifiables.</div>{% endif %}
+      {% else %}<div class="alert alert-warn">{{ _('En-têtes non vérifiables.') }}</div>{% endif %}
 
     </div>
 
   </div>
+{# Détails techniques #}
 
-
-
-  {# Détails techniques #}
 
   <div class="form-section waf-panel" id="technical" role="tabpanel" aria-labelledby="tab-technical" hidden>
 
     <div class="form-section-header">
 
-      <div class="form-section-title">Détails techniques & diagnostic</div>
+      <div class="form-section-title">{{ _('Détails techniques & diagnostic') }}</div>
 
-      <div class="form-section-sub">Sources de vérité, chemins, agrégateur, dernier Appliquer.</div>
+      <div class="form-section-sub">{{ _('Sources de vérité, chemins, agrégateur, dernier Appliquer.') }}</div>
 
     </div>
 
     <div class="form-body">
 
-      <h4 class="waf-subheading">État des sources</h4>
+      <h4 class="waf-subheading">{{ _('État des sources') }}</h4>
 
       <div class="data-table-wrapper waf-sources-wrap">
 
         <table class="data-table waf-sources-table">
 
-          <thead><tr><th>Composant</th><th>État</th><th>Détail</th><th>Chemin / action</th></tr></thead>
+          <thead><tr><th>Composant</th><th>{{ _('État') }}</th><th>{{ _('Détail') }}</th><th>{{ _('Chemin / action') }}</th></tr></thead>
 
           <tbody>
 
@@ -917,7 +914,7 @@
 
       </div>
 
-      <p class="form-help muted">Agrégateur — offset {{ diagnostic.aggregator_offset or '—' }} · état {{ diagnostic.aggregator_state_path }}</p>
+      <p class="form-help muted">{{ _('Agrégateur — offset') }} {{ diagnostic.aggregator_offset or '—' }} {{ _('· état') }} {{ diagnostic.aggregator_state_path }}</p>
 
 
 
@@ -931,15 +928,15 @@
 
         {% if generated.last_apply_at %}
 
-        <strong>Dernier Appliquer</strong> · {{ generated.last_apply_at }} · {{ generated.last_apply_by or '—' }}
+        <strong>{{ _('Dernier Appliquer') }}</strong> · {{ generated.last_apply_at }} · {{ generated.last_apply_by or '—' }}
 
-        {% if generated.last_apply_nginx_t_skipped %}<span class="badge badge-warn">nginx -t non exécuté</span>
+        {% if generated.last_apply_nginx_t_skipped %}<span class="badge badge-warn">{{ _('nginx -t non exécuté') }}</span>
 
         {% elif generated.last_apply_nginx_t_ok %}<span class="badge badge-ok">nginx -t OK</span>
 
-        {% else %}<span class="badge badge-err">nginx -t échec</span>{% endif %}
+        {% else %}<span class="badge badge-err">{{ _('nginx -t échec') }}</span>{% endif %}
 
-        {% else %}Dernier Appliquer inconnu.{% endif %}
+        {% else %}{{ _('Dernier Appliquer inconnu.') }}{% endif %}
 
       </div>
 
@@ -951,11 +948,11 @@
 
         <div class="waf-status-col">
 
-          <h3 class="waf-status-col-title">Souhaité (DB)</h3>
+          <h3 class="waf-status-col-title">{{ _('Souhaité (DB)') }}</h3>
 
           <div class="wizard-summary-grid waf-status-grid">
 
-            <div class="wizard-summary-item"><span class="wizard-summary-label">Profil</span><span class="wizard-summary-value">{{ desired.profile_name }}</span></div>
+            <div class="wizard-summary-item"><span class="wizard-summary-label">{{ _('Profil') }}</span><span class="wizard-summary-value">{{ desired.profile_name }}</span></div>
 
             <div class="wizard-summary-item"><span class="wizard-summary-label">Mode</span><span class="wizard-summary-value"><span class="badge {{ mode_badge.get(desired.mode, 'badge-muted') }}">{{ mode_label.get(desired.mode, desired.mode) }}</span></span></div>
 
@@ -967,7 +964,7 @@
 
         <div class="waf-status-col">
 
-          <h3 class="waf-status-col-title">Généré (export)</h3>
+          <h3 class="waf-status-col-title">{{ _('Généré (export)') }}</h3>
 
           {% if generated.present %}
 
@@ -991,7 +988,7 @@
 
           <div class="wizard-summary-grid waf-status-grid">
 
-            <div class="wizard-summary-item"><span class="wizard-summary-label">Mode portal</span><span class="wizard-summary-value"><span class="badge {{ mode_badge.get(active.portal_mode or active.aggregate_mode, 'badge-muted') }}">{{ mode_label.get(active.portal_mode or active.aggregate_mode, active.portal_mode or active.aggregate_mode) }}</span></span></div>
+            <div class="wizard-summary-item"><span class="wizard-summary-label">{{ _('Mode portal') }}</span><span class="wizard-summary-value"><span class="badge {{ mode_badge.get(active.portal_mode or active.aggregate_mode, 'badge-muted') }}">{{ mode_label.get(active.portal_mode or active.aggregate_mode, active.portal_mode or active.aggregate_mode) }}</span></span></div>
 
             <div class="wizard-summary-item"><span class="wizard-summary-label">Seuil</span><span class="wizard-summary-value mono">{{ active.aggregate_threshold }}</span></div>
 
@@ -999,7 +996,7 @@
 
           <p class="form-help mono">{{ active.snapshot_path }}</p>
 
-          {% else %}<p class="alert alert-warn">Non vérifiable — {{ active.error or 'snapshot absent' }}</p>{% endif %}
+          {% else %}<p class="alert alert-warn">{{ _('Non vérifiable —') }} {{ active.error or 'snapshot absent' }}</p>{% endif %}
 
         </div>
 
@@ -1007,14 +1004,14 @@
 
       <div class="waf-diagnostic-export" id="waf-diagnostic-export">
         <div class="waf-dash-card-header" style="border-radius:var(--r-lg) var(--r-lg) 0 0;margin-top:var(--sp-4)">
-          <h3 class="waf-dash-card-title">Export JSON diagnostic</h3>
-          <span class="waf-dash-card-meta">Attendu (DB) · généré · réel nginx</span>
+          <h3 class="waf-dash-card-title">{{ _('Export JSON diagnostic') }}</h3>
+          <span class="waf-dash-card-meta">{{ _('Attendu (DB) · généré · réel nginx') }}</span>
         </div>
         <div class="waf-diagnostic-export-body">
-          <p class="form-help">Modes, seuils, chemins, écarts — aucun secret.</p>
+          <p class="form-help">{{ _('Modes, seuils, chemins, écarts — aucun secret.') }}</p>
           <div class="waf-diagnostic-export-actions">
-            <button type="button" class="btn btn-secondary btn-sm" id="waf-diag-copy-btn">Copier le JSON</button>
-            <a class="btn btn-secondary btn-sm" href="/admin/security/waf/diagnostic.json" download>Télécharger .json</a>
+            <button type="button" class="btn btn-secondary btn-sm" id="waf-diag-copy-btn">{{ _('Copier le JSON') }}</button>
+            <a class="btn btn-secondary btn-sm" href="/admin/security/waf/diagnostic.json" download>{{ _('Télécharger .json') }}</a>
             <span class="form-help muted" id="waf-diag-copy-status" aria-live="polite"></span>
           </div>
           <textarea id="waf-diagnostic-json" class="form-input is-mono waf-diagnostic-json" readonly rows="18" spellcheck="false">{{ diagnostic_export_json }}</textarea>
@@ -1029,16 +1026,16 @@
   <div class="form-section waf-panel waf-reactivation" id="reactivation" role="tabpanel" aria-labelledby="tab-reactivation" hidden>
     <div class="form-section-header">
       <div class="form-section-title">{{ reactivation.title }}</div>
-      <div class="form-section-sub">DetectionOnly, contrôles HTTP, retour automatique à Off en cas d'échec</div>
+      <div class="form-section-sub">{{ _("DetectionOnly, contrôles HTTP, retour automatique à Off en cas d'échec") }}</div>
     </div>
     <div class="form-body">
       {% if reactivation.can_reactivate_portal %}
       <div class="alert alert-err">
-        <strong>Moteur portal désarmé</strong>
+        <strong>{{ _('Moteur portal désarmé') }}</strong>
         <p>{{ reactivation.summary }}</p>
-        <p class="muted">Souhaité (DB) : <code>{{ reactivation.desired_mode }}</code>
-          · Réel (nginx) : <code>{{ reactivation.real_mode or '—' }}</code>
-          · Armé : <strong>non</strong></p>
+        <p class="muted">{{ _('Souhaité (DB) :') }} <code>{{ reactivation.desired_mode }}</code>
+{{ _('· Réel (nginx) :') }} <code>{{ reactivation.real_mode or '—' }}</code>
+{{ _('· Armé :') }} <strong>non</strong></p>
       </div>
 
       <div class="waf-reactivation-actions">
@@ -1046,25 +1043,26 @@
               id="waf-reactivate-form">
           <label class="form-check">
             <input type="checkbox" name="confirm_reactivate" value="on" required>
-            Je confirme l'activation portail (DetectionOnly) et les contrôles HTTP
+            {{ _("Je confirme l'activation portail (DetectionOnly) et les contrôles HTTP") }}
           </label>
-          <button type="submit" class="btn btn-primary">Réactiver le portail (DetectionOnly)</button>
+          <button type="submit" class="btn btn-primary">{{ _('Réactiver le portail (DetectionOnly)') }}</button>
         </form>
       </div>
       {% elif reactivation.armed %}
       <div class="alert alert-ok">
-        <strong>Moteur portal armé</strong>
+        <strong>{{ _('Moteur portal armé') }}</strong>
         <p>{{ reactivation.summary }}</p>
-        <p class="muted">Réel (nginx) portal : <code>{{ reactivation.real_mode or '—' }}</code>
-          · subdomain : <code>{{ reactivation.subdomain_real_mode or '—' }}</code></p>
+        <p class="muted">{{ _('Réel (nginx) portal :') }} <code>{{ reactivation.real_mode or '—' }}</code>
+{{ _('· subdomain :') }} <code>{{ reactivation.subdomain_real_mode or '—' }}</code></p>
       </div>
       {% endif %}
 
       {% if reactivation.can_reactivate_subdomain %}
       <div class="alert alert-warn" style="margin-top:1rem">
-        <strong>Sous-domaines (subdomain_proxy)</strong>
+        <strong>{{ _('Sous-domaines (subdomain_proxy)') }}</strong>
         <p>{{ reactivation.subdomain_summary }}</p>
-        <p class="muted">FQDN contrôlés :
+        <p class="muted">{{ _('FQDN contrôlés :') }}
+
           {% for h in reactivation.subdomain_apps %}
           <code class="mono">{{ h }}</code>{% if not loop.last %}, {% endif %}
           {% endfor %}
@@ -1075,30 +1073,30 @@
               id="waf-reactivate-subdomain-form">
           <label class="form-check">
             <input type="checkbox" name="confirm_reactivate_subdomain" value="on" required>
-            Je confirme l'activation sous-domaines (DetectionOnly) et les contrôles HTTP
+            {{ _("Je confirme l'activation sous-domaines (DetectionOnly) et les contrôles HTTP") }}
           </label>
-          <button type="submit" class="btn btn-primary">Réactiver subdomain (DetectionOnly)</button>
+          <button type="submit" class="btn btn-primary">{{ _('Réactiver subdomain (DetectionOnly)') }}</button>
         </form>
       </div>
       {% elif reactivation.subdomain_armed %}
       <div class="alert alert-ok" style="margin-top:1rem">
-        <strong>ModSecurity subdomain armé</strong>
-        <p class="muted">Mode nginx : <code>{{ reactivation.subdomain_real_mode or '—' }}</code>
-          {% if reactivation.subdomain_target_mode %} · cible : <code>{{ reactivation.subdomain_target_mode }}</code>{% endif %}
-          · Apps : {% for h in reactivation.subdomain_apps %}<code class="mono">{{ h }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+        <strong>{{ _('ModSecurity subdomain armé') }}</strong>
+        <p class="muted">{{ _('Mode nginx :') }} <code>{{ reactivation.subdomain_real_mode or '—' }}</code>
+          {% if reactivation.subdomain_target_mode %} {{ _('· cible :') }} <code>{{ reactivation.subdomain_target_mode }}</code>{% endif %}
+{{ _('· Apps :') }} {% for h in reactivation.subdomain_apps %}<code class="mono">{{ h }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>
       </div>
       {% if reactivation.can_promote_subdomain_to_on %}
       <div class="alert alert-warn" style="margin-top:1rem">
-        <strong>Promouvoir les sous-domaines en On (blocage)</strong>
+        <strong>{{ _('Promouvoir les sous-domaines en On (blocage)') }}</strong>
         <p>{{ reactivation.subdomain_promote_summary }}</p>
-        <p class="muted">Prérequis : profil WAF en mode On. Le portail n'est pas modifié par cette action.</p>
+        <p class="muted">{{ _("Prérequis : profil WAF en mode On. Le portail n'est pas modifié par cette action.") }}</p>
       </div>
       <div class="waf-reactivation-actions">
         <form method="post" action="/admin/security/waf/actions/promote-subdomain-on" class="stack waf-reactivate-form"
               id="waf-promote-subdomain-on-form">
           <label class="form-check">
             <input type="checkbox" name="confirm_promote_subdomain_on" value="on" required>
-            Je confirme le passage subdomain en On (blocage CRS) et les contrôles HTTP
+            {{ _('Je confirme le passage subdomain en On (blocage CRS) et les contrôles HTTP') }}
           </label>
           <button type="submit" class="btn btn-primary">Promouvoir subdomain (On)</button>
         </form>
@@ -1114,15 +1112,15 @@
         </li>
         {% endfor %}
       </ol>
-      <p class="form-help">Ordre : portail, puis sous-domaines. Le proxy public n'est pas activé ici.</p>
+      <p class="form-help">{{ _("Ordre : portail, puis sous-domaines. Le proxy public n'est pas activé ici.") }}</p>
       <div class="alert alert-warn">
-        <strong>Contrôles après activation</strong>
+        <strong>{{ _('Contrôles après activation') }}</strong>
         <ul class="waf-pending-list">
-          <li><code>nginx -t</code> puis reload des exports</li>
-          <li>Portail : <code>/_portal_nginx_ok</code>, <code>/api/health</code>, <code>/auth/login</code> — pas de 5xx</li>
-          <li>Sous-domaines : GET <code>/auth/login</code> (Host = FQDN) — pas de 5xx (302 OK)</li>
+          <li><code>nginx -t</code> {{ _('puis reload des exports') }}</li>
+          <li>{{ _('Portail :') }} <code>/_portal_nginx_ok</code>, <code>/api/health</code>, <code>/auth/login</code> {{ _('— pas de 5xx') }}</li>
+          <li>{{ _('Sous-domaines : GET') }} <code>/auth/login</code> {{ _('(Host = FQDN) — pas de 5xx (302 OK)') }}</li>
         </ul>
-        <p class="muted">Si une sonde échoue, le moteur de la famille concernée revient à Off. nginx -t seul ne suffit pas.</p>
+        <p class="muted">{{ _('Si une sonde échoue, le moteur de la famille concernée revient à Off. nginx -t seul ne suffit pas.') }}</p>
       </div>
     </div>
   </div>
@@ -1130,14 +1128,14 @@
 
   <dialog id="waf-ex-import-dialog" class="sentinel-inspect-dialog" aria-labelledby="waf-ex-import-title">
     <div class="sentinel-inspect-head">
-      <strong id="waf-ex-import-title">Importer depuis un blocage récent</strong>
-      <button type="button" class="btn btn-ghost btn-sm" id="waf-ex-import-close">Fermer</button>
+      <strong id="waf-ex-import-title">{{ _('Importer depuis un blocage récent') }}</strong>
+      <button type="button" class="btn btn-ghost btn-sm" id="waf-ex-import-close">{{ _('Fermer') }}</button>
     </div>
     <div class="sentinel-inspect-body" style="padding:0">
       {% if ac is defined and ac.present %}
       <table class="data-table" id="waf-ex-import-table">
         <thead>
-          <tr><th>Heure</th><th>Règle</th><th>Cible</th><th>Variable</th><th></th></tr>
+          <tr><th>{{ _('Heure') }}</th><th>{{ _('Règle') }}</th><th>Cible</th><th>Variable</th><th></th></tr>
         </thead>
         <tbody>
           {% for a in ac.recent if a.can_exclude and a.source == 'crs' %}
@@ -1161,9 +1159,10 @@
           <tr>
             <td colspan="5">
               <p class="sentinel-inspect-empty">
-                Aucun blocage CRS récent importable.
-                Consultez l’onglet <strong>Bilan</strong> après agrégation des logs ModSecurity.
-                Sans événement CRS, une exclusion manuelle n’est pas justifiée.
+                {{ _('Aucun blocage CRS récent importable.') }}
+{{ _('Consultez l’onglet') }} <strong>Bilan</strong> {{ _('après agrégation des logs ModSecurity.') }}
+
+                {{ _('Sans événement CRS, une exclusion manuelle n’est pas justifiée.') }}
               </p>
             </td>
           </tr>
@@ -1172,9 +1171,10 @@
       </table>
       {% else %}
       <p class="sentinel-inspect-empty">
-        Aucun blocage CRS récent importable.
-        Consultez l’onglet <strong>Bilan</strong> après agrégation des logs ModSecurity.
-        Sans événement CRS, une exclusion manuelle n’est pas justifiée.
+        {{ _('Aucun blocage CRS récent importable.') }}
+{{ _('Consultez l’onglet') }} <strong>Bilan</strong> {{ _('après agrégation des logs ModSecurity.') }}
+
+        {{ _('Sans événement CRS, une exclusion manuelle n’est pas justifiée.') }}
       </p>
       {% endif %}
     </div>

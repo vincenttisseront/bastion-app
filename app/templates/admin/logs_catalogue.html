@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Catalogue des événements{% endblock %}
-{% block breadcrumb %}Admin / Logs / Catalogue{% endblock %}
+{% block title %}{{ _('Catalogue des événements') }}{% endblock %}
+{% block breadcrumb %}{{ _('Admin / Logs / Catalogue') }}{% endblock %}
 
 {% block content %}
 {% set filters = filters | default({}) %}
@@ -10,13 +10,13 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Catalogue des événements</h1>
-      <p class="page-sub">{{ events | length }} code(s) — référentiel des événements d’audit</p>
+      <h1 class="page-title">{{ _('Catalogue des événements') }}</h1>
+      <p class="page-sub">{{ events | length }} {{ _('code(s) — référentiel des événements d’audit') }}</p>
     </div>
     <div class="page-actions">
-      <a class="btn btn-ghost btn-sm" href="/admin/logs#audit">← Logs</a>
-      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=csv{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">↓ CSV</a>
-      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=json{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">↓ JSON</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs#audit">{{ _('← Logs') }}</a>
+      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=csv{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">{{ _('↓ CSV') }}</a>
+      <a class="btn btn-secondary btn-sm" href="/admin/logs/catalogue?export=json{% if filters.domain %}&amp;domain={{ filters.domain }}{% endif %}{% if filters.severity %}&amp;severity={{ filters.severity }}{% endif %}{% if filters.q %}&amp;q={{ filters.q }}{% endif %}">{{ _('↓ JSON') }}</a>
     </div>
   </div>
 
@@ -24,11 +24,11 @@
     <div class="logs-filters-row">
       <div class="logs-filters-grid">
         <label class="logs-filter-field logs-filter-grow">
-          <span class="form-label">Recherche</span>
-          <input type="search" class="form-input" name="q" value="{{ filters.q or '' }}" placeholder="code, label, action…">
+          <span class="form-label">{{ _('Recherche') }}</span>
+          <input type="search" class="form-input" name="q" value="{{ filters.q or '' }}" placeholder="{{ _('code, label, action…') }}">
         </label>
         <label class="logs-filter-field">
-          <span class="form-label">Domaine</span>
+          <span class="form-label">{{ _('Domaine') }}</span>
           <select class="form-select" name="domain">
             <option value="">Tous</option>
             {% for d in domains %}
@@ -37,9 +37,9 @@
           </select>
         </label>
         <label class="logs-filter-field">
-          <span class="form-label">Criticité</span>
+          <span class="form-label">{{ _('Criticité') }}</span>
           <select class="form-select" name="severity">
-            <option value="">Toutes</option>
+            <option value="">{{ _('Toutes') }}</option>
             {% for s in severities %}
             <option value="{{ s }}"{% if filters.severity == s %} selected{% endif %}>{{ s }}</option>
             {% endfor %}
@@ -48,7 +48,7 @@
       </div>
       <div class="logs-filters-footer">
         <div class="logs-filters-actions">
-          <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+          <button type="submit" class="btn btn-primary btn-sm">{{ _('Filtrer') }}</button>
         </div>
       </div>
     </div>
@@ -59,11 +59,11 @@
       <thead>
         <tr>
           <th>Code</th>
-          <th>Criticité</th>
-          <th>Domaine</th>
+          <th>{{ _('Criticité') }}</th>
+          <th>{{ _('Domaine') }}</th>
           <th>Label</th>
-          <th>Libellé FR</th>
-          <th>Action legacy</th>
+          <th>{{ _('Libellé FR') }}</th>
+          <th>{{ _('Action legacy') }}</th>
           <th>Runbook</th>
         </tr>
       </thead>
@@ -86,7 +86,7 @@
           <td>{{ e.runbook or "—" }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="logs-empty-cell">Aucun événement</td></tr>
+        <tr><td colspan="7" class="logs-empty-cell">{{ _('Aucun événement') }}</td></tr>
         {% endfor %}
       </tbody>
     </table>

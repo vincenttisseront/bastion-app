@@ -204,6 +204,25 @@ body.app-layout{display:flex;min-height:100vh}
 }
 .icon-btn .notif-count[hidden]{display:none !important}
 
+.locale-switch{
+  display:inline-flex;align-items:center;gap:2px;
+  border:1px solid var(--border);border-radius:var(--r-md);padding:2px;
+  background:var(--bg-elevated, transparent);
+}
+.locale-switch .locale-btn{
+  width:auto;min-width:32px;height:30px;padding:0 8px;
+  border:none;border-radius:calc(var(--r-md) - 2px);
+  font-size:11px;font-weight:700;letter-spacing:.04em;
+  color:var(--text-2);background:transparent;
+}
+.locale-switch .locale-btn.is-active,
+.locale-switch .locale-btn[aria-pressed="true"]{
+  background:var(--bg-overlay);color:var(--text);border:1px solid var(--border-bright);
+}
+.login-locale-switch{
+  position:absolute;top:var(--sp-3);left:var(--sp-3);z-index:2;
+}
+
 /* —— Notification center —— */
 .notif-center{position:relative}
 .notif-panel{

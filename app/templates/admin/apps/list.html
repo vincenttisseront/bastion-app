@@ -1,42 +1,42 @@
 {% extends "base.html" %}
-{% block title %}Applications{% endblock %}
+{% block title %}{{ _('Applications') }}{% endblock %}
 {% block breadcrumb %}Admin / Applications{% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Applications</h1>
-      <p class="page-sub">{{ apps | length }} application(s) enregistrée(s)</p>
+      <h1 class="page-title">{{ _('Applications') }}</h1>
+      <p class="page-sub">{{ apps | length }} {{ _('application(s) enregistrée(s)') }}</p>
     </div>
   </div>
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Applications · {{ apps | length }}</span>
+      <span class="card-title">{{ _('Applications ·') }} {{ apps | length }}</span>
       <div class="card-header-actions">
         <label class="topbar-search search-field-md" for="apps-search">
-          <span class="visually-hidden">Filtrer les applications</span>
+          <span class="visually-hidden">{{ _('Filtrer les applications') }}</span>
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="search" id="apps-search" placeholder="Filtrer…" data-search-target="apps-table">
+          <input type="search" id="apps-search" placeholder="{{ _('Filtrer…') }}" data-search-target="apps-table">
         </label>
-        <a href="/admin/apps/create" class="btn btn-primary btn-sm">+ Ajouter</a>
+        <a href="/admin/apps/create" class="btn btn-primary btn-sm">{{ _('+ Ajouter') }}</a>
       </div>
     </div>
     <div class="card-body" style="padding-bottom:0;">
-      <fieldset class="filter-group" aria-label="Filtrer par mode" id="admin-apps-mode-filter">
+      <fieldset class="filter-group" aria-label="{{ _('Filtrer par mode') }}" id="admin-apps-mode-filter">
         <button type="button" class="filter-chip active" data-filter="all">Tout</button>
         <button type="button" class="filter-chip" data-filter="sso_gate">SSO Gate</button>
-        <button type="button" class="filter-chip" data-filter="subdomain_proxy">Sous-domaine</button>
+        <button type="button" class="filter-chip" data-filter="subdomain_proxy">{{ _('Sous-domaine') }}</button>
         <button type="button" class="filter-chip" data-filter="legacy_path_proxy">Legacy</button>
-        <button type="button" class="filter-chip" data-filter="public_proxy">Proxy public</button>
+        <button type="button" class="filter-chip" data-filter="public_proxy">{{ _('Proxy public') }}</button>
       </fieldset>
     </div>
     <div class="card-body card-flush">
       <div class="table-wrap">
         <table class="data-table" id="apps-table">
           <thead>
-            <tr><th>Nom</th><th>Slug</th><th>Upstream</th><th>Mode</th><th>Statut</th><th>Actions</th></tr>
+            <tr><th>Nom</th><th>Slug</th><th>{{ _('Upstream') }}</th><th>Mode</th><th>{{ _('Statut') }}</th><th>{{ _('Actions') }}</th></tr>
           </thead>
           <tbody>
             {% for app in apps %}
@@ -71,10 +71,10 @@
               <td><span class="badge badge-{{ 'ok' if app.enabled else 'muted' }}">{{ 'Actif' if app.enabled else 'Désactivé' }}</span></td>
               <td>
                 <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2);">
-                  <a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">Modifier</a>
+                  <a href="/admin/apps/{{ app.slug }}/edit" class="btn btn-ghost btn-sm">{{ _('Modifier') }}</a>
                   <form method="post" action="/admin/apps/{{ app.slug }}/delete" class="inline-form" data-app-delete
                         data-app-label="{{ app.label }}">
-                    <button type="submit" class="btn btn-danger btn-sm">Supprimer</button>
+                    <button type="submit" class="btn btn-danger btn-sm">{{ _('Supprimer') }}</button>
                   </form>
                   {% if crush_ready and realms %}
                   <button type="button"
@@ -84,7 +84,7 @@
                           data-app-label="{{ app.label }}"
                           data-vfs-base="{{ app.crushftp_vfs_base_path }}"
                           data-realm-slug="{{ app.realm_slug or '' }}">
-                    Importer sociétés
+                    {{ _('Importer sociétés') }}
                   </button>
                   {% endif %}
                 </div>
@@ -97,9 +97,9 @@
                   <div class="empty-icon">
                     <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/></svg>
                   </div>
-                  <div class="empty-title">Aucune application</div>
-                  <div class="empty-desc">Créez une application pour l'exposer via le portail SSO.</div>
-                  <a href="/admin/apps/create" class="btn btn-primary btn-sm">Créer une application</a>
+                  <div class="empty-title">{{ _('Aucune application') }}</div>
+                  <div class="empty-desc">{{ _("Créez une application pour l'exposer via le portail SSO.") }}</div>
+                  <a href="/admin/apps/create" class="btn btn-primary btn-sm">{{ _('Créer une application') }}</a>
                 </div>
               </td>
             </tr>
@@ -117,17 +117,18 @@
   <div class="bastion-modal-dialog bastion-modal-dialog--form" role="dialog" aria-modal="true"
        aria-labelledby="crushftp-import-title" tabindex="-1">
     <div class="bastion-modal-header">
-      <h2 id="crushftp-import-title" class="bastion-modal-title">Importer les sociétés CrushFTP</h2>
+      <h2 id="crushftp-import-title" class="bastion-modal-title">{{ _('Importer les sociétés CrushFTP') }}</h2>
     </div>
     <div class="bastion-modal-body">
       <div id="crushftp-import-form-panel">
         <p class="bastion-modal-message" style="margin-bottom:var(--sp-3);">
-          Liste les sous-dossiers de la racine VFS et crée les groupes société manquants
-          (RBAC + Keycloak) dans le realm choisi. Idempotent.
+          {{ _('Liste les sous-dossiers de la racine VFS et crée les groupes société manquants') }}
+{{ _('(RBAC + Keycloak) dans le realm choisi. Idempotent.') }}
+
         </p>
         <p class="form-hint" style="margin-bottom:var(--sp-3);">
-          Application : <strong id="crushftp-import-app-label"></strong><br>
-          Racine : <span class="mono" id="crushftp-import-vfs"></span>
+{{ _('Application :') }} <strong id="crushftp-import-app-label"></strong><br>
+{{ _('Racine :') }} <span class="mono" id="crushftp-import-vfs"></span>
         </p>
         <div id="crushftp-import-error" class="form-error" hidden style="margin-bottom:var(--sp-3);"></div>
         <form id="crushftp-import-form" method="post" action="">
@@ -147,9 +148,9 @@
       </div>
     </div>
     <div class="bastion-modal-footer">
-      <button type="button" class="btn btn-ghost" data-crushftp-import-dismiss id="crushftp-import-cancel">Annuler</button>
+      <button type="button" class="btn btn-ghost" data-crushftp-import-dismiss id="crushftp-import-cancel">{{ _('Annuler') }}</button>
       <button type="submit" form="crushftp-import-form" class="btn btn-primary" id="crushftp-import-submit">Importer</button>
-      <button type="button" class="btn btn-primary" data-crushftp-import-dismiss id="crushftp-import-done" hidden>Fermer</button>
+      <button type="button" class="btn btn-primary" data-crushftp-import-dismiss id="crushftp-import-done" hidden>{{ _('Fermer') }}</button>
     </div>
   </div>
 </div>

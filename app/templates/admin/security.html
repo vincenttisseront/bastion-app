@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Sécurité{% endblock %}
-{% block breadcrumb %}Admin / Sécurité{% endblock %}
+{% block title %}{{ _('Sécurité') }}{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Sécurité') }}{% endblock %}
 
 {% block content %}
 {% set subdomain_sso_enabled = subdomain_sso_enabled | default(false) %}
@@ -11,15 +11,15 @@
 <div class="page" id="security-page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Sécurité</h1>
-      <p class="page-sub">TLS, SSO, break-glass, chiffrement, anti-abus</p>
+      <h1 class="page-title">{{ _('Sécurité') }}</h1>
+      <p class="page-sub">{{ _('TLS, SSO, break-glass, chiffrement, anti-abus') }}</p>
     </div>
   </div>
 
-  <div class="tabs" role="tablist" aria-label="Sections sécurité" id="security-tabs">
-    <a href="#api" class="tab active" role="tab" data-tab="api" id="tab-api" aria-selected="true">Clés API</a>
+  <div class="tabs" role="tablist" aria-label="{{ _('Sections sécurité') }}" id="security-tabs">
+    <a href="#api" class="tab active" role="tab" data-tab="api" id="tab-api" aria-selected="true">{{ _('Clés API') }}</a>
     <a href="#tls" class="tab" role="tab" data-tab="tls" id="tab-tls">TLS</a>
-    <a href="#subdomain-sso" class="tab" role="tab" data-tab="subdomain-sso" id="tab-subdomain-sso">SSO sous-domaine</a>
+    <a href="#subdomain-sso" class="tab" role="tab" data-tab="subdomain-sso" id="tab-subdomain-sso">{{ _('SSO sous-domaine') }}</a>
     <a href="#breakglass-jwt" class="tab" role="tab" data-tab="breakglass-jwt" id="tab-breakglass-jwt">
       Break-glass JWT
       {% if breakglass_secret and not breakglass_secret.conforming %}
@@ -49,64 +49,65 @@
 
   <div class="form-section security-panel" id="api" role="tabpanel" aria-labelledby="tab-api">
     <div class="form-section-header">
-      <div class="form-section-title">Clés API internes</div>
+      <div class="form-section-title">{{ _('Clés API internes') }}</div>
       <div class="form-section-sub">Routes machine-to-machine <span class="mono">/api/admin/*</span></div>
     </div>
     <div class="form-body">
       <p class="form-prose">
-        Token interne configuré via <code class="mono">vault_portal_internal_token</code>.
-        Utilisé pour l'authentification des appels automatisés entre services.
+{{ _('Token interne configuré via') }} <code class="mono">vault_portal_internal_token</code>.
+        {{ _("Utilisé pour l'authentification des appels automatisés entre services.") }}
       </p>
     </div>
   </div>
 
   <div class="form-section security-panel" id="tls" role="tabpanel" aria-labelledby="tab-tls" hidden>
     <div class="form-section-header">
-      <div class="form-section-title">TLS / Certificats</div>
+      <div class="form-section-title">{{ _('TLS / Certificats') }}</div>
       <div class="form-section-sub">Terminaison Nginx + Let's Encrypt</div>
     </div>
     <div class="form-body">
       <p class="form-prose">
-        Apps <strong>et portail</strong> : certificats ACME DNS-01 sur le bastion
-        (nginx :8443 → :8080). Voir la liste complète dans Admin → ACME.
+        Apps <strong>{{ _('et portail') }}</strong> {{ _(': certificats ACME DNS-01 sur le bastion') }}
+
+        {{ _('(nginx :8443 → :8080). Voir la liste complète dans Admin → ACME.') }}
       </p>
       <p class="form-prose form-prose-spaced">
-        <a href="/admin/acme" class="btn btn-primary">Ouvrir Admin → ACME</a>
+        <a href="/admin/acme" class="btn btn-primary">{{ _('Ouvrir Admin → ACME') }}</a>
       </p>
     </div>
   </div>
 
   <div class="form-section security-panel" id="subdomain-sso" role="tabpanel" aria-labelledby="tab-subdomain-sso" hidden>
     <div class="form-section-header">
-      <div class="form-section-title">Routage par sous-domaine dédié (SSO)</div>
+      <div class="form-section-title">{{ _('Routage par sous-domaine dédié (SSO)') }}</div>
       <div class="form-section-sub">
-        État actuel :
+       {{ _('État actuel :') }}
         {% if subdomain_sso_enabled %}
-        <span class="badge badge-ok">Activé</span>
+        <span class="badge badge-ok">{{ _('Activé') }}</span>
         {% else %}
-        <span class="badge badge-muted">Désactivé</span>
+        <span class="badge badge-muted">{{ _('Désactivé') }}</span>
         {% endif %}
       </div>
     </div>
     <div class="form-body">
       <p class="form-prose form-prose-spaced">
-        Actif : apps sous-domaine → FQDN après impersonation. Sinon <span class="mono">/proxy/{slug}/</span>.
+{{ _('Actif : apps sous-domaine → FQDN après impersonation. Sinon') }} <span class="mono">/proxy/{slug}/</span>.
       </p>
 
       <div class="alert alert-warn mb-4">
         <div class="alert-body">
-          N'activez que si DNS, TLS et nginx sont prêts pour toutes les apps en sous-domaine.
+          {{ _("N'activez que si DNS, TLS et nginx sont prêts pour toutes les apps en sous-domaine.") }}
         </div>
       </div>
 
       {% if subdomain_apps %}
       <p class="form-help mb-2">
-        Applications actuellement en mode sous-domaine dédié ({{ subdomain_apps | length }}) :
+{{ _('Applications actuellement en mode sous-domaine dédié (') }}{{ subdomain_apps | length }}) :
       </p>
       <div class="table-wrap mb-4">
         <table class="data-table">
           <thead>
-            <tr><th>Application</th><th>FQDN public</th></tr>
+            <tr><th>{{ _('Application') }}</th><th>{{ _('FQDN public') }}</th></tr>
           </thead>
           <tbody>
             {% for app in subdomain_apps %}
@@ -123,8 +124,8 @@
         <div class="empty-icon">
           <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
         </div>
-        <div class="empty-title">Aucune application sous-domaine</div>
-        <div class="empty-desc">Aucune application active en mode « Sous-domaine dédié » pour le moment.</div>
+        <div class="empty-title">{{ _('Aucune application sous-domaine') }}</div>
+        <div class="empty-desc">{{ _('Aucune application active en mode « Sous-domaine dédié » pour le moment.') }}</div>
       </div>
       {% endif %}
 
@@ -134,20 +135,20 @@
             <input type="checkbox" name="enabled" id="subdomain_sso_enabled"
                    {% if subdomain_sso_enabled %}checked{% endif %}
                    data-was-enabled="{{ '1' if subdomain_sso_enabled else '0' }}">
-            Activer le routage par sous-domaine dédié (SSO)
+            {{ _('Activer le routage par sous-domaine dédié (SSO)') }}
           </label>
         </div>
         <div class="form-group" id="infra-ack-group" {% if subdomain_sso_enabled %}hidden{% endif %}>
           <label class="form-label form-check-row">
             <input type="checkbox" name="infra_ack" id="infra_ack">
             <span>
-              J'ai vérifié que l'infrastructure (DNS, TLS, Nginx) est prête pour
-              toutes les applications listées ci-dessus.
+              {{ _("J'ai vérifié que l'infrastructure (DNS, TLS, Nginx) est prête pour") }}
+              {{ _('toutes les applications listées ci-dessus.') }}
             </span>
           </label>
         </div>
         <div class="form-footer form-footer-flush">
-          <button type="submit" class="btn btn-secondary btn-sm">Enregistrer</button>
+          <button type="submit" class="btn btn-secondary btn-sm">{{ _('Enregistrer') }}</button>
         </div>
       </form>
     </div>
@@ -155,36 +156,37 @@
 
   <div class="form-section security-panel" id="breakglass-jwt" role="tabpanel" aria-labelledby="tab-breakglass-jwt" hidden>
     <div class="form-section-header">
-      <div class="form-section-title">Secret HMAC break-glass (<span class="mono">bg_session</span>)</div>
+      <div class="form-section-title">{{ _('Secret HMAC break-glass (') }}<span class="mono">{{ _('bg_session') }}</span>)</div>
       <div class="form-section-sub">
         Statut :
         {% if breakglass_secret.conforming %}
         <span class="badge badge-ok">Conforme</span>
         {% else %}
-        <span class="badge badge-err">Non conforme — signature encore basée sur VAULT_PORTAL_INTERNAL_TOKEN
+        <span class="badge badge-err">{{ _('Non conforme — signature encore basée sur VAULT_PORTAL_INTERNAL_TOKEN') }}
         </span>
         {% endif %}
       </div>
     </div>
     <div class="form-body">
       <p class="form-prose form-prose-spaced">
-        Secret via <code class="mono">BREAKGLASS_JWT_SECRET</code> (env) ;
-        l’UI peut en générer un si absent. Jamais affiché en clair.
+{{ _('Secret via') }} <code class="mono">BREAKGLASS_JWT_SECRET</code> {{ _('(env) ;') }}
+
+        {{ _('l’UI peut en générer un si absent. Jamais affiché en clair.') }}
       </p>
 
       <div class="table-wrap mb-4">
         <table class="data-table">
           <tbody>
             <tr>
-              <th><code class="mono">BREAKGLASS_JWT_SECRET</code> (env) défini ?</th>
+              <th><code class="mono">BREAKGLASS_JWT_SECRET</code> {{ _('(env) défini ?') }}</th>
               <td>{% if breakglass_secret.env_defined %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-muted">Non</span>{% endif %}</td>
             </tr>
             <tr>
-              <th>Secret UI généré et actif (si env absent) ?</th>
+              <th>{{ _('Secret UI généré et actif (si env absent) ?') }}</th>
               <td>{% if breakglass_secret.ui_secret_active %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-muted">Non</span>{% endif %}</td>
             </tr>
             <tr>
-              <th>Secret effectif distinct de <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> ?</th>
+              <th>{{ _('Secret effectif distinct de') }} <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> ?</th>
               <td>{% if breakglass_secret.effective_distinct_from_vault_token %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-err">Non</span>{% endif %}</td>
             </tr>
             <tr>
@@ -192,7 +194,7 @@
               <td>{% if breakglass_secret.legacy_fallback_enabled %}<span class="badge badge-muted">Oui</span>{% else %}<span class="badge badge-ok">Non</span>{% endif %}</td>
             </tr>
             <tr>
-              <th>Source de signature active</th>
+              <th>{{ _('Source de signature active') }}</th>
               <td class="mono">{{ breakglass_secret.effective_source or '—' }}</td>
             </tr>
           </tbody>
@@ -202,47 +204,49 @@
       {% if breakglass_secret.env_defined %}
       <div class="alert alert-ok mb-4">
         <div class="alert-body">
-          Secret défini par <code class="mono">BREAKGLASS_JWT_SECRET</code> — génération UI désactivée.
+{{ _('Secret défini par') }} <code class="mono">BREAKGLASS_JWT_SECRET</code> {{ _('— génération UI désactivée.') }}
+
         </div>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" disabled title="Env déjà définie">
-        Générer un secret dédié
+      <button type="button" class="btn btn-secondary btn-sm" disabled title="{{ _('Env déjà définie') }}">
+        {{ _('Générer un secret dédié') }}
       </button>
       {% elif breakglass_secret.can_generate %}
       <div class="alert alert-warn mb-4">
         <div class="alert-body">
-          Aucun secret dédié — signatures encore sur
-          <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> (ou secret éphémère).
-          Générez un secret UI ou déployez la variable d’environnement.
+          {{ _('Aucun secret dédié — signatures encore sur') }}
+          <code class="mono">VAULT_PORTAL_INTERNAL_TOKEN</code> {{ _('(ou secret éphémère).') }}
+
+          {{ _('Générez un secret UI ou déployez la variable d’environnement.') }}
         </div>
       </div>
       <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
-            data-confirm="Générer un secret break-glass ? Les sessions existantes restent valides pendant la transition."
-            data-confirm-title="Générer le secret break-glass"
-            data-confirm-label="Générer">
+            data-confirm="{{ _('Générer un secret break-glass ? Les sessions existantes restent valides pendant la transition.') }}"
+            data-confirm-title="{{ _('Générer le secret break-glass') }}"
+            data-confirm-label="{{ _('Générer') }}">
         <div class="form-group">
           <label class="form-label form-check-row">
             <input type="checkbox" name="confirm" value="on" required>
-            <span>Je confirme la génération d'un secret dédié (valeur aléatoire côté serveur, jamais affichée).</span>
+            <span>{{ _("Je confirme la génération d'un secret dédié (valeur aléatoire côté serveur, jamais affichée).") }}</span>
           </label>
         </div>
-        <button type="submit" class="btn btn-primary btn-sm">Générer un secret dédié</button>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Générer un secret dédié') }}</button>
       </form>
       {% elif breakglass_secret.can_rotate %}
       <p class="form-help mb-4">
-        Secret UI actif — régénérer pour rotation (ancienne valeur acceptée pendant la transition).
+        {{ _('Secret UI actif — régénérer pour rotation (ancienne valeur acceptée pendant la transition).') }}
       </p>
       <form method="post" action="/admin/security/breakglass-jwt-secret/generate"
-            data-confirm="Régénérer (rotation) le secret break-glass UI ? Les nouvelles signatures utiliseront la nouvelle valeur ; les cookies déjà émis restent valides."
-            data-confirm-title="Régénérer le secret break-glass"
-            data-confirm-label="Régénérer">
+            data-confirm="{{ _('Régénérer (rotation) le secret break-glass UI ? Les nouvelles signatures utiliseront la nouvelle valeur ; les cookies déjà émis restent valides.') }}"
+            data-confirm-title="{{ _('Régénérer le secret break-glass') }}"
+            data-confirm-label="{{ _('Régénérer') }}">
         <div class="form-group">
           <label class="form-label form-check-row">
             <input type="checkbox" name="confirm" value="on" required>
-            <span>Je confirme la rotation du secret UI (valeur aléatoire côté serveur).</span>
+            <span>{{ _('Je confirme la rotation du secret UI (valeur aléatoire côté serveur).') }}</span>
           </label>
         </div>
-        <button type="submit" class="btn btn-secondary btn-sm">Régénérer (rotation)</button>
+        <button type="submit" class="btn btn-secondary btn-sm">{{ _('Régénérer (rotation)') }}</button>
       </form>
       {% endif %}
     </div>
@@ -250,15 +254,15 @@
 
   <div class="form-section security-panel" id="vault" role="tabpanel" aria-labelledby="tab-vault" hidden>
     <div class="form-section-header">
-      <div class="form-section-title">Coffre-fort applicatif (Fernet)</div>
+      <div class="form-section-title">{{ _('Coffre-fort applicatif (Fernet)') }}</div>
       <div class="form-section-sub">
-        Clé gérée par l'application (fichier local) —
+        {{ _("Clé gérée par l'application (fichier local) —") }}
         {% if vault_key and vault_key.status_badge == 'recommended' %}
-        <span class="badge badge-warn">Rotation recommandée</span>
+        <span class="badge badge-warn">{{ _('Rotation recommandée') }}</span>
         {% elif vault_key %}
         <span class="badge badge-ok">OK</span>
         {% else %}
-        <span class="badge badge-muted">Indisponible</span>
+        <span class="badge badge-muted">{{ _('Indisponible') }}</span>
         {% endif %}
       </div>
     </div>
@@ -267,27 +271,28 @@
       <div class="table-wrap mb-4">
         <table class="data-table">
           <tbody>
-            <tr><th>Version active</th><td class="mono">v{{ vault_key.version }}</td></tr>
-            <tr><th>Âge</th><td>{{ vault_key.age_days }} jour(s)</td></tr>
-            <tr><th>Cadence recommandée</th><td>{{ vault_key.rotation_days }} jours</td></tr>
-            <tr><th>Prochaine échéance</th>
+            <tr><th>{{ _('Version active') }}</th><td class="mono">v{{ vault_key.version }}</td></tr>
+            <tr><th>{{ _('Âge') }}</th><td>{{ vault_key.age_days }} jour(s)</td></tr>
+            <tr><th>{{ _('Cadence recommandée') }}</th><td>{{ vault_key.rotation_days }} jours</td></tr>
+            <tr><th>{{ _('Prochaine échéance') }}</th>
               <td>{% if vault_key.next_due_at %}{{ vault_key.next_due_at.strftime('%Y-%m-%d') }}{% else %}—{% endif %}</td>
             </tr>
-            <tr><th>Source</th><td class="mono">{{ vault_key.source or '—' }}</td></tr>
-            <tr><th>Répertoire</th><td class="mono">{{ vault_key.keys_dir }}</td></tr>
+            <tr><th>{{ _('Source') }}</th><td class="mono">{{ vault_key.source or '—' }}</td></tr>
+            <tr><th>{{ _('Répertoire') }}</th><td class="mono">{{ vault_key.keys_dir }}</td></tr>
           </tbody>
         </table>
       </div>
       {% if vault_key.rotation_recommended %}
       <div class="alert alert-warn mb-4">
         <div class="alert-body">
-          La clé a dépassé la cadence configurée. Aucune rotation automatique :
-          utilisez « Forcer le renouvellement » ci-dessous.
+          {{ _('La clé a dépassé la cadence configurée. Aucune rotation automatique :') }}
+{{ _('utilisez « Forcer le renouvellement » ci-dessous.') }}
+
         </div>
       </div>
       {% endif %}
       {% else %}
-      <p class="form-prose">Statut de clé indisponible.</p>
+      <p class="form-prose">{{ _('Statut de clé indisponible.') }}</p>
       {% endif %}
 
       {% set rot_days = vault_key.rotation_days if vault_key else 180 %}
@@ -295,19 +300,19 @@
         <div class="ds-accordion-item" data-ds-accordion>
           <div class="ds-accordion-head" data-ds-accordion-toggle>
             <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="vault-panel-cadence" tabindex="-1">▸</button>
-            <span class="ds-accordion-title">Cadence de rotation</span>
-            <span class="ds-accordion-summary">Rotation automatique · tous les {{ rot_days }} jours</span>
+            <span class="ds-accordion-title">{{ _('Cadence de rotation') }}</span>
+            <span class="ds-accordion-summary">{{ _('Rotation automatique · tous les') }} {{ rot_days }} jours</span>
           </div>
           <div class="ds-accordion-panel" id="vault-panel-cadence" hidden>
             <form method="post" action="/admin/security/vault-key/cadence" class="stack">
               <div class="form-group">
-                <label class="form-label" for="rotation_days">Cadence recommandée (jours)</label>
+                <label class="form-label" for="rotation_days">{{ _('Cadence recommandée (jours)') }}</label>
                 <input class="form-input input-narrow" type="number" min="1" max="3650" name="rotation_days" id="rotation_days"
                        value="{{ rot_days }}">
-                <p class="form-help">Surveillance quotidienne uniquement — jamais de rotation sans clic admin.</p>
+                <p class="form-help">{{ _('Surveillance quotidienne uniquement — jamais de rotation sans clic admin.') }}</p>
               </div>
               <div class="form-footer form-footer-flush">
-                <button type="submit" class="btn btn-secondary btn-sm">Enregistrer la cadence</button>
+                <button type="submit" class="btn btn-secondary btn-sm">{{ _('Enregistrer la cadence') }}</button>
               </div>
             </form>
           </div>
@@ -316,23 +321,23 @@
         <div class="ds-accordion-item" data-ds-accordion>
           <div class="ds-accordion-head" data-ds-accordion-toggle>
             <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="vault-panel-export" tabindex="-1">▸</button>
-            <span class="ds-accordion-title">Sauvegarde chiffrée</span>
-            <span class="ds-accordion-summary">Export de la clé active (passphrase requise)</span>
+            <span class="ds-accordion-title">{{ _('Sauvegarde chiffrée') }}</span>
+            <span class="ds-accordion-summary">{{ _('Export de la clé active (passphrase requise)') }}</span>
           </div>
           <div class="ds-accordion-panel" id="vault-panel-export" hidden>
             <form method="post" action="/admin/security/vault-key/export" class="stack">
               <div class="form-group">
-                <label class="form-label" for="export_passphrase">Passphrase (≥ 12 car.)</label>
+                <label class="form-label" for="export_passphrase">{{ _('Passphrase (≥ 12 car.)') }}</label>
                 <input class="form-input" type="password" name="passphrase" id="export_passphrase"
-                       placeholder="Passphrase (≥ 12 car.)" autocomplete="new-password" required minlength="12">
+                       placeholder="{{ _('Passphrase (≥ 12 car.)') }}" autocomplete="new-password" required minlength="12">
               </div>
               <div class="form-group">
                 <input class="form-input" type="password" name="passphrase_confirm"
-                       placeholder="Confirmer la passphrase" autocomplete="new-password" required minlength="12">
-                <p class="form-help">La passphrase n'est jamais stockée. Conservez le fichier hors du serveur.</p>
+                       placeholder="{{ _('Confirmer la passphrase') }}" autocomplete="new-password" required minlength="12">
+                <p class="form-help">{{ _("La passphrase n'est jamais stockée. Conservez le fichier hors du serveur.") }}</p>
               </div>
               <div class="form-footer form-footer-flush">
-                <button type="submit" class="btn btn-secondary btn-sm">Télécharger la sauvegarde</button>
+                <button type="submit" class="btn btn-secondary btn-sm">{{ _('Télécharger la sauvegarde') }}</button>
               </div>
             </form>
           </div>
@@ -341,16 +346,17 @@
         <div class="ds-accordion-item" data-ds-accordion>
           <div class="ds-accordion-head" data-ds-accordion-toggle>
             <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="vault-panel-rotate" tabindex="-1">▸</button>
-            <span class="ds-accordion-title">Forcer le renouvellement</span>
+            <span class="ds-accordion-title">{{ _('Forcer le renouvellement') }}</span>
             <span class="ds-accordion-summary{% if not vault_key or not vault_key.rotation_recommended %} is-off{% endif %}">
-              {% if vault_key and vault_key.rotation_recommended %}Rotation recommandée{% else %}Renouvellement manuel{% endif %}
+              {% if vault_key and vault_key.rotation_recommended %}{{ _('Rotation recommandée') }}{% else %}{{ _('Renouvellement manuel') }}{% endif %}
             </span>
           </div>
           <div class="ds-accordion-panel" id="vault-panel-rotate" hidden>
             <form method="post" action="/admin/security/vault-key/rotate" id="vault-key-rotate-form" class="stack">
               <input type="hidden" name="confirm" value="on">
               <p class="form-prose form-prose-spaced">
-                Rechiffre tous les credentials applicatifs. Confirmation explicite requise.
+{{ _('Rechiffre tous les credentials applicatifs. Confirmation explicite requise.') }}
+
               </p>
               <div class="form-footer form-footer-flush">
                 <button type="submit" class="btn btn-secondary btn-sm" id="vault-key-rotate-btn">
@@ -366,9 +372,10 @@
 
   <div class="form-section security-panel" id="db-encryption" role="tabpanel" aria-labelledby="tab-db-encryption" hidden>
     <div class="form-section-header">
-      <div class="form-section-title">Chiffrement au repos (SQLCipher)</div>
+      <div class="form-section-title">{{ _('Chiffrement au repos (SQLCipher)') }}</div>
       <div class="form-section-sub">
-        Fichier <span class="mono">portal.db</span> entier —
+        Fichier <span class="mono">portal.db</span> {{ _('entier —') }}
+
         {% if db_encryption %}
           {% if db_encryption.status_badge == 'ok' %}
           <span class="badge badge-ok">{{ db_encryption.status_label }}</span>
@@ -380,15 +387,15 @@
           <span class="badge badge-muted">{{ db_encryption.status_label }}</span>
           {% endif %}
         {% else %}
-        <span class="badge badge-muted">Indisponible</span>
+        <span class="badge badge-muted">{{ _('Indisponible') }}</span>
         {% endif %}
       </div>
     </div>
     <div class="form-body">
       <p class="form-prose form-prose-spaced">
-        Couche indépendante du coffre Fernet : AES-256 sur tout le fichier SQLite
-        (y compris backups). Les credentials restent aussi protégés par Fernet
-        (défense en profondeur).
+        {{ _('Couche indépendante du coffre Fernet : AES-256 sur tout le fichier SQLite') }}
+        {{ _('(y compris backups). Les credentials restent aussi protégés par Fernet') }}
+        {{ _('(défense en profondeur).') }}
       </p>
 
       {% if db_encryption %}
@@ -396,11 +403,11 @@
         <table class="data-table">
           <tbody>
             <tr>
-              <th>État</th>
+              <th>{{ _('État') }}</th>
               <td>{{ db_encryption.status_label }}</td>
             </tr>
             <tr>
-              <th>Clé configurée</th>
+              <th>{{ _('Clé configurée') }}</th>
               <td>
                 {% if db_encryption.enabled %}
                 <span class="badge badge-ok">Oui</span>
@@ -410,18 +417,19 @@
               </td>
             </tr>
             <tr>
-              <th>Source de la clé</th>
+              <th>{{ _('Source de la clé') }}</th>
               <td class="mono">
-                {% if db_encryption.source == 'file' %}fichier db_encryption.key
+                {% if db_encryption.source == 'file' %}{{ _('fichier db_encryption.key') }}
+
                 {% elif db_encryption.source == 'env' %}variable d'environnement
                 {% else %}—{% endif %}
               </td>
             </tr>
             <tr>
-              <th>Fichier clé</th>
+              <th>{{ _('Fichier clé') }}</th>
               <td>
                 {% if db_encryption.key_file_present %}
-                <span class="badge badge-ok">Présent</span>
+                <span class="badge badge-ok">{{ _('Présent') }}</span>
                 {% else %}
                 <span class="badge badge-muted">Absent</span>
                 {% endif %}
@@ -431,30 +439,30 @@
               <th>Driver sqlcipher3</th>
               <td>
                 {% if db_encryption.sqlcipher_available %}
-                <span class="badge badge-ok">Disponible</span>
+                <span class="badge badge-ok">{{ _('Disponible') }}</span>
                 {% else %}
-                <span class="badge badge-muted">Non installé</span>
+                <span class="badge badge-muted">{{ _('Non installé') }}</span>
                 {% endif %}
               </td>
             </tr>
             <tr>
-              <th>Fichier DB</th>
+              <th>{{ _('Fichier DB') }}</th>
               <td class="mono">{{ db_encryption.db_path or '—' }}</td>
             </tr>
             <tr>
-              <th>DB chiffrée</th>
+              <th>{{ _('DB chiffrée') }}</th>
               <td>
                 {% if db_encryption.db_encrypted is none %}
-                <span class="badge badge-muted">{% if db_encryption.db_exists %}Inconnu{% else %}Absent / vide{% endif %}</span>
+                <span class="badge badge-muted">{% if db_encryption.db_exists %}{{ _('Inconnu') }}{% else %}{{ _('Absent / vide') }}{% endif %}</span>
                 {% elif db_encryption.db_encrypted %}
                 <span class="badge badge-ok">Oui</span>
                 {% else %}
-                <span class="badge badge-warn">Non (clair)</span>
+                <span class="badge badge-warn">{{ _('Non (clair)') }}</span>
                 {% endif %}
               </td>
             </tr>
             <tr>
-              <th>Répertoire clés</th>
+              <th>{{ _('Répertoire clés') }}</th>
               <td class="mono">{{ db_encryption.keys_dir }}</td>
             </tr>
           </tbody>
@@ -464,15 +472,15 @@
       {% if db_encryption.status_badge == 'warn' %}
       <div class="alert alert-warn mb-4">
         <div class="alert-body">
-          Une clé SQLCipher est configurée mais <span class="mono">portal.db</span> est encore
-          en clair. Chiffrez avant redémarrage :
+{{ _('Une clé SQLCipher est configurée mais') }} <span class="mono">portal.db</span> est encore
+          {{ _('en clair. Chiffrez avant redémarrage :') }}
           <span class="mono">python scripts/encrypt_portal_db.py</span>.
         </div>
       </div>
       {% elif db_encryption.status_badge == 'error' and not db_encryption.enabled %}
       <div class="alert alert-warn mb-4">
         <div class="alert-body">
-          Le fichier semble chiffré mais aucune clé n'est configurée
+          {{ _("Le fichier semble chiffré mais aucune clé n'est configurée") }}
           (<span class="mono">(VAULT_PORTAL_DB_ENCRYPTION_KEY</span> /
           <span class="mono">db_encryption.key)</span>.
         </div>
@@ -480,14 +488,14 @@
       {% elif not db_encryption.enabled %}
       <div class="alert alert-info mb-4">
         <div class="alert-body form-prose">
-          Mode clair (dev). En production : clé
+          {{ _('Mode clair (dev). En production : clé') }}
           <span class="mono">vault_portal_db_encryption_key</span>
-          (64 hex — <span class="mono">openssl rand -hex 32</span>).
+{{ _('(64 hex —') }} <span class="mono">openssl rand -hex 32</span>).
         </div>
       </div>
       {% endif %}
       {% else %}
-      <p class="form-prose">Statut de chiffrement indisponible.</p>
+      <p class="form-prose">{{ _('Statut de chiffrement indisponible.') }}</p>
       {% endif %}
     </div>
   </div>
@@ -510,30 +518,32 @@
     {% set allow_raw = (security_policy.breakglass_allow_cidrs if security_policy else '') or '' %}
     {% set deny_raw = (security_policy.breakglass_deny_cidrs if security_policy else '') or '' %}
     <div class="form-section-header">
-      <div class="form-section-title">Misc — paramètres anti-abus</div>
-      <div class="form-section-sub">Activation globale et contrôle d'accès IP break-glass</div>
+      <div class="form-section-title">{{ _('Misc — paramètres anti-abus') }}</div>
+      <div class="form-section-sub">{{ _("Activation globale et contrôle d'accès IP break-glass") }}</div>
     </div>
     {% set ip_probe = client_ip_probe | default({}) %}
     <div class="alert {% if breakglass_ip_allowed %}alert-ok{% else %}alert-warn{% endif %}" role="status" style="margin-bottom:1rem">
-      <strong>IP vue par le portail (cette requête) :</strong>
+      <strong>{{ _('IP vue par le portail (cette requête) :') }}</strong>
       <code class="mono">{{ ip_probe.resolved or '(vide — fail closed)' }}</code>
       {% if breakglass_ip_allowed %}
-      — break-glass <strong>autorisé</strong> pour cette IP.
+{{ _('— break-glass') }} <strong>{{ _('autorisé') }}</strong> {{ _('pour cette IP.') }}
+
       {% else %}
-      — break-glass <strong>refusé</strong> (pas dans RFC1918 / allowlist, ou IP non résolue).
-      L’IP vue peut différer de celle du poste (proxy, load balancer).
+{{ _('— break-glass') }} <strong>{{ _('refusé') }}</strong> {{ _('(pas dans RFC1918 / allowlist, ou IP non résolue).') }}
+
+      {{ _('L’IP vue peut différer de celle du poste (proxy, load balancer).') }}
       {% endif %}
       <div class="form-help" style="margin-top:0.5rem">
         peer={{ ip_probe.request_client_host or '—' }}
-        · X-Real-IP={{ ip_probe.x_real_ip or '—' }}
-        · XFF={{ ip_probe.x_forwarded_for or '—' }}
+{{ _('· X-Real-IP=') }}{{ ip_probe.x_real_ip or '—' }}
+{{ _('· XFF=') }}{{ ip_probe.x_forwarded_for or '—' }}
       </div>
     </div>
     <div class="form-body">
       <form method="post" action="/admin/security/misc" class="stack" id="misc-form">
         <label class="check-row">
           <input type="checkbox" name="enabled" {% if not security_policy or security_policy.enabled %}checked{% endif %}>
-          <span>Activer le moteur anti-abus (hammering, échecs de login, bans)</span>
+          <span>{{ _('Activer le moteur anti-abus (hammering, échecs de login, bans)') }}</span>
         </label>
 
         <div class="ds-accordion">
@@ -541,24 +551,24 @@
             <div class="ds-accordion-head" data-ds-accordion-toggle>
               <button type="button" class="ds-accordion-expand" aria-expanded="false" aria-controls="misc-panel-cidr" tabindex="-1">▸</button>
               <span class="ds-accordion-title">Plages CIDR break-glass</span>
-              <span class="ds-accordion-summary">{% if allow_raw or deny_raw %}Plages personnalisées configurées{% else %}RFC1918 par défaut (aucune plage saisie){% endif %}</span>
+              <span class="ds-accordion-summary">{% if allow_raw or deny_raw %}{{ _('Plages personnalisées configurées') }}{% else %}{{ _('RFC1918 par défaut (aucune plage saisie)') }}{% endif %}</span>
             </div>
             <div class="ds-accordion-panel" id="misc-panel-cidr" hidden>
               <div class="stack">
                 <div>
-                  <label class="form-label" for="breakglass_allow_cidrs">IPs / CIDR autorisées break-glass</label>
+                  <label class="form-label" for="breakglass_allow_cidrs">{{ _('IPs / CIDR autorisées break-glass') }}</label>
                   <textarea id="breakglass_allow_cidrs" name="breakglass_allow_cidrs" rows="3" class="form-input is-mono"
-                    placeholder="Vide = réseaux RFC1918 par défaut (ex. 10.0.0.0/8, 172.16.0.0/12)">{{ allow_raw }}</textarea>
+                    placeholder="{{ _('Vide = réseaux RFC1918 par défaut (ex. 10.0.0.0/8, 172.16.0.0/12)') }}">{{ allow_raw }}</textarea>
                   <p class="form-help">
-                    Si renseigné, seules ces plages (sinon RFC1918).
+                    {{ _('Si renseigné, seules ces plages (sinon RFC1918).') }}
                   </p>
                 </div>
                 <div>
-                  <label class="form-label" for="breakglass_deny_cidrs">IPs / CIDR bloquées break-glass</label>
+                  <label class="form-label" for="breakglass_deny_cidrs">{{ _('IPs / CIDR bloquées break-glass') }}</label>
                   <textarea id="breakglass_deny_cidrs" name="breakglass_deny_cidrs" rows="3" class="form-input is-mono"
-                    placeholder="Toujours refusées, même si présentes dans la liste d'autorisation">{{ deny_raw }}</textarea>
+                    placeholder="{{ _('Toujours refusées, même si présentes dans la liste d\'autorisation') }}">{{ deny_raw }}</textarea>
                   <p class="form-help">
-                    Refus prioritaire — CIDR séparés par virgule ou ligne.
+                    {{ _('Refus prioritaire — CIDR séparés par virgule ou ligne.') }}
                   </p>
                 </div>
               </div>
@@ -567,7 +577,7 @@
         </div>
 
         <div class="form-footer form-footer-flush">
-          <button type="submit" class="btn btn-primary">Enregistrer</button>
+          <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
         </div>
       </form>
     </div>
@@ -575,8 +585,8 @@
 
   <div class="form-section security-panel" id="banning" role="tabpanel" aria-labelledby="tab-banning" hidden>
     <div class="form-section-header">
-      <div class="form-section-title">Banning — règles et bans actifs</div>
-      <div class="form-section-sub">Protection des endpoints bastion (login, /admin/*, /api/admin/*)</div>
+      <div class="form-section-title">{{ _('Banning — règles et bans actifs') }}</div>
+      <div class="form-section-sub">{{ _('Protection des endpoints bastion (login, /admin/*, /api/admin/*)') }}</div>
     </div>
     <div class="form-body banning-stack">
       {% set policy_enabled = not security_policy or security_policy.enabled %}
@@ -595,20 +605,21 @@
       <div class="alert {% if policy_enabled %}alert-ok{% else %}alert-warn{% endif %} banning-global-status" role="status">
         <strong>Moteur anti-abus global</strong> (onglet Misc) :
         {% if policy_enabled %}
-        <span class="badge badge-ok">activé</span>
+        <span class="badge badge-ok">{{ _('activé') }}</span>
         {% else %}
-        <span class="badge badge-warn">désactivé</span>
-        — les règles cochées ci-dessous sont <strong>inopérantes</strong> tant que le toggle Misc n'est pas réactivé.
+        <span class="badge badge-warn">{{ _('désactivé') }}</span>
+{{ _('— les règles cochées ci-dessous sont') }} <strong>{{ _('inopérantes') }}</strong> {{ _("tant que le toggle Misc n'est pas réactivé.") }}
+
         {% endif %}
       </div>
       <p class="form-help banning-apply-note">
-        Règles immédiates ; deny nginx via <strong>Appliquer</strong> sur la page
+{{ _('Règles immédiates ; deny nginx via') }} <strong>{{ _('Appliquer') }}</strong> sur la page
         <a href="/admin/security/waf">WAF</a>.
       </p>
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Règles</span>
+          <span class="card-title">{{ _('Règles') }}</span>
         </div>
         <div class="card-body">
           <form method="post" action="/admin/security/banning/rules" class="stack" id="banning-rules-form">
@@ -619,32 +630,33 @@
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-hammering" tabindex="-1">▸</button>
                   <span class="banning-rule-title">Anti-hammering</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="hammering_enabled" data-banning-enabled {% if hammer_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="hammering_enabled" data-banning-enabled {% if hammer_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not hammer_on %} is-off{% endif %}" data-banning-summary>
                     {% if hammer_on %}
-                    {{ hammer.threshold if hammer else 100 }} req/{{ hammer.window_seconds if hammer else 100 }}s · {% if hammer and hammer.ban_permanent %}ban permanent{% else %}ban {{ hammer.ban_minutes if hammer else 60 }} min{% endif %}
-                    {% else %}Désactivé{% endif %}
+                    {{ hammer.threshold if hammer else 100 }} req/{{ hammer.window_seconds if hammer else 100 }}{{ _('s ·') }} {% if hammer and hammer.ban_permanent %}ban permanent{% else %}ban {{ hammer.ban_minutes if hammer else 60 }} min{% endif %}
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-hammering" hidden>
                   <div class="stack">
                     <div class="form-grid">
                       <div>
-                        <label class="form-label" for="hammering_threshold">Seuil (requêtes)</label>
+                        <label class="form-label" for="hammering_threshold">{{ _('Seuil (requêtes)') }}</label>
                         <input class="form-input" type="number" min="1" id="hammering_threshold" name="hammering_threshold" data-banning-field="threshold" value="{{ hammer.threshold if hammer else 100 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="hammering_window_seconds">Fenêtre (s)</label>
+                        <label class="form-label" for="hammering_window_seconds">{{ _('Fenêtre (s)') }}</label>
                         <input class="form-input" type="number" min="1" id="hammering_window_seconds" name="hammering_window_seconds" data-banning-field="window" value="{{ hammer.window_seconds if hammer else 100 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="hammering_ban_minutes">Durée ban (min)</label>
+                        <label class="form-label" for="hammering_ban_minutes">{{ _('Durée ban (min)') }}</label>
                         <input class="form-input" type="number" min="1" id="hammering_ban_minutes" name="hammering_ban_minutes" data-banning-field="minutes" value="{{ hammer.ban_minutes if hammer else 60 }}">
                       </div>
                     </div>
-                    <label class="check-row"><input type="checkbox" name="hammering_ban_permanent" data-banning-field="permanent" {% if hammer and hammer.ban_permanent %}checked{% endif %}> Ban permanent</label>
-                    <label class="check-row"><input type="checkbox" name="hammering_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                    <label class="check-row"><input type="checkbox" name="hammering_ban_permanent" data-banning-field="permanent" {% if hammer and hammer.ban_permanent %}checked{% endif %}> {{ _('Ban permanent') }}</label>
+                    <label class="check-row"><input type="checkbox" name="hammering_confirm_permanent"> {{ _('Je confirme le ban permanent (requis)') }}</label>
                   </div>
                 </div>
               </div>
@@ -652,35 +664,36 @@
               <div class="banning-rule" data-banning-rule data-summary-kind="hammering_login">
                 <div class="banning-rule-head" data-banning-rule-toggle>
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-hammer-login" tabindex="-1">▸</button>
-                  <span class="banning-rule-title">Anti-hammering (login uniquement)</span>
+                  <span class="banning-rule-title">{{ _('Anti-hammering (login uniquement)') }}</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="hammering_login_enabled" data-banning-enabled {% if hammer_login_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="hammering_login_enabled" data-banning-enabled {% if hammer_login_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not hammer_login_on %} is-off{% endif %}" data-banning-summary>
                     {% if hammer_login_on %}
-                    {{ hammer_login.threshold if hammer_login else 30 }} login/{{ hammer_login.window_seconds if hammer_login else 60 }}s · {% if hammer_login and hammer_login.ban_permanent %}ban permanent{% else %}ban {{ hammer_login.ban_minutes if hammer_login else 60 }} min{% endif %}
-                    {% else %}Désactivé{% endif %}
+                    {{ hammer_login.threshold if hammer_login else 30 }} login/{{ hammer_login.window_seconds if hammer_login else 60 }}{{ _('s ·') }} {% if hammer_login and hammer_login.ban_permanent %}ban permanent{% else %}ban {{ hammer_login.ban_minutes if hammer_login else 60 }} min{% endif %}
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-hammer-login" hidden>
                   <div class="stack">
-                    <p class="form-help">Compteur distinct : login, SSO, break-glass.</p>
+                    <p class="form-help">{{ _('Compteur distinct : login, SSO, break-glass.') }}</p>
                     <div class="form-grid">
                       <div>
-                        <label class="form-label" for="hammering_login_threshold">Seuil (requêtes)</label>
+                        <label class="form-label" for="hammering_login_threshold">{{ _('Seuil (requêtes)') }}</label>
                         <input class="form-input" type="number" min="1" id="hammering_login_threshold" name="hammering_login_threshold" data-banning-field="threshold" value="{{ hammer_login.threshold if hammer_login else 30 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="hammering_login_window_seconds">Fenêtre (s)</label>
+                        <label class="form-label" for="hammering_login_window_seconds">{{ _('Fenêtre (s)') }}</label>
                         <input class="form-input" type="number" min="1" id="hammering_login_window_seconds" name="hammering_login_window_seconds" data-banning-field="window" value="{{ hammer_login.window_seconds if hammer_login else 60 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="hammering_login_ban_minutes">Durée ban (min)</label>
+                        <label class="form-label" for="hammering_login_ban_minutes">{{ _('Durée ban (min)') }}</label>
                         <input class="form-input" type="number" min="1" id="hammering_login_ban_minutes" name="hammering_login_ban_minutes" data-banning-field="minutes" value="{{ hammer_login.ban_minutes if hammer_login else 60 }}">
                       </div>
                     </div>
-                    <label class="check-row"><input type="checkbox" name="hammering_login_ban_permanent" data-banning-field="permanent" {% if hammer_login and hammer_login.ban_permanent %}checked{% endif %}> Ban permanent</label>
-                    <label class="check-row"><input type="checkbox" name="hammering_login_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                    <label class="check-row"><input type="checkbox" name="hammering_login_ban_permanent" data-banning-field="permanent" {% if hammer_login and hammer_login.ban_permanent %}checked{% endif %}> {{ _('Ban permanent') }}</label>
+                    <label class="check-row"><input type="checkbox" name="hammering_login_confirm_permanent"> {{ _('Je confirme le ban permanent (requis)') }}</label>
                   </div>
                 </div>
               </div>
@@ -688,35 +701,36 @@
               <div class="banning-rule" data-banning-rule data-summary-kind="unknown_host_hammering">
                 <div class="banning-rule-head" data-banning-rule-toggle>
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-unknown-host" tabindex="-1">▸</button>
-                  <span class="banning-rule-title">Hôtes inconnus (scanners)</span>
+                  <span class="banning-rule-title">{{ _('Hôtes inconnus (scanners)') }}</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="unknown_host_enabled" data-banning-enabled {% if unknown_host_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="unknown_host_enabled" data-banning-enabled {% if unknown_host_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not unknown_host_on %} is-off{% endif %}" data-banning-summary>
                     {% if unknown_host_on %}
-                    {{ unknown_host.threshold if unknown_host else 50 }} refus/{{ unknown_host.window_seconds if unknown_host else 300 }}s · {% if unknown_host and unknown_host.ban_permanent %}ban permanent{% else %}ban IP {{ unknown_host.ban_minutes if unknown_host else 1440 }} min{% endif %}
-                    {% else %}Désactivé{% endif %}
+                    {{ unknown_host.threshold if unknown_host else 50 }} refus/{{ unknown_host.window_seconds if unknown_host else 300 }}{{ _('s ·') }} {% if unknown_host and unknown_host.ban_permanent %}ban permanent{% else %}ban IP {{ unknown_host.ban_minutes if unknown_host else 1440 }} min{% endif %}
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-unknown-host" hidden>
                   <div class="stack">
-                    <p class="form-help">Ban IP après trop de requêtes vers des hôtes non configurés.</p>
+                    <p class="form-help">{{ _('Ban IP après trop de requêtes vers des hôtes non configurés.') }}</p>
                     <div class="form-grid">
                       <div>
-                        <label class="form-label" for="unknown_host_threshold">Seuil (refus)</label>
+                        <label class="form-label" for="unknown_host_threshold">{{ _('Seuil (refus)') }}</label>
                         <input class="form-input" type="number" min="1" id="unknown_host_threshold" name="unknown_host_threshold" data-banning-field="threshold" value="{{ unknown_host.threshold if unknown_host else 50 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="unknown_host_window_seconds">Fenêtre (s)</label>
+                        <label class="form-label" for="unknown_host_window_seconds">{{ _('Fenêtre (s)') }}</label>
                         <input class="form-input" type="number" min="1" id="unknown_host_window_seconds" name="unknown_host_window_seconds" data-banning-field="window" value="{{ unknown_host.window_seconds if unknown_host else 300 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="unknown_host_ban_minutes">Durée ban (min)</label>
+                        <label class="form-label" for="unknown_host_ban_minutes">{{ _('Durée ban (min)') }}</label>
                         <input class="form-input" type="number" min="1" id="unknown_host_ban_minutes" name="unknown_host_ban_minutes" data-banning-field="minutes" value="{{ unknown_host.ban_minutes if unknown_host else 1440 }}">
                       </div>
                     </div>
-                    <label class="check-row"><input type="checkbox" name="unknown_host_ban_permanent" data-banning-field="permanent" {% if unknown_host and unknown_host.ban_permanent %}checked{% endif %}> Ban permanent</label>
-                    <label class="check-row"><input type="checkbox" name="unknown_host_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                    <label class="check-row"><input type="checkbox" name="unknown_host_ban_permanent" data-banning-field="permanent" {% if unknown_host and unknown_host.ban_permanent %}checked{% endif %}> {{ _('Ban permanent') }}</label>
+                    <label class="check-row"><input type="checkbox" name="unknown_host_confirm_permanent"> {{ _('Je confirme le ban permanent (requis)') }}</label>
                   </div>
                 </div>
               </div>
@@ -724,14 +738,15 @@
               <div class="banning-rule" data-banning-rule data-summary-kind="failed_login">
                 <div class="banning-rule-head" data-banning-rule-toggle>
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-failed" tabindex="-1">▸</button>
-                  <span class="banning-rule-title">Échecs de login</span>
+                  <span class="banning-rule-title">{{ _('Échecs de login') }}</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="failed_login_enabled" data-banning-enabled {% if failed_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="failed_login_enabled" data-banning-enabled {% if failed_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not failed_on %} is-off{% endif %}" data-banning-summary>
                     {% if failed_on %}
-                    {{ failed.threshold if failed else 15 }} échecs/{{ failed.window_seconds if failed else 300 }}s · {% if failed and failed.ban_permanent %}ban permanent{% else %}ban IP {{ failed.ban_minutes if failed else 30 }} min{% endif %}{% if not failed or (failed.config_json or {}).get('ban_username', true) %} + compte{% endif %}
-                    {% else %}Désactivé{% endif %}
+                    {{ failed.threshold if failed else 15 }} {{ _('échecs/') }}{{ failed.window_seconds if failed else 300 }}{{ _('s ·') }} {% if failed and failed.ban_permanent %}ban permanent{% else %}ban IP {{ failed.ban_minutes if failed else 30 }} min{% endif %}{% if not failed or (failed.config_json or {}).get('ban_username', true) %} + compte{% endif %}
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-failed" hidden>
@@ -742,20 +757,20 @@
                         <input class="form-input" type="number" min="1" id="failed_login_threshold" name="failed_login_threshold" data-banning-field="threshold" value="{{ failed.threshold if failed else 15 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="failed_login_window_seconds">Fenêtre (s)</label>
+                        <label class="form-label" for="failed_login_window_seconds">{{ _('Fenêtre (s)') }}</label>
                         <input class="form-input" type="number" min="1" id="failed_login_window_seconds" name="failed_login_window_seconds" data-banning-field="window" value="{{ failed.window_seconds if failed else 300 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="failed_login_ban_minutes">Durée ban (min)</label>
+                        <label class="form-label" for="failed_login_ban_minutes">{{ _('Durée ban (min)') }}</label>
                         <input class="form-input" type="number" min="1" id="failed_login_ban_minutes" name="failed_login_ban_minutes" data-banning-field="minutes" value="{{ failed.ban_minutes if failed else 30 }}">
                       </div>
                     </div>
                     <label class="check-row">
                       <input type="checkbox" name="failed_login_ban_username" data-banning-field="ban_username" {% if not failed or (failed.config_json or {}).get('ban_username', true) %}checked{% endif %}>
-                      Bannir aussi le compte (indépendamment de l'IP)
+                      {{ _("Bannir aussi le compte (indépendamment de l'IP)") }}
                     </label>
-                    <label class="check-row"><input type="checkbox" name="failed_login_ban_permanent" data-banning-field="permanent" {% if failed and failed.ban_permanent %}checked{% endif %}> Ban permanent</label>
-                    <label class="check-row"><input type="checkbox" name="failed_login_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                    <label class="check-row"><input type="checkbox" name="failed_login_ban_permanent" data-banning-field="permanent" {% if failed and failed.ban_permanent %}checked{% endif %}> {{ _('Ban permanent') }}</label>
+                    <label class="check-row"><input type="checkbox" name="failed_login_confirm_permanent"> {{ _('Je confirme le ban permanent (requis)') }}</label>
                   </div>
                 </div>
               </div>
@@ -763,35 +778,36 @@
               <div class="banning-rule" data-banning-rule data-summary-kind="successful_login">
                 <div class="banning-rule-head" data-banning-rule-toggle>
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-success" tabindex="-1">▸</button>
-                  <span class="banning-rule-title">Logins réussis (hammering)</span>
+                  <span class="banning-rule-title">{{ _('Logins réussis (hammering)') }}</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="successful_login_enabled" data-banning-enabled {% if success_login_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="successful_login_enabled" data-banning-enabled {% if success_login_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not success_login_on %} is-off{% endif %}" data-banning-summary>
                     {% if success_login_on %}
-                    {{ success_login.threshold if success_login else 20 }} succès/IP/{{ success_login.window_seconds if success_login else 300 }}s · ban compte {% if success_login and success_login.ban_permanent %}permanent{% else %}{{ success_login.ban_minutes if success_login else 30 }} min{% endif %}
-                    {% else %}Désactivé{% endif %}
+                    {{ success_login.threshold if success_login else 20 }} {{ _('succès/IP/') }}{{ success_login.window_seconds if success_login else 300 }}{{ _('s · ban compte') }} {% if success_login and success_login.ban_permanent %}permanent{% else %}{{ success_login.ban_minutes if success_login else 30 }} min{% endif %}
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-success" hidden>
                   <div class="stack">
-                    <p class="form-help">Ban username (pas IP) si seuil dépassé.</p>
+                    <p class="form-help">{{ _('Ban username (pas IP) si seuil dépassé.') }}</p>
                     <div class="form-grid">
                       <div>
                         <label class="form-label" for="successful_login_threshold">Seuil</label>
                         <input class="form-input" type="number" min="1" id="successful_login_threshold" name="successful_login_threshold" data-banning-field="threshold" value="{{ success_login.threshold if success_login else 20 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="successful_login_window_seconds">Fenêtre (s)</label>
+                        <label class="form-label" for="successful_login_window_seconds">{{ _('Fenêtre (s)') }}</label>
                         <input class="form-input" type="number" min="1" id="successful_login_window_seconds" name="successful_login_window_seconds" data-banning-field="window" value="{{ success_login.window_seconds if success_login else 300 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="successful_login_ban_minutes">Durée ban compte (min)</label>
+                        <label class="form-label" for="successful_login_ban_minutes">{{ _('Durée ban compte (min)') }}</label>
                         <input class="form-input" type="number" min="1" id="successful_login_ban_minutes" name="successful_login_ban_minutes" data-banning-field="minutes" value="{{ success_login.ban_minutes if success_login else 30 }}">
                       </div>
                     </div>
-                    <label class="check-row"><input type="checkbox" name="successful_login_ban_permanent" data-banning-field="permanent" {% if success_login and success_login.ban_permanent %}checked{% endif %}> Ban permanent</label>
-                    <label class="check-row"><input type="checkbox" name="successful_login_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                    <label class="check-row"><input type="checkbox" name="successful_login_ban_permanent" data-banning-field="permanent" {% if success_login and success_login.ban_permanent %}checked{% endif %}> {{ _('Ban permanent') }}</label>
+                    <label class="check-row"><input type="checkbox" name="successful_login_confirm_permanent"> {{ _('Je confirme le ban permanent (requis)') }}</label>
                   </div>
                 </div>
               </div>
@@ -799,14 +815,15 @@
               <div class="banning-rule" data-banning-rule data-summary-kind="hack_username">
                 <div class="banning-rule-head" data-banning-rule-toggle>
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-hack" tabindex="-1">▸</button>
-                  <span class="banning-rule-title">Noms d'utilisateur leurres</span>
+                  <span class="banning-rule-title">{{ _("Noms d'utilisateur leurres") }}</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="hack_username_enabled" data-banning-enabled {% if hack_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="hack_username_enabled" data-banning-enabled {% if hack_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not hack_on %} is-off{% endif %}" data-banning-summary>
                     {% if hack_on %}
-                    {% if hack and hack.ban_permanent %}ban permanent{% else %}ban immédiat {{ hack.ban_minutes if hack else 1440 }} min{% endif %}
-                    {% else %}Désactivé{% endif %}
+                    {% if hack and hack.ban_permanent %}ban permanent{% else %}{{ _('ban immédiat') }} {{ hack.ban_minutes if hack else 1440 }} min{% endif %}
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-hack" hidden>
@@ -817,11 +834,11 @@
                         value="{% if hack and hack.config_json and hack.config_json.usernames %}{{ hack.config_json.usernames | join(',') }}{% else %}administrator,root{% endif %}">
                     </div>
                     <div>
-                      <label class="form-label" for="hack_ban_minutes">Durée ban IP (min)</label>
+                      <label class="form-label" for="hack_ban_minutes">{{ _('Durée ban IP (min)') }}</label>
                       <input class="form-input" type="number" min="1" id="hack_ban_minutes" name="hack_ban_minutes" data-banning-field="minutes" value="{{ hack.ban_minutes if hack else 1440 }}">
                     </div>
-                    <label class="check-row"><input type="checkbox" name="hack_ban_permanent" data-banning-field="permanent" {% if hack and hack.ban_permanent %}checked{% endif %}> Ban permanent</label>
-                    <label class="check-row"><input type="checkbox" name="hack_confirm_permanent"> Je confirme le ban permanent (requis)</label>
+                    <label class="check-row"><input type="checkbox" name="hack_ban_permanent" data-banning-field="permanent" {% if hack and hack.ban_permanent %}checked{% endif %}> {{ _('Ban permanent') }}</label>
+                    <label class="check-row"><input type="checkbox" name="hack_confirm_permanent"> {{ _('Je confirme le ban permanent (requis)') }}</label>
                   </div>
                 </div>
               </div>
@@ -829,23 +846,25 @@
               <div class="banning-rule" data-banning-rule data-summary-kind="concurrent">
                 <div class="banning-rule-head" data-banning-rule-toggle>
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-concurrent" tabindex="-1">▸</button>
-                  <span class="banning-rule-title">Connexions simultanées / IP</span>
+                  <span class="banning-rule-title">{{ _('Connexions simultanées / IP') }}</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="concurrent_enabled" data-banning-enabled {% if concurrent_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="concurrent_enabled" data-banning-enabled {% if concurrent_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not concurrent_on %} is-off{% endif %}" data-banning-summary>
                     {% if concurrent_on %}
-                    max {{ concurrent.threshold }} conn./IP · refus sans ban
-                    {% else %}Désactivé{% endif %}
+                    max {{ concurrent.threshold }} {{ _('conn./IP · refus sans ban') }}
+
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-concurrent" hidden>
                   <div class="stack">
                     <div>
-                      <label class="form-label" for="concurrent_threshold">Maximum (0 = désactivé)</label>
+                      <label class="form-label" for="concurrent_threshold">{{ _('Maximum (0 = désactivé)') }}</label>
                       <input class="form-input" type="number" min="0" id="concurrent_threshold" name="concurrent_threshold" data-banning-field="threshold" value="{{ concurrent.threshold if concurrent else 0 }}">
                     </div>
-                    <p class="form-help">Refuse les nouvelles requêtes au-delà du seuil (pas de ban).</p>
+                    <p class="form-help">{{ _('Refuse les nouvelles requêtes au-delà du seuil (pas de ban).') }}</p>
                   </div>
                 </div>
               </div>
@@ -855,26 +874,28 @@
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-rate-limit" tabindex="-1">▸</button>
                   <span class="banning-rule-title">Rate limit (429)</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="rate_limit_enabled" data-banning-enabled {% if rate_limit_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="rate_limit_enabled" data-banning-enabled {% if rate_limit_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not rate_limit_on %} is-off{% endif %}" data-banning-summary>
                     {% if rate_limit_on %}
-                    {{ rate_limit.threshold if rate_limit else 120 }} req/IP/{{ rate_limit.window_seconds if rate_limit else 60 }}s · 429 sans ban
-                    {% else %}Désactivé{% endif %}
+                    {{ rate_limit.threshold if rate_limit else 120 }} req/IP/{{ rate_limit.window_seconds if rate_limit else 60 }}{{ _('s · 429 sans ban') }}
+
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-rate-limit" hidden>
                   <div class="stack">
                     <p class="form-help">
-                      Au-delà : HTTP 429 (pas de ban). Login et admin uniquement.
+                      {{ _('Au-delà : HTTP 429 (pas de ban). Login et admin uniquement.') }}
                     </p>
                     <div class="form-grid">
                       <div>
-                        <label class="form-label" for="rate_limit_threshold">Budget (requêtes)</label>
+                        <label class="form-label" for="rate_limit_threshold">{{ _('Budget (requêtes)') }}</label>
                         <input class="form-input" type="number" min="1" id="rate_limit_threshold" name="rate_limit_threshold" data-banning-field="threshold" value="{{ rate_limit.threshold if rate_limit else 120 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="rate_limit_window_seconds">Fenêtre (s)</label>
+                        <label class="form-label" for="rate_limit_window_seconds">{{ _('Fenêtre (s)') }}</label>
                         <input class="form-input" type="number" min="1" id="rate_limit_window_seconds" name="rate_limit_window_seconds" data-banning-field="window" value="{{ rate_limit.window_seconds if rate_limit else 60 }}">
                       </div>
                     </div>
@@ -885,28 +906,31 @@
               <div class="banning-rule" data-banning-rule data-summary-kind="rate_limit_login">
                 <div class="banning-rule-head" data-banning-rule-toggle>
                   <button type="button" class="banning-rule-expand" aria-expanded="false" aria-controls="banning-panel-rate-limit-login" tabindex="-1">▸</button>
-                  <span class="banning-rule-title">Rate limit login (429)</span>
+                  <span class="banning-rule-title">{{ _('Rate limit login (429)') }}</span>
                   <label class="check-row banning-rule-enable" data-banning-enable-stop>
-                    <input type="checkbox" name="rate_limit_login_enabled" data-banning-enabled {% if rate_limit_login_on %}checked{% endif %}> Activé
+                    <input type="checkbox" name="rate_limit_login_enabled" data-banning-enabled {% if rate_limit_login_on %}checked{% endif %}> {{ _('Activé') }}
+
                   </label>
                   <span class="banning-rule-summary{% if not rate_limit_login_on %} is-off{% endif %}" data-banning-summary>
                     {% if rate_limit_login_on %}
-                    {{ rate_limit_login.threshold if rate_limit_login else 20 }} login/IP/{{ rate_limit_login.window_seconds if rate_limit_login else 60 }}s · 429 sans ban
-                    {% else %}Désactivé{% endif %}
+                    {{ rate_limit_login.threshold if rate_limit_login else 20 }} login/IP/{{ rate_limit_login.window_seconds if rate_limit_login else 60 }}{{ _('s · 429 sans ban') }}
+
+                    {% else %}{{ _('Désactivé') }}{% endif %}
                   </span>
                 </div>
                 <div class="banning-rule-panel" id="banning-panel-rate-limit-login" hidden>
                   <div class="stack">
                     <p class="form-help">
-                      Compteur login/SSO/break-glass — 429 sans ban, sous le seuil anti-hammering.
+{{ _('Compteur login/SSO/break-glass — 429 sans ban, sous le seuil anti-hammering.') }}
+
                     </p>
                     <div class="form-grid">
                       <div>
-                        <label class="form-label" for="rate_limit_login_threshold">Budget (requêtes login)</label>
+                        <label class="form-label" for="rate_limit_login_threshold">{{ _('Budget (requêtes login)') }}</label>
                         <input class="form-input" type="number" min="1" id="rate_limit_login_threshold" name="rate_limit_login_threshold" data-banning-field="threshold" value="{{ rate_limit_login.threshold if rate_limit_login else 20 }}">
                       </div>
                       <div>
-                        <label class="form-label" for="rate_limit_login_window_seconds">Fenêtre (s)</label>
+                        <label class="form-label" for="rate_limit_login_window_seconds">{{ _('Fenêtre (s)') }}</label>
                         <input class="form-input" type="number" min="1" id="rate_limit_login_window_seconds" name="rate_limit_login_window_seconds" data-banning-field="window" value="{{ rate_limit_login.window_seconds if rate_limit_login else 60 }}">
                       </div>
                     </div>
@@ -916,7 +940,7 @@
 
             </div>
             <div>
-              <button type="submit" class="btn btn-primary">Enregistrer les règles</button>
+              <button type="submit" class="btn btn-primary">{{ _('Enregistrer les règles') }}</button>
             </div>
           </form>
         </div>
@@ -924,16 +948,16 @@
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Bans actifs (unifiés) · {{ bans_count }}</span>
+          <span class="card-title">{{ _('Bans actifs (unifiés) ·') }} {{ bans_count }}</span>
           <div class="banning-card-actions">
-            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="ban-add-modal">+ Ajouter un ban</button>
+            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="ban-add-modal">{{ _('+ Ajouter un ban') }}</button>
           </div>
         </div>
         <div class="card-body">
           <div class="alert {% if bans_count %}alert-warn{% else %}alert-ok{% endif %}">
             <div class="alert-body">
-              La liste détaillée des bans est affichée dans <strong>Admin → Sécurité → WAF</strong> (section
-              <span class="mono">Bans actifs (unifiés)</span>) :
+{{ _('La liste détaillée des bans est affichée dans') }} <strong>{{ _('Admin → Sécurité → WAF') }}</strong> (section
+              <span class="mono">{{ _('Bans actifs (unifiés)') }}</span>) :
               <a href="/admin/security/waf#bans-unified">/admin/security/waf#bans-unified</a>.
             </div>
           </div>
@@ -945,9 +969,9 @@
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Liste blanche · {{ allow_count }}</span>
+          <span class="card-title">{{ _('Liste blanche ·') }} {{ allow_count }}</span>
           <div class="banning-card-actions">
-            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="allowlist-add-modal">+ Ajouter à la liste blanche</button>
+            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="allowlist-add-modal">{{ _('+ Ajouter à la liste blanche') }}</button>
           </div>
         </div>
         <div class="card-body">
@@ -955,7 +979,7 @@
           <div class="table-wrap">
             <table class="data-table">
               <thead>
-                <tr><th>Entrée</th><th>Commentaire</th><th></th></tr>
+                <tr><th>{{ _('Entrée') }}</th><th>Commentaire</th><th></th></tr>
               </thead>
               <tbody>
                 {% for entry in security_allowlist %}
@@ -978,7 +1002,7 @@
               <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
             </div>
             <div class="empty-title">Liste blanche vide</div>
-            <div class="empty-desc">Ajoutez une IP ou un compte à exclure des règles de ban.</div>
+            <div class="empty-desc">{{ _('Ajoutez une IP ou un compte à exclure des règles de ban.') }}</div>
           </div>
           {% endif %}
         </div>
@@ -989,7 +1013,7 @@
       <div class="bastion-modal-backdrop" data-banning-modal-dismiss></div>
       <div class="bastion-modal-dialog bastion-modal-dialog--form" role="dialog" aria-modal="true" aria-labelledby="ban-add-modal-title" tabindex="-1">
         <div class="bastion-modal-header">
-          <h2 id="ban-add-modal-title" class="bastion-modal-title">Ajouter un ban</h2>
+          <h2 id="ban-add-modal-title" class="bastion-modal-title">{{ _('Ajouter un ban') }}</h2>
         </div>
         <div class="bastion-modal-body">
           <div id="ban-add-error" class="form-error" hidden></div>
@@ -999,25 +1023,25 @@
                 <label class="form-label" for="ban_target_type">Type</label>
                 <select class="form-select" id="ban_target_type" name="target_type">
                   <option value="ip">IP</option>
-                  <option value="username">Compte</option>
+                  <option value="username">{{ _('Compte') }}</option>
                 </select>
               </div>
               <div>
-                <label class="form-label" for="ban_target">Valeur</label>
-                <input class="form-input" id="ban_target" name="target" required placeholder="10.0.0.5 ou admin">
+                <label class="form-label" for="ban_target">{{ _('Valeur') }}</label>
+                <input class="form-input" id="ban_target" name="target" required placeholder="{{ _('10.0.0.5 ou admin') }}">
               </div>
             </div>
             <div>
-              <label class="form-label" for="ban_reason">Raison</label>
+              <label class="form-label" for="ban_reason">{{ _('Raison') }}</label>
               <input class="form-input" id="ban_reason" name="reason" placeholder="Manuel">
             </div>
             <div>
               <label class="form-label">Mode</label>
-              <label class="check-row"><input type="radio" name="ban_mode" value="temporary" checked data-ban-mode> Temporaire</label>
+              <label class="check-row"><input type="radio" name="ban_mode" value="temporary" checked data-ban-mode> {{ _('Temporaire') }}</label>
               <label class="check-row"><input type="radio" name="ban_mode" value="permanent" data-ban-mode> Permanent</label>
             </div>
             <div id="ban-minutes-wrap">
-              <label class="form-label" for="ban_minutes">Durée (min) si temporaire</label>
+              <label class="form-label" for="ban_minutes">{{ _('Durée (min) si temporaire') }}</label>
               <input class="form-input" type="number" min="1" id="ban_minutes" name="ban_minutes" value="60">
             </div>
             <label class="check-row" id="ban-confirm-wrap" hidden>
@@ -1026,8 +1050,8 @@
           </form>
         </div>
         <div class="bastion-modal-footer">
-          <button type="button" class="btn btn-ghost" data-banning-modal-dismiss>Annuler</button>
-          <button type="submit" form="ban-add-form" class="btn btn-primary">Ajouter</button>
+          <button type="button" class="btn btn-ghost" data-banning-modal-dismiss>{{ _('Annuler') }}</button>
+          <button type="submit" form="ban-add-form" class="btn btn-primary">{{ _('Ajouter') }}</button>
         </div>
       </div>
     </div>
@@ -1036,7 +1060,7 @@
       <div class="bastion-modal-backdrop" data-banning-modal-dismiss></div>
       <div class="bastion-modal-dialog bastion-modal-dialog--form" role="dialog" aria-modal="true" aria-labelledby="allowlist-add-modal-title" tabindex="-1">
         <div class="bastion-modal-header">
-          <h2 id="allowlist-add-modal-title" class="bastion-modal-title">Ajouter à la liste blanche</h2>
+          <h2 id="allowlist-add-modal-title" class="bastion-modal-title">{{ _('Ajouter à la liste blanche') }}</h2>
         </div>
         <div class="bastion-modal-body">
           <div id="allowlist-add-error" class="form-error" hidden></div>
@@ -1046,11 +1070,11 @@
                 <label class="form-label" for="allow_type">Type</label>
                 <select class="form-select" id="allow_type" name="entry_type">
                   <option value="ip">IP / CIDR</option>
-                  <option value="username">Compte</option>
+                  <option value="username">{{ _('Compte') }}</option>
                 </select>
               </div>
               <div>
-                <label class="form-label" for="allow_value">Valeur</label>
+                <label class="form-label" for="allow_value">{{ _('Valeur') }}</label>
                 <input class="form-input" id="allow_value" name="value" required>
               </div>
             </div>
@@ -1061,8 +1085,8 @@
           </form>
         </div>
         <div class="bastion-modal-footer">
-          <button type="button" class="btn btn-ghost" data-banning-modal-dismiss>Annuler</button>
-          <button type="submit" form="allowlist-add-form" class="btn btn-primary">Ajouter</button>
+          <button type="button" class="btn btn-ghost" data-banning-modal-dismiss>{{ _('Annuler') }}</button>
+          <button type="submit" form="allowlist-add-form" class="btn btn-primary">{{ _('Ajouter') }}</button>
         </div>
       </div>
     </div>
@@ -1076,9 +1100,9 @@
     <div class="form-section-header">
       <div class="form-section-title">Logs containers (Docker)</div>
       <div class="form-section-sub">
-        Lecture via proxy sécurisé — consommation dans
-        <a href="/admin/logs#containers">Admin → Logs → Containers</a>.
-        Le socket Docker n’est jamais monté dans bastion-app.
+        {{ _('Lecture via proxy sécurisé — consommation dans') }}
+        <a href="/admin/logs#containers">{{ _('Admin → Logs → Containers') }}</a>.
+        {{ _('Le socket Docker n’est jamais monté dans bastion-app.') }}
         {% if cls_active %}
         <span class="badge badge-ok tab-badge">Actif</span>
         {% else %}
@@ -1089,17 +1113,17 @@
     <div class="form-body">
       <div class="card mb-4">
         <div class="card-header">
-          <span class="card-title">Connexion proxy</span>
+          <span class="card-title">{{ _('Connexion proxy') }}</span>
         </div>
         <div class="card-body">
           <form method="post" action="/admin/security/container-logs" id="container-logs-form" class="stack">
             <label class="form-check-row">
               <input type="checkbox" name="enabled" value="on"{% if cls and cls.enabled %} checked{% endif %}>
-              <span>Activer les logs containers</span>
+              <span>{{ _('Activer les logs containers') }}</span>
             </label>
             <div class="form-row">
               <div class="form-group" style="flex:2;min-width:14rem;">
-                <label class="form-label" for="cls_proxy_url">URL du proxy Docker (lecture seule)</label>
+                <label class="form-label" for="cls_proxy_url">{{ _('URL du proxy Docker (lecture seule)') }}</label>
                 <input class="form-input mono" id="cls_proxy_url" name="proxy_url"
                        value="{{ cls.proxy_url if cls else '' }}"
                        placeholder="http://docker-socket-proxy:2375"
@@ -1116,10 +1140,10 @@
               </div>
             </div>
             <div class="form-actions">
-              <button type="submit" class="btn btn-primary">Enregistrer</button>
+              <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
               {% if allowed %}
-              <label class="form-label" for="cls_test_container" style="margin:0;align-self:center;">Tester</label>
-              <select class="form-select input-narrow" id="cls_test_container" aria-label="Conteneur pour le test">
+              <label class="form-label" for="cls_test_container" style="margin:0;align-self:center;">{{ _('Tester') }}</label>
+              <select class="form-select input-narrow" id="cls_test_container" aria-label="{{ _('Conteneur pour le test') }}">
                 {% for name in allowed %}
                 <option value="{{ name }}">{{ name }}</option>
                 {% endfor %}
@@ -1128,12 +1152,13 @@
               <button type="button" class="btn btn-secondary" id="container-logs-test-btn"
                       data-test-url="/admin/security/container-logs/test"
                       data-csrf="{{ csrf_token }}"
-                      {% if not allowed %}disabled title="Ajoutez un conteneur autorisé"{% endif %}>
-                Tester la récupération
+                      {% if not allowed %}disabled title="{{ _('Ajoutez un conteneur autorisé') }}"{% endif %}>
+                {{ _('Tester la récupération') }}
               </button>
             </div>
             <p class="form-help">
-              Le test utilise la configuration <strong>déjà enregistrée</strong> (proxy, liste blanche, activation).
+{{ _('Le test utilise la configuration') }} <strong>{{ _('déjà enregistrée') }}</strong> {{ _('(proxy, liste blanche, activation).') }}
+
             </p>
           </form>
         </div>
@@ -1143,7 +1168,7 @@
         <div class="config-test-shell-header">
           <span class="config-test-shell-heading">
             <span class="config-test-shell-dots" aria-hidden="true"></span>
-            <span class="config-test-shell-title">Test de récupération des logs</span>
+            <span class="config-test-shell-title">{{ _('Test de récupération des logs') }}</span>
           </span>
           <span class="badge badge-muted" id="container-logs-test-status">…</span>
         </div>
@@ -1152,22 +1177,22 @@
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Conteneurs autorisés · {{ allowed_count }}</span>
+          <span class="card-title">{{ _('Conteneurs autorisés ·') }} {{ allowed_count }}</span>
           <div class="card-header-actions">
-            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="container-add-modal">+ Ajouter</button>
+            <button type="button" class="btn btn-primary btn-sm" data-banning-modal-open="container-add-modal">{{ _('+ Ajouter') }}</button>
           </div>
         </div>
         <div class="card-body">
           <p class="form-prose form-prose-spaced">
-            Liste blanche uniquement — aucun inventaire automatique de l'hôte.
+            {{ _("Liste blanche uniquement — aucun inventaire automatique de l'hôte.") }}
           </p>
           {% if allowed %}
           <div class="table-wrap">
             <table class="data-table data-table-compact">
               <thead>
                 <tr>
-                  <th>Nom Compose</th>
-                  <th class="table-actions">Actions</th>
+                  <th>{{ _('Nom Compose') }}</th>
+                  <th class="table-actions">{{ _('Actions') }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1179,7 +1204,7 @@
                       <button type="button" class="btn btn-ghost btn-sm container-logs-row-test"
                               data-container="{{ name }}"
                               data-test-url="/admin/security/container-logs/test"
-                              data-csrf="{{ csrf_token }}">Tester</button>
+                              data-csrf="{{ csrf_token }}">{{ _('Tester') }}</button>
                       <form method="post" action="/admin/security/container-logs/containers/remove" class="inline-form">
                         <input type="hidden" name="name" value="{{ name }}">
                         <button type="submit" class="btn btn-secondary btn-sm">Retirer</button>
@@ -1196,8 +1221,8 @@
             <div class="empty-icon">
               <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
             </div>
-            <div class="empty-title">Aucun conteneur autorisé</div>
-            <div class="empty-desc">Ajoutez un service Compose (ex. bastion-app, bastion-nginx) pour autoriser la lecture de ses logs.</div>
+            <div class="empty-title">{{ _('Aucun conteneur autorisé') }}</div>
+            <div class="empty-desc">{{ _('Ajoutez un service Compose (ex. bastion-app, bastion-nginx) pour autoriser la lecture de ses logs.') }}</div>
           </div>
           {% endif %}
         </div>
@@ -1208,23 +1233,23 @@
       <div class="bastion-modal-backdrop" data-banning-modal-dismiss></div>
       <div class="bastion-modal-dialog bastion-modal-dialog--form" role="dialog" aria-modal="true" aria-labelledby="container-add-modal-title" tabindex="-1">
         <div class="bastion-modal-header">
-          <h2 id="container-add-modal-title" class="bastion-modal-title">Ajouter un conteneur</h2>
+          <h2 id="container-add-modal-title" class="bastion-modal-title">{{ _('Ajouter un conteneur') }}</h2>
         </div>
         <div class="bastion-modal-body">
           <div id="container-add-error" class="form-error" hidden></div>
           <form id="container-add-form" method="post" action="/admin/security/container-logs/containers/add" class="stack">
             <div>
-              <label class="form-label" for="cls_add_name">Nom du service Compose</label>
+              <label class="form-label" for="cls_add_name">{{ _('Nom du service Compose') }}</label>
               <input class="form-input" id="cls_add_name" name="name" required
                      pattern="[a-zA-Z0-9][a-zA-Z0-9_.-]*"
                      placeholder="bastion-app" autocomplete="off">
-              <p class="form-help">Identifiant Compose uniquement (lettres, chiffres, ._-).</p>
+              <p class="form-help">{{ _('Identifiant Compose uniquement (lettres, chiffres, ._-).') }}</p>
             </div>
           </form>
         </div>
         <div class="bastion-modal-footer">
-          <button type="button" class="btn btn-ghost" data-banning-modal-dismiss>Annuler</button>
-          <button type="submit" form="container-add-form" class="btn btn-primary">Ajouter</button>
+          <button type="button" class="btn btn-ghost" data-banning-modal-dismiss>{{ _('Annuler') }}</button>
+          <button type="submit" form="container-add-form" class="btn btn-primary">{{ _('Ajouter') }}</button>
         </div>
       </div>
     </div>

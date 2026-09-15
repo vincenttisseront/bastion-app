@@ -41,7 +41,9 @@
           btn.setAttribute('aria-pressed', show ? 'true' : 'false');
           btn.setAttribute(
             'aria-label',
-            show ? 'Masquer le mot de passe' : 'Afficher le mot de passe'
+            show
+              ? BastionI18n.t('Masquer le mot de passe')
+              : BastionI18n.t('Afficher le mot de passe')
           );
         });
       })(toggles[i]);

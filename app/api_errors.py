@@ -44,20 +44,26 @@ def api_error_from_detail(
     detail: Any,
     code: str | None = None,
     headers: dict[str, str] | None = None,
+    locale: str | None = None,
 ) -> JSONResponse:
     """Map HTTPException.detail (str or validation list) to unified JSON."""
+    from app.i18n.catalog import t as translate
+    from app.i18n.resolve import DEFAULT_LOCALE
+
+    loc = locale or DEFAULT_LOCALE
     if isinstance(detail, str):
-        message = detail
+        message = translate(detail, loc)
         errors: dict[str, Any] | list[Any] | None = None
     elif isinstance(detail, list):
-        message = "Données invalides."
+        message = translate("Données invalides.", loc)
         errors = detail
         code = code or "validation_error"
     elif isinstance(detail, dict):
-        message = str(detail.get("message") or detail.get("_form") or "Erreur.")
+        raw = str(detail.get("message") or detail.get("_form") or "Erreur.")
+        message = translate(raw, loc)
         errors = detail
     else:
-        message = str(detail)
+        message = translate(str(detail), loc)
         errors = None
     return api_error_response(
         status_code=status_code,

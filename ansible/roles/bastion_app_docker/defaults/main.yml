@@ -70,7 +70,7 @@ portal_domain: portal.example.com
 sso_portal_default_realm_slug: default
 bastion_allow_example_domain: false
 sso_portal_expected_health_phase: "5"
-sso_portal_app_version: "0.5.0"
+sso_portal_app_version: "0.9.0"
 sso_portal_db_path: "{{ bastion_app_docker_data_dir }}/portal.db"
 sso_portal_keys_dir: "{{ bastion_app_docker_data_dir }}/keys"
 sso_portal_exports_dir: "{{ bastion_app_docker_data_dir }}/exports"

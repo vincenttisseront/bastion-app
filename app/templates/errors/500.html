@@ -1,5 +1,5 @@
 {% extends "base_public.html" %}
-{% block title %}Erreur serveur{% endblock %}
+{% block title %}{{ _('Erreur serveur') }}{% endblock %}
 
 {% block content %}
 <div class="error-page">
@@ -7,14 +7,16 @@
     <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
   </div>
   <div class="error-code">500</div>
-  <h1 class="page-title">Erreur interne</h1>
+  <h1 class="page-title">{{ _('Erreur interne') }}</h1>
   <p class="error-message">
     {% if branding.show_product_branding %}
-    Une erreur inattendue s'est produite.
+{{ _("Une erreur inattendue s'est produite.") }}
+
     {% else %}
-    {{ branding.company_name }} — une erreur inattendue s'est produite.
+    {{ branding.company_name }} {{ _("— une erreur inattendue s'est produite.") }}
+
     {% endif %}
   </p>
-  <a href="/auth/login" class="btn btn-primary">Connexion</a>
+  <a href="/auth/login" class="btn btn-primary">{{ _('Connexion') }}</a>
 </div>
 {% endblock %}

@@ -7,18 +7,18 @@
 <div class="page" id="branding-page" style="{{ b.css_vars }}">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Branding portail</h1>
-      <p class="page-sub">Identité et palette — pages publiques et chrome authentifié</p>
+      <h1 class="page-title">{{ _('Branding portail') }}</h1>
+      <p class="page-sub">{{ _('Identité et palette — pages publiques et chrome authentifié') }}</p>
     </div>
     <div class="page-header-actions">
-      <a href="/auth/login" class="btn btn-ghost" target="_blank" rel="noopener">Aperçu login</a>
+      <a href="/auth/login" class="btn btn-ghost" target="_blank" rel="noopener">{{ _('Aperçu login') }}</a>
     </div>
   </div>
 
   {% if b.show_product_branding %}
   <div class="alert alert-warn mb-4" role="alert">
     <div class="alert-body">
-      « Bastion Pro » visible sur les pages publiques — désactivez ci-dessous pour anonymiser.
+      {{ _('« Bastion Pro » visible sur les pages publiques — désactivez ci-dessous pour anonymiser.') }}
     </div>
   </div>
   {% endif %}
@@ -28,31 +28,32 @@
 
     <div class="form-section">
       <div class="form-section-header">
-        <div class="form-section-title">Identité</div>
-        <div class="form-section-sub">Nom société, titres et textes d’accueil</div>
+        <div class="form-section-title">{{ _('Identité') }}</div>
+        <div class="form-section-sub">{{ _('Nom société, titres et textes d’accueil') }}</div>
       </div>
       <div class="form-body">
         <div class="form-group">
-          <label class="form-label" for="company_name">Nom de la société / portail</label>
+          <label class="form-label" for="company_name">{{ _('Nom de la société / portail') }}</label>
           <input type="text" id="company_name" name="company_name" class="form-input"
                  maxlength="120" required value="{{ b.company_name }}">
         </div>
         <div class="form-group">
-          <label class="form-label" for="page_title">Titre de page (&lt;title&gt;)</label>
+          <label class="form-label" for="page_title">{{ _('Titre de page (&lt;title&gt;)') }}</label>
           <input type="text" id="page_title" name="page_title" class="form-input"
                  maxlength="120" required value="{{ b.page_title }}">
         </div>
         <div class="form-group">
-          <label class="form-label" for="welcome_text">Texte de bienvenue</label>
+          <label class="form-label" for="welcome_text">{{ _('Texte de bienvenue') }}</label>
           <textarea id="welcome_text" name="welcome_text" class="form-input" rows="3"
                     maxlength="500">{{ b.welcome_text or '' }}</textarea>
-          <p class="form-help">Sous le nom (login). Vide = aucun.</p>
+          <p class="form-help">{{ _('Sous le nom (login). Vide = aucun.') }}</p>
         </div>
         <div class="form-group">
           <label class="form-label form-check-row">
             <input type="checkbox" name="show_product_branding" value="on"
                    {% if b.show_product_branding %}checked{% endif %}>
-            Afficher la marque produit (« Bastion Pro ») sur les pages publiques
+{{ _('Afficher la marque produit (« Bastion Pro ») sur les pages publiques') }}
+
           </label>
         </div>
       </div>
@@ -60,8 +61,8 @@
 
     <div class="form-section form-section-gap">
       <div class="form-section-header">
-        <div class="form-section-title">Couleurs société</div>
-        <div class="form-section-sub">Chaque couleur s’applique en aplat sur ses éléments — jamais mélangées en dégradé</div>
+        <div class="form-section-title">{{ _('Couleurs société') }}</div>
+        <div class="form-section-sub">{{ _('Chaque couleur s’applique en aplat sur ses éléments — jamais mélangées en dégradé') }}</div>
       </div>
       <div class="form-body">
         <div class="form-group">
@@ -73,7 +74,7 @@
             <input type="text" id="accent_color" name="accent_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.accent_color }}">
           </div>
-          <p class="form-help">Boutons, nav active, icônes.</p>
+          <p class="form-help">{{ _('Boutons, nav active, icônes.') }}</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="secondary_color">Secondaire</label>
@@ -84,7 +85,7 @@
             <input type="text" id="secondary_color" name="secondary_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.secondary_color }}">
           </div>
-          <p class="form-help">Surfaces secondaires dédiées.</p>
+          <p class="form-help">{{ _('Surfaces secondaires dédiées.') }}</p>
         </div>
         <div class="form-group">
           <label class="form-label" for="highlight_color">Accent / survol</label>
@@ -98,7 +99,7 @@
           <p class="form-help">Hover, focus, liens.</p>
         </div>
 
-        <div class="brand-palette-preview" id="brand-palette-preview" aria-label="Aperçu palette">
+        <div class="brand-palette-preview" id="brand-palette-preview" aria-label="{{ _('Aperçu palette') }}">
           <div class="brand-preview-btn">Bouton</div>
           <div class="brand-preview-chip">Survol</div>
           <div class="brand-preview-secondary">Secondaire</div>
@@ -106,10 +107,10 @@
         </div>
 
         <div class="form-group" style="margin-top:1.25rem;">
-          <label class="form-label" for="default_theme">Thème par défaut (login)</label>
+          <label class="form-label" for="default_theme">{{ _('Thème par défaut (login)') }}</label>
           <select id="default_theme" name="default_theme" class="form-input" style="max-width:12rem;">
-            <option value="dark" {% if b.default_theme == 'dark' %}selected{% endif %}>Sombre</option>
-            <option value="light" {% if b.default_theme == 'light' %}selected{% endif %}>Clair</option>
+            <option value="dark" {% if b.default_theme == 'dark' %}selected{% endif %}>{{ _('Sombre') }}</option>
+            <option value="light" {% if b.default_theme == 'light' %}selected{% endif %}>{{ _('Clair') }}</option>
           </select>
         </div>
       </div>
@@ -117,23 +118,23 @@
 
     <div class="form-section form-section-gap">
       <div class="form-section-header">
-        <div class="form-section-title">Pied de page</div>
-        <div class="form-section-sub">Mentions et contact support sur le login</div>
+        <div class="form-section-title">{{ _('Pied de page') }}</div>
+        <div class="form-section-sub">{{ _('Mentions et contact support sur le login') }}</div>
       </div>
       <div class="form-body">
         <div class="form-group">
-          <label class="form-label" for="footer_text">Texte du pied de page</label>
+          <label class="form-label" for="footer_text">{{ _('Texte du pied de page') }}</label>
           <textarea id="footer_text" name="footer_text" class="form-input" rows="2"
                     maxlength="2000">{{ b.footer_text or '' }}</textarea>
         </div>
         <div class="form-group">
-          <label class="form-label" for="support_contact">Contact support</label>
+          <label class="form-label" for="support_contact">{{ _('Contact support') }}</label>
           <input type="text" id="support_contact" name="support_contact" class="form-input"
                  maxlength="200" value="{{ b.support_contact or '' }}"
-                 placeholder="support@example.com">
+                 placeholder="{{ _('support@example.com') }}">
         </div>
         <div class="form-actions" style="margin-top:1rem;">
-          <button type="submit" class="btn btn-primary">Enregistrer</button>
+          <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
         </div>
       </div>
     </div>
@@ -141,26 +142,26 @@
 
   <div class="form-section form-section-gap">
     <div class="form-section-header">
-      <div class="form-section-title">Logo</div>
-      <div class="form-section-sub">PNG / JPEG / WEBP — max 512 Ko, redimensionné à 128×128</div>
+      <div class="form-section-title">{{ _('Logo') }}</div>
+      <div class="form-section-sub">{{ _('PNG / JPEG / WEBP — max 512 Ko, redimensionné à 128×128') }}</div>
     </div>
     <div class="form-body">
       {% if b.logo_url %}
       <p style="margin-bottom:1rem;">
-        <img src="{{ b.logo_url }}" alt="Logo actuel" width="64" height="64"
+        <img src="{{ b.logo_url }}" alt="{{ _('Logo actuel') }}" width="64" height="64"
              style="border-radius:12px;border:1px solid var(--border);background:var(--tertiary);">
       </p>
       <form method="post" action="/admin/branding/logo/delete" style="display:inline;margin-right:.5rem;">
-        <button type="submit" class="btn btn-ghost btn-sm">Supprimer</button>
+        <button type="submit" class="btn btn-ghost btn-sm">{{ _('Supprimer') }}</button>
       </form>
       {% else %}
-      <p class="form-help">Aucun logo — icône générique utilisée.</p>
+      <p class="form-help">{{ _('Aucun logo — icône générique utilisée.') }}</p>
       {% endif %}
       <form method="post" action="/admin/branding/logo" enctype="multipart/form-data"
             style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
-        <label class="visually-hidden" for="branding-logo-file">Fichier logo</label>
+        <label class="visually-hidden" for="branding-logo-file">{{ _('Fichier logo') }}</label>
         <input type="file" id="branding-logo-file" name="file" accept="image/png,image/jpeg,image/webp" required>
-        <button type="submit" class="btn btn-secondary btn-sm">Uploader le logo</button>
+        <button type="submit" class="btn btn-secondary btn-sm">{{ _('Uploader le logo') }}</button>
       </form>
     </div>
   </div>
@@ -168,7 +169,7 @@
   <div class="form-section form-section-gap">
     <div class="form-section-header">
       <div class="form-section-title">Favicon</div>
-      <div class="form-section-sub">PNG ou ICO — max 256 Ko</div>
+      <div class="form-section-sub">{{ _('PNG ou ICO — max 256 Ko') }}</div>
     </div>
     <div class="form-body">
       {% if b.favicon_path %}
@@ -177,16 +178,16 @@
              style="border-radius:6px;border:1px solid var(--border);">
       </p>
       <form method="post" action="/admin/branding/favicon/delete" style="display:inline;margin-right:.5rem;">
-        <button type="submit" class="btn btn-ghost btn-sm">Supprimer</button>
+        <button type="submit" class="btn btn-ghost btn-sm">{{ _('Supprimer') }}</button>
       </form>
       {% else %}
-      <p class="form-help">Favicon par défaut : bouclier générique.</p>
+      <p class="form-help">{{ _('Favicon par défaut : bouclier générique.') }}</p>
       {% endif %}
       <form method="post" action="/admin/branding/favicon" enctype="multipart/form-data"
             style="margin-top:1rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;">
-        <label class="visually-hidden" for="branding-favicon-file">Fichier favicon</label>
+        <label class="visually-hidden" for="branding-favicon-file">{{ _('Fichier favicon') }}</label>
         <input type="file" id="branding-favicon-file" name="file" accept="image/png,image/x-icon,.ico" required>
-        <button type="submit" class="btn btn-secondary btn-sm">Uploader le favicon</button>
+        <button type="submit" class="btn btn-secondary btn-sm">{{ _('Uploader le favicon') }}</button>
       </form>
     </div>
   </div>

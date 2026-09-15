@@ -1,5 +1,5 @@
 {% extends "base_public.html" %}
-{% block title %}Page introuvable{% endblock %}
+{% block title %}{{ _('Page introuvable') }}{% endblock %}
 
 {% block content %}
 <div class="error-page">
@@ -7,14 +7,15 @@
     <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="11"/><line x1="11" y1="14" x2="11.01" y2="14"/></svg>
   </div>
   <div class="error-code error-code--warn">404</div>
-  <h1 class="page-title">Page introuvable</h1>
+  <h1 class="page-title">{{ _('Page introuvable') }}</h1>
   <p class="error-message">
     {% if branding.show_product_branding %}
-    La ressource demandée n'existe pas ou a été déplacée.
+    {{ _("La ressource demandée n'existe pas ou a été déplacée.") }}
     {% else %}
-    {{ branding.company_name }} — la ressource demandée n'existe pas ou a été déplacée.
+    {{ branding.company_name }} {{ _("— la ressource demandée n'existe pas ou a été déplacée.") }}
+
     {% endif %}
   </p>
-  <a href="/auth/login" class="btn btn-primary">Connexion</a>
+  <a href="/auth/login" class="btn btn-primary">{{ _('Connexion') }}</a>
 </div>
 {% endblock %}

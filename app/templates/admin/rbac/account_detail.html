@@ -11,24 +11,24 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Compte {{ account.username }}</h1>
-      <p class="page-sub">{{ account.email }} — realm <span class="mono">{{ realm.slug if realm else '?' }}</span></p>
+      <p class="page-sub">{{ account.email }} {{ _('— realm') }} <span class="mono">{{ realm.slug if realm else '?' }}</span></p>
     </div>
     <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; justify-content:flex-end;">
       {% if account.origin == 'bastion' %}
-      <span class="badge badge-ok" title="Créé via Admin → Nouvel utilisateur">Créé bastion</span>
+      <span class="badge badge-ok" title="{{ _('Créé via Admin → Nouvel utilisateur') }}">{{ _('Créé bastion') }}</span>
       {% else %}
-      <span class="badge badge-muted" title="Lié depuis un compte Keycloak existant">Import Keycloak</span>
+      <span class="badge badge-muted" title="{{ _('Lié depuis un compte Keycloak existant') }}">Import Keycloak</span>
       {% endif %}
       {% if account.status == 'provisioned' %}
-      <span class="badge badge-ok">Provisionné</span>
+      <span class="badge badge-ok">{{ _('Provisionné') }}</span>
       {% elif account.status == 'keycloak_created' %}
-      <span class="badge badge-ok">Keycloak créé</span>
+      <span class="badge badge-ok">{{ _('Keycloak créé') }}</span>
       {% elif account.status == 'partial_failure' %}
-      <span class="badge badge-warn">Échec partiel</span>
+      <span class="badge badge-warn">{{ _('Échec partiel') }}</span>
       {% else %}
-      <span class="badge badge-err">En attente (échec Keycloak)</span>
+      <span class="badge badge-err">{{ _('En attente (échec Keycloak)') }}</span>
       {% endif %}
-      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">← Utilisateurs</a>
+      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">{{ _('← Utilisateurs') }}</a>
     </div>
   </div>
 
@@ -36,10 +36,12 @@
 
   {% if initial_temporary_password %}
   <div class="alert alert-warn" role="status" data-temp-password-box>
-    <strong>Mot de passe temporaire (affichage unique)</strong>
+    <strong>{{ _('Mot de passe temporaire (affichage unique)') }}</strong>
     <p class="form-help" style="margin:var(--sp-2) 0;">
-      À communiquer à l’utilisateur pour sa 1<sup>re</sup> connexion — Keycloak forcera
-      <span class="mono">UPDATE_PASSWORD</span>. Cette valeur ne sera plus réaffichée.
+{{ _('À communiquer à l’utilisateur pour sa 1') }}<sup>re</sup> {{ _('connexion — Keycloak forcera') }}
+
+      <span class="mono">UPDATE_PASSWORD</span>{{ _('. Cette valeur ne sera plus réaffichée.') }}
+
     </p>
     <div style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
       <code class="mono" id="temp-password-value" style="font-size:var(--fs-md); user-select:all;">{{ initial_temporary_password }}</code>
@@ -66,23 +68,23 @@
   {% endif %}
 
   {% if account.last_error %}
-  <div class="alert alert-err">Dernière erreur bloquante : {{ account.last_error }}</div>
+  <div class="alert alert-err">{{ _('Dernière erreur bloquante :') }} {{ account.last_error }}</div>
   {% endif %}
 
   <div class="form-section is-accordion is-open" data-form-accordion data-open-default>
     <div class="form-section-header" data-form-accordion-toggle>
       <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
       <div>
-        <div class="form-section-title">Étape Keycloak</div>
+        <div class="form-section-title">{{ _('Étape Keycloak') }}</div>
         <div class="form-section-sub">
           {% if account.origin == 'bastion' %}
-          Compte créé localement, puis poussé vers Keycloak (mot de passe temporaire + UPDATE_PASSWORD)
+          {{ _('Compte créé localement, puis poussé vers Keycloak (mot de passe temporaire + UPDATE_PASSWORD)') }}
           {% else %}
-          Compte lié depuis Keycloak (pas de création locale initiale)
+          {{ _('Compte lié depuis Keycloak (pas de création locale initiale)') }}
           {% endif %}
         </div>
         <div class="form-section-summary">
-          {% if account.keycloak_user_id %}Utilisateur créé{% else %}Non créé — relance requise{% endif %}
+          {% if account.keycloak_user_id %}{{ _('Utilisateur créé') }}{% else %}{{ _('Non créé — relance requise') }}{% endif %}
         </div>
       </div>
       {% if not account.keycloak_user_id %}
@@ -96,7 +98,7 @@
         <label class="form-check" style="margin:0;">
           <input type="checkbox" name="send_email" value="1"
                  {% if realm and realm.send_credentials_email %}checked{% endif %}>
-          <span>Envoyer par email</span>
+          <span>{{ _('Envoyer par email') }}</span>
         </label>
         <button type="submit" class="btn btn-ghost btn-sm"
                 data-confirm="Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?">Reset password</button>
@@ -105,7 +107,7 @@
             onclick="event.stopPropagation();"
             style="display:inline;">
         <button type="submit" class="btn btn-ghost btn-sm"
-                data-confirm="Marquer l’email de « {{ account.username }} » comme vérifié dans Keycloak ?">Vérifier email</button>
+                data-confirm="Marquer l’email de « {{ account.username }} » comme vérifié dans Keycloak ?">{{ _('Vérifier email') }}</button>
       </form>
       {% endif %}
     </div>
@@ -115,25 +117,25 @@
           <span class="form-label">Origine</span>
           <div>
             {% if account.origin == 'bastion' %}
-            Création locale (bastion → Keycloak)
+            {{ _('Création locale (bastion → Keycloak)') }}
             {% else %}
             Import / lien Keycloak
             {% endif %}
           </div>
         </div>
         <div class="form-group">
-          <span class="form-label">Statut</span>
+          <span class="form-label">{{ _('Statut') }}</span>
           <div>
             {% if account.keycloak_user_id %}
-            <span class="badge badge-ok">Utilisateur créé</span>
+            <span class="badge badge-ok">{{ _('Utilisateur créé') }}</span>
             {% else %}
-            <span class="badge badge-err">Non créé</span>
+            <span class="badge badge-err">{{ _('Non créé') }}</span>
             {% endif %}
           </div>
         </div>
       </div>
       <div class="form-group">
-        <span class="form-label">Société</span>
+        <span class="form-label">{{ _('Société') }}</span>
         <div>{{ account.organization or '—' }}</div>
       </div>
       <div class="form-group">
@@ -141,18 +143,18 @@
         <div class="mono">{{ account.keycloak_user_id or '—' }}</div>
       </div>
       <div class="form-group">
-        <span class="form-label">Créé par</span>
+        <span class="form-label">{{ _('Créé par') }}</span>
         <div>{{ account.created_by }} — {{ account.created_at.strftime('%Y-%m-%d %H:%M UTC') if account.created_at else '' }}</div>
       </div>
       <div class="form-group" style="margin-bottom:0;">
         <span class="form-label">Liens</span>
         <div style="display:flex; flex-wrap:wrap; gap:var(--sp-3);">
           {% if keycloak_console_url %}
-          <a href="{{ keycloak_console_url }}" target="_blank" rel="noopener">Compte Keycloak ↗</a>
+          <a href="{{ keycloak_console_url }}" target="_blank" rel="noopener">{{ _('Compte Keycloak ↗') }}</a>
           {% endif %}
           {% if account.keycloak_user_id and realm %}
-          <a href="/admin/rbac/users/view?account_id={{ account.id }}">Fiche utilisateur</a>
-          <a href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ account.keycloak_user_id }}#droits">Droits effectifs</a>
+          <a href="/admin/rbac/users/view?account_id={{ account.id }}">{{ _('Fiche utilisateur') }}</a>
+          <a href="/admin/rbac/users/view?realm_id={{ realm.id }}&amp;keycloak_user_id={{ account.keycloak_user_id }}#droits">{{ _('Droits effectifs') }}</a>
           {% endif %}
           {% if not keycloak_console_url and not (account.keycloak_user_id and realm) %}
           <span class="form-hint">—</span>
@@ -161,8 +163,9 @@
       </div>
       {% if not account.keycloak_user_id %}
       <div class="alert alert-warn" style="margin:var(--sp-3) 0 0;">
-        Après correction des droits du compte de service provisioning, utilisez
-        <strong>Relancer Keycloak</strong> — pas de retry automatique.
+        {{ _('Après correction des droits du compte de service provisioning, utilisez') }}
+        <strong>Relancer Keycloak</strong> {{ _('— pas de retry automatique.') }}
+
       </div>
       {% endif %}
     </div>
@@ -173,8 +176,8 @@
     <div class="form-section-header" data-form-accordion-toggle>
       <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
       <div>
-        <div class="form-section-title">Vault applicatif</div>
-        <div class="form-section-sub">Identifiants poussés au provisioning (secret jamais affiché)</div>
+        <div class="form-section-title">{{ _('Vault applicatif') }}</div>
+        <div class="form-section-sub">{{ _('Identifiants poussés au provisioning (secret jamais affiché)') }}</div>
         <div class="form-section-summary">{{ vault_apps|length }} app(s)</div>
       </div>
     </div>
@@ -182,7 +185,7 @@
       <div class="table-wrap" style="margin:0;">
         <table class="data-table">
           <thead>
-            <tr><th>Application</th><th>Login vault</th><th>Statut</th></tr>
+            <tr><th>{{ _('Application') }}</th><th>{{ _('Login vault') }}</th><th>{{ _('Statut') }}</th></tr>
           </thead>
           <tbody>
             {% for va in vault_apps %}
@@ -194,9 +197,9 @@
               <td class="mono">{{ va.robotic_username or '—' }}</td>
               <td>
                 {% if va.has_override %}
-                <span class="badge badge-ok">Configuré</span>
+                <span class="badge badge-ok">{{ _('Configuré') }}</span>
                 {% else %}
-                <span class="badge badge-muted">Non configuré</span>
+                <span class="badge badge-muted">{{ _('Non configuré') }}</span>
                 {% endif %}
               </td>
             </tr>
@@ -206,8 +209,8 @@
       </div>
       {% if account.keycloak_user_id and realm %}
       <p class="form-help" style="margin:var(--sp-3) 0 0;">
-        Gestion complète (test, remplacer) :
-        <a href="/admin/rbac/users/view?account_id={{ account.id }}#vault">fiche utilisateur → Vault</a>
+        {{ _('Gestion complète (test, remplacer) :') }}
+        <a href="/admin/rbac/users/view?account_id={{ account.id }}#vault">{{ _('fiche utilisateur → Vault') }}</a>
       </p>
       {% endif %}
     </div>
@@ -219,22 +222,25 @@
       <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
       <div>
         <div class="form-section-title">Provisioning applicatif</div>
-        <div class="form-section-sub">Création de compte local via le driver de l’application (ex. CrushFTP)</div>
+        <div class="form-section-sub">{{ _('Création de compte local via le driver de l’application (ex. CrushFTP)') }}</div>
         <div class="form-section-summary{% if not provisionings and not pending_apps %} is-off{% endif %}">
           {% if failed_rows %}
-          {{ failed_rows|length }} échec(s) · {{ ok_rows|length }} succès
+          {{ failed_rows|length }} {{ _('échec(s) ·') }} {{ ok_rows|length }} {{ _('succès') }}
+
           {% elif provisionings %}
           {{ ok_rows|length }}/{{ provisionings|length }} OK
           {% elif pending_apps %}
-          {{ pending_apps|length }} en attente
+          {{ pending_apps|length }} {{ _('en attente') }}
+
           {% else %}
-          Aucune tentative
+{{ _('Aucune tentative') }}
+
           {% endif %}
         </div>
       </div>
       {% if (failed_rows or pending_apps) and account.keycloak_user_id %}
       <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision-retry-all" onclick="event.stopPropagation();">
-        <button type="submit" class="btn btn-ghost btn-sm">Relancer les échecs</button>
+        <button type="submit" class="btn btn-ghost btn-sm">{{ _('Relancer les échecs') }}</button>
       </form>
       {% endif %}
     </div>
@@ -244,10 +250,10 @@
         <table class="data-table">
           <thead>
             <tr>
-              <th>Application</th>
+              <th>{{ _('Application') }}</th>
               <th>Driver</th>
-              <th>Statut</th>
-              <th>Détail</th>
+              <th>{{ _('Statut') }}</th>
+              <th>{{ _('Détail') }}</th>
               <th></th>
             </tr>
           </thead>
@@ -264,13 +270,13 @@
               <td class="mono">{{ row.driver_name }}</td>
               <td>
                 {% if row.status == 'success' %}
-                <span class="badge badge-ok">Succès</span>
+                <span class="badge badge-ok">{{ _('Succès') }}</span>
                 {% elif row.status == 'not_applicable' %}
-                <span class="badge badge-muted">Non applicable</span>
+                <span class="badge badge-muted">{{ _('Non applicable') }}</span>
                 {% elif row.status == 'failed' %}
-                <span class="badge badge-err">Échec</span>
+                <span class="badge badge-err">{{ _('Échec') }}</span>
                 {% else %}
-                <span class="badge badge-muted">En attente</span>
+                <span class="badge badge-muted">{{ _('En attente') }}</span>
                 {% endif %}
               </td>
               <td class="form-hint">{{ row.detail or '—' }}</td>
@@ -293,15 +299,15 @@
                 {% endif %}
               </td>
               <td class="mono">{{ app.provisioning_driver or '—' }}</td>
-              <td><span class="badge badge-warn">Pas encore tenté</span></td>
-              <td class="form-hint">Sélectionnée à la création</td>
+              <td><span class="badge badge-warn">{{ _('Pas encore tenté') }}</span></td>
+              <td class="form-hint">{{ _('Sélectionnée à la création') }}</td>
               <td>
                 {% if account.keycloak_user_id %}
                 <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision/{{ app.id }}" style="display:inline;">
                   <button type="submit" class="btn btn-ghost btn-sm">Lancer</button>
                 </form>
                 {% else %}
-                <span class="form-hint">Keycloak requis</span>
+                <span class="form-hint">{{ _('Keycloak requis') }}</span>
                 {% endif %}
               </td>
             </tr>
@@ -311,24 +317,24 @@
       </div>
       {% else %}
       <p class="form-help" style="margin:0 0 var(--sp-4);">
-        Aucun provisioning tenté pour l’instant — cochez les applications ci-dessous pour en lancer un.
+        {{ _('Aucun provisioning tenté pour l’instant — cochez les applications ci-dessous pour en lancer un.') }}
       </p>
       {% endif %}
 
       {% if not account.keycloak_user_id %}
       <div class="alert alert-warn" style="margin:0;">
-        Le provisioning applicatif nécessite un utilisateur Keycloak créé.
+        {{ _('Le provisioning applicatif nécessite un utilisateur Keycloak créé.') }}
       </div>
       {% elif not provision_apps %}
       <div class="alert alert-warn" style="margin:0;">
-        Aucune application activée dans le catalogue.
+        {{ _('Aucune application activée dans le catalogue.') }}
       </div>
       {% else %}
       <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision" id="account-provision-form">
         <div class="form-group" style="margin-bottom:var(--sp-3);">
-          <span class="form-label">Lancer / relancer un provisioning</span>
+          <span class="form-label">{{ _('Lancer / relancer un provisioning') }}</span>
           <p class="form-help" style="margin:var(--sp-1) 0 var(--sp-3);">
-            Sélection explicite — aucune exécution automatique.
+            {{ _('Sélection explicite — aucune exécution automatique.') }}
           </p>
           {% if apps_with_driver %}
           <div class="stack" style="gap:var(--sp-3);">
@@ -341,27 +347,28 @@
               <span class="badge badge-ok">{{ a.provisioning_driver }}</span>
               {% if existing %}
                 {% if existing.status == 'success' %}
-                <span class="badge badge-muted">déjà OK</span>
+                <span class="badge badge-muted">{{ _('déjà OK') }}</span>
                 {% elif existing.status == 'failed' %}
-                <span class="badge badge-err">échec</span>
+                <span class="badge badge-err">{{ _('échec') }}</span>
                 {% elif existing.status == 'not_applicable' %}
                 <span class="badge badge-muted">N/A</span>
                 {% endif %}
               {% elif a.id in pending_ids_set %}
-              <span class="badge badge-warn">en attente</span>
+              <span class="badge badge-warn">{{ _('en attente') }}</span>
               {% endif %}
             </label>
             {% endfor %}
           </div>
           {% else %}
-          <p class="form-help">Aucune application avec driver de provisioning — configurez-le dans le catalogue.</p>
+          <p class="form-help">{{ _('Aucune application avec driver de provisioning — configurez-le dans le catalogue.') }}</p>
           {% endif %}
 
           {% if apps_sso_only %}
           <details style="margin-top:var(--sp-3);">
             <summary class="form-help" style="cursor:pointer; user-select:none;">
-              {{ apps_sso_only|length }} application(s) SSO uniquement
-              <span style="color:var(--text-3);">(statut « non applicable »)</span>
+              {{ apps_sso_only|length }} {{ _('application(s) SSO uniquement') }}
+
+              <span style="color:var(--text-3);">{{ _('(statut « non applicable »)') }}</span>
             </summary>
             <div class="stack" style="gap:var(--sp-3); margin-top:var(--sp-3); padding-left:var(--sp-2);">
               {% for a in apps_sso_only %}
@@ -390,11 +397,12 @@
   <div class="form-section" id="danger" style="border-color:rgba(239,68,68,.45);">
     <div class="form-section-header">
       <div>
-        <div class="form-section-title" style="color:var(--err);">Zone dangereuse — supprimer partout</div>
+        <div class="form-section-title" style="color:var(--err);">{{ _('Zone dangereuse — supprimer partout') }}</div>
         <div class="form-section-sub">
-          Supprime le compte de toutes les applications provisionnées (CrushFTP…),
-          l'utilisateur Keycloak, les credentials vault, les droits RBAC individuels,
-          puis la fiche bastion. Action irréversible et auditée.
+          {{ _('Supprime le compte de toutes les applications provisionnées (CrushFTP…),') }}
+{{ _("l'utilisateur Keycloak, les credentials vault, les droits RBAC individuels,") }}
+
+          {{ _('puis la fiche bastion. Action irréversible et auditée.') }}
         </div>
       </div>
     </div>
@@ -402,19 +410,21 @@
       <form method="post" action="/admin/rbac/accounts/{{ account.id }}/delete">
         <div class="form-group">
           <label class="form-label" for="confirm_username">
-            Saisissez l'identifiant « <strong>{{ account.username }}</strong> » pour confirmer
+{{ _("Saisissez l'identifiant «") }} <strong>{{ account.username }}</strong> {{ _('» pour confirmer') }}
+
           </label>
           <input class="form-input" id="confirm_username" name="confirm_username"
                  autocomplete="off" placeholder="{{ account.username }}" style="max-width:320px;">
         </div>
         <label class="form-check" style="margin:var(--sp-3) 0;">
           <input type="checkbox" name="force" value="1">
-          <span>Forcer la suppression de la fiche bastion même si une étape distante échoue
-            <span style="color:var(--text-3);">(laisse des comptes orphelins côté applications/Keycloak)</span>
+          <span>{{ _('Forcer la suppression de la fiche bastion même si une étape distante échoue') }}
+
+            <span style="color:var(--text-3);">{{ _('(laisse des comptes orphelins côté applications/Keycloak)') }}</span>
           </span>
         </label>
         <button type="submit" class="btn btn-danger"
-                data-confirm="Supprimer définitivement « {{ account.username }} » partout ?">Supprimer partout</button>
+                data-confirm="Supprimer définitivement « {{ account.username }} » partout ?">{{ _('Supprimer partout') }}</button>
       </form>
     </div>
   </div>

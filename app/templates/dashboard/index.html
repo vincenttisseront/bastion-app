@@ -10,9 +10,9 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Dashboard</h1>
-      <p class="page-sub">Vue d’ensemble — <span class="font-mono" data-dash="now">{{ now }}</span></p>
+      <p class="page-sub">{{ _('Vue d’ensemble —') }} <span class="font-mono" data-dash="now">{{ now }}</span></p>
     </div>
-    <div class="live-pill" data-dash="live-pill" title="Rafraîchissement automatique des indicateurs">
+    <div class="live-pill" data-dash="live-pill" title="{{ _('Rafraîchissement automatique des indicateurs') }}">
       <span class="live-dot"></span><span data-dash="live-label">Live</span>
     </div>
   </div>
@@ -25,10 +25,10 @@
         </div>
         <a class="metric-trend flat" href="/sessions" data-dash="sessions-total">{{ metrics.active_sessions | default(0) }} total</a>
       </div>
-      <div class="metric-value metric-value--split" aria-label="Sessions utilisateurs et applicatives">
+      <div class="metric-value metric-value--split" aria-label="{{ _('Sessions utilisateurs et applicatives') }}">
         <a class="metric-split" href="/sessions?kind=user">
           <span class="metric-split-num" data-dash="sessions-user">{{ metrics.active_sessions_user | default(0) }}</span>
-          <span class="metric-split-lbl">utilisateurs</span>
+          <span class="metric-split-lbl">{{ _('utilisateurs') }}</span>
         </a>
         <span class="metric-split-sep" aria-hidden="true">·</span>
         <a class="metric-split" href="/sessions?kind=app">
@@ -36,8 +36,8 @@
           <span class="metric-split-lbl">applicatives</span>
         </a>
       </div>
-      <div class="metric-label">Sessions actives</div>
-      <div class="metric-sub">portail · applications</div>
+      <div class="metric-label">{{ _('Sessions actives') }}</div>
+      <div class="metric-sub">{{ _('portail · applications') }}</div>
     </div>
 
     <a href="/admin/security/waf#bans-unified" class="metric-card red metric-card-link" data-dash-card="blocked">
@@ -48,14 +48,12 @@
         <span class="metric-trend {% if metrics.blocked_attempts %}up{% else %}down{% endif %}" data-dash="blocked-trend">{% if metrics.blocked_attempts %}↑{% else %}↓{% endif %}</span>
       </div>
       <div class="metric-value" data-dash="blocked-value">{{ "—" if metrics.blocked_attempts is none else metrics.blocked_attempts }}</div>
-      <div class="metric-label">Tentatives bloquées</div>
+      <div class="metric-label">{{ _('Tentatives bloquées') }}</div>
       <div class="metric-sub" data-dash="blocked-sub">
         {% if metrics.blocked_attempts is none %}
           Indisponible
         {% else %}
-          {{ metrics.blocked_attempts_window_hours | default(24) }} h
-          · {{ metrics.blocked_attempts_waf | default(0) }} WAF
-          · {{ metrics.blocked_attempts_auth | default(0) }} auth
+          {{ metrics.blocked_attempts_window_hours | default(24) }} {{ _('h ·') }} {{ metrics.blocked_attempts_waf | default(0) }} {{ _('WAF ·') }} {{ metrics.blocked_attempts_auth | default(0) }} auth
           {% if metrics.blocked_attempts_active_bans | default(0) %}
           · {{ metrics.blocked_attempts_active_bans }} ban{{ 's' if metrics.blocked_attempts_active_bans != 1 else '' }}
           {% endif %}
@@ -71,8 +69,8 @@
         <span class="metric-trend {% if metrics.total_apps and metrics.enabled_apps == metrics.total_apps %}down{% else %}flat{% endif %}" data-dash="apps-trend">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</span>
       </div>
       <div class="metric-value" data-dash="apps-value">{% if metrics.total_apps %}{{ ((metrics.enabled_apps / metrics.total_apps) * 100) | round | int }}%{% else %}—{% endif %}</div>
-      <div class="metric-label">Santé apps</div>
-      <div class="metric-sub" data-dash="apps-sub">{{ metrics.enabled_apps }}/{{ metrics.total_apps }} apps actives</div>
+      <div class="metric-label">{{ _('Santé apps') }}</div>
+      <div class="metric-sub" data-dash="apps-sub">{{ metrics.enabled_apps }}/{{ metrics.total_apps }} {{ _('apps actives') }}</div>
     </a>
 
     <a href="#pending-actions" class="metric-card yellow metric-card-link" data-dash-card="pending">
@@ -83,16 +81,16 @@
         <span class="metric-trend {% if pending_total %}up{% else %}flat{% endif %}" data-dash="pending-trend">{% if pending_total %}Action{% else %}OK{% endif %}</span>
       </div>
       <div class="metric-value" data-dash="pending-value">{{ pending_total }}</div>
-      <div class="metric-label">Éléments en attente</div>
-      <div class="metric-sub" data-dash="pending-sub">{% if pending_total %}À traiter{% else %}Rien en file{% endif %}</div>
+      <div class="metric-label">{{ _('Éléments en attente') }}</div>
+      <div class="metric-sub" data-dash="pending-sub">{% if pending_total %}{{ _('À traiter') }}{% else %}{{ _('Rien en file') }}{% endif %}</div>
     </a>
   </div>
 
   <div class="dash-grid dash-grid--ops">
     <div class="card" id="pending-actions">
       <div class="card-header">
-        <span class="card-title">Éléments en attente</span>
-        <span class="badge {% if pending_total %}badge-warn{% else %}badge-ok{% endif %}" data-dash="pending-badge">{% if pending_total %}{{ pending_total }}{% else %}À jour{% endif %}</span>
+        <span class="card-title">{{ _('Éléments en attente') }}</span>
+        <span class="badge {% if pending_total %}badge-warn{% else %}badge-ok{% endif %}" data-dash="pending-badge">{% if pending_total %}{{ pending_total }}{% else %}{{ _('À jour') }}{% endif %}</span>
       </div>
       <div class="pending-queue" data-dash="pending-list">
         {% for item in pending_entries %}
@@ -109,8 +107,8 @@
         </a>
         {% else %}
         <div class="empty-state" style="padding:var(--sp-5);">
-          <div class="empty-title">Rien en attente</div>
-          <div class="empty-desc">Demandes d'accès, nouveaux users, appareils, domaines et comptes à sync apparaîtront ici.</div>
+          <div class="empty-title">{{ _('Rien en attente') }}</div>
+          <div class="empty-desc">{{ _("Demandes d'accès, nouveaux users, appareils, domaines et comptes à sync apparaîtront ici.") }}</div>
         </div>
         {% endfor %}
       </div>
@@ -118,8 +116,8 @@
 
     <div class="card">
       <div class="card-header">
-        <span class="card-title">Flux d'audit en direct</span>
-        <a href="/admin/logs#audit" class="btn btn-ghost btn-sm">Voir tout →</a>
+        <span class="card-title">{{ _("Flux d'audit en direct") }}</span>
+        <a href="/admin/logs#audit" class="btn btn-ghost btn-sm">{{ _('Voir tout →') }}</a>
       </div>
       <div class="audit-stream" data-dash="audit-list">
         {% if recent_audit is none %}
@@ -127,17 +125,18 @@
           <div class="empty-icon">
             <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
           </div>
-          <div class="empty-title">Journal indisponible</div>
+          <div class="empty-title">{{ _('Journal indisponible') }}</div>
           <div class="empty-desc">
-            Le stockage chaud est injoignable —
-            <a href="/admin/configuration#hot-store">vérifier la configuration</a>.
+{{ _('Le stockage chaud est injoignable —') }}
+
+            <a href="/admin/configuration#hot-store">{{ _('vérifier la configuration') }}</a>.
           </div>
         </div>
         {% else %}
         {% for entry in recent_audit %}
         <a class="audit-entry audit-entry-link" data-searchable
            href="/admin/logs?id={{ entry.id }}#audit"
-           title="Ouvrir dans les journaux">
+           title="{{ _('Ouvrir dans les journaux') }}">
           <span class="audit-dot {{ entry.severity }}"></span>
           <div>
             <div class="audit-action">{{ entry.action }}</div>
@@ -151,8 +150,8 @@
           <div class="empty-icon">
             <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
           </div>
-          <div class="empty-title">Aucune activité récente</div>
-          <div class="empty-desc">Les actions administrateur apparaîtront ici en temps réel.</div>
+          <div class="empty-title">{{ _('Aucune activité récente') }}</div>
+          <div class="empty-desc">{{ _('Les actions administrateur apparaîtront ici en temps réel.') }}</div>
         </div>
         {% endfor %}
         {% endif %}

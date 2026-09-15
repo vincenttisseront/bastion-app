@@ -1,5 +1,5 @@
 {% extends "base_public.html" %}
-{% block title %}Accès refusé{% endblock %}
+{% block title %}{{ _('Accès refusé') }}{% endblock %}
 
 {% block content %}
 <div class="error-page">
@@ -7,9 +7,9 @@
     <svg width="36" height="36" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
   </div>
   <div class="error-code">403</div>
-  <h1 class="page-title">Accès refusé</h1>
+  <h1 class="page-title">{{ _('Accès refusé') }}</h1>
   <p class="error-message">
-    Vous n'avez pas les droits nécessaires pour accéder à cette ressource.
+    {{ _("Vous n'avez pas les droits nécessaires pour accéder à cette ressource.") }}
   </p>
 </div>
 {% endblock %}

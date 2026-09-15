@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.audit import list_audit_entries
 from app.database import get_db
+from app.i18n.helpers import localize_mapping
+from app.i18n.middleware import get_request_locale
 from app.models import App, RBACGroup, RealmConfig
 from app.rbac.effective_access_service import get_effective_apps_for_user
 from app.rbac.grants_service import serialize_user_search_result
@@ -282,8 +284,9 @@ async def global_search(
         {
             "ok": True,
             "results": results,
-            "category_labels": {
-                k: CATEGORY_LABELS[k] for k in results if k in CATEGORY_LABELS
-            },
+            "category_labels": localize_mapping(
+                {k: CATEGORY_LABELS[k] for k in results if k in CATEGORY_LABELS},
+                get_request_locale(request),
+            ),
         }
     )

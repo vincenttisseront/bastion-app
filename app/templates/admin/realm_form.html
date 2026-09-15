@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{% if realm %}Modifier {{ realm.slug }}{% else %}Créer un realm{% endif %}{% endblock %}
+{% block title %}{% if realm %}{{ _('Modifier') }} {{ realm.slug }}{% else %}{{ _('Créer un realm') }}{% endif %}{% endblock %}
 {% block breadcrumb %}Admin / Realms{% endblock %}
 
 {% block content %}
@@ -23,11 +23,11 @@
 <div class="page page-form page-form--wide" data-realm-form-page data-initial-tab="{{ ns.initial }}">
   <div class="page-header">
     <div>
-      <h1 class="page-title">{% if realm %}Modifier {{ realm.slug }}{% else %}Nouveau realm OIDC{% endif %}</h1>
-      <p class="page-sub">IdP, session native, sync et export oauth2-proxy</p>
+      <h1 class="page-title">{% if realm %}{{ _('Modifier') }} {{ realm.slug }}{% else %}{{ _('Nouveau realm OIDC') }}{% endif %}</h1>
+      <p class="page-sub">{{ _('IdP, session native, sync et export oauth2-proxy') }}</p>
     </div>
     <div class="page-header-actions">
-      <a href="/admin/realms" class="btn btn-ghost btn-sm">← Realms</a>
+      <a href="/admin/realms" class="btn btn-ghost btn-sm">{{ _('← Realms') }}</a>
     </div>
   </div>
 
@@ -36,8 +36,8 @@
   <div id="test-global-result" class="alert" hidden></div>
   <div id="test-checks"></div>
 
-  <div class="tabs realm-form-tabs" role="tablist" aria-label="Sections du realm" id="realm-form-tabs">
-    <a href="#general" class="tab{% if ns.initial == 'general' %} active{% endif %}" role="tab" data-tab="general" aria-selected="{{ 'true' if ns.initial == 'general' else 'false' }}">Général</a>
+  <div class="tabs realm-form-tabs" role="tablist" aria-label="{{ _('Sections du realm') }}" id="realm-form-tabs">
+    <a href="#general" class="tab{% if ns.initial == 'general' %} active{% endif %}" role="tab" data-tab="general" aria-selected="{{ 'true' if ns.initial == 'general' else 'false' }}">{{ _('Général') }}</a>
     <a href="#oidc" class="tab{% if ns.initial == 'oidc' %} active{% endif %}" role="tab" data-tab="oidc" aria-selected="{{ 'true' if ns.initial == 'oidc' else 'false' }}">
       OIDC &amp; BFF
       {% if oidc_ready %}<span class="tab-badge badge badge-ok">OK</span>{% elif form_values.issuer_url %}<span class="tab-badge badge badge-warn">…</span>{% endif %}
@@ -51,23 +51,23 @@
       {% if form_values.provisioning_enabled %}<span class="tab-badge badge badge-ok">ON</span>{% endif %}
     </a>
     <a href="#smtp" class="tab{% if ns.initial == 'smtp' %} active{% endif %}" role="tab" data-tab="smtp" aria-selected="{{ 'true' if ns.initial == 'smtp' else 'false' }}">
-      Accès
+      {{ _('Accès') }}
       {% if form_values.access_request_enabled %}<span class="tab-badge badge badge-ok">ON</span>{% endif %}
     </a>
   </div>
 
   <form id="realm-form" method="post" action="{% if realm %}/admin/realms/{{ realm.id }}{% else %}/admin/realms{% endif %}" class="realm-form">
+{# Général #}
 
-    {# Général #}
     <div class="realm-form-panel" id="panel-general" data-panel="general"{% if ns.initial != 'general' %} hidden{% endif %}>
       <div class="card realm-form-card">
-        <h2 class="card-title" style="margin-top:0;">Identité du realm</h2>
-        <p class="form-hint" style="margin:0 0 var(--sp-4);">Slug, libellés login et paramètres oauth2-proxy.</p>
+        <h2 class="card-title" style="margin-top:0;">{{ _('Identité du realm') }}</h2>
+        <p class="form-hint" style="margin:0 0 var(--sp-4);">{{ _('Slug, libellés login et paramètres oauth2-proxy.') }}</p>
         <div class="stack" style="gap:var(--sp-4);">
           {% if not realm %}
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="name">Nom affiché <span class="req">*</span></label>
+              <label class="form-label" for="name">{{ _('Nom affiché') }} <span class="req">*</span></label>
               <input type="text" id="name" name="name" class="form-input{% if errors.name %} is-invalid{% endif %}" value="{{ form_values.name }}" required maxlength="100">
               {% if errors.name %}<p class="form-error">{{ errors.name }}</p>{% endif %}
             </div>
@@ -77,14 +77,14 @@
                 <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18"/></svg>
                 <input type="text" id="slug" name="slug" data-mode="create" data-slug-from="name" class="form-input{% if errors.slug %} is-invalid{% endif %}" value="{{ form_values.slug }}" required pattern="[a-z0-9-]{2,40}">
               </div>
-              <p class="form-help">Généré automatiquement depuis le nom, modifiable</p>
+              <p class="form-help">{{ _('Généré automatiquement depuis le nom, modifiable') }}</p>
               {% if errors.slug %}<p class="form-error">{{ errors.slug }}</p>{% endif %}
             </div>
           </div>
           {% else %}
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="name">Nom affiché <span class="req">*</span></label>
+              <label class="form-label" for="name">{{ _('Nom affiché') }} <span class="req">*</span></label>
               <input type="text" id="name" name="name" class="form-input{% if errors.name %} is-invalid{% endif %}" value="{{ form_values.name }}" required maxlength="100">
               {% if errors.name %}<p class="form-error">{{ errors.name }}</p>{% endif %}
             </div>
@@ -92,22 +92,22 @@
               <span class="form-label">Slug</span>
               <div class="mono">{{ realm.slug }}</div>
               <input type="hidden" id="slug" value="{{ realm.slug }}">
-              <p class="form-hint">Non modifiable après création</p>
+              <p class="form-hint">{{ _('Non modifiable après création') }}</p>
             </div>
           </div>
           {% endif %}
 
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="oauth2_proxy_port">Port oauth2-proxy <span class="req">*</span></label>
+              <label class="form-label" for="oauth2_proxy_port">{{ _('Port oauth2-proxy') }} <span class="req">*</span></label>
               {% set port_locked = not errors.get('oauth2_proxy_port') %}
               <div class="input-wrap input-wrap-actions">
                 <input type="number" id="oauth2_proxy_port" name="oauth2_proxy_port" class="form-input{% if errors.oauth2_proxy_port %} is-invalid{% endif %}" value="{{ form_values.oauth2_proxy_port or 4181 }}" min="4180" max="4299" required data-original-port="{{ form_values.oauth2_proxy_port or 4181 }}" data-port-context="{{ 'edit' if realm else 'create' }}"{% if port_locked %} readonly{% endif %}>
-                <button type="button" id="btn-toggle-port" class="btn btn-ghost btn-sm">{% if port_locked %}Choisir un autre port{% elif realm %}Revenir au port assigné{% else %}Revenir au port proposé{% endif %}</button>
-                <button type="button" id="btn-test-port" class="btn btn-ghost btn-sm{% if port_locked %} is-hidden{% endif %}">Tester ce port</button>
+                <button type="button" id="btn-toggle-port" class="btn btn-ghost btn-sm">{% if port_locked %}{{ _('Choisir un autre port') }}{% elif realm %}{{ _('Revenir au port assigné') }}{% else %}{{ _('Revenir au port proposé') }}{% endif %}</button>
+                <button type="button" id="btn-test-port" class="btn btn-ghost btn-sm{% if port_locked %} is-hidden{% endif %}">{{ _('Tester ce port') }}</button>
               </div>
               {% if realm and port_locked %}
-              <p class="form-hint hint-spaced" id="port-assigned-hint">Port assigné à ce realm. Ne le modifiez que si nécessaire.</p>
+              <p class="form-hint hint-spaced" id="port-assigned-hint">{{ _('Port assigné à ce realm. Ne le modifiez que si nécessaire.') }}</p>
               {% endif %}
               <div id="port-test-result" class="form-hint hint-spaced is-hidden"></div>
               {% if errors.oauth2_proxy_port %}<p class="form-error">{{ errors.oauth2_proxy_port }}</p>{% endif %}
@@ -122,15 +122,15 @@
           <div class="form-group">
             <label class="form-check">
               <input type="checkbox" name="is_default" {% if form_values.is_default %}checked{% endif %}>
-              Realm par défaut
+              {{ _('Realm par défaut') }}
             </label>
           </div>
         </div>
       </div>
 
       <div class="card realm-form-card">
-        <h2 class="card-title" style="margin-top:0;">Login &amp; MFA</h2>
-        <p class="form-hint" style="margin:0 0 var(--sp-4);">Contrôle l’affichage public multi-realm et l’enrôlement OTP Bastion.</p>
+        <h2 class="card-title" style="margin-top:0;">{{ _('Login &amp; MFA') }}</h2>
+        <p class="form-hint" style="margin:0 0 var(--sp-4);">{{ _('Contrôle l’affichage public multi-realm et l’enrôlement OTP Bastion.') }}</p>
         <div class="stack" style="gap:var(--sp-4);">
           {% if realm %}
           <div class="form-group">
@@ -139,11 +139,12 @@
               Session native OIDC
             </label>
             <p class="form-help">
-              Bascule depuis la liste Realms.
+{{ _('Bascule depuis la liste Realms.') }}
+
               {% if form_values.oidc_native_session_enabled %}
-              <strong>Actuellement activé</strong> — formulaire natif + <code>bastion_session</code>.
+              <strong>{{ _('Actuellement activé') }}</strong> {{ _('— formulaire natif +') }} <code>{{ _('bastion_session') }}</code>.
               {% else %}
-              Actuellement désactivé — SSO via oauth2-proxy uniquement.
+              {{ _('Actuellement désactivé — SSO via oauth2-proxy uniquement.') }}
               {% endif %}
             </p>
           </div>
@@ -155,25 +156,26 @@
                 MFA / OTP (session native)
               </label>
               <p class="form-help">
-                OTP Bastion (QR) + bouton admin « Configurer OTP ». Challenge IdP honoré si déjà configuré.
+                {{ _('OTP Bastion (QR) + bouton admin « Configurer OTP ». Challenge IdP honoré si déjà configuré.') }}
               </p>
             </div>
             <div class="form-group">
               <label class="form-check">
                 <input type="checkbox" name="show_on_login" value="1" {% if form_values.show_on_login %}checked{% endif %}>
-                Afficher sur la page de login
+{{ _('Afficher sur la page de login') }}
+
               </label>
               <p class="form-help">
-                Sélecteur public. Décochez = RBAC / apps seulement.
+                {{ _('Sélecteur public. Décochez = RBAC / apps seulement.') }}
               </p>
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label" for="login_label">Libellé login (optionnel)</label>
+            <label class="form-label" for="login_label">{{ _('Libellé login (optionnel)') }}</label>
             <input type="text" id="login_label" name="login_label" class="form-input"
                    value="{{ form_values.login_label }}" maxlength="40"
-                   placeholder="ex. Clients, Interne, Partenaires" autocomplete="off">
-            <p class="form-hint">Court libellé du sélecteur multi-realm. Vide = détection automatique.</p>
+                   placeholder="{{ _('ex. Clients, Interne, Partenaires') }}" autocomplete="off">
+            <p class="form-hint">{{ _('Court libellé du sélecteur multi-realm. Vide = détection automatique.') }}</p>
           </div>
         </div>
       </div>
@@ -184,13 +186,13 @@
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
           <div>
-            <h2 class="card-title" style="margin:0;">Configuration OIDC</h2>
-            <p class="form-hint" style="margin:var(--sp-2) 0 0;">Issuer, client et secret (jamais réaffiché après enregistrement).</p>
+            <h2 class="card-title" style="margin:0;">{{ _('Configuration OIDC') }}</h2>
+            <p class="form-hint" style="margin:var(--sp-2) 0 0;">{{ _('Issuer, client et secret (jamais réaffiché après enregistrement).') }}</p>
           </div>
           {% if oidc_ready %}
-          <span class="badge badge-ok">OIDC · {{ form_values.client_id }}</span>
+          <span class="badge badge-ok">{{ _('OIDC ·') }} {{ form_values.client_id }}</span>
           {% else %}
-          <span class="badge badge-muted">Non configuré</span>
+          <span class="badge badge-muted">{{ _('Non configuré') }}</span>
           {% endif %}
         </div>
         <div class="stack" style="gap:var(--sp-4); margin-top:var(--sp-4);">
@@ -204,26 +206,26 @@
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="client_id">Client ID <span class="req">*</span></label>
+              <label class="form-label" for="client_id">{{ _('Client ID') }} <span class="req">*</span></label>
               <input type="text" id="client_id" name="client_id" class="form-input{% if errors.client_id %} is-invalid{% endif %}" value="{{ form_values.client_id }}" required>
               {% if errors.client_id %}<p class="form-error">{{ errors.client_id }}</p>{% endif %}
             </div>
             <div class="form-group">
-              <label class="form-label" for="client_secret">Client secret {% if not realm %}<span class="req">*</span>{% endif %}</label>
-              <input type="password" id="client_secret" name="client_secret" class="form-input{% if errors.client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm %}••••••••{% else %}Secret OIDC{% endif %}" {% if not realm %}required{% endif %} autocomplete="new-password">
-              {% if realm %}<p class="form-hint">Laissez vide pour conserver le secret actuel.</p>{% endif %}
+              <label class="form-label" for="client_secret">{{ _('Client secret') }} {% if not realm %}<span class="req">*</span>{% endif %}</label>
+              <input type="password" id="client_secret" name="client_secret" class="form-input{% if errors.client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm %}••••••••{% else %}{{ _('Secret OIDC') }}{% endif %}" {% if not realm %}required{% endif %} autocomplete="new-password">
+              {% if realm %}<p class="form-hint">{{ _('Laissez vide pour conserver le secret actuel.') }}</p>{% endif %}
               {% if errors.client_secret %}<p class="form-error">{{ errors.client_secret }}</p>{% endif %}
             </div>
           </div>
           {% if realm and form_values.redirect_uri %}
           <div class="form-group">
-            <label class="form-label">Redirect URI</label>
+            <label class="form-label">{{ _('Redirect URI') }}</label>
             <input type="text" class="form-input" value="{{ form_values.redirect_uri }}" readonly>
-            <p class="form-hint">Calculé automatiquement — lecture seule</p>
+            <p class="form-hint">{{ _('Calculé automatiquement — lecture seule') }}</p>
           </div>
           {% endif %}
           <div>
-            <button type="button" id="btn-test-connection" class="btn btn-ghost">Tester la connexion OIDC</button>
+            <button type="button" id="btn-test-connection" class="btn btn-ghost">{{ _('Tester la connexion OIDC') }}</button>
           </div>
         </div>
       </div>
@@ -231,30 +233,31 @@
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
           <div>
-            <h2 class="card-title" style="margin:0;">Client OIDC BFF (session native)</h2>
+            <h2 class="card-title" style="margin:0;">{{ _('Client OIDC BFF (session native)') }}</h2>
             <p class="form-hint" style="margin:var(--sp-2) 0 0;">
-              Client BFF headless — requis pour la session native.
+{{ _('Client BFF headless — requis pour la session native.') }}
+
             </p>
           </div>
           {% if form_values.oidc_bff_configured %}
-          <span class="badge badge-ok">BFF configuré</span>
+          <span class="badge badge-ok">{{ _('BFF configuré') }}</span>
           {% else %}
-          <span class="badge badge-muted">BFF non configuré</span>
+          <span class="badge badge-muted">{{ _('BFF non configuré') }}</span>
           {% endif %}
         </div>
         <div class="stack" style="gap:var(--sp-4); margin-top:var(--sp-4);">
           <div class="form-group">
-            <label class="form-label" for="oidc_keycloak_base_url">URL Keycloak interne</label>
+            <label class="form-label" for="oidc_keycloak_base_url">{{ _('URL Keycloak interne') }}</label>
             <input type="url" id="oidc_keycloak_base_url" name="oidc_keycloak_base_url"
               class="form-input{% if errors.oidc_keycloak_base_url %} is-invalid{% endif %}"
               value="{{ form_values.oidc_keycloak_base_url }}"
               placeholder="http://keycloak:8080" autocomplete="off">
             {% if errors.oidc_keycloak_base_url %}<p class="form-error">{{ errors.oidc_keycloak_base_url }}</p>{% endif %}
-            <p class="form-hint">Base URL joignable depuis bastion (jamais exposée au navigateur).</p>
+            <p class="form-hint">{{ _('Base URL joignable depuis bastion (jamais exposée au navigateur).') }}</p>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="oidc_bff_client_id">Client ID BFF</label>
+              <label class="form-label" for="oidc_bff_client_id">{{ _('Client ID BFF') }}</label>
               <input type="text" id="oidc_bff_client_id" name="oidc_bff_client_id"
                 class="form-input{% if errors.oidc_bff_client_id %} is-invalid{% endif %}"
                 value="{{ form_values.oidc_bff_client_id }}"
@@ -262,26 +265,26 @@
               {% if errors.oidc_bff_client_id %}<p class="form-error">{{ errors.oidc_bff_client_id }}</p>{% endif %}
             </div>
             <div class="form-group">
-              <label class="form-label" for="oidc_bff_client_secret">Client secret BFF</label>
+              <label class="form-label" for="oidc_bff_client_secret">{{ _('Client secret BFF') }}</label>
               <input type="password" id="oidc_bff_client_secret" name="oidc_bff_client_secret"
                 class="form-input{% if errors.oidc_bff_client_secret %} is-invalid{% endif %}"
-                value="" placeholder="{% if form_values.oidc_bff_has_client_secret %}••••••••{% else %}Secret client confidentiel{% endif %}"
+                value="" placeholder="{% if form_values.oidc_bff_has_client_secret %}••••••••{% else %}{{ _('Secret client confidentiel') }}{% endif %}"
                 autocomplete="new-password">
-              {% if form_values.oidc_bff_has_client_secret %}<p class="form-hint">Laissez vide pour conserver le secret actuel.</p>{% endif %}
+              {% if form_values.oidc_bff_has_client_secret %}<p class="form-hint">{{ _('Laissez vide pour conserver le secret actuel.') }}</p>{% endif %}
               {% if errors.oidc_bff_client_secret %}<p class="form-error">{{ errors.oidc_bff_client_secret }}</p>{% endif %}
             </div>
           </div>
           <div class="form-group">
-            <label class="form-label" for="oidc_bff_redirect_uri">Redirect URI BFF</label>
+            <label class="form-label" for="oidc_bff_redirect_uri">{{ _('Redirect URI BFF') }}</label>
             <input type="url" id="oidc_bff_redirect_uri" name="oidc_bff_redirect_uri"
               class="form-input{% if errors.oidc_bff_redirect_uri %} is-invalid{% endif %}"
               value="{{ form_values.oidc_bff_redirect_uri }}"
               placeholder="https://portal.example/.bastion/oidc/callback" autocomplete="off">
             {% if errors.oidc_bff_redirect_uri %}<p class="form-error">{{ errors.oidc_bff_redirect_uri }}</p>{% endif %}
-            <p class="form-hint">URI enregistrée côté Keycloak — jamais suivie par le navigateur.</p>
+            <p class="form-hint">{{ _('URI enregistrée côté Keycloak — jamais suivie par le navigateur.') }}</p>
           </div>
           <div class="realm-form-inline-actions">
-            <button type="button" id="btn-test-oidc-bff" class="btn btn-ghost">Tester la connexion BFF</button>
+            <button type="button" id="btn-test-oidc-bff" class="btn btn-ghost">{{ _('Tester la connexion BFF') }}</button>
             <span id="oidc-bff-test-result" class="form-help is-hidden" hidden></span>
           </div>
         </div>
@@ -293,48 +296,47 @@
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
           <div>
-            <h2 class="card-title" style="margin:0;">Compte de service — sync groupes</h2>
+            <h2 class="card-title" style="margin:0;">{{ _('Compte de service — sync groupes') }}</h2>
             <p class="form-hint" style="margin:var(--sp-2) 0 0;">
-              Client confidentiel dédié · rôles
+              {{ _('Client confidentiel dédié · rôles') }}
               <span class="mono">realm-management:query-groups</span> + <span class="mono">view-users</span>
             </p>
           </div>
           {% if form_values.groups_sync_enabled %}
-          <span class="badge badge-ok">Sync activée</span>
+          <span class="badge badge-ok">{{ _('Sync activée') }}</span>
           {% elif form_values.keycloak_admin_client_id %}
           <span class="badge badge-warn">{{ form_values.keycloak_admin_client_id }}</span>
           {% else %}
-          <span class="badge badge-muted">Non configuré</span>
+          <span class="badge badge-muted">{{ _('Non configuré') }}</span>
           {% endif %}
         </div>
         <div class="stack" style="gap:var(--sp-4); margin-top:var(--sp-4);">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="keycloak_admin_client_id">Client ID (admin)</label>
-              <input type="text" id="keycloak_admin_client_id" name="keycloak_admin_client_id" class="form-input{% if errors.keycloak_admin_client_id %} is-invalid{% endif %}" value="{{ form_values.keycloak_admin_client_id or '' }}" placeholder="bastion-admin-sync" autocomplete="off">
-              <p class="form-hint">Distinct du client OIDC de login.</p>
+              <label class="form-label" for="keycloak_admin_client_id">{{ _('Client ID (admin)') }}</label>
+              <input type="text" id="keycloak_admin_client_id" name="keycloak_admin_client_id" class="form-input{% if errors.keycloak_admin_client_id %} is-invalid{% endif %}" value="{{ form_values.keycloak_admin_client_id or '' }}" placeholder="{{ _('bastion-admin-sync') }}" autocomplete="off">
+              <p class="form-hint">{{ _('Distinct du client OIDC de login.') }}</p>
               {% if errors.keycloak_admin_client_id %}<p class="form-error">{{ errors.keycloak_admin_client_id }}</p>{% endif %}
             </div>
             <div class="form-group">
-              <label class="form-label" for="keycloak_admin_client_secret">Client secret (admin)</label>
-              <input type="password" id="keycloak_admin_client_secret" name="keycloak_admin_client_secret" class="form-input{% if errors.keycloak_admin_client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm and form_values.groups_sync_enabled %}••••••••{% else %}Secret du compte de service{% endif %}" autocomplete="new-password">
-              <p class="form-hint">{% if realm %}Laissez vide pour conserver le secret actuel.{% else %}Optionnel (requis si Client ID renseigné).{% endif %}</p>
+              <label class="form-label" for="keycloak_admin_client_secret">{{ _('Client secret (admin)') }}</label>
+              <input type="password" id="keycloak_admin_client_secret" name="keycloak_admin_client_secret" class="form-input{% if errors.keycloak_admin_client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm and form_values.groups_sync_enabled %}••••••••{% else %}{{ _('Secret du compte de service') }}{% endif %}" autocomplete="new-password">
+              <p class="form-hint">{% if realm %}{{ _('Laissez vide pour conserver le secret actuel.') }}{% else %}{{ _('Optionnel (requis si Client ID renseigné).') }}{% endif %}</p>
               {% if errors.keycloak_admin_client_secret %}<p class="form-error">{{ errors.keycloak_admin_client_secret }}</p>{% endif %}
             </div>
           </div>
           {% if realm %}
           <div class="form-group">
-            <span class="form-label">Import groupes</span>
+            <span class="form-label">{{ _('Import groupes') }}</span>
             <span class="badge badge-{{ 'ok' if form_values.groups_sync_enabled else 'muted' }}">{{ 'Activé' if form_values.groups_sync_enabled else 'Non configuré' }}</span>
           </div>
           {% endif %}
           <div class="form-group">
-            <label class="form-label" for="groups_sync_include">Groupes à synchroniser (filtre)</label>
+            <label class="form-label" for="groups_sync_include">{{ _('Groupes à synchroniser (filtre)') }}</label>
             <textarea id="groups_sync_include" name="groups_sync_include" class="form-textarea" rows="5"
                       placeholder="corp-users&#10;/Companies&#10;portal-admins">{{ form_values.groups_sync_include or '' }}</textarea>
             <p class="form-hint">
-              Un nom ou path Keycloak par ligne. Vide = <strong>tous</strong> les groupes du realm.
-              Préfixe de path : <span class="mono">/Societes</span>.
+{{ _('Un nom ou path Keycloak par ligne. Vide =') }} <strong>tous</strong> {{ _('les groupes du realm. Préfixe de path :') }} <span class="mono">/Societes</span>.
             </p>
           </div>
         </div>
@@ -346,63 +348,65 @@
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
           <div>
-            <h2 class="card-title" style="margin:0;">Compte de service — provisioning</h2>
+            <h2 class="card-title" style="margin:0;">{{ _('Compte de service — provisioning') }}</h2>
             <p class="form-hint" style="margin:var(--sp-2) 0 0;">
-              Écriture Keycloak · distinct du compte sync · rôles
+              {{ _('Écriture Keycloak · distinct du compte sync · rôles') }}
               <span class="mono">realm-management:manage-users</span> + <span class="mono">view-users</span>
             </p>
           </div>
           {% if form_values.provisioning_enabled %}
           <span class="badge badge-ok">Provisioning ON</span>
           {% elif form_values.keycloak_provision_client_id %}
-          <span class="badge badge-warn">Non activé</span>
+          <span class="badge badge-warn">{{ _('Non activé') }}</span>
           {% else %}
-          <span class="badge badge-muted">Non configuré</span>
+          <span class="badge badge-muted">{{ _('Non configuré') }}</span>
           {% endif %}
         </div>
         <div class="stack" style="gap:var(--sp-4); margin-top:var(--sp-4);">
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="keycloak_provision_client_id">Client ID (provisioning)</label>
+              <label class="form-label" for="keycloak_provision_client_id">{{ _('Client ID (provisioning)') }}</label>
               <input type="text" id="keycloak_provision_client_id" name="keycloak_provision_client_id" class="form-input{% if errors.keycloak_provision_client_id %} is-invalid{% endif %}" value="{{ form_values.keycloak_provision_client_id or '' }}" placeholder="bastion-admin-provision" autocomplete="off">
-              <p class="form-hint">Ne jamais réutiliser le compte sync (lecture).</p>
+              <p class="form-hint">{{ _('Ne jamais réutiliser le compte sync (lecture).') }}</p>
               {% if errors.keycloak_provision_client_id %}<p class="form-error">{{ errors.keycloak_provision_client_id }}</p>{% endif %}
             </div>
             <div class="form-group">
-              <label class="form-label" for="keycloak_provision_client_secret">Client secret (provisioning)</label>
-              <input type="password" id="keycloak_provision_client_secret" name="keycloak_provision_client_secret" class="form-input{% if errors.keycloak_provision_client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm and form_values.provisioning_configured %}••••••••{% else %}Secret du compte de service{% endif %}" autocomplete="new-password">
-              <p class="form-hint">{% if realm %}Laissez vide pour conserver le secret actuel.{% else %}Requis si Client ID renseigné.{% endif %}</p>
+              <label class="form-label" for="keycloak_provision_client_secret">{{ _('Client secret (provisioning)') }}</label>
+              <input type="password" id="keycloak_provision_client_secret" name="keycloak_provision_client_secret" class="form-input{% if errors.keycloak_provision_client_secret %} is-invalid{% endif %}" value="" placeholder="{% if realm and form_values.provisioning_configured %}••••••••{% else %}{{ _('Secret du compte de service') }}{% endif %}" autocomplete="new-password">
+              <p class="form-hint">{% if realm %}{{ _('Laissez vide pour conserver le secret actuel.') }}{% else %}{{ _('Requis si Client ID renseigné.') }}{% endif %}</p>
               {% if errors.keycloak_provision_client_secret %}<p class="form-error">{{ errors.keycloak_provision_client_secret }}</p>{% endif %}
             </div>
           </div>
           <div class="form-group">
             <label class="form-check">
               <input type="checkbox" name="provisioning_enabled" value="on"{% if form_values.provisioning_enabled %} checked{% endif %}>
-              Activer le provisioning de comptes pour ce realm
+{{ _('Activer le provisioning de comptes pour ce realm') }}
+
             </label>
-            <p class="form-help">Opt-in explicite : le realm n'apparaît dans « Nouvel utilisateur » que si cette case est cochée.</p>
+            <p class="form-help">{{ _("Opt-in explicite : le realm n'apparaît dans « Nouvel utilisateur » que si cette case est cochée.") }}</p>
             {% if errors.provisioning_enabled %}<p class="form-error">{{ errors.provisioning_enabled }}</p>{% endif %}
           </div>
         </div>
       </div>
     </div>
+{# Accès (demandes + email ; SMTP global) #}
 
-    {# Accès (demandes + email ; SMTP global) #}
     <div class="realm-form-panel" id="panel-smtp" data-panel="smtp"{% if ns.initial != 'smtp' %} hidden{% endif %}>
       <div class="card realm-form-card">
         <div class="realm-form-card-head">
           <div>
-            <h2 class="card-title" style="margin:0;">Demandes d'accès &amp; emails</h2>
+            <h2 class="card-title" style="margin:0;">{{ _("Demandes d'accès &amp; emails") }}</h2>
             <p class="form-hint" style="margin:var(--sp-2) 0 0;">
-              Politique par realm. Le serveur SMTP est global —
-              <a href="/admin/configuration">Admin → Général → Configuration</a>.
+{{ _('Politique par realm. Le serveur SMTP est global —') }}
+
+              <a href="/admin/configuration">{{ _('Admin → Général → Configuration') }}</a>.
             </p>
           </div>
           <div class="user-fiche-badges">
             {% if form_values.access_request_enabled %}
-            <span class="badge badge-info">Demandes ouvertes</span>
+            <span class="badge badge-info">{{ _('Demandes ouvertes') }}</span>
             {% else %}
-            <span class="badge badge-muted">Demandes fermées</span>
+            <span class="badge badge-muted">{{ _('Demandes fermées') }}</span>
             {% endif %}
           </div>
         </div>
@@ -410,17 +414,17 @@
           <div class="form-group">
             <label class="form-check">
               <input type="checkbox" name="send_credentials_email" value="on"{% if form_values.send_credentials_email %} checked{% endif %}>
-              Envoyer automatiquement le mot de passe temporaire à la création / reset
+              {{ _('Envoyer automatiquement le mot de passe temporaire à la création / reset') }}
             </label>
-            <p class="form-help">Requiert SMTP global actif (Général → Configuration).</p>
+            <p class="form-help">{{ _('Requiert SMTP global actif (Général → Configuration).') }}</p>
           </div>
           <div class="form-group">
             <label class="form-check">
               <input type="checkbox" name="access_request_enabled" value="on"{% if form_values.access_request_enabled %} checked{% endif %}>
-              Ouvrir le formulaire « Demander un accès » sur la page de login
+              {{ _('Ouvrir le formulaire « Demander un accès » sur la page de login') }}
             </label>
             <p class="form-help">
-              Demandes → Admin → Demandes d'accès. Approbation = compte dans ce realm.
+              {{ _("Demandes → Admin → Demandes d'accès. Approbation = compte dans ce realm.") }}
             </p>
             {% if errors.access_request_enabled %}<p class="form-error">{{ errors.access_request_enabled }}</p>{% endif %}
           </div>
@@ -429,9 +433,9 @@
     </div>
 
     <div class="realm-form-actions card">
-      <button type="submit" class="btn btn-primary">Enregistrer</button>
-      <button type="submit" name="activate" value="on" id="btn-save-activate" class="btn btn-secondary" {% if realm and realm.last_test_status != 'ok' %}disabled{% endif %}>Enregistrer et activer</button>
-      <a href="/admin/realms" class="btn btn-ghost">Annuler</a>
+      <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
+      <button type="submit" name="activate" value="on" id="btn-save-activate" class="btn btn-secondary" {% if realm and realm.last_test_status != 'ok' %}disabled{% endif %}>{{ _('Enregistrer et activer') }}</button>
+      <a href="/admin/realms" class="btn btn-ghost">{{ _('Annuler') }}</a>
     </div>
   </form>
 </div>

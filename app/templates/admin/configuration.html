@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Configuration{% endblock %}
-{% block breadcrumb %}Admin / Configuration{% endblock %}
+{% block breadcrumb %}{{ _('Admin / Configuration') }}{% endblock %}
 
 {% block content %}
 {% set s = smtp %}
@@ -13,13 +13,13 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Configuration</h1>
-      <p class="page-sub">SMTP, SIEM, MTA-STS et stockage chaud PostgreSQL</p>
+      <p class="page-sub">{{ _('SMTP, SIEM, MTA-STS et stockage chaud PostgreSQL') }}</p>
     </div>
     <div class="page-header-actions">
       {% if s.ready %}
-      <span class="badge badge-ok">SMTP prêt</span>
+      <span class="badge badge-ok">{{ _('SMTP prêt') }}</span>
       {% elif s.enabled %}
-      <span class="badge badge-warn">SMTP incomplet</span>
+      <span class="badge badge-warn">{{ _('SMTP incomplet') }}</span>
       {% else %}
       <span class="badge badge-muted">SMTP off</span>
       {% endif %}
@@ -32,19 +32,19 @@
       {% if mta.status_badge == 'ok' %}
       <span class="badge badge-ok" id="mta-sts-header-badge">MTA-STS OK</span>
       {% elif mta.status_badge == 'warn' or mta.ready or mta.enabled %}
-      <span class="badge badge-warn" id="mta-sts-header-badge">MTA-STS publié</span>
+      <span class="badge badge-warn" id="mta-sts-header-badge">{{ _('MTA-STS publié') }}</span>
       {% else %}
       <span class="badge badge-muted" id="mta-sts-header-badge">MTA-STS off</span>
       {% endif %}
       {% if hot_store and hot_store.status_badge == 'ok' %}
-      <span class="badge badge-ok">Hot store OK</span>
+      <span class="badge badge-ok">{{ _('Hot store OK') }}</span>
       {% elif hot_store and hot_store.status_badge == 'error' %}
-      <span class="badge badge-err">Hot store</span>
+      <span class="badge badge-err">{{ _('Hot store') }}</span>
       {% endif %}
     </div>
   </div>
 
-  <div class="tabs" role="tablist" aria-label="Sections configuration" id="configuration-tabs">
+  <div class="tabs" role="tablist" aria-label="{{ _('Sections configuration') }}" id="configuration-tabs">
     <a href="#smtp" class="tab active" role="tab" data-tab="smtp" id="tab-smtp" aria-selected="true">
       SMTP
       {% if s.ready %}
@@ -71,7 +71,8 @@
       {% endif %}
     </a>
     <a href="#hot-store" class="tab" role="tab" data-tab="hot-store" id="tab-hot-store" aria-selected="false">
-      Stockage chaud
+{{ _('Stockage chaud') }}
+
       {% if hot_store and hot_store.status_badge == 'error' %}
       <span class="badge badge-err tab-badge">!</span>
       {% elif hot_store and hot_store.status_badge == 'ok' %}
@@ -86,9 +87,10 @@
     <div class="form-section-header">
       <div class="form-section-title">SMTP sortant</div>
       <div class="form-section-sub">
-        Envoi des identifiants Keycloak, notifications de demandes d'accès,
-        et récapitulatif quotidien (domaines, comptes en attente, appareils, alertes).
-        Une seule configuration pour tout le portail (pas par realm).
+        {{ _("Envoi des identifiants Keycloak, notifications de demandes d'accès,") }}
+        {{ _('et récapitulatif quotidien (domaines, comptes en attente, appareils, alertes).') }}
+{{ _('Une seule configuration pour tout le portail (pas par realm).') }}
+
       </div>
     </div>
     <div class="form-body">
@@ -98,12 +100,13 @@
           <label class="form-label form-check-row">
             <input type="checkbox" name="smtp_enabled" value="on"
                    {% if s.enabled %}checked{% endif %}>
-            Activer l'envoi d'emails via SMTP
+{{ _("Activer l'envoi d'emails via SMTP") }}
+
           </label>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="smtp_host">Hôte SMTP</label>
+            <label class="form-label" for="smtp_host">{{ _('Hôte SMTP') }}</label>
             <input type="text" id="smtp_host" name="smtp_host" class="form-input"
                    value="{{ s.host }}" placeholder="smtp.example.com" autocomplete="off">
           </div>
@@ -117,40 +120,40 @@
           <label class="form-label form-check-row">
             <input type="checkbox" name="smtp_use_tls" value="on"
                    {% if s.use_tls %}checked{% endif %}>
-            STARTTLS (recommandé sur le port 587)
+            {{ _('STARTTLS (recommandé sur le port 587)') }}
           </label>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="smtp_username">Utilisateur SMTP</label>
+            <label class="form-label" for="smtp_username">{{ _('Utilisateur SMTP') }}</label>
             <input type="text" id="smtp_username" name="smtp_username" class="form-input"
                    value="{{ s.username }}" autocomplete="off">
           </div>
           <div class="form-group">
-            <label class="form-label" for="smtp_password">Mot de passe SMTP</label>
+            <label class="form-label" for="smtp_password">{{ _('Mot de passe SMTP') }}</label>
             <input type="password" id="smtp_password" name="smtp_password" class="form-input"
-                   value="" placeholder="{% if s.password_configured %}••••••••{% else %}Secret SMTP{% endif %}"
+                   value="" placeholder="{% if s.password_configured %}••••••••{% else %}{{ _('Secret SMTP') }}{% endif %}"
                    autocomplete="new-password">
-            <p class="form-help">Laissez vide pour conserver le secret actuel.</p>
+            <p class="form-help">{{ _('Laissez vide pour conserver le secret actuel.') }}</p>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="smtp_from_email">Expéditeur (From)</label>
+            <label class="form-label" for="smtp_from_email">{{ _('Expéditeur (From)') }}</label>
             <input type="email" id="smtp_from_email" name="smtp_from_email" class="form-input"
                    value="{{ s.from_email }}" placeholder="noreply@example.com">
           </div>
           <div class="form-group">
-            <label class="form-label" for="smtp_from_name">Nom affiché</label>
+            <label class="form-label" for="smtp_from_name">{{ _('Nom affiché') }}</label>
             <input type="text" id="smtp_from_name" name="smtp_from_name" class="form-input"
-                   value="{{ s.from_name }}" placeholder="Portail sécurisé">
+                   value="{{ s.from_name }}" placeholder="{{ _('Portail sécurisé') }}">
           </div>
         </div>
         <div class="form-section-header mt-4">
-          <div class="form-section-title">Récapitulatif quotidien</div>
+          <div class="form-section-title">{{ _('Récapitulatif quotidien') }}</div>
           <div class="form-section-sub">
-            Synthèse des 24 dernières heures : domaines découverts, comptes en attente,
-            appareils ActiveSync, alertes WARNING et plus. Envoi à l'heure indiquée
+            {{ _('Synthèse des 24 dernières heures : domaines découverts, comptes en attente,') }}
+            {{ _("appareils ActiveSync, alertes WARNING et plus. Envoi à l'heure indiquée") }}
             (Europe/Paris) sur l'instance leader.
           </div>
         </div>
@@ -158,7 +161,7 @@
           <label class="form-label form-check-row">
             <input type="checkbox" name="daily_recap_enabled" value="on"
                    {% if s.daily_recap_enabled %}checked{% endif %}>
-            Envoyer un récapitulatif quotidien par email
+            {{ _('Envoyer un récapitulatif quotidien par email') }}
           </label>
         </div>
         <div class="form-row">
@@ -166,21 +169,21 @@
             <label class="form-label" for="daily_recap_email">Destinataire</label>
             <input type="email" id="daily_recap_email" name="daily_recap_email" class="form-input"
                    value="{{ s.daily_recap_email }}" placeholder="{{ s.from_email or 'admin@example.com' }}">
-            <p class="form-help">Laisser vide pour utiliser l'expéditeur SMTP.</p>
+            <p class="form-help">{{ _("Laisser vide pour utiliser l'expéditeur SMTP.") }}</p>
           </div>
           <div class="form-group">
-            <label class="form-label" for="daily_recap_hour">Heure d'envoi (0–23)</label>
+            <label class="form-label" for="daily_recap_hour">{{ _("Heure d'envoi (0–23)") }}</label>
             <input type="number" id="daily_recap_hour" name="daily_recap_hour" class="form-input"
                    value="{{ s.daily_recap_hour | default(7) }}" min="0" max="23">
             <p class="form-help">Fuseau Europe/Paris. Dernier envoi : {{ s.daily_recap_last_sent or "jamais" }}</p>
           </div>
         </div>
         <div class="form-actions" style="margin-top:var(--sp-3);">
-          <button type="submit" class="btn btn-primary">Enregistrer</button>
-          <button type="submit" form="smtp-test-form" class="btn btn-secondary">Tester la connexion</button>
-          <button type="submit" form="smtp-recap-form" class="btn btn-secondary">Envoyer un récap maintenant</button>
+          <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
+          <button type="submit" form="smtp-test-form" class="btn btn-secondary">{{ _('Tester la connexion') }}</button>
+          <button type="submit" form="smtp-recap-form" class="btn btn-secondary">{{ _('Envoyer un récap maintenant') }}</button>
         </div>
-        <p class="form-help">Le test SMTP et l'envoi manuel utilisent la configuration <strong>déjà enregistrée</strong>.</p>
+        <p class="form-help">{{ _("Le test SMTP et l'envoi manuel utilisent la configuration") }} <strong>{{ _('déjà enregistrée') }}</strong>.</p>
       </form>
       <form method="post" action="/admin/configuration/smtp/test" id="smtp-test-form" hidden>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -195,20 +198,22 @@
     <div class="form-section-header">
       <div class="form-section-title">Forwarding SIEM</div>
       <div class="form-section-sub">
-        CEF via syslog TLS, ou JSON ECS-like via webhook HTTPS.
-        Désactivé par défaut — activation explicite requise.
+{{ _('CEF via syslog TLS, ou JSON ECS-like via webhook HTTPS.') }}
+
+        {{ _('Désactivé par défaut — activation explicite requise.') }}
       </div>
     </div>
     <div class="form-body">
       <p class="form-help mb-4">
-        Dernier envoi réussi :
+        {{ _('Dernier envoi réussi :') }}
         <strong class="mono">{{ st.last_success_at or "—" }}</strong>
-        · File d'attente :
+{{ _("· File d'attente :") }}
+
         <strong class="mono">{{ "indisponible" if st.queue_size is none else st.queue_size }}</strong>
         {% if st.webhook_auth_configured %}
-        · Secret webhook : <span class="badge badge-ok">configuré</span>
+{{ _('· Secret webhook :') }} <span class="badge badge-ok">{{ _('configuré') }}</span>
         {% else %}
-        · Secret webhook : <span class="badge badge-muted">absent</span>
+{{ _('· Secret webhook :') }} <span class="badge badge-muted">absent</span>
         {% endif %}
       </p>
 
@@ -242,71 +247,71 @@
         <div class="form-group">
           <label class="form-label form-check-row">
             <input type="checkbox" name="syslog_tls_verify" value="on"{% if not siem or siem.syslog_tls_verify %} checked{% endif %}>
-            Vérifier le certificat TLS syslog (obligatoire pour syslog TLS)
+            {{ _('Vérifier le certificat TLS syslog (obligatoire pour syslog TLS)') }}
           </label>
-          <p class="form-help">La désactivation n’est plus supportée à l’envoi. Pour un certificat auto-signé, ajoutez la CA au trust store de l’hôte Bastion.</p>
+          <p class="form-help">{{ _('La désactivation n’est plus supportée à l’envoi. Pour un certificat auto-signé, ajoutez la CA au trust store de l’hôte Bastion.') }}</p>
         </div>
         <div class="form-group">
-          <label class="form-label" for="siem_webhook_url">Webhook URL (HTTPS uniquement)</label>
+          <label class="form-label" for="siem_webhook_url">{{ _('Webhook URL (HTTPS uniquement)') }}</label>
           <input class="form-input" id="siem_webhook_url" name="webhook_url" data-siem-field="webhook_url"
                  value="{{ siem.webhook_url if siem else '' }}" placeholder="https://siem.example/hec" autocomplete="off">
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="siem_webhook_auth_type">Auth webhook</label>
+            <label class="form-label" for="siem_webhook_auth_type">{{ _('Auth webhook') }}</label>
             <select class="form-select" id="siem_webhook_auth_type" name="webhook_auth_type">
               {% set at = siem.webhook_auth_type if siem else 'none' %}
-              <option value="none"{% if at == 'none' %} selected{% endif %}>Aucune</option>
+              <option value="none"{% if at == 'none' %} selected{% endif %}>{{ _('Aucune') }}</option>
               <option value="bearer"{% if at == 'bearer' %} selected{% endif %}>Bearer</option>
               <option value="basic"{% if at == 'basic' %} selected{% endif %}>Basic (user:pass)</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="siem_webhook_auth_secret">Secret / token (laissez vide pour conserver)</label>
+            <label class="form-label" for="siem_webhook_auth_secret">{{ _('Secret / token (laissez vide pour conserver)') }}</label>
             <input class="form-input" id="siem_webhook_auth_secret" name="webhook_auth_secret" type="password"
                    value="" placeholder="••••••••" autocomplete="new-password">
             <label class="form-label form-check-row mt-2">
               <input type="checkbox" name="clear_webhook_secret" value="on">
-              Effacer le secret configuré
+              {{ _('Effacer le secret configuré') }}
             </label>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="siem_filter_mode">Filtre d'actions</label>
+            <label class="form-label" for="siem_filter_mode">{{ _("Filtre d'actions") }}</label>
             <select class="form-select" id="siem_filter_mode" name="filter_mode">
               {% set fm = siem.filter_mode if siem else 'denylist' %}
               <option value="denylist"{% if fm == 'denylist' %} selected{% endif %}>Denylist (exclure)</option>
-              <option value="allowlist"{% if fm == 'allowlist' %} selected{% endif %}>Allowlist (inclure uniquement)</option>
+              <option value="allowlist"{% if fm == 'allowlist' %} selected{% endif %}>{{ _('Allowlist (inclure uniquement)') }}</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="siem_filter_actions">Filtres (séparés par des virgules)</label>
+            <label class="form-label" for="siem_filter_actions">{{ _('Filtres (séparés par des virgules)') }}</label>
             <input class="form-input" id="siem_filter_actions" name="filter_actions"
                    value="{{ (siem.filter_actions or []) | join(', ') if siem else '' }}"
                    placeholder="health.probe, BST-WAF-*, severity>=ERROR" autocomplete="off">
-            <p class="form-hint">Codes d’action, globs ou seuil de sévérité (ex. <code>severity&gt;=ERROR</code>).</p>
+            <p class="form-hint">{{ _('Codes d’action, globs ou seuil de sévérité (ex.') }} <code>severity&gt;=ERROR</code>).</p>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="siem_retry_max_queue_size">Taille max file d'attente</label>
+            <label class="form-label" for="siem_retry_max_queue_size">{{ _("Taille max file d'attente") }}</label>
             <input class="form-input" id="siem_retry_max_queue_size" name="retry_max_queue_size" type="number"
                    min="1" max="100000" value="{{ siem.retry_max_queue_size if siem else 5000 }}">
           </div>
           <div class="form-group">
-            <label class="form-label" for="siem_retry_max_age_minutes">Âge max (minutes)</label>
+            <label class="form-label" for="siem_retry_max_age_minutes">{{ _('Âge max (minutes)') }}</label>
             <input class="form-input" id="siem_retry_max_age_minutes" name="retry_max_age_minutes" type="number"
                    min="1" value="{{ siem.retry_max_age_minutes if siem else 1440 }}">
           </div>
         </div>
         <div class="form-actions" style="margin-top:var(--sp-3);">
-          <button type="submit" class="btn btn-primary">Enregistrer</button>
+          <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
           <button type="button" class="btn btn-secondary" id="siem-test-btn"
                   data-test-url="/admin/configuration/siem/test"
-                  data-csrf="{{ csrf_token }}">Tester la connexion</button>
+                  data-csrf="{{ csrf_token }}">{{ _('Tester la connexion') }}</button>
         </div>
-        <p class="form-help">Le test envoie un événement <span class="mono">siem.connectivity.test</span> avec la configuration enregistrée.</p>
+        <p class="form-help">{{ _('Le test envoie un événement') }} <span class="mono">{{ _('siem.connectivity.test') }}</span> {{ _('avec la configuration enregistrée.') }}</p>
       </form>
       <form method="post" action="/admin/configuration/siem/test" id="siem-test-form" hidden>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -315,7 +320,7 @@
         <div class="config-test-shell-header">
           <span class="config-test-shell-heading">
             <span class="config-test-shell-dots" aria-hidden="true"></span>
-            <span class="config-test-shell-title">Test de connectivité SIEM</span>
+            <span class="config-test-shell-title">{{ _('Test de connectivité SIEM') }}</span>
           </span>
           <span class="badge badge-muted" id="siem-test-shell-status">…</span>
         </div>

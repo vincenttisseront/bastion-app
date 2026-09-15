@@ -176,6 +176,20 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
             except Exception:
                 branding = get_branding_settings(None)
 
+    from app.i18n.catalog import t as translate
+    from app.i18n.helpers import build_js_catalog, localize_mapping
+    from app.i18n.middleware import get_request_locale
+
+    locale = get_request_locale(request)
+    # Translate flash payloads at display time (msgid = French source).
+    messages = [
+        {
+            "message": translate(str(m.get("message") or ""), locale),
+            "category": m.get("category") or "info",
+        }
+        for m in messages
+    ]
+
     ctx_out = {
         "request": request,
         "current_user": user,
@@ -187,19 +201,23 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         "csrf_token": make_csrf_token(request, secret),
         "hide_chrome": extra.pop("hide_chrome", False),
         "now": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "locale": locale,
+        "i18n_catalog": build_js_catalog(locale),
         "access_modes": ACCESS_MODES,
-        "access_mode_labels": ACCESS_MODE_LABELS,
+        "access_mode_labels": localize_mapping(ACCESS_MODE_LABELS, locale),
         "auth_modes": AUTH_MODES,
-        "auth_mode_labels": AUTH_MODE_LABELS,
+        "auth_mode_labels": localize_mapping(AUTH_MODE_LABELS, locale),
         "sso_bridges": SSO_BRIDGES,
-        "sso_bridge_labels": SSO_BRIDGE_LABELS,
-        "sso_bridge_help": SSO_BRIDGE_HELP,
+        "sso_bridge_labels": localize_mapping(SSO_BRIDGE_LABELS, locale),
+        "sso_bridge_help": localize_mapping(SSO_BRIDGE_HELP, locale),
         "credential_modes": CREDENTIAL_MODES,
-        "credential_mode_labels": CREDENTIAL_MODE_LABELS,
+        "credential_mode_labels": localize_mapping(CREDENTIAL_MODE_LABELS, locale),
         "identity_formats": IDENTITY_FORMATS,
-        "identity_format_labels": IDENTITY_FORMAT_LABELS,
+        "identity_format_labels": localize_mapping(IDENTITY_FORMAT_LABELS, locale),
         "injected_cookie_scopes": INJECTED_COOKIE_SCOPES,
-        "injected_cookie_scope_labels": INJECTED_COOKIE_SCOPE_LABELS,
+        "injected_cookie_scope_labels": localize_mapping(
+            INJECTED_COOKIE_SCOPE_LABELS, locale
+        ),
         "portal_domain": getattr(settings, "portal_domain", "") or "",
         "branding": branding,
         **extra,

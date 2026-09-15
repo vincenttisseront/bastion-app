@@ -177,9 +177,10 @@
     var el = $("[data-global-search-empty-title]", resultsRoot);
     if (!el) return;
     if (q) {
-      el.textContent = 'Aucun résultat pour «\u00a0' + q + '\u00a0»';
+      el.textContent =
+        BastionI18n.t('Aucun résultat pour') + ' «\u00a0' + q + '\u00a0»';
     } else {
-      el.textContent = "Aucun résultat";
+      el.textContent = BastionI18n.t('Aucun résultat');
     }
   }
 
@@ -187,7 +188,7 @@
     var el = $("[data-global-search-error-desc]", resultsRoot);
     if (!el) return;
     el.textContent =
-      msg || "Impossible de récupérer les résultats. Réessayez.";
+      msg || BastionI18n.t('Impossible de récupérer les résultats. Réessayez.');
   }
 
   function currentQuery() {
@@ -358,7 +359,11 @@
         var more = document.createElement("a");
         more.className = "global-search-see-all";
         more.href = CATEGORY_URLS[key] || "#";
-        more.textContent = "Voir tous les résultats (" + items.length + ")";
+        more.textContent =
+          BastionI18n.t('Voir tous les résultats') +
+          ' (' +
+          items.length +
+          ')';
         more.addEventListener("click", function () {
           close();
         });
@@ -406,7 +411,10 @@
         if (isStale(seq, q)) return;
         updateErrorDesc(
           err && err.message
-            ? "Impossible de récupérer les résultats (" + err.message + ")."
+            ? BastionI18n.t('Impossible de récupérer les résultats') +
+                ' (' +
+                err.message +
+                ').'
             : null
         );
         applyStatus("error");

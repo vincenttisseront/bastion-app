@@ -1,24 +1,24 @@
 {% extends "base.html" %}
-{% block title %}Fichier — {{ file.label }}{% endblock %}
-{% block breadcrumb %}Admin / Fichiers / {{ file.label }}{% endblock %}
+{% block title %}{{ _('Fichier —') }} {{ file.label }}{% endblock %}
+{% block breadcrumb %}{{ _('Admin / Fichiers /') }} {{ file.label }}{% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ file.label }}</h1>
-      <p class="page-sub mono">{{ file.slug }} · {{ grant_count }} droit(s) · {{ unique_people_count }} personne(s)</p>
+      <p class="page-sub mono">{{ file.slug }} · {{ grant_count }} {{ _('droit(s) ·') }} {{ unique_people_count }} personne(s)</p>
     </div>
-    <a href="/admin/files" class="btn btn-ghost btn-sm">← Retour</a>
+    <a href="/admin/files" class="btn btn-ghost btn-sm">{{ _('← Retour') }}</a>
   </div>
 
   {% if messages %}{% include 'partials/_flash.html' %}{% endif %}
 
   <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
-    <div class="form-section-title" style="margin-bottom:var(--sp-3);">Métadonnées</div>
+    <div class="form-section-title" style="margin-bottom:var(--sp-3);">{{ _('Métadonnées') }}</div>
     <form method="post" action="/admin/files/{{ file.id }}/edit" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
       <div class="form-group">
-        <label class="form-label" for="label">Libellé</label>
+        <label class="form-label" for="label">{{ _('Libellé') }}</label>
         <input id="label" name="label" class="form-input" required value="{{ file.label }}">
       </div>
       <div class="form-group" style="flex:1; min-width:220px;">
@@ -29,7 +29,7 @@
         <input type="checkbox" name="is_active" value="1"{% if file.is_active %} checked{% endif %}>
         Actif
       </label>
-      <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
+      <button type="submit" class="btn btn-primary btn-sm">{{ _('Enregistrer') }}</button>
     </form>
   </div>
 
@@ -44,8 +44,8 @@
           <tr>
             <th>Version</th>
             <th>Canal</th>
-            <th>Statut</th>
-            <th>Fichier</th>
+            <th>{{ _('Statut') }}</th>
+            <th>{{ _('Fichier') }}</th>
             <th>SHA-256</th>
             <th>Upload</th>
             <th></th>
@@ -74,13 +74,13 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="7"><div class="empty-desc" style="padding:var(--sp-4);">Aucune version.</div></td></tr>
+          <tr><td colspan="7"><div class="empty-desc" style="padding:var(--sp-4);">{{ _('Aucune version.') }}</div></td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
-      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Publier une version</div>
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">{{ _('Publier une version') }}</div>
       <form method="post" action="/admin/files/{{ file.id }}/versions" enctype="multipart/form-data" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
         <div class="form-group">
           <label class="form-label" for="channel">Canal</label>
@@ -94,21 +94,21 @@
           <input id="version_label" name="version_label" class="form-input" required placeholder="1.4.0">
         </div>
         <div class="form-group">
-          <label class="form-label" for="upload">Fichier</label>
+          <label class="form-label" for="upload">{{ _('Fichier') }}</label>
           <input id="upload" name="upload" type="file" class="form-input" required>
         </div>
         <div class="form-group" style="flex:1; min-width:160px;">
           <label class="form-label" for="changelog">Changelog</label>
-          <input id="changelog" name="changelog" class="form-input" placeholder="Optionnel">
+          <input id="changelog" name="changelog" class="form-input" placeholder="{{ _('Optionnel') }}">
         </div>
-        <button type="submit" class="btn btn-primary btn-sm">Uploader</button>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Uploader') }}</button>
       </form>
     </div>
   </div>
 
   <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
     <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Droits d'accès (AccessGrant)</span>
+      <span class="card-title">{{ _("Droits d'accès (AccessGrant)") }}</span>
       <span class="badge badge-muted">{{ grant_count }}</span>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0;">
@@ -118,7 +118,7 @@
             <th>Sujet</th>
             <th>Type</th>
             <th>Niveau</th>
-            <th>Accordé par</th>
+            <th>{{ _('Accordé par') }}</th>
             <th></th>
           </tr>
         </thead>
@@ -134,9 +134,9 @@
             </td>
             <td>
               {% if g.subject_type == 'group' %}
-                <span class="badge badge-info">Groupe</span>
+                <span class="badge badge-info">{{ _('Groupe') }}</span>
               {% else %}
-                <span class="badge badge-ok">Utilisateur</span>
+                <span class="badge badge-ok">{{ _('Utilisateur') }}</span>
               {% endif %}
             </td>
             <td><span class="badge badge-info">{{ g.access_level }}</span></td>
@@ -149,13 +149,13 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="5"><div class="empty-desc" style="padding:var(--sp-4);">Aucun AccessGrant pour ce fichier.</div></td></tr>
+          <tr><td colspan="5"><div class="empty-desc" style="padding:var(--sp-4);">{{ _('Aucun AccessGrant pour ce fichier.') }}</div></td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
-      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter un droit</div>
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">{{ _('Ajouter un droit') }}</div>
       <form method="post" action="/admin/rbac/grants" id="file-grant-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
         <input type="hidden" name="resource_type" value="file">
         <input type="hidden" name="file_id" value="{{ file.id }}">
@@ -163,12 +163,12 @@
         <div class="form-group">
           <label class="form-label" for="subject_type">Sujet</label>
           <select id="subject_type" name="subject_type" class="form-select" data-grant-subject-type>
-            <option value="group">Groupe</option>
-            <option value="user">Utilisateur</option>
+            <option value="group">{{ _('Groupe') }}</option>
+            <option value="user">{{ _('Utilisateur') }}</option>
           </select>
         </div>
         <div class="form-group" data-subject-group>
-          <label class="form-label" for="rbac_group_id">Groupe</label>
+          <label class="form-label" for="rbac_group_id">{{ _('Groupe') }}</label>
           <select id="rbac_group_id" name="rbac_group_id" class="form-select">
             {% for group in groups %}
             <option value="{{ group.id }}">{{ group.name }}</option>
@@ -184,8 +184,8 @@
           </select>
         </div>
         <div class="form-group" data-subject-user hidden style="flex:1; min-width:220px;">
-          <label class="form-label" for="user-query">Utilisateur</label>
-          <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" disabled>
+          <label class="form-label" for="user-query">{{ _('Utilisateur') }}</label>
+          <input type="search" id="user-query" class="form-input" placeholder="{{ _('Nom ou email…') }}" autocomplete="off" disabled>
           <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" disabled>
           <input type="hidden" name="user_display_cache" id="user_display_cache" disabled>
           <div id="user-suggestions" class="form-hint" style="margin-top:var(--sp-2);"></div>
@@ -198,18 +198,18 @@
             {% endfor %}
           </select>
         </div>
-        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Ajouter') }}</button>
       </form>
     </div>
   </div>
 
   <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
     <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Bêta-testeurs (canal)</span>
+      <span class="card-title">{{ _('Bêta-testeurs (canal)') }}</span>
       <span class="badge badge-warn">{{ beta_testers | length }}</span>
     </div>
     <p class="form-hint" style="padding:0 var(--sp-4) var(--sp-2);">
-      Le canal est indépendant des AccessGrant : retirer un bêta-testeur bascule sur stable sans toucher aux droits.
+      {{ _('Le canal est indépendant des AccessGrant : retirer un bêta-testeur bascule sur stable sans toucher aux droits.') }}
     </p>
     <div class="table-wrap" style="border:none;border-radius:0;">
       <table class="data-table">
@@ -223,36 +223,36 @@
             </td>
             <td>
               {% if b.subject_type == 'group' %}
-              <span class="badge badge-info">Groupe</span>
+              <span class="badge badge-info">{{ _('Groupe') }}</span>
               {% else %}
-              <span class="badge badge-ok">Utilisateur</span>
+              <span class="badge badge-ok">{{ _('Utilisateur') }}</span>
               {% endif %}
             </td>
             <td class="mono">{{ b.assigned_by }}</td>
             <td>
               <form method="post" action="/admin/files/{{ file.id }}/channel-assignments/{{ b.id }}/delete">
-                <button type="submit" class="btn btn-ghost btn-sm">Retirer du canal bêta</button>
+                <button type="submit" class="btn btn-ghost btn-sm">{{ _('Retirer du canal bêta') }}</button>
               </form>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="4"><div class="empty-desc" style="padding:var(--sp-4);">Personne en canal bêta (tous en stable).</div></td></tr>
+          <tr><td colspan="4"><div class="empty-desc" style="padding:var(--sp-4);">{{ _('Personne en canal bêta (tous en stable).') }}</div></td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
     <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
-      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter au canal bêta</div>
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">{{ _('Ajouter au canal bêta') }}</div>
       <form method="post" action="/admin/files/{{ file.id }}/channel-assignments" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;" data-beta-form>
         <div class="form-group">
           <label class="form-label" for="beta_subject_type">Sujet</label>
           <select id="beta_subject_type" name="subject_type" class="form-select" data-beta-subject-type>
-            <option value="group">Groupe</option>
-            <option value="user">Utilisateur</option>
+            <option value="group">{{ _('Groupe') }}</option>
+            <option value="user">{{ _('Utilisateur') }}</option>
           </select>
         </div>
         <div class="form-group" data-beta-group>
-          <label class="form-label" for="beta_rbac_group_id">Groupe</label>
+          <label class="form-label" for="beta_rbac_group_id">{{ _('Groupe') }}</label>
           <select id="beta_rbac_group_id" name="rbac_group_id" class="form-select">
             {% for group in groups %}
             <option value="{{ group.id }}">{{ group.name }}</option>
@@ -264,16 +264,16 @@
           <input id="beta_user_id" name="keycloak_user_id" class="form-input" placeholder="UUID Keycloak" disabled>
           <input type="hidden" name="user_display_cache" id="beta_user_display" disabled>
         </div>
-        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Ajouter') }}</button>
       </form>
     </div>
   </div>
 
   <form method="post" action="/admin/files/{{ file.id }}/delete"
         data-confirm="Supprimer ce fichier et toutes ses versions ?"
-        data-confirm-title="Supprimer le fichier"
+        data-confirm-title="{{ _('Supprimer le fichier') }}"
         data-confirm-label="Supprimer">
-    <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--danger);">Supprimer le fichier</button>
+    <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--danger);">{{ _('Supprimer le fichier') }}</button>
   </form>
 </div>
 {% endblock %}

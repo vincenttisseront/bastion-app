@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Mon profil{% endblock %}
+{% block title %}{{ _('Mon profil') }}{% endblock %}
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
@@ -20,42 +20,42 @@
   <div class="card" style="margin-bottom:var(--sp-4); border-color:var(--color-warn, #d97706);">
     <div class="card-body" style="display:flex; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; align-items:center;">
       <div>
-        <strong>Nouvel appareil mobile</strong>
+        <strong>{{ _('Nouvel appareil mobile') }}</strong>
         <p class="text-2" style="margin:var(--sp-1) 0 0;">
           {% set p = activesync_pending[0] %}
-          Un appareil ({{ p.model_label or p.device_type or 'mobile' }})
-          tente d'accéder à votre messagerie
-          {% if p.first_seen_at %}depuis le {{ p.first_seen_at.strftime('%d/%m %H:%M') }}{% endif %} —
-          validation requise.
+{{ _('Un appareil (') }}{{ p.model_label or p.device_type or 'mobile' }})
+          {{ _("tente d'accéder à votre messagerie") }}
+          {% if p.first_seen_at %}{{ _('depuis le') }} {{ p.first_seen_at.strftime('%d/%m %H:%M') }}{% endif %} {{ _('— validation requise.') }}
+
         </p>
       </div>
-      <a class="btn btn-primary btn-sm" href="#section-devices">Vérifier</a>
+      <a class="btn btn-primary btn-sm" href="#section-devices">{{ _('Vérifier') }}</a>
     </div>
   </div>
   {% endif %}
 
   <section class="portal-hero portal-hero--compact">
     <div class="portal-hero-copy">
-      <p class="portal-eyebrow">Compte</p>
-      <h1 class="page-title">Mon profil</h1>
-      <p class="page-sub">Identité, sécurité et préférences Bastion Pro</p>
+      <p class="portal-eyebrow">{{ _('Compte') }}</p>
+      <h1 class="page-title">{{ _('Mon profil') }}</h1>
+      <p class="page-sub">{{ _('Identité, sécurité et préférences Bastion Pro') }}</p>
     </div>
   </section>
 
   <div class="portal-profile-layout">
-    <nav class="portal-profile-nav card" aria-label="Sections du profil">
-      <a href="#section-general" class="portal-profile-nav-link is-active" data-profile-nav>Général</a>
-      <a href="#section-devices" class="portal-profile-nav-link" data-profile-nav>Appareils</a>
-      <a href="#section-security" class="portal-profile-nav-link" data-profile-nav>Sécurité</a>
-      <a href="#section-prefs" class="portal-profile-nav-link" data-profile-nav>Préférences</a>
-      <span class="portal-profile-nav-disabled" title="Non disponible dans cette version">Notifications</span>
-      <span class="portal-profile-nav-disabled" title="Non disponible dans cette version">Jetons API</span>
+    <nav class="portal-profile-nav card" aria-label="{{ _('Sections du profil') }}">
+      <a href="#section-general" class="portal-profile-nav-link is-active" data-profile-nav>{{ _('Général') }}</a>
+      <a href="#section-devices" class="portal-profile-nav-link" data-profile-nav>{{ _('Appareils') }}</a>
+      <a href="#section-security" class="portal-profile-nav-link" data-profile-nav>{{ _('Sécurité') }}</a>
+      <a href="#section-prefs" class="portal-profile-nav-link" data-profile-nav>{{ _('Préférences') }}</a>
+      <span class="portal-profile-nav-disabled" title="{{ _('Non disponible dans cette version') }}">{{ _('Notifications') }}</span>
+      <span class="portal-profile-nav-disabled" title="{{ _('Non disponible dans cette version') }}">{{ _('Jetons API') }}</span>
     </nav>
 
     <div class="portal-profile-stack">
       <section id="section-general" class="card portal-profile-card portal-identity-card">
         <div class="card-header">
-          <h2 class="card-title">Identité</h2>
+          <h2 class="card-title">{{ _('Identité') }}</h2>
         </div>
         <div class="card-body portal-identity">
           <span class="portal-avatar portal-avatar--xl" aria-hidden="true">{{ portal_user.initials }}</span>
@@ -68,13 +68,13 @@
         <div class="card-body portal-identity-fields">
           <div class="portal-field-row">
             <div>
-              <div class="form-label">Nom affiché</div>
+              <div class="form-label">{{ _('Nom affiché') }}</div>
               <div class="portal-field-value">{{ portal_user.display_name }}</div>
             </div>
           </div>
           <div class="portal-field-row">
             <div>
-              <div class="form-label">Prénom</div>
+              <div class="form-label">{{ _('Prénom') }}</div>
               <div class="portal-field-value">{{ portal_user.identity_first_name or '—' }}</div>
             </div>
           </div>
@@ -86,11 +86,11 @@
           </div>
           <div class="portal-field-row">
             <div>
-              <div class="form-label">Email</div>
+              <div class="form-label">{{ _('Email') }}</div>
               <div class="portal-field-value mono">{{ portal_user.email }}</div>
             </div>
             {% if account_url %}
-            <a class="btn btn-ghost btn-sm" href="{{ account_url }}" target="_blank" rel="noopener noreferrer">Modifier</a>
+            <a class="btn btn-ghost btn-sm" href="{{ account_url }}" target="_blank" rel="noopener noreferrer">{{ _('Modifier') }}</a>
             {% endif %}
           </div>
         </div>
@@ -98,15 +98,15 @@
 
       <section id="section-apps" class="card portal-profile-card">
         <div class="card-header">
-          <h2 class="card-title">Mes applications</h2>
-          <a href="/apps" class="btn btn-ghost btn-sm">Voir tout</a>
+          <h2 class="card-title">{{ _('Mes applications') }}</h2>
+          <a href="/apps" class="btn btn-ghost btn-sm">{{ _('Voir tout') }}</a>
         </div>
         <div class="card-body">
           {% if apps %}
           <p class="portal-profile-count">
             {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
           </p>
-          <div class="portal-apps-preview" aria-label="Aperçu des applications">
+          <div class="portal-apps-preview" aria-label="{{ _('Aperçu des applications') }}">
             {% for app in apps_preview %}
             <a class="portal-apps-preview-item" href="/apps" title="{{ app.description or app.label }}">
               <span class="portal-apps-preview-tile">{{ app_preview_icon(app) }}</span>
@@ -116,14 +116,14 @@
             {% endfor %}
           </div>
           {% else %}
-          <p class="text-2">Aucune application pour le moment.</p>
+          <p class="text-2">{{ _('Aucune application pour le moment.') }}</p>
           {% endif %}
         </div>
       </section>
 
       <section id="section-devices" class="card portal-profile-card">
         <div class="card-header">
-          <h2 class="card-title">Mes appareils mobiles</h2>
+          <h2 class="card-title">{{ _('Mes appareils mobiles') }}</h2>
         </div>
         <div class="card-body">
           {% if activesync_devices %}
@@ -131,10 +131,10 @@
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Appareil</th>
-                  <th>Application</th>
-                  <th>Statut</th>
-                  <th>1ʳᵉ vue</th>
+                  <th>{{ _('Appareil') }}</th>
+                  <th>{{ _('Application') }}</th>
+                  <th>{{ _('Statut') }}</th>
+                  <th>{{ _('1ʳᵉ vue') }}</th>
                   <th>IP</th>
                   <th></th>
                 </tr>
@@ -154,7 +154,7 @@
                   <td>
                     <span class="badge {{ d.status_badge_class }}">{{ d.status_label }}</span>
                     {% if d.blocked_by_admin %}
-                    <div class="form-hint">Bloqué par votre administrateur — contactez le support.</div>
+                    <div class="form-hint">{{ _('Bloqué par votre administrateur — contactez le support.') }}</div>
                     {% endif %}
                   </td>
                   <td class="form-hint">{{ d.first_seen_at.strftime('%d/%m/%Y %H:%M') if d.first_seen_at else '—' }}</td>
@@ -165,19 +165,19 @@
                     {% elif d.status == 'pending' or d.status == 'rejected' %}
                     <form method="post" action="/profile/activesync/devices/{{ d.id }}/approve" style="display:inline;">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button type="submit" class="btn btn-primary btn-sm">C'est mon appareil</button>
+                      <button type="submit" class="btn btn-primary btn-sm">{{ _("C'est mon appareil") }}</button>
                     </form>
                     {% if d.status == 'pending' %}
                     <form method="post" action="/profile/activesync/devices/{{ d.id }}/reject" style="display:inline;">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button type="submit" class="btn btn-ghost btn-sm">Ce n'est pas moi</button>
+                      <button type="submit" class="btn btn-ghost btn-sm">{{ _("Ce n'est pas moi") }}</button>
                     </form>
                     {% endif %}
                     {% elif d.status == 'approved' %}
                     <form method="post" action="/profile/activesync/devices/{{ d.id }}/revoke" style="display:inline;"
-                          onsubmit="return confirm('Révoquer cet appareil ? La sync sera refusée.');">
+                          onsubmit="return confirm({{ _('Révoquer cet appareil ? La sync sera refusée.')|tojson }});">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button type="submit" class="btn btn-ghost btn-sm">Révoquer</button>
+                      <button type="submit" class="btn btn-ghost btn-sm">{{ _('Révoquer') }}</button>
                     </form>
                     {% else %}
                     —
@@ -189,38 +189,39 @@
             </table>
           </div>
           {% else %}
-          <p class="text-2">Aucun appareil ActiveSync inventorié pour votre compte.</p>
+          <p class="text-2">{{ _('Aucun appareil ActiveSync inventorié pour votre compte.') }}</p>
           {% endif %}
         </div>
       </section>
 
       <section id="section-security" class="card portal-profile-card">
         <div class="card-header">
-          <h2 class="card-title">Sécurité du compte</h2>
+          <h2 class="card-title">{{ _('Sécurité du compte') }}</h2>
         </div>
         <div class="card-body">
           {% if portal_user.is_breakglass %}
           <p class="portal-security-note">
-            <span class="badge badge-warn">Compte de secours local</span>
+            <span class="badge badge-warn">{{ _('Compte de secours local') }}</span>
           </p>
           <p class="text-2">
-            Ce compte d'urgence est géré localement et n'utilise pas le portail d'identité.
-            Le mot de passe et les sessions ne sont pas modifiables ici.
+            {{ _("Ce compte d'urgence est géré localement et n'utilise pas le portail d'identité.") }}
+{{ _('Le mot de passe et les sessions ne sont pas modifiables ici.') }}
+
           </p>
           {% elif password_change_available | default(false) or security_available | default(false) %}
           <div class="portal-security-stack">
             {% if password_change_available | default(false) %}
             <div class="portal-security-card">
-              <div class="form-label">Mot de passe</div>
-              <p class="text-2">Modifiez votre mot de passe sans quitter le portail.</p>
+              <div class="form-label">{{ _('Mot de passe') }}</div>
+              <p class="text-2">{{ _('Modifiez votre mot de passe sans quitter le portail.') }}</p>
               <form method="post" action="/profile/password" class="form-body portal-password-form" style="margin-top:var(--sp-3); max-width:28rem;">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <div class="form-group">
-                  <label class="form-label" for="profile-current-password">Mot de passe actuel</label>
+                  <label class="form-label" for="profile-current-password">{{ _('Mot de passe actuel') }}</label>
                   <input type="password" id="profile-current-password" name="current_password" class="form-input" required autocomplete="current-password">
                 </div>
                 <div class="form-group">
-                  <label class="form-label" for="profile-new-password">Nouveau mot de passe</label>
+                  <label class="form-label" for="profile-new-password">{{ _('Nouveau mot de passe') }}</label>
                   <input type="password" id="profile-new-password" name="new_password" class="form-input" required minlength="{{ min_password_len | default(12) }}" autocomplete="new-password" data-password-policy-input>
                   <ul class="password-policy-checklist" id="profile-password-policy" aria-live="polite">
                     {% for rule in password_policy_rules %}
@@ -232,34 +233,34 @@
                   </ul>
                 </div>
                 <div class="form-group">
-                  <label class="form-label" for="profile-confirm-password">Confirmer</label>
+                  <label class="form-label" for="profile-confirm-password">{{ _('Confirmer') }}</label>
                   <input type="password" id="profile-confirm-password" name="confirm_password" class="form-input" required minlength="{{ min_password_len | default(12) }}" autocomplete="new-password">
                 </div>
-                <button type="submit" class="btn btn-secondary btn-sm" id="profile-password-submit">Mettre à jour le mot de passe</button>
+                <button type="submit" class="btn btn-secondary btn-sm" id="profile-password-submit">{{ _('Mettre à jour le mot de passe') }}</button>
               </form>
             </div>
             {% endif %}
 
             {% if security_available | default(false) %}
             <div class="portal-security-card">
-              <div class="form-label">Connexions actives</div>
+              <div class="form-label">{{ _('Connexions actives') }}</div>
               {% if session_summary.only_current | default(false) %}
               <p class="text-2">
-                Vous êtes connecté sur cet appareil.
-                Les connexions au portail expirent automatiquement après {{ session_ttl_hours }} h.
+                {{ _('Vous êtes connecté sur cet appareil.') }}
+{{ _('Les connexions au portail expirent automatiquement après') }} {{ session_ttl_hours }} h.
               </p>
               {% elif sso_sessions %}
               <p class="text-2">
-                {{ session_summary.others_count }} autre{{ 's' if session_summary.others_count != 1 else '' }}
-                connexion{{ 's' if session_summary.others_count != 1 else '' }} active{{ 's' if session_summary.others_count != 1 else '' }}.
-                Révoquez celles que vous ne reconnaissez pas — les sessions expirent aussi après {{ session_ttl_hours }} h.
+                {{ session_summary.others_count }} {{ _('autre(s) connexion(s) active(s).') }}
+                {{ _('Révoquez celles que vous ne reconnaissez pas — les sessions expirent aussi après') }}
+                {{ session_ttl_hours }} h.
               </p>
               <div class="table-wrap" style="border:none; margin-top:var(--sp-3);">
                 <table class="data-table">
                   <thead>
                     <tr>
-                      <th>Connexion</th>
-                      <th>Dernière activité</th>
+                      <th>{{ _('Connexion') }}</th>
+                      <th>{{ _('Dernière activité') }}</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -268,7 +269,7 @@
                     <tr>
                       <td>
                         {{ s.label }}
-                        {% if s.is_current %}<span class="badge badge-ok" style="margin-left:var(--sp-2);">Cet appareil</span>{% endif %}
+                        {% if s.is_current %}<span class="badge badge-ok" style="margin-left:var(--sp-2);">{{ _('Cet appareil') }}</span>{% endif %}
                         {% if s.clients %}
                         <div class="form-hint">{{ s.clients | join(', ') }}</div>
                         {% endif %}
@@ -279,7 +280,7 @@
                       <td>
                         {% if not s.is_current %}
                         <form method="post" action="/profile/sessions/revoke" style="display:inline;"
-                              onsubmit="return confirm('Couper cette connexion ?');">
+                              onsubmit="return confirm({{ _('Couper cette connexion ?')|tojson }});">
                           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                           <input type="hidden" name="session_kind" value="{{ s.kind }}">
                           <input type="hidden" name="session_id" value="{{ s.id }}">
@@ -296,23 +297,23 @@
               </div>
               {% if session_summary.others_count > 0 %}
               <form method="post" action="/profile/sessions/revoke-others" style="margin-top:var(--sp-3);"
-                    onsubmit="return confirm('Couper toutes les autres connexions ?');">
+                    onsubmit="return confirm({{ _('Couper toutes les autres connexions ?')|tojson }});">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button type="submit" class="btn btn-ghost btn-sm">Couper toutes les autres connexions</button>
+                <button type="submit" class="btn btn-ghost btn-sm">{{ _('Couper toutes les autres connexions') }}</button>
               </form>
               {% endif %}
               {% else %}
-              <p class="text-2" style="margin-top:var(--sp-2);">Aucune autre connexion active détectée.</p>
+              <p class="text-2" style="margin-top:var(--sp-2);">{{ _('Aucune autre connexion active détectée.') }}</p>
               {% endif %}
             </div>
             {% endif %}
 
             {% if account_url %}
             <div class="portal-security-card">
-              <div class="form-label">MFA &amp; profil identité</div>
-              <p class="text-2">Authenticator (OTP) et coordonnées avancées restent dans la console compte.</p>
+              <div class="form-label">{{ _('MFA &amp; profil identité') }}</div>
+              <p class="text-2">{{ _('Authenticator (OTP) et coordonnées avancées restent dans la console compte.') }}</p>
               <a href="{{ account_url }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer">
-                Ouvrir la console identité
+                {{ _('Ouvrir la console identité') }}
               </a>
             </div>
             {% endif %}
@@ -320,24 +321,25 @@
           {% elif account_url %}
           <div class="portal-security-grid">
             <div class="portal-security-card">
-              <div class="form-label">Mot de passe &amp; MFA</div>
-              <p class="text-2">Gérés dans votre espace compte identité.</p>
+              <div class="form-label">{{ _('Mot de passe &amp; MFA') }}</div>
+              <p class="text-2">{{ _('Gérés dans votre espace compte identité.') }}</p>
               <a href="{{ account_url }}" class="btn btn-secondary btn-sm" target="_blank" rel="noopener noreferrer">
-                Gérer la sécurité du compte
+                {{ _('Gérer la sécurité du compte') }}
               </a>
             </div>
             <div class="portal-security-card">
-              <div class="form-label">Sessions SSO</div>
-              <p class="text-2">Révocation et appareils connectés via la console compte.</p>
+              <div class="form-label">{{ _('Sessions SSO') }}</div>
+              <p class="text-2">{{ _('Révocation et appareils connectés via la console compte.') }}</p>
               <a href="{{ account_url }}" class="btn btn-ghost btn-sm" target="_blank" rel="noopener noreferrer">
-                Ouvrir la console
+{{ _('Ouvrir la console') }}
+
               </a>
             </div>
           </div>
           {% else %}
           <p class="text-2">
-            La gestion de la sécurité du compte n'est pas disponible pour le moment.
-            Contactez un administrateur si besoin.
+            {{ _("La gestion de la sécurité du compte n'est pas disponible pour le moment.") }}
+            {{ _('Contactez un administrateur si besoin.') }}
           </p>
           {% endif %}
         </div>
@@ -345,23 +347,36 @@
 
       <section id="section-prefs" class="card portal-profile-card">
         <div class="card-header">
-          <h2 class="card-title">Préférences</h2>
+          <h2 class="card-title">{{ _('Préférences') }}</h2>
         </div>
         <div class="card-body">
-          <div class="form-label" id="theme-pref-label">Thème d'affichage</div>
-          <p class="group-config-hint" style="margin:var(--sp-2) 0 var(--sp-3);">Enregistré dans ce navigateur (pas de sync serveur).</p>
+          <div class="form-label" id="theme-pref-label">{{ _("Thème d'affichage") }}</div>
+          <p class="group-config-hint" style="margin:var(--sp-2) 0 var(--sp-3);">{{ _('Enregistré dans ce navigateur (pas de sync serveur).') }}</p>
           <div class="portal-theme-choices" role="radiogroup" aria-labelledby="theme-pref-label">
             <label class="portal-theme-choice">
               <input type="radio" name="theme-pref" value="light" data-theme-pref>
-              <span>Clair</span>
+              <span>{{ _('Clair') }}</span>
             </label>
             <label class="portal-theme-choice">
               <input type="radio" name="theme-pref" value="dark" data-theme-pref>
-              <span>Sombre</span>
+              <span>{{ _('Sombre') }}</span>
             </label>
             <label class="portal-theme-choice">
               <input type="radio" name="theme-pref" value="system" data-theme-pref>
-              <span>Système</span>
+              <span>{{ _('Système') }}</span>
+            </label>
+          </div>
+
+          <div class="form-label" id="locale-pref-label" style="margin-top:var(--sp-5);">{{ _('Langue') }}</div>
+          <p class="group-config-hint" style="margin:var(--sp-2) 0 var(--sp-3);">{{ _('Enregistré dans ce navigateur.') }}</p>
+          <div class="portal-theme-choices" role="radiogroup" aria-labelledby="locale-pref-label">
+            <label class="portal-theme-choice">
+              <input type="radio" name="locale-pref" value="fr" data-locale-toggle="fr">
+              <span>Français</span>
+            </label>
+            <label class="portal-theme-choice">
+              <input type="radio" name="locale-pref" value="en" data-locale-toggle="en">
+              <span>English</span>
             </label>
           </div>
         </div>
@@ -377,13 +392,19 @@
 <script>
 (function () {
   var prefs = document.querySelectorAll('[data-theme-pref]');
-  if (!prefs.length || !window.BastionTheme) return;
-  var current = window.BastionTheme.getPreference();
-  prefs.forEach(function (el) {
-    el.checked = el.value === current;
-    el.addEventListener('change', function () {
-      if (el.checked) window.BastionTheme.setPreference(el.value);
+  if (prefs.length && window.BastionTheme) {
+    var current = window.BastionTheme.getPreference();
+    prefs.forEach(function (el) {
+      el.checked = el.value === current;
+      el.addEventListener('change', function () {
+        if (el.checked) window.BastionTheme.setPreference(el.value);
+      });
     });
+  }
+
+  var locale = window.BastionI18n && BastionI18n.getLocale ? BastionI18n.getLocale() : 'fr';
+  document.querySelectorAll('[data-locale-toggle]').forEach(function (el) {
+    if (el.type === 'radio') el.checked = el.value === locale;
   });
 
   document.querySelectorAll('[data-profile-nav]').forEach(function (link) {

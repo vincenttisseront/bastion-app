@@ -10,38 +10,43 @@
       <p class="page-sub">
         {{ realm_count }} realm{{ 's' if realm_count != 1 else '' }}
         · {{ app_count }} application{{ 's' if app_count != 1 else '' }}
-        · domaine portail <span class="mono">{{ manifest.portal_domain or '—' }}</span>
+{{ _('· domaine portail') }} <span class="mono">{{ manifest.portal_domain or '—' }}</span>
       </p>
     </div>
     <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;">
       <form method="post" action="/admin/infrastructure/apply" style="margin:0;">
-        <button type="submit" class="btn btn-primary btn-sm">Appliquer l'infrastructure</button>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _("Appliquer l'infrastructure") }}</button>
       </form>
     </div>
   </div>
 
   <div class="card" style="margin-bottom:var(--sp-4);">
     <div class="card-header">
-      <span class="card-title">Statut d'application</span>
+      <span class="card-title">{{ _("Statut d'application") }}</span>
       <span class="badge badge-{{ host_apply.badge }}">{{ host_apply.status_label }}</span>
     </div>
     <div class="card-body">
       <ol class="form-help" style="margin:0;padding-left:1.25rem;line-height:1.6;">
         <li>
-          <strong>Export</strong> — génère les fichiers sous
+          <strong>Export</strong> {{ _('— génère les fichiers sous') }}
+
           <code class="mono">{{ exports_dir }}</code>
-          depuis la configuration Admin.
+{{ _('depuis la configuration Admin.') }}
+
           {% if has_saved_manifest %}
-          Manifeste : <code class="mono">{{ manifest_path }}</code>.
+{{ _('Manifeste :') }} <code class="mono">{{ manifest_path }}</code>.
           {% else %}
-          Aucun manifeste — cliquez Appliquer.
+{{ _('Aucun manifeste — cliquez Appliquer.') }}
+
           {% endif %}
         </li>
         <li>
-          <strong>nginx</strong> — <code class="mono">bastion-nginx</code> recharge les exports (~2&nbsp;s).
+          <strong>nginx</strong> — <code class="mono">bastion-nginx</code> {{ _('recharge les exports (~2&nbsp;s).') }}
+
         </li>
         <li>
-          <strong>oauth2-proxy + Compose</strong> — sync via
+          <strong>{{ _('oauth2-proxy + Compose') }}</strong> {{ _('— sync via') }}
+
           <code class="mono">scripts/apply-infra-docker.sh</code>
           ou le signal <code class="mono">{{ host_apply.request_path }}</code> (watcher systemd).
         </li>
@@ -49,13 +54,13 @@
 
       <div style="margin-top:var(--sp-3);display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:center;">
         {% if host_apply.request_exists and host_apply.request_pending %}
-        <span class="badge badge-warn">signal en attente</span>
+        <span class="badge badge-warn">{{ _('signal en attente') }}</span>
         {% elif host_apply.status == 'ok' %}
-        <span class="badge badge-ok">hôte synchronisé</span>
+        <span class="badge badge-ok">{{ _('hôte synchronisé') }}</span>
         {% elif host_apply.status == 'error' %}
-        <span class="badge badge-err">hôte en erreur</span>
+        <span class="badge badge-err">{{ _('hôte en erreur') }}</span>
         {% else %}
-        <span class="badge badge-muted">pas de signal récent</span>
+        <span class="badge badge-muted">{{ _('pas de signal récent') }}</span>
         {% endif %}
         <span class="form-help" style="margin:0;">
           Statut : <code class="mono">{{ host_apply.status_path }}</code>
@@ -64,7 +69,7 @@
 
       {% if host_apply.log_text %}
       <details style="margin-top:var(--sp-3);">
-        <summary class="form-help" style="cursor:pointer;">Journal apply hôte</summary>
+        <summary class="form-help" style="cursor:pointer;">{{ _('Journal apply hôte') }}</summary>
         <pre class="mono" style="margin:var(--sp-2) 0 0;white-space:pre-wrap;max-height:16rem;overflow:auto;padding:var(--sp-3);background:var(--bg-elevated, rgba(0,0,0,.25));border-radius:6px;">{{ host_apply.log_text }}</pre>
       </details>
       {% endif %}
@@ -74,7 +79,7 @@
   {% if manifest.error %}
   <div class="card" style="margin-bottom:var(--sp-4);border-color:var(--danger, #b91c1c);">
     <div class="card-body">
-      <strong style="color:var(--danger, #b91c1c);">Dernière erreur d'export</strong>
+      <strong style="color:var(--danger, #b91c1c);">{{ _("Dernière erreur d'export") }}</strong>
       <p class="mono" style="margin:var(--sp-2) 0 0;white-space:pre-wrap;">{{ manifest.error }}</p>
     </div>
   </div>
@@ -82,11 +87,11 @@
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Fichiers exportés · {{ file_rows | length }}</span>
+      <span class="card-title">{{ _('Fichiers exportés ·') }} {{ file_rows | length }}</span>
       {% if manifest.partial %}
       <span class="badge badge-err">partiel</span>
       {% elif file_rows %}
-      <span class="badge badge-ok">exportés</span>
+      <span class="badge badge-ok">{{ _('exportés') }}</span>
       {% endif %}
     </div>
     <div class="card-body card-flush">
@@ -112,7 +117,7 @@
         </table>
       </div>
       {% else %}
-      <p class="form-help" style="padding:var(--sp-4);margin:0;">Aucun fichier exporté.</p>
+      <p class="form-help" style="padding:var(--sp-4);margin:0;">{{ _('Aucun fichier exporté.') }}</p>
       {% endif %}
     </div>
   </div>

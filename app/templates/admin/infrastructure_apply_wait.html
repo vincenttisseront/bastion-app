@@ -1,6 +1,6 @@
 {# Intermediate page: keep the admin in a wait loop until host apply leaves pending. #}
 {% extends "base.html" %}
-{% block title %}Application infrastructure{% endblock %}
+{% block title %}{{ _('Application infrastructure') }}{% endblock %}
 {% block breadcrumb %}Admin / Infrastructure / En cours{% endblock %}
 
 {% block content %}
@@ -10,23 +10,22 @@
      data-started-at="{{ started_at | int }}">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Application sur l’hôte en cours</h1>
+      <h1 class="page-title">{{ _('Application sur l’hôte en cours') }}</h1>
       <p class="page-sub">
         {{ context_label or "Export enregistré." }}
-        La main n’est rendue qu’après confirmation (ou échec) de l’apply hôte.
+        {{ _('La main n’est rendue qu’après confirmation (ou échec) de l’apply hôte.') }}
       </p>
     </div>
   </div>
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Statut</span>
+      <span class="card-title">{{ _('Statut') }}</span>
       <span class="badge badge-{{ host_apply.badge }}">{{ host_apply.status_label }}</span>
     </div>
     <div class="card-body">
       <p class="form-help" style="margin-top:0;">
-        Attente depuis <span class="mono" id="wait-elapsed">{{ elapsed_sec | int }}</span>s
-        (limite <span class="mono">{{ timeout_sec | int }}</span>s).
+{{ _('Attente depuis') }} <span class="mono" id="wait-elapsed">{{ elapsed_sec | int }}</span>{{ _('s (limite') }} <span class="mono">{{ timeout_sec | int }}</span>s).
         Actualisation automatique toutes les <span class="mono">{{ poll_sec | int }}</span>s.
       </p>
       <p class="form-help">
@@ -37,8 +36,8 @@
       <pre class="mono" style="margin:var(--sp-3) 0 0;white-space:pre-wrap;max-height:14rem;overflow:auto;padding:var(--sp-3);background:var(--bg-elevated, rgba(0,0,0,.25));border-radius:6px;">{{ host_apply.log_text }}</pre>
       {% endif %}
       <div style="margin-top:var(--sp-4);display:flex;gap:var(--sp-2);flex-wrap:wrap;">
-        <a class="btn btn-secondary btn-sm" href="{{ refresh_url }}">Actualiser</a>
-        <a class="btn btn-ghost btn-sm" href="/admin/infrastructure">Voir Infrastructure</a>
+        <a class="btn btn-secondary btn-sm" href="{{ refresh_url }}">{{ _('Actualiser') }}</a>
+        <a class="btn btn-ghost btn-sm" href="/admin/infrastructure">{{ _('Voir Infrastructure') }}</a>
       </div>
     </div>
   </div>

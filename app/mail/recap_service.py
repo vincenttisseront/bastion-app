@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.bastion.pending_host_service import is_infra_discovery_probe
+from app.i18n.catalog import t
+from app.i18n.resolve import DEFAULT_LOCALE, normalize_locale
 from app.mail.smtp_service import SmtpError, send_email, smtp_configured
 from app.models import (
     AccessRequest,
@@ -97,9 +99,15 @@ def _fmt_dt(dt: datetime | None) -> str:
     return aware.strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _fmt_date_fr(dt: datetime) -> str:
+def _fmt_date_fr(dt: datetime, locale: str | None = None) -> str:
+    loc = normalize_locale(locale) or DEFAULT_LOCALE
     local = dt.astimezone(recap_timezone()) if dt.tzinfo else dt
-    return f"{local.day} {_MONTHS_FR[local.month - 1]} {local.year}"
+    month = t(_MONTHS_FR[local.month - 1], loc)
+    return f"{local.day} {month} {local.year}"
+
+
+def _loc(locale: str | None) -> str:
+    return normalize_locale(locale) or DEFAULT_LOCALE
 
 
 def _admin_base(settings: Settings) -> str:
@@ -403,8 +411,13 @@ def build_daily_recap(
     return recap
 
 
-def format_recap_email(recap: DailyRecap) -> tuple[str, str, str]:
-    date_label = _fmt_date_fr(recap.until)
+def format_recap_email(
+    recap: DailyRecap,
+    *,
+    locale: str | None = None,
+) -> tuple[str, str, str]:
+    loc = _loc(locale)
+    date_label = _fmt_date_fr(recap.until, loc)
     n_hosts = recap.new_hosts_count
     n_pending = recap.pending_accounts_total
     n_alerts = recap.alerts_total + len(recap.bans)
@@ -412,22 +425,48 @@ def format_recap_email(recap: DailyRecap) -> tuple[str, str, str]:
         bits = []
         if n_hosts or recap.pending_hosts_total:
             bits.append(
-                f"{n_hosts} domaine{'s' if n_hosts != 1 else ''} découvert"
-                f"{'s' if n_hosts != 1 else ''}"
+                t(
+                    "{n} domaine découvert",
+                    loc,
+                    n=n_hosts,
+                )
+                if n_hosts == 1
+                else t("{n} domaines découverts", loc, n=n_hosts)
             )
         if n_pending:
-            bits.append(f"{n_pending} compte{'s' if n_pending != 1 else ''} en attente")
+            bits.append(
+                t("{n} compte en attente", loc, n=n_pending)
+                if n_pending == 1
+                else t("{n} comptes en attente", loc, n=n_pending)
+            )
         if recap.pending_devices_total:
             n_dev = recap.pending_devices_total
-            bits.append(f"{n_dev} appareil{'s' if n_dev != 1 else ''} en attente")
+            bits.append(
+                t("{n} appareil en attente", loc, n=n_dev)
+                if n_dev == 1
+                else t("{n} appareils en attente", loc, n=n_dev)
+            )
         if n_alerts:
-            bits.append(f"{n_alerts} alerte{'s' if n_alerts != 1 else ''}")
-        subject = f"[Portail] Récap 24h — {', '.join(bits)} ({date_label})"
+            bits.append(
+                t("{n} alerte", loc, n=n_alerts)
+                if n_alerts == 1
+                else t("{n} alertes", loc, n=n_alerts)
+            )
+        subject = t(
+            "[Portail] Récap 24h — {bits} ({date_label})",
+            loc,
+            bits=", ".join(bits),
+            date_label=date_label,
+        )
     else:
-        subject = f"[Portail] Récap 24h — rien à signaler ({date_label})"
+        subject = t(
+            "[Portail] Récap 24h — rien à signaler ({date_label})",
+            loc,
+            date_label=date_label,
+        )
 
-    text = _recap_text(recap, date_label)
-    html_body = _recap_html(recap, date_label)
+    text = _recap_text(recap, date_label, locale=loc)
+    html_body = _recap_html(recap, date_label, locale=loc)
     return subject, text, html_body
 
 
@@ -438,7 +477,9 @@ def _section_text(
     empty: str,
     extra: str = "",
     omitted: int = 0,
+    locale: str | None = None,
 ) -> str:
+    loc = _loc(locale)
     parts = [title]
     if extra:
         parts.append(extra)
@@ -451,69 +492,96 @@ def _section_text(
                 item = f"{item}\n  {line.href}"
             parts.append(item)
         if omitted:
-            parts.append(f"- … et {omitted} de plus")
+            parts.append(t("- … et {omitted} de plus", loc, omitted=omitted))
     parts.append("")
     return "\n".join(parts)
 
 
-def _recap_text(recap: DailyRecap, date_label: str) -> str:
-    window = f"Fenêtre : {_fmt_dt(recap.since)} → {_fmt_dt(recap.until)}"
+def _recap_text(
+    recap: DailyRecap,
+    date_label: str,
+    *,
+    locale: str | None = None,
+) -> str:
+    loc = _loc(locale)
+    window = t(
+        "Fenêtre : {since} → {until}",
+        loc,
+        since=_fmt_dt(recap.since),
+        until=_fmt_dt(recap.until),
+    )
     parts = [
-        f"Récapitulatif quotidien du portail — {date_label}",
+        t(
+            "Récapitulatif quotidien du portail — {date_label}",
+            loc,
+            date_label=date_label,
+        ),
         window,
         "",
         _section_text(
-            "Domaines découverts (24h)",
+            t("Domaines découverts (24h)", loc),
             recap.new_hosts,
-            empty="Aucun nouveau domaine en attente sur 24h.",
+            empty=t("Aucun nouveau domaine en attente sur 24h.", loc),
             extra=(
-                f"Toujours en file : {recap.pending_hosts_total}."
+                t("Toujours en file : {n}.", loc, n=recap.pending_hosts_total)
                 if recap.pending_hosts_total
                 else ""
             ),
             omitted=max(0, recap.new_hosts_count - len(recap.new_hosts)),
+            locale=loc,
         ),
         _section_text(
-            "Comptes en attente",
+            t("Comptes en attente", loc),
             recap.new_users + recap.new_access_requests + recap.pending_accounts,
-            empty="Aucun compte en attente.",
-            extra=(
-                f"Utilisateurs SSO : {recap.pending_users_total} · "
-                f"Demandes d'accès : {recap.pending_access_total} · "
-                f"Comptes bastion : {recap.pending_accounts_count}."
+            empty=t("Aucun compte en attente.", loc),
+            extra=t(
+                "Utilisateurs SSO : {users} · Demandes d'accès : {access} · "
+                "Comptes bastion : {accounts}.",
+                loc,
+                users=recap.pending_users_total,
+                access=recap.pending_access_total,
+                accounts=recap.pending_accounts_count,
             ),
+            locale=loc,
         ),
         _section_text(
-            "Appareils ActiveSync en attente",
+            t("Appareils ActiveSync en attente", loc),
             recap.pending_devices,
-            empty="Aucun appareil en attente.",
+            empty=t("Aucun appareil en attente.", loc),
             extra=(
-                f"Toujours en file : {recap.pending_devices_total}."
+                t("Toujours en file : {n}.", loc, n=recap.pending_devices_total)
                 if recap.pending_devices_total
                 else ""
             ),
             omitted=max(0, recap.pending_devices_total - len(recap.pending_devices)),
+            locale=loc,
         ),
         _section_text(
-            "Alertes (WARNING et plus)",
+            t("Alertes (WARNING et plus)", loc),
             recap.alerts,
-            empty="Aucune alerte sur 24h.",
-            extra=f"Total : {recap.alerts_total}." if recap.alerts_total else "",
+            empty=t("Aucune alerte sur 24h.", loc),
+            extra=(
+                t("Total : {n}.", loc, n=recap.alerts_total)
+                if recap.alerts_total
+                else ""
+            ),
             omitted=max(0, recap.alerts_total - len(recap.alerts)),
+            locale=loc,
         ),
         _section_text(
-            "Bannissements (24h)",
+            t("Bannissements (24h)", loc),
             recap.bans,
-            empty="Aucun nouveau bannissement.",
+            empty=t("Aucun nouveau bannissement.", loc),
+            locale=loc,
         ),
     ]
     if recap.portal_url:
         parts.append(
-            f"Admin : {_admin_path(recap.portal_url, '/admin/configuration')}\n"
-            f"Domaines : {_admin_path(recap.portal_url, '/admin/pending-hosts', query={'status': 'pending'})}\n"
-            f"Utilisateurs : {_admin_path(recap.portal_url, '/admin/pending-users', query={'status': 'pending'})}\n"
-            f"Appareils : {_admin_path(recap.portal_url, '/admin/pending-devices', query={'status': 'pending'})}\n"
-            f"Logs : {_logs_severity_href(recap.portal_url, since=recap.since)}"
+            f"{t('Admin', loc)} : {_admin_path(recap.portal_url, '/admin/configuration')}\n"
+            f"{t('Domaines', loc)} : {_admin_path(recap.portal_url, '/admin/pending-hosts', query={'status': 'pending'})}\n"
+            f"{t('Utilisateurs', loc)} : {_admin_path(recap.portal_url, '/admin/pending-users', query={'status': 'pending'})}\n"
+            f"{t('Appareils', loc)} : {_admin_path(recap.portal_url, '/admin/pending-devices', query={'status': 'pending'})}\n"
+            f"{t('Logs', loc)} : {_logs_severity_href(recap.portal_url, since=recap.since)}"
         )
     return "\n".join(parts).rstrip() + "\n"
 
@@ -531,7 +599,13 @@ def _severity_color(severity: str) -> str:
     return "#64748b"
 
 
-def _html_list(lines: list[RecapLine], *, omitted: int = 0) -> str:
+def _html_list(
+    lines: list[RecapLine],
+    *,
+    omitted: int = 0,
+    locale: str | None = None,
+) -> str:
+    loc = _loc(locale)
     if not lines:
         return ""
     rows: list[str] = []
@@ -565,7 +639,7 @@ def _html_list(lines: list[RecapLine], *, omitted: int = 0) -> str:
     if omitted:
         rows.append(
             '<tr><td style="padding:10px 0;color:#64748b;font-size:12px;">'
-            f"… et {_esc(omitted)} de plus</td></tr>"
+            f"{_esc(t('… et {omitted} de plus', loc, omitted=omitted))}</td></tr>"
         )
     return (
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
@@ -597,23 +671,46 @@ def _html_section(title: str, body: str, *, subtitle: str = "", cta_href: str = 
     )
 
 
-def _recap_html(recap: DailyRecap, date_label: str) -> str:
-    empty_hosts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun nouveau domaine en attente sur 24h.</p>'
-    empty_accounts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun compte en attente.</p>'
-    empty_devices = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun appareil en attente.</p>'
-    empty_alerts = '<p style="margin:0;color:#64748b;font-size:13px;">Aucune alerte sur 24h.</p>'
-    empty_bans = '<p style="margin:0;color:#64748b;font-size:13px;">Aucun nouveau bannissement.</p>'
+def _recap_html(
+    recap: DailyRecap,
+    date_label: str,
+    *,
+    locale: str | None = None,
+) -> str:
+    loc = _loc(locale)
+    empty_hosts = (
+        f'<p style="margin:0;color:#64748b;font-size:13px;">'
+        f'{_esc(t("Aucun nouveau domaine en attente sur 24h.", loc))}</p>'
+    )
+    empty_accounts = (
+        f'<p style="margin:0;color:#64748b;font-size:13px;">'
+        f'{_esc(t("Aucun compte en attente.", loc))}</p>'
+    )
+    empty_devices = (
+        f'<p style="margin:0;color:#64748b;font-size:13px;">'
+        f'{_esc(t("Aucun appareil en attente.", loc))}</p>'
+    )
+    empty_alerts = (
+        f'<p style="margin:0;color:#64748b;font-size:13px;">'
+        f'{_esc(t("Aucune alerte sur 24h.", loc))}</p>'
+    )
+    empty_bans = (
+        f'<p style="margin:0;color:#64748b;font-size:13px;">'
+        f'{_esc(t("Aucun nouveau bannissement.", loc))}</p>'
+    )
 
     hosts_html = _html_list(
         recap.new_hosts,
         omitted=max(0, recap.new_hosts_count - len(recap.new_hosts)),
+        locale=loc,
     ) or empty_hosts
     accounts_lines = recap.new_users + recap.new_access_requests + recap.pending_accounts
-    accounts_html = _html_list(accounts_lines) or empty_accounts
+    accounts_html = _html_list(accounts_lines, locale=loc) or empty_accounts
     devices_html = (
         _html_list(
             recap.pending_devices,
             omitted=max(0, recap.pending_devices_total - len(recap.pending_devices)),
+            locale=loc,
         )
         or empty_devices
     )
@@ -621,10 +718,11 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
         _html_list(
             recap.alerts,
             omitted=max(0, recap.alerts_total - len(recap.alerts)),
+            locale=loc,
         )
         or empty_alerts
     )
-    bans_html = _html_list(recap.bans) or empty_bans
+    bans_html = _html_list(recap.bans, locale=loc) or empty_bans
 
     hosts_cta = _admin_path(recap.portal_url, "/admin/pending-hosts", query={"status": "pending"})
     users_cta = _admin_path(recap.portal_url, "/admin/pending-users", query={"status": "pending"})
@@ -637,73 +735,80 @@ def _recap_html(recap: DailyRecap, date_label: str) -> str:
     if recap.portal_url:
         footer_links = (
             '<p style="margin:0 0 8px;">'
-            f'<a href="{_esc(hosts_cta)}" style="color:#0f766e;text-decoration:none;">Domaines</a>'
+            f'<a href="{_esc(hosts_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Domaines", loc))}</a>'
             " · "
-            f'<a href="{_esc(users_cta)}" style="color:#0f766e;text-decoration:none;">Utilisateurs</a>'
+            f'<a href="{_esc(users_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Utilisateurs", loc))}</a>'
             " · "
-            f'<a href="{_esc(devices_cta)}" style="color:#0f766e;text-decoration:none;">Appareils</a>'
+            f'<a href="{_esc(devices_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Appareils", loc))}</a>'
             " · "
-            f'<a href="{_esc(access_cta)}" style="color:#0f766e;text-decoration:none;">Demandes d\'accès</a>'
+            f'<a href="{_esc(access_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Demandes d\'accès", loc))}</a>'
             " · "
-            f'<a href="{_esc(logs_cta)}" style="color:#0f766e;text-decoration:none;">Logs sécurité</a>'
+            f'<a href="{_esc(logs_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Logs sécurité", loc))}</a>'
             "</p>"
         )
 
     return f"""<!DOCTYPE html>
-<html lang="fr">
+<html lang="{_esc(loc)}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Récapitulatif quotidien</title></head>
+<title>{_esc(t("Récapitulatif quotidien", loc))}</title></head>
 <body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px;">
 <tr><td align="center">
 <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
 <tr><td style="padding:20px 24px;background:#0f766e;color:#ffffff;">
-  <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">Portail sécurisé</div>
-  <h1 style="margin:6px 0 0;font-size:22px;line-height:1.25;">Récapitulatif 24h</h1>
+  <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.85;">{_esc(t("Portail sécurisé", loc))}</div>
+  <h1 style="margin:6px 0 0;font-size:22px;line-height:1.25;">{_esc(t("Récapitulatif 24h", loc))}</h1>
   <div style="margin-top:6px;font-size:13px;opacity:.9;">{_esc(date_label)}</div>
 </td></tr>
 <tr><td style="padding:16px 24px;border-bottom:1px solid #e2e8f0;color:#475569;font-size:13px;">
-  Fenêtre : {_esc(_fmt_dt(recap.since))} → {_esc(_fmt_dt(recap.until))}
+  {_esc(t("Fenêtre : {since} → {until}", loc, since=_fmt_dt(recap.since), until=_fmt_dt(recap.until)))}
 </td></tr>
 {_html_section(
-    "Domaines découverts",
+    t("Domaines découverts", loc),
     hosts_html,
-    subtitle=f"Toujours en file : {recap.pending_hosts_total}.",
+    subtitle=t("Toujours en file : {n}.", loc, n=recap.pending_hosts_total),
     cta_href=hosts_cta,
-    cta_label="Voir la file",
+    cta_label=t("Voir la file", loc),
 )}
 {_html_section(
-    "Comptes en attente",
+    t("Comptes en attente", loc),
     accounts_html,
-    subtitle=(
-        f"Utilisateurs SSO : {recap.pending_users_total} · "
-        f"Demandes d'accès : {recap.pending_access_total} · "
-        f"Comptes bastion : {recap.pending_accounts_count}."
+    subtitle=t(
+        "Utilisateurs SSO : {users} · Demandes d'accès : {access} · "
+        "Comptes bastion : {accounts}.",
+        loc,
+        users=recap.pending_users_total,
+        access=recap.pending_access_total,
+        accounts=recap.pending_accounts_count,
     ),
     cta_href=users_cta,
-    cta_label="Utilisateurs",
+    cta_label=t("Utilisateurs", loc),
 )}
 {_html_section(
-    "Appareils ActiveSync",
+    t("Appareils ActiveSync", loc),
     devices_html,
-    subtitle=f"Toujours en file : {recap.pending_devices_total}.",
+    subtitle=t("Toujours en file : {n}.", loc, n=recap.pending_devices_total),
     cta_href=devices_cta,
-    cta_label="Voir la file",
+    cta_label=t("Voir la file", loc),
 )}
 {_html_section(
-    "Alertes (WARNING et plus)",
+    t("Alertes (WARNING et plus)", loc),
     alerts_html,
-    subtitle=f"Total : {recap.alerts_total}. Chaque lien ouvre l'entrée exacte dans les journaux.",
+    subtitle=t(
+        "Total : {n}. Chaque lien ouvre l'entrée exacte dans les journaux.",
+        loc,
+        n=recap.alerts_total,
+    ),
     cta_href=logs_cta,
-    cta_label="Filtrer WARNING+",
+    cta_label=t("Filtrer WARNING+", loc),
 )}
 {_html_section(
-    "Bannissements (24h)",
+    t("Bannissements (24h)", loc),
     bans_html,
 )}
 <tr><td style="padding:20px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:13px;color:#64748b;">
   {footer_links}
-  <p style="margin:0;"><a href="{_esc(admin_cta)}" style="color:#0f766e;text-decoration:none;font-weight:600;">Ouvrir l'admin →</a></p>
+  <p style="margin:0;"><a href="{_esc(admin_cta)}" style="color:#0f766e;text-decoration:none;font-weight:600;">{_esc(t("Ouvrir l'admin →", loc))}</a></p>
 </td></tr>
 </table>
 </td></tr>
@@ -727,22 +832,26 @@ def send_daily_recap(
     force: bool = False,
     actor: str = "scheduler",
     now: datetime | None = None,
+    locale: str | None = None,
 ) -> RecapSendResult:
     """Send the 24h recap when enabled (or force=True from the admin UI)."""
+    loc = _loc(locale)
     row = ensure_portal_settings(db, settings)
     enabled = bool(getattr(row, "daily_recap_enabled", False))
     if not force and not enabled:
-        return RecapSendResult("skipped_disabled", "Récap quotidien désactivé")
+        return RecapSendResult(
+            "skipped_disabled", t("Récap quotidien désactivé", loc)
+        )
     if not smtp_configured(row):
         return RecapSendResult(
             "skipped_smtp",
-            "SMTP non configuré — activez-le dans Configuration",
+            t("SMTP non configuré — activez-le dans Configuration", loc),
         )
     to_email = recap_recipient(row)
     if not to_email:
         return RecapSendResult(
             "skipped_no_recipient",
-            "Aucun destinataire (email récap ou expéditeur SMTP)",
+            t("Aucun destinataire (email récap ou expéditeur SMTP)", loc),
         )
 
     tz = recap_timezone()
@@ -756,13 +865,20 @@ def send_daily_recap(
         if now_local.hour < hour:
             return RecapSendResult(
                 "skipped_hour",
-                f"Heure d'envoi non atteinte ({hour:02d}h {RECAP_TZ_NAME})",
+                t(
+                    "Heure d'envoi non atteinte ({hour:02d}h {tz})",
+                    loc,
+                    hour=hour,
+                    tz=RECAP_TZ_NAME,
+                ),
             )
         if _already_sent_today(row, now_local):
-            return RecapSendResult("skipped_already", "Récap déjà envoyé aujourd'hui")
+            return RecapSendResult(
+                "skipped_already", t("Récap déjà envoyé aujourd'hui", loc)
+            )
 
     recap = build_daily_recap(db, settings, until=_as_utc(stamp))
-    subject, body_text, body_html = format_recap_email(recap)
+    subject, body_text, body_html = format_recap_email(recap, locale=loc)
     try:
         send_email(
             row,
@@ -771,6 +887,7 @@ def send_daily_recap(
             subject=subject,
             body_text=body_text,
             body_html=body_html,
+            locale=loc,
         )
     except SmtpError as exc:
         log_action(
@@ -810,7 +927,9 @@ def send_daily_recap(
         },
         forward_to_siem=False,
     )
-    return RecapSendResult("sent", f"Récap envoyé à {to_email}")
+    return RecapSendResult(
+        "sent", t("Récap envoyé à {to_email}", loc, to_email=to_email)
+    )
 
 
 def daily_recap_job(settings: Settings) -> None:

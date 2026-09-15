@@ -1,22 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Demandes d'accès{% endblock %}
-{% block breadcrumb %}Admin / Demandes d'accès{% endblock %}
+{% block title %}{{ _("Demandes d'accès") }}{% endblock %}
+{% block breadcrumb %}Admin / {{ _("Demandes d'accès") }}{% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Demandes d'accès</h1>
-      <p class="page-sub">Demandes du formulaire public login — à l’approbation, choisir le realm</p>
+      <h1 class="page-title">{{ _("Demandes d'accès") }}</h1>
+      <p class="page-sub">{{ _('Demandes du formulaire public login — à l’approbation, choisir le realm') }}</p>
     </div>
   </div>
 
   <div class="stack" style="gap:var(--sp-3); margin-bottom:var(--sp-4);">
     <div style="display:flex; gap:var(--sp-2); flex-wrap:wrap;">
-      <a class="btn btn-sm {% if status_filter == 'pending' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=pending">En attente</a>
-      <a class="btn btn-sm {% if status_filter == 'approved' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=approved">Approuvées</a>
-      <a class="btn btn-sm {% if status_filter == 'rejected' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=rejected">Rejetées</a>
-      <a class="btn btn-sm {% if status_filter == 'all' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=all">Toutes</a>
+      <a class="btn btn-sm {% if status_filter == 'pending' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=pending">{{ _('En attente') }}</a>
+      <a class="btn btn-sm {% if status_filter == 'approved' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=approved">{{ _('Approuvées') }}</a>
+      <a class="btn btn-sm {% if status_filter == 'rejected' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=rejected">{{ _('Rejetées') }}</a>
+      <a class="btn btn-sm {% if status_filter == 'all' %}btn-primary{% else %}btn-ghost{% endif %}" href="/admin/access-requests?status=all">{{ _('Toutes') }}</a>
     </div>
   </div>
 
@@ -25,12 +25,12 @@
     <table class="data-table">
       <thead>
         <tr>
-          <th>Identifiant</th>
-          <th>Email</th>
-          <th>Société</th>
+          <th>{{ _('Identifiant') }}</th>
+          <th>{{ _('Email') }}</th>
+          <th>{{ _('Société') }}</th>
           <th>Realm</th>
-          <th>Créée</th>
-          <th>Statut</th>
+          <th>{{ _('Créée') }}</th>
+          <th>{{ _('Statut') }}</th>
           <th></th>
         </tr>
       </thead>
@@ -43,31 +43,31 @@
           <td class="mono">{% if r.realm %}{{ r.realm.slug }}{% else %}—{% endif %}</td>
           <td class="mono">{{ r.created_at }}</td>
           <td>
-            {% if r.status == 'pending' %}<span class="badge badge-warn">En attente</span>
-            {% elif r.status == 'approved' %}<span class="badge badge-ok">Approuvée</span>
-            {% else %}<span class="badge badge-err">Rejetée</span>{% endif %}
+            {% if r.status == 'pending' %}<span class="badge badge-warn">{{ _('En attente') }}</span>
+            {% elif r.status == 'approved' %}<span class="badge badge-ok">{{ _('Approuvée') }}</span>
+            {% else %}<span class="badge badge-err">{{ _('Rejetée') }}</span>{% endif %}
           </td>
           <td style="white-space:nowrap;">
             {% if r.status == 'pending' %}
             <form method="post" action="/admin/access-requests/{{ r.id }}/approve" style="display:inline-flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap;">
               <label class="visually-hidden" for="approve-realm-{{ r.id }}">Realm cible</label>
               <select id="approve-realm-{{ r.id }}" name="realm_id" class="form-input" required style="min-width:10rem; width:auto; display:inline-block;">
-                <option value="">— Realm —</option>
+                <option value="">{{ _('— Realm —') }}</option>
                 {% for realm in approve_realms %}
                 <option value="{{ realm.id }}">{{ realm.name }} ({{ realm.slug }})</option>
                 {% endfor %}
               </select>
               <label class="form-check" style="display:inline-flex;">
                 <input type="checkbox" name="send_credentials" value="1">
-                <span>Email</span>
+                <span>{{ _('Email') }}</span>
               </label>
-              <button type="submit" class="btn btn-primary btn-sm"{% if not approve_realms %} disabled title="Aucun realm avec provisioning prêt"{% endif %}>Approuver</button>
+              <button type="submit" class="btn btn-primary btn-sm"{% if not approve_realms %} disabled title="{{ _('Aucun realm avec provisioning prêt') }}"{% endif %}>{{ _('Approuver') }}</button>
             </form>
             <form method="post" action="/admin/access-requests/{{ r.id }}/reject" style="display:inline;">
-              <button type="submit" class="btn btn-ghost btn-sm">Rejeter</button>
+              <button type="submit" class="btn btn-ghost btn-sm">{{ _('Rejeter') }}</button>
             </form>
             {% elif r.bastion_account_id %}
-            <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ r.bastion_account_id }}">Fiche compte</a>
+            <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ r.bastion_account_id }}">{{ _('Fiche compte') }}</a>
             {% endif %}
           </td>
         </tr>
@@ -81,7 +81,7 @@
     </table>
   </div>
   {% else %}
-  <p class="form-help">Aucune demande pour ce filtre.</p>
+  <p class="form-help">{{ _('Aucune demande pour ce filtre.') }}</p>
   {% endif %}
 </div>
 {% endblock %}

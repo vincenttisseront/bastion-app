@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Droits — {{ application.label }}{% endblock %}
+{% block title %}{{ _('Droits —') }} {{ application.label }}{% endblock %}
 {% block breadcrumb %}Admin / RBAC / Applications / {{ application.label }}{% endblock %}
 
 {% block content %}
@@ -7,17 +7,17 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ application.label }}</h1>
-      <p class="page-sub mono">{{ application.slug }} · {{ grant_count }} grant(s) · {{ unique_people_count }} personne(s) effective(s)</p>
+      <p class="page-sub mono">{{ application.slug }} · {{ grant_count }} {{ _('grant(s) ·') }} {{ unique_people_count }} personne(s) effective(s)</p>
     </div>
     <div style="display:flex; gap:var(--sp-2);">
       <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
-      <a href="/admin/rbac" class="btn btn-ghost btn-sm">← Retour RBAC</a>
+      <a href="/admin/rbac" class="btn btn-ghost btn-sm">{{ _('← Retour RBAC') }}</a>
     </div>
   </div>
 
   <div class="card" style="padding:0; margin-bottom:var(--sp-4);">
     <div class="card-header" style="padding:var(--sp-4);">
-      <span class="card-title">Qui a accès à cette application</span>
+      <span class="card-title">{{ _('Qui a accès à cette application') }}</span>
       <span class="badge badge-muted">{{ grant_count }}</span>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0;">
@@ -27,7 +27,7 @@
             <th>Sujet</th>
             <th>Type</th>
             <th>Niveau</th>
-            <th>Accordé par</th>
+            <th>{{ _('Accordé par') }}</th>
             <th>Date</th>
             <th></th>
           </tr>
@@ -47,9 +47,9 @@
             </td>
             <td>
               {% if g.subject_type == 'group' %}
-                <span class="badge badge-info">Groupe</span>
+                <span class="badge badge-info">{{ _('Groupe') }}</span>
               {% else %}
-                <span class="badge badge-ok">Utilisateur</span>
+                <span class="badge badge-ok">{{ _('Utilisateur') }}</span>
               {% endif %}
             </td>
             <td><span class="badge badge-info">{{ g.access_level }}</span></td>
@@ -65,7 +65,7 @@
           {% else %}
           <tr>
             <td colspan="6">
-              <div class="empty-desc" style="padding:var(--sp-4);">Aucun AccessGrant pour cette application.</div>
+              <div class="empty-desc" style="padding:var(--sp-4);">{{ _('Aucun AccessGrant pour cette application.') }}</div>
             </td>
           </tr>
           {% endfor %}
@@ -74,7 +74,7 @@
     </div>
 
     <div style="padding:var(--sp-4); border-top:1px solid var(--border);">
-      <div class="form-section-title" style="margin-bottom:var(--sp-3);">Ajouter un droit</div>
+      <div class="form-section-title" style="margin-bottom:var(--sp-3);">{{ _('Ajouter un droit') }}</div>
       <form method="post" action="/admin/rbac/grants" id="app-grant-form" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
         <input type="hidden" name="resource_type" value="application">
         <input type="hidden" name="application_id" value="{{ application.id }}">
@@ -83,13 +83,13 @@
         <div class="form-group">
           <label class="form-label" for="subject_type">Sujet</label>
           <select id="subject_type" name="subject_type" class="form-select" data-grant-subject-type>
-            <option value="group">Groupe</option>
-            <option value="user">Utilisateur</option>
+            <option value="group">{{ _('Groupe') }}</option>
+            <option value="user">{{ _('Utilisateur') }}</option>
           </select>
         </div>
 
         <div class="form-group" data-subject-group>
-          <label class="form-label" for="rbac_group_id">Groupe</label>
+          <label class="form-label" for="rbac_group_id">{{ _('Groupe') }}</label>
           <select id="rbac_group_id" name="rbac_group_id" class="form-select">
             {% for group in groups %}
             <option value="{{ group.id }}">{{ group.name }}</option>
@@ -106,8 +106,8 @@
           </select>
         </div>
         <div class="form-group" data-subject-user hidden style="flex:1; min-width:220px;">
-          <label class="form-label" for="user-query">Utilisateur</label>
-          <input type="search" id="user-query" class="form-input" placeholder="Nom ou email…" autocomplete="off" disabled>
+          <label class="form-label" for="user-query">{{ _('Utilisateur') }}</label>
+          <input type="search" id="user-query" class="form-input" placeholder="{{ _('Nom ou email…') }}" autocomplete="off" disabled>
           <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" disabled>
           <input type="hidden" name="user_display_cache" id="user_display_cache" disabled>
           <div id="user-suggestions" class="form-hint" style="margin-top:var(--sp-2);"></div>
@@ -121,24 +121,24 @@
             {% endfor %}
           </select>
         </div>
-        <button type="submit" class="btn btn-primary btn-sm">Ajouter</button>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Ajouter') }}</button>
       </form>
     </div>
   </div>
 
   <div class="card" style="padding:var(--sp-4);">
     <div class="card-header" style="padding:0 0 var(--sp-3); border:none;">
-      <span class="card-title">Accès effectif total</span>
+      <span class="card-title">{{ _('Accès effectif total') }}</span>
       <span class="badge badge-ok">{{ unique_people_count }} personne(s)</span>
     </div>
     <p class="form-hint" style="margin-bottom:var(--sp-3);">
-      Compte dédupliqué : un utilisateur présent à la fois via un groupe et en droit direct ne compte qu'une fois.
-      Les sources restent visibles ci-dessus (lignes de grants séparées).
+      {{ _("Compte dédupliqué : un utilisateur présent à la fois via un groupe et en droit direct ne compte qu'une fois.") }}
+      {{ _('Les sources restent visibles ci-dessus (lignes de grants séparées).') }}
     </p>
     {% if people_sources %}
     <div class="table-wrap">
       <table class="data-table">
-        <thead><tr><th>Identifiant Keycloak</th><th>Sources</th></tr></thead>
+        <thead><tr><th>{{ _('Identifiant Keycloak') }}</th><th>{{ _('Sources') }}</th></tr></thead>
         <tbody>
           {% for uid, sources in people_sources.items() %}
           <tr>
@@ -156,7 +156,7 @@
       </table>
     </div>
     {% else %}
-    <div class="empty-desc">Impossible de calculer les personnes uniques (pas de membres Keycloak récupérés).</div>
+    <div class="empty-desc">{{ _('Impossible de calculer les personnes uniques (pas de membres Keycloak récupérés).') }}</div>
     {% endif %}
   </div>
 </div>

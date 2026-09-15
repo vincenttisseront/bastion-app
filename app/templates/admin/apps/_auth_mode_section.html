@@ -1,5 +1,5 @@
-{# Auth mode + generic form fields — shown when access_mode != sso_gate.
-   Set wizard_embed=true to render body-only (app config wizard panels). #}
+{# Auth mode + generic form fields — shown when access_mode != sso_gate. Set wizard_embed=true to render body-only (app config wizard panels). #}
+
 {% set current_auth = form_values.auth_mode | default(app.auth_mode if app is defined else 'sso') %}
 {% set normalized_auth = current_auth if current_auth in auth_modes else ('sso' if current_auth in ('oidc', '') else current_auth) %}
 {% set current_bridge = form_values.sso_bridge | default(app.sso_bridge if app is defined else 'trusted_headers') %}
@@ -9,22 +9,24 @@
   {% if app is defined and app.robotic_driver == 'crushftp' %}
     <div class="alert alert-info">
       <div class="alert-body">
-        Cette application utilise le driver CrushFTP (<span class="mono">robotic_driver=crushftp</span>).
-        Le mode vault générique ne s'applique pas — configurez le credential ci-dessous.
+{{ _('Cette application utilise le driver CrushFTP (') }}<span class="mono">{{ _('robotic_driver=crushftp') }}</span>).
+        {{ _("Le mode vault générique ne s'applique pas — configurez le credential ci-dessous.") }}
       </div>
     </div>
   {% elif app is defined and app.robotic_driver == 'teleport' %}
     <div class="alert alert-info">
       <div class="alert-body">
-        Driver Teleport (<span class="mono">robotic_driver=teleport</span>) — login via
-        <span class="mono">POST /v1/webapi/sessions/web</span> (JSON). L’
-        <strong>upstream_url interne</strong> doit pointer vers le proxy Teleport
-        (pas le FQDN public bastion). Credential vault requis — pas d’analyse HTML.
+        Driver Teleport (<span class="mono">{{ _('robotic_driver=teleport') }}</span>{{ _(') — login via') }}
+
+        <span class="mono">{{ _('POST /v1/webapi/sessions/web') }}</span> {{ _('(JSON). L’') }}
+
+        <strong>{{ _('upstream_url interne') }}</strong> {{ _('doit pointer vers le proxy Teleport (pas le FQDN public bastion). Credential vault requis — pas d’analyse HTML.') }}
+
       </div>
     </div>
   {% else %}
     <div class="form-group">
-      <label class="form-label" for="auth_mode">Authentification applicative</label>
+      <label class="form-label" for="auth_mode">{{ _('Authentification applicative') }}</label>
       <select id="auth_mode" name="auth_mode" class="form-select" data-auth-mode-select>
         {% for mode in auth_modes %}
         <option value="{{ mode }}"{% if normalized_auth == mode %} selected{% endif %}>{{ auth_mode_labels[mode] }}</option>
@@ -33,7 +35,7 @@
       {% if errors.auth_mode %}<div class="form-error">{{ errors.auth_mode }}</div>{% endif %}
       <div id="sso-bridge-group" hidden>
         <div class="form-group" style="margin-top:var(--sp-3);">
-          <label class="form-label" for="sso_bridge">Mode SSO applicatif</label>
+          <label class="form-label" for="sso_bridge">{{ _('Mode SSO applicatif') }}</label>
           <select id="sso_bridge" name="sso_bridge" class="form-select" data-sso-bridge-select>
             {% for bridge in sso_bridges %}
             <option value="{{ bridge }}"{% if current_bridge == bridge %} selected{% endif %}>{{ sso_bridge_labels[bridge] }}</option>
@@ -49,16 +51,16 @@
         </div>
       </div>
       <p class="form-help" data-auth-mode-sso-help>
-        SSO : session portail + AccessGrant. Choisir le mode (en-têtes ou OIDC app), puis Appliquer l’infra si besoin.
+        {{ _('SSO : session portail + AccessGrant. Choisir le mode (en-têtes ou OIDC app), puis Appliquer l’infra si besoin.') }}
       </p>
       <p class="form-help" data-auth-mode-teleport-help hidden>
-        Teleport : le bastion appelle l’API web Teleport avec le credential vault et pose
-        le cookie de session sur le FQDN public. Upstream interne obligatoire (ex.
-        <span class="mono">https://10.x.x.x:3080</span>). MFA Teleport doit être désactivé
-        pour le compte vault.
+{{ _('Teleport : le bastion appelle l’API web Teleport avec le credential vault et pose le cookie de session sur le FQDN public. Upstream interne obligatoire (ex.') }}
+
+        <span class="mono">https://10.x.x.x:3080</span>{{ _('). MFA Teleport doit être désactivé pour le compte vault.') }}
+
       </p>
       <p id="generic-wsse-help" class="form-help" hidden>
-        En-tête X-WSSE régénéré par Nginx — credential vault requis.
+        {{ _('En-tête X-WSSE régénéré par Nginx — credential vault requis.') }}
       </p>
     </div>
   {% endif %}
@@ -67,8 +69,8 @@
     <div id="portal-entry-url-group" hidden>
       <div class="form-group">
         <label class="form-label" for="login_form_url">
-          <span data-portal-entry-label-sso>URL / chemin d’entrée portail</span>
-          <span data-portal-entry-label-generic hidden>URL du formulaire de login <span class="req">*</span></span>
+          <span data-portal-entry-label-sso>{{ _('URL / chemin d’entrée portail') }}</span>
+          <span data-portal-entry-label-generic hidden>{{ _('URL du formulaire de login') }} <span class="req">*</span></span>
           <span data-portal-entry-req-oidc class="req" hidden>*</span>
         </label>
         <div class="login-form-url-row">
@@ -76,19 +78,21 @@
             value="{{ form_values.login_form_url | default(app.login_form_url if app is defined else '') }}"
             data-login-form-url
             placeholder="https://app.example.com/login">
-          <button type="button" id="btn-analyze-login-form" class="btn btn-secondary btn-sm" hidden disabled title="Analyser le HTML de la page pour pré-remplir les champs">
-            🔍 Analyser
+          <button type="button" id="btn-analyze-login-form" class="btn btn-secondary btn-sm" hidden disabled title="{{ _('Analyser le HTML de la page pour pré-remplir les champs') }}">
+{{ _('🔍 Analyser') }}
+
           </button>
         </div>
         <p class="form-help" data-portal-entry-help-sso-trusted>
-          Optionnel — vide = racine du FQDN (en-têtes injectés).
+          {{ _('Optionnel — vide = racine du FQDN (en-têtes injectés).') }}
         </p>
         <p class="form-help" data-portal-entry-help-sso-oidc hidden>
-          Obligatoire — URL qui démarre le SSO de l’app (pas la racine si lecture anonyme).
+          {{ _('Obligatoire — URL qui démarre le SSO de l’app (pas la racine si lecture anonyme).') }}
           Ex. Jenkins : https://jenkins.example.com/securityRealm/commenceLogin?from=%2F
         </p>
         <p class="form-help" data-portal-entry-help-generic hidden>
-          URL du formulaire de login (POST).
+{{ _('URL du formulaire de login (POST).') }}
+
         </p>
         {% if errors.login_form_url %}<div class="form-error">{{ errors.login_form_url }}</div>{% endif %}
         <div id="login-form-analyze-panel" class="login-form-analyze-panel" hidden></div>
@@ -98,20 +102,20 @@
     <div id="generic-form-fields" hidden>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label" for="login_username_field">Champ utilisateur</label>
+          <label class="form-label" for="login_username_field">{{ _('Champ utilisateur') }}</label>
           <input type="text" id="login_username_field" name="login_username_field" class="form-input"
             value="{{ form_values.login_username_field | default(app.login_username_field if app is defined else 'username') }}">
           {% if errors.login_username_field %}<div class="form-error">{{ errors.login_username_field }}</div>{% endif %}
         </div>
         <div class="form-group">
-          <label class="form-label" for="login_password_field">Champ mot de passe</label>
+          <label class="form-label" for="login_password_field">{{ _('Champ mot de passe') }}</label>
           <input type="text" id="login_password_field" name="login_password_field" class="form-input"
             value="{{ form_values.login_password_field | default(app.login_password_field if app is defined else 'password') }}">
           {% if errors.login_password_field %}<div class="form-error">{{ errors.login_password_field }}</div>{% endif %}
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label" for="login_http_method">Méthode HTTP</label>
+        <label class="form-label" for="login_http_method">{{ _('Méthode HTTP') }}</label>
         <select id="login_http_method" name="login_http_method" class="form-select">
           <option value="POST"{% if (form_values.login_http_method | default(app.login_http_method if app is defined else 'POST')) == 'POST' %} selected{% endif %}>POST</option>
           <option value="GET"{% if (form_values.login_http_method | default(app.login_http_method if app is defined else 'POST')) == 'GET' %} selected{% endif %}>GET</option>
@@ -120,9 +124,9 @@
         <p id="login-http-method-hint" class="form-help" hidden></p>
       </div>
       <div class="form-group">
-        <label class="form-label" for="login_extra_fields">Champs supplémentaires (JSON)</label>
+        <label class="form-label" for="login_extra_fields">{{ _('Champs supplémentaires (JSON)') }}</label>
         <textarea id="login_extra_fields" name="login_extra_fields" class="form-input" rows="3" placeholder='{"remember":"1"}'>{{ form_values.login_extra_fields | default(app.login_extra_fields if app is defined else '') }}</textarea>
-        <p class="form-help">Objet JSON optionnel — champs fixes envoyés avec le login (ex. token CSRF statique).</p>
+        <p class="form-help">{{ _('Objet JSON optionnel — champs fixes envoyés avec le login (ex. token CSRF statique).') }}</p>
         {% if errors.login_extra_fields %}<div class="form-error">{{ errors.login_extra_fields }}</div>{% endif %}
       </div>
     </div>
@@ -134,9 +138,10 @@
 </div>
 <div id="auth-mode-na" class="alert alert-info" hidden>
   <div class="alert-body">
-    Ce mode d’accès (<span class="mono">SSO Gate</span> ou <span class="mono">public_proxy</span>)
-    ne configure pas d’authentification applicative bastion sur cette étape.
-    Choisissez un mode sous-domaine / legacy dans <strong>Général</strong> pour activer SSO / vault.
+{{ _('Ce mode d’accès (') }}<span class="mono">SSO Gate</span> ou <span class="mono">public_proxy</span>)
+    {{ _('ne configure pas d’authentification applicative bastion sur cette étape.') }}
+{{ _('Choisissez un mode sous-domaine / legacy dans') }} <strong>{{ _('Général') }}</strong> {{ _('pour activer SSO / vault.') }}
+
   </div>
 </div>
 {% else %}
@@ -144,8 +149,8 @@
   <div class="form-section-header" data-form-accordion-toggle>
     <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
     <div>
-      <div class="form-section-title">Mode d'authentification</div>
-      <div class="form-section-sub">SSO OIDC ou connexion robotic via le vault</div>
+      <div class="form-section-title">{{ _("Mode d'authentification") }}</div>
+      <div class="form-section-sub">{{ _('SSO OIDC ou connexion robotic via le vault') }}</div>
       <div class="form-section-summary">{{ auth_mode_labels.get(normalized_auth, normalized_auth) }}</div>
     </div>
   </div>

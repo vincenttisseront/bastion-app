@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Santé{% endblock %}
-{% block breadcrumb %}Admin / Santé{% endblock %}
+{% block title %}{{ _('Santé') }}{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Santé') }}{% endblock %}
 
 {% block content %}
 <div class="page" id="health-page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Diagnostic santé upstream</h1>
-      <p class="page-sub">Probes HTTP des applications et services</p>
+      <h1 class="page-title">{{ _('Diagnostic santé upstream') }}</h1>
+      <p class="page-sub">{{ _('Probes HTTP des applications et services') }}</p>
     </div>
     <div class="page-header-actions">
-      <button type="button" class="btn btn-primary btn-sm" id="probe-all-btn">Tester toutes les applications</button>
+      <button type="button" class="btn btn-primary btn-sm" id="probe-all-btn">{{ _('Tester toutes les applications') }}</button>
       <div class="live-pill"><span class="live-dot"></span>Live</div>
     </div>
   </div>
@@ -18,7 +18,7 @@
   <div class="integrity-bar integrity-block">
     <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
     <span class="integrity-score" id="health-score">{{ health_score }}%</span>
-    <span class="integrity-label">Sondes opérationnelles</span>
+    <span class="integrity-label">{{ _('Sondes opérationnelles') }}</span>
     <span class="badge badge-{{ 'ok' if health_score >= 80 else ('warn' if health_score >= 50 else 'err') }}" id="health-score-badge">
       {{ probes | length }} application(s)
     </span>
@@ -41,7 +41,7 @@
         </div>
       </div>
       <div class="metric-value" data-count="warn">{{ status_counts.warn }}</div>
-      <div class="metric-label">Avertissement</div>
+      <div class="metric-label">{{ _('Avertissement') }}</div>
     </div>
     <div class="metric-card red">
       <div class="metric-head">
@@ -50,7 +50,7 @@
         </div>
       </div>
       <div class="metric-value" data-count="error">{{ status_counts.error }}</div>
-      <div class="metric-label">Erreur</div>
+      <div class="metric-label">{{ _('Erreur') }}</div>
     </div>
     <div class="metric-card blue">
       <div class="metric-head">
@@ -65,13 +65,13 @@
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Sondes · {{ probes | length }}</span>
+      <span class="card-title">{{ _('Sondes ·') }} {{ probes | length }}</span>
     </div>
     <div class="card-body card-flush">
       <div class="table-wrap">
         <table class="data-table" id="health-table">
           <thead>
-            <tr><th>App</th><th>Upstream</th><th>Mode</th><th>Statut</th><th>Code HTTP</th><th>Latence</th><th>Action</th></tr>
+            <tr><th>App</th><th>{{ _('Upstream') }}</th><th>Mode</th><th>{{ _('Statut') }}</th><th>Code HTTP</th><th>Latence</th><th>{{ _('Action') }}</th></tr>
           </thead>
           <tbody>
             {% for p in probes %}
@@ -94,7 +94,7 @@
               <td class="mono" data-field="http_code">{% if p.http_code %}{{ p.http_code }}{% else %}—{% endif %}</td>
               <td class="mono" data-field="latency_ms">{% if p.latency_ms is not none %}{{ p.latency_ms }} ms{% else %}—{% endif %}</td>
               <td>
-                <button type="button" class="btn btn-secondary btn-sm probe-btn" data-app-id="{{ p.app_id }}">Tester</button>
+                <button type="button" class="btn btn-secondary btn-sm probe-btn" data-app-id="{{ p.app_id }}">{{ _('Tester') }}</button>
               </td>
             </tr>
             {% else %}
@@ -104,8 +104,8 @@
                   <div class="empty-icon">
                     <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                   </div>
-                  <div class="empty-title">Aucune application à sonder</div>
-                  <div class="empty-desc">Activez des applications pour lancer les probes de santé.</div>
+                  <div class="empty-title">{{ _('Aucune application à sonder') }}</div>
+                  <div class="empty-desc">{{ _('Activez des applications pour lancer les probes de santé.') }}</div>
                 </div>
               </td>
             </tr>
