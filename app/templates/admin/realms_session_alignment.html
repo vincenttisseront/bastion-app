@@ -1,32 +1,32 @@
 {% extends "base.html" %}
-{% block title %}Alignement sessions SSO{% endblock %}
-{% block breadcrumb %}Admin / Realms / Alignement sessions{% endblock %}
+{% block title %}{{ _('Alignement sessions SSO') }}{% endblock %}
+{% block breadcrumb %}Admin / Realms / {{ _('Alignement sessions') }}{% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Alignement sessions SSO</h1>
+      <h1 class="page-title">{{ _('Alignement sessions SSO') }}</h1>
       <p class="page-sub">
-        Cible bastion : cookie_expire={{ target_cookie_expire }}, cookie_refresh={{ target_cookie_refresh }},
-        cookie_secure / httponly / samesite=lax, Keycloak ssoSessionMaxLifespan ≤ 12h (43200s).
+{{ _('Cible bastion : cookie_expire=') }}{{ target_cookie_expire }}, cookie_refresh={{ target_cookie_refresh }}{{ _(', cookie_secure / httponly / samesite=lax, Keycloak ssoSessionMaxLifespan ≤ 12h (43200s).') }}
+
       </p>
     </div>
     <div style="display:flex; gap:var(--sp-2); align-items:center;">
       {% if all_coherent %}
-        <span class="badge badge-ok">Tous conformes</span>
+        <span class="badge badge-ok">{{ _('Tous conformes') }}</span>
       {% else %}
-        <span class="badge badge-warn">Écarts détectés</span>
+        <span class="badge badge-warn">{{ _('Écarts détectés') }}</span>
       {% endif %}
-      <a href="/admin/realms" class="btn btn-ghost btn-sm">← Realms</a>
+      <a href="/admin/realms" class="btn btn-ghost btn-sm">{{ _('← Realms') }}</a>
       <a href="/api/admin/realms/session-alignment" class="btn btn-ghost btn-sm">JSON</a>
     </div>
   </div>
 
   <div class="alert alert-info" style="margin-bottom:var(--sp-4);">
-    Lit le fichier d’export oauth2-proxy (après apply infra) et interroge Keycloak Admin API
-    (compte de service du realm — rôle <span class="mono">view-realm</span> requis).
-    Ne remplace pas le test manuel refresh &gt; 1h / déconnexion à 12h.
+    {{ _('Lit le fichier d’export oauth2-proxy (après apply infra) et interroge Keycloak Admin API') }}
+{{ _('(compte de service du realm — rôle') }} <span class="mono">view-realm</span> requis).
+    {{ _('Ne remplace pas le test manuel refresh &gt; 1h / déconnexion à 12h.') }}
   </div>
 
   <div class="card" style="padding:0;">
@@ -38,10 +38,10 @@
             <th>cookie_expire</th>
             <th>cookie_refresh</th>
             <th>Flags (secure/httponly/samesite)</th>
-            <th>Export = générateur</th>
-            <th>ssoSessionMaxLifespan</th>
-            <th>ssoSessionIdleTimeout</th>
-            <th>Cohérent</th>
+            <th>{{ _('Export = générateur') }}</th>
+            <th>{{ _('ssoSessionMaxLifespan') }}</th>
+            <th>{{ _('ssoSessionIdleTimeout') }}</th>
+            <th>{{ _('Cohérent') }}</th>
             <th>Notes</th>
           </tr>
         </thead>
@@ -52,13 +52,13 @@
               <div class="mono">{{ r.realm_slug }}</div>
               <div class="form-hint">{{ r.realm_name }}</div>
             </td>
-            <td class="mono">{{ r.cookie_expire_export or '—' }} <span class="form-hint">(gén. {{ r.cookie_expire_generator }})</span></td>
-            <td class="mono">{{ r.cookie_refresh_export or '—' }} <span class="form-hint">(gén. {{ r.cookie_refresh_generator }})</span></td>
+            <td class="mono">{{ r.cookie_expire_export or '—' }} <span class="form-hint">{{ _('(gén.') }} {{ r.cookie_expire_generator }})</span></td>
+            <td class="mono">{{ r.cookie_refresh_export or '—' }} <span class="form-hint">{{ _('(gén.') }} {{ r.cookie_refresh_generator }})</span></td>
             <td>
               {% if r.cookie_flags_ok is sameas true %}
                 <span class="badge badge-ok">OK</span>
               {% elif r.cookie_flags_ok is sameas false %}
-                <span class="badge badge-err">écart</span>
+                <span class="badge badge-err">{{ _('écart') }}</span>
               {% else %}
                 <span class="badge badge-muted">—</span>
               {% endif %}
@@ -72,7 +72,7 @@
               {% elif r.export_matches_generator is sameas false %}
                 <span class="badge badge-err">non</span>
               {% else %}
-                <span class="badge badge-muted">fichier absent</span>
+                <span class="badge badge-muted">{{ _('fichier absent') }}</span>
               {% endif %}
             </td>
             <td class="mono">
@@ -104,7 +104,7 @@
           <tr>
             <td colspan="8">
               <div class="empty-state" style="padding:var(--sp-6);">
-                <div class="empty-title">Aucun realm activé</div>
+                <div class="empty-title">{{ _('Aucun realm activé') }}</div>
               </div>
             </td>
           </tr>

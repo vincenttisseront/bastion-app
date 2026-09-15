@@ -10,14 +10,14 @@
     <div>
       <h1 class="page-title">ACME / Let's Encrypt</h1>
       <p class="page-sub">
-        Certificats DNS-01 pour <strong>tous</strong> les FQDN du bastion
-        (portail, sous-domaines SSO, proxy public) — sidecar → nginx :443 → :8080.
+{{ _('Certificats DNS-01 pour') }} <strong>tous</strong> {{ _('les FQDN du bastion (portail, sous-domaines SSO, proxy public) — sidecar → nginx :443 → :8080.') }}
+
       </p>
     </div>
     <div class="page-header-actions">
       <form method="post" action="/admin/acme/reconcile" style="display:inline">
         <button type="submit" class="btn btn-primary" {% if not cfg.enabled %}disabled title="Activez ACME d'abord"{% endif %}>
-          Réconcilier maintenant
+          {{ _('Réconcilier maintenant') }}
         </button>
       </form>
     </div>
@@ -25,48 +25,48 @@
 
   <div class="alert alert-info mb-4">
     <div class="alert-body">
-      <strong>DNS-01 Cloudflare — pas de record manuel.</strong>
-      acme.sh crée et supprime automatiquement les TXT
-      <span class="mono">_acme-challenge.&lt;fqdn&gt;</span> via l’API (token Zone.DNS Edit).
-      Seuls les enregistrements publics A/AAAA/CNAME vers le bastion restent hors ACME.
+      <strong>{{ _('DNS-01 Cloudflare — pas de record manuel.') }}</strong>
+      {{ _('acme.sh crée et supprime automatiquement les TXT') }}
+      <span class="mono">_acme-challenge.&lt;fqdn&gt;</span> {{ _('via l’API (token Zone.DNS Edit). Seuls les enregistrements publics A/AAAA/CNAME vers le bastion restent hors ACME.') }}
+
     </div>
   </div>
 
   {% if not encryption_ok %}
   <div class="alert alert-warn mb-4">
     <div class="alert-body">
-      Chiffrement Fernet non configuré — le token Cloudflare ne pourra pas être stocké en base.
-      Vérifiez les clés vault / <span class="mono">PORTAL_SECRET_ENCRYPTION_KEY</span>.
+      {{ _('Chiffrement Fernet non configuré — le token Cloudflare ne pourra pas être stocké en base.') }}
+{{ _('Vérifiez les clés vault /') }} <span class="mono">PORTAL_SECRET_ENCRYPTION_KEY</span>.
     </div>
   </div>
   {% endif %}
 
   <div class="card mb-4">
     <div class="card-header">
-      <span class="card-title">État</span>
+      <span class="card-title">{{ _('État') }}</span>
       <div class="card-header-actions">
         {% if cfg.enabled %}
-        <span class="badge badge-ok">Activé</span>
+        <span class="badge badge-ok">{{ _('Activé') }}</span>
         {% else %}
-        <span class="badge badge-muted">Désactivé</span>
+        <span class="badge badge-muted">{{ _('Désactivé') }}</span>
         {% endif %}
         {% if cfg.cf_token_configured %}
         <span class="badge badge-ok">Token CF</span>
         {% else %}
-        <span class="badge badge-err">Sans token CF</span>
+        <span class="badge badge-err">{{ _('Sans token CF') }}</span>
         {% endif %}
         <span class="badge badge-muted" id="acme-live-badge" hidden>Live</span>
       </div>
     </div>
     <div class="card-body">
       <div class="stats-row" style="display:flex;gap:1.5rem;flex-wrap:wrap">
-        <div><div class="form-hint">Domaines</div><div class="mono" style="font-size:1.25rem" id="acme-count-total">{{ counts.total }}</div></div>
+        <div><div class="form-hint">{{ _('Domaines') }}</div><div class="mono" style="font-size:1.25rem" id="acme-count-total">{{ counts.total }}</div></div>
         <div><div class="form-hint">OK</div><div class="mono" style="font-size:1.25rem;color:var(--ok,#3d9)" id="acme-count-ok">{{ counts.ok }}</div></div>
-        <div><div class="form-hint">Renew ≤30j</div><div class="mono" style="font-size:1.25rem;color:var(--warn,#c90)" id="acme-count-renew">{{ counts.renew_soon }}</div></div>
+        <div><div class="form-hint">{{ _('Renew ≤30j') }}</div><div class="mono" style="font-size:1.25rem;color:var(--warn,#c90)" id="acme-count-renew">{{ counts.renew_soon }}</div></div>
         <div><div class="form-hint">Manquants / placeholder</div><div class="mono" style="font-size:1.25rem;color:var(--err,#e55)" id="acme-count-missing">{{ counts.missing }}</div></div>
       </div>
       <p class="form-help mt-3 mb-0" id="acme-reconcile-summary">
-        Dernière réconciliation :
+        {{ _('Dernière réconciliation :') }}
         {% if cfg.last_reconcile_at %}
           <span class="mono">{{ cfg.last_reconcile_at }}</span>
           —
@@ -92,19 +92,19 @@
       <span class="card-title">Logs Let's Encrypt (live)</span>
       <div class="card-header-actions" style="display:flex;align-items:center;gap:0.75rem">
         <span class="form-hint mono" id="acme-log-meta">polling…</span>
-        <button type="button" class="btn btn-secondary btn-sm" id="acme-log-copy" title="Copier les logs dans le presse-papiers">
+        <button type="button" class="btn btn-secondary btn-sm" id="acme-log-copy" title="{{ _('Copier les logs dans le presse-papiers') }}">
           Copier
         </button>
       </div>
     </div>
     <div class="card-body" style="padding:0">
-      <pre id="acme-log-view" class="mono" style="margin:0;padding:1rem;max-height:22rem;overflow:auto;font-size:0.75rem;line-height:1.45;background:var(--surface-2,rgba(0,0,0,.25));border:0;white-space:pre-wrap;word-break:break-word">Chargement des logs sidecar…</pre>
+      <pre id="acme-log-view" class="mono" style="margin:0;padding:1rem;max-height:22rem;overflow:auto;font-size:0.75rem;line-height:1.45;background:var(--surface-2,rgba(0,0,0,.25));border:0;white-space:pre-wrap;word-break:break-word">{{ _('Chargement des logs sidecar…') }}</pre>
     </div>
   </div>
 
   <div class="card mb-4">
     <div class="card-header">
-      <span class="card-title">Domaines couverts (bastion)</span>
+      <span class="card-title">{{ _('Domaines couverts (bastion)') }}</span>
     </div>
     <div class="card-body card-flush">
       {% if domains %}
@@ -115,10 +115,10 @@
               <th>FQDN</th>
               <th>Slug</th>
               <th>Mode</th>
-              <th>Statut</th>
+              <th>{{ _('Statut') }}</th>
               <th>Expire</th>
-              <th>Jours</th>
-              <th>Émetteur</th>
+              <th>{{ _('Jours') }}</th>
+              <th>{{ _('Émetteur') }}</th>
             </tr>
           </thead>
           <tbody id="acme-domains-tbody">
@@ -134,22 +134,22 @@
               </td>
               <td>
                 {% if d.family == 'portal' %}
-                <span class="badge badge-muted">Portail</span>
+                <span class="badge badge-muted">{{ _('Portail') }}</span>
                 {% elif d.family == 'subdomain_proxy' %}
-                <span class="badge badge-ok">Sous-domaine SSO</span>
+                <span class="badge badge-ok">{{ _('Sous-domaine SSO') }}</span>
                 {% else %}
-                <span class="badge badge-muted">Proxy public</span>
+                <span class="badge badge-muted">{{ _('Proxy public') }}</span>
                 {% endif %}
               </td>
               <td class="acme-status-cell">
                 {% if d.status == 'ok' %}
                 <span class="badge badge-ok">OK</span>
                 {% elif d.status == 'renew_soon' %}
-                <span class="badge badge-warn">Renew bientôt</span>
+                <span class="badge badge-warn">{{ _('Renew bientôt') }}</span>
                 {% elif d.status == 'placeholder' %}
                 <span class="badge badge-muted">Placeholder</span>
                 {% elif d.status == 'expired' %}
-                <span class="badge badge-err">Expiré</span>
+                <span class="badge badge-err">{{ _('Expiré') }}</span>
                 {% else %}
                 <span class="badge badge-err">Absent</span>
                 {% endif %}
@@ -164,9 +164,9 @@
       </div>
       {% else %}
       <div class="empty-state" style="padding:2rem">
-        <div class="empty-title">Aucun domaine bastion</div>
+        <div class="empty-title">{{ _('Aucun domaine bastion') }}</div>
         <div class="empty-desc">
-          Le portail et les apps (sous-domaine / proxy public) apparaîtront ici dès qu’elles ont un FQDN.
+          {{ _('Le portail et les apps (sous-domaine / proxy public) apparaîtront ici dès qu’elles ont un FQDN.') }}
         </div>
       </div>
       {% endif %}
@@ -177,14 +177,14 @@
     <div class="card-header">
       <span class="card-title">Configuration</span>
       <div class="users-row-actions">
-        <a href="/admin/security#tls" class="btn btn-ghost btn-sm">Sécurité → TLS</a>
+        <a href="/admin/security#tls" class="btn btn-ghost btn-sm">{{ _('Sécurité → TLS') }}</a>
       </div>
     </div>
     <div class="card-body">
       <form method="post" action="/admin/acme/settings" class="acme-config-form stack" style="gap:var(--sp-3);">
         <label class="form-check" style="margin:0;">
           <input type="checkbox" name="enabled" {% if cfg.enabled %}checked{% endif %}>
-          <span>Activer ACME (émission / renouvellement DNS-01)</span>
+          <span>{{ _('Activer ACME (émission / renouvellement DNS-01)') }}</span>
         </label>
 
         <div class="form-row acme-config-grid">
@@ -195,7 +195,7 @@
             </select>
           </div>
           <div class="form-group" style="margin:0;">
-            <label class="form-label" for="acme-ca">Autorité (CA)</label>
+            <label class="form-label" for="acme-ca">{{ _('Autorité (CA)') }}</label>
             <select id="acme-ca" name="acme_ca" class="form-select">
               <option value="letsencrypt" {% if cfg.acme_ca == 'letsencrypt' %}selected{% endif %}>Let's Encrypt (prod)</option>
               <option value="letsencrypt_test" {% if cfg.acme_ca == 'letsencrypt_test' %}selected{% endif %}>Let's Encrypt staging</option>
@@ -204,12 +204,12 @@
           <div class="form-group" style="margin:0;">
             <label class="form-label" for="acme-cf-account">CF Account ID</label>
             <input type="text" id="acme-cf-account" name="cf_account_id" class="form-input is-mono"
-                   value="{{ cfg.cf_account_id }}" placeholder="optionnel" autocomplete="off">
+                   value="{{ cfg.cf_account_id }}" placeholder="{{ _('optionnel') }}" autocomplete="off">
           </div>
           <div class="form-group" style="margin:0;">
             <label class="form-label" for="acme-cf-zone">CF Zone ID</label>
             <input type="text" id="acme-cf-zone" name="cf_zone_id" class="form-input is-mono"
-                   value="{{ cfg.cf_zone_id }}" placeholder="optionnel" autocomplete="off">
+                   value="{{ cfg.cf_zone_id }}" placeholder="{{ _('optionnel') }}" autocomplete="off">
           </div>
         </div>
 
@@ -217,10 +217,10 @@
           <div class="form-group" style="margin:0;flex:1;min-width:0;">
             <label class="form-label" for="acme-cf-token">
               Token Cloudflare (Zone.DNS Edit)
-              {% if cfg.cf_token_configured %}<span class="badge badge-ok">configuré</span>{% endif %}
+              {% if cfg.cf_token_configured %}<span class="badge badge-ok">{{ _('configuré') }}</span>{% endif %}
             </label>
             <input type="password" id="acme-cf-token" name="cf_token" class="form-input is-mono" value=""
-                   placeholder="{% if cfg.cf_token_configured %}Laisser vide pour conserver{% else %}CF_Token…{% endif %}"
+                   placeholder="{% if cfg.cf_token_configured %}{{ _('Laisser vide pour conserver') }}{% else %}CF_Token…{% endif %}"
                    autocomplete="new-password">
           </div>
           {% if cfg.cf_token_configured %}
@@ -232,13 +232,12 @@
         </div>
 
         <p class="form-hint" style="margin:0;">
-          Secret chiffré SQLite → <span class="mono">exports/acme-runtime.env</span>.
-          « Réconcilier » met à jour les exports et signale <span class="mono">acme-companion</span>
+{{ _('Secret chiffré SQLite →') }} <span class="mono">exports/acme-runtime.env</span>{{ _('. « Réconcilier » met à jour les exports et signale') }} <span class="mono">acme-companion</span>
           (logs live ci-dessus).
         </p>
 
         <div class="users-row-actions" style="justify-content:flex-start;">
-          <button type="submit" class="btn btn-primary btn-sm">Enregistrer</button>
+          <button type="submit" class="btn btn-primary btn-sm">{{ _('Enregistrer') }}</button>
         </div>
       </form>
     </div>

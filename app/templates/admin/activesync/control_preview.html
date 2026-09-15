@@ -1,26 +1,26 @@
 {% extends "base.html" %}
-{% block title %}Contrôle ActiveSync — {{ app.label }}{% endblock %}
-{% block breadcrumb %}Admin / Applications / {{ app.slug }} / Contrôle appareils{% endblock %}
+{% block title %}{{ _('Contrôle ActiveSync') }} — {{ app.label }}{% endblock %}
+{% block breadcrumb %}Admin / Applications / {{ app.slug }} / {{ _('Contrôle appareils') }}{% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Contrôle des appareils ActiveSync</h1>
+      <h1 class="page-title">{{ _('Contrôle des appareils ActiveSync') }}</h1>
       <p class="page-sub">{{ app.label }} · <span class="mono">{{ app.public_fqdn or app.slug }}</span></p>
     </div>
     <div class="page-header-actions">
       {% if not preview.control_enabled %}
       <form method="post" action="/admin/apps/{{ app.slug }}/activesync/devices/enable"
-            onsubmit="return confirm('Activer le contrôle ? Les appareils en attente listés ici seront approuvés ; tout nouvel appareil sera refusé jusqu’à validation dans le portail.');">
-        <button type="submit" class="btn btn-primary btn-sm">Activer le contrôle</button>
+            onsubmit="return confirm({{ _('Activer le contrôle ? Les appareils en attente listés ici seront approuvés ; tout nouvel appareil sera refusé jusqu’à validation dans le portail.')|tojson }});">
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Activer le contrôle') }}</button>
       </form>
       {% else %}
       <form method="post" action="/admin/apps/{{ app.slug }}/activesync/devices/disable">
-        <button type="submit" class="btn btn-secondary btn-sm">Suspendre le contrôle</button>
+        <button type="submit" class="btn btn-secondary btn-sm">{{ _('Suspendre le contrôle') }}</button>
       </form>
       {% endif %}
-      <a class="btn btn-ghost btn-sm" href="/admin/apps/{{ app.slug }}/edit">Retour à l’application</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/apps/{{ app.slug }}/edit">{{ _('Retour à l’application') }}</a>
     </div>
   </div>
 
@@ -28,33 +28,34 @@
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Prévisualisation</span>
+      <span class="card-title">{{ _('Prévisualisation') }}</span>
       {% if preview.control_enabled %}
-      <span class="badge badge-ok">Contrôle actif</span>
+      <span class="badge badge-ok">{{ _('Contrôle actif') }}</span>
       {% else %}
-      <span class="badge">Contrôle inactif</span>
+      <span class="badge">{{ _('Contrôle inactif') }}</span>
       {% endif %}
     </div>
     <div class="card-body">
       <p class="form-help">
-        Rien n’est activé sans confirmation. Backfill = inventaire observé (pas les logs).
+        {{ _('Rien n’est activé sans confirmation. Backfill = inventaire observé (pas les logs).') }}
         {% if preview.control_enabled and preview.control_enabled_at %}
-        Actif depuis {{ preview.control_enabled_at.strftime('%d/%m/%Y %H:%M') }} UTC.
+{{ _('Actif depuis') }} {{ preview.control_enabled_at.strftime('%d/%m/%Y %H:%M') }} UTC.
         {% elif not preview.control_enabled %}
-        Inventaire seul — pas de refus automatique.
+{{ _('Inventaire seul — pas de refus automatique.') }}
+
         {% endif %}
       </p>
       <ul class="form-help">
-        <li>{{ preview.total }} appareil(s) inventorié(s) · {{ preview.user_count }} utilisateur(s)</li>
-        <li>{{ preview.pending_count }} en attente → seraient <strong>approuvés</strong> à la bascule</li>
-        <li>{{ preview.approved_count }} déjà approuvé(s) · {{ preview.blocked_count }} bloqué(s) · {{ preview.rejected_count }} refusé(s)</li>
+        <li>{{ preview.total }} {{ _('appareil(s) inventorié(s)') }} · {{ preview.user_count }} {{ _('utilisateur(s)') }}</li>
+        <li>{{ preview.pending_count }} {{ _('en attente → seraient') }} <strong>{{ _('approuvés') }}</strong> {{ _('à la bascule') }}</li>
+        <li>{{ preview.approved_count }} {{ _('déjà approuvé(s)') }} · {{ preview.blocked_count }} {{ _('bloqué(s)') }} · {{ preview.rejected_count }} {{ _('refusé(s)') }}</li>
         {% if inventory_days is not none %}
-        <li>Inventaire alimenté depuis environ {{ inventory_days }} jour(s)</li>
+        <li>{{ _('Inventaire alimenté depuis environ') }} {{ inventory_days }} {{ _('jour(s)') }}</li>
         {% endif %}
       </ul>
       {% if not preview.control_enabled %}
       <div class="alert alert-warn">
-        Tout appareil hors inventaire sera refusé à l’activation (validation portail requise).
+        {{ _('Tout appareil hors inventaire sera refusé à l’activation (validation portail requise).') }}
       </div>
       {% endif %}
     </div>
@@ -62,9 +63,9 @@
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Inventaire · {{ inventory | length }}</span>
+      <span class="card-title">{{ _('Inventaire ·') }} {{ inventory | length }}</span>
       <div class="card-header-actions">
-        <a class="btn btn-ghost btn-sm" href="/admin/pending-devices?status=pending">File Appareils</a>
+        <a class="btn btn-ghost btn-sm" href="/admin/pending-devices?status=pending">{{ _('File Appareils') }}</a>
       </div>
     </div>
     <div class="card-body card-flush">
@@ -72,13 +73,13 @@
         <table class="data-table data-table--dense">
           <thead>
             <tr>
-              <th>Utilisateur</th>
-              <th>Appareil</th>
+              <th>{{ _('Utilisateur') }}</th>
+              <th>{{ _('Appareil') }}</th>
               <th>Type</th>
-              <th>1ʳᵉ vue</th>
+              <th>{{ _('1ʳᵉ vue') }}</th>
               <th>Hits</th>
-              <th>Statut</th>
-              <th>À la bascule</th>
+              <th>{{ _('Statut') }}</th>
+              <th>{{ _('À la bascule') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -92,13 +93,13 @@
               <td><span class="badge {{ row.status_badge_class }}">{{ row.status_label }}</span></td>
               <td>
                 {% if row.status == 'pending' %}
-                <span class="badge badge-ok">sera approuvé</span>
+                <span class="badge badge-ok">{{ _('sera approuvé') }}</span>
                 {% elif row.status == 'approved' %}
-                inchangé
+                {{ _('inchangé') }}
                 {% elif row.status == 'blocked' %}
-                reste bloqué
+                {{ _('reste bloqué') }}
                 {% else %}
-                inchangé
+                {{ _('inchangé') }}
                 {% endif %}
               </td>
             </tr>
@@ -106,8 +107,8 @@
             <tr>
               <td colspan="7">
                 <div class="empty-state">
-                  <div class="empty-title">Aucun appareil inventorié</div>
-                  <div class="empty-desc">Attendez des synchronisations ActiveSync avant d’activer le contrôle.</div>
+                  <div class="empty-title">{{ _('Aucun appareil inventorié') }}</div>
+                  <div class="empty-desc">{{ _('Attendez des synchronisations ActiveSync avant d’activer le contrôle.') }}</div>
                 </div>
               </td>
             </tr>

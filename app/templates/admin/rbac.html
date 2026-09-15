@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}RBAC — Groupes{% endblock %}
+{% block title %}{{ _('RBAC — Groupes') }}{% endblock %}
 {% block breadcrumb %}Admin / RBAC / Groupes{% endblock %}
 
 {% block content %}
@@ -19,12 +19,12 @@
   </nav>
   <div class="page-header">
     <div>
-      <h1 class="page-title">Gestion des Groupes</h1>
-      <p class="page-sub">{{ group_stats.total }} groupe(s) synchronisés · {{ group_stats.empty }} vide(s)</p>
+      <h1 class="page-title">{{ _('Gestion des Groupes') }}</h1>
+      <p class="page-sub">{{ group_stats.total }} {{ _('groupe(s) synchronisés ·') }} {{ group_stats.empty }} vide(s)</p>
     </div>
     <div class="users-row-actions">
       <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
-      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">Utilisateurs</a>
+      <a href="/admin/rbac/users" class="btn btn-ghost btn-sm">{{ _('Utilisateurs') }}</a>
     </div>
   </div>
 
@@ -40,13 +40,13 @@
       <div class="users-stat-label">
         Vides
         {% if group_stats.empty and not groups_include_empty %}
-        <span class="users-stat-tag is-warn">Masqués</span>
+        <span class="users-stat-tag is-warn">{{ _('Masqués') }}</span>
         {% endif %}
       </div>
     </div>
     <div class="users-stat">
       <div class="users-stat-value">{{ group_stats.synced }}</div>
-      <div class="users-stat-label">Sync KC</div>
+      <div class="users-stat-label">{{ _('Sync KC') }}</div>
     </div>
     <div class="users-stat{% if group_stats.alerts %} is-warn{% endif %}">
       <div class="users-stat-value">{{ group_stats.alerts }}</div>
@@ -63,8 +63,8 @@
 
   <div class="groups-utility">
     <div class="alert alert-info groups-utility-banner" role="note">
-      Sync = structure Keycloak (noms / paths), pas d’import users.
-      Filtre : <a href="/admin/realms">Realms</a> → sync → « Groupes à synchroniser ».
+{{ _('Sync = structure Keycloak (noms / paths), pas d’import users. Filtre :') }} <a href="/admin/realms">Realms</a> {{ _('→ sync → « Groupes à synchroniser ».') }}
+
     </div>
     <div class="groups-sync-actions">
       {% for realm in realms %}
@@ -76,22 +76,22 @@
           <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Configurer sync ({{ realm.slug }})</a>
         {% endif %}
       {% else %}
-        <span class="badge badge-muted">Aucun realm</span>
+        <span class="badge badge-muted">{{ _('Aucun realm') }}</span>
       {% endfor %}
     </div>
   </div>
 
   {% if group_stats.empty and not groups_include_empty %}
   <div class="groups-empty-banner">
-    <span><strong>{{ group_stats.empty }}</strong> groupes vides masqués</span>
+    <span><strong>{{ group_stats.empty }}</strong> {{ _('groupes vides masqués') }}</span>
     <a class="btn btn-ghost btn-sm"
-       href="/admin/rbac?include_empty=1{% if groups_q %}&amp;q={{ groups_q | urlencode }}{% endif %}&amp;per_page={{ groups_per_page }}">Afficher les vides</a>
+       href="/admin/rbac?include_empty=1{% if groups_q %}&amp;q={{ groups_q | urlencode }}{% endif %}&amp;per_page={{ groups_per_page }}">{{ _('Afficher les vides') }}</a>
   </div>
   {% elif groups_include_empty %}
   <div class="groups-empty-banner">
-    <span>Groupes vides inclus dans la liste</span>
+    <span>{{ _('Groupes vides inclus dans la liste') }}</span>
     <a class="btn btn-ghost btn-sm"
-       href="/admin/rbac?{% if groups_q %}q={{ groups_q | urlencode }}&amp;{% endif %}per_page={{ groups_per_page }}">Masquer les vides</a>
+       href="/admin/rbac?{% if groups_q %}q={{ groups_q | urlencode }}&amp;{% endif %}per_page={{ groups_per_page }}">{{ _('Masquer les vides') }}</a>
   </div>
   {% endif %}
 
@@ -104,16 +104,16 @@
           </p>
           <form method="get" action="/admin/rbac" class="groups-table-filters" data-live-search data-live-delay="320">
             {% if groups_include_empty %}<input type="hidden" name="include_empty" value="1">{% endif %}
-            <label class="visually-hidden" for="rbac-groups-search">Rechercher</label>
+            <label class="visually-hidden" for="rbac-groups-search">{{ _('Rechercher') }}</label>
             <input type="search" id="rbac-groups-search" name="q" class="form-input"
-                   value="{{ groups_q }}" placeholder="Recherche…" autocomplete="off">
-            <label class="visually-hidden" for="rbac-groups-per-page">Afficher</label>
-            <select id="rbac-groups-per-page" name="per_page" class="form-select" title="Par page">
+                   value="{{ groups_q }}" placeholder="{{ _('Recherche…') }}" autocomplete="off">
+            <label class="visually-hidden" for="rbac-groups-per-page">{{ _('Afficher') }}</label>
+            <select id="rbac-groups-per-page" name="per_page" class="form-select" title="{{ _('Par page') }}">
               {% for n in [25, 50, 100, 200] %}
               <option value="{{ n }}"{% if groups_per_page == n %} selected{% endif %}>{{ n }}</option>
               {% endfor %}
             </select>
-            <noscript><button type="submit" class="btn btn-primary btn-sm">Filtrer</button></noscript>
+            <noscript><button type="submit" class="btn btn-primary btn-sm">{{ _('Filtrer') }}</button></noscript>
             {% if groups_q %}
             <a href="/admin/rbac{% if groups_include_empty %}?include_empty=1{% endif %}" class="btn btn-ghost btn-sm">Reset</a>
             {% endif %}
@@ -124,13 +124,13 @@
           <table class="data-table" id="rbac-groups-table">
             <thead>
               <tr>
-                <th>Groupe</th>
+                <th>{{ _('Groupe') }}</th>
                 <th>Realm</th>
                 <th>Tag</th>
                 <th>Membres</th>
-                <th>Comptes</th>
-                <th>Droits</th>
-                <th>Actions</th>
+                <th>{{ _('Comptes') }}</th>
+                <th>{{ _('Droits') }}</th>
+                <th>{{ _('Actions') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -176,13 +176,13 @@
                             data-mode="{{ row.role_mode or 'limited' }}">
                       Perm.
                     </button>
-                    <a href="/admin/rbac/groups/{{ row.id }}" class="btn btn-primary btn-sm">Ouvrir</a>
+                    <a href="/admin/rbac/groups/{{ row.id }}" class="btn btn-primary btn-sm">{{ _('Ouvrir') }}</a>
                     {% if (row.member_count or 0) == 0 %}
                     <form method="post" action="/admin/rbac/groups/{{ row.id }}/delete" style="display:inline;margin:0;">
                       <input type="hidden" name="redirect_url" value="/admin/rbac?include_empty=1">
                       <button type="submit" class="btn btn-danger btn-sm"
                               data-confirm="Supprimer le groupe vide « {{ row.name }} » dans Keycloak et Bastion ?">
-                        Supprimer
+                        {{ _('Supprimer') }}
                       </button>
                     </form>
                     {% endif %}
@@ -193,11 +193,11 @@
               <tr>
                 <td colspan="7">
                   <div class="empty-state" style="padding:var(--sp-4);">
-                    <div class="empty-title">Aucun groupe</div>
+                    <div class="empty-title">{{ _('Aucun groupe') }}</div>
                     <div class="empty-desc">
-                      {% if groups_q %}Aucun résultat pour « {{ groups_q }} ».{% elif not groups_include_empty and group_stats.empty %}
-                      Tous les groupes sont vides — <a href="/admin/rbac?include_empty=1">afficher les vides</a> ou synchronisez Keycloak.
-                      {% else %}Les groupes Keycloak synchronisés apparaîtront ici.{% endif %}
+                      {% if groups_q %}{{ _('Aucun résultat pour «') }} {{ groups_q }} ».{% elif not groups_include_empty and group_stats.empty %}
+{{ _('Tous les groupes sont vides —') }} <a href="/admin/rbac?include_empty=1">{{ _('afficher les vides') }}</a> ou synchronisez Keycloak.
+                      {% else %}{{ _('Les groupes Keycloak synchronisés apparaîtront ici.') }}{% endif %}
                     </div>
                   </div>
                 </td>
@@ -213,11 +213,11 @@
           </span>
           {% if groups_page > 1 %}
           <a class="btn btn-ghost btn-sm"
-             href="/admin/rbac?q={{ groups_q | urlencode }}&amp;page={{ groups_page - 1 }}&amp;per_page={{ groups_per_page }}{% if groups_include_empty %}&amp;include_empty=1{% endif %}">← Préc.</a>
+             href="/admin/rbac?q={{ groups_q | urlencode }}&amp;page={{ groups_page - 1 }}&amp;per_page={{ groups_per_page }}{% if groups_include_empty %}&amp;include_empty=1{% endif %}">{{ _('← Préc.') }}</a>
           {% endif %}
           {% if groups_page < groups_total_pages %}
           <a class="btn btn-ghost btn-sm"
-             href="/admin/rbac?q={{ groups_q | urlencode }}&amp;page={{ groups_page + 1 }}&amp;per_page={{ groups_per_page }}{% if groups_include_empty %}&amp;include_empty=1{% endif %}">Suiv. →</a>
+             href="/admin/rbac?q={{ groups_q | urlencode }}&amp;page={{ groups_page + 1 }}&amp;per_page={{ groups_per_page }}{% if groups_include_empty %}&amp;include_empty=1{% endif %}">{{ _('Suiv. →') }}</a>
           {% endif %}
         </div>
         {% endif %}
@@ -226,7 +226,7 @@
 
     <aside class="groups-aside">
       <div class="card groups-aside-card">
-        <div class="groups-aside-title">Distribution des Rôles</div>
+        <div class="groups-aside-title">{{ _('Distribution des Rôles') }}</div>
         {% if role_distribution.total %}
         <div class="groups-donut-wrap">
           <div class="donut groups-donut" style="background:conic-gradient(var(--ok) 0% {{ role_distribution.p1 }}%, var(--info) {{ role_distribution.p1 }}% {{ role_distribution.p2 }}%, var(--purple) {{ role_distribution.p2 }}% 100%);">
@@ -235,22 +235,22 @@
         </div>
         <ul class="groups-donut-legend">
           <li><span class="badge badge-ok">Lecture</span> {{ role_distribution.read_only }}</li>
-          <li><span class="badge badge-info">Opérations</span> {{ role_distribution.ops }}</li>
-          <li><span class="badge badge-muted">Étendus</span> {{ role_distribution.elevated }}</li>
+          <li><span class="badge badge-info">{{ _('Opérations') }}</span> {{ role_distribution.ops }}</li>
+          <li><span class="badge badge-muted">{{ _('Étendus') }}</span> {{ role_distribution.elevated }}</li>
         </ul>
         {% else %}
-        <p class="empty-desc" style="max-width:none;">Aucun rôle de gouvernance</p>
+        <p class="empty-desc" style="max-width:none;">{{ _('Aucun rôle de gouvernance') }}</p>
         {% endif %}
         <p style="margin:var(--sp-2) 0 0;"><a class="btn btn-ghost btn-sm" href="/admin/rbac/governance">Gouvernance</a></p>
       </div>
       <div class="card groups-aside-card">
-        <div class="groups-aside-title">Alertes d'Excès</div>
-        <p class="form-hint" style="margin:0 0 var(--sp-2);font-size:var(--fs-xs);">Write/delete non mis à jour depuis 90 j.</p>
+        <div class="groups-aside-title">{{ _("Alertes d'Excès") }}</div>
+        <p class="form-hint" style="margin:0 0 var(--sp-2);font-size:var(--fs-xs);">{{ _('Write/delete non mis à jour depuis 90 j.') }}</p>
         <ul class="groups-alerts-list">
           {% for alert in excess_alerts %}
           <li>{{ alert }}</li>
           {% else %}
-          <li class="empty-desc" style="max-width:none;">Aucune alerte</li>
+          <li class="empty-desc" style="max-width:none;">{{ _('Aucune alerte') }}</li>
           {% endfor %}
         </ul>
       </div>

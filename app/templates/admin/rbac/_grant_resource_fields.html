@@ -4,43 +4,43 @@
 <div class="form-group">
   <label class="form-label" for="{{ id_prefix }}resource_type">Type</label>
   <select id="{{ id_prefix }}resource_type" name="resource_type" class="form-select" data-grant-resource-type>
-    <option value="application">Application</option>
-    <option value="file">Fichier</option>
-    <option value="folder">Dossier</option>
-    <option value="system_role">Rôle système</option>
+    <option value="application">{{ _('Application') }}</option>
+    <option value="file">{{ _('Fichier') }}</option>
+    <option value="folder">{{ _('Dossier') }}</option>
+    <option value="system_role">{{ _('Rôle système') }}</option>
   </select>
 </div>
 <div class="form-group" data-grant-app>
-  <label class="form-label" for="{{ id_prefix }}application_id">Application</label>
+  <label class="form-label" for="{{ id_prefix }}application_id">{{ _('Application') }}</label>
   <select id="{{ id_prefix }}application_id" name="application_id" class="form-select" data-grant-field="application_id">
-    <option value="">— Choisir —</option>
+    <option value="">{{ _('— Choisir —') }}</option>
     {% for app in apps %}
     <option value="{{ app.id }}">{{ app.label }}</option>
     {% endfor %}
   </select>
 </div>
 <div class="form-group" data-grant-file hidden>
-  <label class="form-label" for="{{ id_prefix }}file_id">Fichier</label>
+  <label class="form-label" for="{{ id_prefix }}file_id">{{ _('Fichier') }}</label>
   <select id="{{ id_prefix }}file_id" class="form-select" data-grant-field="file_id" disabled>
-    <option value="">— Choisir —</option>
+    <option value="">{{ _('— Choisir —') }}</option>
     {% for f in file_options or [] %}
     <option value="{{ f.id }}">{{ f.label }}</option>
     {% endfor %}
   </select>
 </div>
 <div class="form-group" data-grant-folder hidden>
-  <label class="form-label" for="{{ id_prefix }}folder_id">Dossier</label>
+  <label class="form-label" for="{{ id_prefix }}folder_id">{{ _('Dossier') }}</label>
   <select id="{{ id_prefix }}folder_id" class="form-select" data-grant-field="folder_id" disabled>
-    <option value="">— Choisir —</option>
+    <option value="">{{ _('— Choisir —') }}</option>
     {% for f in folder_options or [] %}
     <option value="{{ f.id }}">{% for _ in range(f.depth or 0) %}&nbsp;&nbsp;{% endfor %}{{ f.label }}</option>
     {% endfor %}
   </select>
 </div>
 <div class="form-group" data-grant-role hidden>
-  <label class="form-label" for="{{ id_prefix }}system_role">Rôle système</label>
+  <label class="form-label" for="{{ id_prefix }}system_role">{{ _('Rôle système') }}</label>
   <select id="{{ id_prefix }}system_role" class="form-select" data-grant-field="system_role" disabled>
-    <option value="">— Choisir —</option>
+    <option value="">{{ _('— Choisir —') }}</option>
     {% for role, label in system_roles.items() %}
     <option value="{{ role }}">{{ label }}</option>
     {% endfor %}

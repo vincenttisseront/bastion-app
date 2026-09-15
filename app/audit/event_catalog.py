@@ -90,6 +90,19 @@ class EventDef:
     def severity(self) -> Severity:
         return severity_from_number(self.number)
 
+    def title(self, locale: str | None = None) -> str:
+        """Localized display title (msgid = ``title_fr``)."""
+        from app.i18n.catalog import t
+
+        return t(self.title_fr, locale)
+
+    def runbook_text(self, locale: str | None = None) -> str | None:
+        if not self.runbook:
+            return None
+        from app.i18n.catalog import t
+
+        return t(self.runbook, locale)
+
 
 def _e(
     code: str,

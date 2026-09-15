@@ -10,9 +10,13 @@
   var previousFocus = null;
 
   var TITLE_REVOKE =
-    'Révoquer : supprime la session du registre bastion et invalide les cookies stockés.';
+    BastionI18n.t(
+      'Révoquer : supprime la session du registre bastion et invalide les cookies stockés.'
+    );
   var TITLE_ROTATE =
-    'Rotation : lance le renouvellement des secrets/clés liés à cette session.';
+    BastionI18n.t(
+      'Rotation : lance le renouvellement des secrets/clés liés à cette session.'
+    );
 
   var ICON_APP =
     '<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>';
@@ -29,9 +33,9 @@
   async function postAction(url, confirmMsg) {
     if (confirmMsg) {
       var ok = await window.bastionConfirm({
-        title: "Confirmer l'action",
+        title: BastionI18n.t("Confirmer l'action"),
         message: confirmMsg,
-        confirmLabel: 'Confirmer',
+        confirmLabel: BastionI18n.t('Confirmer'),
         danger: true,
       });
       if (!ok) return;
@@ -53,8 +57,8 @@
       })
       .catch(function () {
         window.bastionAlert({
-          title: 'Erreur',
-          message: "Erreur lors de l'exécution de l'action.",
+          title: BastionI18n.t('Erreur'),
+          message: BastionI18n.t("Erreur lors de l'exécution de l'action."),
         });
       });
   }
@@ -62,14 +66,14 @@
   window.revokeSession = function (sessionId) {
     postAction(
       '/admin/sessions/' + encodeURIComponent(sessionId) + '/revoke',
-      'Révoquer cette session ?'
+      BastionI18n.t('Révoquer cette session ?')
     );
   };
 
   window.rotateKeys = function (sessionId) {
     postAction(
       '/admin/sessions/' + encodeURIComponent(sessionId) + '/rotate-keys',
-      'Lancer la rotation des clés pour cette session ?'
+      BastionI18n.t('Lancer la rotation des clés pour cette session ?')
     );
   };
 
@@ -188,26 +192,29 @@
     return (
       s.type_label ||
       (family === 'breakglass'
-        ? 'Break-glass'
+        ? BastionI18n.t('Break-glass')
         : s.kind === 'app'
-          ? 'Application'
-          : 'Portail OIDC')
+          ? BastionI18n.t('Application')
+          : BastionI18n.t('Portail OIDC'))
     );
   }
 
   function typeDetailOf(family) {
-    if (family === 'oidc') return 'OIDC / Keycloak';
-    if (family === 'breakglass') return 'Break-glass (hors Keycloak)';
-    return 'Application robotic/vault';
+    if (family === 'oidc') return BastionI18n.t('OIDC / Keycloak');
+    if (family === 'breakglass') return BastionI18n.t('Break-glass (hors Keycloak)');
+    return BastionI18n.t('Application robotic/vault');
   }
 
   function statusTitleOf(s) {
-    if (s.verifiable) return 'Statut vérifié auprès de l’app cible (live)';
+    if (s.verifiable)
+      return BastionI18n.t('Statut vérifié auprès de l’app cible (live)');
     if (s.presence_only || s.live_status === 'presence') {
-      return 'Présence SSO détectée via accès subdomain (pas une vérif cookies robotic)';
+      return BastionI18n.t(
+        'Présence SSO détectée via accès subdomain (pas une vérif cookies robotic)'
+      );
     }
     if (s.freshness && s.freshness.note) return s.freshness.note;
-    return 'Statut déclaratif côté bastion';
+    return BastionI18n.t('Statut déclaratif côté bastion');
   }
 
   function verifiedMetaHtml(s) {
@@ -215,15 +222,16 @@
       return (
         '<div class="session-verified-meta mono">' +
         (s.last_verified_ago
-          ? 'Vérifié ' + escapeHtml(s.last_verified_ago)
-          : 'En attente de vérification live…') +
+          ? BastionI18n.t('Vérifié') + ' ' + escapeHtml(s.last_verified_ago)
+          : BastionI18n.t('En attente de vérification live…')) +
         '</div>'
       );
     }
     if (s.presence_only || s.live_status === 'presence') {
       return (
         '<div class="session-verified-meta mono" title="Heartbeat subdomain-auth">' +
-        'Vu ' +
+        BastionI18n.t('Vu') +
+        ' ' +
         escapeHtml(s.last_seen_ago || '—') +
         '</div>'
       );
@@ -232,7 +240,9 @@
       return (
         '<div class="session-verified-meta mono" title="' +
         escapeHtml(s.freshness.note || '') +
-        '">Âge ' +
+        '">' +
+        BastionI18n.t('Âge') +
+        ' ' +
         escapeHtml(s.freshness.age_label || '—') +
         ' · ' +
         escapeHtml(s.freshness.policy_label || '') +
@@ -291,11 +301,13 @@
         ? '<span class="live-dot live-dot-sm"></span> '
         : '';
     var cookieTitle = s.cookies_title || '';
-    if (s.cookies_issued_at) cookieTitle += ' · émis ' + s.cookies_issued_at;
+    if (s.cookies_issued_at)
+      cookieTitle += ' · ' + BastionI18n.t('émis') + ' ' + s.cookies_issued_at;
     if (s.crushauth_age) cookieTitle += ' · CrushAuth ' + s.crushauth_age;
 
     if (els.title) {
-      els.title.textContent = s.resource_title || s.target || 'Session';
+      els.title.textContent =
+        s.resource_title || s.target || BastionI18n.t('Session');
     }
     if (els.subtitle) {
       els.subtitle.textContent = s.resource_subtitle || '';
@@ -313,7 +325,11 @@
     var bindingBanner = '';
     if (s.identity_binding && s.identity_binding.unusual) {
       bindingBanner =
-        '<div class="session-binding-banner" title="Ancrage inhabituel">⚠ IP/empreinte inhabituelle</div>';
+        '<div class="session-binding-banner" title="' +
+        BastionI18n.t('Ancrage inhabituel') +
+        '">⚠ ' +
+        BastionI18n.t('IP/empreinte inhabituelle') +
+        '</div>';
     }
 
     if (els.body) {
@@ -341,41 +357,59 @@
         '</span></div>' +
         verifiedMetaHtml(s) +
         '<dl class="session-card-facts">' +
-        '<div><dt>Type</dt><dd>' +
+        '<div><dt>' +
+        BastionI18n.t('Type') +
+        '</dt><dd>' +
         escapeHtml(typeDetailOf(family)) +
         '</dd></div>' +
-        '<div><dt>IP client</dt><dd class="mono' +
+        '<div><dt>' +
+        BastionI18n.t('IP client') +
+        '</dt><dd class="mono' +
         (s.client_ip_is_infra ? ' is-infra-ip' : '') +
         '" title="' +
         escapeHtml(s.client_ip_note || '') +
         '">' +
         escapeHtml(s.client_ip || s.source_ip || '—') +
         '</dd></div>' +
-        '<div><dt>Durée</dt><dd class="mono">' +
+        '<div><dt>' +
+        BastionI18n.t('Durée') +
+        '</dt><dd class="mono">' +
         escapeHtml(s.duration || '—') +
         '</dd></div>' +
-        '<div><dt>Dernière activité</dt><dd title="' +
+        '<div><dt>' +
+        BastionI18n.t('Dernière activité') +
+        '</dt><dd title="' +
         escapeHtml(s.last_seen_label || '') +
         '">' +
         escapeHtml(s.last_seen_ago || '—') +
         '</dd></div>' +
-        '<div><dt>Navigateur</dt><dd title="' +
+        '<div><dt>' +
+        BastionI18n.t('Navigateur') +
+        '</dt><dd title="' +
         escapeHtml(s.browser_note || s.user_agent || '') +
         '">' +
         escapeHtml(s.user_agent_label || '—') +
         '</dd></div>' +
         (family === 'app'
-          ? '<div><dt>User applicatif</dt><dd class="mono" title="' +
+          ? '<div><dt>' +
+            BastionI18n.t('User applicatif') +
+            '</dt><dd class="mono" title="' +
             escapeHtml(
               s.credential_source
-                ? 'Source vault : ' + String(s.credential_source)
-                : 'Compte utilisé pour ouvrir la session robotic/vault'
+                ? BastionI18n.t('Source vault :') +
+                  ' ' +
+                  String(s.credential_source)
+                : BastionI18n.t(
+                    'Compte utilisé pour ouvrir la session robotic/vault'
+                  )
             ) +
             '">' +
             escapeHtml(s.robotic_username || '—') +
             '</dd></div>'
           : '') +
-        '<div><dt>Cookies</dt><dd><span class="session-cookies badge badge-' +
+        '<div><dt>' +
+        BastionI18n.t('Cookies') +
+        '</dt><dd><span class="session-cookies badge badge-' +
         cookieClass +
         '" title="' +
         escapeHtml(cookieTitle) +
@@ -383,7 +417,9 @@
         escapeHtml(s.cookies_label || '—') +
         '</span></dd></div>' +
         (String(s.protocol || '').toUpperCase() === 'BREAKGLASS' && s.jti
-          ? '<div><dt>jti</dt><dd class="mono" title="Identifiant JWT break-glass">' +
+          ? '<div><dt>jti</dt><dd class="mono" title="' +
+            BastionI18n.t('Identifiant JWT break-glass') +
+            '">' +
             escapeHtml(String(s.jti).slice(0, 8)) +
             '…</dd></div>'
           : '') +
@@ -403,7 +439,7 @@
         revokeBtn.title = titles.revoke || TITLE_REVOKE;
         revokeBtn.setAttribute('data-session-action', 'revoke');
         revokeBtn.setAttribute('data-session-id', String(s.id || ''));
-        revokeBtn.textContent = 'Révoquer cette session';
+        revokeBtn.textContent = BastionI18n.t('Révoquer cette session');
         els.actions.appendChild(revokeBtn);
         if (s.can_rotate !== false && s.kind === 'app') {
           var rotateBtn = document.createElement('button');
@@ -412,7 +448,7 @@
           rotateBtn.title = titles.rotate || TITLE_ROTATE;
           rotateBtn.setAttribute('data-session-action', 'rotate');
           rotateBtn.setAttribute('data-session-id', String(s.id || ''));
-          rotateBtn.textContent = 'Rotation';
+          rotateBtn.textContent = BastionI18n.t('Rotation');
           els.actions.appendChild(rotateBtn);
         }
         var logsLink = document.createElement('a');
@@ -422,11 +458,15 @@
         logsLink.rel = 'noopener noreferrer';
         if (s.kind === 'app' && (s.target || '').trim()) {
           logsLink.title =
-            'Access log nginx de l’application ' + String(s.target).trim();
-          logsLink.textContent = 'Access log app';
+            BastionI18n.t('Access log nginx de l’application') +
+            ' ' +
+            String(s.target).trim();
+          logsLink.textContent = BastionI18n.t('Access log app');
         } else {
-          logsLink.title = 'Ouvre Logs (audit) filtré sur cet utilisateur';
-          logsLink.textContent = 'Voir les logs';
+          logsLink.title = BastionI18n.t(
+            'Ouvre Logs (audit) filtré sur cet utilisateur'
+          );
+          logsLink.textContent = BastionI18n.t('Voir les logs');
         }
         els.actions.appendChild(logsLink);
         if (s.kind === 'app') {
@@ -435,9 +475,10 @@
           auditLink.href = auditUrlForSession(s);
           auditLink.target = '_blank';
           auditLink.rel = 'noopener noreferrer';
-          auditLink.title =
-            'Audit filtré sur l’acteur (pas l’id de session — non écrit en AuditLog)';
-          auditLink.textContent = 'Audit acteur';
+          auditLink.title = BastionI18n.t(
+            'Audit filtré sur l’acteur (pas l’id de session — non écrit en AuditLog)'
+          );
+          auditLink.textContent = BastionI18n.t('Audit acteur');
           els.actions.appendChild(auditLink);
         }
         bindSessionActionClicks(els.actions);
@@ -583,7 +624,9 @@
       liveDot +
       escapeHtml(s.live_status_label || String(s.status || '').toUpperCase()) +
       '</span>' +
-      '<span class="session-row-meta mono" title="Durée">' +
+      '<span class="session-row-meta mono" title="' +
+      BastionI18n.t('Durée') +
+      '">' +
       escapeHtml(s.duration || '—') +
       '</span>' +
       '<span class="session-row-meta session-row-ago" title="' +
@@ -604,12 +647,16 @@
     var visible = filteredGroups();
     if (!groupsCache.length) {
       list.innerHTML =
-        '<div class="sessions-user-empty" id="sessions-user-empty">Aucun utilisateur</div>';
+        '<div class="sessions-user-empty" id="sessions-user-empty">' +
+        BastionI18n.t('Aucun utilisateur') +
+        '</div>';
       return;
     }
     if (!visible.length) {
       list.innerHTML =
-        '<div class="sessions-user-empty" id="sessions-user-empty">Aucun résultat pour ce filtre</div>';
+        '<div class="sessions-user-empty" id="sessions-user-empty">' +
+        BastionI18n.t('Aucun résultat pour ce filtre') +
+        '</div>';
       return;
     }
     list.innerHTML = visible
@@ -621,7 +668,7 @@
           ? '<div class="sessions-user-logout mono" title="' +
             escapeHtml(g.sso_logout.residual_note || '') +
             '">' +
-            escapeHtml(g.sso_logout.label || 'Déconnexion demandée') +
+            escapeHtml(g.sso_logout.label || BastionI18n.t('Déconnexion demandée')) +
             '</div>'
           : '';
         return (
@@ -675,8 +722,14 @@
       detail.innerHTML =
         '<div class="sessions-detail-empty" id="sessions-detail-empty">' +
         '<div class="empty-state">' +
-        '<div class="empty-title">Aucune session active</div>' +
-        '<div class="empty-desc">Les connexions portail et les ouvertures d’applications apparaîtront ici.</div>' +
+        '<div class="empty-title">' +
+        BastionI18n.t('Aucune session active') +
+        '</div>' +
+        '<div class="empty-desc">' +
+        BastionI18n.t(
+          'Les connexions portail et les ouvertures d’applications apparaîtront ici.'
+        ) +
+        '</div>' +
         '</div></div>';
       return;
     }
@@ -691,8 +744,14 @@
       detail.innerHTML =
         '<div class="sessions-detail-empty" id="sessions-detail-empty">' +
         '<div class="empty-state">' +
-        '<div class="empty-title">Sélectionnez un utilisateur</div>' +
-        '<div class="empty-desc">Choisissez un utilisateur dans le bandeau pour voir le détail de ses sessions.</div>' +
+        '<div class="empty-title">' +
+        BastionI18n.t('Sélectionnez un utilisateur') +
+        '</div>' +
+        '<div class="empty-desc">' +
+        BastionI18n.t(
+          'Choisissez un utilisateur dans le bandeau pour voir le détail de ses sessions.'
+        ) +
+        '</div>' +
         '</div></div>';
       return;
     }
@@ -714,15 +773,25 @@
     if (isAdmin && g.show_disconnect !== false && (g.has_oidc || g.has_app)) {
       disconnectBtn =
         '<button type="button" class="btn btn-danger btn-sm" ' +
-        'title="Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible." ' +
+        'title="' +
+        BastionI18n.t(
+          'Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible.'
+        ) +
+        '" ' +
         'data-session-action="disconnect-user" data-user-email="' +
         escapeHtml(g.user_email) +
         '" data-realm="' +
         escapeHtml(g.realm) +
-        '">Déconnecter cet utilisateur</button>';
+        '">' +
+        BastionI18n.t('Déconnecter cet utilisateur') +
+        '</button>';
     } else if (isAdmin && g.has_breakglass && !g.has_oidc && !g.has_app) {
       disconnectBtn =
-        '<span class="form-hint" title="Break-glass n’a pas de session Keycloak">Utiliser « Révoquer » sur la session break-glass</span>';
+        '<span class="form-hint" title="' +
+        BastionI18n.t('Break-glass n’a pas de session Keycloak') +
+        '">' +
+        BastionI18n.t('Utiliser « Révoquer » sur la session break-glass') +
+        '</span>';
     }
     var logoutBanner = '';
     if (g.sso_logout && g.sso_logout.label) {
@@ -754,7 +823,8 @@
     actions.className = 'session-actions-group';
     var countBadge = document.createElement('span');
     countBadge.className = 'badge badge-' + statusClass;
-    countBadge.textContent = String(g.session_count) + ' session(s)';
+    countBadge.textContent =
+      String(g.session_count) + ' ' + BastionI18n.t('session(s)');
     actions.appendChild(countBadge);
     if (disconnectBtn) {
       var disconnectWrap = document.createElement('div');
@@ -794,19 +864,24 @@
   window.disconnectUser = async function (userEmail, realmSlug) {
     var ok = window.bastionConfirm
       ? await window.bastionConfirm({
-          title: 'Déconnecter cet utilisateur ?',
-          message:
-            'Révoque les sessions robotic/vault, la session native portail ' +
-            '(bastion_session) et demande le logout Keycloak. Le break-glass ' +
-            'n’est pas concerné. Un éventuel cookie oauth2-proxy peut rester ' +
-            'valide jusqu’à ~1 h (cookie_refresh).',
-          confirmLabel: 'Déconnecter',
+          title: BastionI18n.t('Déconnecter cet utilisateur ?'),
+          message: BastionI18n.t(
+            'Révoque les sessions robotic/vault, la session native portail '
+            + '(bastion_session) et demande le logout Keycloak. Le break-glass '
+            + 'n’est pas concerné. Un éventuel cookie oauth2-proxy peut rester '
+            + 'valide jusqu’à ~1 h (cookie_refresh).'
+          ),
+          confirmLabel: BastionI18n.t('Déconnecter'),
           danger: true,
         })
       : false;
     if (!ok) return;
     var resultEl = document.getElementById('disconnect-user-result');
-    if (resultEl) resultEl.innerHTML = '<div class="form-hint">Déconnexion en cours…</div>';
+    if (resultEl)
+      resultEl.innerHTML =
+        '<div class="form-hint">' +
+        BastionI18n.t('Déconnexion en cours…') +
+        '</div>';
     try {
       var url =
         '/admin/users/' +
@@ -828,11 +903,17 @@
       var sso = data.sso || {};
       var appLine =
         app.ok === false
-          ? 'Sessions app : échec — ' + (app.error || 'erreur')
-          : 'Sessions app : ' +
+          ? BastionI18n.t('Sessions app : échec —') +
+            ' ' +
+            (app.error || BastionI18n.t('erreur'))
+          : BastionI18n.t('Sessions app :') +
+            ' ' +
             (app.revoked_count || 0) +
-            ' révoquée(s)' +
-            (app.failed_count ? ', ' + app.failed_count + ' échec(s)' : '');
+            ' ' +
+            BastionI18n.t('révoquée(s)') +
+            (app.failed_count
+              ? ', ' + app.failed_count + ' ' + BastionI18n.t('échec(s)')
+              : '');
       if (app.failed && app.failed.length) {
         appLine +=
           ' (' +
@@ -844,17 +925,27 @@
           ')';
       }
       var ssoLine = sso.ok
-        ? 'SSO Keycloak : logout OK'
-        : 'SSO Keycloak : échec — ' + (sso.error || data.error || 'erreur');
+        ? BastionI18n.t('SSO Keycloak : logout OK')
+        : BastionI18n.t('SSO Keycloak : échec —') +
+          ' ' +
+          (sso.error || data.error || BastionI18n.t('erreur'));
       var localBits = [];
       if (sso.native_oidc_revoked != null) {
         localBits.push(
-          'JWT natif : ' + (sso.native_oidc_revoked || 0) + ' révoqué(s)'
+          BastionI18n.t('JWT natif :') +
+            ' ' +
+            (sso.native_oidc_revoked || 0) +
+            ' ' +
+            BastionI18n.t('révoqué(s)')
         );
       }
       if (sso.portal_rows_removed != null) {
         localBits.push(
-          'registre portail : ' + (sso.portal_rows_removed || 0) + ' retiré(s)'
+          BastionI18n.t('registre portail :') +
+            ' ' +
+            (sso.portal_rows_removed || 0) +
+            ' ' +
+            BastionI18n.t('retiré(s)')
         );
       }
       var localLine = localBits.length
@@ -884,7 +975,9 @@
     } catch (e) {
       if (resultEl) {
         resultEl.innerHTML =
-          '<div class="alert alert-err" style="margin:0;">Erreur réseau.</div>';
+          '<div class="alert alert-err" style="margin:0;">' +
+          BastionI18n.t('Erreur réseau.') +
+          '</div>';
       }
     }
   };

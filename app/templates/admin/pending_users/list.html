@@ -1,27 +1,28 @@
 {% extends "base.html" %}
-{% block title %}Nouveaux utilisateurs{% endblock %}
-{% block breadcrumb %}Admin / Nouveaux utilisateurs{% endblock %}
+{% block title %}{{ _('Nouveaux utilisateurs') }}{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Nouveaux utilisateurs') }}{% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Nouveaux utilisateurs</h1>
+      <h1 class="page-title">{{ _('Nouveaux utilisateurs') }}</h1>
       <p class="page-sub">
-        Première connexion SSO détectée — file d’attente de validation (comme les domaines).
-        Le login Keycloak n’est <strong>pas</strong> bloqué : validez ici pour tracer / ouvrir la fiche droits.
+        {{ _('Première connexion SSO détectée — file d’attente de validation (comme les domaines).') }}
+{{ _('Le login Keycloak n’est') }} <strong>pas</strong> {{ _('bloqué : validez ici pour tracer / ouvrir la fiche droits.') }}
+
       </p>
     </div>
   </div>
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">File d’attente · {{ rows | length }}</span>
+      <span class="card-title">{{ _('File d’attente ·') }} {{ rows | length }}</span>
       <div class="card-header-actions">
-        <fieldset class="filter-group" aria-label="Filtrer par statut">
-          <a href="/admin/pending-users?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">En attente</a>
-          <a href="/admin/pending-users?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">Validés</a>
-          <a href="/admin/pending-users?status=rejected" class="filter-chip{% if status_filter == 'rejected' %} active{% endif %}">Rejetés</a>
+        <fieldset class="filter-group" aria-label="{{ _('Filtrer par statut') }}">
+          <a href="/admin/pending-users?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">{{ _('En attente') }}</a>
+          <a href="/admin/pending-users?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">{{ _('Validés') }}</a>
+          <a href="/admin/pending-users?status=rejected" class="filter-chip{% if status_filter == 'rejected' %} active{% endif %}">{{ _('Rejetés') }}</a>
           <a href="/admin/pending-users?status=all" class="filter-chip{% if status_filter == 'all' %} active{% endif %}">Tout</a>
         </fieldset>
       </div>
@@ -31,14 +32,14 @@
         <table class="data-table" id="pending-users-table">
           <thead>
             <tr>
-              <th>Utilisateur</th>
+              <th>{{ _('Utilisateur') }}</th>
               <th>Realm</th>
               <th>Hits</th>
-              <th>Première vue</th>
-              <th>Dernière vue</th>
+              <th>{{ _('Première vue') }}</th>
+              <th>{{ _('Dernière vue') }}</th>
               <th>IP</th>
-              <th>Statut</th>
-              <th>Actions</th>
+              <th>{{ _('Statut') }}</th>
+              <th>{{ _('Actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -55,23 +56,23 @@
               <td class="mono">{{ row.last_client_ip or '—' }}</td>
               <td>
                 {% if row.status == 'pending' %}
-                <span class="badge badge-warn">nouvelle connexion</span>
+                <span class="badge badge-warn">{{ _('nouvelle connexion') }}</span>
                 {% elif row.status == 'approved' %}
-                <span class="badge badge-ok">validé</span>
+                <span class="badge badge-ok">{{ _('validé') }}</span>
                 {% else %}
-                <span class="badge">rejeté</span>
+                <span class="badge">{{ _('rejeté') }}</span>
                 {% endif %}
               </td>
               <td style="white-space:nowrap;">
                 <a class="btn btn-ghost btn-sm"
-                   href="/admin/rbac/users?list_tab=open{% if realms_by_slug.get(row.realm_slug) %}&amp;realm_id={{ realms_by_slug[row.realm_slug] }}{% endif %}">Recherche</a>
+                   href="/admin/rbac/users?list_tab=open{% if realms_by_slug.get(row.realm_slug) %}&amp;realm_id={{ realms_by_slug[row.realm_slug] }}{% endif %}">{{ _('Recherche') }}</a>
                 <a class="btn btn-ghost btn-sm" href="/sessions">Sessions</a>
                 {% if row.status == 'pending' %}
                 <form method="post" action="/admin/pending-users/{{ row.id }}/approve" style="display:inline;">
-                  <button type="submit" class="btn btn-primary btn-sm">Valider</button>
+                  <button type="submit" class="btn btn-primary btn-sm">{{ _('Valider') }}</button>
                 </form>
                 <form method="post" action="/admin/pending-users/{{ row.id }}/reject" style="display:inline;">
-                  <button type="submit" class="btn btn-ghost btn-sm">Rejeter</button>
+                  <button type="submit" class="btn btn-ghost btn-sm">{{ _('Rejeter') }}</button>
                 </form>
                 {% elif row.reviewed_by %}
                 <span class="form-hint">{{ row.reviewed_by }}</span>
@@ -84,9 +85,9 @@
             <tr>
               <td colspan="8">
                 <div class="empty-state" style="padding:2rem;">
-                  <div class="empty-title">Aucun utilisateur {{ status_filter if status_filter != 'all' else '' }}</div>
+                  <div class="empty-title">{{ _('Aucun utilisateur') }} {{ status_filter if status_filter != 'all' else '' }}</div>
                   <div class="empty-desc">
-                    Les premières connexions SSO apparaissent ici automatiquement
+                    {{ _('Les premières connexions SSO apparaissent ici automatiquement') }}
                     (bandeau cloche inclus).
                   </div>
                 </div>

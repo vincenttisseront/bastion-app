@@ -11,16 +11,16 @@
     <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
     <div>
       <div class="form-section-title">Description</div>
-      <div class="form-section-sub">Texte court affiché sous le nom sur le portail (max. 140 caractères)</div>
+      <div class="form-section-sub">{{ _('Texte court affiché sous le nom sur le portail (max. 140 caractères)') }}</div>
       <div class="form-section-summary{% if not desc_configured %} is-off{% endif %}">
-        {% if desc_configured %}Description renseignée{% else %}Non configuré{% endif %}
+        {% if desc_configured %}{{ _('Description renseignée') }}{% else %}{{ _('Non configuré') }}{% endif %}
       </div>
     </div>
   </div>
   <div class="form-body">
 {% endif %}
     <div class="form-group">
-      <label class="form-label" for="description">Description métier</label>
+      <label class="form-label" for="description">{{ _('Description métier') }}</label>
       <textarea
         id="description"
         name="description"
@@ -28,7 +28,7 @@
         rows="3"
         maxlength="140"
         data-char-counter="desc-count"
-        placeholder="Ex. : Partage de fichiers sécurisé pour les équipes terrain"
+        placeholder="{{ _('Ex. : Partage de fichiers sécurisé pour les équipes terrain') }}"
       >{{ desc_val }}</textarea>
       <p class="form-help"><span id="desc-count">0</span> / 140</p>
       {% if errors.description %}<div class="form-error">{{ errors.description }}</div>{% endif %}
@@ -41,18 +41,18 @@
   <div class="form-section-header" data-form-accordion-toggle>
     <button type="button" class="ds-accordion-expand" aria-expanded="false" tabindex="-1">▸</button>
     <div>
-      <div class="form-section-title">Logo</div>
-      <div class="form-section-sub">PNG, JPG ou WEBP — 512&nbsp;Ko max, redimensionné à 128×128</div>
+      <div class="form-section-title">{{ _('Logo') }}</div>
+      <div class="form-section-sub">{{ _('PNG, JPG ou WEBP — 512&nbsp;Ko max, redimensionné à 128×128') }}</div>
       <div class="form-section-summary{% if not logo_configured %} is-off{% endif %}">
-        {% if logo_configured %}Logo configuré{% elif logo_ready %}Non configuré{% else %}Disponible après création{% endif %}
+        {% if logo_configured %}{{ _('Logo configuré') }}{% elif logo_ready %}{{ _('Non configuré') }}{% else %}{{ _('Disponible après création') }}{% endif %}
       </div>
     </div>
   </div>
   <div class="form-body">
 {% else %}
     <hr class="form-divider" style="border:0;border-top:1px solid var(--border-muted);margin:var(--sp-5) 0;">
-    <h4 class="wizard-panel-title" style="font-size:var(--fs-md);margin:0 0 var(--sp-3);">Logo</h4>
-    <p class="form-help" style="margin-top:0;">PNG, JPG ou WEBP — 512&nbsp;Ko max, redimensionné à 128×128</p>
+    <h4 class="wizard-panel-title" style="font-size:var(--fs-md);margin:0 0 var(--sp-3);">{{ _('Logo') }}</h4>
+    <p class="form-help" style="margin-top:0;">{{ _('PNG, JPG ou WEBP — 512&nbsp;Ko max, redimensionné à 128×128') }}</p>
 {% endif %}
     {% if logo_ready %}
     <div
@@ -61,7 +61,7 @@
       data-app-id="{{ app.id }}"
       role="button"
       tabindex="0"
-      aria-label="Déposer un logo"
+      aria-label="{{ _('Déposer un logo') }}"
     >
       <div class="logo-dropzone-preview">
         <img
@@ -74,18 +74,18 @@
           <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
             <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
           </svg>
-          <span>Glisser-déposer ou choisir un fichier</span>
+          <span>{{ _('Glisser-déposer ou choisir un fichier') }}</span>
         </div>
       </div>
       <input type="file" id="logo-file" accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" hidden>
       <div class="logo-dropzone-actions">
-        <label for="logo-file" class="btn btn-secondary btn-sm">Choisir un fichier</label>
+        <label for="logo-file" class="btn btn-secondary btn-sm">{{ _('Choisir un fichier') }}</label>
         <button type="button" class="btn btn-ghost btn-sm" id="logo-remove"{% if not logo_url %} hidden{% endif %}>Retirer</button>
       </div>
       <p class="form-help" id="logo-status"></p>
     </div>
     {% else %}
-    <p class="form-prose">Enregistrez d'abord l'application pour pouvoir ajouter un logo.</p>
+    <p class="form-prose">{{ _("Enregistrez d'abord l'application pour pouvoir ajouter un logo.") }}</p>
     {% endif %}
 {% if not wizard_embed %}
   </div>

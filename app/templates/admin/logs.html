@@ -19,13 +19,13 @@
 {% set catalog_severities = catalog_severities | default([]) %}
 {% set catalog_codes = catalog_codes | default([]) %}
 {% set col_labels = {
-  'timestamp': 'Horodatage',
-  'actor': 'Acteur',
-  'code': 'Code',
-  'action': 'Action',
+  'timestamp': _('Horodatage'),
+  'actor': _('Acteur'),
+  'code': _('Code'),
+  'action': _('Action'),
   'ip': 'IP',
-  'result': 'Résultat',
-  'detail': 'Détail',
+  'result': _('Résultat'),
+  'detail': _('Détail'),
   'reason': 'reason',
   'x_real_ip': 'x_real_ip',
   'x_forwarded_for': 'x_forwarded_for',
@@ -33,9 +33,9 @@
   'resolved': 'resolved',
   'miss_family': 'miss_family',
   'device_id': 'DeviceId',
-  'apple_serial': 'N° série Apple',
-  'model_label': 'Modèle',
-  'target': 'Cible'
+  'apple_serial': _('N° série Apple'),
+  'model_label': _('Modèle'),
+  'target': _('Cible')
 } %}
 <div class="page" id="admin-logs-page"
      data-sse-timeout="{{ admin_logs_sse_timeout_seconds }}"
@@ -45,14 +45,14 @@
      data-focus-audit-id="{{ focus_audit_id or '' }}">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Journaux d'administration</h1>
-      <p class="page-sub" id="audit-sub">{{ total }} entrée(s) — logins, refus, hôtes non traités</p>
+      <h1 class="page-title">{{ _("Journaux d'administration") }}</h1>
+      <p class="page-sub" id="audit-sub">{{ total }} {{ _('entrée(s) — logins, refus, hôtes non traités') }}</p>
     </div>
   </div>
 
-  <div class="tabs" role="tablist" aria-label="Sections logs" id="logs-tabs">
-    <a href="#audit" class="tab active" role="tab" data-tab="audit" id="tab-audit" aria-selected="true">Audit</a>
-    <a href="#app-access" class="tab" role="tab" data-tab="app-access" id="tab-app-access" aria-selected="false">Accès apps</a>
+  <div class="tabs" role="tablist" aria-label="{{ _('Sections logs') }}" id="logs-tabs">
+    <a href="#audit" class="tab active" role="tab" data-tab="audit" id="tab-audit" aria-selected="true">{{ _('Audit') }}</a>
+    <a href="#app-access" class="tab" role="tab" data-tab="app-access" id="tab-app-access" aria-selected="false">{{ _('Accès apps') }}</a>
     <a href="#containers" class="tab" role="tab" data-tab="containers" id="tab-containers" aria-selected="false">Containers</a>
   </div>
 
@@ -61,7 +61,7 @@
     <div class="integrity-bar" style="margin-bottom:var(--sp-3);">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       <span class="integrity-score">{{ integrity.score }}%</span>
-      <span class="integrity-label">Intégrité des logs</span>
+      <span class="integrity-label">{{ _('Intégrité des logs') }}</span>
       <span class="badge badge-{{ 'ok' if integrity.ok else 'err' }}">{{ 'VALIDÉ' if integrity.ok else 'ALTÉRÉ' }}</span>
       <span class="integrity-hash font-mono">SHA256: {{ integrity.hash[:32] }}…</span>
     </div>
@@ -72,18 +72,18 @@
       <a class="btn btn-sm{% if active_view_id == v.id %} btn-secondary{% else %} btn-ghost{% endif %}" href="/admin/logs?view={{ v.id }}#audit"{% if active_view_id == v.id %} aria-current="true"{% endif %}>{{ v.name }}{% if v.is_system %} ★{% endif %}</a>
       {% if not v.is_system %}
       <form method="post" action="/admin/logs/views/{{ v.id }}/delete" class="inline-form">
-        <button type="submit" class="btn btn-ghost btn-sm" title="Supprimer la vue">×</button>
+        <button type="submit" class="btn btn-ghost btn-sm" title="{{ _('Supprimer la vue') }}">×</button>
       </form>
       {% endif %}
       {% endfor %}
       <span style="flex:1;"></span>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs/catalogue">Catalogue</a>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">↓ CSV</a>
-      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">↓ PDF</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs/catalogue">{{ _('Catalogue') }}</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=csv{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">{{ _('↓ CSV') }}</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/logs?export=pdf{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">{{ _('↓ PDF') }}</a>
     </div>
 
     {% if uncatalogued_count %}
-    <p class="page-sub" id="uncatalogued-banner">{{ uncatalogued_count }} type(s) d’événements non catalogués sur la période.</p>
+    <p class="page-sub" id="uncatalogued-banner">{{ uncatalogued_count }} {{ _('type(s) d’événements non catalogués sur la période.') }}</p>
     {% endif %}
 
     <form class="logs-filters" method="get" action="/admin/logs" id="audit-filters" data-live-search data-live-delay="400">
@@ -91,14 +91,14 @@
       <div class="logs-filters-row">
         <div class="logs-filters-grid">
           <label class="logs-filter-field logs-filter-grow">
-            <span class="form-label">Recherche</span>
+            <span class="form-label">{{ _('Recherche') }}</span>
             <input type="search" class="form-input" name="q" id="filter-q" value="{{ filters.q or '' }}"
-                   placeholder="Plein texte…" aria-label="Recherche plein texte">
+                   placeholder="Plein texte…" aria-label="{{ _('Recherche plein texte') }}">
           </label>
           <label class="logs-filter-field">
-            <span class="form-label">Action</span>
-            <select class="form-select" name="action" id="filter-action" aria-label="Filtrer par action">
-              <option value="">Toutes</option>
+            <span class="form-label">{{ _('Action') }}</span>
+            <select class="form-select" name="action" id="filter-action" aria-label="{{ _('Filtrer par action') }}">
+              <option value="">{{ _('Toutes') }}</option>
               {% for a in action_choices %}
               <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
               {% endfor %}
@@ -107,23 +107,23 @@
           <label class="logs-filter-field">
             <span class="form-label">Acteur</span>
             <input type="text" class="form-input" name="actor" id="filter-actor" value="{{ filters.actor or '' }}"
-                   placeholder="email / user" aria-label="Filtrer par acteur" autocomplete="off">
+                   placeholder="{{ _('email / user') }}" aria-label="{{ _('Filtrer par acteur') }}" autocomplete="off">
           </label>
           <label class="logs-filter-field">
             <span class="form-label">IP</span>
             <input type="text" class="form-input" name="ip" id="filter-ip" value="{{ filters.ip or '' }}"
-                   placeholder="IP ou CIDR" aria-label="Filtrer par IP" autocomplete="off">
+                   placeholder="{{ _('IP ou CIDR') }}" aria-label="{{ _('Filtrer par IP') }}" autocomplete="off">
           </label>
           <label class="logs-filter-field">
-            <span class="form-label">Détail</span>
+            <span class="form-label">{{ _('Détail') }}</span>
             <input type="text" class="form-input" name="detail" id="filter-detail" value="{{ filters.detail or '' }}"
-                   placeholder="Mot-clé" aria-label="Mot-clé dans le détail" autocomplete="off">
+                   placeholder="{{ _('Mot-clé') }}" aria-label="{{ _('Mot-clé dans le détail') }}" autocomplete="off">
           </label>
           <label class="logs-filter-field">
             <span class="form-label">Code</span>
             <input type="text" class="form-input" name="event_code" id="filter-event-code"
                    list="catalog-codes" value="{{ filters.event_code or '' }}"
-                   placeholder="BST-…" aria-label="Code événement" autocomplete="off">
+                   placeholder="BST-…" aria-label="{{ _('Code événement') }}" autocomplete="off">
             <datalist id="catalog-codes">
               {% for code in catalog_codes %}
               <option value="{{ code }}"></option>
@@ -133,7 +133,7 @@
           <label class="logs-filter-field">
             <span class="form-label">Du</span>
             <input type="date" class="form-input" name="date_from" id="filter-date-from" value="{{ filters.date_from or '' }}"
-                   aria-label="Date début">
+                   aria-label="{{ _('Date début') }}">
           </label>
           <label class="logs-filter-field">
             <span class="form-label">Au</span>
@@ -143,25 +143,25 @@
         </div>
         <div class="logs-filters-footer">
           <div class="logs-filters-check-groups">
-            <fieldset class="logs-filters-check-group" aria-label="Résultat">
-              <legend class="logs-filters-check-label">Résultat</legend>
+            <fieldset class="logs-filters-check-group" aria-label="{{ _('Résultat') }}">
+              <legend class="logs-filters-check-label">{{ _('Résultat') }}</legend>
               <div class="logs-result-checks">
                 {% for st in ['success', 'error', 'info'] %}
                 <label><input type="checkbox" name="status" value="{{ st }}"{% if st in (filters.status or []) %} checked{% endif %}> {{ st }}</label>
                 {% endfor %}
               </div>
             </fieldset>
-            <fieldset class="logs-filters-check-group" aria-label="Criticité">
-              <legend class="logs-filters-check-label">Criticité</legend>
+            <fieldset class="logs-filters-check-group" aria-label="{{ _('Criticité') }}">
+              <legend class="logs-filters-check-label">{{ _('Criticité') }}</legend>
               <div class="logs-result-checks">
                 {% for sev in catalog_severities %}
                 <label><input type="checkbox" name="severity" value="{{ sev }}"{% if sev in (filters.severity or []) %} checked{% endif %}> {{ sev }}</label>
                 {% endfor %}
-                <label><input type="checkbox" name="severity_min" value="WARNING"{% if filters.severity_min == 'WARNING' %} checked{% endif %}> ≥ WARNING</label>
+                <label><input type="checkbox" name="severity_min" value="WARNING"{% if filters.severity_min == 'WARNING' %} checked{% endif %}> {{ _('≥ WARNING') }}</label>
               </div>
             </fieldset>
-            <fieldset class="logs-filters-check-group" aria-label="Domaine">
-              <legend class="logs-filters-check-label">Domaine</legend>
+            <fieldset class="logs-filters-check-group" aria-label="{{ _('Domaine') }}">
+              <legend class="logs-filters-check-label">{{ _('Domaine') }}</legend>
               <div class="logs-result-checks logs-domain-checks">
                 {% for dom in catalog_domains %}
                 <label><input type="checkbox" name="domain" value="{{ dom }}"{% if dom in (filters.domain or []) %} checked{% endif %}> {{ dom }}</label>
@@ -170,9 +170,9 @@
             </fieldset>
           </div>
           <div class="logs-filters-actions">
-            <button type="submit" class="btn btn-primary btn-sm">Filtrer</button>
+            <button type="submit" class="btn btn-primary btn-sm">{{ _('Filtrer') }}</button>
             <button type="button" class="btn btn-secondary btn-sm live-btn" id="audit-live-btn"
-                    aria-pressed="false" title="Flux temps réel">● Live</button>
+                    aria-pressed="false" title="{{ _('Flux temps réel') }}">{{ _('● Live') }}</button>
             <span class="live-status" id="audit-live-status" hidden>Live</span>
             <div class="logs-col-menu">
               <button type="button" class="btn btn-secondary btn-sm" id="cols-btn" aria-expanded="false">Colonnes</button>
@@ -180,10 +180,10 @@
                 {% for c in all_columns %}
                 <label><input type="checkbox" class="col-toggle" value="{{ c }}"{% if c in visible_columns %} checked{% endif %}> {{ col_labels.get(c, c) }}</label>
                 {% endfor %}
-                <button type="button" class="btn btn-primary btn-sm" id="cols-save">Enregistrer colonnes</button>
+                <button type="button" class="btn btn-primary btn-sm" id="cols-save">{{ _('Enregistrer colonnes') }}</button>
               </div>
             </div>
-            <button type="button" class="btn btn-secondary btn-sm" id="save-view-btn">Enregistrer la vue</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="save-view-btn">{{ _('Enregistrer la vue') }}</button>
           </div>
         </div>
       </div>
@@ -219,7 +219,7 @@
               {% elif c == 'code' %}
                 <span class="audit-code-cell">
                   <code class="font-mono">{{ e.event_code or "—" }}</code>
-                  {% if e.historical %}<span class="badge badge-muted" title="Entrée historique">hist.</span>{% endif %}
+                  {% if e.historical %}<span class="badge badge-muted" title="{{ _('Entrée historique') }}">hist.</span>{% endif %}
                 </span>
               {% elif c == 'action' %}
                 <span class="audit-action-cell" title="{{ e.action }}{% if e.event_title_fr %} — {{ e.event_title_fr }}{% endif %}">
@@ -238,7 +238,7 @@
                   {% endif %}
                 </span>
               {% elif c == 'detail' %}
-                <button type="button" class="btn btn-ghost btn-sm audit-detail-open" title="Voir le détail JSON">
+                <button type="button" class="btn btn-ghost btn-sm audit-detail-open" title="{{ _('Voir le détail JSON') }}">
                   <span class="audit-detail-summary">{{ e.detail_short or "—" }}</span>
                   <span class="audit-detail-hint" aria-hidden="true">↗</span>
                 </button>
@@ -256,14 +256,14 @@
                   <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 </div>
                 {% if logs_unavailable %}
-                <div class="empty-title">Journaux indisponibles</div>
+                <div class="empty-title">{{ _('Journaux indisponibles') }}</div>
                 <div class="empty-desc">
-                  Le stockage chaud est injoignable, les entrées ne peuvent pas être lues —
-                  <a href="/admin/configuration#hot-store">vérifier la configuration</a>.
+                  {{ _('Le stockage chaud est injoignable, les entrées ne peuvent pas être lues —') }}
+                  <a href="/admin/configuration#hot-store">{{ _('vérifier la configuration') }}</a>.
                 </div>
                 {% else %}
-                <div class="empty-title">Aucune entrée</div>
-                <div class="empty-desc">Aucun événement ne correspond aux filtres actuels.</div>
+                <div class="empty-title">{{ _('Aucune entrée') }}</div>
+                <div class="empty-desc">{{ _('Aucun événement ne correspond aux filtres actuels.') }}</div>
                 {% endif %}
               </div>
             </td>
@@ -272,12 +272,12 @@
         </tbody>
       </table>
     {% if total_pages > 1 %}
-    <nav class="logs-pager" id="audit-pagination" aria-label="Pagination des journaux">
+    <nav class="logs-pager" id="audit-pagination" aria-label="{{ _('Pagination des journaux') }}">
       <a class="btn btn-ghost btn-sm logs-pager-btn{% if page <= 1 %} is-disabled{% endif %}"
-         id="page-prev" href="#" aria-label="Page précédente"{% if page <= 1 %} aria-disabled="true"{% endif %}>←</a>
+         id="page-prev" href="#" aria-label="{{ _('Page précédente') }}"{% if page <= 1 %} aria-disabled="true"{% endif %}>←</a>
       <span class="logs-pager-status">{{ page }} / {{ total_pages }}</span>
       <a class="btn btn-ghost btn-sm logs-pager-btn{% if page >= total_pages %} is-disabled{% endif %}"
-         id="page-next" href="#" aria-label="Page suivante"{% if page >= total_pages %} aria-disabled="true"{% endif %}>→</a>
+         id="page-next" href="#" aria-label="{{ _('Page suivante') }}"{% if page >= total_pages %} aria-disabled="true"{% endif %}>→</a>
     </nav>
     {% endif %}
     </div>
@@ -288,31 +288,34 @@
     {% if not app_access_apps %}
     <div class="card card-body">
       <p class="page-sub">
-        Aucune application en proxy (public ou sous-domaine) avec FQDN.
-        Les access logs nginx apparaîtront ici après configuration d'une app
+{{ _('Aucune application en proxy (public ou sous-domaine) avec FQDN.') }}
+
+        {{ _("Les access logs nginx apparaîtront ici après configuration d'une app") }}
         <span class="mono">public_proxy</span> ou <span class="mono">subdomain_proxy</span>.
       </p>
     </div>
     {% else %}
     <div class="logs-toolbar audit-toolbar">
-      <label class="form-label" for="app-access-select">Application</label>
-      <select class="form-select" id="app-access-select" aria-label="Application">
-        <option value="">— Choisir —</option>
+      <label class="form-label" for="app-access-select">{{ _('Application') }}</label>
+      <select class="form-select" id="app-access-select" aria-label="{{ _('Application') }}">
+        <option value="">{{ _('— Choisir —') }}</option>
         {% for a in app_access_apps %}
         <option value="{{ a.slug }}">{{ a.label }} · {{ a.public_fqdn }} ({{ a.access_mode }})</option>
         {% endfor %}
       </select>
       <button type="button" class="btn btn-primary btn-sm" id="app-access-load-btn">Charger</button>
       <button type="button" class="btn btn-secondary btn-sm live-btn" id="app-access-live-btn"
-              aria-pressed="false" disabled>● Live</button>
+              aria-pressed="false" disabled>{{ _('● Live') }}</button>
       <button type="button" class="btn btn-secondary btn-sm" id="app-access-copy-btn" disabled>Copier</button>
       <span class="live-status" id="app-access-live-status" hidden>Live</span>
     </div>
     <p class="form-help mb-2">
-      Journal d’accès nginx (<span class="mono">{slug}.access.log</span>) — cliquez une ligne pour le détail.
+{{ _('Journal d’accès nginx (') }}<span class="mono">{slug}.access.log</span>{{ _(') — cliquez une ligne pour le détail.') }}
+
     </p>
     <label class="form-help" style="display:inline-flex;align-items:center;gap:8px;margin-bottom:var(--sp-3);">
-      <input type="checkbox" id="app-access-show-internal"> Afficher hops internes (:8080)
+      <input type="checkbox" id="app-access-show-internal"> {{ _('Afficher hops internes (:8080)') }}
+
     </label>
     <p class="form-help dep-filter-empty" id="app-access-message" hidden></p>
     <div class="table-wrap">
@@ -321,21 +324,21 @@
           <tr>
             <th>Horodatage</th>
             <th>IP</th>
-            <th>Identité</th>
-            <th>Méthode</th>
+            <th>{{ _('Identité') }}</th>
+            <th>{{ _('Méthode') }}</th>
             <th>URI</th>
             <th>Status</th>
-            <th>Upstream</th>
+            <th>{{ _('Upstream') }}</th>
             <th>rt</th>
-            <th>Détail</th>
+            <th>{{ _('Détail') }}</th>
           </tr>
         </thead>
         <tbody id="app-access-tbody">
           <tr class="dep-empty-row" id="app-access-empty-row">
             <td colspan="9">
               <div class="empty-state">
-                <div class="empty-title">Sélectionnez une application</div>
-                <div class="empty-sub">Puis cliquez <strong>Charger</strong>.</div>
+                <div class="empty-title">{{ _('Sélectionnez une application') }}</div>
+                <div class="empty-sub">{{ _('Puis cliquez') }} <strong>Charger</strong>.</div>
               </div>
             </td>
           </tr>
@@ -350,38 +353,38 @@
     {% if not docker_logs_enabled %}
     <div class="card card-body">
       <p class="page-sub">
-        Logs containers désactivés. Activez et configurez le proxy en lecture seule dans
-        <a href="/admin/security#container-logs">Admin → Sécurité → Logs containers</a>.
+        {{ _('Logs containers désactivés. Activez et configurez le proxy en lecture seule dans') }}
+        <a href="/admin/security#container-logs">{{ _('Admin → Sécurité → Logs containers') }}</a>.
       </p>
     </div>
     {% else %}
     <div class="logs-toolbar audit-toolbar">
       <label class="form-label" for="container-select">Container</label>
       <select class="form-select" id="container-select" aria-label="Container">
-        <option value="">— Choisir —</option>
+        <option value="">{{ _('— Choisir —') }}</option>
         {% for c in docker_containers %}
         <option value="{{ c }}">{{ c }}</option>
         {% endfor %}
       </select>
       <button type="button" class="btn btn-primary btn-sm" id="container-load-btn">Charger</button>
       <button type="button" class="btn btn-secondary btn-sm live-btn" id="container-live-btn"
-              aria-pressed="false" disabled>● Live</button>
+              aria-pressed="false" disabled>{{ _('● Live') }}</button>
       <button type="button" class="btn btn-secondary btn-sm" id="container-copy-btn" disabled>Copier</button>
       <span class="live-status" id="container-live-status" hidden>Live</span>
     </div>
     <div class="card">
-      <pre class="container-logs-pre font-mono" id="container-logs-pre" aria-live="polite">Sélectionnez un container de la liste blanche.</pre>
+      <pre class="container-logs-pre font-mono" id="container-logs-pre" aria-live="polite">{{ _('Sélectionnez un container de la liste blanche.') }}</pre>
     </div>
     {% endif %}
   </div>
 </div>
-
 {# Teleported to document.body in scripts — avoids overflow clipping in .main-content #}
+
 <div class="logs-drawer-backdrop" id="audit-drawer-backdrop" hidden></div>
 <div class="logs-drawer" id="audit-drawer" aria-hidden="true">
   <div class="logs-drawer-head">
-    <strong id="audit-drawer-title">Détail</strong>
-    <button type="button" class="btn btn-ghost btn-sm" id="audit-drawer-close">Fermer</button>
+    <strong id="audit-drawer-title">{{ _('Détail') }}</strong>
+    <button type="button" class="btn btn-ghost btn-sm" id="audit-drawer-close">{{ _('Fermer') }}</button>
   </div>
   <div class="logs-drawer-body" id="audit-drawer-body"></div>
 </div>
@@ -398,19 +401,8 @@
 
 {% block head_extra %}
 <style>
-  .live-status { animation: admin-live-pulse 1.6s ease-in-out infinite; }
-  @keyframes admin-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
-  #audit-tbody tr.audit-row-live { animation: admin-audit-row-flash 2s ease-out; }
-  @keyframes admin-audit-row-flash {
-    0% { background: rgba(16, 185, 129, 0.28); }
-    100% { background: transparent; }
-  }
-  .container-logs-pre {
-    margin: 0; padding: var(--sp-4); max-height: 28rem; overflow: auto;
-    white-space: pre-wrap; word-break: break-word; font-size: 0.8em; line-height: 1.45;
-    background: var(--bg-tertiary);
-  }
-  .inline-form { display: inline; }
+{{ _('.live-status { animation: admin-live-pulse 1.6s ease-in-out infinite; } @keyframes admin-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } } #audit-tbody tr.audit-row-live { animation: admin-audit-row-flash 2s ease-out; } @keyframes admin-audit-row-flash { 0% { background: rgba(16, 185, 129, 0.28); } 100% { background: transparent; } } .container-logs-pre { margin: 0; padding: var(--sp-4); max-height: 28rem; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 0.8em; line-height: 1.45; background: var(--bg-tertiary); } .inline-form { display: inline; }') }}
+
 </style>
 {% endblock %}
 

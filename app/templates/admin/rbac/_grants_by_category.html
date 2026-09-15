@@ -1,7 +1,5 @@
-{# Grouped grant tables by category.
-   Expects: grant_rows, empty_message
-   Optional: redirect_url, show_granted_by, show_source, show_actions
-#}
+{# Grouped grant tables by category. Expects: grant_rows, empty_message Optional: redirect_url, show_granted_by, show_source, show_actions #}
+
 {% set show_granted_by = show_granted_by | default(false) %}
 {% set show_source = show_source | default(false) %}
 {% set show_actions = show_actions | default(true) %}
@@ -39,9 +37,9 @@
   <table class="data-table">
     <thead>
       <tr>
-        <th>Ressource</th>
+        <th>{{ _('Ressource') }}</th>
         <th>Niveau</th>
-        {% if show_granted_by %}<th>Accordé par</th>{% endif %}
+        {% if show_granted_by %}<th>{{ _('Accordé par') }}</th>{% endif %}
         {% if show_source %}<th>Provenance</th>{% endif %}
         {% if show_actions %}<th></th>{% endif %}
       </tr>
@@ -77,7 +75,8 @@
 {% if files_grants %}
 <div class="grant-section" style="padding:var(--sp-3) var(--sp-4) 0;{% if app_grants %}border-top:1px solid var(--border);{% endif %}">
   <div class="form-section-title" style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2);">
-    Fichiers &amp; Dossiers
+{{ _('Fichiers &amp; Dossiers') }}
+
     <span class="badge badge-muted">{{ files_grants | length }}</span>
   </div>
 </div>
@@ -85,9 +84,9 @@
   <table class="data-table">
     <thead>
       <tr>
-        <th>Ressource</th>
+        <th>{{ _('Ressource') }}</th>
         <th>Niveau</th>
-        {% if show_granted_by %}<th>Accordé par</th>{% endif %}
+        {% if show_granted_by %}<th>{{ _('Accordé par') }}</th>{% endif %}
         {% if show_source %}<th>Provenance</th>{% endif %}
         {% if show_actions %}<th></th>{% endif %}
       </tr>
@@ -129,7 +128,7 @@
 {% if role_grants %}
 <div class="grant-section" style="padding:var(--sp-3) var(--sp-4) 0;{% if app_grants or files_grants %}border-top:1px solid var(--border);{% endif %}">
   <div class="form-section-title" style="display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2);">
-    Rôles système
+    {{ _('Rôles système') }}
     <span class="badge badge-muted">{{ role_grants | length }}</span>
   </div>
 </div>
@@ -137,9 +136,9 @@
   <table class="data-table">
     <thead>
       <tr>
-        <th>Ressource</th>
+        <th>{{ _('Ressource') }}</th>
         <th>Niveau</th>
-        {% if show_granted_by %}<th>Accordé par</th>{% endif %}
+        {% if show_granted_by %}<th>{{ _('Accordé par') }}</th>{% endif %}
         {% if show_source %}<th>Provenance</th>{% endif %}
         {% if show_actions %}<th></th>{% endif %}
       </tr>

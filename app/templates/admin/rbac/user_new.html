@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Nouvel utilisateur{% endblock %}
-{% block breadcrumb %}Admin / RBAC / Nouvel utilisateur{% endblock %}
+{% block title %}{{ _('Nouvel utilisateur') }}{% endblock %}
+{% block breadcrumb %}Admin / RBAC / {{ _('Nouvel utilisateur') }}{% endblock %}
 
 {% block content %}
 {% set selected_groups = form_values.group_ids or [] %}
@@ -11,10 +11,10 @@
 <div class="page page-form">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Nouvel utilisateur</h1>
-      <p class="page-sub">Compte IdP + groupes + provisioning</p>
+      <h1 class="page-title">{{ _('Nouvel utilisateur') }}</h1>
+      <p class="page-sub">{{ _('Compte IdP + groupes + provisioning') }}</p>
     </div>
-    <a href="/admin/rbac/users" class="btn btn-ghost">← Utilisateurs</a>
+    <a href="/admin/rbac/users" class="btn btn-ghost">{{ _('← Utilisateurs') }}</a>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
@@ -23,9 +23,8 @@
 
   {% if not provision_realms %}
   <div class="alert alert-warn">
-    Aucun realm avec provisioning activé. Configurez le compte de service provisioning
-    (Client ID/Secret dédié, rôle <span class="mono">realm-management:manage-users</span>)
-    et cochez « Activer le provisioning » dans la <a href="/admin/realms">fiche realm</a>.
+    {{ _('Aucun realm avec provisioning activé. Configurez le compte de service provisioning') }}
+{{ _('(Client ID/Secret dédié, rôle') }} <span class="mono">realm-management:manage-users</span>{{ _(') et cochez « Activer le provisioning » dans la') }} <a href="/admin/realms">{{ _('fiche realm') }}</a>.
   </div>
   {% else %}
   <form method="post" action="/admin/rbac/users/new" id="user-new-form">
@@ -34,8 +33,8 @@
       <div class="form-section-header" data-form-accordion-toggle>
         <button type="button" class="ds-accordion-expand" aria-expanded="true" tabindex="-1">▸</button>
         <div>
-          <div class="form-section-title">Identité</div>
-          <div class="form-section-sub">Realm cible et identité Keycloak</div>
+          <div class="form-section-title">{{ _('Identité') }}</div>
+          <div class="form-section-sub">{{ _('Realm cible et identité Keycloak') }}</div>
           <div class="form-section-summary">
             {% if form_values.username %}{{ form_values.username }}{% else %}Nouveau compte{% endif %}
           </div>
@@ -50,12 +49,12 @@
             {% endfor %}
           </select>
           <p class="form-help">
-          Realm principal. Groupes d’autres realms → compte IdP jumeau (même identifiant).
+          {{ _('Realm principal. Groupes d’autres realms → compte IdP jumeau (même identifiant).') }}
         </p>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="first_name">Prénom <span class="req">*</span></label>
+            <label class="form-label" for="first_name">{{ _('Prénom') }} <span class="req">*</span></label>
             <input type="text" id="first_name" name="first_name" class="form-input" value="{{ form_values.first_name or '' }}" required autocomplete="off" placeholder="Laurent" data-identity-first>
           </div>
           <div class="form-group">
@@ -65,21 +64,21 @@
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="username">Identifiant <span class="req">*</span></label>
-            <input type="text" id="username" name="username" class="form-input mono" value="{{ form_values.username or '' }}" required readonly autocomplete="off" placeholder="prenom.nom" data-identity-username aria-describedby="username-help">
-            <p class="form-help" id="username-help">Auto depuis prénom/nom (<span class="mono">prenom.nom</span>).</p>
+            <label class="form-label" for="username">{{ _('Identifiant') }} <span class="req">*</span></label>
+            <input type="text" id="username" name="username" class="form-input mono" value="{{ form_values.username or '' }}" required readonly autocomplete="off" placeholder="{{ _('prenom.nom') }}" data-identity-username aria-describedby="username-help">
+            <p class="form-help" id="username-help">{{ _('Auto depuis prénom/nom (') }}<span class="mono">{{ _('prenom.nom') }}</span>).</p>
           </div>
           <div class="form-group">
-            <label class="form-label" for="email">Email <span class="req">*</span></label>
-            <input type="email" id="email" name="email" class="form-input" value="{{ form_values.email or '' }}" required autocomplete="off" placeholder="prenom.nom@example.com">
+            <label class="form-label" for="email">{{ _('Email') }} <span class="req">*</span></label>
+            <input type="email" id="email" name="email" class="form-input" value="{{ form_values.email or '' }}" required autocomplete="off" placeholder="{{ _('prenom.nom@example.com') }}">
           </div>
         </div>
         <div class="form-row form-row--org-pick">
           <div class="form-group">
-            <label class="form-label" for="organization_pick">Société existante</label>
+            <label class="form-label" for="organization_pick">{{ _('Société existante') }}</label>
             {% set org_pick = form_values.organization_pick|default('') %}
             <select id="organization_pick" name="organization_pick" class="form-select" data-org-pick>
-              <option value=""{% if not org_pick or org_pick == '__new__' %} selected{% endif %}>— Choisir une société —</option>
+              <option value=""{% if not org_pick or org_pick == '__new__' %} selected{% endif %}>{{ _('— Choisir une société —') }}</option>
               {% for g in company_groups %}
               <option value="{{ g.id }}"
                       data-realm-id="{{ g.realm_id }}"
@@ -90,43 +89,45 @@
               {% endfor %}
             </select>
             <p class="form-help" data-org-existing-help{% if not org_pick or org_pick == '__new__' %} hidden{% endif %}>
-              Groupe société RBAC (provisioning, droits hérités).
+              {{ _('Groupe société RBAC (provisioning, droits hérités).') }}
             </p>
           </div>
           <div class="form-group">
-            <label class="form-label" for="organization">Nouvelle société</label>
+            <label class="form-label" for="organization">{{ _('Nouvelle société') }}</label>
             <input type="text" id="organization" name="organization" class="form-input"
                    value="{{ form_values.organization or '' }}" autocomplete="off"
                    placeholder="SDIS 95" data-org-new-input>
             <p class="form-help" data-org-new-help>
-              Si aucune société existante ne convient. Variantes (<span class="mono">SDIS 81</span>,
-              <span class="mono">SDIS81</span>) sont fusionnées avec un groupe existant du même realm.
+{{ _('Si aucune société existante ne convient. Variantes (') }}<span class="mono">SDIS 81</span>,
+              <span class="mono">SDIS81</span>{{ _(') sont fusionnées avec un groupe existant du même realm.') }}
+
             </p>
           </div>
         </div>
         <p class="form-help" style="margin-top:calc(-1 * var(--sp-2));">
-          <span class="req">*</span> Société requise — renseignez l'une des deux colonnes ci-dessus.
+          <span class="req">*</span> {{ _("Société requise — renseignez l'une des deux colonnes ci-dessus.") }}
+
         </p>
         <div class="alert alert-info" style="margin:0;">
-          Mot de passe initial généré automatiquement (temporaire —
-          <span class="mono">UPDATE_PASSWORD</span> à la 1<sup>re</sup> connexion).
-          Choisissez l’envoi email et/ou l’affichage unique après création.
+          {{ _('Mot de passe initial généré automatiquement (temporaire —') }}
+          <span class="mono">UPDATE_PASSWORD</span> {{ _('à la 1ʳᵉ connexion).') }}
+          {{ _('Choisissez l’envoi email et/ou l’affichage unique après création.') }}
         </div>
         <label class="form-check" style="margin-top:var(--sp-3);">
           <input type="checkbox" name="send_credentials" value="on" id="send_credentials"
                  data-send-credentials
                  {% if form_values.send_credentials %}checked{% endif %}>
-          <span>Envoyer les identifiants par email (SMTP global)</span>
+          <span>{{ _('Envoyer les identifiants par email (SMTP global)') }}</span>
         </label>
         <label class="form-check" style="margin-top:var(--sp-2);">
           <input type="checkbox" name="reveal_password" value="on" id="reveal_password"
                  data-reveal-password
                  {% if form_values.reveal_password or not form_values.send_credentials %}checked{% endif %}>
-          <span>Afficher le mot de passe après création (une seule fois sur la fiche)</span>
+          <span>{{ _('Afficher le mot de passe après création (une seule fois sur la fiche)') }}</span>
         </label>
         <p class="form-help">
-          Si l’email n’est pas envoyé, le mot de passe est affiché une fois sur la fiche compte
-          (même sans cette case). Jamais renvoyé ensuite — utilisez « Reset password ».
+          {{ _('Si l’email n’est pas envoyé, le mot de passe est affiché une fois sur la fiche compte') }}
+          {{ _('(même sans cette case). Jamais renvoyé ensuite — utilisez « Reset password ».') }}
         </p>
       </div>
     </div>
@@ -135,17 +136,17 @@
       <div class="form-section-header" data-form-accordion-toggle>
         <button type="button" class="ds-accordion-expand" aria-expanded="{{ 'true' if selected_groups else 'false' }}" tabindex="-1">▸</button>
         <div>
-          <div class="form-section-title">Groupes RBAC</div>
-          <div class="form-section-sub">Optionnel — tous realms (compte IdP jumeau si besoin)</div>
+          <div class="form-section-title">{{ _('Groupes RBAC') }}</div>
+          <div class="form-section-sub">{{ _('Optionnel — tous realms (compte IdP jumeau si besoin)') }}</div>
           <div class="form-section-summary is-off" data-groups-summary>Filtrage…</div>
         </div>
       </div>
       <div class="form-body">
         {% if provision_groups %}
         <div class="form-group" style="margin-bottom:var(--sp-3);">
-          <label class="form-label" for="group_filter">Rechercher un groupe</label>
+          <label class="form-label" for="group_filter">{{ _('Rechercher un groupe') }}</label>
           <input type="search" id="group_filter" class="form-input" data-group-filter
-                 placeholder="Nom ou chemin…" autocomplete="off">
+                 placeholder="{{ _('Nom ou chemin…') }}" autocomplete="off">
         </div>
         <div class="stack" style="gap:var(--sp-3); max-height:22rem; overflow:auto; padding-right:var(--sp-2);" data-groups-list>
           {% for g in provision_groups %}
@@ -158,10 +159,10 @@
           </label>
           {% endfor %}
         </div>
-        <p class="form-help" data-groups-filter-empty hidden>Aucun groupe ne correspond au filtre.</p>
-        <p class="form-help" data-groups-empty hidden>Aucun groupe importé pour ce realm — lancez la sync des groupes sur la fiche realm.</p>
+        <p class="form-help" data-groups-filter-empty hidden>{{ _('Aucun groupe ne correspond au filtre.') }}</p>
+        <p class="form-help" data-groups-empty hidden>{{ _('Aucun groupe importé pour ce realm — lancez la sync des groupes sur la fiche realm.') }}</p>
         {% else %}
-        <p class="form-help">Aucun groupe importé — lancez la sync des groupes sur la fiche realm.</p>
+        <p class="form-help">{{ _('Aucun groupe importé — lancez la sync des groupes sur la fiche realm.') }}</p>
         {% endif %}
       </div>
     </div>
@@ -171,9 +172,9 @@
         <button type="button" class="ds-accordion-expand" aria-expanded="{{ 'true' if (selected_apps or apps_with_driver) else 'false' }}" tabindex="-1">▸</button>
         <div>
           <div class="form-section-title">Provisioning applicatif</div>
-          <div class="form-section-sub">Optionnel — création de compte local via le driver de l’appli</div>
+          <div class="form-section-sub">{{ _('Optionnel — création de compte local via le driver de l’appli') }}</div>
           <div class="form-section-summary{% if not apps_with_driver %} is-off{% endif %}">
-            {% if apps_with_driver %}{{ apps_with_driver|length }} driver(s) disponible(s){% else %}Aucun driver configuré — SSO uniquement{% endif %}
+            {% if apps_with_driver %}{{ apps_with_driver|length }} {{ _('driver(s) disponible(s)') }}{% else %}{{ _('Aucun driver configuré — SSO uniquement') }}{% endif %}
           </div>
         </div>
       </div>
@@ -190,16 +191,17 @@
         </div>
         {% else %}
         <p class="form-help">
-          Aucune application n’a de driver de provisioning.
-          Configurez-le dans le catalogue (ex. CrushFTP).
+{{ _('Aucune application n’a de driver de provisioning. Configurez-le dans le catalogue (ex. CrushFTP).') }}
+
         </p>
         {% endif %}
 
         {% if apps_sso_only %}
         <details style="margin-top:var(--sp-2);">
           <summary class="form-help" style="cursor:pointer; user-select:none;">
-            {{ apps_sso_only|length }} application(s) SSO uniquement
-            <span style="color:var(--text-3);">(aucun compte local à créer)</span>
+            {{ apps_sso_only|length }} {{ _('application(s) SSO uniquement') }}
+
+            <span style="color:var(--text-3);">{{ _('(aucun compte local à créer)') }}</span>
           </summary>
           <div class="stack" style="gap:var(--sp-3); margin-top:var(--sp-3); padding-left:var(--sp-2);">
             {% for a in apps_sso_only %}
@@ -211,7 +213,7 @@
             {% endfor %}
           </div>
           <p class="form-help" style="margin-top:var(--sp-3);">
-            Sélection optionnelle : le statut sera « non applicable » sur la fiche du compte.
+            {{ _('Sélection optionnelle : le statut sera « non applicable » sur la fiche du compte.') }}
           </p>
         </details>
         {% endif %}
@@ -220,8 +222,8 @@
 
     <div class="form-section form-section-gap">
       <div class="form-footer">
-        <button type="submit" class="btn btn-primary">Créer le compte</button>
-        <a href="/admin/rbac/users" class="btn btn-ghost">Annuler</a>
+        <button type="submit" class="btn btn-primary">{{ _('Créer le compte') }}</button>
+        <a href="/admin/rbac/users" class="btn btn-ghost">{{ _('Annuler') }}</a>
       </div>
     </div>
   </form>

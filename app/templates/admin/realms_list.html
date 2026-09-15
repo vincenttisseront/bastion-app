@@ -40,11 +40,11 @@
   <div class="page-header">
     <div>
       <h1 class="page-title">Realms OIDC</h1>
-      <p class="page-sub">IdP et export oauth2-proxy</p>
+      <p class="page-sub">{{ _('IdP et export oauth2-proxy') }}</p>
     </div>
     <div class="page-header-actions">
-      <a href="/admin/realms/session-alignment" class="btn btn-ghost btn-sm">Alignement sessions SSO</a>
-      <a href="/admin/realms/new" class="btn btn-primary btn-sm">+ Créer</a>
+      <a href="/admin/realms/session-alignment" class="btn btn-ghost btn-sm">{{ _('Alignement sessions SSO') }}</a>
+      <a href="/admin/realms/new" class="btn btn-primary btn-sm">{{ _('+ Créer') }}</a>
     </div>
   </div>
 
@@ -57,7 +57,7 @@
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">Realms · {{ realms | length }}</span>
+      <span class="card-title">{{ _('Realms ·') }} {{ realms | length }}</span>
     </div>
     <div class="card-body card-flush">
       <div class="table-wrap">
@@ -67,12 +67,12 @@
               <th>Slug</th>
               <th>Nom</th>
               <th>Issuer</th>
-              <th title="Port oauth2-proxy">Port</th>
-              <th class="col-ico" title="Dernier test OIDC">Test</th>
-              <th class="col-ico" title="Realm activé">Actif</th>
-              <th class="col-ico" title="Session OIDC native">Natif</th>
+              <th title="{{ _('Port oauth2-proxy') }}">Port</th>
+              <th class="col-ico" title="{{ _('Dernier test OIDC') }}">Test</th>
+              <th class="col-ico" title="{{ _('Realm activé') }}">Actif</th>
+              <th class="col-ico" title="{{ _('Session OIDC native') }}">{{ _('Natif') }}</th>
               <th class="col-ico" title="MFA / OTP">MFA</th>
-              <th class="col-ico" title="Visible sur la page de login">Login</th>
+              <th class="col-ico" title="{{ _('Visible sur la page de login') }}">Login</th>
               <th></th>
             </tr>
           </thead>
@@ -81,7 +81,7 @@
             <tr data-searchable>
               <td class="mono">
                 <span class="realms-slug-cell">
-                  {{ realm.slug }}{% if realm.is_default %}<span class="badge badge-info">défaut</span>{% endif %}
+                  {{ realm.slug }}{% if realm.is_default %}<span class="badge badge-info">{{ _('défaut') }}</span>{% endif %}
                 </span>
               </td>
               <td>{{ realm.name }}</td>
@@ -110,7 +110,7 @@
               </td>
               <td>
                 <div class="users-row-actions realms-row-actions">
-                  <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Éditer</a>
+                  <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">{{ _('Éditer') }}</a>
                   <form method="post" action="/admin/realms/{{ realm.id }}/export">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button class="btn btn-ghost btn-sm" {% if realm.last_test_status != 'ok' %}disabled{% endif %}>Export</button>
@@ -129,12 +129,12 @@
                   {% if realm.oidc_native_session_enabled %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/oidc-native-session/disable">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button class="btn btn-ghost btn-sm" title="Désactiver le formulaire natif + bastion_session pour ce realm">Natif</button>
+                      <button class="btn btn-ghost btn-sm" title="{{ _('Désactiver le formulaire natif + bastion_session pour ce realm') }}">{{ _('Natif') }}</button>
                     </form>
                   {% else %}
                     <form method="post" action="/admin/realms/{{ realm.id }}/oidc-native-session/enable">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <button class="btn btn-ghost btn-sm" title="Activer la session native OIDC">Natif</button>
+                      <button class="btn btn-ghost btn-sm" title="{{ _('Activer la session native OIDC') }}">{{ _('Natif') }}</button>
                     </form>
                   {% endif %}
                 </div>
@@ -149,9 +149,9 @@
                       <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
                     </svg>
                   </div>
-                  <div class="empty-title">Aucun realm configuré</div>
-                  <div class="empty-desc">Créez un realm OIDC pour configurer un IdP et générer l'export oauth2-proxy.</div>
-                  <a href="/admin/realms/new" class="btn btn-primary btn-sm">Créer un realm</a>
+                  <div class="empty-title">{{ _('Aucun realm configuré') }}</div>
+                  <div class="empty-desc">{{ _("Créez un realm OIDC pour configurer un IdP et générer l'export oauth2-proxy.") }}</div>
+                  <a href="/admin/realms/new" class="btn btn-primary btn-sm">{{ _('Créer un realm') }}</a>
                 </div>
               </td>
             </tr>

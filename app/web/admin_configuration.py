@@ -141,12 +141,14 @@ def admin_configuration_smtp_test(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
+    from app.i18n.middleware import get_request_locale
     from app.mail.smtp_service import test_smtp_connection
 
     ok, message = test_smtp_connection(
         db,
         settings,
         actor=_actor(user),
+        locale=get_request_locale(request),
     )
     response = RedirectResponse(url=_CONFIG_SMTP, status_code=302)
     flash_redirect(

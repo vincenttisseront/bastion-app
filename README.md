@@ -1,19 +1,19 @@
 # bastion-app
 
-Portail SSO et reverse-proxy pour exposer des applications internes derrière OIDC.
+SSO portal and reverse proxy to expose internal applications behind OIDC.
 
-**Dépôt et images Docker Hub publics.** Le déploiement, c’est un `docker-compose.yml`.
+**Public repository and Docker Hub images.** Deployment is a `docker-compose.yml`.
 
 ---
 
-## Déployer
+## Deploy
 
 ```bash
 git clone https://github.com/vincenttisseront/bastion-app.git
 cd bastion-app/deploy
 
 cp .env.example .env
-# Éditer PORTAL_DOMAIN + secrets (voir commentaires dans .env.example)
+# Edit PORTAL_DOMAIN + secrets (see comments in .env.example)
 
 docker network create --subnet=10.5.0.0/16 vpcbr 2>/dev/null || true
 mkdir -p data/sso-portal data/sso-portal-files/private/files
@@ -22,16 +22,16 @@ docker compose pull
 docker compose up -d
 ```
 
-Vérifier :
+Verify:
 
 ```bash
 curl -fsS http://127.0.0.1:8000/api/health
 curl -fsS http://127.0.0.1:8080/_portal_nginx_ok
 ```
 
-Puis : break-glass → **Admin → Setup** → **Realms** → Test OIDC → **Apply**.
+Then: break-glass → **Admin → Setup** → **Realms** → Test OIDC → **Apply**.
 
-Guide complet : **[deploy/README.md](deploy/README.md)**.
+Full guide: **[deploy/README.md](deploy/README.md)** (French).
 
 | Image | Docker Hub | GitHub (GHCR) |
 |-------|------------|---------------|
@@ -39,28 +39,32 @@ Guide complet : **[deploy/README.md](deploy/README.md)**.
 | Migrations | `vincenttisseront/bastion-pro-migrate` | `ghcr.io/vincenttisseront/bastion-pro-migrate` |
 | Nginx | `vincenttisseront/bastion-pro-nginx` | `ghcr.io/vincenttisseront/bastion-pro-nginx` |
 
-Tags alignés Hub ↔ GitHub Releases : `:v0.8.0`, `:latest`, et SHA court (`:b6c09da`…).  
-Release : https://github.com/vincenttisseront/bastion-app/releases
+Tags aligned Hub ↔ GitHub Releases: `:v0.9.0`, `:latest`, and short SHA (`:b6c09da`…).  
+Releases: https://github.com/vincenttisseront/bastion-app/releases
 
-Pin optionnel dans `.env` : `BASTION_APP_IMAGE=…:v0.8.0` (idem migrate / nginx).
+Optional pin in `.env`: `BASTION_APP_IMAGE=…:v0.9.0` (same for migrate / nginx).
 
-Mettre à jour : `docker compose pull && docker compose up -d`.
+Update: `docker compose pull && docker compose up -d`.
+
+### Language
+
+The admin and portal UI support **French** (default) and **English**. Use the **FR / EN** control in the top bar or profile preferences. Preference is stored in the `portal_locale` cookie.
 
 ---
 
-## Ansible (optionnel)
+## Ansible (optional)
 
-Automatise la même chose (Vault → `.env` + compose). **Pas requis** pour déployer.
+Automates the same flow (Vault → `.env` + compose). **Not required** to deploy.
 
 ```bash
 ansible-playbook ansible/linux_sso_portal_docker.yml -i inventory --tags docker
 ```
 
-Voir [ansible/README.md](ansible/README.md).
+See [ansible/README.md](ansible/README.md).
 
 ---
 
-## Développement
+## Development
 
 ```bash
 pip install -e ".[dev]"
@@ -68,10 +72,10 @@ cp .env.example .env
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Build local : `docker compose up -d --build` à la racine du dépôt (hors chemin prod).
+Local build: `docker compose up -d --build` at the repository root (not the production path).
 
 ---
 
 ## Licence
 
-À définir (`LICENSE` avant publication si besoin).
+To be defined (`LICENSE` before publication if needed).

@@ -1,5 +1,5 @@
 {% extends "base_public.html" %}
-{% block title %}Configuration initiale{% endblock %}
+{% block title %}{{ _('Configuration initiale') }}{% endblock %}
 
 {% block content %}
 <div class="login-container">
@@ -15,10 +15,10 @@
         {% endif %}
       </div>
       <h1 class="login-brand-title">
-        {% if branding.show_product_branding %}Configuration initiale{% else %}{{ branding.company_name }} — configuration{% endif %}
+        {% if branding.show_product_branding %}{{ _('Configuration initiale') }}{% else %}{{ branding.company_name }} {{ _('— configuration') }}{% endif %}
       </h1>
       <p class="login-brand-sub">
-        {% if branding.welcome_text %}{{ branding.welcome_text }}{% else %}Ce compte administrateur local ne pourra être créé qu'une fois.{% endif %}
+        {% if branding.welcome_text %}{{ branding.welcome_text }}{% else %}{{ _("Ce compte administrateur local ne pourra être créé qu'une fois.") }}{% endif %}
       </p>
     </div>
 
@@ -36,7 +36,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="rd" value="{{ rd | default('/admin/setup-wizard') }}">
       <div class="form-group">
-        <label class="form-label" for="username">Utilisateur</label>
+        <label class="form-label" for="username">{{ _('Utilisateur') }}</label>
         <input
           type="text"
           id="username"
@@ -48,7 +48,7 @@
         >
       </div>
       <div class="form-group">
-        <label class="form-label" for="password">Mot de passe</label>
+        <label class="form-label" for="password">{{ _('Mot de passe') }}</label>
         <input
           type="password"
           id="password"
@@ -58,10 +58,10 @@
           minlength="12"
           autocomplete="new-password"
         >
-        <small>Au moins 12 caractères.</small>
+        <small>{{ _('Au moins 12 caractères.') }}</small>
       </div>
       <div class="form-group">
-        <label class="form-label" for="password_confirm">Confirmation</label>
+        <label class="form-label" for="password_confirm">{{ _('Confirmation') }}</label>
         <input
           type="password"
           id="password_confirm"
@@ -72,7 +72,7 @@
           autocomplete="new-password"
         >
       </div>
-      <button type="submit" class="btn btn-primary btn-full">Créer le compte</button>
+      <button type="submit" class="btn btn-primary btn-full">{{ _('Créer le compte') }}</button>
     </form>
   </div>
   {% if branding.footer_text or branding.support_contact %}

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Modifier {{ app.label }}{% endblock %}
+{% block title %}{{ _('Modifier') }} {{ app.label }}{% endblock %}
 {% block breadcrumb %}Admin / Applications / {{ app.slug }}{% endblock %}
 
 {% block content %}
@@ -13,19 +13,19 @@
 <div class="page page-form page-form--wide">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Modifier {{ app.label }}</h1>
-      <p class="page-sub">Slug interne : <span class="mono">{{ app.slug }}</span> (non modifiable)</p>
+      <h1 class="page-title">{{ _('Modifier') }} {{ app.label }}</h1>
+      <p class="page-sub">{{ _('Slug interne :') }} <span class="mono">{{ app.slug }}</span> {{ _('(non modifiable)') }}</p>
     </div>
     {% if app.allow_activesync %}
     <div class="page-header-actions">
-      <a class="btn btn-secondary btn-sm" href="/admin/apps/{{ app.slug }}/activesync/devices/preview">Contrôle des appareils</a>
+      <a class="btn btn-secondary btn-sm" href="/admin/apps/{{ app.slug }}/activesync/devices/preview">{{ _('Contrôle des appareils') }}</a>
     </div>
     {% endif %}
   </div>
 
   <form method="post" action="/admin/apps/{{ app.slug }}/edit" id="app-form">
     <div class="wizard" data-wizard data-initial-step="general">
-      <div class="wizard-stepper" role="tablist" aria-label="Configuration de l'application">
+      <div class="wizard-stepper" role="tablist" aria-label="{{ _('Configuration de l\'application') }}">
         <button
           type="button"
           class="wizard-step is-todo"
@@ -38,7 +38,7 @@
         >
           <span class="wizard-step-rail" aria-hidden="true"></span>
           <span class="wizard-step-dot" aria-hidden="true">1</span>
-          <span class="wizard-step-label">Général</span>
+          <span class="wizard-step-label">{{ _('Général') }}</span>
         </button>
         <button
           type="button"
@@ -52,7 +52,7 @@
         >
           <span class="wizard-step-rail" aria-hidden="true"></span>
           <span class="wizard-step-dot" aria-hidden="true">2</span>
-          <span class="wizard-step-label">Authentification</span>
+          <span class="wizard-step-label">{{ _('Authentification') }}</span>
         </button>
         <button
           type="button"
@@ -66,7 +66,7 @@
         >
           <span class="wizard-step-rail" aria-hidden="true"></span>
           <span class="wizard-step-dot" aria-hidden="true">3</span>
-          <span class="wizard-step-label">Présentation</span>
+          <span class="wizard-step-label">{{ _('Présentation') }}</span>
         </button>
         {% if show_vault_step %}
         <button
@@ -102,11 +102,11 @@
 
       <section class="wizard-panel" id="wizard-panel-general" role="tabpanel" aria-labelledby="wizard-tab-general" data-wizard-panel="general" hidden>
         <header class="wizard-panel-head">
-          <h3 class="wizard-panel-title">Informations générales</h3>
+          <h3 class="wizard-panel-title">{{ _('Informations générales') }}</h3>
         </header>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label" for="label">Nom affiché <span class="req">*</span></label>
+            <label class="form-label" for="label">{{ _('Nom affiché') }} <span class="req">*</span></label>
             <div class="input-wrap">
               <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/></svg>
               <input type="text" id="label" name="label" class="form-input{% if errors.label %} is-invalid{% endif %}" value="{{ app.label }}" required>
@@ -114,7 +114,7 @@
             {% if errors.label %}<div class="form-error">{{ errors.label }}</div>{% endif %}
           </div>
           <div class="form-group">
-            <label class="form-label" for="access_mode">Mode d'accès</label>
+            <label class="form-label" for="access_mode">{{ _("Mode d'accès") }}</label>
             <select id="access_mode" name="access_mode" class="form-select" data-access-mode-select>
               {% for mode in access_modes %}
               <option value="{{ mode }}"{% if selected_mode == mode %} selected{% endif %}>{{ access_mode_labels[mode] }}</option>
@@ -126,33 +126,33 @@
 
         <div id="access-mode-legacy-warning" class="alert alert-warn" hidden>
           <div class="alert-body">
-            Ce mode ne fonctionne que si l'application supporte un déploiement en sous-chemin.
-            En cas de doute, utilisez SSO Gate ou Sous-domaine dédié.
+            {{ _("Ce mode ne fonctionne que si l'application supporte un déploiement en sous-chemin.") }}
+            {{ _('En cas de doute, utilisez SSO Gate ou Sous-domaine dédié.') }}
           </div>
         </div>
 
         <div id="access-mode-public-warning" class="alert alert-warn" hidden>
           <div class="alert-body">
-            ⚠️ Ce mode ne vérifie <strong>aucune authentification bastion</strong>
-            (pas de SSO, pas de RBAC, pas d'<span class="mono">auth_request</span>).
-            Le trafic est relayé tel quel vers l'URL backend. N'utilisez ce mode que si
-            l'application gère elle-même son contrôle d'accès, ou si elle est destinée à
-            être publique. Cette application <strong>n'apparaîtra pas</strong> dans le
-            catalogue « Mes applications » des utilisateurs.
+            {{ _('⚠️ Ce mode ne vérifie') }} <strong>{{ _('aucune authentification bastion') }}</strong>
+            {{ _("(pas de SSO, pas de RBAC, pas d'") }}<span class="mono">auth_request</span>).
+            {{ _("Le trafic est relayé tel quel vers l'URL backend. N'utilisez ce mode que si") }}
+            {{ _("l'application gère elle-même son contrôle d'accès, ou si elle est destinée à") }}
+            {{ _('être publique. Cette application') }} <strong>{{ _("n'apparaîtra pas") }}</strong>
+            {{ _('dans le catalogue « Mes applications » des utilisateurs.') }}
           </div>
         </div>
 
         {% if rbac_grant_count | default(0) > 0 %}
         <div id="access-mode-public-rbac-warning" class="alert alert-warn" hidden>
           <div class="alert-body">
-            Ce mode ne vérifie aucun droit RBAC bastion — les droits existants
-            ({{ rbac_grant_count }}) sont sans effet.
+            {{ _('Ce mode ne vérifie aucun droit RBAC bastion — les droits existants') }}
+            ({{ rbac_grant_count }}) {{ _('sont sans effet.') }}
           </div>
         </div>
         {% endif %}
 
         <div class="form-group" id="public-fqdn-group" hidden>
-          <label class="form-label" for="public_fqdn" id="public-fqdn-label">Sous-domaine public <span class="req">*</span></label>
+          <label class="form-label" for="public_fqdn" id="public-fqdn-label">{{ _('Sous-domaine public') }} <span class="req">*</span></label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             <input type="text" id="public_fqdn" name="public_fqdn" class="form-input{% if errors.public_fqdn %} is-invalid{% endif %}" value="{{ app.public_fqdn or '' }}" placeholder="app.example.com" data-portal-domain="{{ portal_domain }}">
@@ -160,9 +160,10 @@
           {% if errors.public_fqdn %}<div class="form-error">{{ errors.public_fqdn }}</div>{% endif %}
           <div id="fqdn-cookie-domain-warning" class="alert alert-warn alert-spaced" hidden>
             <div class="alert-body">
-              Domaine sans racine commune avec le portail
+{{ _('Domaine sans racine commune avec le portail') }}
+
               <span class="mono" data-portal-domain-label>{{ portal_domain }}</span> —
-              cookies de session impossibles. Préférez SSO Gate ou un FQDN sous la même racine.
+              {{ _('cookies de session impossibles. Préférez SSO Gate ou un FQDN sous la même racine.') }}
             </div>
           </div>
         </div>
@@ -179,43 +180,45 @@
 
         <label class="form-check">
           <input type="checkbox" name="enabled"{% if app.enabled %} checked{% endif %}>
-          Application activée
+          {{ _('Application activée') }}
         </label>
 
         <label class="form-check" id="allow-activesync-wrap" {% if app.access_mode != 'subdomain_proxy' %}hidden{% endif %}>
           <input type="checkbox" name="allow_activesync" id="allow_activesync"{% if app.allow_activesync %} checked{% endif %}>
-          Accès mobile ActiveSync / Autodiscover
+          {{ _('Accès mobile ActiveSync / Autodiscover') }}
         </label>
         <p class="form-help" id="allow-activesync-help" {% if app.access_mode != 'subdomain_proxy' %}hidden{% endif %}>
-          ActiveSync / Autodiscover — upstream interne, auth Basic ou SSO (pas de redirect navigateur).
+{{ _('ActiveSync / Autodiscover — upstream interne, auth Basic ou SSO (pas de redirect navigateur).') }}
+
         </p>
         {% if app.allow_activesync %}
         <div class="form-group" id="activesync-device-control-entry">
-          <a class="btn btn-secondary btn-sm" href="/admin/apps/{{ app.slug }}/activesync/devices/preview">Contrôle des appareils</a>
-          <p class="form-help">Prévisualiser, puis activer le refus des inconnus.</p>
+          <a class="btn btn-secondary btn-sm" href="/admin/apps/{{ app.slug }}/activesync/devices/preview">{{ _('Contrôle des appareils') }}</a>
+          <p class="form-help">{{ _('Prévisualiser, puis activer le refus des inconnus.') }}</p>
         </div>
         {% endif %}
 
         <div id="m2m-access-wrap" {% if app.access_mode != 'subdomain_proxy' %}hidden{% endif %}>
-          <h4 class="form-section-title" style="margin-top:var(--sp-4);font-size:1rem;">Accès machine (M2M)</h4>
+          <h4 class="form-section-title" style="margin-top:var(--sp-4);font-size:1rem;">{{ _('Accès machine (M2M)') }}</h4>
           <p class="form-help" id="m2m-access-help">
-            Même URL que le navigateur : Basic/Bearer acceptés sans cookie SSO
-            (l’upstream doit valider le secret). Les chemins listés contournent le SSO
-            (webhooks, agents) — l’upstream authentifie.
+            {{ _('Même URL que le navigateur : Basic/Bearer acceptés sans cookie SSO') }}
+            {{ _('(l’upstream doit valider le secret). Les chemins listés contournent le SSO') }}
+{{ _('(webhooks, agents) — l’upstream authentifie.') }}
+
           </p>
           <label class="form-check">
             <input type="checkbox" name="m2m_accept_basic" id="m2m_accept_basic"{% if app.m2m_accept_basic %} checked{% endif %}>
-            Accepter HTTP Basic (même URL)
+            {{ _('Accepter HTTP Basic (même URL)') }}
           </label>
           <label class="form-check">
             <input type="checkbox" name="m2m_accept_bearer" id="m2m_accept_bearer"{% if app.m2m_accept_bearer %} checked{% endif %}>
-            Accepter Bearer (même URL)
+            {{ _('Accepter Bearer (même URL)') }}
           </label>
           <div class="form-group">
-            <label class="form-label" for="m2m_bypass_paths">Chemins sans SSO (un par ligne)</label>
+            <label class="form-label" for="m2m_bypass_paths">{{ _('Chemins sans SSO (un par ligne)') }}</label>
             <textarea id="m2m_bypass_paths" name="m2m_bypass_paths" class="form-input mono" rows="4"
               placeholder="/webhook&#10;/api/">{{ m2m_bypass_paths_text | default('') }}</textarea>
-            <p class="form-help">Préfixe avec « / » final (ex. <span class="mono">/api/</span>) ou chemin exact. Interdit : <span class="mono">/</span> seul.</p>
+            <p class="form-help">{{ _('Préfixe avec « / » final (ex.') }} <span class="mono">/api/</span>{{ _(') ou chemin exact. Interdit :') }} <span class="mono">/</span> seul.</p>
             {% if errors.m2m_bypass_paths %}<div class="form-error">{{ errors.m2m_bypass_paths }}</div>{% endif %}
           </div>
           <label class="form-check">
@@ -226,16 +229,16 @@
 
         <label class="form-check" id="upstream-tls-verify-wrap" {% if app.access_mode == 'sso_gate' %}hidden{% endif %}>
           <input type="checkbox" name="upstream_tls_verify" id="upstream_tls_verify"{% if app.upstream_tls_verify %} checked{% endif %}>
-          Vérifier le certificat TLS de l’upstream (depuis le bastion)
+          {{ _('Vérifier le certificat TLS de l’upstream (depuis le bastion)') }}
         </label>
         <p class="form-help" id="upstream-tls-verify-help" {% if app.access_mode == 'sso_gate' %}hidden{% endif %}>
-          Robotique, analyse formulaire, proxy nginx. Désactiver pour LAN / auto-signé.
+          {{ _('Robotique, analyse formulaire, proxy nginx. Désactiver pour LAN / auto-signé.') }}
         </p>
       </section>
 
       <section class="wizard-panel" id="wizard-panel-auth" role="tabpanel" aria-labelledby="wizard-tab-auth" data-wizard-panel="auth" hidden>
         <header class="wizard-panel-head">
-          <h3 class="wizard-panel-title">Mode d'authentification</h3>
+          <h3 class="wizard-panel-title">{{ _("Mode d'authentification") }}</h3>
         </header>
         {% set form_values = {
           'auth_mode': app.auth_mode,
@@ -251,37 +254,37 @@
 
       <section class="wizard-panel" id="wizard-panel-presentation" role="tabpanel" aria-labelledby="wizard-tab-presentation" data-wizard-panel="presentation" hidden>
         <header class="wizard-panel-head">
-          <h3 class="wizard-panel-title">Présentation</h3>
+          <h3 class="wizard-panel-title">{{ _('Présentation') }}</h3>
         </header>
-        <p class="form-help" style="margin-top:0;">Texte court affiché sous le nom sur le portail (max. 140 caractères)</p>
+        <p class="form-help" style="margin-top:0;">{{ _('Texte court affiché sous le nom sur le portail (max. 140 caractères)') }}</p>
         {% include "admin/apps/_description_logo_sections.html" with context %}
       </section>
 
       {% if show_vault_step %}
       <section class="wizard-panel" id="wizard-panel-vault" role="tabpanel" aria-labelledby="wizard-tab-vault" data-wizard-panel="vault" hidden>
         <header class="wizard-panel-head">
-          <h3 class="wizard-panel-title">Credential vault</h3>
+          <h3 class="wizard-panel-title">{{ _('Credential vault') }}</h3>
         </header>
-        <p class="form-help" style="margin-top:0;">Compte de service robotic — mot de passe chiffré en base</p>
+        <p class="form-help" style="margin-top:0;">{{ _('Compte de service robotic — mot de passe chiffré en base') }}</p>
         {% include "admin/apps/_vault_credential_section.html" with context %}
       </section>
       {% endif %}
 
       <section class="wizard-panel" id="wizard-panel-provisioning" role="tabpanel" aria-labelledby="wizard-tab-provisioning" data-wizard-panel="provisioning" hidden>
         <header class="wizard-panel-head">
-          <h3 class="wizard-panel-title">Provisioning de comptes</h3>
+          <h3 class="wizard-panel-title">{{ _('Provisioning de comptes') }}</h3>
         </header>
         {% set current_provision_driver = app.provisioning_driver or '' %}
         <div class="form-group" id="provisioning-driver-section">
-          <label class="form-label" for="provisioning_driver">Driver de provisioning</label>
+          <label class="form-label" for="provisioning_driver">{{ _('Driver de provisioning') }}</label>
           <select id="provisioning_driver" name="provisioning_driver" class="form-select">
             {% for value, label in provisioning_driver_labels.items() %}
             <option value="{{ value }}"{% if current_provision_driver == value %} selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
           <p class="form-help">
-            Pour « Nouvel utilisateur ». <span class="mono">crushftp</span> = section API Admin.
-            Vide = SSO seul.
+{{ _('Pour « Nouvel utilisateur ».') }} <span class="mono">crushftp</span> {{ _('= section API Admin. Vide = SSO seul.') }}
+
           </p>
         </div>
 
@@ -292,7 +295,7 @@
           <hr class="form-divider" style="border:0;border-top:1px solid var(--border-muted);margin:var(--sp-5) 0;">
           <h4 class="wizard-panel-title" style="font-size:var(--fs-md);margin:0 0 var(--sp-3);">API Admin CrushFTP</h4>
           <p class="form-help" style="margin-top:0">
-            Compte admin partagé (API) — distinct du vault individuel. HTTP Basic Auth.
+            {{ _('Compte admin partagé (API) — distinct du vault individuel. HTTP Basic Auth.') }}
           </p>
           <div class="form-group">
             <label class="form-label" for="crushftp_admin_base_url">URL API Admin CrushFTP</label>
@@ -300,46 +303,47 @@
                    class="form-input" value="{{ app.crushftp_admin_base_url or '' }}"
                    placeholder="http://10.x.x.x:8080/" autocomplete="off">
             <p class="form-help">
-              Joignable depuis le conteneur portail (souvent <span class="mono">http://IP-LAN:8080/</span>) —
-              pas l’URL publique SSO.
+{{ _('Joignable depuis le conteneur portail (souvent') }} <span class="mono">http://IP-LAN:8080/</span>{{ _(') — pas l’URL publique SSO.') }}
+
             </p>
           </div>
           <div class="form-group">
-            <label class="form-label" for="crushftp_vfs_base_path">Racine VFS sociétés (serveur)</label>
+            <label class="form-label" for="crushftp_vfs_base_path">{{ _('Racine VFS sociétés (serveur)') }}</label>
             <input type="text" id="crushftp_vfs_base_path" name="crushftp_vfs_base_path"
                    class="form-input" value="{{ app.crushftp_vfs_base_path or '' }}"
                    placeholder="/crush_data/COMPANY" autocomplete="off">
             <p class="form-help">
-              Racine physique ; dossier société (<span class="mono">organization</span>) monté en lecture seule.
-              Import : liste apps → Importer sociétés.
+{{ _('Racine physique ; dossier société (') }}<span class="mono">organization</span>{{ _(') monté en lecture seule.') }}
+
+              {{ _('Import : liste apps → Importer sociétés.') }}
             </p>
           </div>
           <div class="form-group">
-            <label class="form-label" for="crushftp_admin_server_group">Contexte serveur CrushFTP (serverGroup)</label>
+            <label class="form-label" for="crushftp_admin_server_group">{{ _('Contexte serveur CrushFTP (serverGroup)') }}</label>
             <input type="text" id="crushftp_admin_server_group" name="crushftp_admin_server_group"
                    class="form-input" value="{{ app.crushftp_admin_server_group or 'MainUsers' }}"
                    placeholder="MainUsers" autocomplete="off">
             <p class="form-help">
-              Contexte API CrushFTP — pas le groupe RBAC. Défaut : <span class="mono">MainUsers</span>.
+{{ _('Contexte API CrushFTP — pas le groupe RBAC. Défaut :') }} <span class="mono">MainUsers</span>.
             </p>
           </div>
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="crushftp_admin_username">Utilisateur admin CrushFTP</label>
+              <label class="form-label" for="crushftp_admin_username">{{ _('Utilisateur admin CrushFTP') }}</label>
               <input type="text" id="crushftp_admin_username" name="crushftp_admin_username"
                      class="form-input" value="{{ app.crushftp_admin_username or '' }}"
                      placeholder="crushadmin" autocomplete="off">
             </div>
             <div class="form-group">
-              <label class="form-label" for="crushftp_admin_password">Mot de passe admin</label>
+              <label class="form-label" for="crushftp_admin_password">{{ _('Mot de passe admin') }}</label>
               <input type="password" id="crushftp_admin_password" name="crushftp_admin_password"
                      class="form-input" value="" autocomplete="new-password"
-                     placeholder="{% if app.crushftp_admin_password_encrypted %}••••••••{% else %}Mot de passe admin{% endif %}">
+                     placeholder="{% if app.crushftp_admin_password_encrypted %}••••••••{% else %}{{ _('Mot de passe admin') }}{% endif %}">
               <p class="form-help">
                 {% if app.crushftp_admin_password_encrypted %}
-                Laisser vide pour conserver le secret déjà enregistré.
+                {{ _('Laisser vide pour conserver le secret déjà enregistré.') }}
                 {% else %}
-                Un seul secret partagé pour toute l'app — chiffré Fernet en base.
+                {{ _("Un seul secret partagé pour toute l'app — chiffré Fernet en base.") }}
                 {% endif %}
               </p>
             </div>
@@ -347,12 +351,12 @@
         </div>
       </section>
 
-      <div class="wizard-nav" aria-label="Navigation du parcours">
-        <button type="button" class="btn btn-ghost" data-wizard-prev>Précédent</button>
-        <button type="button" class="btn btn-primary" data-wizard-next>Suivant</button>
+      <div class="wizard-nav" aria-label="{{ _('Navigation du parcours') }}">
+        <button type="button" class="btn btn-ghost" data-wizard-prev>{{ _('Précédent') }}</button>
+        <button type="button" class="btn btn-primary" data-wizard-next>{{ _('Suivant') }}</button>
         <span class="wizard-nav-spacer" aria-hidden="true"></span>
-        <a href="/admin/apps" class="btn btn-ghost">Annuler</a>
-        <button type="submit" class="btn btn-primary">Enregistrer</button>
+        <a href="/admin/apps" class="btn btn-ghost">{{ _('Annuler') }}</a>
+        <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
       </div>
     </div>
   </form>
@@ -363,12 +367,12 @@
     </div>
     <div class="card-body">
       <p class="form-help card-danger-zone-lead">
-        Suppression définitive (droits, vault, ActiveSync) + regen nginx.
-        Sinon décocher « Application activée ».
+        {{ _('Suppression définitive (droits, vault, ActiveSync) + regen nginx.') }}
+        {{ _('Sinon décocher « Application activée ».') }}
       </p>
       <form method="post" action="/admin/apps/{{ app.slug }}/delete" data-app-delete
             data-app-label="{{ app.label }}">
-        <button type="submit" class="btn btn-danger btn-sm">Supprimer l’application</button>
+        <button type="submit" class="btn btn-danger btn-sm">{{ _('Supprimer l’application') }}</button>
       </form>
     </div>
   </div>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Sessions Actives{% endblock %}
+{% block title %}{{ _('Sessions Actives') }}{% endblock %}
 {% block breadcrumb %}Sessions{% endblock %}
 {% block head_extra %}
 <link rel="stylesheet" href="/static/css/bastion-sessions.css?v=20260803-compact">
@@ -13,11 +13,11 @@
      data-selected-email="{{ first.user_email if first else '' }}">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Sessions actives</h1>
+      <h1 class="page-title">{{ _('Sessions actives') }}</h1>
       {% if sessions_unavailable %}
-      <p class="page-sub">Registre injoignable — comptage indisponible</p>
+      <p class="page-sub">{{ _('Registre injoignable — comptage indisponible') }}</p>
       {% else %}
-      <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> connexion(s) · <span id="sessions-users-count">{{ groups | length }}</span> utilisateur(s)</p>
+      <p class="page-sub"><span id="sessions-count">{{ sessions | length }}</span> {{ _('connexion(s) ·') }} <span id="sessions-users-count">{{ groups | length }}</span> {{ _('utilisateur(s)') }}</p>
       {% endif %}
     </div>
     <div class="live-pill"><span class="live-dot"></span>Live</div>
@@ -28,10 +28,11 @@
     <div class="empty-icon">
       <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
     </div>
-    <div class="empty-title">Sessions indisponibles</div>
+    <div class="empty-title">{{ _('Sessions indisponibles') }}</div>
     <div class="empty-desc">
-      Le registre des sessions est injoignable. Les connexions en cours ne sont pas
-      interrompues, mais elles ne peuvent être ni listées ni révoquées pour l'instant.
+{{ _('Le registre des sessions est injoignable. Les connexions en cours ne sont pas') }}
+
+      {{ _("interrompues, mais elles ne peuvent être ni listées ni révoquées pour l'instant.") }}
     </div>
   </div>
   {% else %}
@@ -48,12 +49,12 @@
   </div>
 
   <div class="sessions-split" id="sessions-split">
-    <aside class="sessions-user-rail" aria-label="Utilisateurs avec session">
-      <div class="sessions-user-rail-head">Utilisateurs</div>
+    <aside class="sessions-user-rail" aria-label="{{ _('Utilisateurs avec session') }}">
+      <div class="sessions-user-rail-head">{{ _('Utilisateurs') }}</div>
       <div class="sessions-user-filter-wrap">
-        <label class="visually-hidden" for="sessions-user-filter">Filtrer les utilisateurs</label>
+        <label class="visually-hidden" for="sessions-user-filter">{{ _('Filtrer les utilisateurs') }}</label>
         <input type="search" id="sessions-user-filter" class="sessions-user-filter form-input"
-               placeholder="Filtrer nom, email, realm…" autocomplete="off">
+               placeholder="{{ _('Filtrer nom, email, realm…') }}" autocomplete="off">
       </div>
       <div class="sessions-user-list" id="sessions-user-list" role="listbox">
         {% for g in groups %}
@@ -83,8 +84,8 @@
           <div class="empty-icon">
             <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           </div>
-          <div class="empty-title">Aucune session active</div>
-          <div class="empty-desc">Aucun utilisateur connecté pour le filtre actuel.</div>
+          <div class="empty-title">{{ _('Aucune session active') }}</div>
+          <div class="empty-desc">{{ _('Aucun utilisateur connecté pour le filtre actuel.') }}</div>
         </div>
         {% endfor %}
       </div>
@@ -101,10 +102,10 @@
           <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} session(s)</span>
           {% if is_admin and first.show_disconnect %}
           <button type="button" class="btn btn-danger btn-sm"
-                  title="Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible."
-                  onclick="disconnectUser({{ first.user_email | tojson }}, {{ first.realm | tojson }})">Déconnecter cet utilisateur</button>
+                  title="{{ _('Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible.') }}"
+                  onclick="disconnectUser({{ first.user_email | tojson }}, {{ first.realm | tojson }})">{{ _('Déconnecter cet utilisateur') }}</button>
           {% elif is_admin and first.has_breakglass and not first.has_oidc and not first.has_app %}
-          <span class="form-hint" title="Break-glass n’a pas de session Keycloak">Utiliser « Révoquer » sur la session break-glass</span>
+          <span class="form-hint" title="{{ _('Break-glass n’a pas de session Keycloak') }}">{{ _('Utiliser « Révoquer » sur la session break-glass') }}</span>
           {% endif %}
         </div>
       </div>
@@ -141,11 +142,11 @@
               <span class="proto-tag {{ s.protocol | lower }}">{{ s.protocol }}</span>
             </span>
             <span class="session-row-status badge badge-{{ 'ok' if s.live_status == 'active' else ('err' if s.live_status == 'invalid' else ('info' if s.live_status == 'declarative' else 'warn')) }}"
-                  title="{% if s.verifiable %}Statut vérifié auprès de l’app cible (live){% elif s.freshness %}{{ s.freshness.note }}{% else %}Statut déclaratif côté bastion{% endif %}">
+                  title="{% if s.verifiable %}{{ _('Statut vérifié auprès de l’app cible (live)') }}{% elif s.freshness %}{{ s.freshness.note }}{% else %}{{ _('Statut déclaratif côté bastion') }}{% endif %}">
               {% if s.live_status == 'active' %}<span class="live-dot live-dot-sm"></span>{% endif %}
               {{ s.live_status_label }}
             </span>
-            <span class="session-row-meta mono" title="Durée">{{ s.duration }}</span>
+            <span class="session-row-meta mono" title="{{ _('Durée') }}">{{ s.duration }}</span>
             <span class="session-row-meta session-row-ago" title="{{ s.last_seen_label }}">{{ s.last_seen_ago }}</span>
             <span class="session-row-chevron" aria-hidden="true">
               <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
@@ -160,8 +161,8 @@
           <div class="empty-icon">
             <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
           </div>
-          <div class="empty-title">Sélectionnez un utilisateur</div>
-          <div class="empty-desc">Choisissez un utilisateur dans le bandeau pour voir le détail de ses sessions.</div>
+          <div class="empty-title">{{ _('Sélectionnez un utilisateur') }}</div>
+          <div class="empty-desc">{{ _('Choisissez un utilisateur dans le bandeau pour voir le détail de ses sessions.') }}</div>
         </div>
       </div>
       {% endif %}
@@ -169,8 +170,8 @@
   </div>
   {% endif %}
 </div>
-
 {# SessionDetailPanel — drawer (desktop) / full-screen sheet (mobile) #}
+
 <div id="session-detail-backdrop" class="session-detail-backdrop" hidden></div>
 <aside id="session-detail-drawer"
        class="session-detail-drawer"
@@ -180,10 +181,10 @@
        hidden>
   <header class="session-detail-drawer-head">
     <div class="session-detail-drawer-titles">
-      <h2 id="session-detail-title" class="session-detail-drawer-title">Session</h2>
+      <h2 id="session-detail-title" class="session-detail-drawer-title">{{ _('Session') }}</h2>
       <p id="session-detail-subtitle" class="session-detail-drawer-sub mono"></p>
     </div>
-    <button type="button" class="icon-btn session-detail-close" id="session-detail-close" aria-label="Fermer le détail">
+    <button type="button" class="icon-btn session-detail-close" id="session-detail-close" aria-label="{{ _('Fermer le détail') }}">
       <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
       </svg>

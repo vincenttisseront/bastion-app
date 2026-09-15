@@ -1,22 +1,23 @@
 {# MTA-STS — compact: Audit | Configuration | Copies #}
+
 {% set m = mta_sts | default({}) %}
 {% set steps = m.setup_steps | default([]) %}
 {% set same_pub = m.same_public_domain if m.same_public_domain is defined else true %}
   <div class="form-section config-panel" id="mta-sts" role="tabpanel" aria-labelledby="tab-mta-sts" hidden>
     <div class="form-section-header">
       <div class="form-section-title">MTA-STS (RFC 8461)</div>
-      <div class="form-section-sub">Politique TLS messagerie — pas l’envoi SMTP</div>
+      <div class="form-section-sub">{{ _('Politique TLS messagerie — pas l’envoi SMTP') }}</div>
     </div>
     <div class="form-body mta-sts-layout">
+{# ── Zone Audit ─────────────────────────────────────────── #}
 
-      {# ── Zone Audit ─────────────────────────────────────────── #}
       <section class="mta-sts-zone" aria-labelledby="mta-sts-audit-title">
         <div class="mta-sts-zone-head">
-          <h3 class="mta-sts-zone-title" id="mta-sts-audit-title">Audit</h3>
+          <h3 class="mta-sts-zone-title" id="mta-sts-audit-title">{{ _('Audit') }}</h3>
           {% if m.config_valid %}
           <button type="button" class="btn btn-secondary btn-sm" id="mta-sts-verify-btn"
                   data-test-url="/admin/configuration/mta-sts/verify"
-                  data-csrf="{{ csrf_token }}">Vérifier</button>
+                  data-csrf="{{ csrf_token }}">{{ _('Vérifier') }}</button>
           {% endif %}
         </div>
         <p class="form-help mta-sts-zone-lead" id="mta-sts-next-action" {% if not m.next_action %}hidden{% endif %}>
@@ -38,19 +39,19 @@
         </div>
         <div class="config-test-shell mta-sts-shell" id="mta-sts-test-shell" hidden>
           <div class="config-test-shell-head">
-            <span class="config-test-shell-title">Scan public</span>
+            <span class="config-test-shell-title">{{ _('Scan public') }}</span>
             <span class="badge badge-muted" id="mta-sts-test-status">…</span>
           </div>
           <pre class="config-test-shell-body font-mono" id="mta-sts-test-body"></pre>
         </div>
         <p class="form-help" id="mta-sts-scan-hint">
-          Scan via DNS publics configurés (pas le DNS interne). Hits HTTP :
+          {{ _('Scan via DNS publics configurés (pas le DNS interne). Hits HTTP :') }}
           <span class="mono">nginx-logs/mta-sts.access.log</span>
-          (aussi dans Logs → Accès apps → MTA-STS).
+          {{ _('(aussi dans Logs → Accès apps → MTA-STS).') }}
         </p>
       </section>
+{# ── Zone Configuration ─────────────────────────────────── #}
 
-      {# ── Zone Configuration ─────────────────────────────────── #}
       <section class="mta-sts-zone" aria-labelledby="mta-sts-config-title">
         <div class="mta-sts-zone-head">
           <h3 class="mta-sts-zone-title" id="mta-sts-config-title">Configuration</h3>
@@ -62,13 +63,14 @@
             <label class="form-label form-check-row">
               <input type="checkbox" name="mta_sts_enabled" value="on"
                      {% if m.enabled %}checked{% endif %}>
-              Publier via le reverse-proxy Bastion
+{{ _('Publier via le reverse-proxy Bastion') }}
+
             </label>
           </div>
 
           <div class="form-row">
             <div class="form-group">
-              <label class="form-label" for="mta_sts_mail_domain">Domaine mail</label>
+              <label class="form-label" for="mta_sts_mail_domain">{{ _('Domaine mail') }}</label>
               <input type="text" id="mta_sts_mail_domain" name="mta_sts_mail_domain" class="form-input"
                      value="{{ m.mail_domain }}" placeholder="example.com" autocomplete="off"
                      spellcheck="false">
@@ -76,7 +78,7 @@
             <div class="form-group">
               <label class="form-label" for="mta_sts_mode">Mode</label>
               <select id="mta_sts_mode" name="mta_sts_mode" class="form-input">
-                <option value="testing" {% if m.mode == 'testing' %}selected{% endif %}>testing</option>
+                <option value="testing" {% if m.mode == 'testing' %}selected{% endif %}>{{ _('testing') }}</option>
                 <option value="enforce" {% if m.mode == 'enforce' %}selected{% endif %}>enforce</option>
                 <option value="none" {% if m.mode == 'none' %}selected{% endif %}>none</option>
               </select>
@@ -92,45 +94,46 @@
             <label class="form-label form-check-row">
               <input type="checkbox" name="mta_sts_same_public_domain" value="on" id="mta_sts_same_public_domain"
                      {% if same_pub %}checked{% endif %}>
-              Domaine public Internet = domaine mail (même FQDN en interne et dehors)
+              {{ _('Domaine public Internet = domaine mail (même FQDN en interne et dehors)') }}
             </label>
-            <p class="form-help">Décochez si le DNS interne résout un autre domaine que le DNS public.</p>
+            <p class="form-help">{{ _('Décochez si le DNS interne résout un autre domaine que le DNS public.') }}</p>
           </div>
 
           <div class="form-group" id="mta-sts-public-domain-wrap" {% if same_pub %}hidden{% endif %}>
-            <label class="form-label" for="mta_sts_public_mail_domain">Domaine public (DNS Internet)</label>
+            <label class="form-label" for="mta_sts_public_mail_domain">{{ _('Domaine public (DNS Internet)') }}</label>
             <input type="text" id="mta_sts_public_mail_domain" name="mta_sts_public_mail_domain" class="form-input"
                    value="{{ m.public_mail_domain if not same_pub else '' }}"
                    placeholder="example.com" autocomplete="off" spellcheck="false">
             <p class="form-help">
-              Utilisé pour A/TXT publics, ACME et
-              <span class="mono">mta-sts.&lt;domaine&gt;</span>. Le domaine mail reste pour la politique MX.
+              {{ _('Utilisé pour A/TXT publics, ACME et') }}
+              <span class="mono">{{ _('mta-sts.&lt;domaine&gt;') }}</span>{{ _('. Le domaine mail reste pour la politique MX.') }}
+
             </p>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="mta_sts_mx_hosts">Hôtes MX</label>
+            <label class="form-label" for="mta_sts_mx_hosts">{{ _('Hôtes MX') }}</label>
             <textarea id="mta_sts_mx_hosts" name="mta_sts_mx_hosts" class="form-input font-mono"
                       rows="2" placeholder="mail.example.com&#10;*.example.com"
                       spellcheck="false">{{ m.mx_hosts }}</textarea>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="mta_sts_public_dns_resolvers">DNS publics pour le scan</label>
+            <label class="form-label" for="mta_sts_public_dns_resolvers">{{ _('DNS publics pour le scan') }}</label>
             <textarea id="mta_sts_public_dns_resolvers" name="mta_sts_public_dns_resolvers"
                       class="form-input font-mono" rows="2"
                       placeholder="1.1.1.1&#10;9.9.9.9"
                       spellcheck="false">{{ m.public_dns_resolvers or '1.1.1.1&#10;9.9.9.9' }}</textarea>
-            <p class="form-help">IPv4, une par ligne — ceux ouverts depuis le bastion (ex. 1.1.1.1, 9.9.9.9).</p>
+            <p class="form-help">{{ _('IPv4, une par ligne — ceux ouverts depuis le bastion (ex. 1.1.1.1, 9.9.9.9).') }}</p>
           </div>
 
           <div class="form-actions">
-            <button type="submit" class="btn btn-primary">Enregistrer &amp; publier</button>
+            <button type="submit" class="btn btn-primary">{{ _('Enregistrer &amp; publier') }}</button>
           </div>
         </form>
       </section>
+{# ── Zone Copies ────────────────────────────────────────── #}
 
-      {# ── Zone Copies ────────────────────────────────────────── #}
       <section class="mta-sts-zone" aria-labelledby="mta-sts-copy-title">
         <div class="mta-sts-zone-head">
           <h3 class="mta-sts-zone-title" id="mta-sts-copy-title">Copies</h3>
@@ -157,19 +160,19 @@
           {% endif %}
         </div>
         {% else %}
-        <p class="form-help">Enregistrez une config valide pour afficher politique et DNS.</p>
+        <p class="form-help">{{ _('Enregistrez une config valide pour afficher politique et DNS.') }}</p>
         {% endif %}
 
         {% if m.config_valid and m.dns_name %}
         <div class="mta-sts-copy-block">
           <div class="mta-sts-copy-head">
-            <span class="form-label">DNS A — {{ m.fqdn }}</span>
+            <span class="form-label">{{ _('DNS A —') }} {{ m.fqdn }}</span>
             <button type="button" class="btn btn-ghost btn-sm" data-copy
-                    data-copy-target="mta-sts-dns-a-fqdn">Copier FQDN</button>
+                    data-copy-target="mta-sts-dns-a-fqdn">{{ _('Copier FQDN') }}</button>
           </div>
           <div class="mta-sts-dns">
             <div class="mta-sts-dns-row">
-              <span class="mta-sts-dns-k">Hôte</span>
+              <span class="mta-sts-dns-k">{{ _('Hôte') }}</span>
               <code class="mono mta-sts-dns-v" id="mta-sts-dns-a-host">mta-sts</code>
               <button type="button" class="btn btn-ghost btn-sm" data-copy
                       data-copy-target="mta-sts-dns-a-host">Copier</button>
@@ -182,7 +185,7 @@
             </div>
             {% if m.dns_a_preview %}
             <div class="mta-sts-dns-row">
-              <span class="mta-sts-dns-k">Aperçu</span>
+              <span class="mta-sts-dns-k">{{ _('Aperçu') }}</span>
               <code class="mono mta-sts-dns-v" id="mta-sts-dns-a-preview">{{ m.dns_a_preview }}</code>
               <button type="button" class="btn btn-ghost btn-sm" data-copy
                       data-copy-target="mta-sts-dns-a-preview">Copier</button>
@@ -193,13 +196,13 @@
 
         <div class="mta-sts-copy-block">
           <div class="mta-sts-copy-head">
-            <span class="form-label">DNS TXT — {{ m.dns_name }}</span>
+            <span class="form-label">{{ _('DNS TXT —') }} {{ m.dns_name }}</span>
             <button type="button" class="btn btn-ghost btn-sm" data-copy
-                    data-copy-target="mta-sts-dns-txt-value">Copier valeur</button>
+                    data-copy-target="mta-sts-dns-txt-value">{{ _('Copier valeur') }}</button>
           </div>
           <div class="mta-sts-dns">
             <div class="mta-sts-dns-row">
-              <span class="mta-sts-dns-k">Hôte</span>
+              <span class="mta-sts-dns-k">{{ _('Hôte') }}</span>
               <code class="mono mta-sts-dns-v" id="mta-sts-dns-txt-host">_mta-sts</code>
               <button type="button" class="btn btn-ghost btn-sm" data-copy
                       data-copy-target="mta-sts-dns-txt-host">Copier</button>
@@ -211,19 +214,19 @@
                       data-copy-target="mta-sts-dns-txt-fqdn">Copier</button>
             </div>
             <div class="mta-sts-dns-row">
-              <span class="mta-sts-dns-k">Valeur</span>
+              <span class="mta-sts-dns-k">{{ _('Valeur') }}</span>
               <code class="mono mta-sts-dns-v" id="mta-sts-dns-txt-value">{{ m.dns_txt }}</code>
               <button type="button" class="btn btn-ghost btn-sm" data-copy
                       data-copy-target="mta-sts-dns-txt-value">Copier</button>
             </div>
             <div class="mta-sts-dns-row">
-              <span class="mta-sts-dns-k">Aperçu</span>
+              <span class="mta-sts-dns-k">{{ _('Aperçu') }}</span>
               <code class="mono mta-sts-dns-v" id="mta-sts-dns-txt-preview">{{ m.dns_name }}. 3600 IN TXT "{{ m.dns_txt }}"</code>
               <button type="button" class="btn btn-ghost btn-sm" data-copy
                       data-copy-target="mta-sts-dns-txt-preview">Copier</button>
             </div>
           </div>
-          <p class="form-help">Recréez le TXT (nouvel <span class="mono">id=</span>) à chaque changement de politique.</p>
+          <p class="form-help">{{ _('Recréez le TXT (nouvel') }} <span class="mono">id=</span>{{ _(') à chaque changement de politique.') }}</p>
         </div>
         {% endif %}
       </section>

@@ -137,18 +137,22 @@
     extraEl.innerHTML =
       '<div class="bastion-modal-password-form">' +
       '<div class="form-group" style="margin-bottom:var(--sp-3);">' +
-      '<label class="form-label" for="bastion-modal-username">Identifiant</label>' +
+      '<label class="form-label" for="bastion-modal-username">' +
+      BastionI18n.t('Identifiant') +
+      '</label>' +
       '<input type="text" id="bastion-modal-username" class="form-input" readonly ' +
       'value="' +
       escapeHtml(username || '') +
       '" autocomplete="username">' +
       '</div>' +
       '<div class="form-group">' +
-      '<label class="form-label" for="bastion-modal-password">Mot de passe</label>' +
+      '<label class="form-label" for="bastion-modal-password">' +
+      BastionI18n.t('Mot de passe') +
+      '</label>' +
       '<input type="password" id="bastion-modal-password" class="form-input" ' +
       'autocomplete="off" autofocus>' +
       '<p class="form-help" style="margin-top:var(--sp-2);">' +
-      'Transmis uniquement pour cette connexion, non conservé.' +
+      BastionI18n.t('Transmis uniquement pour cette connexion, non conservé.') +
       '</p>' +
       '<div id="bastion-modal-password-error" class="form-error bastion-modal-password-error"' +
       (errorText ? '' : ' hidden') +
@@ -171,7 +175,7 @@
   }
 
   function renderPromptField(options) {
-    var label = options.label || 'Valeur';
+    var label = options.label || BastionI18n.t('Valeur');
     var placeholder = options.placeholder || '';
     var defaultValue = options.defaultValue || '';
     promptRequired = options.required !== false;
@@ -232,7 +236,9 @@
       passwordInput = document.getElementById('bastion-modal-password') || passwordInput;
       var passwordValue = passwordInput ? passwordInput.value : '';
       if (!passwordValue) {
-        showPasswordError('Saisissez votre mot de passe pour ouvrir cette application.');
+        showPasswordError(
+          BastionI18n.t('Saisissez votre mot de passe pour ouvrir cette application.')
+        );
         if (passwordInput) passwordInput.focus();
         return;
       }
@@ -241,11 +247,15 @@
         try {
           var cont = passwordOnConfirm(passwordValue);
           if (cont === false) {
-            showPasswordError("Impossible d'ouvrir l'application. Réessayez.");
+            showPasswordError(
+              BastionI18n.t("Impossible d'ouvrir l'application. Réessayez.")
+            );
             return;
           }
         } catch (err) {
-          showPasswordError("Impossible d'ouvrir l'application. Réessayez.");
+          showPasswordError(
+            BastionI18n.t("Impossible d'ouvrir l'application. Réessayez.")
+          );
           return;
         }
       }
@@ -256,7 +266,7 @@
       promptInput = document.getElementById('bastion-modal-prompt') || promptInput;
       var promptValue = promptInput ? String(promptInput.value || '') : '';
       if (promptRequired && !promptValue.trim()) {
-        showPromptError('Ce champ est requis.');
+        showPromptError(BastionI18n.t('Ce champ est requis.'));
         if (promptInput) promptInput.focus();
         return;
       }
@@ -357,17 +367,20 @@
     }
     mode = asAlert ? 'alert' : 'confirm';
     previousFocus = document.activeElement;
-    titleEl.textContent = options.title || (asAlert ? 'Information' : 'Confirmation');
+    titleEl.textContent =
+      options.title ||
+      (asAlert ? BastionI18n.t('Information') : BastionI18n.t('Confirmation'));
     messageEl.innerHTML = formatMessage(options.message || '');
     renderList(options.list);
-    confirmBtn.textContent = options.confirmLabel || (asAlert ? 'OK' : 'Confirmer');
+    confirmBtn.textContent =
+      options.confirmLabel || (asAlert ? 'OK' : BastionI18n.t('Confirmer'));
     confirmBtn.className = 'btn ' + (options.danger && !asAlert ? 'btn-danger' : 'btn-secondary');
     confirmBtn.disabled = false;
     if (asAlert) {
       cancelBtn.hidden = true;
     } else {
       cancelBtn.hidden = false;
-      cancelBtn.textContent = options.cancelLabel || 'Annuler';
+      cancelBtn.textContent = options.cancelLabel || BastionI18n.t('Annuler');
     }
     root.hidden = false;
     root.setAttribute('aria-hidden', 'false');
@@ -400,14 +413,14 @@
     if (pendingResolve) close(false);
     mode = 'prompt';
     previousFocus = document.activeElement;
-    titleEl.textContent = options.title || 'Saisie';
+    titleEl.textContent = options.title || BastionI18n.t('Saisie');
     messageEl.innerHTML = formatMessage(options.message || '');
     renderPromptField(options);
-    confirmBtn.textContent = options.confirmLabel || 'Valider';
+    confirmBtn.textContent = options.confirmLabel || BastionI18n.t('Valider');
     confirmBtn.className = 'btn btn-secondary';
     confirmBtn.disabled = false;
     cancelBtn.hidden = false;
-    cancelBtn.textContent = options.cancelLabel || 'Annuler';
+    cancelBtn.textContent = options.cancelLabel || BastionI18n.t('Annuler');
     root.hidden = false;
     root.setAttribute('aria-hidden', 'false');
     root.classList.add('is-open');
@@ -433,16 +446,17 @@
     mode = 'password';
     passwordOnConfirm = typeof options.onConfirm === 'function' ? options.onConfirm : null;
     previousFocus = document.activeElement;
-    titleEl.textContent = options.title || 'Mot de passe requis';
+    titleEl.textContent = options.title || BastionI18n.t('Mot de passe requis');
     messageEl.innerHTML = formatMessage(
-      options.message || 'Saisissez votre mot de passe pour ouvrir cette application.'
+      options.message ||
+        BastionI18n.t('Saisissez votre mot de passe pour ouvrir cette application.')
     );
     renderPasswordFields(options.username || '', options.error || '');
-    confirmBtn.textContent = options.confirmLabel || 'Ouvrir';
+    confirmBtn.textContent = options.confirmLabel || BastionI18n.t('Ouvrir');
     confirmBtn.className = 'btn btn-secondary';
     confirmBtn.disabled = false;
     cancelBtn.hidden = false;
-    cancelBtn.textContent = options.cancelLabel || 'Annuler';
+    cancelBtn.textContent = options.cancelLabel || BastionI18n.t('Annuler');
     root.hidden = false;
     root.setAttribute('aria-hidden', 'false');
     root.classList.add('is-open');

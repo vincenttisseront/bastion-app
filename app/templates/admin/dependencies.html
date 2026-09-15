@@ -1,90 +1,93 @@
 {% extends "base.html" %}
-{% block title %}Dépendances{% endblock %}
-{% block breadcrumb %}Admin / Dépendances{% endblock %}
+{% block title %}{{ _('Dépendances') }}{% endblock %}
+{% block breadcrumb %}Admin / {{ _('Dépendances') }}{% endblock %}
 
 {% block content %}
 <div class="page" id="dependencies-page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Dépendances</h1>
+      <h1 class="page-title">{{ _('Dépendances') }}</h1>
       <p class="page-sub" id="dep-summary-line">
         {{ summary.total }} package{{ 's' if summary.total != 1 else '' }}
-        · {{ summary.outdated }} MAJ disponible{{ 's' if summary.outdated != 1 else '' }}
-        · {{ summary.up_to_date }} à jour
+        · {{ summary.outdated }} {{ _('MAJ disponible') }}{{ 's' if summary.outdated != 1 else '' }}
+        · {{ summary.up_to_date }} {{ _('à jour') }}
+
         {% if summary.unknown %}
         · {{ summary.unknown }} n/a
         {% endif %}
         {% if last_checked_at %}
-        · dernière vérif. {{ last_checked_at }}
+{{ _('· dernière vérif.') }} {{ last_checked_at }}
         {% else %}
-        · jamais vérifié
+        {{ _('· jamais vérifié') }}
         {% endif %}
       </p>
       <p class="form-help" style="margin-top:var(--sp-2);max-width:52rem;">
-        Détecte les MAJ (PyPI / npm) — ne les applique pas. Rebuild après mise à jour des lockfiles.
+        {{ _('Détecte les MAJ (PyPI / npm) — ne les applique pas. Rebuild après mise à jour des lockfiles.') }}
       </p>
       {% if inventory_stale %}
       <div class="alert alert-warn" style="margin-top:var(--sp-3);max-width:52rem;">
         <div class="alert-body">
-          Inventaire ancien ({{ inventory_age_hours | int }}&nbsp;h) — cliquez Actualiser.
+{{ _('Inventaire ancien (') }}{{ inventory_age_hours | int }}{{ _('&nbsp;h) — cliquez Actualiser.') }}
+
         </div>
       </div>
       {% endif %}
     </div>
     <div style="display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;">
       <form method="post" action="/admin/dependencies/refresh" style="margin:0;">
-        <button type="submit" class="btn btn-primary btn-sm">Actualiser</button>
+        <button type="submit" class="btn btn-primary btn-sm">{{ _('Actualiser') }}</button>
       </form>
-      <a href="/admin/dependencies/export.json?status=outdated" class="btn btn-secondary btn-sm">Export MAJ (JSON)</a>
-      <a href="/admin/dependencies/export.json" class="btn btn-ghost btn-sm">Export tout (JSON)</a>
+      <a href="/admin/dependencies/export.json?status=outdated" class="btn btn-secondary btn-sm">{{ _('Export MAJ (JSON)') }}</a>
+      <a href="/admin/dependencies/export.json" class="btn btn-ghost btn-sm">{{ _('Export tout (JSON)') }}</a>
     </div>
   </div>
 
   <div class="dep-toolbar">
     <div class="form-group dep-toolbar-search">
-      <label class="form-label" for="dep-filter-q">Recherche</label>
-      <input type="search" id="dep-filter-q" class="form-input" placeholder="Nom du paquet…" autocomplete="off">
+      <label class="form-label" for="dep-filter-q">{{ _('Recherche') }}</label>
+      <input type="search" id="dep-filter-q" class="form-input" placeholder="{{ _('Nom du paquet…') }}" autocomplete="off">
     </div>
     <div class="form-group dep-toolbar-filter">
-      <div class="form-label" id="dep-filter-label">Filtre</div>
+      <div class="form-label" id="dep-filter-label">{{ _('Filtre') }}</div>
       <fieldset class="dep-toolbar-btns" aria-labelledby="dep-filter-label">
         {% set show_outdated_filter = summary.outdated and (python_outdated or npm_outdated) %}
-        <button type="button" class="btn {% if show_outdated_filter %}btn-secondary{% else %}btn-ghost{% endif %} btn-sm dep-filter-btn{% if show_outdated_filter %} active{% endif %}" data-filter="outdated" id="dep-filter-outdated">MAJ disponibles{% if summary.outdated %} ({{ summary.outdated }}){% endif %}</button>
+        <button type="button" class="btn {% if show_outdated_filter %}btn-secondary{% else %}btn-ghost{% endif %} btn-sm dep-filter-btn{% if show_outdated_filter %} active{% endif %}" data-filter="outdated" id="dep-filter-outdated">{{ _('MAJ disponibles') }}{% if summary.outdated %} ({{ summary.outdated }}){% endif %}</button>
         <button type="button" class="btn {% if show_outdated_filter %}btn-ghost{% else %}btn-secondary{% endif %} btn-sm dep-filter-btn{% if not show_outdated_filter %} active{% endif %}" data-filter="all" id="dep-filter-all">Tous</button>
       </fieldset>
     </div>
     <div class="form-group dep-toolbar-plan">
-      <div class="form-label" id="dep-plan-label">Plan de MAJ</div>
+      <div class="form-label" id="dep-plan-label">{{ _('Plan de MAJ') }}</div>
       <fieldset class="dep-toolbar-btns" aria-labelledby="dep-plan-label">
-        <button type="button" class="btn btn-ghost btn-sm" id="dep-select-outdated">Tout sélectionner (MAJ)</button>
-        <button type="button" class="btn btn-secondary btn-sm" id="dep-export-plan">Exporter le plan (JSON)</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="dep-select-outdated">{{ _('Tout sélectionner (MAJ)') }}</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="dep-export-plan">{{ _('Exporter le plan (JSON)') }}</button>
       </fieldset>
     </div>
   </div>
 
-  <div class="tabs" role="tablist" aria-label="Écosystèmes" id="dep-tabs">
+  <div class="tabs" role="tablist" aria-label="{{ _('Écosystèmes') }}" id="dep-tabs">
     <button type="button" class="tab{% if initial_tab == 'python' %} active{% endif %}" role="tab" data-tab="python" id="tab-python" aria-selected="{{ 'true' if initial_tab == 'python' else 'false' }}">
       Python (backend)
       <span class="badge badge-muted" style="margin-left:6px;">{{ python_count }}</span>
       {% if python_outdated %}
-      <span class="badge badge-warn" style="margin-left:4px;" title="MAJ disponibles">{{ python_outdated }} MAJ</span>
+      <span class="badge badge-warn" style="margin-left:4px;" title="{{ _('MAJ disponibles') }}">{{ python_outdated }} MAJ</span>
       {% endif %}
     </button>
     <button type="button" class="tab{% if initial_tab == 'npm' %} active{% endif %}" role="tab" data-tab="npm" id="tab-npm" aria-selected="{{ 'true' if initial_tab == 'npm' else 'false' }}">
       npm (tests e2e)
       <span class="badge badge-muted" style="margin-left:6px;">{{ npm_count }}</span>
       {% if npm_outdated %}
-      <span class="badge badge-warn" style="margin-left:4px;" title="MAJ disponibles">{{ npm_outdated }} MAJ</span>
+      <span class="badge badge-warn" style="margin-left:4px;" title="{{ _('MAJ disponibles') }}">{{ npm_outdated }} MAJ</span>
       {% endif %}
     </button>
   </div>
 
   <p class="form-help dep-filter-empty" id="dep-filter-empty" hidden>
-    Aucun paquet ne correspond à ce filtre dans cet écosystème.
+    {{ _('Aucun paquet ne correspond à ce filtre dans cet écosystème.') }}
   </p>
   {% if summary.outdated and not python_outdated and not npm_outdated %}
   <p class="form-help" style="color:var(--danger,#b91c1c);margin:0 0 var(--sp-3);">
-    Incohérence : {{ summary.outdated }} MAJ annoncées, aucune ligne — Actualiser.
+{{ _('Incohérence :') }} {{ summary.outdated }} {{ _('MAJ annoncées, aucune ligne — Actualiser.') }}
+
   </p>
   {% endif %}
 
@@ -94,12 +97,12 @@
       <table class="data-table dep-table" data-sortable>
         <thead>
           <tr>
-            <th style="width:2.5rem;" title="Plan de MAJ"></th>
+            <th style="width:2.5rem;" title="{{ _('Plan de MAJ') }}"></th>
             <th data-sort="name">Paquet</th>
             <th data-sort="type">Type</th>
-            <th>Déclaré</th>
-            <th>Installé</th>
-            <th>Dernière</th>
+            <th>{{ _('Déclaré') }}</th>
+            <th>{{ _('Installé') }}</th>
+            <th>{{ _('Dernière') }}</th>
             <th data-sort="status">MAJ</th>
           </tr>
         </thead>
@@ -127,22 +130,22 @@
             <td>
               <div style="font-weight:600;">{{ p.name }}</div>
               {% if p.ecosystem == 'npm' %}
-              <span class="badge badge-{{ 'ok' if p.is_direct else 'muted' }}" title="{% if p.is_direct %}Déclaré dans package.json{% else %}Résolu via le lockfile uniquement{% endif %}">{{ p.direct_label }}</span>
+              <span class="badge badge-{{ 'ok' if p.is_direct else 'muted' }}" title="{% if p.is_direct %}{{ _('Déclaré dans package.json') }}{% else %}{{ _('Résolu via le lockfile uniquement') }}{% endif %}">{{ p.direct_label }}</span>
               {% endif %}
               {% if p.notes == 'unlocked' %}
-              <span class="badge badge-muted" title="Contrainte package.json (pas de lockfile)">non verrouillé</span>
+              <span class="badge badge-muted" title="{{ _('Contrainte package.json (pas de lockfile)') }}">{{ _('non verrouillé') }}</span>
               {% elif p.notes == 'not_installed' %}
-              <span class="badge badge-muted" title="Distribution introuvable via importlib.metadata">non installé</span>
+              <span class="badge badge-muted" title="{{ _('Distribution introuvable via importlib.metadata') }}">{{ _('non installé') }}</span>
               {% endif %}
               {% if p.check_error %}
-              <div class="form-help" style="color:var(--danger, #b91c1c);" title="{{ p.check_error }}">Erreur de lookup</div>
+              <div class="form-help" style="color:var(--danger, #b91c1c);" title="{{ p.check_error }}">{{ _('Erreur de lookup') }}</div>
               {% endif %}
             </td>
             <td><span class="badge badge-muted">{{ p.type_label }}</span></td>
             <td class="mono">{% if p.declared_version %}{{ p.declared_version }}{% else %}—{% endif %}</td>
             <td class="mono">
               {% if p.is_outdated and p.latest_version and p.current_version and p.current_version != '—' %}
-                <span title="Installé → dernière">{{ p.current_version }} → {{ p.latest_version }}</span>
+                <span title="{{ _('Installé → dernière') }}">{{ p.current_version }} → {{ p.latest_version }}</span>
               {% else %}
                 {{ p.current_version }}
               {% endif %}
@@ -186,7 +189,7 @@
                   </svg>
                 </div>
                 <div class="empty-title">{{ empty_msg }}</div>
-                <div class="empty-sub">Cliquez sur Actualiser pour inventorer les paquets locaux et interroger les registres.</div>
+                <div class="empty-sub">{{ _('Cliquez sur Actualiser pour inventorer les paquets locaux et interroger les registres.') }}</div>
               </div>
             </td>
           </tr>

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Utilisateurs RBAC{% endblock %}
+{% block title %}{{ _('Utilisateurs RBAC') }}{% endblock %}
 {% block breadcrumb %}Admin / RBAC / Utilisateurs{% endblock %}
 
 {% block content %}
@@ -15,16 +15,16 @@
   </nav>
   <div class="page-header">
     <div>
-      <h1 class="page-title">Gestion des Utilisateurs</h1>
+      <h1 class="page-title">{{ _('Gestion des Utilisateurs') }}</h1>
       <p class="page-sub">
-        Recherche live — pas d'annuaire dupliqué.
-        Accès consolidés sur chaque <strong>Fiche → Droits</strong>.
-        <a href="/admin/logs?q=session_hijack#audit">Alertes · Logs</a>
+        {{ _("Recherche live — pas d'annuaire dupliqué.") }}
+{{ _('Accès consolidés sur chaque') }} <strong>{{ _('Fiche → Droits') }}</strong>.
+        <a href="/admin/logs?q=session_hijack#audit">{{ _('Alertes · Logs') }}</a>
       </p>
     </div>
     <div class="users-row-actions">
       <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
-      <a href="/admin/rbac/users/new" class="btn btn-primary btn-sm">+ Nouvel utilisateur</a>
+      <a href="/admin/rbac/users/new" class="btn btn-primary btn-sm">{{ _('+ Nouvel utilisateur') }}</a>
     </div>
   </div>
 
@@ -41,7 +41,7 @@
     </div>
     <div class="users-stat">
       <div class="users-stat-value">{% if user_stats.active is not none %}{{ user_stats.active }}{% else %}—{% endif %}</div>
-      <div class="users-stat-label">Actifs <span class="users-stat-tag is-ok">Stable</span></div>
+      <div class="users-stat-label">{{ _('Actifs') }} <span class="users-stat-tag is-ok">Stable</span></div>
     </div>
     <div class="users-stat{% if user_stats.privileged %} is-warn{% endif %}">
       <div class="users-stat-value">{% if user_stats.privileged is not none %}{{ user_stats.privileged }}{% else %}—{% endif %}</div>
@@ -57,7 +57,7 @@
       <div class="users-stat-label">
         Susp
         {% if user_stats.suspended %}
-        <span class="users-stat-tag is-warn">Action</span>
+        <span class="users-stat-tag is-warn">{{ _('Action') }}</span>
         {% else %}
         <span class="users-stat-tag is-ok">OK</span>
         {% endif %}
@@ -66,32 +66,32 @@
 
     <form method="get" action="/admin/rbac/users" id="user-filters-form" class="users-filters" data-live-search data-live-delay="320">
       <input type="hidden" name="list_tab" value="{{ list_tab }}">
-      <label class="visually-hidden" for="filter_q">Recherche</label>
+      <label class="visually-hidden" for="filter_q">{{ _('Recherche') }}</label>
       <input type="search" id="filter_q" name="q" class="form-input" value="{{ filter_q }}"
-             placeholder="Recherche (live)…" autocomplete="off" data-users-filter-q>
+             placeholder="{{ _('Recherche (live)…') }}" autocomplete="off" data-users-filter-q>
       <label class="visually-hidden" for="filter_realm">Realm</label>
       <select id="filter_realm" name="realm_id" class="form-select" title="Realm">
         {% for realm in realms %}
         <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
         {% else %}
-        <option value="">Aucun realm</option>
+        <option value="">{{ _('Aucun realm') }}</option>
         {% endfor %}
       </select>
-      <label class="visually-hidden" for="filter_group">Groupe</label>
-      <select id="filter_group" name="group" class="form-select" title="Groupe / société">
-        <option value="">Tous groupes</option>
+      <label class="visually-hidden" for="filter_group">{{ _('Groupe') }}</label>
+      <select id="filter_group" name="group" class="form-select" title="{{ _('Groupe / société') }}">
+        <option value="">{{ _('Tous groupes') }}</option>
         {% for g in filter_groups %}
         <option value="{{ g.name }}"{% if filter_group == g.name %} selected{% endif %}>{{ g.name }}</option>
         {% endfor %}
       </select>
-      <label class="visually-hidden" for="filter_status">Statut</label>
-      <select id="filter_status" name="status" class="form-select" title="Statut">
-        <option value="tous"{% if filter_status == 'tous' %} selected{% endif %}>Tous statuts</option>
+      <label class="visually-hidden" for="filter_status">{{ _('Statut') }}</label>
+      <select id="filter_status" name="status" class="form-select" title="{{ _('Statut') }}">
+        <option value="tous"{% if filter_status == 'tous' %} selected{% endif %}>{{ _('Tous statuts') }}</option>
         <option value="actifs"{% if filter_status == 'actifs' %} selected{% endif %}>Actif</option>
-        <option value="privilegies"{% if filter_status == 'privilegies' %} selected{% endif %}>Privilégié</option>
+        <option value="privilegies"{% if filter_status == 'privilegies' %} selected{% endif %}>{{ _('Privilégié') }}</option>
       </select>
-      <label class="visually-hidden" for="filter_page_size">Par page</label>
-      <select id="filter_page_size" name="page_size" class="form-select users-filter-pagesize" title="Par page">
+      <label class="visually-hidden" for="filter_page_size">{{ _('Par page') }}</label>
+      <select id="filter_page_size" name="page_size" class="form-select users-filter-pagesize" title="{{ _('Par page') }}">
         {% for n in [25, 50, 100] %}
         <option value="{{ n }}"{% if list_meta.page_size == n %} selected{% endif %}>{{ n }}/p</option>
         {% endfor %}
@@ -106,9 +106,9 @@
     <div class="users-panel-head">
       <p class="users-panel-title">
         Keycloak{% if selected_realm %} · {{ selected_realm.slug }}{% endif %}
-        — {{ kc_search_hits | length }} résultat{% if kc_search_hits | length != 1 %}s{% endif %} pour « {{ filter_q }} »
+        — {{ kc_search_hits | length }} {{ _('résultat') }}{% if kc_search_hits | length != 1 %}s{% endif %} {{ _('pour «') }} {{ filter_q }} »
       </p>
-      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Tous les comptes IdP (pas seulement créés bastion / droits directs)</span>
+      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">{{ _('Tous les comptes IdP (pas seulement créés bastion / droits directs)') }}</span>
     </div>
     {% if kc_search_error %}
     <div class="alert alert-warn" style="margin:var(--sp-2) var(--sp-3);">{{ kc_search_error }}</div>
@@ -117,9 +117,9 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>Identité</th>
-            <th>Email</th>
-            <th>Actions</th>
+            <th>{{ _('Identité') }}</th>
+            <th>{{ _('Email') }}</th>
+            <th>{{ _('Actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -143,7 +143,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="3"><div class="empty-desc" style="padding:var(--sp-3);max-width:none;">Aucun utilisateur Keycloak pour cette recherche.</div></td>
+            <td colspan="3"><div class="empty-desc" style="padding:var(--sp-3);max-width:none;">{{ _('Aucun utilisateur Keycloak pour cette recherche.') }}</div></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -153,12 +153,12 @@
   </div>
   {% endif %}
 
-  <div class="tabs users-subtabs" role="tablist" aria-label="Listes utilisateurs">
+  <div class="tabs users-subtabs" role="tablist" aria-label="{{ _('Listes utilisateurs') }}">
     <a href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=1) }}" class="tab{% if list_tab == 'bastion' %} active{% endif %}" role="tab"{% if list_tab == 'bastion' %} aria-current="page"{% endif %}>
-      Créés bastion{% if bastion_accounts_total %} {{ bastion_accounts_total }}{% endif %}
+{{ _('Créés bastion') }}{% if bastion_accounts_total %} {{ bastion_accounts_total }}{% endif %}
     </a>
     <a href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=1) }}" class="tab{% if list_tab == 'keycloak' %} active{% endif %}" role="tab"{% if list_tab == 'keycloak' %} aria-current="page"{% endif %}>
-      SSO avec accès{% if import_users_total %} {{ import_users_total }}{% endif %}
+{{ _('SSO avec accès') }}{% if import_users_total %} {{ import_users_total }}{% endif %}
     </a>
     <a href="/admin/rbac/users?{{ users_qs(list_tab='open', page=1) }}" class="tab{% if list_tab == 'open' %} active{% endif %}" role="tab"{% if list_tab == 'open' %} aria-current="page"{% endif %}>
       Recherche Keycloak
@@ -169,7 +169,7 @@
   {% if bastion_accounts %}
   <div class="card users-panel" data-users-bulk>
     <div class="users-panel-head">
-      <p class="users-panel-title">Résultats ({{ list_meta.total }} total — p. {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
+      <p class="users-panel-title">{{ _('Résultats (') }}{{ list_meta.total }} {{ _('total — p.') }} {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
       <form method="post" action="/admin/rbac/users/bulk/groups" id="users-bulk-form" class="users-bulk-bar" style="padding:0;border:0;margin:0;">
         <input type="hidden" name="redirect_url" value="/admin/rbac/users?{{ users_qs(list_tab='bastion') }}">
         <input type="hidden" name="q" value="{{ filter_q }}">
@@ -177,9 +177,9 @@
         <input type="hidden" name="group" value="{{ filter_group }}">
         <input type="hidden" name="status" value="{{ filter_status }}">
         <input type="search" list="bulk-groups-datalist" id="bulk-group-search" class="form-input"
-               placeholder="Filtre grp…" autocomplete="off" data-bulk-group-filter aria-label="Filtrer le groupe">
-        <select id="bulk-group-id" name="group_id" class="form-select" required data-bulk-group-select aria-label="Groupe Keycloak">
-          <option value="">Choisir grp…</option>
+               placeholder="{{ _('Filtre grp…') }}" autocomplete="off" data-bulk-group-filter aria-label="{{ _('Filtrer le groupe') }}">
+        <select id="bulk-group-id" name="group_id" class="form-select" required data-bulk-group-select aria-label="{{ _('Groupe Keycloak') }}">
+          <option value="">{{ _('Choisir grp…') }}</option>
           {% for g in bulk_groups | default([]) %}
           <option value="{{ g.id }}" data-name="{{ g.name }}">{{ g.name }}{% if g.member_count is not none %} ({{ g.member_count }}){% endif %}</option>
           {% endfor %}
@@ -196,9 +196,9 @@
         <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/export.csv?{{ users_qs(list_tab='bastion') }}" data-bulk-export>CSV</a>
         <label class="users-bulk-all">
           <input type="checkbox" name="select_all_matching" value="1" data-bulk-all-matching>
-          Sél. tous
+          {{ _('Sél. tous') }}
         </label>
-        <span class="users-bulk-count" data-bulk-count>0 sél.</span>
+        <span class="users-bulk-count" data-bulk-count>{{ _('0 sél.') }}</span>
       </form>
     </div>
 
@@ -207,13 +207,13 @@
         <thead>
           <tr>
             <th style="width:2rem;">
-              <input type="checkbox" data-bulk-select-page title="Sélectionner la page">
+              <input type="checkbox" data-bulk-select-page title="{{ _('Sélectionner la page') }}">
             </th>
-            <th>Identité</th>
-            <th>Société</th>
+            <th>{{ _('Identité') }}</th>
+            <th>{{ _('Société') }}</th>
             <th>Realm</th>
-            <th>Statut</th>
-            <th>Actions</th>
+            <th>{{ _('Statut') }}</th>
+            <th>{{ _('Actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -233,13 +233,13 @@
             <td class="mono">{{ a.realm.slug if a.realm else a.realm_id }}</td>
             <td>
               {% if a.status == 'provisioned' %}
-              <span class="badge badge-ok">Provisionné</span>
+              <span class="badge badge-ok">{{ _('Provisionné') }}</span>
               {% elif a.status == 'keycloak_created' %}
               <span class="badge badge-ok">Keycloak OK</span>
               {% elif a.status == 'partial_failure' %}
-              <span class="badge badge-warn">Échec partiel</span>
+              <span class="badge badge-warn">{{ _('Échec partiel') }}</span>
               {% else %}
-              <span class="badge badge-err">Échec Keycloak</span>
+              <span class="badge badge-err">{{ _('Échec Keycloak') }}</span>
               {% endif %}
               {% if prov_fail %}
               <span class="badge badge-err">{{ prov_fail | length }} app</span>
@@ -249,11 +249,11 @@
             </td>
             <td style="text-align:right;">
               <div class="users-row-actions">
-                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}#droits">Accès</a>
+                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}#droits">{{ _('Accès') }}</a>
                 <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/view?account_id={{ a.id }}">Fiche</a>
                 <a class="btn btn-ghost btn-sm" href="/admin/rbac/accounts/{{ a.id }}" title="Provisioning">Prov.</a>
                 <a class="btn btn-danger btn-sm" href="/admin/rbac/accounts/{{ a.id }}#danger"
-                   title="Suppression complète" aria-label="Supprimer">
+                   title="{{ _('Suppression complète') }}" aria-label="{{ _('Supprimer') }}">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </a>
               </div>
@@ -266,36 +266,36 @@
     {% if list_meta.total_pages > 1 %}
     <div class="users-pager">
       {% if list_meta.page > 1 %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page - 1) }}">← Préc.</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page - 1) }}">{{ _('← Préc.') }}</a>
       {% endif %}
       {% if list_meta.page < list_meta.total_pages %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page + 1) }}">Suiv. →</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='bastion', page=list_meta.page + 1) }}">{{ _('Suiv. →') }}</a>
       {% endif %}
     </div>
     {% endif %}
   </div>
   {% else %}
-  <div class="alert alert-info" style="margin-bottom:var(--sp-3);">Aucun compte bastion pour ces filtres. Élargissez la recherche ou créez un utilisateur.</div>
+  <div class="alert alert-info" style="margin-bottom:var(--sp-3);">{{ _('Aucun compte bastion pour ces filtres. Élargissez la recherche ou créez un utilisateur.') }}</div>
   {% endif %}
 
   {% elif list_tab == 'keycloak' %}
   {% if import_users %}
   <div class="card users-panel">
     <div class="users-panel-head">
-      <p class="users-panel-title">SSO avec accès ({{ list_meta.total }} — p. {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
-      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Identités Keycloak ayant un accès (grant direct et/ou via un groupe à droits)</span>
+      <p class="users-panel-title">{{ _('SSO avec accès (') }}{{ list_meta.total }} {{ _('— p.') }} {{ list_meta.page }}/{{ list_meta.total_pages }})</p>
+      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">{{ _('Identités Keycloak ayant un accès (grant direct et/ou via un groupe à droits)') }}</span>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0;">
       <table class="data-table">
         <thead>
           <tr>
             <th style="width:2.5rem;"></th>
-            <th>Identité</th>
+            <th>{{ _('Identité') }}</th>
             <th>Provenance</th>
-            <th>Droits</th>
-            <th>Statut</th>
-            <th>Dernière connex.</th>
-            <th>Actions</th>
+            <th>{{ _('Droits') }}</th>
+            <th>{{ _('Statut') }}</th>
+            <th>{{ _('Dernière connex.') }}</th>
+            <th>{{ _('Actions') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -311,10 +311,10 @@
             <td>
               {% set via = u.access_via or [] %}
               {% if 'direct' in via %}
-              <span class="badge badge-muted" title="AccessGrant utilisateur">Direct</span>
+              <span class="badge badge-muted" title="{{ _('AccessGrant utilisateur') }}">Direct</span>
               {% endif %}
               {% for gname in u.via_groups or [] %}
-              <span class="badge badge-ok" title="Membre d'un groupe à droits">{{ gname }}</span>
+              <span class="badge badge-ok" title="{{ _('Membre d\'un groupe à droits') }}">{{ gname }}</span>
               {% else %}
               {% if 'direct' not in via %}
               <span class="form-hint">—</span>
@@ -331,7 +331,7 @@
             </td>
             <td>
               {% if u.has_portal_admin %}
-                <span class="badge badge-ok">Privilégié</span>
+                <span class="badge badge-ok">{{ _('Privilégié') }}</span>
               {% else %}
                 <span class="badge badge-ok">Actif</span>
               {% endif %}
@@ -347,7 +347,7 @@
               {% set droits_realm = u.realm_id or (selected_realm.id if selected_realm else none) %}
               {% if droits_realm %}
               <div class="users-row-actions">
-                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}#droits">Accès</a>
+                <a class="btn btn-primary btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}#droits">{{ _('Accès') }}</a>
                 <a class="btn btn-ghost btn-sm" href="/admin/rbac/users/view?realm_id={{ droits_realm }}&amp;keycloak_user_id={{ u.keycloak_user_id }}">Fiche</a>
               </div>
               {% endif %}
@@ -360,23 +360,23 @@
     {% if list_meta.total_pages > 1 %}
     <div class="users-pager">
       {% if list_meta.page > 1 %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page - 1) }}">← Préc.</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page - 1) }}">{{ _('← Préc.') }}</a>
       {% endif %}
       {% if list_meta.page < list_meta.total_pages %}
-      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page + 1) }}">Suiv. →</a>
+      <a class="btn btn-ghost btn-sm" href="/admin/rbac/users?{{ users_qs(list_tab='keycloak', page=list_meta.page + 1) }}">{{ _('Suiv. →') }}</a>
       {% endif %}
     </div>
     {% endif %}
   </div>
   {% else %}
-  <div class="alert alert-info" style="margin-bottom:var(--sp-3);">Aucun utilisateur SSO avec accès pour ces filtres. Vérifiez les grants de groupe ou utilisez Recherche Keycloak.</div>
+  <div class="alert alert-info" style="margin-bottom:var(--sp-3);">{{ _('Aucun utilisateur SSO avec accès pour ces filtres. Vérifiez les grants de groupe ou utilisez Recherche Keycloak.') }}</div>
   {% endif %}
 
   {% else %}
   <div class="card users-panel rbac-user-picker-card" style="overflow:visible;">
     <div class="users-panel-head">
-      <p class="users-panel-title">Recherche Keycloak</p>
-      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">Annuaire live — min. 2 caractères</span>
+      <p class="users-panel-title">{{ _('Recherche Keycloak') }}</p>
+      <span class="form-hint" style="margin:0;font-size:var(--fs-xs);">{{ _('Annuaire live — min. 2 caractères') }}</span>
     </div>
     <div style="padding:var(--sp-3);overflow:visible;">
       <form method="get" action="/admin/rbac/users/view" id="user-search-form" class="rbac-user-picker">
@@ -386,32 +386,32 @@
             {% for realm in realms %}
             <option value="{{ realm.id }}"{% if selected_realm and selected_realm.id == realm.id %} selected{% endif %}>{{ realm.slug }}</option>
             {% else %}
-            <option value="">Aucun realm sync/provisioning</option>
+            <option value="">{{ _('Aucun realm sync/provisioning') }}</option>
             {% endfor %}
           </select>
         </div>
         <div class="form-group rbac-user-picker-search" style="margin:0;">
-          <label class="form-label" for="user-query">Filtrer</label>
+          <label class="form-label" for="user-query">{{ _('Filtrer') }}</label>
           <div class="rbac-user-picker-search-wrap">
             <input type="search" id="user-query" class="form-input" placeholder="ex. alice, @example.com…" autocomplete="off" data-user-search value="{{ filter_q }}">
             <input type="hidden" name="keycloak_user_id" id="keycloak_user_id" value="">
           </div>
         </div>
         <div class="rbac-user-picker-actions">
-          <button type="submit" class="btn btn-primary btn-sm" id="user-search-submit" disabled>Voir la fiche</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="user-search-submit" disabled>{{ _('Voir la fiche') }}</button>
         </div>
       </form>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0;border-top:1px solid var(--border-muted);">
       <div class="users-panel-head">
-        <span class="users-panel-title" id="user-results-title">Résultats</span>
+        <span class="users-panel-title" id="user-results-title">{{ _('Résultats') }}</span>
         <span class="badge badge-muted" id="user-results-count">0</span>
       </div>
       <table class="data-table" id="user-results-table">
         <thead>
           <tr>
-            <th>Utilisateur</th>
-            <th>Email</th>
+            <th>{{ _('Utilisateur') }}</th>
+            <th>{{ _('Email') }}</th>
             <th></th>
           </tr>
         </thead>
@@ -419,8 +419,8 @@
           <tr class="user-results-empty">
             <td colspan="3">
               <div class="empty-state" style="padding:var(--sp-4);">
-                <div class="empty-title">Recherchez un utilisateur</div>
-                <div class="empty-desc">Tapez au moins 2 caractères pour interroger Keycloak.</div>
+                <div class="empty-title">{{ _('Recherchez un utilisateur') }}</div>
+                <div class="empty-desc">{{ _('Tapez au moins 2 caractères pour interroger Keycloak.') }}</div>
               </div>
             </td>
           </tr>
@@ -434,11 +434,13 @@
   <div class="groups-empty-banner">
     <span>
       Groupes Keycloak :
-      <strong>{{ dist.with_members | default(0) }}</strong> avec membres ·
-      <strong>{{ dist.empty_groups | default(0) }}</strong> vides ·
+      <strong>{{ dist.with_members | default(0) }}</strong> {{ _('avec membres ·') }}
+
+      <strong>{{ dist.empty_groups | default(0) }}</strong> {{ _('vides ·') }}
+
       <strong>{{ dist.total_groups | default(0) }}</strong> sync
     </span>
-    <a href="/admin/rbac" class="btn btn-primary btn-sm">Gérer les groupes</a>
+    <a href="/admin/rbac" class="btn btn-primary btn-sm">{{ _('Gérer les groupes') }}</a>
     <a href="/admin/rbac/matrix" class="btn btn-ghost btn-sm">Matrice</a>
   </div>
 </div>

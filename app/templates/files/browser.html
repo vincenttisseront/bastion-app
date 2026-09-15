@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Fichiers{% endblock %}
+{% block title %}{{ _('Fichiers') }}{% endblock %}
 {% block body_class %}{% if admin_chrome %}app-layout{% else %}page-portal{% endif %}{% endblock %}
-{% block breadcrumb %}{% if admin_chrome %}Admin / Fichiers{% endif %}{% endblock %}
+{% block breadcrumb %}{% if admin_chrome %}Admin / {{ _('Fichiers') }}{% endif %}{% endblock %}
 
 {% block head_extra %}
 {% if not admin_chrome %}
@@ -48,8 +48,8 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Fichiers</h1>
-      <p class="page-sub">Navigateur par dossiers — dépôt sans formulaire</p>
+      <h1 class="page-title">{{ _('Fichiers') }}</h1>
+      <p class="page-sub">{{ _('Navigateur par dossiers — dépôt sans formulaire') }}</p>
     </div>
   </div>
   {% if messages %}{% include 'partials/_flash.html' %}{% endif %}
@@ -62,7 +62,7 @@
   data-base-path="{{ base_path }}">
 
   <div class="fb-crumb" id="fb-crumb">
-    <a href="{{ base_path }}" data-folder="">Accueil</a>
+    <a href="{{ base_path }}" data-folder="">{{ _('Accueil') }}</a>
     {% for seg in listing.breadcrumb %}
       <span class="sep">/</span>
       <a href="{{ base_path }}?folder_id={{ seg.id }}" data-folder="{{ seg.id }}">{{ seg.name }}</a>
@@ -71,15 +71,15 @@
 
   <div class="fb-toolbar">
     {% if listing.can_manage %}
-    <button type="button" class="btn btn-secondary btn-sm" id="fb-new-folder">+ Dossier</button>
-    <label class="btn btn-primary btn-sm" for="fb-file-input">⬆ Uploader</label>
+    <button type="button" class="btn btn-secondary btn-sm" id="fb-new-folder">{{ _('+ Dossier') }}</button>
+    <label class="btn btn-primary btn-sm" for="fb-file-input">{{ _('⬆ Uploader') }}</label>
     <input type="file" id="fb-file-input" hidden multiple>
     {% endif %}
-    <button type="button" class="btn btn-ghost btn-sm" id="fb-download" disabled>⬇ Télécharger</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="fb-download" disabled>{{ _('⬇ Télécharger') }}</button>
     {% if listing.can_manage %}
-    <a class="btn btn-ghost btn-sm" id="fb-rights" href="/admin/rbac" hidden>🔒 Droits</a>
+    <a class="btn btn-ghost btn-sm" id="fb-rights" href="/admin/rbac" hidden>{{ _('🔒 Droits') }}</a>
     {% endif %}
-    <input type="search" class="form-input fb-search" id="fb-search" placeholder="Rechercher…">
+    <input type="search" class="form-input fb-search" id="fb-search" placeholder="{{ _('Rechercher…') }}">
   </div>
 
   <div class="fb-progress" id="fb-progress"><span></span></div>
@@ -91,7 +91,7 @@
           <th style="width:2rem;"></th>
           <th>Nom</th>
           <th>Taille</th>
-          <th>Modifié</th>
+          <th>{{ _('Modifié') }}</th>
           <th>Canal</th>
           <th style="width:2.5rem;"></th>
         </tr>
@@ -113,12 +113,12 @@
           <td><div class="fb-name">📄 {{ f.label }}</div></td>
           <td class="mono">{% if f.size_bytes %}{{ (f.size_bytes / 1048576) | round(1) }} MB{% else %}—{% endif %}</td>
           <td>{{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '—' }}</td>
-          <td>{% if f.channel == 'beta' %}<span class="badge badge-warn">Bêta</span>{% else %}<span class="badge badge-ok">Stable</span>{% endif %}</td>
-          <td><button type="button" class="btn btn-ghost btn-sm fb-more" data-id="{{ f.id }}" aria-label="Actions">⋯</button></td>
+          <td>{% if f.channel == 'beta' %}<span class="badge badge-warn">{{ _('Bêta') }}</span>{% else %}<span class="badge badge-ok">Stable</span>{% endif %}</td>
+          <td><button type="button" class="btn btn-ghost btn-sm fb-more" data-id="{{ f.id }}" aria-label="{{ _('Actions') }}">⋯</button></td>
         </tr>
         {% endfor %}
         {% if not listing.folders and not listing.files %}
-        <tr><td colspan="6"><div class="fb-hint">{% if listing.can_manage %}Glisser-déposer un fichier ici pour l'ajouter{% else %}Aucun fichier accessible{% endif %}</div></td></tr>
+        <tr><td colspan="6"><div class="fb-hint">{% if listing.can_manage %}{{ _("Glisser-déposer un fichier ici pour l'ajouter") }}{% else %}{{ _('Aucun fichier accessible') }}{% endif %}</div></td></tr>
         {% endif %}
       </tbody>
     </table>
@@ -129,7 +129,7 @@
 <div class="fb-drawer" id="fb-drawer" aria-hidden="true">
   <div class="fb-drawer-head">
     <strong id="fb-drawer-title">Versions</strong>
-    <button type="button" class="btn btn-ghost btn-sm" id="fb-drawer-close">Fermer</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="fb-drawer-close">{{ _('Fermer') }}</button>
   </div>
   <div class="fb-drawer-body" id="fb-drawer-body"></div>
 </div>

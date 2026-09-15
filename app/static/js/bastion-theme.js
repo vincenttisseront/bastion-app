@@ -30,7 +30,9 @@
     if (btn) {
       btn.setAttribute(
         'aria-label',
-        theme === 'dark' ? 'Activer le thème clair' : 'Activer le thème sombre'
+        theme === 'dark'
+          ? BastionI18n.t('Activer le thème clair')
+          : BastionI18n.t('Activer le thème sombre')
       );
     }
   }

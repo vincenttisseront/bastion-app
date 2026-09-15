@@ -26,13 +26,13 @@ document.addEventListener('DOMContentLoaded', function () {
       if (el.tagName === 'FORM') return;
       e.preventDefault();
       e.stopPropagation();
-      var msg = el.dataset.confirm || 'Confirmer cette action ?';
+      var msg = el.dataset.confirm || BastionI18n.t('Confirmer cette action ?');
       if (!window.bastionConfirm) return;
       window
         .bastionConfirm({
-          title: el.dataset.confirmTitle || 'Confirmation',
+          title: el.dataset.confirmTitle || BastionI18n.t('Confirmation'),
           message: msg,
-          confirmLabel: el.dataset.confirmLabel || 'Confirmer',
+          confirmLabel: el.dataset.confirmLabel || BastionI18n.t('Confirmer'),
           danger: el.dataset.confirmDanger !== '0',
         })
         .then(function (ok) {
@@ -62,9 +62,9 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!window.bastionConfirm) return;
       window
         .bastionConfirm({
-          title: form.dataset.confirmTitle || 'Confirmation',
+          title: form.dataset.confirmTitle || BastionI18n.t('Confirmation'),
           message: msg,
-          confirmLabel: form.dataset.confirmLabel || 'Confirmer',
+          confirmLabel: form.dataset.confirmLabel || BastionI18n.t('Confirmer'),
           danger: form.dataset.confirmDanger !== '0',
         })
         .then(function (ok) {
@@ -375,41 +375,47 @@ function initSlugFromLabel() {
 
 var ACCESS_MODE_COPY = {
   sso_gate: {
-    upstreamLabel: "URL publique de l'application",
-    upstreamHelp: "L'utilisateur sera redirigé ici après validation SSO. Aucun proxy.",
+    upstreamLabel: BastionI18n.t("URL publique de l'application"),
+    upstreamHelp: BastionI18n.t(
+      "L'utilisateur sera redirigé ici après validation SSO. Aucun proxy."
+    ),
     upstreamPlaceholder: 'https://app.example.fr/',
-    fqdnLabel: 'Sous-domaine public',
+    fqdnLabel: BastionI18n.t('Sous-domaine public'),
     showFqdn: false,
     showLegacyWarn: false,
     showPublicWarn: false
   },
   subdomain_proxy: {
-    upstreamLabel: 'URL backend interne (proxy_pass)',
-    upstreamHelp:
+    upstreamLabel: BastionI18n.t('URL backend interne (proxy_pass)'),
+    upstreamHelp: BastionI18n.t(
       'Origine du reverse proxy (scheme + host[:port] uniquement). ' +
-      'Ne pas mettre /web ni un chemin d’entrée — le navigateur envoie déjà le chemin ' +
-      '(ex. https://10.x.x.x/ et non https://10.x.x.x/web/).',
+        'Ne pas mettre /web ni un chemin d’entrée — le navigateur envoie déjà le chemin ' +
+        '(ex. https://10.x.x.x/ et non https://10.x.x.x/web/).'
+    ),
     upstreamPlaceholder: 'https://10.0.0.50/',
-    fqdnLabel: 'Sous-domaine public',
+    fqdnLabel: BastionI18n.t('Sous-domaine public'),
     showFqdn: true,
     showLegacyWarn: false,
     showPublicWarn: false
   },
   legacy_path_proxy: {
-    upstreamLabel: 'URL backend interne (proxy_pass)',
-    upstreamHelp: 'Cible proxifiée sous /proxy/{slug}/ — apps compatibles sous-chemin uniquement.',
+    upstreamLabel: BastionI18n.t('URL backend interne (proxy_pass)'),
+    upstreamHelp: BastionI18n.t(
+      'Cible proxifiée sous /proxy/{slug}/ — apps compatibles sous-chemin uniquement.'
+    ),
     upstreamPlaceholder: 'http://127.0.0.1:8080/',
-    fqdnLabel: 'Sous-domaine public',
+    fqdnLabel: BastionI18n.t('Sous-domaine public'),
     showFqdn: false,
     showLegacyWarn: true,
     showPublicWarn: false
   },
   public_proxy: {
-    upstreamLabel: 'URL backend interne (proxy_pass)',
-    upstreamHelp:
-      'Origine du reverse proxy (scheme + host[:port]). Pas de chemin /web — URI transparente.',
+    upstreamLabel: BastionI18n.t('URL backend interne (proxy_pass)'),
+    upstreamHelp: BastionI18n.t(
+      'Origine du reverse proxy (scheme + host[:port]). Pas de chemin /web — URI transparente.'
+    ),
     upstreamPlaceholder: 'https://10.0.0.50:3080/',
-    fqdnLabel: 'Domaine public dédié',
+    fqdnLabel: BastionI18n.t('Domaine public dédié'),
     showFqdn: true,
     showLegacyWarn: false,
     showPublicWarn: true
@@ -750,8 +756,9 @@ function initLoginFormAnalyzer() {
       if (methodHint) {
         if (!form.method_explicit) {
           methodHint.hidden = false;
-          methodHint.textContent =
-            'Méthode non explicite dans le HTML — POST supposé par convention (défaut vault). Vérifiez avant d\'enregistrer.';
+          methodHint.textContent = BastionI18n.t(
+            "Méthode non explicite dans le HTML — POST supposé par convention (défaut vault). Vérifiez avant d'enregistrer."
+          );
         } else {
           methodHint.hidden = true;
           methodHint.textContent = '';
@@ -761,11 +768,14 @@ function initLoginFormAnalyzer() {
 
     var html = '';
     html += '<p class="analyze-status alert alert-ok" style="margin:0 0 var(--sp-2)">';
-    html += 'Auto-détecté — vérifiez avant d\'enregistrer.';
+    html += BastionI18n.t("Auto-détecté — vérifiez avant d'enregistrer.");
     html += '</p>';
 
     if (form.username_field == null) {
-      html += '<p class="form-help" style="color:var(--warn)">Champ utilisateur non détecté — renseignez-le manuellement.</p>';
+      html +=
+        '<p class="form-help" style="color:var(--warn)">' +
+        BastionI18n.t('Champ utilisateur non détecté — renseignez-le manuellement.') +
+        '</p>';
     }
 
     var action = form.action || '';
@@ -775,33 +785,49 @@ function initLoginFormAnalyzer() {
     if (fqdnEl) portalDomain = (fqdnEl.dataset.portalDomain || '').trim().toLowerCase();
     var actionIsPortal = !!(action && portalDomain && absoluteUrlHostname(action) === portalDomain);
     if (action && entered && action !== entered && !actionIsPortal) {
-      html += '<p class="form-help">Action détectée : <span class="mono">' + escapeHtml(action) + '</span></p>';
-      html += '<button type="button" class="btn btn-secondary btn-sm" data-use-detected-action="' +
-        escapeHtml(action) + '">Utiliser l\'URL détectée à la place</button>';
+      html +=
+        '<p class="form-help">' +
+        BastionI18n.t('Action détectée :') +
+        ' <span class="mono">' +
+        escapeHtml(action) +
+        '</span></p>';
+      html +=
+        '<button type="button" class="btn btn-secondary btn-sm" data-use-detected-action="' +
+        escapeHtml(action) +
+        '">' +
+        BastionI18n.t("Utiliser l'URL détectée à la place") +
+        '</button>';
     } else if (actionIsPortal) {
       html += '<p class="form-help" style="color:var(--warn)">';
-      html += 'L\'action du formulaire pointe vers le portail Bastion — ignorée (ce n\'est pas l\'URL de l\'application).';
+      html += BastionI18n.t(
+        "L'action du formulaire pointe vers le portail Bastion — ignorée (ce n'est pas l'URL de l'application)."
+      );
       html += '</p>';
     }
 
     var hidden = form.hidden_fields || [];
     if (hidden.length) {
-      html += '<p class="form-help" style="margin-top:var(--sp-3)">Champs cachés détectés. ';
-      html += 'Un token CSRF dynamique ne doit <strong>pas</strong> être ajouté ici — ';
-      html += 'le driver le récupère déjà automatiquement à chaque tentative via un GET préalable. ';
-      html += 'N\'ajoutez ici que des champs à valeur fixe (ex. <span class="mono">remember=1</span>).</p>';
+      html +=
+        '<p class="form-help" style="margin-top:var(--sp-3)">' +
+        BastionI18n.t(
+          'Champs cachés détectés. Un token CSRF dynamique ne doit pas être ajouté ici — le driver le récupère déjà automatiquement à chaque tentative via un GET préalable. N\'ajoutez ici que des champs à valeur fixe (ex. remember=1).'
+        ) +
+        '</p>';
       html += '<ul class="analyze-hidden-list">';
       hidden.forEach(function (hf) {
         var checked = hf.likely_dynamic ? '' : ' checked';
         html += '<li>';
         html += '<label class="form-check" style="margin:0">';
         html += '<input type="checkbox" data-hidden-extra="' + escapeHtml(hf.name) + '"' + checked + '> ';
-        html += 'Ajouter aux champs supplémentaires';
+        html += BastionI18n.t('Ajouter aux champs supplémentaires');
         html += '</label>';
         html += ' <span class="mono">' + escapeHtml(hf.name) + '</span>=';
         html += '<span class="mono">' + escapeHtml(hf.value) + '</span>';
         if (hf.likely_dynamic) {
-          html += ' <span class="badge badge-warn">probablement dynamique</span>';
+          html +=
+            ' <span class="badge badge-warn">' +
+            BastionI18n.t('probablement dynamique') +
+            '</span>';
         }
         html += '</li>';
       });
@@ -833,11 +859,22 @@ function initLoginFormAnalyzer() {
   }
 
   function showFormPicker(forms, enteredUrl) {
-    var html = '<p class="analyze-status">Plusieurs formulaires avec mot de passe détectés — choisissez lequel appliquer :</p>';
+    var html =
+      '<p class="analyze-status">' +
+      BastionI18n.t(
+        'Plusieurs formulaires avec mot de passe détectés — choisissez lequel appliquer :'
+      ) +
+      '</p>';
     forms.forEach(function (form, idx) {
       var label =
-        '#' + (idx + 1) + ' — ' + (form.field_count || '?') + ' champs, action ' +
-        (form.action || '(page)');
+        '#' +
+        (idx + 1) +
+        ' — ' +
+        (form.field_count || '?') +
+        ' ' +
+        BastionI18n.t('champs, action') +
+        ' ' +
+        (form.action || BastionI18n.t('(page)'));
       html +=
         '<button type="button" class="btn btn-secondary btn-sm analyze-form-choice" data-form-idx="' +
         idx +
@@ -861,7 +898,10 @@ function initLoginFormAnalyzer() {
     clearAutodetected();
     analyzeBtn.disabled = true;
     panel.hidden = false;
-    panel.innerHTML = '<p class="analyze-status form-help">Analyse en cours…</p>';
+    panel.innerHTML =
+      '<p class="analyze-status form-help">' +
+      BastionI18n.t('Analyse en cours…') +
+      '</p>';
     try {
       var resp = await fetch('/admin/apps/analyze-login-form', {
         method: 'POST',
@@ -881,7 +921,9 @@ function initLoginFormAnalyzer() {
       if (!resp.ok) {
         panel.innerHTML =
           '<div class="alert alert-warn"><div class="alert-body">' +
-          escapeHtml(data.message || data.detail || 'Analyse impossible.') +
+          escapeHtml(
+            data.message || data.detail || BastionI18n.t('Analyse impossible.')
+          ) +
           '</div></div>';
         return;
       }
@@ -893,11 +935,15 @@ function initLoginFormAnalyzer() {
         showFormPicker(forms, url);
       } else {
         panel.innerHTML =
-          '<div class="alert alert-warn"><div class="alert-body">Aucun formulaire détecté.</div></div>';
+          '<div class="alert alert-warn"><div class="alert-body">' +
+          BastionI18n.t('Aucun formulaire détecté.') +
+          '</div></div>';
       }
     } catch (e) {
       panel.innerHTML =
-        '<div class="alert alert-err"><div class="alert-body">Erreur réseau pendant l\'analyse.</div></div>';
+        '<div class="alert alert-err"><div class="alert-body">' +
+        BastionI18n.t("Erreur réseau pendant l'analyse.") +
+        '</div></div>';
     } finally {
       syncAnalyzeButton();
     }

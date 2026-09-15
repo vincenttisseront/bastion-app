@@ -1,4 +1,4 @@
-<aside class="sidebar" aria-label="Navigation principale">
+<aside class="sidebar" aria-label="{{ _('Navigation principale') }}">
   <div class="sidebar-brand">
     <div class="brand-icon" aria-hidden="true">
       <svg width="20" height="20" fill="none" stroke="#fff" stroke-width="2" viewBox="0 0 24 24">
@@ -13,12 +13,12 @@
 
   <nav class="sidebar-nav" data-sidebar-nav>
     <div class="sidebar-search-wrap">
-      <label class="visually-hidden" for="sidebar-search">Filtrer le menu</label>
+      <label class="visually-hidden" for="sidebar-search">{{ _('Filtrer le menu') }}</label>
       <input
         type="search"
         id="sidebar-search"
         class="sidebar-search"
-        placeholder="Filtrer le menu…"
+        placeholder="{{ _('Filtrer le menu…') }}"
         autocomplete="off"
         spellcheck="false"
       >
@@ -28,7 +28,7 @@
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
       Dashboard
       {% if is_admin and (dashboard_pending_total | default(0)) > 0 %}
-      <span class="nav-badge" aria-label="{{ dashboard_pending_total }} éléments en attente">{{ dashboard_pending_total }}</span>
+      <span class="nav-badge" aria-label="{{ dashboard_pending_total }} {{ _('éléments en attente') }}">{{ dashboard_pending_total }}</span>
       {% endif %}
     </a>
     <a href="/sessions" class="nav-item{% if request.url.path == '/sessions' %} active{% endif %}" data-nav-label="Sessions">
@@ -57,10 +57,10 @@
     {% set content_open = path.startswith('/admin/apps') or path.startswith('/admin/files') or path.startswith('/files') or pending_nav_open %}
     {% set infra_open = path.startswith('/admin/infrastructure') or path.startswith('/admin/dependencies') or path.startswith('/admin/logs') or path == '/admin/health' %}
 
-    <div class="nav-section">Administration</div>
+    <div class="nav-section">{{ _('Administration') }}</div>
 
     <div class="sidebar-nav-admin" data-sidebar-admin-accordion>
-    {% call accordion_menu_group('general', 'Général', open=general_open) %}
+    {% call accordion_menu_group('general', _('Général'), open=general_open) %}
     <a href="/admin/setup-wizard" class="nav-item{% if path.startswith('/admin/setup-wizard') %} active{% endif %}" data-nav-label="Setup">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>
       Setup
@@ -75,7 +75,7 @@
     </a>
     {% endcall %}
 
-    {% call accordion_menu_group('access', 'Accès & sécurité', open=access_open) %}
+    {% call accordion_menu_group('access', _('Accès & sécurité'), open=access_open) %}
     <a href="/admin/realms" class="nav-item{% if path.startswith('/admin/realms') %} active{% endif %}" data-nav-label="Realms">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg>
       Realms
@@ -86,7 +86,7 @@
     </a>
     <a href="/admin/security" class="nav-item{% if path == '/admin/security' %} active{% endif %}" data-nav-label="Sécurité">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      Sécurité
+      {{ _('Sécurité') }}
     </a>
     <a href="/admin/security/waf" class="nav-item{% if path.startswith('/admin/security/waf') %} active{% endif %}" data-nav-label="WAF">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -100,10 +100,10 @@
 
     {% call accordion_menu_group(
       'content',
-      'Contenu & apps',
+      _('Contenu & apps'),
       open=content_open,
       badge_count=pending_total,
-      badge_aria=(pending_total ~ ' éléments en attente') if pending_total else ''
+      badge_aria=(pending_total ~ ' ' ~ _('éléments en attente')) if pending_total else ''
     ) %}
     <a href="/admin/apps" class="nav-item{% if path.startswith('/admin/apps') %} active{% endif %}" data-nav-label="Apps">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
@@ -111,38 +111,38 @@
     </a>
     <a href="/admin/files" class="nav-item{% if path.startswith('/files') or path.startswith('/admin/files') %} active{% endif %}" data-nav-label="Fichiers">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      Fichiers
+      {{ _('Fichiers') }}
     </a>
     <details class="nav-group" data-nav-subgroup="pending"{% if pending_nav_open %} open{% endif %}>
       <summary class="nav-item nav-group-toggle{% if pending_nav_open %} is-parent-active{% endif %}" data-nav-label="En attente">
         <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span class="nav-group-label">En attente</span>
+        <span class="nav-group-label">{{ _('En attente') }}</span>
         {% if pending_total and pending_total > 0 %}
-        <span class="nav-badge" aria-label="{{ pending_total }} éléments en attente">{{ pending_total }}</span>
+        <span class="nav-badge" aria-label="{{ pending_total }} {{ _('éléments en attente') }}">{{ pending_total }}</span>
         {% endif %}
         <svg class="nav-group-chevron" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
       </summary>
       <div class="nav-group-children">
         <a href="/admin/pending-hosts" class="nav-item nav-item--sub{% if path.startswith('/admin/pending-hosts') %} active{% endif %}" data-nav-label="Domaines">
-          Domaines
+          {{ _('Domaines') }}
           {% if pending_hosts_count and pending_hosts_count > 0 %}
           <span class="nav-badge">{{ pending_hosts_count }}</span>
           {% endif %}
         </a>
         <a href="/admin/pending-users" class="nav-item nav-item--sub{% if path.startswith('/admin/pending-users') %} active{% endif %}" data-nav-label="Nouveaux users">
-          Nouveaux users
+          {{ _('Nouveaux users') }}
           {% if pending_users_count and pending_users_count > 0 %}
           <span class="nav-badge">{{ pending_users_count }}</span>
           {% endif %}
         </a>
         <a href="/admin/pending-devices" class="nav-item nav-item--sub{% if path.startswith('/admin/pending-devices') %} active{% endif %}" data-nav-label="Appareils">
-          Appareils
+          {{ _('Appareils') }}
           {% if pending_devices_count and pending_devices_count > 0 %}
           <span class="nav-badge">{{ pending_devices_count }}</span>
           {% endif %}
         </a>
         <a href="/admin/access-requests" class="nav-item nav-item--sub{% if path.startswith('/admin/access-requests') %} active{% endif %}" data-nav-label="Demandes d'accès">
-          Demandes d'accès
+          {{ _('Demandes d\'accès') }}
           {% if access_requests_count and access_requests_count > 0 %}
           <span class="nav-badge">{{ access_requests_count }}</span>
           {% endif %}
@@ -151,14 +151,14 @@
     </details>
     {% endcall %}
 
-    {% call accordion_menu_group('infra', 'Infra & supervision', open=infra_open) %}
+    {% call accordion_menu_group('infra', _('Infra & supervision'), open=infra_open) %}
     <a href="/admin/infrastructure" class="nav-item{% if path.startswith('/admin/infrastructure') %} active{% endif %}" data-nav-label="Infrastructure">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
       Infrastructure
     </a>
     <a href="/admin/dependencies" class="nav-item{% if path.startswith('/admin/dependencies') %} active{% endif %}" data-nav-label="Dépendances">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-      Dépendances
+      {{ _('Dépendances') }}
     </a>
     <a href="/admin/logs" class="nav-item{% if path.startswith('/admin/logs') %} active{% endif %}" data-nav-label="Logs">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
@@ -166,7 +166,7 @@
     </a>
     <a href="/admin/health" class="nav-item{% if path == '/admin/health' %} active{% endif %}" data-nav-label="Santé">
       <svg class="icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-      Santé
+      {{ _('Santé') }}
     </a>
     {% endcall %}
     </div>
@@ -179,7 +179,7 @@
       <div class="user-avatar">{{ current_user.display_name | initials }}</div>
       <div>
         <div class="user-name">{{ current_user.display_name }}</div>
-        <div class="user-role">{% if is_admin %}Administrateur{% else %}Utilisateur{% endif %}</div>
+        <div class="user-role">{% if is_admin %}{{ _('Administrateur') }}{% else %}{{ _('Utilisateur') }}{% endif %}</div>
       </div>
     </div>
   </div>

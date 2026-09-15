@@ -1,29 +1,30 @@
 {% extends "base.html" %}
-{% block title %}Appareils ActiveSync{% endblock %}
-{% block breadcrumb %}Admin / Appareils{% endblock %}
+{% block title %}{{ _('Appareils ActiveSync') }}{% endblock %}
+{% block breadcrumb %}{{ _('Admin / Appareils') }}{% endblock %}
 
 {% block content %}
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Appareils</h1>
+      <h1 class="page-title">{{ _('Appareils') }}</h1>
       <p class="page-sub">
-        Téléphones, tablettes et autres clients ActiveSync vus sur la messagerie —
-        file d’attente de validation (comme les domaines et les nouveaux users).
-        Approuver autorise le sync ; bloquer coupe immédiatement et l’utilisateur
-        ne pourra pas réactiver. Cliquez une ligne pour le détail.
+        {{ _('Téléphones, tablettes et autres clients ActiveSync vus sur la messagerie —') }}
+{{ _('file d’attente de validation (comme les domaines et les nouveaux users).') }}
+
+        {{ _('Approuver autorise le sync ; bloquer coupe immédiatement et l’utilisateur') }}
+        {{ _('ne pourra pas réactiver. Cliquez une ligne pour le détail.') }}
       </p>
     </div>
   </div>
 
   <div class="card">
     <div class="card-header">
-      <span class="card-title">File d’attente · {{ rows | length }}</span>
+      <span class="card-title">{{ _('File d’attente ·') }} {{ rows | length }}</span>
       <div class="card-header-actions">
-        <fieldset class="filter-group" aria-label="Filtrer par statut">
-          <a href="/admin/pending-devices?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">En attente</a>
-          <a href="/admin/pending-devices?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">Approuvés</a>
-          <a href="/admin/pending-devices?status=blocked" class="filter-chip{% if status_filter == 'blocked' %} active{% endif %}">Bloqués</a>
+        <fieldset class="filter-group" aria-label="{{ _('Filtrer par statut') }}">
+          <a href="/admin/pending-devices?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">{{ _('En attente') }}</a>
+          <a href="/admin/pending-devices?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">{{ _('Approuvés') }}</a>
+          <a href="/admin/pending-devices?status=blocked" class="filter-chip{% if status_filter == 'blocked' %} active{% endif %}">{{ _('Bloqués') }}</a>
           <a href="/admin/pending-devices?status=all" class="filter-chip{% if status_filter == 'all' %} active{% endif %}">Tout</a>
         </fieldset>
       </div>
@@ -33,12 +34,12 @@
         <table class="data-table data-table--dense" id="pending-devices-table">
           <thead>
             <tr>
-              <th>Utilisateur</th>
-              <th>Appareil</th>
+              <th>{{ _('Utilisateur') }}</th>
+              <th>{{ _('Appareil') }}</th>
               <th>App</th>
               <th>Hits</th>
-              <th>Dernière vue</th>
-              <th>Statut</th>
+              <th>{{ _('Dernière vue') }}</th>
+              <th>{{ _('Statut') }}</th>
               <th></th>
             </tr>
           </thead>
@@ -49,7 +50,7 @@
                 data-device='{{ row.drawer | tojson }}'
                 tabindex="0"
                 role="button"
-                title="Voir le détail">
+                title="{{ _('Voir le détail') }}">
               <td class="mono truncate" title="{{ row.user_key }}">{{ row.user_key }}</td>
               <td class="truncate" title="{{ row.display_name }}">{{ row.display_name }}</td>
               <td class="truncate" title="{{ row.app_label or '' }}">{{ row.app_label or '—' }}</td>
@@ -60,20 +61,20 @@
                 {% if row.status == 'pending' %}
                 <form method="post" action="/admin/activesync/devices/{{ row.id }}/approve" style="display:inline;">
                   <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
-                  <button type="submit" class="btn btn-primary btn-sm">Approuver</button>
+                  <button type="submit" class="btn btn-primary btn-sm">{{ _('Approuver') }}</button>
                 </form>
                 <form method="post" action="/admin/activesync/devices/{{ row.id }}/block" style="display:inline;"
-                      data-confirm="Bloquer cet appareil ? L'utilisateur ne pourra pas le réactiver.">
+                      data-confirm="{{ _("Bloquer cet appareil ? L'utilisateur ne pourra pas le réactiver.") }}">
                   <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
-                  <button type="submit" class="btn btn-danger btn-sm">Bloquer</button>
+                  <button type="submit" class="btn btn-danger btn-sm">{{ _('Bloquer') }}</button>
                 </form>
                 {% elif row.status == 'blocked' %}
                 <form method="post" action="/admin/activesync/devices/{{ row.id }}/unblock" style="display:inline;">
                   <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
-                  <button type="submit" class="btn btn-ghost btn-sm">Débloquer</button>
+                  <button type="submit" class="btn btn-ghost btn-sm">{{ _('Débloquer') }}</button>
                 </form>
                 {% else %}
-                <button type="button" class="btn btn-ghost btn-sm pending-device-detail-open" title="Détail">↗</button>
+                <button type="button" class="btn btn-ghost btn-sm pending-device-detail-open" title="{{ _('Détail') }}">↗</button>
                 {% endif %}
               </td>
             </tr>
@@ -81,10 +82,11 @@
             <tr>
               <td colspan="7">
                 <div class="empty-state" style="padding:2rem;">
-                  <div class="empty-title">Aucun appareil {{ status_filter if status_filter != 'all' else '' }}</div>
+                  <div class="empty-title">{{ _('Aucun appareil') }} {{ status_filter if status_filter != 'all' else '' }}</div>
                   <div class="empty-desc">
-                    Les clients ActiveSync (téléphones, tablettes…) apparaissent ici dès
-                    qu’un sync traverse le bastion (bandeau cloche et dashboard inclus).
+                    {{ _('Les clients ActiveSync (téléphones, tablettes…) apparaissent ici dès') }}
+{{ _('qu’un sync traverse le bastion (bandeau cloche et dashboard inclus).') }}
+
                   </div>
                 </div>
               </td>
@@ -100,8 +102,8 @@
 <div class="logs-drawer-backdrop" id="device-drawer-backdrop" hidden></div>
 <aside class="logs-drawer" id="device-drawer" aria-hidden="true">
   <div class="logs-drawer-head">
-    <strong id="device-drawer-title">Appareil</strong>
-    <button type="button" class="btn btn-ghost btn-sm" id="device-drawer-close">Fermer</button>
+    <strong id="device-drawer-title">{{ _('Appareil') }}</strong>
+    <button type="button" class="btn btn-ghost btn-sm" id="device-drawer-close">{{ _('Fermer') }}</button>
   </div>
   <div class="logs-drawer-body" id="device-drawer-body"></div>
 </aside>

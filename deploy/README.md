@@ -34,16 +34,16 @@ Docker Hub (défaut compose) et miroir GHCR — **mêmes tags** que la [GitHub R
 
 | Tag | Usage |
 |-----|--------|
-| `v0.8.0` | pin release (recommandé prod) |
+| `v0.9.0` | pin release (recommandé prod) |
 | `latest` | dernier build publié |
 | `<gitsha>` | pin exact (ex. `b6c09da`) |
 
 ```bash
 # Hub (défaut)
-# BASTION_APP_IMAGE=vincenttisseront/bastion-pro-app:v0.8.0
+# BASTION_APP_IMAGE=vincenttisseront/bastion-pro-app:v0.9.0
 
 # ou GHCR
-# BASTION_APP_IMAGE=ghcr.io/vincenttisseront/bastion-pro-app:v0.8.0
+# BASTION_APP_IMAGE=ghcr.io/vincenttisseront/bastion-pro-app:v0.9.0
 ```
 
 ## Premier boot

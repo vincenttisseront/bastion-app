@@ -133,8 +133,14 @@
       if (!items || !items.length) {
         feed.innerHTML =
           '<div class="notif-empty">' +
-          '<p class="notif-empty-title">Rien d’urgent</p>' +
-          '<p class="notif-empty-desc">Pas de notification active. Les éléments marqués comme lus réapparaissent si le problème change.</p>' +
+          '<p class="notif-empty-title">' +
+          BastionI18n.t('Rien d’urgent') +
+          '</p>' +
+          '<p class="notif-empty-desc">' +
+          BastionI18n.t(
+            'Pas de notification active. Les éléments marqués comme lus réapparaissent si le problème change.'
+          ) +
+          '</p>' +
           '</div>';
         return;
       }
@@ -148,7 +154,11 @@
                 esc(it.id) +
                 '" data-notif-fp="' +
                 esc(it.fingerprint || '') +
-                '" title="Marquer comme lu" aria-label="Marquer comme lu">×</button>';
+                '" title="' +
+                BastionI18n.t('Marquer comme lu') +
+                '" aria-label="' +
+                BastionI18n.t('Marquer comme lu') +
+                '">×</button>';
           return (
             '<div class="notif-item-wrap">' +
             '<a class="notif-item" href="' +
@@ -185,9 +195,14 @@
 
     function showError(msg) {
       feed.innerHTML =
-        '<div class="notif-empty"><p class="notif-empty-title">Impossible de charger</p>' +
+        '<div class="notif-empty"><p class="notif-empty-title">' +
+        BastionI18n.t('Impossible de charger') +
+        '</p>' +
         '<p class="notif-empty-desc">' +
-        esc(msg || 'Réessayez ou ouvrez Logs / Domaines depuis le menu.') +
+        esc(
+          msg ||
+            BastionI18n.t('Réessayez ou ouvrez Logs / Domaines depuis le menu.')
+        ) +
         '</p></div>';
     }
 
@@ -223,7 +238,9 @@
         applyData(cache);
       } else if (!silent) {
         feed.innerHTML =
-          '<div class="notif-loading"><span class="notif-spinner" aria-hidden="true"></span> Chargement…</div>';
+          '<div class="notif-loading"><span class="notif-spinner" aria-hidden="true"></span> ' +
+          BastionI18n.t('Chargement…') +
+          '</div>';
       }
       fetchFeed()
         .then(function (data) {
@@ -237,7 +254,9 @@
           var aborted = err && err.name === 'AbortError';
           showError(
             aborted
-              ? 'Délai dépassé — les journaux sont peut‑être saturés. Ouvrez Logs.'
+              ? BastionI18n.t(
+                  'Délai dépassé — les journaux sont peut‑être saturés. Ouvrez Logs.'
+                )
               : null
           );
         });

@@ -251,12 +251,12 @@
               })
               .filter(Boolean)[0] ||
             (result.data && result.data.detail) ||
-            "Impossible d’ajouter ce droit.";
+            BastionI18n.t("Impossible d’ajouter ce droit.");
           setError(typeof msg === "string" ? msg : String(msg));
         })
         .catch(function () {
           if (submitBtn) submitBtn.disabled = false;
-          setError("Erreur réseau — réessayez.");
+          setError(BastionI18n.t("Erreur réseau — réessayez."));
         });
     });
   }

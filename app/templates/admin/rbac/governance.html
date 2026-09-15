@@ -6,15 +6,16 @@
 <div class="page">
   <div class="page-header">
     <div>
-      <h1 class="page-title">Matrice de Permissions</h1>
-      <p class="page-sub">Modules internes × rôle de gouvernance</p>
+      <h1 class="page-title">{{ _('Matrice de Permissions') }}</h1>
+      <p class="page-sub">{{ _('Modules internes × rôle de gouvernance') }}</p>
     </div>
   </div>
 
   {% include "admin/rbac/_rbac_tabs.html" %}
 
   <div id="gov-pending" class="alert alert-warn" hidden style="margin-bottom:var(--sp-4);">
-    Modifications en attente — cliquez sur <strong>Sauvegarder</strong> pour appliquer.
+{{ _('Modifications en attente — cliquez sur') }} <strong>{{ _('Sauvegarder') }}</strong> {{ _('pour appliquer.') }}
+
   </div>
 
   <div class="dash-grid" style="grid-template-columns:minmax(0,1fr) 280px; gap:var(--sp-4); align-items:start;">
@@ -22,7 +23,7 @@
       <div class="card" style="padding:var(--sp-4); margin-bottom:var(--sp-4);">
         <form method="get" action="/admin/rbac/governance" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
           <div class="form-group">
-            <label class="form-label" for="role_id">Rôle Actif</label>
+            <label class="form-label" for="role_id">{{ _('Rôle Actif') }}</label>
             <select id="role_id" name="role_id" class="form-select" onchange="this.form.submit()">
               {% for r in roles %}
               <option value="{{ r.id }}"{% if active_role.id == r.id %} selected{% endif %}>{{ r.name }}</option>
@@ -30,14 +31,14 @@
             </select>
           </div>
           {% if active_role.inherits_from_name %}
-          <span class="badge badge-info">Héritage : {{ active_role.inherits_from_name }}</span>
+          <span class="badge badge-info">{{ _('Héritage :') }} {{ active_role.inherits_from_name }}</span>
           {% endif %}
           {% if active_role.is_critical %}
-          <span class="badge badge-err">Mode Critique</span>
+          <span class="badge badge-err">{{ _('Mode Critique') }}</span>
           {% else %}
           <span class="badge badge-muted">Standard</span>
           {% endif %}
-          <button type="button" class="btn btn-primary btn-sm" id="gov-save" disabled>Sauvegarder</button>
+          <button type="button" class="btn btn-primary btn-sm" id="gov-save" disabled>{{ _('Sauvegarder') }}</button>
         </form>
       </div>
 
@@ -65,7 +66,7 @@
                 {% for field in ['can_read', 'can_write', 'can_delete', 'can_execute'] %}
                 <td>
                   {% if p.locked and field in ['can_delete', 'can_execute'] %}
-                  <span class="perm-toggle locked" title="Verrouillé">
+                  <span class="perm-toggle locked" title="{{ _('Verrouillé') }}">
                     <span class="track"><span class="thumb"></span></span>
                   </span>
                   <span class="form-hint" aria-hidden="true">block</span>
@@ -89,14 +90,14 @@
       </div>
 
       <div class="card form-section" style="padding:var(--sp-4);">
-        <div class="card-title" style="margin-bottom:var(--sp-3);">Nouveau Rôle</div>
+        <div class="card-title" style="margin-bottom:var(--sp-3);">{{ _('Nouveau Rôle') }}</div>
         <form method="post" action="/admin/rbac/roles" class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
           <div class="form-group">
             <label class="form-label" for="new-role-name">Nom</label>
             <input class="form-input" id="new-role-name" name="name" required>
           </div>
           <div class="form-group">
-            <label class="form-label" for="inherits_from_id">Rôle parent (optionnel)</label>
+            <label class="form-label" for="inherits_from_id">{{ _('Rôle parent (optionnel)') }}</label>
             <select class="form-select" id="inherits_from_id" name="inherits_from_id">
               <option value="">—</option>
               {% for r in roles %}
@@ -105,26 +106,27 @@
             </select>
           </div>
           <label class="form-hint" style="display:flex; gap:var(--sp-2); align-items:center;">
-            <input type="checkbox" name="is_critical" value="1"> Mode Critique
+            <input type="checkbox" name="is_critical" value="1"> {{ _('Mode Critique') }}
+
           </label>
-          <button type="submit" class="btn btn-primary btn-sm">Créer</button>
+          <button type="submit" class="btn btn-primary btn-sm">{{ _('Créer') }}</button>
         </form>
       </div>
     </div>
 
     <aside style="display:flex; flex-direction:column; gap:var(--sp-4);">
       <div class="card" style="padding:var(--sp-4);">
-        <div class="card-title" style="margin-bottom:var(--sp-3);">Audit de Sécurité</div>
+        <div class="card-title" style="margin-bottom:var(--sp-3);">{{ _('Audit de Sécurité') }}</div>
         {% if last_permission_update and last_permission_update.updated_at %}
-        <p class="form-hint" style="margin:0;">Dernière modification</p>
+        <p class="form-hint" style="margin:0;">{{ _('Dernière modification') }}</p>
         <div class="mono">{{ last_permission_update.updated_at }}</div>
         <div class="form-hint">{{ last_permission_update.updated_by or '—' }}</div>
         {% else %}
-        <p class="empty-desc">Aucune modification enregistrée</p>
+        <p class="empty-desc">{{ _('Aucune modification enregistrée') }}</p>
         {% endif %}
       </div>
       <div class="card" style="padding:var(--sp-4);">
-        <div class="card-title" style="margin-bottom:var(--sp-3);">Contrôle d'intégrité</div>
+        <div class="card-title" style="margin-bottom:var(--sp-3);">{{ _("Contrôle d'intégrité") }}</div>
         {% if integrity_issues %}
           <ul style="margin:0; padding-left:var(--sp-4);">
             {% for issue in integrity_issues %}
@@ -132,8 +134,8 @@
             {% endfor %}
           </ul>
         {% else %}
-          <span class="badge badge-ok">Aucun conflit de rôle détecté</span>
-          <p class="form-hint" style="margin-top:var(--sp-2);">Règle V1 : noms uniques + héritage ≤ 1 niveau.</p>
+          <span class="badge badge-ok">{{ _('Aucun conflit de rôle détecté') }}</span>
+          <p class="form-hint" style="margin-top:var(--sp-2);">{{ _('Règle V1 : noms uniques + héritage ≤ 1 niveau.') }}</p>
         {% endif %}
       </div>
       <div class="card" style="padding:var(--sp-4);">
@@ -145,7 +147,7 @@
             {% if h.details %}<div>{{ h.details }}</div>{% endif %}
           </li>
           {% else %}
-          <li class="empty-desc">Pas encore d’entrée role_permission_updated</li>
+          <li class="empty-desc">{{ _('Pas encore d’entrée role_permission_updated') }}</li>
           {% endfor %}
         </ul>
       </div>

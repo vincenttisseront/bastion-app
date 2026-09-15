@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Mes fichiers{% endblock %}
+{% block title %}{{ _('Mes fichiers') }}{% endblock %}
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
@@ -17,14 +17,15 @@
 <main class="portal-main portal-main--apps">
   <section class="portal-hero">
     <div class="portal-hero-copy">
-      <p class="portal-eyebrow">Espace utilisateur</p>
-      <h1 class="page-title">Mes fichiers</h1>
+      <p class="portal-eyebrow">{{ _('Espace utilisateur') }}</p>
+      <h1 class="page-title">{{ _('Mes fichiers') }}</h1>
       <p class="page-sub">
         {% if files %}
           {{ files | length }} fichier{{ 's' if files | length != 1 else '' }} accessible{{ 's' if files | length != 1 else '' }}
-          · canal résolu par fichier
+          {{ _('· canal résolu par fichier') }}
         {% else %}
-          Aucun fichier disponible pour le moment
+{{ _('Aucun fichier disponible pour le moment') }}
+
         {% endif %}
       </p>
     </div>
@@ -43,12 +44,12 @@
         </div>
         <div class="app-tile-badges">
           {% if f.channel == 'beta' %}
-          <span class="badge badge-warn">Bêta</span>
+          <span class="badge badge-warn">{{ _('Bêta') }}</span>
           {% endif %}
           {% if f.version_label %}
           <span class="badge badge-muted">v{{ f.version_label }}</span>
           {% else %}
-          <span class="badge badge-muted">Aucune version disponible pour votre profil</span>
+          <span class="badge badge-muted">{{ _('Aucune version disponible pour votre profil') }}</span>
           {% endif %}
         </div>
       </div>
@@ -64,9 +65,9 @@
       </div>
       <div class="app-tile-actions">
         {% if f.can_download %}
-        <a class="btn btn-primary btn-sm" href="{{ f.download_url }}">Télécharger</a>
+        <a class="btn btn-primary btn-sm" href="{{ f.download_url }}">{{ _('Télécharger') }}</a>
         {% else %}
-        <button type="button" class="btn btn-ghost btn-sm" disabled title="Aucune version ou droit insuffisant">Indisponible</button>
+        <button type="button" class="btn btn-ghost btn-sm" disabled title="{{ _('Aucune version ou droit insuffisant') }}">{{ _('Indisponible') }}</button>
         {% endif %}
       </div>
     </div>
@@ -74,8 +75,8 @@
   </div>
   {% else %}
   <div class="empty-state" style="margin-top:var(--sp-6);">
-    <div class="empty-title">Aucun fichier</div>
-    <div class="empty-desc">Les fichiers auxquels vous avez accès apparaîtront ici.</div>
+    <div class="empty-title">{{ _('Aucun fichier') }}</div>
+    <div class="empty-desc">{{ _('Les fichiers auxquels vous avez accès apparaîtront ici.') }}</div>
   </div>
   {% endif %}
 </main>
