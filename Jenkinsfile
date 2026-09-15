@@ -1,4 +1,4 @@
-// bastion-app — CI qualité (ruff + pytest + SonarQube)
+// bastion-app — CI qualité (ruff + pytest + SonarQube) + DAST TIWAP (OWASP ZAP)
 //
 // Jenkins tourne en conteneur avec docker.sock : les chemins du workspace sont
 // dans le volume jenkins_data, PAS sur le FS hôte. Il faut donc
@@ -7,6 +7,8 @@
 // Ce couplage impose d'exécuter le job sur le contrôleur (même Docker host
 // que le conteneur `jenkins`). Les agents inbound distants n'ont ni ce
 // conteneur ni le volume workspace — ne pas utiliser `agent any`.
+// Le stage ZAP reste donc sur `built-in` (Docker déjà disponible) ; un label
+// `linux && docker` sur un agent inbound casserait le montage workspace.
 //
 // Prérequis compose Jenkins :
 //   - container_name: jenkins  (ou JENKINS_CONTAINER_NAME)
@@ -15,7 +17,9 @@
 // Prérequis Jenkins UI :
 //   - Plugin SonarQube Scanner + serveur nommé SonarQube + token
 //   - Webhook Sonar → /sonarqube-webhook/
+//   - Plugin HTML Publisher (rapport « TIWAP - OWASP ZAP »)
 //   - nœud built-in (affichage « contrôleur ») avec label `built-in`
+//   - Job env TIWAP_URL = URL staging de l'app vulnérable de test (DAST)
 
 pipeline {
   agent { label 'built-in' }
@@ -27,7 +31,8 @@ pipeline {
     // Full suite (~1500 tests + cov) regularly exceeds 45m on the agent,
     // especially after a Jenkins restart mid-stage. Soft-gated pytest still
     // needs wall-clock room to finish and emit coverage.xml for Sonar.
-    timeout(time: 90, unit: 'MINUTES')
+    // zap-full-scan.py (spider + active) ajoute souvent 30–90 min.
+    timeout(time: 180, unit: 'MINUTES')
   }
 
   environment {
@@ -47,6 +52,9 @@ pipeline {
     SONAR_DOCKER_NETWORK = "${env.SONAR_DOCKER_NETWORK ?: 'external'}"
     // URL interne (hostname Docker). Préférer ça dans Jenkins → SonarQube servers.
     SONAR_INTERNAL_URL = "${env.SONAR_INTERNAL_URL ?: 'http://sonarqube:9000'}"
+    // Cible DAST (app de test volontairement vulnérable). Override dans le job Jenkins.
+    TIWAP_URL = "${env.TIWAP_URL ?: 'https://tiwap.example.com'}"
+    ZAP_IMAGE = "${env.ZAP_IMAGE ?: 'ghcr.io/zaproxy/zaproxy:stable'}"
   }
 
   stages {
@@ -183,6 +191,77 @@ pipeline {
           timeout(time: 10, unit: 'MINUTES') {
             waitForQualityGate abortPipeline: true
           }
+        }
+      }
+    }
+
+    // DAST contre l'app de test exposée (indépendant de l'analyse Sonar du code).
+    // Phase 1 : rapports archivés / HTML Publisher, sans faire échouer le build (-I + exit 0).
+    // Phase 2 (plus tard) : retirer exit 0 et ajouter un fichier de règles ZAP (FAIL sur
+    // SQLi / XSS / Command Injection / XXE / Path Traversal). Auth TIWAP = hors scope phase 1.
+    stage('TIWAP DAST - OWASP ZAP') {
+      steps {
+        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+          timeout(time: 90, unit: 'MINUTES') {
+            sh '''
+              set -eux
+              mkdir -p "${WORKSPACE}/reports/tiwap"
+              chmod -R a+rwX "${WORKSPACE}/reports/tiwap"
+
+              echo "Préflight HTTP vers ${TIWAP_URL}"
+              set +e
+              curl -k -sS -o /dev/null -w "tiwap_http_code=%{http_code}\\n" --connect-timeout 10 --max-time 30 -I "${TIWAP_URL}/" \
+                | tee "${WORKSPACE}/reports/tiwap/preflight.txt"
+              set -e
+
+              echo "Scan ZAP (full) de ${TIWAP_URL}"
+              # Workspace = volume jenkins (pas le FS hôte) → volumes-from + symlink /zap/wrk.
+              set +e
+              docker run --rm -t \
+                --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                --network host \
+                -u root:root \
+                -e HOME=/home/zap \
+                "${ZAP_IMAGE}" \
+                bash -lc "
+                  set -eux
+                  rm -rf /zap/wrk
+                  ln -s '${WORKSPACE}/reports/tiwap' /zap/wrk
+                  zap-full-scan.py \
+                    -t '${TIWAP_URL}' \
+                    -r tiwap-zap-report.html \
+                    -J tiwap-zap-report.json \
+                    -x tiwap-zap-report.xml \
+                    -I
+                "
+              ZAP_EXIT_CODE=$?
+              set -e
+
+              echo "Code retour ZAP : ${ZAP_EXIT_CODE}" | tee "${WORKSPACE}/reports/tiwap/zap.exit"
+              ls -lah "${WORKSPACE}/reports/tiwap" || true
+
+              # Première intégration : conserver le rapport sans bloquer Jenkins.
+              exit 0
+            '''
+          }
+        }
+      }
+      post {
+        always {
+          archiveArtifacts(
+            artifacts: 'reports/tiwap/**',
+            allowEmptyArchive: true,
+            fingerprint: true
+          )
+          publishHTML(target: [
+            allowMissing: true,
+            alwaysLinkToLastBuild: true,
+            keepAll: true,
+            reportDir: 'reports/tiwap',
+            reportFiles: 'tiwap-zap-report.html',
+            reportName: 'TIWAP - OWASP ZAP',
+            reportTitles: 'Rapport de sécurité TIWAP'
+          ])
         }
       }
     }
