@@ -19,7 +19,9 @@
 //   - Webhook Sonar → /sonarqube-webhook/
 //   - nœud built-in (affichage « contrôleur ») avec label `built-in`
 //   - Job/global env TIWAP_URL = URL staging de l'app vulnérable de test (DAST)
-//   - Rapport HTML : artefact Jenkins reports/tiwap/*.html (pas de plugin HTML Publisher)
+//   - Credential Jenkins (Username/Password) id `tiwap-dast` : compte local TIWAP
+//     (ex. admin / admin) — pas breakglass / Keycloak
+//   - Rapport HTML : artefact Jenkins reports/tiwap/*zap-report* (pas de plugin HTML Publisher)
 
 pipeline {
   agent { label 'built-in' }
@@ -54,6 +56,8 @@ pipeline {
     SONAR_INTERNAL_URL = "${env.SONAR_INTERNAL_URL ?: 'http://sonarqube:9000'}"
     // Cible DAST (app de test volontairement vulnérable). Override dans le job Jenkins.
     TIWAP_URL = "${env.TIWAP_URL ?: 'https://tiwap.example.com'}"
+    // Username/Password credential (compte local Flask TIWAP, pas SSO).
+    TIWAP_CREDENTIALS_ID = "${env.TIWAP_CREDENTIALS_ID ?: 'tiwap-dast'}"
     ZAP_IMAGE = "${env.ZAP_IMAGE ?: 'ghcr.io/zaproxy/zaproxy:stable'}"
   }
 
@@ -196,60 +200,110 @@ pipeline {
     }
 
     // DAST contre l'app de test exposée (indépendant de l'analyse Sonar du code).
-    // Phase 1 : rapports archivés, sans faire échouer le build (-I + exit 0).
-    // Phase 2 (plus tard) : retirer exit 0 et ajouter un fichier de règles ZAP (FAIL sur
-    // SQLi / XSS / Command Injection / XXE / Path Traversal). Auth TIWAP = hors scope phase 1.
+    // Auth : login form TIWAP (credential tiwap-dast) → cookie session injecté dans ZAP.
+    // Soft gate : -I + exit 0 (pas encore de règles FAIL SQLi/XSS/…).
     stage('TIWAP DAST - OWASP ZAP') {
       steps {
         catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
           timeout(time: 90, unit: 'MINUTES') {
-            sh '''
-              set -eux
-              mkdir -p "${WORKSPACE}/reports/tiwap"
-              chmod -R a+rwX "${WORKSPACE}/reports/tiwap"
+            withCredentials([usernamePassword(
+              credentialsId: "${TIWAP_CREDENTIALS_ID}",
+              usernameVariable: 'TIWAP_USER',
+              passwordVariable: 'TIWAP_PASS'
+            )]) {
+              sh '''
+                set -eux
+                mkdir -p "${WORKSPACE}/reports/tiwap"
+                chmod -R a+rwX "${WORKSPACE}/reports/tiwap"
+                COOKIE_JAR="${WORKSPACE}/reports/tiwap/cookies.txt"
+                SESSION_PROP="${WORKSPACE}/reports/tiwap/session.prop"
+                rm -f "${COOKIE_JAR}" "${SESSION_PROP}"
 
-              echo "Préflight HTTP vers ${TIWAP_URL}"
-              set +e
-              curl -k -sS -o /dev/null -w "tiwap_http_code=%{http_code}\\n" --connect-timeout 10 --max-time 30 -I "${TIWAP_URL}/" \
-                | tee "${WORKSPACE}/reports/tiwap/preflight.txt"
-              set -e
+                echo "Préflight HTTP vers ${TIWAP_URL}"
+                set +e
+                curl -k -sS -o /dev/null -w "tiwap_http_code=%{http_code}\\n" --connect-timeout 10 --max-time 30 -I "${TIWAP_URL}/" \
+                  | tee "${WORKSPACE}/reports/tiwap/preflight.txt"
+                set -e
 
-              echo "Scan ZAP (full) de ${TIWAP_URL}"
-              # Workspace = volume jenkins (pas le FS hôte) → volumes-from + symlink /zap/wrk.
-              # --entrypoint '' + chemin absolu : bash -lc n'a pas /zap dans le PATH image.
-              set +e
-              docker run --rm -t \
-                --volumes-from "${JENKINS_CONTAINER_NAME}" \
-                --network host \
-                --entrypoint '' \
-                -u root:root \
-                -e HOME=/home/zap \
-                "${ZAP_IMAGE}" \
-                bash -lc "
-                  set -eux
-                  rm -rf /zap/wrk
-                  ln -s '${WORKSPACE}/reports/tiwap' /zap/wrk
-                  /zap/zap-full-scan.py \
-                    -t '${TIWAP_URL}' \
-                    -r tiwap-zap-report.html \
-                    -J tiwap-zap-report.json \
-                    -x tiwap-zap-report.xml \
-                    -I
-                "
-              ZAP_EXIT_CODE=$?
-              set -e
+                echo "Auth TIWAP (form /login) pour user=${TIWAP_USER}"
+                # Ne pas suivre Location http://… : on ne garde que Set-Cookie.
+                curl -k -sS -c "${COOKIE_JAR}" \
+                  -X POST "${TIWAP_URL}/login" \
+                  -H 'Content-Type: application/x-www-form-urlencoded' \
+                  --data-urlencode "username=${TIWAP_USER}" \
+                  --data-urlencode "password=${TIWAP_PASS}" \
+                  -D "${WORKSPACE}/reports/tiwap/login.headers" \
+                  -o "${WORKSPACE}/reports/tiwap/login.body" \
+                  --max-time 30
 
-              echo "Code retour ZAP : ${ZAP_EXIT_CODE}" | tee "${WORKSPACE}/reports/tiwap/zap.exit"
-              ls -lah "${WORKSPACE}/reports/tiwap" || true
+                SESSION="$(awk '$6 == "session" { print $7 }' "${COOKIE_JAR}" | tail -1)"
+                if [ -z "${SESSION}" ]; then
+                  echo "AUTH_FAIL: pas de cookie session après /login" | tee "${WORKSPACE}/reports/tiwap/auth.probe.txt"
+                  exit 1
+                fi
 
-              # Première intégration : conserver le rapport sans bloquer Jenkins.
-              exit 0
-            '''
+                DASH_CODE="$(curl -k -sS -o "${WORKSPACE}/reports/tiwap/dashboard.probe.html" -w "%{http_code}" \
+                  -b "session=${SESSION}" --max-time 30 "${TIWAP_URL}/dashboard")"
+                echo "dashboard_http_code=${DASH_CODE}" | tee "${WORKSPACE}/reports/tiwap/auth.probe.txt"
+                if [ "${DASH_CODE}" != "200" ]; then
+                  echo "AUTH_FAIL: /dashboard attendu 200, obtenu ${DASH_CODE}"
+                  exit 1
+                fi
+
+                # Config ZAP : injecter Cookie sur toutes les requêtes (hors dépôt public).
+                printf '%s\n' \
+                  'replacer.full_list(0).description=tiwap_session' \
+                  'replacer.full_list(0).enabled=true' \
+                  'replacer.full_list(0).matchtype=REQ_HEADER' \
+                  'replacer.full_list(0).matchstr=Cookie' \
+                  "replacer.full_list(0).replacement=session=${SESSION}" \
+                  > "${SESSION_PROP}"
+
+                echo "Scan ZAP (full, authentifié) de ${TIWAP_URL}"
+                set +e
+                docker run --rm -t \
+                  --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                  --network host \
+                  --entrypoint '' \
+                  -u root:root \
+                  -e HOME=/home/zap \
+                  "${ZAP_IMAGE}" \
+                  bash -lc "
+                    set -eux
+                    rm -rf /zap/wrk
+                    ln -s '${WORKSPACE}/reports/tiwap' /zap/wrk
+                    /zap/zap-full-scan.py \
+                      -t '${TIWAP_URL}' \
+                      -j \
+                      -z '-configfile /zap/wrk/session.prop' \
+                      -r tiwap-zap-report.html \
+                      -J tiwap-zap-report.json \
+                      -x tiwap-zap-report.xml \
+                      -I
+                  "
+                ZAP_EXIT_CODE=$?
+                set -e
+
+                echo "Code retour ZAP : ${ZAP_EXIT_CODE}" | tee "${WORKSPACE}/reports/tiwap/zap.exit"
+                # Ne pas archiver le cookie / session.prop (secret de session).
+                rm -f "${COOKIE_JAR}" "${SESSION_PROP}" "${WORKSPACE}/reports/tiwap/login.body"
+                ls -lah "${WORKSPACE}/reports/tiwap" || true
+
+                # Soft gate : rapports conservés, build non bloqué par les findings.
+                exit 0
+              '''
+            }
           }
         }
       }
       post {
         always {
+          sh '''
+            rm -f "${WORKSPACE}/reports/tiwap/cookies.txt" \
+                  "${WORKSPACE}/reports/tiwap/session.prop" \
+                  "${WORKSPACE}/reports/tiwap/login.body" \
+                  2>/dev/null || true
+          '''
           archiveArtifacts(
             artifacts: 'reports/tiwap/**',
             allowEmptyArchive: true,
