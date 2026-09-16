@@ -48,7 +48,7 @@ Update: `docker compose pull && docker compose up -d`.
 
 ### Language
 
-The admin and portal UI support **French** (default) and **English**. Use the **FR / EN** control in the top bar or profile preferences. Preference is stored in the `portal_locale` cookie.
+The admin and portal UI support **French** (default) and **English**. Change language on the **login** page or under **profile preferences**. Preference is stored in the `portal_locale` cookie.
 
 ---
 
