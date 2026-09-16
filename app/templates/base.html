@@ -10,7 +10,7 @@
     window.__locale = {{ (locale | default('fr')) | tojson }};
     window.__i18n = {{ (i18n_catalog | default({})) | tojson }};
   </script>
-  <script src="/static/js/bastion-i18n.js?v=20260915-i18n"></script>
+  <script src="/static/js/bastion-i18n.js?v=20260916-locale-radio"></script>
   <script src="/static/js/bastion-theme.js?v=20260724-system"></script>
   {# Fonts are local/system only — edge CSP style-src is 'self' (no fonts.googleapis.com). #}
   <link rel="stylesheet" href="/static/css/bastion.css?v=20260828-app-wizard">

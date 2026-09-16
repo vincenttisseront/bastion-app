@@ -79,8 +79,13 @@
     for (var i = 0; i < buttons.length; i++) {
       var btn = buttons[i];
       var target = btn.getAttribute('data-locale-toggle');
-      btn.setAttribute('aria-pressed', target === locale ? 'true' : 'false');
-      btn.classList.toggle('is-active', target === locale);
+      var active = target === locale;
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      btn.classList.toggle('is-active', active);
+      // Profile uses radios inside labels — keep checked state in sync.
+      if (btn.type === 'radio' || btn.type === 'checkbox') {
+        btn.checked = active;
+      }
     }
     var selects = document.querySelectorAll('[data-locale-select]');
     for (var j = 0; j < selects.length; j++) {
@@ -88,18 +93,28 @@
     }
   }
 
+  function localeFromControl(el) {
+    if (!el) return null;
+    return el.getAttribute('data-locale-toggle') || el.value || null;
+  }
+
   function bindControls() {
+    // Buttons (login FR/EN): click target has data-locale-toggle.
     document.addEventListener('click', function (ev) {
       var btn = ev.target.closest('[data-locale-toggle]');
       if (!btn) return;
+      // Radios/checkboxes: native label click checks them; handle via change.
+      if (btn.type === 'radio' || btn.type === 'checkbox') return;
       ev.preventDefault();
-      var target = btn.getAttribute('data-locale-toggle');
+      var target = localeFromControl(btn);
       if (target && target !== getLocale()) setLocale(target);
     });
+    // Profile radios + selects: fire on change (covers label clicks).
     document.addEventListener('change', function (ev) {
-      var el = ev.target.closest('[data-locale-select]');
+      var el = ev.target.closest('[data-locale-toggle], [data-locale-select]');
       if (!el) return;
-      if (el.value && el.value !== getLocale()) setLocale(el.value);
+      var target = localeFromControl(el);
+      if (target && target !== getLocale()) setLocale(target);
     });
   }
 
