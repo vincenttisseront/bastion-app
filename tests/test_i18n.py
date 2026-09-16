@@ -54,6 +54,13 @@ def test_english_catalog_file_is_present() -> None:
     assert t("Mes applications", "en") == "My applications"
 
 
+def test_t_english_common_chrome() -> None:
+    assert t("Annuler", "en") == "Cancel"
+    assert t("Confirmer", "en") == "Confirm"
+    assert t("Rechercher…", "en") == "Search…"
+    assert t("Accès refusé", "en") == "Access denied"
+
+
 def test_t_missing_key_falls_back_to_msgid() -> None:
     assert t("___missing_key_xyz___", "en") == "___missing_key_xyz___"
 
