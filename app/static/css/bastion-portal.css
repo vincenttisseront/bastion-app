@@ -571,10 +571,15 @@ body.page-portal > .main-content {
   cursor: pointer;
 }
 
-.portal-theme-choice:has(input:checked) {
+.portal-theme-choice:has(input:checked),
+.portal-theme-choice.is-active {
   border-color: var(--accent-border);
   background: var(--accent-muted);
   color: var(--accent);
+}
+
+button.portal-theme-choice {
+  font: inherit;
 }
 
 .portal-theme-choice input {

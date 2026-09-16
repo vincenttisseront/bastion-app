@@ -27,10 +27,12 @@
   data-has-local="{{ '1' if show_breakglass and not mfa_step else '0' }}"
 >
   <div class="login-toolbar">
-  <div class="locale-switch" role="group" aria-label="{{ _('Langue') }}">
-    <button type="button" class="icon-btn locale-btn" data-locale-toggle="fr" aria-label="Français" title="Français">FR</button>
-    <button type="button" class="icon-btn locale-btn" data-locale-toggle="en" aria-label="English" title="English">EN</button>
-  </div>
+  <form method="post" action="/api/locale" class="locale-switch" role="group" aria-label="{{ _('Langue') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+    <button type="submit" name="locale" value="fr" class="icon-btn locale-btn{% if locale == 'fr' %} is-active{% endif %}" data-locale-toggle="fr" aria-label="Français" title="Français" aria-pressed="{{ 'true' if locale == 'fr' else 'false' }}">FR</button>
+    <button type="submit" name="locale" value="en" class="icon-btn locale-btn{% if locale == 'en' %} is-active{% endif %}" data-locale-toggle="en" aria-label="English" title="English" aria-pressed="{{ 'true' if locale == 'en' else 'false' }}">EN</button>
+  </form>
   <button
     type="button"
     id="theme-toggle"
