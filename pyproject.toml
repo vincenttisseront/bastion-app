@@ -54,7 +54,7 @@ where = ["."]
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["templates/**/*", "static/**/*"]
+app = ["templates/**/*", "static/**/*", "i18n/locales/*.json"]
 
 [tool.ruff]
 target-version = "py311"

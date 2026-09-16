@@ -42,11 +42,16 @@ def test_t_french_is_identity() -> None:
     assert t("Confirmer", "fr") == "Confirmer"
 
 
-def test_t_english_common_chrome() -> None:
-    assert t("Annuler", "en") == "Cancel"
-    assert t("Confirmer", "en") == "Confirm"
-    assert t("Rechercher…", "en") == "Search…"
-    assert t("Accès refusé", "en") == "Access denied"
+def test_english_catalog_file_is_present() -> None:
+    """en.json must ship with the package (Docker pip install), not only in the git tree."""
+    from pathlib import Path
+
+    import app.i18n.catalog as catalog_mod
+
+    path = Path(catalog_mod.__file__).resolve().parent / "locales" / "en.json"
+    assert path.is_file(), f"missing locale catalog: {path}"
+    assert t("Préférences", "en") == "Preferences"
+    assert t("Mes applications", "en") == "My applications"
 
 
 def test_t_missing_key_falls_back_to_msgid() -> None:
