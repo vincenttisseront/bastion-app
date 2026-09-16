@@ -173,7 +173,20 @@
   delay: 2
   until: _nginx_modsec_login_smoke.rc | default(1) == 0
   changed_when: false
+  # Keep going so the next tasks can dump diagnostics — but do not pretend success.
   failed_when: false
+
+- name: "SMOKE : report ModSec /auth/login probe (rc=0 required)"
+  ansible.builtin.debug:
+    msg: >-
+      {{ _nginx_modsec_login_smoke.stdout | default('(no stdout)') }}
+      rc={{ _nginx_modsec_login_smoke.rc | default('?') }}
+      attempts={{ _nginx_modsec_login_smoke.attempts | default('?') }}
+      {% if _nginx_modsec_login_smoke.rc | default(1) != 0 %}
+      PROBE FAILED — gathering diagnostics next (not a soft pass).
+      {% else %}
+      probe OK
+      {% endif %}
 
 - name: "SMOKE : fail if ModSec path returns 500 (crs overlay collision)"
   when: _nginx_modsec_login_smoke.rc | default(1) != 0

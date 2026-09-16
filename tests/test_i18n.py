@@ -94,9 +94,16 @@ def test_sidebar_english_when_locale_en(client) -> None:
     assert r.status_code == 200
     assert "Bastion" in r.text
     assert 'lang="en"' in r.text
-    assert "data-locale-toggle" in r.text
+    # Locale switch lives on login + profile only, not admin chrome.
+    assert "data-locale-toggle" not in r.text
     assert "Access &amp; security" in r.text or "Access & security" in r.text
     assert "Filter menu" in r.text
+
+
+def test_login_has_locale_switch(client) -> None:
+    r = client.get("/auth/login")
+    assert r.status_code == 200
+    assert "data-locale-toggle" in r.text
 
 
 def test_error_page_english(client) -> None:
