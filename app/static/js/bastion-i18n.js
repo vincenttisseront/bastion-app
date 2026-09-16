@@ -4,6 +4,7 @@
   var STORAGE_KEY = 'bp-locale';
   var COOKIE_NAME = 'portal_locale';
   var SUPPORTED = { fr: true, en: true };
+  var COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
   function readCookie(name) {
     var parts = ('; ' + (document.cookie || '')).split(';');
@@ -16,6 +17,19 @@
     return null;
   }
 
+  function writeCookie(name, value) {
+    var parts = [
+      name + '=' + encodeURIComponent(value),
+      'Path=/',
+      'Max-Age=' + COOKIE_MAX_AGE,
+      'SameSite=Lax',
+    ];
+    if (window.location.protocol === 'https:') {
+      parts.push('Secure');
+    }
+    document.cookie = parts.join('; ');
+  }
+
   function normalize(value) {
     if (!value) return null;
     var primary = String(value).toLowerCase().replace('_', '-').split('-')[0];
@@ -23,6 +37,7 @@
   }
 
   function getLocale() {
+    // Prefer what the server rendered so the toggle matches SSR text.
     return (
       normalize(window.__locale) ||
       normalize(readCookie(COOKIE_NAME)) ||
@@ -42,34 +57,40 @@
   function setLocale(locale, nextUrl) {
     var loc = normalize(locale) || 'fr';
     localStorage.setItem(STORAGE_KEY, loc);
-    var form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/api/locale';
-    form.style.display = 'none';
+    writeCookie(COOKIE_NAME, loc);
+    window.__locale = loc;
 
-    var localeInput = document.createElement('input');
-    localeInput.type = 'hidden';
-    localeInput.name = 'locale';
-    localeInput.value = loc;
-    form.appendChild(localeInput);
+    var next = nextUrl || window.location.pathname + window.location.search + window.location.hash;
+    var body = new FormData();
+    body.append('locale', loc);
+    body.append('next', next);
 
-    var nextInput = document.createElement('input');
-    nextInput.type = 'hidden';
-    nextInput.name = 'next';
-    nextInput.value = nextUrl || window.location.pathname + window.location.search;
-    form.appendChild(nextInput);
-
+    var headers = { Accept: 'application/json' };
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
     if (csrfMeta && csrfMeta.content) {
-      var csrfInput = document.createElement('input');
-      csrfInput.type = 'hidden';
-      csrfInput.name = 'csrf_token';
-      csrfInput.value = csrfMeta.content;
-      form.appendChild(csrfInput);
+      headers['X-CSRF-Token'] = csrfMeta.content;
+      body.append('csrf_token', csrfMeta.content);
     }
 
-    document.body.appendChild(form);
-    form.submit();
+    // Best-effort server cookie sync; navigate even if fetch fails (cookie already set).
+    var done = false;
+    function go() {
+      if (done) return;
+      done = true;
+      window.location.assign(next);
+    }
+    try {
+      fetch('/api/locale', {
+        method: 'POST',
+        body: body,
+        credentials: 'same-origin',
+        headers: headers,
+        redirect: 'manual',
+      }).then(go, go);
+    } catch (err) {
+      go();
+    }
+    setTimeout(go, 1500);
   }
 
   function syncToggle() {
@@ -82,7 +103,6 @@
       var active = target === locale;
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       btn.classList.toggle('is-active', active);
-      // Profile uses radios inside labels — keep checked state in sync.
       if (btn.type === 'radio' || btn.type === 'checkbox') {
         btn.checked = active;
       }
@@ -98,18 +118,24 @@
     return el.getAttribute('data-locale-toggle') || el.value || null;
   }
 
+  function isNativeLocaleSubmit(el) {
+    // Login/profile use real POST forms — do not intercept.
+    if (!el || el.tagName !== 'BUTTON') return false;
+    if ((el.getAttribute('type') || '').toLowerCase() === 'submit') return true;
+    var form = el.form || el.closest('form');
+    return !!(form && form.getAttribute('action') === '/api/locale');
+  }
+
   function bindControls() {
-    // Buttons (login FR/EN): click target has data-locale-toggle.
     document.addEventListener('click', function (ev) {
       var btn = ev.target.closest('[data-locale-toggle]');
       if (!btn) return;
-      // Radios/checkboxes: native label click checks them; handle via change.
       if (btn.type === 'radio' || btn.type === 'checkbox') return;
+      if (isNativeLocaleSubmit(btn)) return;
       ev.preventDefault();
       var target = localeFromControl(btn);
       if (target && target !== getLocale()) setLocale(target);
     });
-    // Profile radios + selects: fire on change (covers label clicks).
     document.addEventListener('change', function (ev) {
       var el = ev.target.closest('[data-locale-toggle], [data-locale-select]');
       if (!el) return;
@@ -125,9 +151,8 @@
     syncToggle: syncToggle,
   };
 
-  // Mirror server locale into localStorage when present.
   var serverLocale = normalize(window.__locale);
-  if (serverLocale) {
+  if (serverLocale && !normalize(readCookie(COOKIE_NAME))) {
     localStorage.setItem(STORAGE_KEY, serverLocale);
   }
 

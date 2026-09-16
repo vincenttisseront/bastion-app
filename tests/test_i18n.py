@@ -104,6 +104,20 @@ def test_login_has_locale_switch(client) -> None:
     r = client.get("/auth/login")
     assert r.status_code == 200
     assert "data-locale-toggle" in r.text
+    assert 'action="/api/locale"' in r.text
+    assert 'name="locale" value="en"' in r.text
+
+
+def test_profile_locale_form_switches_language(client) -> None:
+    """Profile language control is a real POST form (not JS-only radios)."""
+    headers = {"X-Email": "user@example.com", "X-Groups": ""}
+    client.cookies.set("portal_locale", "en")
+    page = client.get("/profile", headers=headers)
+    assert page.status_code == 200
+    assert 'action="/api/locale"' in page.text
+    assert "Preferences" in page.text
+    assert "My applications" in page.text
+    assert "Language" in page.text
 
 
 def test_error_page_english(client) -> None:

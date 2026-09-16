@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260828-profile-password">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260916-locale-form">
 {% endblock %}
 
 {% block content %}
@@ -369,16 +369,17 @@
 
           <div class="form-label" id="locale-pref-label" style="margin-top:var(--sp-5);">{{ _('Langue') }}</div>
           <p class="group-config-hint" style="margin:var(--sp-2) 0 var(--sp-3);">{{ _('Enregistré dans ce navigateur.') }}</p>
-          <div class="portal-theme-choices" role="radiogroup" aria-labelledby="locale-pref-label">
-            <label class="portal-theme-choice">
-              <input type="radio" name="locale-pref" value="fr" data-locale-toggle="fr">
+          {# Native POST — no JS required (radios only updated the UI before). #}
+          <form method="post" action="/api/locale" class="portal-theme-choices" role="group" aria-labelledby="locale-pref-label">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="next" value="/profile#section-prefs">
+            <button type="submit" name="locale" value="fr" class="portal-theme-choice{% if locale == 'fr' %} is-active{% endif %}" data-locale-toggle="fr" aria-pressed="{{ 'true' if locale == 'fr' else 'false' }}">
               <span>Français</span>
-            </label>
-            <label class="portal-theme-choice">
-              <input type="radio" name="locale-pref" value="en" data-locale-toggle="en">
+            </button>
+            <button type="submit" name="locale" value="en" class="portal-theme-choice{% if locale == 'en' %} is-active{% endif %}" data-locale-toggle="en" aria-pressed="{{ 'true' if locale == 'en' else 'false' }}">
               <span>English</span>
-            </label>
-          </div>
+            </button>
+          </form>
         </div>
       </section>
     </div>
@@ -401,11 +402,6 @@
       });
     });
   }
-
-  var locale = window.BastionI18n && BastionI18n.getLocale ? BastionI18n.getLocale() : 'fr';
-  document.querySelectorAll('[data-locale-toggle]').forEach(function (el) {
-    if (el.type === 'radio') el.checked = el.value === locale;
-  });
 
   document.querySelectorAll('[data-profile-nav]').forEach(function (link) {
     link.addEventListener('click', function () {
