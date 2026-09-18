@@ -31,6 +31,8 @@ from app.web.sessions_service import (
 )
 from app.web.user_context import UserContext, require_admin
 
+_SESSIONS_REVOKE_SSO = 'sessions.revoke_sso'
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-user-sessions"], dependencies=[Depends(require_admin)])
@@ -345,7 +347,7 @@ async def _do_revoke_sso(
     log_action(
         db,
         actor=actor or "admin",
-        action="sessions.revoke_sso",
+        action=_SESSIONS_REVOKE_SSO,
         target=uid,
         details=details,
         ip_address=ip,
@@ -354,13 +356,13 @@ async def _do_revoke_sso(
         return {
             "ok": False,
             "error": logout_error,
-            "action": "sessions.revoke_sso",
+            "action": _SESSIONS_REVOKE_SSO,
             "keycloak_user_id": uid,
             "realm_slug": logout_realm.slug,
             "residual_note": SSO_LOGOUT_RESIDUAL_NOTE,
             **local,
         }
-    return {"ok": True, "action": "sessions.revoke_sso", **result, **local}
+    return {"ok": True, "action": _SESSIONS_REVOKE_SSO, **result, **local}
 
 
 @router.post("/admin/users/{identity}/sessions/revoke-all")
@@ -432,7 +434,7 @@ async def revoke_sso_sessions(
         log_action(
             db,
             actor=actor or "admin",
-            action="sessions.revoke_sso",
+            action=_SESSIONS_REVOKE_SSO,
             target=identity,
             details={"ok": False, "error": str(exc)},
             ip_address=ip,
@@ -499,7 +501,7 @@ async def disconnect_user(
         log_action(
             db,
             actor=actor or "admin",
-            action="sessions.revoke_sso",
+            action=_SESSIONS_REVOKE_SSO,
             target=identity,
             details={"ok": False, "error": sso_result["error"], "via": "disconnect"},
             ip_address=ip,
@@ -525,7 +527,7 @@ async def disconnect_user(
             log_action(
                 db,
                 actor=actor or "admin",
-                action="sessions.revoke_sso",
+                action=_SESSIONS_REVOKE_SSO,
                 target=identity,
                 details={"ok": False, "error": str(exc), "via": "disconnect"},
                 ip_address=ip,

@@ -609,29 +609,39 @@ def _build_catalog(raw: Iterable[EventDef]) -> dict[str, EventDef]:
     labels: set[str] = set()
     actions: dict[str, str] = {}
     for ev in raw:
-        domain, num = parse_event_code(ev.code)
-        if num == 0:
-            raise ValueError(f"catalog must not declare sentinel code {ev.code}")
-        if num >= 5000:
-            raise ValueError(f"code {ev.code} uses reserved extension band 5000+")
-        # Touch severity to validate band
-        _ = severity_from_number(num)
-        if ev.code in by_code:
-            raise ValueError(f"duplicate event code: {ev.code}")
-        if ev.label in labels:
-            raise ValueError(f"duplicate event label: {ev.label}")
-        if domain not in DOMAINS:
-            raise ValueError(f"undeclared domain on {ev.code}")
-        if ev.legacy_action:
-            if ev.legacy_action in actions:
-                raise ValueError(
-                    f"legacy_action {ev.legacy_action!r} mapped twice:"
-                    f" {actions[ev.legacy_action]} and {ev.code}"
-                )
-            actions[ev.legacy_action] = ev.code
-        labels.add(ev.label)
-        by_code[ev.code] = ev
+        _register_catalog_event(ev, by_code=by_code, labels=labels, actions=actions)
     return by_code
+
+
+def _register_catalog_event(
+    ev: EventDef,
+    *,
+    by_code: dict[str, EventDef],
+    labels: set[str],
+    actions: dict[str, str],
+) -> None:
+    domain, num = parse_event_code(ev.code)
+    if num == 0:
+        raise ValueError(f"catalog must not declare sentinel code {ev.code}")
+    if num >= 5000:
+        raise ValueError(f"code {ev.code} uses reserved extension band 5000+")
+    # Touch severity to validate band
+    _ = severity_from_number(num)
+    if ev.code in by_code:
+        raise ValueError(f"duplicate event code: {ev.code}")
+    if ev.label in labels:
+        raise ValueError(f"duplicate event label: {ev.label}")
+    if domain not in DOMAINS:
+        raise ValueError(f"undeclared domain on {ev.code}")
+    if ev.legacy_action:
+        if ev.legacy_action in actions:
+            raise ValueError(
+                f"legacy_action {ev.legacy_action!r} mapped twice:"
+                f" {actions[ev.legacy_action]} and {ev.code}"
+            )
+        actions[ev.legacy_action] = ev.code
+    labels.add(ev.label)
+    by_code[ev.code] = ev
 
 
 EVENTS: dict[str, EventDef] = _build_catalog(_RAW_EVENTS)

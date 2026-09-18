@@ -31,6 +31,10 @@ from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
 
+_INFRASTRUCTURE_APPLY_ACTION = 'infrastructure.apply'
+
+_ADMIN_INFRASTRUCTURE_PATH = '/admin/infrastructure'
+
 router = APIRouter(tags=["admin-infrastructure"], dependencies=[Depends(require_admin)])
 
 _KIND_LABELS = {
@@ -45,7 +49,7 @@ _KIND_LABELS = {
 }
 
 
-def safe_admin_next_path(raw: str | None, *, default: str = "/admin/infrastructure") -> str:
+def safe_admin_next_path(raw: str | None, *, default: str = _ADMIN_INFRASTRUCTURE_PATH) -> str:
     """Allow only same-origin relative admin paths (open-redirect safe)."""
     path = (raw or "").strip() or default
     if not path.startswith("/") or path.startswith("//"):
@@ -62,7 +66,7 @@ def host_apply_wait_redirect(
     next_path: str,
     context_label: str = "",
     audit_target: str = "",
-    audit_source: str = "infrastructure.apply",
+    audit_source: str = _INFRASTRUCTURE_APPLY_ACTION,
 ) -> RedirectResponse:
     """Send the admin to the apply-wait page instead of returning while pending."""
     params = {
@@ -70,7 +74,7 @@ def host_apply_wait_redirect(
         "started": str(int(time.time())),
         "context": (context_label or "")[:200],
         "audit_target": (audit_target or "")[:120],
-        "audit_source": (audit_source or "infrastructure.apply")[:80],
+        "audit_source": (audit_source or _INFRASTRUCTURE_APPLY_ACTION)[:80],
     }
     return RedirectResponse(
         url=f"/admin/infrastructure/apply-wait?{urlencode(params)}",
@@ -103,7 +107,7 @@ def _file_rows(files: list[dict]) -> list[dict]:
     return rows
 
 
-@router.get("/admin/infrastructure")
+@router.get(_ADMIN_INFRASTRUCTURE_PATH)
 def admin_infrastructure_page(
     request: Request,
     db: Session = Depends(get_db),
@@ -136,7 +140,7 @@ def admin_infrastructure_apply(
     user=Depends(require_admin),
 ):
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/infrastructure", status_code=302)
+    response = RedirectResponse(url=_ADMIN_INFRASTRUCTURE_PATH, status_code=302)
     manifest = apply_infrastructure(db, settings)
     file_count = len(manifest.get("files") or [])
 
@@ -176,7 +180,7 @@ def admin_infrastructure_apply(
         },
     )
     return host_apply_wait_redirect(
-        next_path="/admin/infrastructure",
+        next_path=_ADMIN_INFRASTRUCTURE_PATH,
         context_label=f"Export OK ({file_count} fichier(s)).",
         audit_target="infrastructure",
         audit_source="admin.infrastructure",
@@ -189,18 +193,18 @@ def admin_infrastructure_apply_wait(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
-    next: str = Query("/admin/infrastructure"),
+    next: str = Query(_ADMIN_INFRASTRUCTURE_PATH),
     started: int = Query(0),
     context: str = Query(""),
     audit_target: str = Query(""),
-    audit_source: str = Query("infrastructure.apply"),
+    audit_source: str = Query(_INFRASTRUCTURE_APPLY_ACTION),
 ):
     """Poll host apply status and only then return the admin to ``next``."""
     token = settings.vault_portal_internal_token or "dev"
     next_path = safe_admin_next_path(next)
     context_label = (context or "").strip()[:200]
     target = (audit_target or "infrastructure").strip()[:120] or "infrastructure"
-    source = (audit_source or "infrastructure.apply").strip()[:80]
+    source = (audit_source or _INFRASTRUCTURE_APPLY_ACTION).strip()[:80]
     started_at = int(started) if started > 0 else int(time.time())
     elapsed = max(0, int(time.time()) - started_at)
     timeout = int(HOST_APPLY_WAIT_TIMEOUT_SEC)
@@ -259,7 +263,7 @@ def admin_infrastructure_apply_wait(
                 "status_path": state.get("status_path"),
             },
         )
-        response = RedirectResponse(url="/admin/infrastructure", status_code=302)
+        response = RedirectResponse(url=_ADMIN_INFRASTRUCTURE_PATH, status_code=302)
         prefix = f"{context_label} " if context_label else ""
         flash_redirect(
             response,

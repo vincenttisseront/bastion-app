@@ -29,6 +29,8 @@ from app.web.openapi_responses import (
     RESP_503,
 )
 
+_ADMIN_RBAC_PATH = '/admin/rbac'
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-rbac"], dependencies=[Depends(require_admin)])
@@ -100,7 +102,7 @@ async def admin_rbac_groups_sync(
         msg = f"Trop de synchronisations — réessayez dans {wait:.0f}s"
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=429)
-        response = RedirectResponse(url="/admin/rbac", status_code=302)
+        response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
         flash_redirect(response, msg, "error", settings.vault_portal_internal_token or "dev")
         return response
 
@@ -115,7 +117,7 @@ async def admin_rbac_groups_sync(
         db.commit()
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=400)
-        response = RedirectResponse(url="/admin/rbac", status_code=302)
+        response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
         flash_redirect(response, msg, "error", settings.vault_portal_internal_token or "dev")
         return response
     except Exception:
@@ -127,7 +129,7 @@ async def admin_rbac_groups_sync(
         db.commit()
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=500)
-        response = RedirectResponse(url="/admin/rbac", status_code=302)
+        response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
         flash_redirect(response, msg, "error", settings.vault_portal_internal_token or "dev")
         return response
 
@@ -173,7 +175,7 @@ async def admin_rbac_groups_sync(
             "sur la fiche realm pour compter les membres)"
         )
 
-    response = RedirectResponse(url="/admin/rbac", status_code=302)
+    response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
     flash_redirect(
         response,
         f"Synchronisation groupes OK ({', '.join(parts)}){members_bit}.",
@@ -201,7 +203,7 @@ async def admin_rbac_group_delete(
     if not realm:
         raise HTTPException(status_code=404, detail="Realm introuvable pour ce groupe")
 
-    fallback = "/admin/rbac"
+    fallback = _ADMIN_RBAC_PATH
     dest = _safe_redirect_url(redirect_url, fallback)
     force = (force_local or "").strip().lower() in ("1", "true", "on", "yes")
     group_name = group.name

@@ -23,7 +23,7 @@
   }
 
   function applyResolved(theme) {
-    root.setAttribute('data-theme', theme);
+    root.dataset.theme = theme;
     localStorage.setItem(STORAGE_KEY, theme);
     localStorage.setItem(LEGACY_KEY, theme);
     var btn = document.getElementById('theme-toggle');

@@ -247,7 +247,7 @@
 (function () {
   var root = document.getElementById('acme-page');
   if (!root) return;
-  var url = root.getAttribute('data-status-url');
+  var url = root.dataset.statusUrl;
   var logEl = document.getElementById('acme-log-view');
   var metaEl = document.getElementById('acme-log-meta');
   var badge = document.getElementById('acme-live-badge');

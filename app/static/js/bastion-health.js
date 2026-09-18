@@ -65,7 +65,7 @@
   function updateMetrics(statusCounts, healthScore) {
     if (statusCounts) {
       document.querySelectorAll('[data-count]').forEach(function (el) {
-        var key = el.getAttribute('data-count');
+        var key = el.dataset.count;
         if (key && statusCounts[key] != null) el.textContent = statusCounts[key];
       });
     }

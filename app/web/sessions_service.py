@@ -601,6 +601,26 @@ def _ttls_for_row(row: ActiveSession) -> tuple[timedelta, timedelta]:
     return SESSION_IDLE_TTL, SESSION_ABSOLUTE_TTL
 
 
+def _session_exceeded_ttl(row: ActiveSession, now) -> bool:
+    idle_ttl, absolute_ttl = _ttls_for_row(row)
+    started = _aware(row.started_at)
+    last_seen = _aware(row.last_seen_at) or started
+    if started is not None and started < now - absolute_ttl:
+        return True
+    return last_seen is not None and last_seen < now - idle_ttl
+
+
+def _safe_purge(db: Session, label: str, fn) -> None:
+    try:
+        fn(db)
+    except Exception:
+        logger.exception("%s failed", label)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def expire_stale_sessions(db: Session) -> int:
     """
     Delete active rows that exceeded idle or absolute TTL.
@@ -612,42 +632,17 @@ def expire_stale_sessions(db: Session) -> int:
         .filter(ActiveSession.status == "active")
         .all()
     )
-    to_delete: list[ActiveSession] = []
-    for row in stale:
-        idle_ttl, absolute_ttl = _ttls_for_row(row)
-        started = _aware(row.started_at)
-        last_seen = _aware(row.last_seen_at) or started
-        if started is not None and started < now - absolute_ttl:
-            to_delete.append(row)
-            continue
-        if last_seen is not None and last_seen < now - idle_ttl:
-            to_delete.append(row)
+    to_delete = [row for row in stale if _session_exceeded_ttl(row, now)]
     for row in to_delete:
         db.delete(row)
     if to_delete:
         db.commit()
-    try:
-        from app.breakglass import purge_expired_breakglass_sessions
+    from app.breakglass import purge_expired_breakglass_sessions
+    from app.security.session_binding_service import purge_stale_sso_session_anchors
 
-        purge_expired_breakglass_sessions(db)
-    except Exception:
-        logger.exception("breakglass session purge failed")
-        try:
-            db.rollback()
-        except Exception:
-            pass
-    try:
-        from app.security.session_binding_service import purge_stale_sso_session_anchors
-
-        purge_stale_sso_session_anchors(db)
-    except Exception:
-        logger.exception("sso session anchor purge failed")
-        try:
-            db.rollback()
-        except Exception:
-            pass
+    _safe_purge(db, "breakglass session purge", purge_expired_breakglass_sessions)
+    _safe_purge(db, "sso session anchor purge", purge_stale_sso_session_anchors)
     return len(to_delete)
-
 
 def touch_portal_session(
     db: Session,

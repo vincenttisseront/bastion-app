@@ -162,15 +162,8 @@ def resolve_identity_login_username(
     Never treat a Keycloak subject UUID as an email/UPN (oauth2-proxy can put
     ``sub`` into X-Auth-Request-Email when the email claim is missing).
     """
-    from app.web.user_context import looks_like_uuid
-
     fmt = normalize_identity_format(identity_format)
-    mail = (email or "").strip()
-    short = (username or "").strip()
-    if looks_like_uuid(mail):
-        mail = ""
-    if looks_like_uuid(short):
-        short = ""
+    mail, short = _sanitized_identity_parts(email, username)
 
     if fmt == "username":
         if short and "@" not in short:
@@ -185,6 +178,20 @@ def resolve_identity_login_username(
     if short and "@" in short:
         return short
     return mail or short
+
+
+def _sanitized_identity_parts(
+    email: str | None, username: str | None
+) -> tuple[str, str]:
+    from app.web.user_context import looks_like_uuid
+
+    mail = (email or "").strip()
+    short = (username or "").strip()
+    if looks_like_uuid(mail):
+        mail = ""
+    if looks_like_uuid(short):
+        short = ""
+    return mail, short
 
 
 def resolve_robotic_driver(auth_mode: str, existing: str | None = None) -> str | None:

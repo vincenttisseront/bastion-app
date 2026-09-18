@@ -23,6 +23,8 @@ from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
 
+_ADMIN_BRANDING_PATH = '/admin/branding'
+
 router = APIRouter(tags=["admin-branding"], dependencies=[Depends(require_admin)])
 
 
@@ -30,7 +32,7 @@ def _actor(user) -> str:
     return getattr(user, "email", None) or getattr(user, "username", None) or "admin"
 
 
-@router.get("/admin/branding")
+@router.get(_ADMIN_BRANDING_PATH)
 def admin_branding_page(
     request: Request,
     db: Session = Depends(get_db),
@@ -43,7 +45,7 @@ def admin_branding_page(
     return render("admin/branding.html", **ctx)
 
 
-@router.post("/admin/branding")
+@router.post(_ADMIN_BRANDING_PATH)
 async def admin_branding_save(
     request: Request,
     db: Session = Depends(get_db),
@@ -61,7 +63,7 @@ async def admin_branding_save(
     show_product_branding: str | None = Form(None),
 ):
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/branding", status_code=302)
+    response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     try:
         update_branding_settings(
             db,
@@ -93,7 +95,7 @@ async def admin_branding_logo_upload(
     file: UploadFile = File(...),
 ):
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/branding", status_code=302)
+    response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     raw = await file.read()
     try:
         save_branding_logo(
@@ -118,7 +120,7 @@ async def admin_branding_favicon_upload(
     file: UploadFile = File(...),
 ):
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/branding", status_code=302)
+    response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     raw = await file.read()
     try:
         save_branding_favicon(
@@ -142,7 +144,7 @@ async def admin_branding_logo_delete(
     user=Depends(require_admin),
 ):
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/branding", status_code=302)
+    response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     clear_branding_asset(
         db,
         kind="logo",
@@ -162,7 +164,7 @@ async def admin_branding_favicon_delete(
     user=Depends(require_admin),
 ):
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/branding", status_code=302)
+    response = RedirectResponse(url=_ADMIN_BRANDING_PATH, status_code=302)
     clear_branding_asset(
         db,
         kind="favicon",

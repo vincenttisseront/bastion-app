@@ -68,6 +68,10 @@ from app.web.openapi_responses import (
     RESP_409,
 )
 
+_GROUP_ACCOUNT_MISSING = 'Compte groupe introuvable'
+
+_ADMIN_RBAC_PATH = '/admin/rbac'
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin-rbac-access"], dependencies=[Depends(require_admin)])
@@ -408,7 +412,7 @@ async def admin_rbac_group_credential_delete(
         None,
     )
     if cred is None:
-        raise HTTPException(status_code=404, detail="Compte groupe introuvable")
+        raise HTTPException(status_code=404, detail=_GROUP_ACCOUNT_MISSING)
     delete_group_credential(
         db,
         credential_id,
@@ -440,7 +444,7 @@ async def admin_rbac_group_credential_exclusion_add(
         None,
     )
     if cred is None:
-        raise HTTPException(status_code=404, detail="Compte groupe introuvable")
+        raise HTTPException(status_code=404, detail=_GROUP_ACCOUNT_MISSING)
     try:
         add_group_credential_exclusion(
             db,
@@ -491,7 +495,7 @@ async def admin_rbac_group_credential_exclusion_remove(
         None,
     )
     if cred is None:
-        raise HTTPException(status_code=404, detail="Compte groupe introuvable")
+        raise HTTPException(status_code=404, detail=_GROUP_ACCOUNT_MISSING)
     remove_group_credential_exclusion(
         db,
         credential_id,
@@ -1102,7 +1106,7 @@ async def admin_rbac_grants_create(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    redirect_url = "/admin/rbac"
+    redirect_url = _ADMIN_RBAC_PATH
     body: dict = {}
     content_type = (request.headers.get("content-type") or "").lower()
     # Parse by Content-Type only — never call request.json() on multipart/form-data
@@ -1149,7 +1153,7 @@ async def admin_rbac_grants_create(
         )
         return response
 
-    if preferred_redirect and str(preferred_redirect) != "/admin/rbac":
+    if preferred_redirect and str(preferred_redirect) != _ADMIN_RBAC_PATH:
         redirect_url = str(preferred_redirect)
     elif data.subject_type == "group" and data.rbac_group_id:
         group = db.query(RBACGroup).filter_by(id=data.rbac_group_id).first()
@@ -1253,7 +1257,7 @@ async def admin_rbac_grants_create(
 def admin_rbac_grants_delete(
     grant_id: int,
     request: Request,
-    redirect_url: str = Form("/admin/rbac"),
+    redirect_url: str = Form(_ADMIN_RBAC_PATH),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -1292,7 +1296,7 @@ def admin_rbac_grants_delete(
     )
     db.commit()
 
-    if redirect_url in ("/admin/rbac", ""):
+    if redirect_url in (_ADMIN_RBAC_PATH, ""):
         if (
             grant.resource_type == "application"
             and grant.application_id

@@ -50,6 +50,8 @@ from app.web.flash import flash_redirect
 from app.web.sessions_service import app_cookie_diagnostics, touch_app_session
 from app.web.user_context import UserContext, require_user_enriched
 
+_MIME_JSON = 'application/json'
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["robotic"], dependencies=[Depends(require_user_enriched)])
@@ -94,10 +96,10 @@ def _identity_user_key(user: UserContext) -> str:
 def _wants_json(request: Request) -> bool:
     """True for API/JSON clients; False for HTML form top-level navigations."""
     content_type = (request.headers.get("content-type") or "").lower()
-    if "application/json" in content_type:
+    if _MIME_JSON in content_type:
         return True
     accept = (request.headers.get("accept") or "").lower()
-    if "application/json" in accept and "text/html" not in accept:
+    if _MIME_JSON in accept and "text/html" not in accept:
         return True
     return False
 
@@ -109,7 +111,7 @@ def _flash_secret(settings: Settings) -> str:
 async def _read_identity_password(request: Request) -> str:
     """Password from form POST (preferred) or JSON body — never logged."""
     content_type = (request.headers.get("content-type") or "").lower()
-    if "application/json" in content_type:
+    if _MIME_JSON in content_type:
         try:
             payload = await request.json()
         except Exception:

@@ -17,6 +17,8 @@ from app.audit.event_catalog import (
 from app.subdomain.eas_device import device_id_from_detail
 from app.web.constants import APP_VERSION
 
+_ACTOR_STRIP_CHARS = ' -|,;'
+
 VENDOR = "Bastion"
 PRODUCT = "BastionPro-Sentinel"
 
@@ -168,7 +170,7 @@ def canonical_siem_actor(entry: dict[str, Any]) -> tuple[str, str | None]:
         if raw_actor and not _looks_like_uuid(raw_actor):
             email_in_actor = _extract_email(raw_actor)
             if email_in_actor and raw_actor != email_in_actor:
-                display = raw_actor.replace(email_in_actor, "").strip(" -|,;") or None
+                display = raw_actor.replace(email_in_actor, "").strip(_ACTOR_STRIP_CHARS) or None
             elif not _looks_like_email(raw_actor):
                 display = raw_actor
         return kc.strip(), display
@@ -179,7 +181,7 @@ def canonical_siem_actor(entry: dict[str, Any]) -> tuple[str, str | None]:
             email = _strip_mailto_artifacts(cand).strip()
             if raw_actor and raw_actor != email and not _looks_like_uuid(raw_actor):
                 if email in raw_actor:
-                    display = raw_actor.replace(email, "").strip(" -|,;") or None
+                    display = raw_actor.replace(email, "").strip(_ACTOR_STRIP_CHARS) or None
                 elif not _looks_like_email(raw_actor):
                     display = raw_actor
             return email, display
@@ -189,7 +191,7 @@ def canonical_siem_actor(entry: dict[str, Any]) -> tuple[str, str | None]:
         cleaned = _strip_mailto_artifacts(username).strip()
         if _looks_like_email(cleaned):
             if raw_actor and raw_actor != cleaned and cleaned in raw_actor:
-                display = raw_actor.replace(cleaned, "").strip(" -|,;") or None
+                display = raw_actor.replace(cleaned, "").strip(_ACTOR_STRIP_CHARS) or None
             return cleaned, display
 
     if raw_actor and _looks_like_email(raw_actor):
@@ -200,7 +202,7 @@ def canonical_siem_actor(entry: dict[str, Any]) -> tuple[str, str | None]:
 
     email_in_actor = _extract_email(raw_actor) if raw_actor else None
     if email_in_actor:
-        remainder = raw_actor.replace(email_in_actor, "").strip(" -|,;") or None
+        remainder = raw_actor.replace(email_in_actor, "").strip(_ACTOR_STRIP_CHARS) or None
         return email_in_actor, remainder
 
     return raw_actor or "unknown", None
