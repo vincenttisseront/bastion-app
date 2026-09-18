@@ -34,6 +34,8 @@ from app.models import (
 from app.portal_settings_service import ensure_portal_settings
 from app.sso_settings import Settings
 
+_RECAP_NEW_24H_SUFFIX = ' · nouveau 24h'
+
 _ADMIN_LOGS_PATH = '/admin/logs'
 
 logger = logging.getLogger(__name__)
@@ -290,7 +292,7 @@ def build_daily_recap(
             title=row.user_email or row.username or "—",
             detail=(
                 f"{row.realm_slug} · vu {_fmt_dt(row.last_seen_at)}"
-                + (" · nouveau 24h" if _in_window(row.first_seen_at, since_dt) else "")
+                + (_RECAP_NEW_24H_SUFFIX if _in_window(row.first_seen_at, since_dt) else "")
             ),
             href=user_href,
         )
@@ -311,7 +313,7 @@ def build_daily_recap(
                 f"{(row.device_type or row.device_id or 'appareil')[:40]}"
                 + f" · vu {_fmt_dt(row.last_seen_at)}"
                 + (f" · {row.request_count} hits" if row.request_count else "")
-                + (" · nouveau 24h" if _in_window(row.first_seen_at, since_dt) else "")
+                + (_RECAP_NEW_24H_SUFFIX if _in_window(row.first_seen_at, since_dt) else "")
             ),
             href=device_href,
         )
@@ -332,7 +334,7 @@ def build_daily_recap(
                 f"{row.email}"
                 + (f" · {row.organization}" if row.organization else "")
                 + f" · {_fmt_dt(row.created_at)}"
-                + (" · nouveau 24h" if _in_window(row.created_at, since_dt) else "")
+                + (_RECAP_NEW_24H_SUFFIX if _in_window(row.created_at, since_dt) else "")
             ),
             href=access_href,
         )

@@ -29,6 +29,10 @@ from app.robotic.robotic_session_cookies import (
 )
 from app.sso_settings import Settings, get_settings
 
+_SCHEME_HTTP = 'http://'
+
+_SCHEME_HTTPS = 'https://'
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["session-cookie-hop"])
@@ -123,7 +127,7 @@ def unseal_session_hop_payload(
 
 def session_hop_url(fqdn: str, *, next_path: str | None = None) -> str:
     host = (fqdn or "").strip().rstrip("/")
-    if host.startswith("https://") or host.startswith("http://"):
+    if host.startswith(_SCHEME_HTTPS) or host.startswith(_SCHEME_HTTP):
         base = host
     else:
         base = f"https://{host}"
@@ -163,7 +167,7 @@ def _portal_apps_url(settings: Settings) -> str:
     portal = (settings.portal_domain or "").strip().rstrip("/")
     if not portal:
         return "/apps"
-    if portal.startswith("https://") or portal.startswith("http://"):
+    if portal.startswith(_SCHEME_HTTPS) or portal.startswith(_SCHEME_HTTP):
         return f"{portal.rstrip('/')}/apps"
     return f"https://{portal}/apps"
 
@@ -363,7 +367,7 @@ def _hop_handler(
     shared = shared_parent_domain(host.split(":")[0], settings.portal_domain or "")
     # Prefer absolute URL on the app FQDN (sealed n may be https://fqdn/).
     sealed_next = (body.get("n") or "").strip()
-    if sealed_next.startswith("https://") or sealed_next.startswith("http://"):
+    if sealed_next.startswith(_SCHEME_HTTPS) or sealed_next.startswith(_SCHEME_HTTP):
         target = sealed_next
     else:
         target = _absolute_app_url(request, target_path)

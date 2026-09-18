@@ -245,20 +245,20 @@ def _bastion_identity_names(
 
     base = db.query(BastionAccount.first_name, BastionAccount.last_name)
     if user.keycloak_user_id:
-        row = (
+        names = _names_from_row(
             base.filter(BastionAccount.keycloak_user_id == user.keycloak_user_id)
             .order_by(BastionAccount.updated_at.desc())
             .first()
         )
-        if row and (row[0] or row[1]):
-            return (row[0] or None, row[1] or None)
+        if names != (None, None):
+            return names
 
     if user.username and user.realm_slug:
         realm_id = (
             db.query(RealmConfig.id).filter(RealmConfig.slug == user.realm_slug).scalar()
         )
         if realm_id:
-            row = (
+            return _names_from_row(
                 base.filter(
                     BastionAccount.realm_id == realm_id,
                     BastionAccount.username == user.username,
@@ -266,8 +266,12 @@ def _bastion_identity_names(
                 .order_by(BastionAccount.updated_at.desc())
                 .first()
             )
-            if row and (row[0] or row[1]):
-                return (row[0] or None, row[1] or None)
+    return None, None
+
+
+def _names_from_row(row) -> tuple[str | None, str | None]:
+    if row and (row[0] or row[1]):
+        return (row[0] or None, row[1] or None)
     return None, None
 
 

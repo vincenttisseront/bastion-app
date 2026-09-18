@@ -30,6 +30,8 @@ from app.portal_settings_service import ensure_portal_settings
 from app.secret_crypto import decrypt_secret, encrypt_secret, encryption_configured
 from app.sso_settings import Settings
 
+_MSG_PREPARE_PG_SCHEMA_FIRST = 'Préparez d’abord le schéma PostgreSQL'
+
 logger = logging.getLogger(__name__)
 
 
@@ -381,7 +383,7 @@ def run_hot_store_migrate(
             "Désactivez le hot store avant de re-migrer (évite les écritures concurrentes)"
         )
     if not row.hot_store_schema_prepared_at and not row.hot_store_last_migrate_at:
-        raise HotStoreError("Préparez d’abord le schéma PostgreSQL")
+        raise HotStoreError(_MSG_PREPARE_PG_SCHEMA_FIRST)
 
     eng = sync_hot_engine_from_config(db, settings)
     if eng is None:
@@ -419,7 +421,7 @@ def skip_hot_store_migrate(
     """Mark the optional migration step as skipped (fresh Postgres, no SQLite history)."""
     row = ensure_portal_settings(db, settings)
     if not row.hot_store_schema_prepared_at and not row.hot_store_last_migrate_at:
-        raise HotStoreError("Préparez d’abord le schéma PostgreSQL")
+        raise HotStoreError(_MSG_PREPARE_PG_SCHEMA_FIRST)
     if bool(getattr(row, "hot_store_enabled", False)):
         raise HotStoreError("Désactivez le hot store avant de modifier cette étape")
     row.hot_store_migrate_skipped_at = utcnow()
@@ -449,7 +451,7 @@ def _prepare_hot_store_for_enable(
 ) -> PortalSettings:
     _require_configured(row)
     if not row.hot_store_schema_prepared_at and not row.hot_store_last_migrate_at:
-        raise HotStoreError("Préparez d’abord le schéma PostgreSQL")
+        raise HotStoreError(_MSG_PREPARE_PG_SCHEMA_FIRST)
     if not row.hot_store_last_migrate_at and not row.hot_store_migrate_skipped_at:
         raise HotStoreError(
             "Migrez les données ou passez explicitement l’étape de migration"

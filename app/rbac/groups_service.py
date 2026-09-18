@@ -56,21 +56,7 @@ async def assert_group_is_empty(
 
     members = live_members
     if members is None and group.keycloak_group_id:
-        try:
-            members = await fetch_group_members(realm, group.keycloak_group_id, settings)
-        except Exception as exc:
-            # Fall back to cached count only when Keycloak is unreachable.
-            cached = group.member_count
-            if cached is not None and int(cached) > 0:
-                raise GroupNotEmptyError(
-                    f"Ce groupe a encore {int(cached)} membre(s) (compteur local)."
-                ) from exc
-            if cached is None:
-                raise GroupNotEmptyError(
-                    "Impossible de vérifier les membres Keycloak — "
-                    "réessayez ou synchronisez les groupes."
-                ) from exc
-            members = []
+        members = await _live_or_cached_members(group, realm, settings)
 
     count = len(members) if members is not None else int(group.member_count or 0)
     if count > 0:
@@ -81,6 +67,26 @@ async def assert_group_is_empty(
         raise GroupNotEmptyError(
             f"Ce groupe a encore {int(group.member_count)} membre(s) (compteur local)."
         )
+
+
+async def _live_or_cached_members(
+    group: RBACGroup, realm: RealmConfig, settings: Settings
+) -> list:
+    try:
+        return await fetch_group_members(realm, group.keycloak_group_id, settings)
+    except Exception as exc:
+        # Fall back to cached count only when Keycloak is unreachable.
+        cached = group.member_count
+        if cached is not None and int(cached) > 0:
+            raise GroupNotEmptyError(
+                f"Ce groupe a encore {int(cached)} membre(s) (compteur local)."
+            ) from exc
+        if cached is None:
+            raise GroupNotEmptyError(
+                "Impossible de vérifier les membres Keycloak — "
+                "réessayez ou synchronisez les groupes."
+            ) from exc
+        return []
 
 
 def _scrub_pending_group_ids(db: Session, group_id: int) -> int:

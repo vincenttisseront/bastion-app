@@ -39,6 +39,8 @@ from app.subdomain.eas_device import (
 )
 from app.subdomain.eas_device_identity import describe_eas_device
 
+_MSG_DEVICE_BLOCKED_BY_ADMIN = 'Cet appareil est bloqué par un administrateur.'
+
 logger = logging.getLogger(__name__)
 
 SIGHTING_WRITE_INTERVAL_SEC = 60.0
@@ -741,7 +743,7 @@ def user_approve_device(
 ) -> ActiveSyncDevice:
     if device.blocked_by_admin:
         raise DeviceDecisionError(
-            "Cet appareil est bloqué par un administrateur."
+            _MSG_DEVICE_BLOCKED_BY_ADMIN
         )
     if friendly_name is not None:
         cleaned = (friendly_name or "").strip()[:120] or None
@@ -764,7 +766,7 @@ def user_reject_device(
 ) -> ActiveSyncDevice:
     if device.blocked_by_admin:
         raise DeviceDecisionError(
-            "Cet appareil est bloqué par un administrateur."
+            _MSG_DEVICE_BLOCKED_BY_ADMIN
         )
     return _apply_decision(
         db,
@@ -785,7 +787,7 @@ def user_revoke_device(
     """Owner revokes a previously approved device — next sync is denied when gated."""
     if device.blocked_by_admin:
         raise DeviceDecisionError(
-            "Cet appareil est bloqué par un administrateur."
+            _MSG_DEVICE_BLOCKED_BY_ADMIN
         )
     return _apply_decision(
         db,

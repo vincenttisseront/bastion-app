@@ -84,6 +84,14 @@ def _wants_json(request: Request) -> bool:
     return "application/json" in accept or request.headers.get("x-requested-with") == "XMLHttpRequest"
 
 
+def _can_delete_empty_group(db, group, realm, *, members: list) -> bool:
+    if group_has_local_children(db, group):
+        return False
+    if group.keycloak_group_id and realm.groups_sync_enabled:
+        return len(members) == 0
+    return (group.member_count or 0) == 0 and len(members) == 0
+
+
 def build_vault_apps_for_user(
     db: Session,
     *,
@@ -305,16 +313,14 @@ async def admin_rbac_group_detail(
 
     file_options = file_grant_select_options(db)
     folder_options = folder_grant_select_options(db)
-    # Empty = no live/cached members and no local subgroups (grants/credentials cascade).
     if members_error:
         can_delete_group = False
-    elif group.keycloak_group_id and realm.groups_sync_enabled:
-        can_delete_group = len(members) == 0 and not group_has_local_children(db, group)
     else:
-        can_delete_group = (
-            (group.member_count or 0) == 0
-            and len(members) == 0
-            and not group_has_local_children(db, group)
+        can_delete_group = _can_delete_empty_group(
+            db,
+            group,
+            realm,
+            members=members,
         )
     return render(
         "admin/rbac/groups_detail.html",

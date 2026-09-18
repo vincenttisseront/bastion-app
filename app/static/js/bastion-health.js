@@ -25,41 +25,52 @@
     el.className = 'badge probe-status-badge ' + (STATUS_BADGE[key] || STATUS_BADGE.unknown);
   }
 
+  function setFieldText(row, field, value) {
+    var cell = row.querySelector('[data-field="' + field + '"]');
+    if (cell) cell.textContent = value;
+  }
+
+  function setProbedAt(row, probedAt) {
+    var aged = row.querySelector('[data-field="probed_at"]');
+    if (!aged) return;
+    if (probedAt) {
+      aged.hidden = false;
+      var span = aged.querySelector('[data-iso]') || aged;
+      if (span.dataset) span.dataset.iso = probedAt;
+      aged.textContent = formatRelative(probedAt);
+    } else {
+      aged.hidden = true;
+    }
+  }
+
+  function setRowError(row, error) {
+    var errEl = row.querySelector('[data-field="error"]');
+    if (!errEl) return;
+    if (error) {
+      errEl.hidden = false;
+      errEl.textContent = error;
+    } else {
+      errEl.hidden = true;
+      errEl.textContent = '';
+    }
+  }
+
   function updateRow(row, payload) {
     if (!row || !payload) return;
     var status = payload.status || 'unknown';
     setBadge(row.querySelector('[data-field="status"]'), status);
-
-    var httpCell = row.querySelector('[data-field="http_code"]');
-    if (httpCell) httpCell.textContent = payload.http_code != null ? String(payload.http_code) : '—';
-
-    var latencyCell = row.querySelector('[data-field="latency_ms"]');
-    if (latencyCell) {
-      latencyCell.textContent = payload.latency_ms != null ? payload.latency_ms + ' ms' : '—';
-    }
-
-    var aged = row.querySelector('[data-field="probed_at"]');
-    if (aged) {
-      if (payload.probed_at) {
-        aged.hidden = false;
-        var span = aged.querySelector('[data-iso]') || aged;
-        if (span.dataset) span.dataset.iso = payload.probed_at;
-        aged.textContent = formatRelative(payload.probed_at);
-      } else {
-        aged.hidden = true;
-      }
-    }
-
-    var errEl = row.querySelector('[data-field="error"]');
-    if (errEl) {
-      if (payload.error) {
-        errEl.hidden = false;
-        errEl.textContent = payload.error;
-      } else {
-        errEl.hidden = true;
-        errEl.textContent = '';
-      }
-    }
+    setFieldText(
+      row,
+      'http_code',
+      payload.http_code != null ? String(payload.http_code) : '—'
+    );
+    setFieldText(
+      row,
+      'latency_ms',
+      payload.latency_ms != null ? payload.latency_ms + ' ms' : '—'
+    );
+    setProbedAt(row, payload.probed_at);
+    setRowError(row, payload.error);
   }
 
   function updateMetrics(statusCounts, healthScore) {
