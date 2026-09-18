@@ -1,0 +1,42 @@
+# BetterLeaks — config bastion-app (étend les règles upstream).
+# Docs: https://github.com/betterleaks/betterleaks/blob/main/docs/config.md
+#
+# On pinne useDefault plutôt que de copier config/betterleaks.toml :
+# les règles upstream évoluent ; on ne versionne que nos filtres locaux.
+
+title = "bastion-app"
+
+[extend]
+useDefault = true
+
+# Skip avant regex : artefacts CI, dépendances, binaires, uploads.
+prefilter = '''
+filter.matchesAny(attributes["path"], [
+  `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?|woff2?|eot|[ot]tf|pdf|exe|dll|bin)$`,
+  `(?:^|/)(?:\.venv|venv|node_modules|\.scannerwork|reports|tmp|\.agents)(?:/.*)?$`,
+  `(?:^|/)app/static/uploads(?:/.*)?$`,
+  `(?:^|/)deploy/data(?:/.*)?$`,
+  `(?:^|/)(?:package-lock\.json|poetry\.lock|Pipfile\.lock)$`,
+  `(?:^|/)\.git(?:/.*)?$`
+])
+'''
+
+# Placeholders / exemples anonymisés du dépôt public.
+filter = '''
+filter.containsAny(finding["secret"], [
+  "EXAMPLE",
+  "CHANGEME",
+  "YOUR_API_KEY",
+  "your-api-key",
+  "portal.example.com",
+  "example.com",
+  "idp.example.com",
+  "app.example.com"
+])
+|| filter.containsAny(finding["line"], [
+  "portal.example.com",
+  "example.com",
+  "CHANGEME",
+  "YOUR_API_KEY"
+])
+'''
