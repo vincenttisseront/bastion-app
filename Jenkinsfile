@@ -108,6 +108,7 @@ pipeline {
                   --report-format json \
                   -v
               DIR_RC=$?
+              # Historique git (allowlist paths/regexes) ; --since sans espaces pour Docker argv.
               docker run --rm \
                 --volumes-from "${JENKINS_CONTAINER_NAME}" \
                 -u root:root \
@@ -116,6 +117,7 @@ pipeline {
                 git . \
                   --config .betterleaks.toml \
                   --git-workers 8 \
+                  --log-opts="--all --since=2025-12-01" \
                   --redact \
                   --report-path reports/betterleaks/findings-git.json \
                   --report-format json \
@@ -128,7 +130,7 @@ pipeline {
               echo "betterleaks_git_exit=${GIT_RC}" | tee -a "${WORKSPACE}/reports/betterleaks/exit.txt"
               ls -lah "${WORKSPACE}/reports/betterleaks" || true
 
-              # Non-zero si fuites (ou erreur outil) sur dir ou git.
+              # Soft gate : non-zero si fuites (ou erreur outil) sur dir ou git.
               if [ "${DIR_RC}" -ne 0 ] || [ "${GIT_RC}" -ne 0 ]; then
                 exit 1
               fi
