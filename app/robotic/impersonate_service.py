@@ -198,33 +198,17 @@ def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
 
     Never POST to ``public_fqdn`` (302 → ``/oauth2/.../start``).
     """
-    from urllib.parse import urlparse
-
     from app.bastion.drivers.crushftp import _admin_api_url
 
     fqdn = (app.public_fqdn or "").strip().lower() or None
-
-    def _host(url: str) -> str:
-        return (urlparse(url).hostname or "").lower()
-
-    def _is_public_sso_url(url: str) -> bool:
-        host = _host(url)
-        if not host:
-            return False
-        if fqdn and host == fqdn:
-            return True
-        # Portal edge itself is never a valid CrushFTP login target.
-        portal = (getattr(settings, "portal_domain", None) or "").strip().lower()
-        if portal and host == portal:
-            return True
-        return False
+    portal = (getattr(settings, "portal_domain", None) or "").strip().lower() or None
 
     admin = _admin_api_url(getattr(app, "crushftp_admin_base_url", None) or "")
-    if admin and not _is_public_sso_url(admin):
+    if admin and not _crushftp_is_public_sso_url(admin, fqdn=fqdn, portal=portal):
         return admin
 
     upstream = (app.upstream_url or "").strip()
-    if upstream and not _is_public_sso_url(upstream):
+    if upstream and not _crushftp_is_public_sso_url(upstream, fqdn=fqdn, portal=portal):
         return upstream.rstrip("/") + "/"
 
     # No usable internal URL — fail loudly (do not silently hit public FQDN).
@@ -234,6 +218,19 @@ def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
         "ou une upstream_url interne distincte du FQDN public "
         f"({fqdn or 'public_fqdn'})."
     )
+
+
+def _crushftp_is_public_sso_url(
+    url: str, *, fqdn: str | None, portal: str | None
+) -> bool:
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    if not host:
+        return False
+    if fqdn and host == fqdn:
+        return True
+    return bool(portal and host == portal)
 
 
 def _generic_form_login_url(app: App) -> str:

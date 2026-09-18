@@ -770,24 +770,28 @@ def resolve_event(
     if isinstance(code, EventDef):
         return code
     if isinstance(code, str) and code.strip():
-        found = get_event_by_code(code)
-        if found is not None:
-            return found
-        # Explicit unknown code → treat as uncatalogued under declared domain if parseable
-        try:
-            _domain, num = parse_event_code(code)
-            if num == 0:
-                act = (action or "").strip()
-                if act and act in ACTION_TO_CODE:
-                    return EVENTS[ACTION_TO_CODE[act]]
-                return uncatalogued_event(action or "")
-        except ValueError:
-            pass
-        return uncatalogued_event(action or code)
+        return _resolve_event_from_code(code, action=action)
     act = (action or "").strip()
     if act and act in ACTION_TO_CODE:
         return EVENTS[ACTION_TO_CODE[act]]
     return uncatalogued_event(act)
+
+
+def _resolve_event_from_code(code: str, *, action: str | None) -> EventDef:
+    found = get_event_by_code(code)
+    if found is not None:
+        return found
+    # Explicit unknown code → treat as uncatalogued under declared domain if parseable
+    try:
+        _domain, num = parse_event_code(code)
+        if num == 0:
+            act = (action or "").strip()
+            if act and act in ACTION_TO_CODE:
+                return EVENTS[ACTION_TO_CODE[act]]
+            return uncatalogued_event(action or "")
+    except ValueError:
+        pass
+    return uncatalogued_event(action or code)
 
 
 def historical_severity_from_result(result: str | None) -> Severity:

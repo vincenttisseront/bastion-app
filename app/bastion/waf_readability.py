@@ -180,31 +180,19 @@ def build_reactivation_panel(
     subdomain_apps = list_subdomain_smoke_hosts(db) if db is not None else []
     blocked = bool(active.get("verifiable") and real == MODE_OFF and not portal_armed)
     desired_on = profile.mode in (MODE_ON, MODE_DETECTION)
-    can_reactivate_portal = not portal_armed
-    can_reactivate_subdomain = bool(
-        portal_armed
-        and real in (MODE_DETECTION, MODE_ON)
-        and not subdomain_armed
-        and subdomain_apps
-    )
     sub_arm = arm.get("subdomain") if isinstance(arm.get("subdomain"), dict) else {}
     subdomain_target = str(sub_arm.get("target_mode") or "")
     subdomain_already_on = subdomain_real == MODE_ON or subdomain_target == MODE_ON
-    can_promote_subdomain_to_on = bool(
-        portal_armed
-        and subdomain_armed
-        and subdomain_apps
-        and profile.mode == MODE_ON
-        and not subdomain_already_on
-    )
-    show_tab = (
-        can_reactivate_portal
-        or can_reactivate_subdomain
-        or subdomain_armed
-        or can_promote_subdomain_to_on
+    flags = _reactivation_capability_flags(
+        profile=profile,
+        real=real,
+        portal_armed=portal_armed,
+        subdomain_armed=subdomain_armed,
+        subdomain_apps=subdomain_apps,
+        subdomain_already_on=subdomain_already_on,
     )
     return {
-        "show": show_tab,
+        "show": flags["show"],
         "blocked": blocked,
         "pilotable": pilotable or portal_armed,
         "armed": portal_armed,
@@ -217,10 +205,10 @@ def build_reactivation_panel(
         "subdomain_apps": subdomain_apps,
         "export_pending": bool(export_pending),
         "apply_can_change_mode": bool(portal_armed),
-        "can_reactivate": can_reactivate_portal,
-        "can_reactivate_portal": can_reactivate_portal,
-        "can_reactivate_subdomain": can_reactivate_subdomain,
-        "can_promote_subdomain_to_on": can_promote_subdomain_to_on,
+        "can_reactivate": flags["can_reactivate_portal"],
+        "can_reactivate_portal": flags["can_reactivate_portal"],
+        "can_reactivate_subdomain": flags["can_reactivate_subdomain"],
+        "can_promote_subdomain_to_on": flags["can_promote_subdomain_to_on"],
         "can_disarm": portal_armed,
         "apply_still_useful_for": [
             "Exclusions CRS (bastion-exclusions-generated.conf)",
@@ -259,6 +247,43 @@ def build_reactivation_panel(
         ),
         "steps": list(REACTIVATION_STEPS),
         "desired_on": desired_on,
+    }
+
+
+def _reactivation_capability_flags(
+    *,
+    profile: WafProfile,
+    real: str,
+    portal_armed: bool,
+    subdomain_armed: bool,
+    subdomain_apps: list,
+    subdomain_already_on: bool,
+) -> dict[str, bool]:
+    can_reactivate_portal = not portal_armed
+    can_reactivate_subdomain = bool(
+        portal_armed
+        and real in (MODE_DETECTION, MODE_ON)
+        and not subdomain_armed
+        and subdomain_apps
+    )
+    can_promote_subdomain_to_on = bool(
+        portal_armed
+        and subdomain_armed
+        and subdomain_apps
+        and profile.mode == MODE_ON
+        and not subdomain_already_on
+    )
+    show = (
+        can_reactivate_portal
+        or can_reactivate_subdomain
+        or subdomain_armed
+        or can_promote_subdomain_to_on
+    )
+    return {
+        "show": show,
+        "can_reactivate_portal": can_reactivate_portal,
+        "can_reactivate_subdomain": can_reactivate_subdomain,
+        "can_promote_subdomain_to_on": can_promote_subdomain_to_on,
     }
 
 
