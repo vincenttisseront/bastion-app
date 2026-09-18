@@ -267,20 +267,13 @@ def format_cef(entry: dict[str, Any], *, version: str | None = None) -> str:
     return header + "|" + " ".join(extensions)
 
 
-def format_ecs(entry: dict[str, Any], *, version: str | None = None) -> dict[str, Any]:
-    """Map audit entry → ECS-like JSON (webhook_https transport, no truncation)."""
-    action = str(entry.get("action") or "unknown")
-    result = str(entry.get("result") or "info")
-    code, label, cats = _resolve_code_label(entry)
-    sev = catalog_severity_for_entry(entry)
-    if not cats:
-        cats = (
-            ["authentication"]
-            if "login" in action or "breakglass" in action or "session" in action
-            else ["api"]
-        )
-    suser, display_name = canonical_siem_actor(entry)
-    detail = _sanitize_detail_for_siem(_detail_object(entry))
+def _default_ecs_categories(action: str) -> list[str]:
+    if "login" in action or "breakglass" in action or "session" in action:
+        return ["authentication"]
+    return ["api"]
+
+
+def _ecs_user_object(suser: str, display_name: str | None) -> dict[str, Any]:
     user: dict[str, Any] = {"name": suser}
     if _looks_like_email(suser):
         user["email"] = suser
@@ -288,6 +281,20 @@ def format_ecs(entry: dict[str, Any], *, version: str | None = None) -> dict[str
         user["id"] = suser
     if display_name:
         user["full_name"] = display_name
+    return user
+
+
+def format_ecs(entry: dict[str, Any], *, version: str | None = None) -> dict[str, Any]:
+    """Map audit entry → ECS-like JSON (webhook_https transport, no truncation)."""
+    action = str(entry.get("action") or "unknown")
+    result = str(entry.get("result") or "info")
+    code, label, cats = _resolve_code_label(entry)
+    sev = catalog_severity_for_entry(entry)
+    if not cats:
+        cats = _default_ecs_categories(action)
+    suser, display_name = canonical_siem_actor(entry)
+    detail = _sanitize_detail_for_siem(_detail_object(entry))
+    user = _ecs_user_object(suser, display_name)
     device_id = _device_id_from_detail(detail)
     doc: dict[str, Any] = {
         "@timestamp": _iso_ts(entry),

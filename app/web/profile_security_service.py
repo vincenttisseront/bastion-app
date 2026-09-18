@@ -198,40 +198,53 @@ def list_portal_native_sessions(
         return []
     purge_expired_oidc_sessions(db)
     now = utcnow()
-    subs = {user.keycloak_user_id.strip()} if user.keycloak_user_id else set()
-    names = set()
-    for ident in (user.email, user.username):
-        v = (ident or "").strip().lower()
-        if v:
-            names.add(v)
-    q = db.query(OidcSession).filter(OidcSession.revoked.is_(False))
-    clauses = []
-    if subs:
-        clauses.append(OidcSession.sub.in_(subs))
-    if names:
-        clauses.append(OidcSession.username.in_(names))
+    clauses = _native_session_identity_clauses(user)
     if not clauses:
         return []
-    rows = q.filter(or_(*clauses)).order_by(OidcSession.issued_at.desc()).limit(10).all()
+    rows = (
+        db.query(OidcSession)
+        .filter(OidcSession.revoked.is_(False), or_(*clauses))
+        .order_by(OidcSession.issued_at.desc())
+        .limit(10)
+        .all()
+    )
     out: list[dict[str, Any]] = []
     for row in rows:
         exp = _coerce_utc(row.expires_at)
         if exp is not None and exp <= now:
             continue
-        out.append(
-            {
-                "kind": "portal_native",
-                "id": row.jti,
-                "label": "Portail Bastion",
-                "ip": row.ip_subnet or "—",
-                "started_at": row.issued_at,
-                "last_access": row.issued_at,
-                "expires_at": row.expires_at,
-                "is_current": bool(current_jti and row.jti == current_jti),
-                "clients": [],
-            }
-        )
+        out.append(_native_session_card(row, current_jti=current_jti))
     return out
+
+
+def _native_session_identity_clauses(user: UserContext) -> list[Any]:
+    clauses: list[Any] = []
+    if user.keycloak_user_id:
+        clauses.append(OidcSession.sub.in_({user.keycloak_user_id.strip()}))
+    names = {
+        (ident or "").strip().lower()
+        for ident in (user.email, user.username)
+        if (ident or "").strip()
+    }
+    if names:
+        clauses.append(OidcSession.username.in_(names))
+    return clauses
+
+
+def _native_session_card(
+    row: OidcSession, *, current_jti: str | None
+) -> dict[str, Any]:
+    return {
+        "kind": "portal_native",
+        "id": row.jti,
+        "label": "Portail Bastion",
+        "ip": row.ip_subnet or "—",
+        "started_at": row.issued_at,
+        "last_access": row.issued_at,
+        "expires_at": row.expires_at,
+        "is_current": bool(current_jti and row.jti == current_jti),
+        "clients": [],
+    }
 
 
 async def list_user_sso_sessions(

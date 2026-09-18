@@ -87,42 +87,8 @@ def build_acme_domains_manifest(db: Session, settings: Settings) -> dict[str, An
 
     portal = normalize_hostname(settings.portal_domain)
     _add(fqdn=portal, slug="portal", family="portal")
-
-    for app in iter_subdomain_proxy_apps(db):
-        _add(
-            fqdn=app.public_fqdn,
-            slug=app.slug,
-            family="subdomain_proxy",
-            upstream_url=app.upstream_url or "",
-        )
-
-    for app in iter_public_proxy_apps(db):
-        _add(
-            fqdn=app.public_fqdn,
-            slug=app.slug,
-            family="public_proxy",
-            upstream_url=app.upstream_url or "",
-        )
-
-    try:
-        from app.mail.mta_sts_service import iter_mta_sts_acme_domains
-
-        for row in iter_mta_sts_acme_domains(db, settings):
-            _add(
-                fqdn=row["fqdn"],
-                slug=row.get("slug") or "mta-sts",
-                family=row.get("family") or "mta_sts",
-            )
-    except Exception:
-        logger.exception("acme: mta-sts domains skipped")
-
-    for row in _load_infra_domains(settings):
-        _add(
-            fqdn=row["fqdn"],
-            slug=row["slug"],
-            family="infra",
-            upstream_url=row.get("upstream_url") or "",
-        )
+    _collect_app_acme_domains(db, settings, _add)
+    _collect_infra_acme_domains(settings, _add)
 
     domains.sort(key=lambda d: (_FAMILY_ORDER.get(d["family"], 9), d["fqdn"]))
     return {
@@ -132,6 +98,44 @@ def build_acme_domains_manifest(db: Session, settings: Settings) -> dict[str, An
         "portal_domain": portal,
         "domains": domains,
     }
+
+
+def _collect_app_acme_domains(db: Session, settings: Settings, add) -> None:
+    for app in iter_subdomain_proxy_apps(db):
+        add(
+            fqdn=app.public_fqdn,
+            slug=app.slug,
+            family="subdomain_proxy",
+            upstream_url=app.upstream_url or "",
+        )
+    for app in iter_public_proxy_apps(db):
+        add(
+            fqdn=app.public_fqdn,
+            slug=app.slug,
+            family="public_proxy",
+            upstream_url=app.upstream_url or "",
+        )
+    try:
+        from app.mail.mta_sts_service import iter_mta_sts_acme_domains
+
+        for row in iter_mta_sts_acme_domains(db, settings):
+            add(
+                fqdn=row["fqdn"],
+                slug=row.get("slug") or "mta-sts",
+                family=row.get("family") or "mta_sts",
+            )
+    except Exception:
+        logger.exception("acme: mta-sts domains skipped")
+
+
+def _collect_infra_acme_domains(settings: Settings, add) -> None:
+    for row in _load_infra_domains(settings):
+        add(
+            fqdn=row["fqdn"],
+            slug=row["slug"],
+            family="infra",
+            upstream_url=row.get("upstream_url") or "",
+        )
 
 
 def write_acme_domains_export(db: Session, settings: Settings) -> Path:

@@ -157,23 +157,13 @@ def event_passes_filter(
     act = (action or "").strip()
     if act.startswith("siem."):
         return False
-    if entry:
-        event_code = event_code or entry.get("event_code")
-        catalog_severity = catalog_severity or entry.get("catalog_severity")
-        domain = domain or entry.get("domain")
-        act = act or str(entry.get("action") or "")
-    code = (event_code or "").strip()
-    sev = (catalog_severity or "").strip()
-    dom = (domain or "").strip()
-    if not code and not sev:
-        # Resolve from action for filter evaluation when enqueueing a fresh row
-        from app.audit.event_catalog import resolve_event
-
-        ev = resolve_event(action=act)
-        code = ev.code
-        sev = ev.severity.value
-        dom = ev.domain
-
+    act, code, sev, dom = _filter_identity(
+        action=act,
+        event_code=event_code,
+        catalog_severity=catalog_severity,
+        domain=domain,
+        entry=entry,
+    )
     criteria = [str(a).strip() for a in config.filter_actions if str(a).strip()]
     if config.filter_mode == "allowlist":
         if not criteria:
@@ -191,6 +181,31 @@ def event_passes_filter(
         )
         for c in criteria
     )
+
+
+def _filter_identity(
+    *,
+    action: str,
+    event_code: str | None,
+    catalog_severity: str | None,
+    domain: str | None,
+    entry: dict | None,
+) -> tuple[str, str, str, str]:
+    act = action
+    if entry:
+        event_code = event_code or entry.get("event_code")
+        catalog_severity = catalog_severity or entry.get("catalog_severity")
+        domain = domain or entry.get("domain")
+        act = act or str(entry.get("action") or "")
+    code = (event_code or "").strip()
+    sev = (catalog_severity or "").strip()
+    dom = (domain or "").strip()
+    if not code and not sev:
+        from app.audit.event_catalog import resolve_event
+
+        ev = resolve_event(action=act)
+        return act, ev.code, ev.severity.value, ev.domain
+    return act, code, sev, dom
 
 
 def resolve_webhook_secret(db: Session, settings: Settings) -> str | None:
