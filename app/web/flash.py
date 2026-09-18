@@ -86,10 +86,23 @@ def get_flash_messages(request: Request, secret: str) -> list[dict[str, str]]:
     return []
 
 
-def set_flash(response: Response, messages: list[dict[str, str]], secret: str) -> None:
+def set_flash(
+    response: Response,
+    messages: list[dict[str, str]],
+    secret: str,
+    *,
+    secure: bool | None = None,
+) -> None:
     payload = json.dumps(messages)
     signed = _sign(payload, secret)
     encoded = _encode_flash_cookie_value(signed)
+    if secure is None:
+        try:
+            from app.sso_settings import get_settings
+
+            secure = bool(get_settings().is_production)
+        except Exception:
+            secure = False
     response.set_cookie(
         key=FLASH_COOKIE,
         value=encoded,
@@ -97,6 +110,7 @@ def set_flash(response: Response, messages: list[dict[str, str]], secret: str) -
         httponly=True,
         samesite="lax",
         path="/",
+        secure=secure,
     )
 
 

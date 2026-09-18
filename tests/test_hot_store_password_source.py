@@ -60,8 +60,11 @@ def test_fingerprint_is_keyed_to_the_deployment():
 
 def test_fingerprint_still_compares_two_values_under_one_key():
     key = "deployment-key"
-    assert password_fingerprint("a", key=key) == password_fingerprint("a", key=key)
-    assert password_fingerprint("a", key=key) != password_fingerprint("b", key=key)
+    same_a = password_fingerprint("a", key=key)
+    same_a_again = password_fingerprint("a", key=key)
+    other_b = password_fingerprint("b", key=key)
+    assert same_a == same_a_again
+    assert same_a != other_b
 
 
 def test_empty_password_has_no_fingerprint():

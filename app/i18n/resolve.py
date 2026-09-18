@@ -84,7 +84,8 @@ def set_locale_cookie(response: Response, locale: str, *, secure: bool = False) 
         key=LOCALE_COOKIE,
         value=loc,
         max_age=LOCALE_COOKIE_MAX_AGE,
-        httponly=False,  # readable by JS mirror / switcher
+        # JS locale switcher reads document.cookie — HttpOnly would break the mirror.
+        httponly=False,  # NOSONAR python:S3330
         samesite="lax",
         path="/",
         secure=secure,
