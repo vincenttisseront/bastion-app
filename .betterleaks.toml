@@ -1,52 +1,35 @@
-# BetterLeaks — config bastion-app (étend les règles upstream).
-# Docs: https://github.com/betterleaks/betterleaks/blob/main/docs/config.md
-#
-# Expr : en prefilter l'image Docker attend matchesAny/containsAny (sans préfixe filter.).
+# BetterLeaks — bastion-app
+# Image 1.8.x : avec [extend] useDefault, seul [allowlist] fusionne correctement
+# (un prefilter/filter Expr personnalisé remplace mal / est ignoré).
+# Voir https://github.com/betterleaks/betterleaks/blob/main/.betterleaks.toml
 
 title = "bastion-app"
 
 [extend]
 useDefault = true
 
-# Skip avant regex : tests (fixtures), exemples, artefacts CI, deps, binaires.
-prefilter = '''
-matchesAny(attributes["path"], [
-  `(?i)\.(?:bmp|gif|jpe?g|png|svg|tiff?|woff2?|eot|[ot]tf|pdf|exe|dll|bin)$`,
-  `(?:^|/)(?:\.venv|venv|node_modules|\.scannerwork|reports|tmp|\.agents)(?:/.*)?$`,
-  `(?:^|/)tests(?:/.*)?$`,
-  `(?:^|/)\.env\.example$`,
-  `(?:^|/)deploy/\.env\.example$`,
-  `(?i)\.example$`,
-  `(?:^|/)app/static/uploads(?:/.*)?$`,
-  `(?:^|/)deploy/data(?:/.*)?$`,
-  `(?:^|/)(?:package-lock\.json|poetry\.lock|Pipfile\.lock)$`,
-  `(?:^|/)\.git(?:/.*)?$`
-])
-'''
+[allowlist]
+paths = [
+  '''(?i)(?:^|/)tests(?:/.*)?$''',
+  '''(?i)(?:^|/)docs(?:/.*)?$''',
+  '''(?i)(?:^|/)\.venv(?:/.*)?$''',
+  '''(?i)(?:^|/)venv(?:/.*)?$''',
+  '''(?i)(?:^|/)tmp(?:/.*)?$''',
+  '''(?i)(?:^|/)reports(?:/.*)?$''',
+  '''(?i)(?:^|/)\.agents(?:/.*)?$''',
+  '''(?i)(?:^|/)\.scannerwork(?:/.*)?$''',
+  '''(?i)(?:^|/)node_modules(?:/.*)?$''',
+  '''(?i)(?:^|/)\.env\.example$''',
+  '''(?i)(?:^|/)deploy/\.env\.example$''',
+  '''(?i)\.example$''',
+  '''(?i)(?:^|/)app/static/uploads(?:/.*)?$''',
+  '''(?i)(?:^|/)deploy/data(?:/.*)?$''',
+]
 
-# Placeholders anonymisés + IDs non-secrets (UUID Keycloak, etc.).
-filter = '''
-containsAny(finding["secret"], [
-  "EXAMPLE",
-  "CHANGEME",
-  "YOUR_API_KEY",
-  "your-api-key",
-  "portal.example.com",
-  "example.com",
-  "idp.example.com",
-  "app.example.com"
-])
-|| containsAny(finding["line"], [
-  "portal.example.com",
-  "example.com",
-  "CHANGEME",
-  "YOUR_API_KEY",
-  "keycloak_user_id",
-  "keycloak-user-id"
-])
-|| matchesAny(finding["line"], [
-  `(?i)keycloak_user_id\s*[:=]`,
-  `(?i)password\s*:\s*password\b`,
-  `(?i)robotic_username`
-])
-'''
+regexes = [
+  '''(?i)keycloak_user_id\s*[:=]''',
+  '''(?i)password\s*:\s*password\b''',
+  '''(?i)robotic_username''',
+]
+
+regexTarget = "line"
