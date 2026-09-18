@@ -417,7 +417,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_set_header X-Forwarded-Groups $auth_groups;",
     ]
     proxy_body_lines = [
-        f_NGX_PROXY_PASS_UPSTREAM,
+        _NGX_PROXY_PASS_UPSTREAM,
         *redirect_lines,
         _NGX_PROXY_HTTP_VERSION,
         "        # Stream transfers both ways — with buffering on, nginx spools the",
