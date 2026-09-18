@@ -317,45 +317,58 @@ def last_seen_for_users(
         uid = u.get("keycloak_user_id")
         if not uid:
             continue
-        display = (u.get("display") or "").strip()
-        candidates = {uid}
-        if display:
-            candidates.add(display)
-            if "@" in display:
-                candidates.add(display.split("@", 1)[0])
-
-        session_row = (
-            db.query(ActiveSession)
-            .filter(
-                (ActiveSession.user_email.in_(candidates))
-                | (ActiveSession.username.in_(candidates))
-            )
-            .order_by(desc(ActiveSession.last_seen_at))
-            .first()
+        candidates = _last_seen_candidates(uid, u.get("display"))
+        hit = _last_seen_from_session(db, candidates) or _last_seen_from_audit(
+            db, candidates
         )
-        if session_row:
-            out[uid] = {
-                "last_seen_at": (
-                    session_row.last_seen_at.isoformat()
-                    if session_row.last_seen_at
-                    else None
-                ),
-                "ip": session_row.source_ip,
-            }
-            continue
-
-        audit = (
-            db.query(AuditLog)
-            .filter(AuditLog.actor.in_(candidates))
-            .order_by(desc(AuditLog.id))
-            .first()
-        )
-        if audit:
-            out[uid] = {
-                "last_seen_at": audit.created_at.isoformat() if audit.created_at else None,
-                "ip": audit.ip_address,
-            }
+        if hit:
+            out[uid] = hit
     return out
+
+
+def _last_seen_candidates(uid: str, display: str | None) -> set[str]:
+    candidates = {uid}
+    text = (display or "").strip()
+    if text:
+        candidates.add(text)
+        if "@" in text:
+            candidates.add(text.split("@", 1)[0])
+    return candidates
+
+
+def _last_seen_from_session(db: Session, candidates: set[str]) -> dict[str, Any] | None:
+    session_row = (
+        db.query(ActiveSession)
+        .filter(
+            (ActiveSession.user_email.in_(candidates))
+            | (ActiveSession.username.in_(candidates))
+        )
+        .order_by(desc(ActiveSession.last_seen_at))
+        .first()
+    )
+    if not session_row:
+        return None
+    return {
+        "last_seen_at": (
+            session_row.last_seen_at.isoformat() if session_row.last_seen_at else None
+        ),
+        "ip": session_row.source_ip,
+    }
+
+
+def _last_seen_from_audit(db: Session, candidates: set[str]) -> dict[str, Any] | None:
+    audit = (
+        db.query(AuditLog)
+        .filter(AuditLog.actor.in_(candidates))
+        .order_by(desc(AuditLog.id))
+        .first()
+    )
+    if not audit:
+        return None
+    return {
+        "last_seen_at": audit.created_at.isoformat() if audit.created_at else None,
+        "ip": audit.ip_address,
+    }
 
 
 def enrich_granted_users(

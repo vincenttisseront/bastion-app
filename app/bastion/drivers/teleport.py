@@ -309,26 +309,10 @@ def resolve_teleport_login_base_url(
     Same constraint as CrushFTP: never POST through the public FQDN guarded by
     bastion ``auth_request`` (302/HTML/portal login).
     """
-    from urllib.parse import urlparse
-
     fqdn = (getattr(app, "public_fqdn", None) or "").strip().lower() or None
     portal = (getattr(settings, "portal_domain", None) or "").strip().lower() or None
-
-    def _host(url: str) -> str:
-        return (urlparse(url).hostname or "").lower()
-
-    def _is_public_edge(url: str) -> bool:
-        host = _host(url)
-        if not host:
-            return False
-        if fqdn and host == fqdn:
-            return True
-        if portal and host == portal:
-            return True
-        return False
-
     upstream = (getattr(app, "upstream_url", None) or "").strip().rstrip("/")
-    if upstream and not _is_public_edge(upstream):
+    if upstream and not _teleport_is_public_edge(upstream, fqdn=fqdn, portal=portal):
         return upstream
 
     raise ValueError(
@@ -336,3 +320,14 @@ def resolve_teleport_login_base_url(
         "Renseignez une upstream_url interne distincte du FQDN public "
         f"({fqdn or 'public_fqdn'}), ex. https://10.x.x.x:3080 ou http://teleport:3080."
     )
+
+
+def _teleport_is_public_edge(url: str, *, fqdn: str | None, portal: str | None) -> bool:
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    if not host:
+        return False
+    if fqdn and host == fqdn:
+        return True
+    return bool(portal and host == portal)

@@ -291,26 +291,12 @@ async def _do_revoke_sso(
     via: str | None = None,
 ) -> dict:
     kc_user = await _resolve_kc_user(realm, identity, settings, db=db)
-    alt_slug = (kc_user.get("_bastion_realm_slug") or "").strip()
-    logout_realm = realm
-    if alt_slug and alt_slug != realm.slug:
-        alt = db.query(RealmConfig).filter_by(slug=alt_slug).first()
-        if alt is not None:
-            logout_realm = alt
+    logout_realm = _logout_realm_for_kc_user(db, realm, kc_user)
     uid = str(kc_user.get("id") or "").strip()
     if not uid:
         raise ValueError("Réponse Keycloak sans id utilisateur")
 
-    emails, usernames = identity_match_keys(
-        email=kc_user.get("email"),
-        username=kc_user.get("username"),
-    )
-    path_emails, path_usernames = identity_match_keys(
-        email=identity, username=identity
-    )
-    emails |= path_emails
-    usernames |= path_usernames
-
+    emails, usernames = _merged_identity_keys(kc_user, identity)
     logout_error, result = await _logout_kc_user(logout_realm, uid, settings)
     local = _apply_local_session_revocation(
         db,
@@ -321,18 +307,9 @@ async def _do_revoke_sso(
         keycloak_subs={uid},
         actor=actor,
     )
-    details = {
-        "ok": logout_error is None,
-        "realm_slug": result.get("realm_slug") or logout_realm.slug,
-        "residual_note": SSO_LOGOUT_RESIDUAL_NOTE,
-        "user_email": (kc_user.get("email") or "").strip().lower() or None,
-        "username": (kc_user.get("username") or "").strip().lower() or None,
-        **local,
-    }
-    if via:
-        details["via"] = via
-    if logout_error:
-        details["error"] = logout_error
+    details = _revoke_sso_audit_details(
+        kc_user, logout_realm, result, local, logout_error=logout_error, via=via
+    )
     log_action(
         db,
         actor=actor or "admin",
@@ -352,6 +329,50 @@ async def _do_revoke_sso(
             **local,
         }
     return {"ok": True, "action": _SESSIONS_REVOKE_SSO, **result, **local}
+
+
+def _logout_realm_for_kc_user(db: Session, realm: RealmConfig, kc_user: dict) -> RealmConfig:
+    alt_slug = (kc_user.get("_bastion_realm_slug") or "").strip()
+    if alt_slug and alt_slug != realm.slug:
+        alt = db.query(RealmConfig).filter_by(slug=alt_slug).first()
+        if alt is not None:
+            return alt
+    return realm
+
+
+def _merged_identity_keys(kc_user: dict, identity: str) -> tuple[set, set]:
+    emails, usernames = identity_match_keys(
+        email=kc_user.get("email"),
+        username=kc_user.get("username"),
+    )
+    path_emails, path_usernames = identity_match_keys(
+        email=identity, username=identity
+    )
+    return emails | path_emails, usernames | path_usernames
+
+
+def _revoke_sso_audit_details(
+    kc_user: dict,
+    logout_realm: RealmConfig,
+    result: dict,
+    local: dict,
+    *,
+    logout_error: str | None,
+    via: str | None,
+) -> dict:
+    details = {
+        "ok": logout_error is None,
+        "realm_slug": result.get("realm_slug") or logout_realm.slug,
+        "residual_note": SSO_LOGOUT_RESIDUAL_NOTE,
+        "user_email": (kc_user.get("email") or "").strip().lower() or None,
+        "username": (kc_user.get("username") or "").strip().lower() or None,
+        **local,
+    }
+    if via:
+        details["via"] = via
+    if logout_error:
+        details["error"] = logout_error
+    return details
 
 
 async def _logout_kc_user(logout_realm, uid: str, settings) -> tuple[str | None, dict]:

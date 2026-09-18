@@ -264,15 +264,9 @@ def _portal_oidc_fallback_config(
     realm_slug: str,
     settings: Settings,
 ) -> OidcBffConfig | None:
-    slug = (realm_slug or "").strip()
-    if not slug:
-        return None
-    realm = db.query(RealmConfig).filter_by(slug=slug).first()
-    if realm is None:
-        realm = db.query(RealmConfig).filter(RealmConfig.slug.ilike(slug)).first()
+    realm = _lookup_realm_by_slug(db, realm_slug)
     if realm is None:
         return None
-
     client_id = (realm.client_id or "").strip()
     redirect_uri = (realm.redirect_uri or "").strip()
     enc = (realm.client_secret_encrypted or "").strip()
@@ -281,12 +275,7 @@ def _portal_oidc_fallback_config(
     )
     if not (base and client_id and redirect_uri and enc):
         return None
-    if not encryption_configured(settings):
-        return None
-    try:
-        client_secret = decrypt_secret(enc, settings).strip()
-    except ValueError:
-        return None
+    client_secret = _decrypt_client_secret(enc, settings)
     if not client_secret:
         return None
     kc_realm = keycloak_realm_from_issuer(realm.issuer_url or "") or realm.slug
@@ -298,3 +287,23 @@ def _portal_oidc_fallback_config(
         client_secret=client_secret,
         redirect_uri=redirect_uri,
     )
+
+
+def _lookup_realm_by_slug(db: Session, realm_slug: str) -> RealmConfig | None:
+    slug = (realm_slug or "").strip()
+    if not slug:
+        return None
+    realm = db.query(RealmConfig).filter_by(slug=slug).first()
+    if realm is None:
+        realm = db.query(RealmConfig).filter(RealmConfig.slug.ilike(slug)).first()
+    return realm
+
+
+def _decrypt_client_secret(enc: str, settings: Settings) -> str | None:
+    if not encryption_configured(settings):
+        return None
+    try:
+        secret = decrypt_secret(enc, settings).strip()
+    except ValueError:
+        return None
+    return secret or None

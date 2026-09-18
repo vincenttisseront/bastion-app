@@ -306,14 +306,10 @@ def _merge_saved_view_filters(
 
 def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:
     chips: list[dict[str, str]] = []
-    if filters.get("id"):
-        chips.append({"key": "id", "label": f"Entrée #{filters['id']}"})
-    if filters.get("action"):
-        chips.append({"key": "action", "label": f"Action: {filters['action']}"})
-    if filters.get("event_code"):
-        chips.append({"key": "event_code", "label": f"Code: {filters['event_code']}"})
-    if filters.get("actor"):
-        chips.append({"key": "actor", "label": f"Acteur: {filters['actor']}"})
+    _append_scalar_chip(chips, filters, "id", lambda v: f"Entrée #{v}")
+    _append_scalar_chip(chips, filters, "action", lambda v: f"Action: {v}")
+    _append_scalar_chip(chips, filters, "event_code", lambda v: f"Code: {v}")
+    _append_scalar_chip(chips, filters, "actor", lambda v: f"Acteur: {v}")
     if filters.get("date_from") or filters.get("date_to"):
         chips.append(
             {
@@ -321,12 +317,9 @@ def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:
                 "label": f"Dates: {filters.get('date_from') or '…'} → {filters.get('date_to') or '…'}",
             }
         )
-    if filters.get("ip"):
-        chips.append({"key": "ip", "label": f"IP: {filters['ip']}"})
-    if filters.get("detail"):
-        chips.append({"key": "detail", "label": f"Détail: {filters['detail']}"})
-    if filters.get("q"):
-        chips.append({"key": "q", "label": f"Recherche: {filters['q']}"})
+    _append_scalar_chip(chips, filters, "ip", lambda v: f"IP: {v}")
+    _append_scalar_chip(chips, filters, "detail", lambda v: f"Détail: {v}")
+    _append_scalar_chip(chips, filters, "q", lambda v: f"Recherche: {v}")
     for st in filters.get("status") or []:
         chips.append({"key": f"status:{st}", "label": f"Résultat: {st}"})
     for dom in filters.get("domain") or []:
@@ -341,6 +334,16 @@ def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:
             }
         )
     return chips
+
+
+def _append_scalar_chip(
+    chips: list[dict[str, str]],
+    filters: dict[str, Any],
+    key: str,
+    label_fn,
+) -> None:
+    if filters.get(key):
+        chips.append({"key": key, "label": label_fn(filters[key])})
 
 
 @router.get("/admin/logs")

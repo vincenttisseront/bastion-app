@@ -231,80 +231,82 @@ async def build_session_alignment_report(
     )
     rows: list[RealmSessionAlignment] = []
     for realm in realms:
-        gen_cfg = generate_oauth2_proxy_config(realm, settings)
-        gen = parse_oauth2_cookie_settings(gen_cfg)
-        export_path = resolve_oauth2_export_path(realm, settings)
-        export_expire = export_refresh = None
-        export_matches: bool | None = None
-        if export_path is not None:
-            exported = parse_oauth2_cookie_settings(
-                export_path.read_text(encoding="utf-8")
-            )
-            export_expire = exported.get("cookie_expire")
-            export_refresh = exported.get("cookie_refresh")
-            export_secure = exported.get("cookie_secure")
-            export_httponly = exported.get("cookie_httponly")
-            export_samesite = exported.get("cookie_samesite")
-            export_matches = (
-                export_expire == gen.get("cookie_expire")
-                and export_refresh == gen.get("cookie_refresh")
-            )
-            flags_ok = cookie_flags_conform(exported)
-        else:
-            export_secure = export_httponly = export_samesite = None
-            flags_ok = cookie_flags_conform(gen)
-
-        max_ls = idle = client_max = None
-        kc_error: str | None = None
-        try:
-            timeouts = await fetch_realm_session_timeouts(realm, settings)
-            max_ls = _as_int(timeouts.get("ssoSessionMaxLifespan"))
-            idle = _as_int(timeouts.get("ssoSessionIdleTimeout"))
-            client_max = _as_int(timeouts.get("clientSessionMaxLifespan"))
-        except ValueError as exc:
-            kc_error = str(exc)
-        except Exception as exc:
-            kc_error = f"Keycloak injoignable: {exc}"
-
-        cookie_for_eval = export_expire or gen.get("cookie_expire")
-        refresh_for_eval = export_refresh or gen.get("cookie_refresh")
-        coherent, notes = _evaluate_coherent(
-            cookie_expire=cookie_for_eval,
-            cookie_refresh=refresh_for_eval,
-            max_lifespan_s=max_ls,
-            export_matches=export_matches,
-            keycloak_error=kc_error,
-        )
-        if flags_ok is False:
-            coherent = False
-            notes.append(
-                "flags cookie manquants ou incorrects "
-                '(attendu: cookie_secure=true, cookie_httponly=true, cookie_samesite="lax")'
-            )
-        rows.append(
-            RealmSessionAlignment(
-                realm_slug=realm.slug,
-                realm_name=realm.name or realm.slug,
-                enabled=bool(realm.enabled),
-                cookie_expire_export=export_expire,
-                cookie_refresh_export=export_refresh,
-                cookie_expire_generator=gen.get("cookie_expire") or TARGET_COOKIE_EXPIRE,
-                cookie_refresh_generator=gen.get("cookie_refresh") or TARGET_COOKIE_REFRESH,
-                cookie_secure_export=export_secure,
-                cookie_httponly_export=export_httponly,
-                cookie_samesite_export=export_samesite,
-                cookie_secure_generator=TARGET_COOKIE_SECURE,
-                cookie_httponly_generator=TARGET_COOKIE_HTTPONLY,
-                cookie_samesite_generator=TARGET_COOKIE_SAMESITE,
-                cookie_flags_ok=flags_ok,
-                export_path=str(export_path) if export_path else None,
-                export_matches_generator=export_matches,
-                sso_session_max_lifespan_s=max_ls,
-                sso_session_idle_timeout_s=idle,
-                client_session_max_lifespan_s=client_max,
-                keycloak_error=kc_error,
-                coherent=coherent,
-                notes=notes,
-            )
-        )
+        rows.append(await _align_one_realm(realm, settings))
     return rows
+
+
+async def _align_one_realm(realm: RealmConfig, settings: Settings) -> RealmSessionAlignment:
+    gen_cfg = generate_oauth2_proxy_config(realm, settings)
+    gen = parse_oauth2_cookie_settings(gen_cfg)
+    export_path = resolve_oauth2_export_path(realm, settings)
+    export_expire = export_refresh = None
+    export_matches: bool | None = None
+    if export_path is not None:
+        exported = parse_oauth2_cookie_settings(
+            export_path.read_text(encoding="utf-8")
+        )
+        export_expire = exported.get("cookie_expire")
+        export_refresh = exported.get("cookie_refresh")
+        export_secure = exported.get("cookie_secure")
+        export_httponly = exported.get("cookie_httponly")
+        export_samesite = exported.get("cookie_samesite")
+        export_matches = (
+            export_expire == gen.get("cookie_expire")
+            and export_refresh == gen.get("cookie_refresh")
+        )
+        flags_ok = cookie_flags_conform(exported)
+    else:
+        export_secure = export_httponly = export_samesite = None
+        flags_ok = cookie_flags_conform(gen)
+
+    max_ls = idle = client_max = None
+    kc_error: str | None = None
+    try:
+        timeouts = await fetch_realm_session_timeouts(realm, settings)
+        max_ls = _as_int(timeouts.get("ssoSessionMaxLifespan"))
+        idle = _as_int(timeouts.get("ssoSessionIdleTimeout"))
+        client_max = _as_int(timeouts.get("clientSessionMaxLifespan"))
+    except ValueError as exc:
+        kc_error = str(exc)
+    except Exception as exc:
+        kc_error = f"Keycloak injoignable: {exc}"
+
+    cookie_for_eval = export_expire or gen.get("cookie_expire")
+    refresh_for_eval = export_refresh or gen.get("cookie_refresh")
+    coherent, notes = _evaluate_coherent(
+        cookie_expire=cookie_for_eval,
+        cookie_refresh=refresh_for_eval,
+        max_lifespan_s=max_ls,
+        export_matches=export_matches,
+        keycloak_error=kc_error,
+    )
+    if flags_ok is False:
+        coherent = False
+        notes.append(
+            "flags cookie manquants ou incorrects "
+            '(attendu: cookie_secure=true, cookie_httponly=true, cookie_samesite="lax")'
+        )
+    return RealmSessionAlignment(
+        realm_slug=realm.slug,
+        realm_name=realm.name or realm.slug,
+        enabled=bool(realm.enabled),
+        cookie_expire_export=export_expire,
+        cookie_refresh_export=export_refresh,
+        cookie_expire_generator=gen.get("cookie_expire") or TARGET_COOKIE_EXPIRE,
+        cookie_refresh_generator=gen.get("cookie_refresh") or TARGET_COOKIE_REFRESH,
+        cookie_secure_export=export_secure,
+        cookie_httponly_export=export_httponly,
+        cookie_samesite_export=export_samesite,
+        cookie_secure_generator=TARGET_COOKIE_SECURE,
+        cookie_httponly_generator=TARGET_COOKIE_HTTPONLY,
+        cookie_samesite_generator=TARGET_COOKIE_SAMESITE,
+        cookie_flags_ok=flags_ok,
+        export_path=str(export_path) if export_path else None,
+        export_matches_generator=export_matches,
+        sso_session_max_lifespan_s=max_ls,
+        sso_session_idle_timeout_s=idle,
+        client_session_max_lifespan_s=client_max,
+        keycloak_error=kc_error,
+        coherent=coherent,
+        notes=notes,
+    )

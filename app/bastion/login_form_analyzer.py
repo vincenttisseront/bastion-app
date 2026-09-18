@@ -125,14 +125,32 @@ def _looks_like_username(el: Tag) -> bool:
 
 def _pick_username_field(form: Tag, password_el: Tag) -> dict[str, Any] | None:
     inputs = _named_login_inputs(form)
+    return (
+        _username_by_email_type(inputs)
+        or _username_by_heuristic(inputs)
+        or _username_before_password(inputs, password_el)
+    )
+
+
+def _username_by_email_type(inputs: list[Tag]) -> dict[str, Any] | None:
     for el in inputs:
         if _input_type(el) == "email" and _attr(el, "name"):
             return {"name": _attr(el, "name"), "confidence": "high"}
+    return None
+
+
+def _username_by_heuristic(inputs: list[Tag]) -> dict[str, Any] | None:
     for el in inputs:
         if _input_type(el) in ("text", "email", "tel", "search") and _looks_like_username(el):
             name = _attr(el, "name")
             if name:
                 return {"name": name, "confidence": "high"}
+    return None
+
+
+def _username_before_password(
+    inputs: list[Tag], password_el: Tag
+) -> dict[str, Any] | None:
     for el in inputs:
         if el is password_el:
             break

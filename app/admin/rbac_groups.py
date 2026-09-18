@@ -41,6 +41,20 @@ def _wants_json(request: Request) -> bool:
     return "application/json" in accept or request.headers.get("x-requested-with") == "XMLHttpRequest"
 
 
+def _sync_error_response(
+    request: Request,
+    settings: Settings,
+    *,
+    msg: str,
+    status_code: int,
+):
+    if _wants_json(request):
+        return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=status_code)
+    response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
+    flash_redirect(response, msg, "error", settings.vault_portal_internal_token or "dev")
+    return response
+
+
 def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
 
@@ -100,11 +114,7 @@ async def admin_rbac_groups_sync(
 
     if wait := check_sync_rate_limit(f"rbac-sync:{realm_id}"):
         msg = f"Trop de synchronisations — réessayez dans {wait:.0f}s"
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=429)
-        response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
-        flash_redirect(response, msg, "error", settings.vault_portal_internal_token or "dev")
-        return response
+        return _sync_error_response(request, settings, msg=msg, status_code=429)
 
     try:
         result = await sync_keycloak_groups(realm, db, settings)
@@ -115,11 +125,7 @@ async def admin_rbac_groups_sync(
         realm.last_groups_sync_status = "error"
         realm.last_groups_sync_error = msg
         db.commit()
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=400)
-        response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
-        flash_redirect(response, msg, "error", settings.vault_portal_internal_token or "dev")
-        return response
+        return _sync_error_response(request, settings, msg=msg, status_code=400)
     except Exception:
         db.rollback()
         logger.exception("RBAC groups sync failed")
@@ -127,11 +133,7 @@ async def admin_rbac_groups_sync(
         realm.last_groups_sync_status = "error"
         realm.last_groups_sync_error = msg
         db.commit()
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=500)
-        response = RedirectResponse(url=_ADMIN_RBAC_PATH, status_code=302)
-        flash_redirect(response, msg, "error", settings.vault_portal_internal_token or "dev")
-        return response
+        return _sync_error_response(request, settings, msg=msg, status_code=500)
 
     log_action(
         db,
