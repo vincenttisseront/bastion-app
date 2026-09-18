@@ -1,4 +1,4 @@
-// bastion-app — CI qualité (ruff + pytest + SonarQube) + DAST TIWAP (OWASP ZAP)
+// bastion-app — CI qualité (BetterLeaks + ruff + pytest + SonarQube) + DAST TIWAP (OWASP ZAP)
 //
 // Jenkins tourne en conteneur avec docker.sock : les chemins du workspace sont
 // dans le volume jenkins_data, PAS sur le FS hôte. Il faut donc
@@ -22,6 +22,7 @@
 //   - Credential Jenkins (Username/Password) id `tiwap-dast` : compte local TIWAP
 //     (ex. admin / admin) — pas breakglass / Keycloak
 //   - Rapport HTML : artefact Jenkins reports/tiwap/*zap-report* (pas de plugin HTML Publisher)
+//   - BetterLeaks (ghcr.io/betterleaks/betterleaks) : secrets scan, rapport JSON archivé
 
 pipeline {
   agent { label 'built-in' }
@@ -59,6 +60,7 @@ pipeline {
     // Username/Password credential (compte local Flask TIWAP, pas SSO).
     TIWAP_CREDENTIALS_ID = "${env.TIWAP_CREDENTIALS_ID ?: 'tiwap-dast'}"
     ZAP_IMAGE = "${env.ZAP_IMAGE ?: 'ghcr.io/zaproxy/zaproxy:stable'}"
+    BETTERLEAKS_IMAGE = "${env.BETTERLEAKS_IMAGE ?: 'ghcr.io/betterleaks/betterleaks:latest'}"
   }
 
   stages {
@@ -72,6 +74,72 @@ pipeline {
           test -f "${WORKSPACE}/pyproject.toml"
           test -f "${WORKSPACE}/Jenkinsfile"
         '''
+      }
+    }
+
+    // Secrets scan (BetterLeaks, successeur Gitleaks). Soft gate phase 1 : findings → UNSTABLE,
+    // rapport JSON archivé ; retirer catchError pour bloquer le build sur fuite.
+    stage('BetterLeaks') {
+      steps {
+        catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+          timeout(time: 20, unit: 'MINUTES') {
+            sh '''
+              set -eux
+              mkdir -p "${WORKSPACE}/reports/betterleaks"
+              chmod -R a+rwX "${WORKSPACE}/reports/betterleaks"
+              test -f "${WORKSPACE}/.betterleaks.toml"
+
+              # Arbre courant (toujours) + historique git disponible (clone Jenkins).
+              set +e
+              docker run --rm \
+                --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                -u root:root \
+                -w "${WORKSPACE}" \
+                "${BETTERLEAKS_IMAGE}" \
+                dir . \
+                  --config .betterleaks.toml \
+                  --source-workers 8 \
+                  --redact \
+                  --report-path reports/betterleaks/findings-dir.json \
+                  --report-format json \
+                  -v
+              DIR_RC=$?
+              docker run --rm \
+                --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                -u root:root \
+                -w "${WORKSPACE}" \
+                "${BETTERLEAKS_IMAGE}" \
+                git . \
+                  --config .betterleaks.toml \
+                  --source-workers 8 \
+                  --redact \
+                  --report-path reports/betterleaks/findings-git.json \
+                  --report-format json \
+                  --platform github \
+                  -v
+              GIT_RC=$?
+              set -e
+
+              echo "betterleaks_dir_exit=${DIR_RC}" | tee "${WORKSPACE}/reports/betterleaks/exit.txt"
+              echo "betterleaks_git_exit=${GIT_RC}" | tee -a "${WORKSPACE}/reports/betterleaks/exit.txt"
+              ls -lah "${WORKSPACE}/reports/betterleaks" || true
+
+              # Non-zero si fuites (ou erreur outil) sur dir ou git.
+              if [ "${DIR_RC}" -ne 0 ] || [ "${GIT_RC}" -ne 0 ]; then
+                exit 1
+              fi
+            '''
+          }
+        }
+      }
+      post {
+        always {
+          archiveArtifacts(
+            artifacts: 'reports/betterleaks/**',
+            allowEmptyArchive: true,
+            fingerprint: true
+          )
+        }
       }
     }
 
