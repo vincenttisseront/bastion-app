@@ -79,17 +79,13 @@
       done = true;
       window.location.assign(next);
     }
-    try {
-      fetch('/api/locale', {
-        method: 'POST',
-        body: body,
-        credentials: 'same-origin',
-        headers: headers,
-        redirect: 'manual',
-      }).then(go, go);
-    } catch (err) {
-      go();
-    }
+    fetch('/api/locale', {
+      method: 'POST',
+      body: body,
+      credentials: 'same-origin',
+      headers: headers,
+      redirect: 'manual',
+    }).then(go).catch(go);
     setTimeout(go, 1500);
   }
 
