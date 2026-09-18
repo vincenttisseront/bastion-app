@@ -240,18 +240,12 @@ def update_siem_settings(
     ip_address: str | None = None,
 ) -> SiemForwardingSettings:
     row = ensure_siem_settings(db)
-    proto = (protocol or "").strip()
-    if proto not in PROTOCOLS:
-        raise ValueError("invalid protocol")
-    auth = (webhook_auth_type or "none").strip()
-    if auth not in AUTH_TYPES:
-        raise ValueError("invalid webhook_auth_type")
-    mode = (filter_mode or "denylist").strip()
-    if mode not in FILTER_MODES:
-        raise ValueError("invalid filter_mode")
-    url = (webhook_url or "").strip()
-    if url and not url.startswith("https://"):
-        raise ValueError("webhook_url must be https://")
+    proto, auth, mode, url = _validated_siem_update_fields(
+        protocol=protocol,
+        webhook_auth_type=webhook_auth_type,
+        filter_mode=filter_mode,
+        webhook_url=webhook_url,
+    )
 
     row.enabled = bool(enabled)
     row.protocol = proto
@@ -281,24 +275,50 @@ def update_siem_settings(
         actor=actor,
         action="security.siem_forwarding_settings.updated",
         target="siem_forwarding_settings",
-        details={
-            "enabled": row.enabled,
-            "protocol": row.protocol,
-            "syslog_host": row.syslog_host,
-            "syslog_port": row.syslog_port,
-            "syslog_tls_verify": row.syslog_tls_verify,
-            "webhook_url": row.webhook_url,
-            "webhook_auth_type": row.webhook_auth_type,
-            "webhook_auth_configured": bool(row.webhook_auth_secret_encrypted),
-            "filter_mode": row.filter_mode,
-            "filter_actions": list(row.filter_actions or []),
-            "retry_max_queue_size": row.retry_max_queue_size,
-            "retry_max_age_minutes": row.retry_max_age_minutes,
-        },
+        details=_siem_settings_audit_details(row),
         ip_address=ip_address,
         forward_to_siem=False,
     )
     return row
+
+
+def _validated_siem_update_fields(
+    *,
+    protocol: str,
+    webhook_auth_type: str,
+    filter_mode: str,
+    webhook_url: str,
+) -> tuple[str, str, str, str]:
+    proto = (protocol or "").strip()
+    if proto not in PROTOCOLS:
+        raise ValueError("invalid protocol")
+    auth = (webhook_auth_type or "none").strip()
+    if auth not in AUTH_TYPES:
+        raise ValueError("invalid webhook_auth_type")
+    mode = (filter_mode or "denylist").strip()
+    if mode not in FILTER_MODES:
+        raise ValueError("invalid filter_mode")
+    url = (webhook_url or "").strip()
+    if url and not url.startswith("https://"):
+        raise ValueError("webhook_url must be https://")
+    return proto, auth, mode, url
+
+
+def _siem_settings_audit_details(row: SiemForwardingSettings) -> dict[str, Any]:
+    return {
+        "enabled": row.enabled,
+        "protocol": row.protocol,
+        "syslog_host": row.syslog_host,
+        "syslog_port": row.syslog_port,
+        "syslog_tls_verify": row.syslog_tls_verify,
+        "webhook_url": row.webhook_url,
+        "webhook_auth_type": row.webhook_auth_type,
+        "webhook_auth_configured": bool(row.webhook_auth_secret_encrypted),
+        "filter_mode": row.filter_mode,
+        "filter_actions": list(row.filter_actions or []),
+        "retry_max_queue_size": row.retry_max_queue_size,
+        "retry_max_age_minutes": row.retry_max_age_minutes,
+    }
 
 
 def mark_siem_success(db: Session) -> None:

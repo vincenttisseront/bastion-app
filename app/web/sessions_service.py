@@ -473,6 +473,20 @@ def _merge_details(
     return out
 
 
+def _crushauth_age_label(crush: str) -> str | None:
+    # CrushAuth often starts with epoch-ms before '_'
+    if not crush or not crush[0].isdigit():
+        return None
+    try:
+        ms = int(crush.split("_", 1)[0])
+        if ms > 1_000_000_000_000:
+            issued = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
+            return _format_duration(issued, utcnow())
+    except (ValueError, OverflowError, OSError):
+        return None
+    return None
+
+
 def app_cookie_diagnostics(
     cookies: dict[str, str] | None,
     *,
@@ -491,17 +505,7 @@ def app_cookie_diagnostics(
     cookies = cookies or {}
     present = list(cookies.keys())
     issued_at = utcnow().isoformat()
-    crush_age: str | None = None
-    crush = cookies.get("CrushAuth") or ""
-    # CrushAuth often starts with epoch-ms before '_'
-    if crush and crush[0].isdigit():
-        try:
-            ms = int(crush.split("_", 1)[0])
-            if ms > 1_000_000_000_000:
-                issued = datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
-                crush_age = _format_duration(issued, utcnow())
-        except (ValueError, OverflowError, OSError):
-            crush_age = None
+    crush_age = _crushauth_age_label(cookies.get("CrushAuth") or "")
     out: dict[str, Any] = {
         "cookies_present": present,
         "cookies_fingerprint": cookie_fingerprint(cookies) if cookies else {},

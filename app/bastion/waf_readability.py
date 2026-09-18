@@ -47,6 +47,12 @@ from app.models import App, AuditLog, PendingHost, SecurityBanRule, WafProfile
 from app.security.banning.service import get_or_create_policy, list_active_bans, list_ban_rules
 from app.sso_settings import Settings
 
+_HASH_PROFILE = '#profile'
+
+_TITLE_CONTENT_INSPECTION_INACTIVE = 'Inspection du contenu : INACTIVE'
+
+_MSG_DATA_UNAVAILABLE = 'Données indisponibles'
+
 CRS_INACTIVE_CAUSE = "Moteur ModSecurity désarmé (Off)."
 CRS_INACTIVE_RESOLUTION = (
     "Utilisez « Réactiver » : DetectionOnly, sync nginx, contrôles HTTP. "
@@ -451,7 +457,7 @@ def build_protection_verdict(
             return {
                 "level": "inactive",
                 "css": "alert-err",
-                "title": "Inspection du contenu : INACTIVE",
+                "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
                 "message": (
                     "Moteur portal désarmé (SecRuleEngine Off). "
                     "Appliquer seul ne réactive pas ModSecurity — "
@@ -469,7 +475,7 @@ def build_protection_verdict(
             return {
                 "level": "inactive",
                 "css": "alert-err",
-                "title": "Inspection du contenu : INACTIVE",
+                "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
                 "message": (
                     "Moteur armé en base mais nginx est encore Off "
                     f"(profil {desired}). Attendre le watcher (≈30 s) ou forcer "
@@ -487,10 +493,10 @@ def build_protection_verdict(
         return {
             "level": "inactive",
             "css": "alert-warn",
-            "title": "Inspection du contenu : INACTIVE",
+            "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
             "message": "Profil et nginx sont tous deux Off.",
             **_verdict_action(
-                "#profile",
+                _HASH_PROFILE,
                 label="Choisir un mode de protection",
                 page=page,
             ),
@@ -507,7 +513,7 @@ def build_protection_verdict(
                     "Les requêtes sont analysées par le CRS, mais aucune n'est bloquée "
                     "(DetectionOnly)."
                 ),
-                **_verdict_action("#profile", label="Ajuster le profil", page=page),
+                **_verdict_action(_HASH_PROFILE, label="Ajuster le profil", page=page),
             }
         if desired == MODE_ON:
             return {
@@ -565,7 +571,7 @@ def build_protection_verdict(
                 "Ce que vous avez enregistré n'est pas ce qui tourne actuellement sur nginx."
             ),
             **_verdict_action(
-                "#profile" if not export_pending else None,
+                _HASH_PROFILE if not export_pending else None,
                 label=(
                     "Appliquer la configuration"
                     if export_pending
@@ -1352,7 +1358,7 @@ def build_threat_intel_visuals(
     if not efficiency.get("present"):
         panel = _empty_panel(
             title="Threat Intelligence",
-            message=efficiency.get("message") or "Données indisponibles",
+            message=efficiency.get("message") or _MSG_DATA_UNAVAILABLE,
             resolution=efficiency.get("resolution") or AGGREGATOR_UNAVAILABLE_RESOLUTION,
             variant="unavailable",
             width=560,
@@ -1496,10 +1502,10 @@ def build_efficiency_visuals(
 ) -> dict[str, Any]:
     """Pre-render SVG charts for the Bilan tab."""
     if not efficiency.get("present"):
-        msg = efficiency.get("message") or "Données indisponibles"
+        msg = efficiency.get("message") or _MSG_DATA_UNAVAILABLE
         res = efficiency.get("resolution") or AGGREGATOR_UNAVAILABLE_RESOLUTION
         panel = _empty_panel(
-            title="Données indisponibles",
+            title=_MSG_DATA_UNAVAILABLE,
             message=msg,
             resolution=res,
             variant="unavailable",

@@ -255,29 +255,33 @@ def list_users_with_direct_grants(db: Session) -> list[dict[str, Any]]:
     )
     by_user: dict[str, dict[str, Any]] = {}
     for grant in rows:
-        uid = str(grant.keycloak_user_id)
-        entry = by_user.get(uid)
-        if entry is None:
-            by_user[uid] = {
-                "keycloak_user_id": uid,
-                "display": grant.user_display_cache or uid,
-                "grant_count": 1,
-                "has_portal_admin": (
-                    grant.resource_type == "system_role"
-                    and grant.system_role == "portal_admin"
-                ),
-                "access_via": ["direct"],
-                "via_groups": [],
-                "direct_grant_count": 1,
-            }
-        else:
-            entry["grant_count"] += 1
-            entry["direct_grant_count"] = entry.get("direct_grant_count", 0) + 1
-            if grant.resource_type == "system_role" and grant.system_role == "portal_admin":
-                entry["has_portal_admin"] = True
-            if (not entry.get("display") or entry["display"] == uid) and grant.user_display_cache:
-                entry["display"] = grant.user_display_cache
+        _accumulate_direct_grant(by_user, grant)
     return sorted(by_user.values(), key=lambda u: (u["display"] or "").lower())
+
+
+def _accumulate_direct_grant(by_user: dict[str, dict[str, Any]], grant) -> None:
+    uid = str(grant.keycloak_user_id)
+    entry = by_user.get(uid)
+    is_portal_admin = (
+        grant.resource_type == "system_role" and grant.system_role == "portal_admin"
+    )
+    if entry is None:
+        by_user[uid] = {
+            "keycloak_user_id": uid,
+            "display": grant.user_display_cache or uid,
+            "grant_count": 1,
+            "has_portal_admin": is_portal_admin,
+            "access_via": ["direct"],
+            "via_groups": [],
+            "direct_grant_count": 1,
+        }
+        return
+    entry["grant_count"] += 1
+    entry["direct_grant_count"] = entry.get("direct_grant_count", 0) + 1
+    if is_portal_admin:
+        entry["has_portal_admin"] = True
+    if (not entry.get("display") or entry["display"] == uid) and grant.user_display_cache:
+        entry["display"] = grant.user_display_cache
 
 
 def _member_display(member: dict[str, Any]) -> str:

@@ -30,6 +30,8 @@ from app import re_safe
 from app.models import SecurityBan, WafExclusion, WafProfile
 from app.sso_settings import Settings
 
+_WAF_EFFECTIVE_STATUS_JSON = 'waf-effective-status.json'
+
 logger = logging.getLogger(__name__)
 
 ANOMALY_MIN = 3
@@ -68,7 +70,7 @@ def clamp_anomaly_threshold(value: int | None) -> int:
 
 
 def _status_json_path(settings: Settings) -> Path:
-    return waf_exports_dir(settings) / "waf-effective-status.json"
+    return waf_exports_dir(settings) / _WAF_EFFECTIVE_STATUS_JSON
 
 
 def _read_status_json(path: Path) -> dict[str, Any]:
@@ -544,12 +546,12 @@ def write_waf_exports(db: Session, settings: Settings) -> dict[str, str]:
     }
     _merge_apply_metadata(status, settings)
 
-    status_path = mod_dir / "waf-effective-status.json"
+    status_path = mod_dir / _WAF_EFFECTIVE_STATUS_JSON
     _backup_file(status_path)
     status_path.write_text(
         json.dumps(status, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    paths["waf-effective-status.json"] = str(status_path)
+    paths[_WAF_EFFECTIVE_STATUS_JSON] = str(status_path)
     return paths
 
 
@@ -562,7 +564,7 @@ def restore_waf_exports_previous(settings: Settings) -> list[str]:
         mod_dir / "crs-setup-generated.conf",
         mod_dir / "engine-mode-generated.conf",
         mod_dir / "bastion-exclusions-generated.conf",
-        mod_dir / "waf-effective-status.json",
+        mod_dir / _WAF_EFFECTIVE_STATUS_JSON,
         mod_dir / "waf-engine-arm.json",
         exports / "waf-ip-deny.conf",
         exports / "nginx-portal-rate-limits.conf",

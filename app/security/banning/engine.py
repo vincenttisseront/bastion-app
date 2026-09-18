@@ -24,6 +24,10 @@ from app.models import (
     utcnow,
 )
 
+_PATH_SSO_FAILED = '/auth/sso-failed'
+
+_PATH_SSO_START = '/auth/sso-start'
+
 logger = logging.getLogger(__name__)
 
 RULE_HAMMERING = "hammering"
@@ -124,8 +128,8 @@ _SENSITIVE_PREFIXES = (
     "/auth/login",
     "/auth/breakglass",
     "/auth/setup",
-    "/auth/sso-start",
-    "/auth/sso-failed",
+    _PATH_SSO_START,
+    _PATH_SSO_FAILED,
     "/auth/access-request",
     "/auth/altcha/challenge",
     "/admin",
@@ -136,8 +140,8 @@ _LOGIN_PATHS = {
     "/login",
     "/auth/login",
     "/auth/breakglass",
-    "/auth/sso-start",
-    "/auth/sso-failed",
+    _PATH_SSO_START,
+    _PATH_SSO_FAILED,
     "/auth/access-request",
     "/auth/altcha/challenge",
     "/api/admin/breakglass/login",
@@ -166,7 +170,7 @@ def is_sensitive_path(path: str) -> bool:
 def is_login_path(path: str, method: str = "GET") -> bool:
     """True for SSO/break-glass entry points (login hammering scope)."""
     p = path.rstrip("/")
-    if p in ("/auth/sso-start", "/auth/sso-failed"):
+    if p in (_PATH_SSO_START, _PATH_SSO_FAILED):
         return True
     if method.upper() != "POST":
         return False

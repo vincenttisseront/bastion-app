@@ -31,6 +31,8 @@ from app.bastion.nginx_waf_export import (
 from app.models import WafExclusion, WafProfile
 from app.sso_settings import Settings
 
+_COL_REALLY_ACTIVE_NGINX = 'Réellement actif (nginx)'
+
 WAF_FAMILIES = ("portal", "subdomain", "public")
 SNAPSHOT_SCHEMA_VERSION = 1
 DEFAULT_STALE_MINUTES = 15
@@ -304,7 +306,7 @@ def _snapshot_to_reality(data: dict[str, Any], *, path: Path) -> dict[str, Any]:
         "verifiable": True,
         "snapshot_path": str(path),
         "source_kind": "nginx_container_snapshot",
-        "column_title": "Réellement actif (nginx)",
+        "column_title": _COL_REALLY_ACTIVE_NGINX,
         "verified_in_container": True,
         "source_note": (
             "Instantané produit par bastion-nginx (nginx -T + fichiers chargés) "
@@ -338,7 +340,7 @@ def read_nginx_waf_snapshot(
             "present": False,
             "verifiable": False,
             "source_kind": "missing_snapshot",
-            "column_title": "Réellement actif (nginx)",
+            "column_title": _COL_REALLY_ACTIVE_NGINX,
             "verified_in_container": False,
             "snapshot_path": str(path),
             "error": "snapshot nginx absent ou illisible",
@@ -351,7 +353,7 @@ def read_nginx_waf_snapshot(
             "present": False,
             "verifiable": False,
             "source_kind": "missing_snapshot",
-            "column_title": "Réellement actif (nginx)",
+            "column_title": _COL_REALLY_ACTIVE_NGINX,
             "verified_in_container": False,
             "snapshot_path": str(path),
             "error": f"snapshot illisible ({exc})",
@@ -362,7 +364,7 @@ def read_nginx_waf_snapshot(
             "present": False,
             "verifiable": False,
             "source_kind": "missing_snapshot",
-            "column_title": "Réellement actif (nginx)",
+            "column_title": _COL_REALLY_ACTIVE_NGINX,
             "snapshot_path": str(path),
             "error": "snapshot JSON invalide",
         }
@@ -373,7 +375,7 @@ def read_nginx_waf_snapshot(
             "present": False,
             "verifiable": False,
             "source_kind": "missing_snapshot",
-            "column_title": "Réellement actif (nginx)",
+            "column_title": _COL_REALLY_ACTIVE_NGINX,
             "snapshot_path": str(path),
             "error": f"schema_version incompatible ({schema!r})",
         }

@@ -140,9 +140,7 @@ def get_branding_settings(db: Session | None) -> dict[str, Any]:
 
 
 def branding_to_dict(row: BrandingSettings) -> dict[str, Any]:
-    theme = (row.default_theme or "dark").strip().lower()
-    if theme not in {"dark", "light"}:
-        theme = "dark"
+    theme = _branding_theme(row.default_theme)
     primary = _normalize_hex_color(row.accent_color, DEFAULTS["accent_color"])
     secondary = _normalize_hex_color(
         getattr(row, "secondary_color", None), DEFAULTS["secondary_color"]
@@ -176,6 +174,11 @@ def branding_to_dict(row: BrandingSettings) -> dict[str, Any]:
             else "/static/img/generic-shield.svg"
         ),
     }
+
+
+def _branding_theme(raw: str | None) -> str:
+    theme = (raw or "dark").strip().lower()
+    return theme if theme in {"dark", "light"} else "dark"
 
 
 def _dict_from_defaults() -> dict[str, Any]:
