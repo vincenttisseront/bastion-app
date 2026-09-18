@@ -22,6 +22,7 @@ from app.web.openapi_responses import (
     RESP_401,
     RESP_403,
     RESP_404,
+    RESP_406,
     RESP_409,
     RESP_422,
     RESP_500,
@@ -49,7 +50,7 @@ def _safe_redirect_url(raw: str | None, fallback: str) -> str:
     return fallback
 
 
-@router.get("/admin/rbac/groups")
+@router.get("/admin/rbac/groups", responses=RESP_406)
 def admin_rbac_groups_list(
     request: Request,
     realm_id: int | None = None,

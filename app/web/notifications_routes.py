@@ -14,6 +14,7 @@ from app.web.notifications import (
     dismiss_notification,
 )
 from app.web.user_context import UserContext, require_admin
+from app.web.openapi_responses import RESP_400
 
 router = APIRouter(
     prefix="/api/admin/notifications",
@@ -41,7 +42,7 @@ def list_notifications(
     )
 
 
-@router.post("/dismiss")
+@router.post("/dismiss", responses=RESP_400)
 def dismiss_one(
     request: Request,
     body: DismissBody,

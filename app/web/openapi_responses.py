@@ -12,3 +12,4 @@ RESP_409: dict[int | str, dict[str, Any]] = {409: {"description": "Conflict"}}
 RESP_422: dict[int | str, dict[str, Any]] = {422: {"description": "Validation error"}}
 RESP_500: dict[int | str, dict[str, Any]] = {500: {"description": "Server error"}}
 RESP_503: dict[int | str, dict[str, Any]] = {503: {"description": "Service unavailable"}}
+RESP_406: dict[int | str, dict[str, Any]] = {406: {"description": "Not acceptable"}}

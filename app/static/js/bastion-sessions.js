@@ -88,13 +88,13 @@
   }
 
   function bindSessionActionClicks(root) {
-    if (!root || root.getAttribute('data-session-actions-bound') === '1') return;
-    root.setAttribute('data-session-actions-bound', '1');
+    if (!root || root.dataset.sessionActionsBound === '1') return;
+    root.dataset.sessionActionsBound = '1';
     root.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-session-action]');
       if (!btn || !root.contains(btn)) return;
-      var action = btn.getAttribute('data-session-action');
-      var sessionId = btn.getAttribute('data-session-id') || '';
+      var action = btn.dataset.sessionAction;
+      var sessionId = btn.dataset.sessionId || '';
       if (action === 'revoke' && sessionId) {
         event.preventDefault();
         window.revokeSession(sessionId);
@@ -103,8 +103,8 @@
         window.rotateKeys(sessionId);
       } else if (action === 'disconnect-user') {
         event.preventDefault();
-        var email = btn.getAttribute('data-user-email') || '';
-        var realm = btn.getAttribute('data-realm') || '';
+        var email = btn.dataset.userEmail || '';
+        var realm = btn.dataset.realm || '';
         if (email) window.disconnectUser(email, realm);
       }
     });
@@ -282,7 +282,7 @@
 
   function markRowExpanded(sessionId, open) {
     document.querySelectorAll('.session-row').forEach(function (row) {
-      var match = row.getAttribute('data-session-id') === sessionId && open;
+      var match = row.dataset.sessionId === sessionId && open;
       row.classList.toggle('is-open', match);
       row.setAttribute('aria-expanded', match ? 'true' : 'false');
     });
@@ -437,8 +437,8 @@
         revokeBtn.type = 'button';
         revokeBtn.className = 'btn btn-danger btn-sm btn-revoke';
         revokeBtn.title = titles.revoke || TITLE_REVOKE;
-        revokeBtn.setAttribute('data-session-action', 'revoke');
-        revokeBtn.setAttribute('data-session-id', String(s.id || ''));
+        revokeBtn.dataset.sessionAction = 'revoke';
+        revokeBtn.dataset.sessionId = String(s.id || '');
         revokeBtn.textContent = BastionI18n.t('Révoquer cette session');
         els.actions.appendChild(revokeBtn);
         if (s.can_rotate !== false && s.kind === 'app') {
@@ -446,8 +446,8 @@
           rotateBtn.type = 'button';
           rotateBtn.className = 'btn btn-secondary btn-sm btn-rotate';
           rotateBtn.title = titles.rotate || TITLE_ROTATE;
-          rotateBtn.setAttribute('data-session-action', 'rotate');
-          rotateBtn.setAttribute('data-session-id', String(s.id || ''));
+          rotateBtn.dataset.sessionAction = 'rotate';
+          rotateBtn.dataset.sessionId = String(s.id || '');
           rotateBtn.textContent = BastionI18n.t('Rotation');
           els.actions.appendChild(rotateBtn);
         }
@@ -714,7 +714,7 @@
     if (!detail) return;
     selectedEmail = resolveSelected();
     var page = document.getElementById('sessions-page');
-    if (page) page.setAttribute('data-selected-email', selectedEmail || '');
+    if (page) page.dataset.selectedEmail = selectedEmail || '';
 
     var g = findGroup(selectedEmail);
     if (!groupsCache.length) {
@@ -995,7 +995,7 @@
   function updateCounts(counts) {
     if (!counts) return;
     document.querySelectorAll('.session-kind-tab').forEach(function (tab) {
-      var k = tab.getAttribute('data-kind');
+      var k = tab.dataset.kind;
       var el = tab.querySelector('.session-kind-count');
       if (!el) return;
       if (k === 'all') el.textContent = counts.all != null ? counts.all : '0';
@@ -1007,7 +1007,7 @@
   function onUserClick(ev) {
     var btn = ev.target.closest('.sessions-user-item');
     if (!btn) return;
-    selectedEmail = btn.getAttribute('data-user-email') || '';
+    selectedEmail = btn.dataset.userEmail || '';
     closeSessionDetailPanel();
     renderAll();
     liveVerifySelected();
@@ -1016,7 +1016,7 @@
   function onSessionRowClick(ev) {
     var row = ev.target.closest('.session-row');
     if (!row) return;
-    var id = row.getAttribute('data-session-id');
+    var id = row.dataset.sessionId;
     if (!id) return;
     toggleSessionDetailPanel(id);
   }
@@ -1079,7 +1079,7 @@
   function refreshSessions() {
     var page = document.getElementById('sessions-page');
     if (!page) return;
-    var kind = page.getAttribute('data-kind') || 'all';
+    var kind = page.dataset.kind || 'all';
     var url = '/api/sessions';
     if (kind === 'user' || kind === 'app') url += '?kind=' + encodeURIComponent(kind);
 
@@ -1106,7 +1106,7 @@
 
   var page = document.getElementById('sessions-page');
   if (page) {
-    selectedEmail = page.getAttribute('data-selected-email') || '';
+    selectedEmail = page.dataset.selectedEmail || '';
     var list = document.getElementById('sessions-user-list');
     if (list) list.addEventListener('click', onUserClick);
     var detail = document.getElementById('sessions-detail');

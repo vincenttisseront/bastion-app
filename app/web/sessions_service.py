@@ -1039,6 +1039,39 @@ def _client_ip_presentation(raw_ip: str, loc: str) -> tuple[str, str | None, boo
     return raw_ip, None, False
 
 
+def _presence_only_flag(
+    row: ActiveSession,
+    details: dict[str, Any] | None,
+    diag: dict[str, Any],
+    verifiable: bool,
+) -> bool:
+    if bool(diag.get("presence_only")):
+        return True
+    if row.kind != KIND_APP or verifiable:
+        return False
+    return bool((details or {}).get("presence_only"))
+
+
+def _verifiable_live_badge(verified_status: str | None, loc: str) -> tuple[str, str]:
+    if verified_status == "active":
+        return "active", "ACTIVE"
+    if verified_status == "invalid":
+        return "invalid", t("INVALIDE", loc)
+    return "unverified", t("NON VÉRIFIÉ", loc)
+
+
+def _user_registry_live_badge(
+    row: ActiveSession,
+    *,
+    protocol: str,
+    loc: str,
+) -> tuple[str, str, dict[str, Any]]:
+    freshness = _portal_freshness(row, protocol=protocol)
+    if row.status == "isolated":
+        return "isolated", t("ISOLÉ", loc), freshness
+    return "declarative", t("REGISTRE", loc), freshness
+
+
 def _live_status_presentation(
     row: ActiveSession,
     *,
@@ -1050,25 +1083,17 @@ def _live_status_presentation(
     """Return live_status, label, verifiable, presence_only, freshness."""
     verifiable = bool(diag.get("verifiable"))
     verified_status = (row.last_verified_status or "").strip().lower() or None
-    presence_only = bool(diag.get("presence_only")) or (
-        row.kind == KIND_APP
-        and bool((details or {}).get("presence_only"))
-        and not verifiable
-    )
-    freshness: dict[str, Any] | None = None
+    presence_only = _presence_only_flag(row, details, diag, verifiable)
     if verifiable:
-        if verified_status == "active":
-            return "active", "ACTIVE", verifiable, presence_only, None
-        if verified_status == "invalid":
-            return "invalid", t("INVALIDE", loc), verifiable, presence_only, None
-        return "unverified", t("NON VÉRIFIÉ", loc), verifiable, presence_only, None
+        status, label = _verifiable_live_badge(verified_status, loc)
+        return status, label, verifiable, presence_only, None
     if presence_only:
         return "presence", t("ACTIVITÉ SSO", loc), verifiable, presence_only, None
     if row.kind == KIND_USER:
-        freshness = _portal_freshness(row, protocol=protocol)
-        if row.status == "isolated":
-            return "isolated", t("ISOLÉ", loc), verifiable, presence_only, freshness
-        return "declarative", t("REGISTRE", loc), verifiable, presence_only, freshness
+        status, label, freshness = _user_registry_live_badge(
+            row, protocol=protocol, loc=loc
+        )
+        return status, label, verifiable, presence_only, freshness
     live_status = row.status if row.status != "isolated" else "isolated"
     return live_status, (row.status or "active").upper(), verifiable, presence_only, None
 
@@ -1108,6 +1133,48 @@ def _action_titles_for_row(*, is_breakglass: bool, auth_family: str) -> dict[str
     return action_titles
 
 
+def _iso_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _strip_or_none(value: Any) -> str | None:
+    return (str(value).strip() if value is not None else "") or None
+
+
+def _public_session_details(details: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        k: v
+        for k, v in (details or {}).items()
+        if k != "session_cookies"  # never expose full cookies to the UI/API list
+    }
+
+
+def _show_disconnect(*, is_breakglass: bool, auth_family: str, kind: str) -> bool:
+    if is_breakglass:
+        return False
+    return auth_family == "oidc" or kind == KIND_APP
+
+
+def _sso_logout_for_family(
+    auth_family: str, details: dict[str, Any] | None
+) -> Any:
+    if auth_family != "oidc" or not details:
+        return None
+    return _sso_logout_badge(_parse_iso_dt(details.get("sso_logout_requested_at")))
+
+
+def _relative_ago_or_none(value: datetime | None, *, locale: str) -> str | None:
+    return _relative_ago(value, locale=locale) if value else None
+
+
+def _breakglass_jti(
+    details: dict[str, Any] | None, *, is_breakglass: bool
+) -> Any:
+    if not is_breakglass:
+        return None
+    return (details or {}).get("jti")
+
+
 def _row_to_dict(
     row: ActiveSession,
     db: Session | None = None,
@@ -1135,22 +1202,6 @@ def _row_to_dict(
             row, details=details, diag=diag, protocol=protocol, loc=loc
         )
     )
-    verified_status = (row.last_verified_status or "").strip().lower() or None
-    verified_ago = (
-        _relative_ago(row.last_verified_at, locale=loc) if row.last_verified_at else None
-    )
-    sso_logout = None
-    if auth_family == "oidc" and details:
-        sso_logout = _sso_logout_badge(
-            _parse_iso_dt(details.get("sso_logout_requested_at"))
-        )
-    identity_binding = _identity_binding_for_row(
-        row, db=db, details=details, is_breakglass=is_breakglass
-    )
-    action_titles = _action_titles_for_row(
-        is_breakglass=is_breakglass, auth_family=auth_family
-    )
-
     return {
         "id": row.id,
         "kind": row.kind,
@@ -1161,17 +1212,19 @@ def _row_to_dict(
         "realm": row.realm,
         "protocol": row.protocol,
         "target": row.target,
-        "jti": (details or {}).get("jti") if is_breakglass else None,
+        "jti": _breakglass_jti(details, is_breakglass=is_breakglass),
         "resource_title": resource_title,
         "resource_subtitle": resource_subtitle,
-        "robotic_username": (diag.get("robotic_username") or "").strip() or None,
-        "credential_source": (diag.get("credential_source") or "").strip() or None,
+        "robotic_username": _strip_or_none(diag.get("robotic_username")),
+        "credential_source": _strip_or_none(diag.get("credential_source")),
         "source_ip": raw_ip or "—",
         "client_ip": client_ip_display,
         "client_ip_raw": raw_ip or None,
         "client_ip_is_infra": client_ip_is_infra,
         "client_ip_note": client_ip_note,
-        "identity_binding": identity_binding,
+        "identity_binding": _identity_binding_for_row(
+            row, db=db, details=details, is_breakglass=is_breakglass
+        ),
         "duration": _format_duration(row.started_at, utcnow()),
         "status": row.status,
         "live_status": live_status,
@@ -1179,19 +1232,15 @@ def _row_to_dict(
         "verifiable": verifiable,
         "presence_only": presence_only,
         "freshness": freshness,
-        "sso_logout": sso_logout,
-        "last_verified_at": row.last_verified_at.isoformat() if row.last_verified_at else None,
-        "last_verified_status": verified_status,
-        "last_verified_ago": verified_ago,
-        "started_at": row.started_at.isoformat() if row.started_at else None,
-        "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
+        "sso_logout": _sso_logout_for_family(auth_family, details),
+        "last_verified_at": _iso_or_none(row.last_verified_at),
+        "last_verified_status": (row.last_verified_status or "").strip().lower() or None,
+        "last_verified_ago": _relative_ago_or_none(row.last_verified_at, locale=loc),
+        "started_at": _iso_or_none(row.started_at),
+        "last_seen_at": _iso_or_none(row.last_seen_at),
         "last_seen_label": _format_last_seen(row.last_seen_at),
         "last_seen_ago": _relative_ago(row.last_seen_at, locale=loc),
-        "details": {
-            k: v
-            for k, v in (details or {}).items()
-            if k != "session_cookies"  # never expose full cookies to the UI/API list
-        },
+        "details": _public_session_details(details),
         "cookies_label": diag["cookies_label"],
         "cookies_ok": diag["cookies_ok"],
         "cookies_validity": diag["cookies_validity"],
@@ -1203,9 +1252,12 @@ def _row_to_dict(
         "browser_note": diag.get("browser_note"),
         "can_revoke": True,
         "can_rotate": row.kind == KIND_APP,
-        "show_disconnect": (not is_breakglass)
-        and (auth_family == "oidc" or row.kind == KIND_APP),
-        "action_titles": action_titles,
+        "show_disconnect": _show_disconnect(
+            is_breakglass=is_breakglass, auth_family=auth_family, kind=row.kind
+        ),
+        "action_titles": _action_titles_for_row(
+            is_breakglass=is_breakglass, auth_family=auth_family
+        ),
     }
 
 
