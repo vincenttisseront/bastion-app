@@ -575,22 +575,7 @@ class CrushFTPProvisioningDriver:
 
     driver_name = "crushftp"
 
-    async def create_account(
-        self,
-        *,
-        db,
-        settings,
-        app,
-        account,
-        credential,
-        group_names: list[str] | None = None,
-    ) -> ProvisioningResult:
-        """Create/update user with company VFS, then optional CrushFTP groups."""
-        admin = self._resolve_admin(app, settings)
-        if isinstance(admin, ProvisioningResult):
-            return admin
-        username, password, base_url, server_group, tls_verify = admin
-
+    def _prepare_company_vfs(self, account, app):
         company = crushftp_company_folder_name(getattr(account, "organization", None))
         vfs_base = (getattr(app, "crushftp_vfs_base_path", None) or "").strip()
         if not company:
@@ -613,6 +598,28 @@ class CrushFTPProvisioningDriver:
             file_url = crushftp_company_file_url(vfs_base, company)
         except ValueError as exc:
             return ProvisioningResult(status=PROVISIONING_FAILED, detail=str(exc))
+        return company, vfs_base, file_url
+
+    async def create_account(
+        self,
+        *,
+        db,
+        settings,
+        app,
+        account,
+        credential,
+        group_names: list[str] | None = None,
+    ) -> ProvisioningResult:
+        """Create/update user with company VFS, then optional CrushFTP groups."""
+        admin = self._resolve_admin(app, settings)
+        if isinstance(admin, ProvisioningResult):
+            return admin
+        username, password, base_url, server_group, tls_verify = admin
+
+        prepared = self._prepare_company_vfs(account, app)
+        if isinstance(prepared, ProvisioningResult):
+            return prepared
+        company, vfs_base, file_url = prepared
 
         try:
             existing = await self._verify_user_exists(

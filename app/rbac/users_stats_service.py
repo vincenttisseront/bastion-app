@@ -206,6 +206,30 @@ def connection_anomalies(db: Session, *, limit: int = 12) -> list[dict[str, Any]
     return out
 
 
+def _group_distribution_rows(
+    rows_orm,
+    *,
+    memberships: int,
+    max_count: int,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for g in rows_orm:
+        count = int(g.member_count or 0)
+        share = int(round(100.0 * count / memberships)) if memberships else 0
+        rows.append(
+            {
+                "id": g.id,
+                "name": g.name,
+                "member_count": count,
+                "percent": share,
+                "bar_percent": (
+                    int(round(100.0 * count / max_count)) if max_count else 0
+                ),
+            }
+        )
+    return rows
+
+
 def group_distribution(
     db: Session,
     *,
@@ -268,22 +292,7 @@ def group_distribution(
     if max_row is not None:
         max_count = max(max_count, int(max_row.member_count or 0))
 
-    rows: list[dict[str, Any]] = []
-    for g in rows_orm:
-        count = int(g.member_count or 0)
-        share = int(round(100.0 * count / memberships)) if memberships else 0
-        rows.append(
-            {
-                "id": g.id,
-                "name": g.name,
-                "member_count": count,
-                "percent": share,
-                "bar_percent": (
-                    int(round(100.0 * count / max_count)) if max_count else 0
-                ),
-            }
-        )
-
+    rows = _group_distribution_rows(rows_orm, memberships=memberships, max_count=max_count)
     return {
         "rows": rows,
         "total_groups": int(total_groups),

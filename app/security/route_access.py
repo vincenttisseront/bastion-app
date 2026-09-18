@@ -15,6 +15,8 @@ from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute, APIRouter
 from starlette.routing import Mount
 
+_STATIC_ERROR_PAGE = 'static error page'
+
 # Callables recognized as an access-control gate (by __name__).
 SECURITY_DEPENDENCY_NAMES: frozenset[str] = frozenset(
     {
@@ -49,10 +51,10 @@ PUBLIC_ROUTES_ALLOWLIST: dict[str, str] = {
     "/logout": "clears break-glass + native OIDC bastion_session; safe without session",
     "/health": "liveness probe, non-sensitive",
     "/api/health": "monitoring probe, non-sensitive",
-    "/errors/403": "static error page",
-    "/errors/400": "static error page",
-    "/errors/404": "static error page",
-    "/errors/500": "static error page",
+    "/errors/403": _STATIC_ERROR_PAGE,
+    "/errors/400": _STATIC_ERROR_PAGE,
+    "/errors/404": _STATIC_ERROR_PAGE,
+    "/errors/500": _STATIC_ERROR_PAGE,
     "/api/admin/breakglass/login": (
         "emergency access — public by design; password + jti anti-replay"
     ),

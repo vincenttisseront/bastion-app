@@ -34,6 +34,8 @@ from app.models import (
 from app.portal_settings_service import ensure_portal_settings
 from app.sso_settings import Settings
 
+_ADMIN_LOGS_PATH = '/admin/logs'
+
 logger = logging.getLogger(__name__)
 
 RECAP_TZ_NAME = "Europe/Paris"
@@ -141,13 +143,13 @@ def _audit_entry_href(portal_base: str, entry: dict[str, Any]) -> str:
     code = (entry.get("event_code") or "").strip()
     if code:
         query["event_code"] = code
-    return _admin_path(portal_base, "/admin/logs", query=query, fragment="audit")
+    return _admin_path(portal_base, _ADMIN_LOGS_PATH, query=query, fragment="audit")
 
 
 def _logs_severity_href(portal_base: str, *, since: datetime, severity_min: str = "WARNING") -> str:
     return _admin_path(
         portal_base,
-        "/admin/logs",
+        _ADMIN_LOGS_PATH,
         query={
             "severity_min": severity_min,
             "date_from": since.date().isoformat(),
@@ -400,7 +402,7 @@ def build_daily_recap(
             ),
             href=_admin_path(
                 base,
-                "/admin/logs",
+                _ADMIN_LOGS_PATH,
                 query={"q": row.target, "date_from": since_dt.date().isoformat()},
                 fragment="audit",
             ),

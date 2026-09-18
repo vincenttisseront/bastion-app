@@ -12,6 +12,8 @@ import httpx
 
 from app.bastion.drivers.base import RoboticDriver, RoboticLoginError
 
+_MIME_JSON = 'application/json'
+
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 15.0
@@ -168,8 +170,8 @@ class TeleportDriver(RoboticDriver):
             "second_factor_token": "",
         }
         headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
+            "Content-Type": _MIME_JSON,
+            "Accept": _MIME_JSON,
         }
         if extra_headers:
             headers.update(extra_headers)
@@ -268,7 +270,7 @@ class TeleportDriver(RoboticDriver):
                 response = await client.post(
                     _session_api_url(base),
                     json={"user": "", "pass": ""},
-                    headers={"Content-Type": "application/json"},
+                    headers={"Content-Type": _MIME_JSON},
                 )
                 return response.status_code in (400, 401, 403)
         except httpx.RequestError:

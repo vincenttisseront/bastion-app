@@ -21,6 +21,8 @@ from app.siem.transport import SiemDeliveryError, deliver_entry
 from app.sso_settings import Settings, get_settings
 from app.web.admin_logs_query import serialize_audit_row
 
+_SIEM_CONNECTIVITY_TEST = 'siem.connectivity.test'
+
 logger = logging.getLogger(__name__)
 
 # Exponential backoff seconds: 1, 5, 30, 120, cap 600 (10 min)
@@ -217,10 +219,10 @@ def process_outbox_once(
 def build_test_entry(*, actor: str = "admin") -> dict[str, Any]:
     from app.audit.event_catalog import resolve_event
 
-    ev = resolve_event(action="siem.connectivity.test")
+    ev = resolve_event(action=_SIEM_CONNECTIVITY_TEST)
     return {
         "id": 0,
-        "action": "siem.connectivity.test",
+        "action": _SIEM_CONNECTIVITY_TEST,
         "actor": actor,
         "target": "siem",
         "ip_address": "",
@@ -301,7 +303,7 @@ def run_connectivity_test(
         log_action(
             db,
             actor=actor,
-            action="siem.connectivity.test",
+            action=_SIEM_CONNECTIVITY_TEST,
             target="siem",
             details={"protocol": cfg.protocol, "ok": True},
             forward_to_siem=False,
@@ -315,7 +317,7 @@ def run_connectivity_test(
         log_action(
             db,
             actor=actor,
-            action="siem.connectivity.test",
+            action=_SIEM_CONNECTIVITY_TEST,
             target="siem",
             details={"protocol": cfg.protocol, "ok": False, "error": err[:300]},
             forward_to_siem=False,

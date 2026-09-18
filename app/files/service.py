@@ -28,6 +28,8 @@ from app.models import (
 from app.rbac.effective_access_service import ACCESS_LEVEL_RANK
 from app.sso_settings import Settings, get_settings
 
+_UPLOAD_BIN_NAME = 'upload.bin'
+
 FILE_STORAGE_SUBDIR = Path("private") / "files"
 _SAFE_SLUG = re_safe.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 CHANNELS = frozenset({"beta", "stable"})
@@ -831,7 +833,7 @@ def store_file_version(
         channel=channel,
         version_label=label,
         status="active",
-        original_filename=(filename or "upload.bin").strip() or "upload.bin",
+        original_filename=(filename or _UPLOAD_BIN_NAME).strip() or _UPLOAD_BIN_NAME,
         content_type=content_type,
         size_bytes=len(data),
         checksum_sha256=checksum,
@@ -872,7 +874,7 @@ def deposit_file(
 
     Returns (file_resource, version, created_new_file).
     """
-    label = (filename or "").strip() or "upload.bin"
+    label = (filename or "").strip() or _UPLOAD_BIN_NAME
     if folder_id is not None:
         folder = db.query(FileFolder).filter_by(id=folder_id).first()
         if not folder:

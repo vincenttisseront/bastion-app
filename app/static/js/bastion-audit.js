@@ -4,7 +4,7 @@
   document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.severity-chip').forEach(function (chip) {
       chip.addEventListener('click', function () {
-        var sev = chip.getAttribute('data-sev');
+        var sev = chip.dataset.sev;
         var url = new URL(window.location.href);
         if (chip.classList.contains('active')) {
           url.searchParams.delete('severity');

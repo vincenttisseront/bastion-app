@@ -126,36 +126,11 @@ class AccessGrantCreate(BaseModel):
 
 
 def serialize_grant(grant: AccessGrant, db: Session) -> dict[str, Any]:
-    app_label = None
-    app_slug = None
-    if grant.application_id:
-        app = db.query(App).filter_by(id=grant.application_id).first()
-        if app:
-            app_label = app.label
-            app_slug = app.slug
-    group_name = None
-    if grant.rbac_group_id:
-        group = db.query(RBACGroup).filter_by(id=grant.rbac_group_id).first()
-        group_name = group.name if group else None
-    rbac_role_name = None
-    if getattr(grant, "rbac_role_id", None):
-        from app.models import RbacRole
-
-        role = db.query(RbacRole).filter_by(id=grant.rbac_role_id).first()
-        rbac_role_name = role.name if role else None
-    file_label = None
-    file_slug = None
-    if getattr(grant, "file_id", None):
-        fr = db.query(FileResource).filter_by(id=grant.file_id).first()
-        if fr:
-            file_label = fr.label
-            file_slug = fr.slug
-    folder_name = None
-    if getattr(grant, "folder_id", None):
-        from app.models import FileFolder
-
-        folder = db.query(FileFolder).filter_by(id=grant.folder_id).first()
-        folder_name = folder.name if folder else None
+    app_label, app_slug = _grant_app_labels(db, grant.application_id)
+    group_name = _grant_group_name(db, grant.rbac_group_id)
+    rbac_role_name = _grant_role_name(db, getattr(grant, "rbac_role_id", None))
+    file_label, file_slug = _grant_file_labels(db, getattr(grant, "file_id", None))
+    folder_name = _grant_folder_name(db, getattr(grant, "folder_id", None))
     return {
         "id": grant.id,
         "subject_type": grant.subject_type,
@@ -180,6 +155,49 @@ def serialize_grant(grant: AccessGrant, db: Session) -> dict[str, Any]:
         "granted_at": grant.granted_at.isoformat() if grant.granted_at else None,
         "granted_by": grant.granted_by,
     }
+
+
+def _grant_app_labels(db: Session, application_id) -> tuple[str | None, str | None]:
+    if not application_id:
+        return None, None
+    app = db.query(App).filter_by(id=application_id).first()
+    if not app:
+        return None, None
+    return app.label, app.slug
+
+
+def _grant_group_name(db: Session, rbac_group_id) -> str | None:
+    if not rbac_group_id:
+        return None
+    group = db.query(RBACGroup).filter_by(id=rbac_group_id).first()
+    return group.name if group else None
+
+
+def _grant_role_name(db: Session, rbac_role_id) -> str | None:
+    if not rbac_role_id:
+        return None
+    from app.models import RbacRole
+
+    role = db.query(RbacRole).filter_by(id=rbac_role_id).first()
+    return role.name if role else None
+
+
+def _grant_file_labels(db: Session, file_id) -> tuple[str | None, str | None]:
+    if not file_id:
+        return None, None
+    fr = db.query(FileResource).filter_by(id=file_id).first()
+    if not fr:
+        return None, None
+    return fr.label, fr.slug
+
+
+def _grant_folder_name(db: Session, folder_id) -> str | None:
+    if not folder_id:
+        return None
+    from app.models import FileFolder
+
+    folder = db.query(FileFolder).filter_by(id=folder_id).first()
+    return folder.name if folder else None
 
 
 def list_grants(

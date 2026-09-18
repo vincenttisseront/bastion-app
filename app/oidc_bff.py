@@ -54,6 +54,8 @@ from app.testing_framework.throttle import (
 )
 from app.web.templates import render
 
+_AUTH_LOGIN_TEMPLATE = 'auth/login.html'
+
 logger = logging.getLogger(__name__)
 
 
@@ -592,7 +594,7 @@ def _html_login_error(
     from app.web.pages import _login_surface_flags
 
     return render(
-        "auth/login.html",
+        _AUTH_LOGIN_TEMPLATE,
         **base_template_context(
             request,
             settings,
@@ -628,7 +630,7 @@ def _html_otp_challenge(
     from app.web.pages import _login_surface_flags
 
     return render(
-        "auth/login.html",
+        _AUTH_LOGIN_TEMPLATE,
         **base_template_context(
             request,
             settings,
@@ -662,7 +664,7 @@ def _html_totp_setup_challenge(
     from app.web.pages import _login_surface_flags
 
     return render(
-        "auth/login.html",
+        _AUTH_LOGIN_TEMPLATE,
         **base_template_context(
             request,
             settings,
