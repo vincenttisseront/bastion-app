@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,7 @@ from app.audit import list_audit_entries
 from app.bastion.modsec_audit_aggregator import read_audit_summary
 from app.database import get_db
 from app.db.hot_store import hot_read
+from app.i18n.middleware import get_request_locale
 from app.models import App, AuditLog, utcnow
 from app.sso_settings import Settings, get_settings
 from app.web.pending_queue_service import build_pending_action_items
@@ -121,10 +122,15 @@ def get_dashboard_metrics(db: Session, settings: Settings | None = None) -> dict
     }
 
 
-def get_dashboard_snapshot(db: Session, settings: Settings) -> dict[str, Any]:
+def get_dashboard_snapshot(
+    db: Session,
+    settings: Settings,
+    *,
+    locale: str | None = None,
+) -> dict[str, Any]:
     """Full dashboard payload for live polling (KPIs + pending + recent audit)."""
     metrics = get_dashboard_metrics(db, settings)
-    pending_queue = build_pending_action_items(db)
+    pending_queue = build_pending_action_items(db, locale=locale)
     audit_page = hot_read(
         lambda: list_audit_entries(db, limit=8),
         default=None,
@@ -150,7 +156,10 @@ def get_metrics(
 
 @router.get("/dashboard")
 def get_dashboard(
+    request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    return get_dashboard_snapshot(db, settings)
+    return get_dashboard_snapshot(
+        db, settings, locale=get_request_locale(request)
+    )

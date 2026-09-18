@@ -191,11 +191,14 @@
   <section class="portal-hero">
     <div class="portal-hero-copy">
       <p class="portal-eyebrow">{{ _('Espace utilisateur') }}</p>
-      <h1 class="page-title">Bonjour {{ greeting_name }}</h1>
+      <h1 class="page-title">{{ _('Bonjour {name}').format(name=greeting_name) }}</h1>
       <p class="page-sub">
         {% if apps %}
-          {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }} {{ _('via Bastion Pro') }}
-
+          {% if apps | length == 1 %}
+            {{ _('1 application accessible via Bastion Pro') }}
+          {% else %}
+            {{ _('{n} applications accessibles via Bastion Pro').format(n=apps | length) }}
+          {% endif %}
         {% else %}
 {{ _('Aucune application disponible pour le moment') }}
 
@@ -213,36 +216,38 @@
   {% if apps %}
   <div class="portal-apps-toolbar">
     <p class="portal-apps-summary" aria-label="{{ _('Résumé') }}">
-      {{ apps | length }} application{{ 's' if apps | length != 1 else '' }}
+      {% set n_apps = apps | length %}
+      {% set n_open = apps | selectattr('can_launch') | list | length %}
+      {% if n_apps == 1 %}{{ _('1 application') }}{% else %}{{ _('{n} applications').format(n=n_apps) }}{% endif %}
       <span class="portal-apps-summary-sep" aria-hidden="true">·</span>
-      {{ apps | selectattr('can_launch') | list | length }} ouvrable{{ 's' if (apps | selectattr('can_launch') | list | length) != 1 else '' }}
+      {% if n_open == 1 %}{{ _('1 ouvrable') }}{% else %}{{ _('{n} ouvrables').format(n=n_open) }}{% endif %}
       {% set managed = apps | selectattr('access_level', 'equalto', 'manage') | list | length %}
       {% if managed %}
       <span class="portal-apps-summary-sep" aria-hidden="true">·</span>
-      {{ managed }} {{ _('étendue') }}{{ 's' if managed != 1 else '' }}
+      {% if managed == 1 %}{{ _('1 étendue') }}{% else %}{{ _('{n} étendues').format(n=managed) }}{% endif %}
       {% endif %}
     </p>
-    <fieldset class="portal-view-toggle" aria-label="Mode d’affichage">
-      <button type="button" class="portal-view-btn is-active" data-apps-view="grid" aria-pressed="true" title="Vue grille">
+    <fieldset class="portal-view-toggle" aria-label="{{ _('Mode d’affichage') }}">
+      <button type="button" class="portal-view-btn is-active" data-apps-view="grid" aria-pressed="true" title="{{ _('Vue grille') }}">
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
           <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
           <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
         </svg>
-        <span class="visually-hidden">Grille</span>
+        <span class="visually-hidden">{{ _('Grille') }}</span>
       </button>
-      <button type="button" class="portal-view-btn" data-apps-view="list" aria-pressed="false" title="Vue liste">
+      <button type="button" class="portal-view-btn" data-apps-view="list" aria-pressed="false" title="{{ _('Vue liste') }}">
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
           <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
           <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
         </svg>
-        <span class="visually-hidden">Liste</span>
+        <span class="visually-hidden">{{ _('Liste') }}</span>
       </button>
     </fieldset>
   </div>
 
   <div class="portal-apps-workspace">
     <nav class="portal-apps-nav" aria-label="{{ _('Sections applications') }}">
-      <p class="portal-apps-nav-label">Mes apps</p>
+      <p class="portal-apps-nav-label">{{ _('Mes apps') }}</p>
       <ul class="portal-apps-nav-list">
         {% for section in apps_sections %}
         <li>

@@ -89,10 +89,10 @@
       <thead>
         <tr>
           <th style="width:2rem;"></th>
-          <th>Nom</th>
-          <th>Taille</th>
+          <th>{{ _('Nom') }}</th>
+          <th>{{ _('Taille') }}</th>
           <th>{{ _('Modifié') }}</th>
-          <th>Canal</th>
+          <th>{{ _('Canal') }}</th>
           <th style="width:2.5rem;"></th>
         </tr>
       </thead>
@@ -113,7 +113,7 @@
           <td><div class="fb-name">📄 {{ f.label }}</div></td>
           <td class="mono">{% if f.size_bytes %}{{ (f.size_bytes / 1048576) | round(1) }} MB{% else %}—{% endif %}</td>
           <td>{{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '—' }}</td>
-          <td>{% if f.channel == 'beta' %}<span class="badge badge-warn">{{ _('Bêta') }}</span>{% else %}<span class="badge badge-ok">Stable</span>{% endif %}</td>
+          <td>{% if f.channel == 'beta' %}<span class="badge badge-warn">{{ _('Bêta') }}</span>{% else %}<span class="badge badge-ok">{{ _('Stable') }}</span>{% endif %}</td>
           <td><button type="button" class="btn btn-ghost btn-sm fb-more" data-id="{{ f.id }}" aria-label="{{ _('Actions') }}">⋯</button></td>
         </tr>
         {% endfor %}
@@ -163,7 +163,7 @@
     canManage = !!listing.can_manage;
 
     var crumb = document.getElementById('fb-crumb');
-    var html = '<a href="' + basePath + '" data-folder="">Accueil</a>';
+    var html = '<a href="' + basePath + '" data-folder="">' + BastionI18n.t('Accueil') + '</a>';
     (listing.breadcrumb || []).forEach(function (seg) {
       html += '<span class="sep">/</span><a href="' + basePath + '?folder_id=' + seg.id + '" data-folder="' + seg.id + '">' + escapeHtml(seg.name) + '</a>';
     });
@@ -182,12 +182,12 @@
         '<td><div class="fb-name">📄 ' + escapeHtml(f.label) + '</div></td>' +
         '<td class="mono">' + formatSize(f.size_bytes) + '</td>' +
         '<td>' + (f.uploaded_at ? f.uploaded_at.slice(0, 16).replace('T', ' ') : '—') + '</td>' +
-        '<td>' + (f.channel === 'beta' ? '<span class="badge badge-warn">Bêta</span>' : '<span class="badge badge-ok">Stable</span>') + '</td>' +
-        '<td><button type="button" class="btn btn-ghost btn-sm fb-more" data-id="' + f.id + '" aria-label="Actions">⋯</button></td></tr>';
+        '<td>' + (f.channel === 'beta' ? '<span class="badge badge-warn">' + BastionI18n.t('Bêta') + '</span>' : '<span class="badge badge-ok">' + BastionI18n.t('Stable') + '</span>') + '</td>' +
+        '<td><button type="button" class="btn btn-ghost btn-sm fb-more" data-id="' + f.id + '" aria-label="' + BastionI18n.t('Actions') + '">⋯</button></td></tr>';
     });
     if (!rows) {
       rows = '<tr><td colspan="6"><div class="fb-hint">' +
-        (listing.can_manage ? "Glisser-déposer un fichier ici pour l'ajouter" : 'Aucun fichier accessible') +
+        (listing.can_manage ? BastionI18n.t("Glisser-déposer un fichier ici pour l'ajouter") : BastionI18n.t('Aucun fichier accessible')) +
         '</div></td></tr>';
     }
     body.innerHTML = rows;
@@ -320,11 +320,11 @@
   function openMenu(btn, fileId) {
     menu.hidden = false;
     menu.innerHTML =
-      '<button type="button" data-act="download" data-id="' + fileId + '">Télécharger</button>' +
-      '<button type="button" data-act="history" data-id="' + fileId + '">Historique des versions</button>' +
-      (canManage ? '<button type="button" data-act="rename" data-id="' + fileId + '">Renommer</button>' : '') +
-      (canManage ? '<button type="button" data-act="archive" data-id="' + fileId + '">Supprimer</button>' : '') +
-      (canManage ? '<button type="button" data-act="rights" data-id="' + fileId + '">Droits</button>' : '');
+      '<button type="button" data-act="download" data-id="' + fileId + '">' + BastionI18n.t('Télécharger') + '</button>' +
+      '<button type="button" data-act="history" data-id="' + fileId + '">' + BastionI18n.t('Historique des versions') + '</button>' +
+      (canManage ? '<button type="button" data-act="rename" data-id="' + fileId + '">' + BastionI18n.t('Renommer') + '</button>' : '') +
+      (canManage ? '<button type="button" data-act="archive" data-id="' + fileId + '">' + BastionI18n.t('Supprimer') + '</button>' : '') +
+      (canManage ? '<button type="button" data-act="rights" data-id="' + fileId + '">' + BastionI18n.t('Droits') + '</button>' : '');
     var rect = btn.getBoundingClientRect();
     menu.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
     menu.style.top = (rect.bottom + 4) + 'px';
@@ -392,21 +392,21 @@
         (data.versions || []).forEach(function (v) {
           html += '<div style="padding:var(--sp-2) 0;border-bottom:1px solid var(--border-muted);">' +
             '<div><strong>v' + escapeHtml(v.version_label) + '</strong> · ' +
-            (v.channel === 'beta' ? 'Bêta' : 'Stable') +
-            (v.status === 'archived' ? ' · archivée' : '') + '</div>' +
+            (v.channel === 'beta' ? BastionI18n.t('Bêta') : BastionI18n.t('Stable')) +
+            (v.status === 'archived' ? ' · ' + BastionI18n.t('archivée') : '') + '</div>' +
             '<div class="text-2 mono" style="font-size:var(--fs-xs);">' + formatSize(v.size_bytes) +
             (v.uploaded_at ? ' · ' + v.uploaded_at.slice(0, 16).replace('T', ' ') : '') + '</div>' +
             '<div style="margin-top:var(--sp-2);display:flex;gap:var(--sp-2);flex-wrap:wrap;">' +
-            '<a class="btn btn-ghost btn-sm" href="/files/download/' + v.id + '">Télécharger</a>';
+            '<a class="btn btn-ghost btn-sm" href="/files/download/' + v.id + '">' + BastionI18n.t('Télécharger') + '</a>';
           if (data.can_manage && v.status === 'active') {
             var next = v.channel === 'beta' ? 'stable' : 'beta';
             html += '<button type="button" class="btn btn-secondary btn-sm fb-channel" data-id="' + v.id + '" data-channel="' + next + '">' +
-              (v.channel === 'beta' ? '→ Stable' : '→ Bêta') + '</button>';
-            html += '<button type="button" class="btn btn-ghost btn-sm fb-archive-v" data-id="' + v.id + '">Archiver</button>';
+              (v.channel === 'beta' ? BastionI18n.t('→ Stable') : BastionI18n.t('→ Bêta')) + '</button>';
+            html += '<button type="button" class="btn btn-ghost btn-sm fb-archive-v" data-id="' + v.id + '">' + BastionI18n.t('Archiver') + '</button>';
           }
           html += '</div></div>';
         });
-        document.getElementById('fb-drawer-body').innerHTML = html || '<p class="text-2">Aucune version</p>';
+        document.getElementById('fb-drawer-body').innerHTML = html || '<p class="text-2">' + BastionI18n.t('Aucune version') + '</p>';
         drawer.classList.add('is-open');
         drawer.setAttribute('aria-hidden', 'false');
       });

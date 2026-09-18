@@ -485,9 +485,10 @@ def dashboard(
         db=db,
     )
     recent_audit = audit_page[0] if audit_page else None
+    from app.i18n.middleware import get_request_locale
     from app.web.pending_queue_service import build_pending_action_items
 
-    pending_queue = build_pending_action_items(db)
+    pending_queue = build_pending_action_items(db, locale=get_request_locale(request))
     return render(
         "dashboard/index.html",
         **_ctx(

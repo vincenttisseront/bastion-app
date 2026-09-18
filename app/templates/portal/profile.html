@@ -62,7 +62,7 @@
           <div class="portal-identity-copy">
             <div class="portal-identity-name">{{ portal_user.display_name }}</div>
             <div class="portal-identity-email">{{ portal_user.email }}</div>
-            <span class="badge {% if is_admin or is_portal_admin %}badge-ok{% else %}badge-muted{% endif %}">{{ role_label }}</span>
+            <span class="badge {% if is_admin or is_portal_admin %}badge-ok{% else %}badge-muted{% endif %}">{{ _(role_label) }}</span>
           </div>
         </div>
         <div class="card-body portal-identity-fields">
@@ -80,7 +80,7 @@
           </div>
           <div class="portal-field-row">
             <div>
-              <div class="form-label">Nom</div>
+              <div class="form-label">{{ _('Nom') }}</div>
               <div class="portal-field-value">{{ portal_user.identity_last_name or '—' }}</div>
             </div>
           </div>
@@ -104,7 +104,11 @@
         <div class="card-body">
           {% if apps %}
           <p class="portal-profile-count">
-            {{ apps | length }} application{{ 's' if apps | length != 1 else '' }} accessible{{ 's' if apps | length != 1 else '' }}
+            {% if apps | length == 1 %}
+              {{ _('1 application accessible') }}
+            {% else %}
+              {{ _('{n} applications accessibles').format(n=apps | length) }}
+            {% endif %}
           </p>
           <div class="portal-apps-preview" aria-label="{{ _('Aperçu des applications') }}">
             {% for app in apps_preview %}
