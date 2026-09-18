@@ -145,16 +145,20 @@ def resolve_audit_target_display(
     host = (target or "").strip()
     uri = str((details or {}).get("uri") or "").strip()
     if act == "access_denied_unknown_host" and host:
-        title = f"Hôte HTTP refusé : {host}"
-        if uri:
-            title = f"{title} · {uri}"
-        display = f"{host}{uri}" if uri else host
-        if len(display) > 48:
-            display = display[:47] + "…"
-        return display, title
+        return _unknown_host_target_display(host, uri)
     if host and len(host) > 48:
         return host[:47] + "…", host
     return host or "—", host or ""
+
+
+def _unknown_host_target_display(host: str, uri: str) -> tuple[str, str]:
+    title = f"Hôte HTTP refusé : {host}"
+    if uri:
+        title = f"{title} · {uri}"
+    display = f"{host}{uri}" if uri else host
+    if len(display) > 48:
+        display = display[:47] + "…"
+    return display, title
 
 
 def _audit_status_from_details(details: dict[str, Any]) -> str | None:

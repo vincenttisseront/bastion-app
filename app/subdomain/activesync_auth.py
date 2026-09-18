@@ -27,6 +27,10 @@ from app.web.user_context import parse_groups_header
 
 logger = logging.getLogger(__name__)
 
+_WWW_AUTHENTICATE_EAS = 'Basic realm="ActiveSync"'
+_AUDIT_EAS_DENIED = "activesync.denied"
+_AUDIT_EAS_ALLOWED = "activesync.allowed"
+
 router = APIRouter(tags=["activesync-auth"])
 
 # Throttle allow audits (EAS is chatty); always log denials.
@@ -352,7 +356,7 @@ async def activesync_auth(
     if not app:
         _log_activesync(
             db,
-            action="activesync.denied",
+            action=_AUDIT_EAS_DENIED,
             app=None,
             actor="anonymous",
             client_ip=client_ip,
@@ -366,14 +370,14 @@ async def activesync_auth(
             status_code=401,
             headers={
                 "X-Auth-Error": "no-app-for-host",
-                "WWW-Authenticate": 'Basic realm="ActiveSync"',
+                "WWW-Authenticate": _WWW_AUTHENTICATE_EAS,
             },
         )
 
     if not bool(getattr(app, "allow_activesync", False)):
         _log_activesync(
             db,
-            action="activesync.denied",
+            action=_AUDIT_EAS_DENIED,
             app=app,
             actor="anonymous",
             client_ip=client_ip,
@@ -388,7 +392,7 @@ async def activesync_auth(
             headers={
                 "X-Auth-Error": "activesync_disabled",
                 "X-Auth-App": app.slug,
-                "WWW-Authenticate": 'Basic realm="ActiveSync"',
+                "WWW-Authenticate": _WWW_AUTHENTICATE_EAS,
             },
         )
 
@@ -428,7 +432,7 @@ async def activesync_auth(
         if _should_log_allow(app.slug, client_ip or "", actor, device_id):
             _log_activesync(
                 db,
-                action="activesync.allowed",
+                action=_AUDIT_EAS_ALLOWED,
                 app=app,
                 actor=actor,
                 client_ip=client_ip,
@@ -482,7 +486,7 @@ async def activesync_auth(
                     status_code=401,
                     headers={
                         "X-Auth-Error": "no_app_for_host",
-                        "WWW-Authenticate": 'Basic realm="ActiveSync"',
+                        "WWW-Authenticate": _WWW_AUTHENTICATE_EAS,
                     },
                 )
             if not user_can_launch_application(
@@ -493,7 +497,7 @@ async def activesync_auth(
             ):
                 _log_activesync(
                     db,
-                    action="activesync.denied",
+                    action=_AUDIT_EAS_DENIED,
                     app=app,
                     actor=actor,
                     client_ip=client_ip,
@@ -531,7 +535,7 @@ async def activesync_auth(
             if _should_log_allow(app_slug, client_ip or "", actor, device_id):
                 _log_activesync(
                     db,
-                    action="activesync.allowed",
+                    action=_AUDIT_EAS_ALLOWED,
                     app=app,
                     actor=actor,
                     client_ip=client_ip,
@@ -572,7 +576,7 @@ async def activesync_auth(
                     status_code=401,
                     headers={
                         "X-Auth-Error": "no_app_for_host",
-                        "WWW-Authenticate": 'Basic realm="ActiveSync"',
+                        "WWW-Authenticate": _WWW_AUTHENTICATE_EAS,
                     },
                 )
             # Break-glass is inventoried but never gated: this is the admin
@@ -594,7 +598,7 @@ async def activesync_auth(
             if _should_log_allow(app_slug, client_ip or "", actor, device_id):
                 _log_activesync(
                     db,
-                    action="activesync.allowed",
+                    action=_AUDIT_EAS_ALLOWED,
                     app=app,
                     actor=actor,
                     client_ip=client_ip,
@@ -619,7 +623,7 @@ async def activesync_auth(
     app = db.get(App, app_id) or app
     _log_activesync(
         db,
-        action="activesync.denied",
+        action=_AUDIT_EAS_DENIED,
         app=app,
         actor="anonymous",
         client_ip=client_ip,
@@ -636,6 +640,6 @@ async def activesync_auth(
         headers={
             "X-Auth-Error": "not_authenticated",
             "X-Auth-App": app_slug,
-            "WWW-Authenticate": 'Basic realm="ActiveSync"',
+            "WWW-Authenticate": _WWW_AUTHENTICATE_EAS,
         },
     )

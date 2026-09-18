@@ -16,15 +16,19 @@ from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
 
+_MSG_KC_USER_ID_MISSING = "Identifiant utilisateur Keycloak manquant"
+_MSG_KC_USER_NOT_FOUND = "Utilisateur Keycloak introuvable"
+_KC_REALMS_PATH = "/realms/"
+
 # Concurrent Keycloak member-count refreshes during group sync.
 _MEMBER_REFRESH_CONCURRENCY = 8
 
 
 def _issuer_parts(issuer_url: str) -> tuple[str, str]:
-    if "/realms/" not in issuer_url:
+    if _KC_REALMS_PATH not in issuer_url:
         raise ValueError("Issuer URL invalide (doit contenir /realms/)")
-    base = issuer_url.split("/realms/")[0].rstrip("/")
-    realm_name = issuer_url.rstrip("/").split("/realms/")[-1]
+    base = issuer_url.split(_KC_REALMS_PATH)[0].rstrip("/")
+    realm_name = issuer_url.rstrip("/").split(_KC_REALMS_PATH)[-1]
     if not base or not realm_name:
         raise ValueError("Issuer URL invalide")
     return base, realm_name
@@ -144,7 +148,7 @@ async def logout_keycloak_user(
     """
     uid = (keycloak_user_id or "").strip()
     if not uid:
-        raise ValueError("Identifiant utilisateur Keycloak manquant")
+        raise ValueError(_MSG_KC_USER_ID_MISSING)
     # Write call (manage-users). Prefer the dedicated provision (write) account when
     # configured so the sync account can stay read-only; fall back to the historical
     # admin/sync account for realms without a provision account yet (Tâche 0 —
@@ -528,7 +532,7 @@ async def update_keycloak_user(
     """GET + PUT /users/{id} — merge identity fields (WRITE provision account)."""
     uid = (keycloak_user_id or "").strip()
     if not uid:
-        raise ValueError("Identifiant utilisateur Keycloak manquant")
+        raise ValueError(_MSG_KC_USER_ID_MISSING)
     token = token or await get_provision_token(realm, settings)
     current: dict | None = None
     try:
@@ -539,7 +543,7 @@ async def update_keycloak_user(
         # Prefer provision token for write path when sync account lacks view-users
         resp = await _admin_get(realm, settings, f"/users/{uid}", token=token)
         if resp.status_code == 404:
-            raise ValueError("Utilisateur Keycloak introuvable")
+            raise ValueError(_MSG_KC_USER_NOT_FOUND)
         if resp.status_code >= 400:
             raise ValueError(f"Échec lecture utilisateur Keycloak (HTTP {resp.status_code})")
         current = resp.json() if resp.content else {}
@@ -580,7 +584,7 @@ async def update_keycloak_user(
     if resp.status_code == 403:
         raise ValueError(_provision_manage_users_error())
     if resp.status_code == 404:
-        raise ValueError("Utilisateur Keycloak introuvable")
+        raise ValueError(_MSG_KC_USER_NOT_FOUND)
     if resp.status_code == 409:
         raise ValueError("Conflit Keycloak (email déjà utilisé)")
     if resp.status_code >= 400:
@@ -599,7 +603,7 @@ async def reset_keycloak_password(
     """PUT /users/{id}/reset-password — temporary forces UPDATE_PASSWORD at next login."""
     uid = (keycloak_user_id or "").strip()
     if not uid:
-        raise ValueError("Identifiant utilisateur Keycloak manquant")
+        raise ValueError(_MSG_KC_USER_ID_MISSING)
     if not (new_password or "").strip():
         raise ValueError("Mot de passe requis")
     token = token or await get_manage_users_token(realm, settings)
@@ -636,7 +640,7 @@ async def reset_keycloak_password(
     if resp.status_code == 403:
         raise ValueError(_provision_manage_users_error())
     if resp.status_code == 404:
-        raise ValueError("Utilisateur Keycloak introuvable")
+        raise ValueError(_MSG_KC_USER_NOT_FOUND)
     if resp.status_code >= 400:
         raise ValueError(
             f"Échec reset mot de passe Keycloak (HTTP {resp.status_code})"
@@ -658,7 +662,7 @@ async def delete_keycloak_user(
     """
     uid = (keycloak_user_id or "").strip()
     if not uid:
-        raise ValueError("Identifiant utilisateur Keycloak manquant")
+        raise ValueError(_MSG_KC_USER_ID_MISSING)
     token = token or await get_provision_token(realm, settings)
     resp = await _admin_send(realm, settings, "DELETE", f"/users/{uid}", token=token)
     if resp.status_code == 404:

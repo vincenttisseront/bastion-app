@@ -408,12 +408,12 @@
   document.getElementById('existing-suggestions').addEventListener('click', function (e) {
     var btn = e.target.closest('.file-suggest-item');
     if (!btn) return;
-    document.getElementById('existing-file-id').value = btn.getAttribute('data-id');
+    document.getElementById('existing-file-id').value = btn.dataset.id;
     document.getElementById('existing-search').value =
-      btn.getAttribute('data-label') + ' (' + btn.getAttribute('data-slug') + ')';
+      btn.dataset.label + ' (' + btn.dataset.slug + ')';
     var sel = document.getElementById('existing-selected');
     sel.hidden = false;
-    sel.textContent = 'Sélectionné : ' + btn.getAttribute('data-label') + ' · ' + btn.getAttribute('data-slug');
+    sel.textContent = 'Sélectionné : ' + btn.dataset.label + ' · ' + btn.dataset.slug;
     document.getElementById('existing-suggestions').hidden = true;
   });
 

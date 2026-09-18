@@ -352,7 +352,7 @@
       panel.setAttribute('aria-hidden', on ? 'false' : 'true');
     });
     document.querySelectorAll('#configuration-tabs .tab').forEach(function (tab) {
-      var on = tab.getAttribute('data-tab') === id;
+      var on = tab.dataset.tab === id;
       tab.classList.toggle('active', on);
       tab.setAttribute('aria-selected', on ? 'true' : 'false');
     });
@@ -369,8 +369,8 @@
   var shellStatus = document.getElementById('siem-test-shell-status');
   if (testBtn && shell && shellBody && shellStatus) {
     testBtn.addEventListener('click', async function () {
-      var url = testBtn.getAttribute('data-test-url') || '/admin/configuration/siem/test';
-      var csrf = testBtn.getAttribute('data-csrf') || '';
+      var url = testBtn.dataset.testUrl || '/admin/configuration/siem/test';
+      var csrf = testBtn.dataset.csrf || '';
       shell.hidden = false;
       shell.classList.remove('is-ok', 'is-err');
       shellStatus.className = 'badge badge-muted';
@@ -418,10 +418,10 @@
   function copyTextToClipboard(text, btn) {
     function done(ok) {
       if (!btn) return;
-      var prev = btn.getAttribute('data-copy-label') || btn.textContent;
-      if (!btn.getAttribute('data-copy-label')) btn.setAttribute('data-copy-label', prev);
+      var prev = btn.dataset.copyLabel || btn.textContent;
+      if (!btn.dataset.copyLabel) btn.dataset.copyLabel = prev;
       btn.textContent = ok ? 'Copié' : 'Échec';
-      setTimeout(function () { btn.textContent = btn.getAttribute('data-copy-label') || prev; }, 1500);
+      setTimeout(function () { btn.textContent = btn.dataset.copyLabel || prev; }, 1500);
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () { done(true); }).catch(function () { done(false); });
@@ -444,9 +444,9 @@
 
   document.querySelectorAll('#mta-sts [data-copy]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var targetId = btn.getAttribute('data-copy-target');
+      var targetId = btn.dataset.copyTarget;
       var el = targetId ? document.getElementById(targetId) : null;
-      var text = el ? (el.textContent || '').trim() : (btn.getAttribute('data-copy') || '').trim();
+      var text = el ? (el.textContent || '').trim() : (btn.dataset.copy || '').trim();
       if (!text) return;
       copyTextToClipboard(text, btn);
     });
@@ -518,8 +518,8 @@
   var mtaStatus = document.getElementById('mta-sts-test-status');
   if (mtaBtn && mtaShell && mtaBody && mtaStatus) {
     mtaBtn.addEventListener('click', async function () {
-      var url = mtaBtn.getAttribute('data-test-url') || '/admin/configuration/mta-sts/verify';
-      var csrf = mtaBtn.getAttribute('data-csrf') || '';
+      var url = mtaBtn.dataset.testUrl || '/admin/configuration/mta-sts/verify';
+      var csrf = mtaBtn.dataset.csrf || '';
       mtaShell.hidden = false;
       mtaShell.classList.remove('is-ok', 'is-err');
       mtaStatus.className = 'badge badge-muted';

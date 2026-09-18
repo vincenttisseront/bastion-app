@@ -37,6 +37,10 @@ from app.web.user_context import UserContext
 
 logger = logging.getLogger(__name__)
 
+_MSG_BAD_CURRENT_PASSWORD = "Mot de passe actuel incorrect."
+_MSG_SESSION_MISSING = "Session introuvable."
+_AUDIT_PROFILE_SESSION_REVOKED = "profile.session_revoked"
+
 _GENERIC_FORGOT_OK = (
     "Si un compte correspond à ces informations, un email avec un nouveau mot de passe "
     "temporaire vous a été envoyé. Consultez votre boîte mail (et les spams)."
@@ -144,7 +148,7 @@ async def _change_password_via_account_api(
             "Configuration MFA requise — utilisez la console identité."
         )
     if result.status != "success" or result.tokens is None:
-        raise ProfileSecurityError("Mot de passe actuel incorrect.")
+        raise ProfileSecurityError(_MSG_BAD_CURRENT_PASSWORD)
 
     url = f"{realm.issuer_url.rstrip('/')}/account/credentials/password"
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -162,7 +166,7 @@ async def _change_password_via_account_api(
             },
         )
     if resp.status_code in {401, 403}:
-        raise ProfileSecurityError("Mot de passe actuel incorrect.")
+        raise ProfileSecurityError(_MSG_BAD_CURRENT_PASSWORD)
     if resp.status_code == 404:
         raise ProfileSecurityError(
             "Changement de mot de passe indisponible sur ce realm — configurez un "
@@ -334,7 +338,7 @@ async def change_own_password(
                 settings=settings,
             )
         except InvalidCredentialsError as exc:
-            raise ProfileSecurityError("Mot de passe actuel incorrect.") from exc
+            raise ProfileSecurityError(_MSG_BAD_CURRENT_PASSWORD) from exc
 
         await reset_keycloak_password(
             realm,
@@ -376,7 +380,7 @@ async def revoke_own_keycloak_session(
     uid = (user.keycloak_user_id or "").strip()
     sid = (session_id or "").strip()
     if realm is None or not uid or not sid:
-        raise ProfileSecurityError("Session introuvable.")
+        raise ProfileSecurityError(_MSG_SESSION_MISSING)
     sessions = await list_keycloak_user_sessions(realm, uid, settings)
     owned = {str(s.get("id") or "") for s in sessions}
     if sid not in owned:
@@ -385,7 +389,7 @@ async def revoke_own_keycloak_session(
     log_action(
         db,
         actor=actor,
-        action="profile.session_revoked",
+        action=_AUDIT_PROFILE_SESSION_REVOKED,
         target=uid,
         details={"session_id": sid, "kind": "keycloak", "self_service": True},
         ip_address=ip_address,
@@ -404,7 +408,7 @@ def revoke_own_native_session(
 ) -> None:
     token = (jti or "").strip()
     if not token:
-        raise ProfileSecurityError("Session introuvable.")
+        raise ProfileSecurityError(_MSG_SESSION_MISSING)
     if current_jti and token == current_jti:
         raise ProfileSecurityError(
             "Impossible de révoquer la session en cours — utilisez Déconnexion."
@@ -424,12 +428,12 @@ def revoke_own_native_session(
         if v and uname == v:
             owned = True
     if not owned:
-        raise ProfileSecurityError("Session introuvable.")
+        raise ProfileSecurityError(_MSG_SESSION_MISSING)
     revoke_oidc_jti(db, token, revoked_by=actor, reason="profile_self_revoke")
     log_action(
         db,
         actor=actor,
-        action="profile.session_revoked",
+        action=_AUDIT_PROFILE_SESSION_REVOKED,
         target=sub or uname,
         details={"jti": token, "kind": "portal_native", "self_service": True},
         ip_address=ip_address,
@@ -489,7 +493,7 @@ async def revoke_all_other_sessions(
     log_action(
         db,
         actor=actor,
-        action="profile.session_revoked",
+        action=_AUDIT_PROFILE_SESSION_REVOKED,
         target=uid or actor,
         details={"bulk": True, "count": count, "self_service": True},
         ip_address=ip_address,

@@ -68,6 +68,10 @@ from app.vault.user_app_credential_service import (
 
 logger = logging.getLogger(__name__)
 
+_MSG_KC_USER_ID_MISSING = 'Identifiant utilisateur Keycloak manquant'
+_MSG_REALM_MISSING_FOR_ACCOUNT = 'Realm introuvable pour ce compte'
+_MSG_ORG_REQUIRED = 'Société / organisation requise'
+
 _NO_DRIVER_DETAIL = (
     "Aucun driver de provisioning configuré pour cette application (SSO uniquement)."
 )
@@ -197,7 +201,7 @@ async def ensure_company_group(
     """Find or create the société group (RBAC + Keycloak). Idempotent per realm+match-key."""
     name = normalize_organization_name(organization)
     if not name:
-        raise AccountCreationError("Société / organisation requise")
+        raise AccountCreationError(_MSG_ORG_REQUIRED)
 
     existing = find_rbac_company_group(db, realm_id=realm.id, organization=name)
     if existing is not None:
@@ -754,7 +758,7 @@ async def push_keycloak_user_and_continue(
     """
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     if realm is None:
-        raise AccountCreationError("Realm introuvable pour ce compte")
+        raise AccountCreationError(_MSG_REALM_MISSING_FOR_ACCOUNT)
     if account.keycloak_user_id:
         raise AccountCreationError(
             "Compte Keycloak déjà créé — utilisez Relancer sur chaque application en échec."
@@ -921,7 +925,7 @@ async def create_bastion_account(
     if "@" not in email:
         raise AccountCreationError("Email invalide")
     if not organization:
-        raise AccountCreationError("Société / organisation requise")
+        raise AccountCreationError(_MSG_ORG_REQUIRED)
     if not realm_provisioning_ready(realm):
         raise AccountCreationError(
             "Provisioning non activé pour ce realm — activez-le dans la fiche realm "
@@ -1075,7 +1079,7 @@ async def reset_keycloak_user_password(
     """
     uid = (keycloak_user_id or "").strip()
     if not uid:
-        raise AccountCreationError("Identifiant utilisateur Keycloak manquant")
+        raise AccountCreationError(_MSG_KC_USER_ID_MISSING)
     if not realm_provisioning_ready(realm):
         raise AccountCreationError(
             "Provisioning non activé pour ce realm — requis pour reset Keycloak."
@@ -1211,7 +1215,7 @@ async def reset_bastion_account_password(
     """
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     if realm is None:
-        raise AccountCreationError("Realm introuvable pour ce compte")
+        raise AccountCreationError(_MSG_REALM_MISSING_FOR_ACCOUNT)
     if not account.keycloak_user_id:
         raise AccountCreationError(
             "Compte Keycloak non créé — impossible de réinitialiser le mot de passe."
@@ -1244,7 +1248,7 @@ async def mark_keycloak_email_verified(
     """Set Keycloak ``emailVerified=true`` and drop ``VERIFY_EMAIL`` required action."""
     uid = (keycloak_user_id or "").strip()
     if not uid:
-        raise AccountCreationError("Identifiant utilisateur Keycloak manquant")
+        raise AccountCreationError(_MSG_KC_USER_ID_MISSING)
     if not realm_provisioning_ready(realm):
         raise AccountCreationError(
             "Provisioning non activé pour ce realm — requis pour modifier Keycloak."
@@ -1289,7 +1293,7 @@ async def require_keycloak_configure_otp(
     """Queue Keycloak required action CONFIGURE_TOTP for next login (Bastion QR)."""
     uid = (keycloak_user_id or "").strip()
     if not uid:
-        raise AccountCreationError("Identifiant utilisateur Keycloak manquant")
+        raise AccountCreationError(_MSG_KC_USER_ID_MISSING)
     if not realm_provisioning_ready(realm):
         raise AccountCreationError(
             "Provisioning non activé pour ce realm — requis pour modifier Keycloak."
@@ -1528,7 +1532,7 @@ async def update_bastion_account_identity(
     errors: list[str] = []
     realm = account.realm or db.query(RealmConfig).filter_by(id=account.realm_id).first()
     if realm is None:
-        raise AccountCreationError("Realm introuvable pour ce compte")
+        raise AccountCreationError(_MSG_REALM_MISSING_FOR_ACCOUNT)
 
     new_email = (email if email is not None else account.email or "").strip()
     new_first = (first_name if first_name is not None else account.first_name or "").strip() or None
@@ -1539,7 +1543,7 @@ async def update_bastion_account_identity(
     if not new_email or "@" not in new_email:
         raise AccountCreationError("Email invalide")
     if organization is not None and not new_org:
-        raise AccountCreationError("Société / organisation requise")
+        raise AccountCreationError(_MSG_ORG_REQUIRED)
 
     org_changed = bool(new_org) and new_org != (account.organization or "")
     company: RBACGroup | None = None

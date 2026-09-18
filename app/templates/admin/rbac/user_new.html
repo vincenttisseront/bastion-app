@@ -375,7 +375,7 @@
           opt.disabled = false;
           return;
         }
-        var match = String(opt.getAttribute("data-realm-id") || "") === realmId;
+        var match = String(opt.dataset.realmId || "") === realmId;
         opt.hidden = !match;
         opt.disabled = !match;
         if (match && opt.value === selectedValue) stillValid = true;
@@ -412,7 +412,7 @@
       var selected = 0;
       var matchedFilter = 0;
       rows.forEach(function (row) {
-        var label = String(row.getAttribute("data-group-label") || "");
+        var label = String(row.dataset.groupLabel || "");
         var matchFilter = !q || label.indexOf(q) !== -1;
         var cb = row.querySelector("[data-group-checkbox]");
         row.hidden = !matchFilter;

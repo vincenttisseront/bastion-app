@@ -306,11 +306,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.querySelectorAll('[data-group-config]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var groupId = btn.getAttribute('data-group-id');
-      var name = btn.getAttribute('data-group-name') || '';
-      var tag = btn.getAttribute('data-group-tag') || '';
-      var desc = btn.getAttribute('data-group-description') || '';
-      var mode = btn.getAttribute('data-mode') || 'limited';
+      var groupId = btn.dataset.groupId;
+      var name = btn.dataset.groupName || '';
+      var tag = btn.dataset.groupTag || '';
+      var desc = btn.dataset.groupDescription || '';
+      var mode = btn.dataset.mode || 'limited';
       var root = document.getElementById('bastion-modal');
       var dialog = root && root.querySelector('.bastion-modal-dialog');
       var extra = document.getElementById('bastion-modal-extra');

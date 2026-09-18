@@ -14,6 +14,10 @@ from app.bastion.drivers.base import RoboticDriver, RoboticLoginError
 
 logger = logging.getLogger(__name__)
 
+_HTML_DOCTYPE = '<!doctype'
+_HTML_TAG = '<html'
+_CRUSH_WI_FUNCTION = 'WebInterface/function/'
+
 _TIMEOUT = 5.0
 _SUCCESS_RE = re_safe.compile(r"<response>\s*success\s*</response>", re_safe.IGNORECASE)
 _RESPONSE_OK_RE = re_safe.compile(r"<response>\s*OK\s*</response>", re_safe.IGNORECASE)
@@ -130,7 +134,7 @@ def _login_reject_hint(text: str, status: int) -> str:
             "mot de passe vault incorrect ou compte désactivé ; "
             "ré-enregistrez le credential pour le re-pousser"
         )
-    if "<html" in lowered or "<!doctype" in lowered:
+    if _HTML_TAG in lowered or _HTML_DOCTYPE in lowered:
         return (
             f"réponse HTML (HTTP {status}) — l’URL pointe vers un portail SSO "
             "ou une page web, pas l’API WebInterface CrushFTP"
@@ -183,7 +187,7 @@ class CrushFTPDriver(RoboticDriver):
         extra_headers: dict[str, str] | None = None,
     ) -> CrushFTPSession:
         base = _normalize_base_url(base_url)
-        url = urljoin(base, "WebInterface/function/")
+        url = urljoin(base, _CRUSH_WI_FUNCTION)
         # encoded=true: CrushFTP URI-decodes username/password after form parse.
         # Pre-encode so characters like '+' '/' survive the form round-trip.
         data = {
@@ -245,7 +249,7 @@ class CrushFTPDriver(RoboticDriver):
         )
 
     async def get_username(self, session: CrushFTPSession) -> str:
-        url = urljoin(session.base_url, "WebInterface/function/")
+        url = urljoin(session.base_url, _CRUSH_WI_FUNCTION)
         c2f = _c2f(session.cookies)
         if not c2f:
             raise RoboticLoginError("CrushFTP session missing auth token")
@@ -295,7 +299,7 @@ class CrushFTPDriver(RoboticDriver):
         accumulate until idle timeout and surface as
         "421 — Max simultaneous user limit reached". Never raise from here.
         """
-        url = urljoin(session.base_url, "WebInterface/function/")
+        url = urljoin(session.base_url, _CRUSH_WI_FUNCTION)
         c2f = _c2f(session.cookies)
         data: dict[str, str] = {"command": "logout"}
         if c2f:
@@ -536,7 +540,7 @@ def _admin_reject_hint(text: str, status: int) -> str:
     lowered = body.lower()
     if _FAILURE_RE.search(body):
         return f"CrushFTP a renvoyé failure (HTTP {status})"
-    if "<html" in lowered or "<!doctype" in lowered:
+    if _HTML_TAG in lowered or _HTML_DOCTYPE in lowered:
         return (
             f"réponse HTML (HTTP {status}) — URL API Admin incorrecte "
             "(listener CrushFTP racine, pas UserManager / SSO)"
@@ -1062,7 +1066,7 @@ class CrushFTPProvisioningDriver:
         if _FAILURE_RE.search(text):
             return False
         lowered = text.lower()
-        if "<html" in lowered or "<!doctype" in lowered:
+        if _HTML_TAG in lowered or _HTML_DOCTYPE in lowered:
             return False
         # getUser returns user properties XML — not always <response>success.
         if username.lower() in lowered and (

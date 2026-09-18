@@ -280,11 +280,11 @@
     feed.addEventListener('click', function (e) {
       var t = e.target;
       if (!t || !t.getAttribute) return;
-      var id = t.getAttribute('data-notif-dismiss');
+      var id = t.dataset.notifDismiss;
       if (!id) return;
       e.preventDefault();
       e.stopPropagation();
-      var fp = t.getAttribute('data-notif-fp') || '';
+      var fp = t.dataset.notifFp || '';
       postDismiss('/api/admin/notifications/dismiss', {
         item_id: id,
         fingerprint: fp,

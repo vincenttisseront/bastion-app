@@ -76,6 +76,11 @@ from app.web.openapi_responses import (
     RESP_503,
 )
 
+_PATH_AUTH_LOGIN = "/auth/login"
+_MIME_JS = "application/javascript"
+_MSG_NOT_FOUND = "Not found"
+_CACHE_PUBLIC_WEEK = "public, max-age=604800"
+
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("app.main")
 
@@ -168,10 +173,10 @@ app.add_middleware(LocaleMiddleware)
 # Neutral public aliases — registered before the /static mount.
 _PORTAL_STATIC_ALIASES = {
     "/static/portal.css": ("css/bastion.css", "text/css"),
-    "/static/portal-theme.js": ("js/bastion-theme.js", "application/javascript"),
-    "/static/portal-busy.js": ("js/bastion-busy.js", "application/javascript"),
-    "/static/portal-modal.js": ("js/bastion-modal.js", "application/javascript"),
-    "/static/portal-login.js": ("js/bastion-login.js", "application/javascript"),
+    "/static/portal-theme.js": ("js/bastion-theme.js", _MIME_JS),
+    "/static/portal-busy.js": ("js/bastion-busy.js", _MIME_JS),
+    "/static/portal-modal.js": ("js/bastion-modal.js", _MIME_JS),
+    "/static/portal-login.js": ("js/bastion-login.js", _MIME_JS),
 }
 
 
@@ -182,11 +187,11 @@ def _register_portal_static_aliases(application: FastAPI) -> None:
         async def _serve():
             path = (STATIC_DIR / rel).resolve()
             if not str(path).startswith(str(root)) or not path.is_file():
-                raise HTTPException(status_code=404, detail="Not found")
+                raise HTTPException(status_code=404, detail=_MSG_NOT_FOUND)
             return FileResponse(
                 path,
                 media_type=media,
-                headers={"Cache-Control": "public, max-age=604800"},
+                headers={"Cache-Control": _CACHE_PUBLIC_WEEK},
             )
 
         return _serve
@@ -217,14 +222,14 @@ async def serve_app_logo(filename: str):
 
     safe = logo_filename(filename)
     if safe is None or safe != filename:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail=_MSG_NOT_FOUND)
     path = resolve_logo_file(safe)
     if path is None:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail=_MSG_NOT_FOUND)
     return FileResponse(
         path,
         media_type=media_type_for_filename(safe),
-        headers={"Cache-Control": "public, max-age=604800"},
+        headers={"Cache-Control": _CACHE_PUBLIC_WEEK},
     )
 
 
@@ -235,11 +240,11 @@ async def serve_branding_asset(filename: str):
 
     path = resolve_branding_file(filename)
     if path is None:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail=_MSG_NOT_FOUND)
     return FileResponse(
         path,
         media_type=media_type_for_branding_filename(filename),
-        headers={"Cache-Control": "public, max-age=604800"},
+        headers={"Cache-Control": _CACHE_PUBLIC_WEEK},
     )
 
 
@@ -263,7 +268,7 @@ def _json_api_path(path: str) -> bool:
         return True
     if _admin_logs_api_path(path):
         return True
-    if path in ("/auth/login", "/auth/logout"):
+    if path in (_PATH_AUTH_LOGIN, "/auth/logout"):
         return True
     return False
 
@@ -299,7 +304,7 @@ def _html_error_fallback(path: str, request: Request, settings) -> str:
 
     if get_user_context(request, settings) is not None:
         return "/apps"
-    return "/auth/login"
+    return _PATH_AUTH_LOGIN
 
 
 def _html_client_error_response(
@@ -372,7 +377,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
                 headers=headers,
                 locale=locale,
             )
-        return RedirectResponse(url="/auth/login", status_code=302)
+        return RedirectResponse(url=_PATH_AUTH_LOGIN, status_code=302)
     if exc.status_code == 403:
         if wants_json:
             return api_error_from_detail(

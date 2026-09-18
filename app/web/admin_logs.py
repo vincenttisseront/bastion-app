@@ -67,6 +67,10 @@ from app.web.user_context import require_admin
 
 logger = logging.getLogger(__name__)
 
+_PATH_LOGS_AUDIT = "/admin/logs#audit"
+_SSE_TIMEOUT_EVENT = 'event: timeout\ndata: {}\n\n'
+_MIME_EVENT_STREAM = "text/event-stream"
+
 router = APIRouter(tags=["admin-logs"], dependencies=[Depends(require_admin)])
 
 _PAGE_SIZE = 50
@@ -627,14 +631,14 @@ async def admin_logs_stream(
                     yield f"id: {entry['id']}\ndata: {json.dumps(entry, ensure_ascii=False)}\n\n"
                 yield ": keepalive\n\n"
                 await asyncio.sleep(1.0)
-            yield "event: timeout\ndata: {}\n\n"
+            yield _SSE_TIMEOUT_EVENT
         except asyncio.CancelledError:
             logger.debug("audit SSE cancelled")
             raise
 
     return StreamingResponse(
         event_gen(),
-        media_type="text/event-stream",
+        media_type=_MIME_EVENT_STREAM,
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -661,7 +665,7 @@ def admin_logs_save_columns(
         row.columns_json = col_list
         row.updated_at = utcnow()
     db.commit()
-    response = RedirectResponse(url="/admin/logs#audit", status_code=302)
+    response = RedirectResponse(url=_PATH_LOGS_AUDIT, status_code=302)
     flash_redirect(
         response,
         "Colonnes enregistrées.",
@@ -715,7 +719,7 @@ def admin_logs_save_view(
             )
         )
     db.commit()
-    response = RedirectResponse(url="/admin/logs#audit", status_code=302)
+    response = RedirectResponse(url=_PATH_LOGS_AUDIT, status_code=302)
     flash_redirect(
         response,
         f"Vue « {view_name} » enregistrée.",
@@ -740,7 +744,7 @@ def admin_logs_delete_view(
         .first()
     )
     if row and getattr(row, "is_system", False):
-        response = RedirectResponse(url="/admin/logs#audit", status_code=302)
+        response = RedirectResponse(url=_PATH_LOGS_AUDIT, status_code=302)
         flash_redirect(
             response,
             "La vue système ne peut pas être supprimée.",
@@ -751,7 +755,7 @@ def admin_logs_delete_view(
     if row:
         db.delete(row)
         db.commit()
-    response = RedirectResponse(url="/admin/logs#audit", status_code=302)
+    response = RedirectResponse(url=_PATH_LOGS_AUDIT, status_code=302)
     flash_redirect(
         response,
         "Vue supprimée.",
@@ -913,7 +917,7 @@ async def admin_container_logs_stream(
                 if await request.is_disconnected():
                     break
                 if time.monotonic() - started >= timeout:
-                    yield "event: timeout\ndata: {}\n\n"
+                    yield _SSE_TIMEOUT_EVENT
                     break
                 payload = json.dumps({"text": chunk}, ensure_ascii=False)
                 yield f"data: {payload}\n\n"
@@ -924,7 +928,7 @@ async def admin_container_logs_stream(
 
     return StreamingResponse(
         event_gen(),
-        media_type="text/event-stream",
+        media_type=_MIME_EVENT_STREAM,
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
@@ -996,7 +1000,7 @@ async def admin_app_access_logs_stream(
                 if await request.is_disconnected():
                     break
                 if time.monotonic() - started >= timeout:
-                    yield "event: timeout\ndata: {}\n\n"
+                    yield _SSE_TIMEOUT_EVENT
                     break
                 entries = parse_app_access_text(chunk)
                 payload = json.dumps(
@@ -1010,7 +1014,7 @@ async def admin_app_access_logs_stream(
 
     return StreamingResponse(
         event_gen(),
-        media_type="text/event-stream",
+        media_type=_MIME_EVENT_STREAM,
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",

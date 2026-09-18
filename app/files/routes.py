@@ -40,6 +40,10 @@ from app.web.openapi_responses import (
 
 logger = logging.getLogger(__name__)
 
+_MSG_MANAGE_REQUIRED = 'Droit manage requis'
+_MSG_FILE_NOT_FOUND = 'Fichier introuvable'
+_MSG_VERSION_NOT_FOUND = 'Version introuvable'
+
 router = APIRouter(tags=["files-browser"])
 
 
@@ -164,7 +168,7 @@ async def files_create_folder(
         is_portal_admin=is_admin,
     )
     if not access.can_manage and not (parent_folder_id is None and is_admin):
-        raise HTTPException(status_code=403, detail="Droit manage requis")
+        raise HTTPException(status_code=403, detail=_MSG_MANAGE_REQUIRED)
     try:
         folder = create_folder(
             db,
@@ -284,7 +288,7 @@ async def files_versions(
     is_admin = _portal_admin(user, db, settings)
     fr = db.query(FileResource).filter_by(id=file_id).first()
     if not fr or not fr.is_active:
-        raise HTTPException(status_code=404, detail="Fichier introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_FILE_NOT_FOUND)
     access = get_effective_access_on_file(
         db,
         file=fr,
@@ -330,7 +334,7 @@ async def files_version_channel(
     is_admin = _portal_admin(user, db, settings)
     version = db.query(FileVersion).filter_by(id=version_id).first()
     if not version:
-        raise HTTPException(status_code=404, detail="Version introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_VERSION_NOT_FOUND)
     access = get_effective_access_on_file(
         db,
         file=version.file_id,
@@ -339,7 +343,7 @@ async def files_version_channel(
         is_portal_admin=is_admin,
     )
     if not access.can_manage:
-        raise HTTPException(status_code=403, detail="Droit manage requis")
+        raise HTTPException(status_code=403, detail=_MSG_MANAGE_REQUIRED)
     try:
         set_version_channel(db, version, channel)
         db.commit()
@@ -376,7 +380,7 @@ async def files_version_patch(
     is_admin = _portal_admin(user, db, settings)
     version = db.query(FileVersion).filter_by(id=version_id).first()
     if not version:
-        raise HTTPException(status_code=404, detail="Version introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_VERSION_NOT_FOUND)
     access = get_effective_access_on_file(
         db,
         file=version.file_id,
@@ -385,7 +389,7 @@ async def files_version_patch(
         is_portal_admin=is_admin,
     )
     if not access.can_manage:
-        raise HTTPException(status_code=403, detail="Droit manage requis")
+        raise HTTPException(status_code=403, detail=_MSG_MANAGE_REQUIRED)
     try:
         if version_label is not None:
             rename_version_label(db, version, version_label)
@@ -430,7 +434,7 @@ async def files_download_version(
     is_admin = _portal_admin(user, db, settings)
     version = db.query(FileVersion).filter_by(id=version_id).first()
     if not version or version.status != "active":
-        return JSONResponse({"ok": False, "detail": "Version introuvable"}, status_code=404)
+        return JSONResponse({"ok": False, "detail": _MSG_VERSION_NOT_FOUND}, status_code=404)
     access = get_effective_access_on_file(
         db,
         file=version.file_id,
@@ -491,7 +495,7 @@ async def files_download_by_slug(
     is_admin = _portal_admin(user, db, settings)
     fr = db.query(FileResource).filter_by(slug=slug, is_active=True).first()
     if not fr:
-        return JSONResponse({"ok": False, "detail": "Fichier introuvable"}, status_code=404)
+        return JSONResponse({"ok": False, "detail": _MSG_FILE_NOT_FOUND}, status_code=404)
     if not user_can_download_file(
         db,
         file_id=fr.id,
@@ -528,7 +532,7 @@ async def files_rename(
     is_admin = _portal_admin(user, db, settings)
     fr = db.query(FileResource).filter_by(id=file_id).first()
     if not fr:
-        raise HTTPException(status_code=404, detail="Fichier introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_FILE_NOT_FOUND)
     access = get_effective_access_on_file(
         db,
         file=fr,
@@ -537,7 +541,7 @@ async def files_rename(
         is_portal_admin=is_admin,
     )
     if not access.can_manage:
-        raise HTTPException(status_code=403, detail="Droit manage requis")
+        raise HTTPException(status_code=403, detail=_MSG_MANAGE_REQUIRED)
     try:
         rename_file_resource(db, fr, label)
         db.commit()
@@ -566,7 +570,7 @@ async def files_archive(
     is_admin = _portal_admin(user, db, settings)
     fr = db.query(FileResource).filter_by(id=file_id).first()
     if not fr:
-        raise HTTPException(status_code=404, detail="Fichier introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_FILE_NOT_FOUND)
     access = get_effective_access_on_file(
         db,
         file=fr,
@@ -575,7 +579,7 @@ async def files_archive(
         is_portal_admin=is_admin,
     )
     if not access.can_manage:
-        raise HTTPException(status_code=403, detail="Droit manage requis")
+        raise HTTPException(status_code=403, detail=_MSG_MANAGE_REQUIRED)
     archive_file_resource(db, fr)
     db.commit()
     log_action(
