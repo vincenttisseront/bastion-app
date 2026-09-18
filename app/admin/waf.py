@@ -22,6 +22,11 @@ from app.web.user_context import require_admin
 
 router = APIRouter(tags=["admin-waf"], dependencies=[Depends(require_admin)])
 
+_WAF_URL_BILAN = "/admin/security/waf#bilan"
+_WAF_URL_EXCLUSIONS = "/admin/security/waf#exclusions"
+_WAF_ANCHOR_BILAN = "#bilan"
+_WAF_ANCHOR_REACTIVATION = "#reactivation"
+
 
 def _ctx(request: Request, settings: Settings, **extra: Any) -> dict[str, Any]:
     return base_template_context(request, settings, APP_VERSION, **extra)
@@ -93,13 +98,13 @@ def _waf_page_context(
 @router.get("/admin/security/protection")
 def admin_protection_redirect():
     """Redirect legacy URL to the unified WAF page."""
-    return RedirectResponse(url="/admin/security/waf#bilan", status_code=301)
+    return RedirectResponse(url=_WAF_URL_BILAN, status_code=301)
 
 
 @router.get("/admin/security/waf/status")
 def admin_waf_status_redirect():
     """Legacy anchor /admin/security/waf#status → bilan."""
-    return RedirectResponse(url="/admin/security/waf#bilan", status_code=301)
+    return RedirectResponse(url=_WAF_URL_BILAN, status_code=301)
 
 
 @router.get("/admin/security/waf")
@@ -190,7 +195,7 @@ def admin_waf_exclusion_add(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    response = RedirectResponse(url="/admin/security/waf#exclusions", status_code=302)
+    response = RedirectResponse(url=_WAF_URL_EXCLUSIONS, status_code=302)
     try:
         waf_service.add_exclusion(
             db,
@@ -224,7 +229,7 @@ def admin_waf_exclusion_disable(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    response = RedirectResponse(url="/admin/security/waf#exclusions", status_code=302)
+    response = RedirectResponse(url=_WAF_URL_EXCLUSIONS, status_code=302)
     try:
         waf_service.disable_exclusion(
             db,
@@ -251,7 +256,7 @@ def admin_waf_exclusion_delete(
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
 ):
-    response = RedirectResponse(url="/admin/security/waf#exclusions", status_code=302)
+    response = RedirectResponse(url=_WAF_URL_EXCLUSIONS, status_code=302)
     try:
         waf_service.delete_exclusion(
             db,
@@ -285,7 +290,7 @@ def admin_waf_ban_ip(
     """Security action: ban an attacker IP seen in WAF audit (→ SecurityBan / nginx deny)."""
     from app.security.banning.service import apply_manual_ban
 
-    response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
+    response = RedirectResponse(url=_WAF_URL_BILAN, status_code=302)
     target = (ip or "").strip()
     if not target or target == "—" or any(c.isspace() for c in target):
         flash_redirect(response, "IP invalide.", "error", _flash_secret(settings))
@@ -350,7 +355,7 @@ def admin_waf_exclude_from_event(
     user=Depends(require_admin),
 ):
     """Security tuning: create a CRS exclusion from a detected event (false positive path)."""
-    response = RedirectResponse(url="/admin/security/waf#exclusions", status_code=302)
+    response = RedirectResponse(url=_WAF_URL_EXCLUSIONS, status_code=302)
     try:
         waf_service.add_exclusion(
             db,
@@ -390,7 +395,7 @@ def admin_waf_quick_toggle(
     from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON
     from app.security.banning.service import get_or_create_policy, update_policy_misc
 
-    response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
+    response = RedirectResponse(url=_WAF_URL_BILAN, status_code=302)
     actor = _actor(user)
     ip = client_ip_from_request(request) or None
     turn_on = enabled == "on"
@@ -471,7 +476,7 @@ def admin_waf_lift_ban(
         actor=_actor(user),
         ip_address=client_ip_from_request(request) or None,
     )
-    response = RedirectResponse(url="/admin/security/waf#bilan", status_code=302)
+    response = RedirectResponse(url=_WAF_URL_BILAN, status_code=302)
     flash_redirect(response, "IP débloquée.", "success", _flash_secret(settings))
     return response
 
@@ -495,7 +500,7 @@ def admin_waf_reactivate(
         confirm=confirm_reactivate == "on",
     )
     # Succès → bilan (onglet Réactivation disparaît) ; échec → rester sur l'onglet.
-    anchor = "#bilan" if result.get("ok") else "#reactivation"
+    anchor = _WAF_ANCHOR_BILAN if result.get("ok") else _WAF_ANCHOR_REACTIVATION
     response = RedirectResponse(url=f"/admin/security/waf{anchor}", status_code=302)
     log_action(
         db,
@@ -550,7 +555,7 @@ def admin_waf_reactivate_subdomain(
         actor=_actor(user),
         confirm=confirm_reactivate_subdomain == "on",
     )
-    anchor = "#bilan" if result.get("ok") else "#reactivation"
+    anchor = _WAF_ANCHOR_BILAN if result.get("ok") else _WAF_ANCHOR_REACTIVATION
     response = RedirectResponse(url=f"/admin/security/waf{anchor}", status_code=302)
     log_action(
         db,
@@ -605,7 +610,7 @@ def admin_waf_promote_subdomain_on(
         actor=_actor(user),
         confirm=confirm_promote_subdomain_on == "on",
     )
-    anchor = "#bilan" if result.get("ok") else "#reactivation"
+    anchor = _WAF_ANCHOR_BILAN if result.get("ok") else _WAF_ANCHOR_REACTIVATION
     response = RedirectResponse(url=f"/admin/security/waf{anchor}", status_code=302)
     log_action(
         db,

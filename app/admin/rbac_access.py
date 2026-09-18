@@ -60,6 +60,13 @@ from app.vault.user_app_credential_service import get_user_credential, has_user_
 from app.web.flash import flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -384,7 +391,7 @@ async def admin_rbac_group_credential_set(
     return response
 
 
-@router.post("/admin/rbac/groups/{group_id}/credentials/{credential_id}/delete")
+@router.post("/admin/rbac/groups/{group_id}/credentials/{credential_id}/delete", responses=RESP_404)
 async def admin_rbac_group_credential_delete(
     group_id: int,
     credential_id: int,
@@ -415,7 +422,7 @@ async def admin_rbac_group_credential_delete(
     return response
 
 
-@router.post("/admin/rbac/groups/{group_id}/credentials/{credential_id}/exclusions")
+@router.post("/admin/rbac/groups/{group_id}/credentials/{credential_id}/exclusions", responses=RESP_404)
 async def admin_rbac_group_credential_exclusion_add(
     group_id: int,
     credential_id: int,
@@ -465,7 +472,7 @@ async def admin_rbac_group_credential_exclusion_add(
 
 @router.post(
     "/admin/rbac/groups/{group_id}/credentials/{credential_id}/exclusions/{keycloak_user_id}/delete"
-)
+, responses=RESP_404)
 async def admin_rbac_group_credential_exclusion_remove(
     group_id: int,
     credential_id: int,
@@ -498,7 +505,7 @@ async def admin_rbac_group_credential_exclusion_remove(
     return response
 
 
-@router.get("/admin/rbac/groups/{group_id}/members")
+@router.get("/admin/rbac/groups/{group_id}/members", responses=RESP_400)
 async def admin_rbac_group_members(
     group_id: int,
     request: Request,
@@ -964,7 +971,7 @@ async def admin_rbac_users_export_csv(
     )
 
 
-@router.get("/admin/rbac/users/{keycloak_user_id}")
+@router.get("/admin/rbac/users/{keycloak_user_id}", responses=RESP_404)
 async def admin_rbac_user_detail(
     keycloak_user_id: str,
     request: Request,
@@ -999,7 +1006,7 @@ async def admin_rbac_user_detail(
     )
 
 
-@router.get("/admin/rbac/applications/{application_id}")
+@router.get("/admin/rbac/applications/{application_id}", responses=RESP_404)
 async def admin_rbac_application_detail(
     application_id: int,
     request: Request,
@@ -1087,7 +1094,7 @@ def admin_rbac_grants_list(
     )
 
 
-@router.post("/admin/rbac/grants")
+@router.post("/admin/rbac/grants", responses=RESP_400 | RESP_404)
 async def admin_rbac_grants_create(
     request: Request,
     db: Session = Depends(get_db),
@@ -1240,7 +1247,7 @@ async def admin_rbac_grants_create(
     return response
 
 
-@router.delete("/admin/rbac/grants/{grant_id}")
+@router.delete("/admin/rbac/grants/{grant_id}", responses=RESP_404)
 @router.post("/admin/rbac/grants/{grant_id}/delete")
 def admin_rbac_grants_delete(
     grant_id: int,

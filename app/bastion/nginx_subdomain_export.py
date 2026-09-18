@@ -34,6 +34,8 @@ _NGX_PROXY_PASS_REQUEST_HEADERS = "        proxy_pass_request_headers on;"
 _NGX_PROXY_X_AUTH_USER = "        proxy_set_header X-Auth-User $auth_user;"
 _NGX_PROXY_X_AUTH_APP = "        proxy_set_header X-Auth-App $auth_app;"
 _NGX_PROXY_X_AUTH_SOURCE = "        proxy_set_header X-Auth-Source $auth_source;"
+_NGX_MODSECURITY_OFF = "        modsecurity off;"
+_NGX_AUTH_REQUEST_OFF = "        auth_request off;"
 
 
 def iter_subdomain_proxy_apps(db: Session) -> list[App]:
@@ -127,7 +129,7 @@ def _activesync_locations(
         "    # Ping heartbeat needs read timeout >> default 60s (iOS often 900–1800s).",
         "    location ~* ^/Microsoft-Server-ActiveSync {",
         "        # WBXML Sync/Ping — CRS false positives; subdomain WAF stays on elsewhere.",
-        "        modsecurity off;",
+        _NGX_MODSECURITY_OFF,
         *_AUTH_COOKIE_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
@@ -160,7 +162,7 @@ def _activesync_locations(
         "    }",
         "",
         "    location ~* ^/(AutoDiscover|autodiscover)/ {",
-        "        modsecurity off;",
+        _NGX_MODSECURITY_OFF,
         *_AUTH_COOKIE_CAPTURE_LINES,
         "        auth_request /internal/activesync-auth;",
         *_AUTH_REQUEST_DIAG_LINES,
@@ -190,7 +192,7 @@ def _activesync_locations(
         "    }",
         "",
         f"    location @activesync_unauthorized_{slug} {{",
-        "        modsecurity off;",
+        _NGX_MODSECURITY_OFF,
         '        add_header WWW-Authenticate \'Basic realm="ActiveSync"\' always;',
         "        default_type text/plain;",
         "        return 401 \"ActiveSync authentication required\\n\";",
@@ -284,8 +286,8 @@ def _m2m_bypass_locations(
         blocks.extend(
             [
                 f"    location {loc_spec} {{",
-                "        auth_request off;",
-                "        modsecurity off;",
+                _NGX_AUTH_REQUEST_OFF,
+                _NGX_MODSECURITY_OFF,
                 *proxy,
                 "    }",
                 "",
@@ -481,8 +483,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "",
         "    # Cookie hop — exact = beats any location ~ /\\. deny; never internal;",
         "    location = /.bastion/session-cookies {",
-        "        auth_request off;",
-        "        modsecurity off;",
+        _NGX_AUTH_REQUEST_OFF,
+        _NGX_MODSECURITY_OFF,
         "        proxy_pass http://$bastion_app_upstream/api/internal/session-cookie-hop;",
         "        proxy_http_version 1.1;",
         f"        proxy_set_header Host {portal_esc};",
@@ -495,8 +497,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "    }",
         "",
         "    location = /.bastion/sso-session-mirror {",
-        "        auth_request off;",
-        "        modsecurity off;",
+        _NGX_AUTH_REQUEST_OFF,
+        _NGX_MODSECURITY_OFF,
         "        proxy_pass http://$bastion_app_upstream/api/internal/sso-session-mirror;",
         "        proxy_http_version 1.1;",
         f"        proxy_set_header Host {portal_esc};",
@@ -510,7 +512,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "",
         "    # Edge liveness — must not depend on app upstream (smoke / monitoring).",
         "    location = /healthz {",
-        "        modsecurity off;",
+        _NGX_MODSECURITY_OFF,
         "        access_log off;",
         "        default_type text/plain;",
         "        return 200 'ok\\n';",
@@ -534,13 +536,13 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
                 "    # Never run auth_request on /auth/login here — 401 would 302 to",
                 "    # /auth/login?rd=… on this Host and nest until the URL explodes.",
                 "    location = /auth/login {",
-                "        auth_request off;",
-                "        modsecurity off;",
+                _NGX_AUTH_REQUEST_OFF,
+                _NGX_MODSECURITY_OFF,
                 f"        return 302 https://{portal_esc}/auth/login;",
                 "    }",
                 "    location = /login {",
-                "        auth_request off;",
-                "        modsecurity off;",
+                _NGX_AUTH_REQUEST_OFF,
+                _NGX_MODSECURITY_OFF,
                 f"        return 302 https://{portal_esc}/auth/login;",
                 "    }",
                 "",
@@ -587,7 +589,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         # Auth gate only — CrushFTP Cookie filter is in the named location below.
         location_slash = [
             "    location / {",
-            "        modsecurity off;",
+            _NGX_MODSECURITY_OFF,
             *_AUTH_COOKIE_CAPTURE_LINES,
             "        auth_request /internal/subdomain-auth;",
             *_AUTH_REQUEST_DIAG_LINES,
@@ -609,7 +611,7 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         location_slash = [
             "    location / {",
             "        # SPA/API: CRS breaks grommunio.js responses and POST bodies.",
-            "        modsecurity off;",
+            _NGX_MODSECURITY_OFF,
             # Capture Cookie here (parent) — auth + proxy in same location.
             # Do NOT use return 418 → named gate: nested error_page breaks
             # @portal_redirect.

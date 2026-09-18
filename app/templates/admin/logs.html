@@ -97,7 +97,7 @@
           </label>
           <label class="logs-filter-field">
             <span class="form-label">{{ _('Action') }}</span>
-            <select class="form-select" name="action" id="filter-action" aria-label="{{ _('Filtrer par action') }}">
+            <select class="form-select" name="action" id="filter-action">
               <option value="">{{ _('Toutes') }}</option>
               {% for a in action_choices %}
               <option value="{{ a }}"{% if filters.action == a %} selected{% endif %}>{{ a }}</option>
@@ -360,7 +360,7 @@
     {% else %}
     <div class="logs-toolbar audit-toolbar">
       <label class="form-label" for="container-select">Container</label>
-      <select class="form-select" id="container-select" aria-label="Container">
+      <select class="form-select" id="container-select">
         <option value="">{{ _('— Choisir —') }}</option>
         {% for c in docker_containers %}
         <option value="{{ c }}">{{ c }}</option>

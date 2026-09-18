@@ -982,7 +982,9 @@ async def oidc_login(
             )
         raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE) from None
     except OidcBffConfigError as exc:
-        logger.error("oidc_login misconfigured realm=%s: %s", realm_slug, type(exc).__name__)
+        logger.exception(
+            "oidc_login misconfigured realm=%s: %s", realm_slug, type(exc).__name__
+        )
         detail = str(exc) or "OIDC natif non configuré pour ce realm."
         if "non configuré" not in detail.lower():
             detail = "OIDC natif non configuré pour ce realm."

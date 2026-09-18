@@ -116,7 +116,7 @@
 
   function isNativeLocaleSubmit(el) {
     // Login/profile use real POST forms — do not intercept.
-    if (!el || el.tagName !== 'BUTTON') return false;
+    if (el?.tagName !== 'BUTTON') return false;
     if ((el.getAttribute('type') || '').toLowerCase() === 'submit') return true;
     var form = el.form || el.closest('form');
     return form?.getAttribute('action') === '/api/locale';

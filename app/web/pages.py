@@ -100,7 +100,13 @@ from app.web.sessions_service import (
     touch_portal_session,
 )
 from app.web.templates import render
-from app.web.user_context import get_user_context, is_portal_admin, require_admin, require_user
+from app.web.user_context import (
+    elevate_portal_admin,
+    get_user_context,
+    is_portal_admin,
+    require_admin,
+    require_user,
+)
 
 router = APIRouter(tags=["pages"])
 # Authenticated (non-admin) pages — new routes inherit require_user.
@@ -117,6 +123,25 @@ admin_router = APIRouter(
 logger = logging.getLogger(__name__)
 
 _DESC_MAX = 140
+
+
+# Template / redirect path literals (Sonar S1192).
+_TMPL_LOGIN = "auth/login.html"
+_TMPL_APP_EDIT = "admin/apps/edit.html"
+_PATH_APPS = "/apps"
+_PATH_DASHBOARD = "/dashboard"
+_PATH_SETUP_WIZARD = "/admin/setup-wizard"
+_PATH_CONTAINER_LOGS = "/admin/security#container-logs"
+_PATH_ADMIN_APPS = "/admin/apps"
+_PATH_HOT_STORE = "/admin/configuration#hot-store"
+_PATH_ACCESS_REQUEST = "/auth/access-request"
+_PATH_ACCESS_PENDING = "/admin/access-requests?status=pending"
+_PATH_BANNING = "/admin/security#banning"
+_PATH_VAULT = "/admin/security#vault"
+_MSG_APP_NOT_FOUND = "Application introuvable"
+_MSG_INVALID_CREDS = "Identifiants invalides."
+_MSG_SETUP_LOCKED = "Setup is locked"
+
 
 
 def _warn_if_fqdn_cookie_domain_incompatible(
@@ -465,10 +490,10 @@ def _login_surface_flags(
 
 @router.get("/")
 def root():
-    return RedirectResponse(url="/apps", status_code=302)
+    return RedirectResponse(url=_PATH_APPS, status_code=302)
 
 
-@admin_router.get("/dashboard")
+@admin_router.get(_PATH_DASHBOARD)
 def dashboard(
     request: Request,
     db: Session = Depends(get_db),
@@ -509,20 +534,28 @@ def sessions_page(
     user=Depends(require_user),
     kind: str | None = Query(None),
 ):
-    if is_portal_admin(user, db, settings):
-        user.is_admin = True
+    user = elevate_portal_admin(user, db, settings)
     touch_portal_session(db, user, _client_ip(request), request=request)
     filter_kind = kind if kind in ("user", "app") else None
+    from app.i18n.middleware import get_request_locale
+
+    locale = get_request_locale(request)
 
     def read_sessions() -> dict[str, Any]:
-        sessions = get_active_sessions(db, viewer=user, kind=filter_kind)
+        sessions = get_active_sessions(
+            db, viewer=user, kind=filter_kind, locale=locale
+        )
         return {
             "sessions": sessions,
             "session_groups": build_session_groups(db, sessions),
             "session_counts": {
-                "all": len(get_active_sessions(db, viewer=user)),
-                "user": len(get_active_sessions(db, viewer=user, kind="user")),
-                "app": len(get_active_sessions(db, viewer=user, kind="app")),
+                "all": len(get_active_sessions(db, viewer=user, locale=locale)),
+                "user": len(
+                    get_active_sessions(db, viewer=user, kind="user", locale=locale)
+                ),
+                "app": len(
+                    get_active_sessions(db, viewer=user, kind="app", locale=locale)
+                ),
             },
         }
 
@@ -550,8 +583,8 @@ def catalogue_page_redirect(
 ):
     """Legacy URL — UI removed; admins → Apps, users → Mes applications."""
     if is_portal_admin(user, db, settings):
-        return RedirectResponse(url="/admin/apps", status_code=302)
-    return RedirectResponse(url="/apps", status_code=302)
+        return RedirectResponse(url=_PATH_ADMIN_APPS, status_code=302)
+    return RedirectResponse(url=_PATH_APPS, status_code=302)
 
 
 # --- Auth ---
@@ -725,7 +758,7 @@ def login_page(
                 db.rollback()
             if not result.ok:
                 response = render(
-                    "auth/login.html",
+                    _TMPL_LOGIN,
                     **_ctx(
                         request,
                         settings,
@@ -770,7 +803,7 @@ def login_page(
     rd_is_absolute_subdomain = bool(rd_host and rd_host != portal_host)
     if "/auth/login" in rd_path or rd_path.rstrip("/") == "/login":
         rd_is_absolute_subdomain = False
-        rd = "/apps"
+        rd = _PATH_APPS
     # Set by subdomain @portal_redirect after auth_request 401. Never bounce back
     # to that Host — FastAPI would_allow can be true while nginx still 401s.
     sub_auth_denied = (request.query_params.get("bastion_sub") or "").strip() == "1"
@@ -800,7 +833,7 @@ def login_page(
         if rd_is_absolute_subdomain and not _subdomain_rd_safe():
             ae = (request.query_params.get("ae") or "").strip()
             if sub_auth_denied and ae == "oauth2-unreachable":
-                response = RedirectResponse(url="/apps", status_code=302)
+                response = RedirectResponse(url=_PATH_APPS, status_code=302)
                 from app.web.flash import flash_redirect
 
                 flash_redirect(
@@ -813,7 +846,7 @@ def login_page(
                 if native_ok and raw_session:
                     set_oidc_session_cookie(response, raw_session, settings)
                 return response
-            return RedirectResponse(url="/apps", status_code=302)
+            return RedirectResponse(url=_PATH_APPS, status_code=302)
         mirror_rd = redirect_via_subdomain_sso_mirror(
             rd, portal_domain=settings.portal_domain or ""
         )
@@ -827,7 +860,7 @@ def login_page(
     # subdomain rd= only when subdomain-auth would return 200 for that Host.
     if native_ok and raw_session:
         if rd_is_absolute_subdomain and not _subdomain_rd_safe():
-            response = RedirectResponse(url="/apps", status_code=302)
+            response = RedirectResponse(url=_PATH_APPS, status_code=302)
             set_oidc_session_cookie(response, raw_session, settings)
             return response
         mirror_rd = redirect_via_subdomain_sso_mirror(
@@ -839,7 +872,7 @@ def login_page(
 
     # Stale/invalid bastion_session + absolute rd would loop via @portal_redirect.
     if rd_is_absolute_subdomain:
-        rd = "/apps"
+        rd = _PATH_APPS
 
     surface = _login_surface_flags(request, db, settings, rd=rd)
     realm = get_default_idp_realm(db)
@@ -848,7 +881,7 @@ def login_page(
             return RedirectResponse(url=setup_url(rd), status_code=302)
         _log_breakglass_ip_denied(db, request, actor="setup", via="login_redirect")
         return render(
-            "auth/login.html",
+            _TMPL_LOGIN,
             **_ctx(
                 request,
                 settings,
@@ -861,7 +894,7 @@ def login_page(
         )
 
     return render(
-        "auth/login.html",
+        _TMPL_LOGIN,
         **_ctx(
             request,
             settings,
@@ -876,15 +909,15 @@ async def breakglass_login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    rd: str = Form("/apps"),
+    rd: str = Form(_PATH_APPS),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
     """HTML break-glass login (POST). Native OIDC BFF owns ``POST /auth/login``."""
     # Break-glass is never an end-user: default landing is admin dashboard.
-    safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/dashboard"
-    if safe_rd == "/apps":
-        safe_rd = "/dashboard"
+    safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else _PATH_DASHBOARD
+    if safe_rd == _PATH_APPS:
+        safe_rd = _PATH_DASHBOARD
 
     if not has_active_breakglass_account(db):
         raise HTTPException(status_code=403, detail="Initial setup required")
@@ -906,11 +939,11 @@ async def breakglass_login_post(
             request,
             settings,
             hide_chrome=True,
-            login_error="Identifiants invalides.",
+            login_error=_MSG_INVALID_CREDS,
             login_panel="local",
             **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
-        return render("auth/login.html", **ctx)
+        return render(_TMPL_LOGIN, **ctx)
 
     pre = evaluate_login_attempt(
         db, ip=client_ip, username=username, success=True
@@ -920,11 +953,11 @@ async def breakglass_login_post(
             request,
             settings,
             hide_chrome=True,
-            login_error="Identifiants invalides.",
+            login_error=_MSG_INVALID_CREDS,
             login_panel="local",
             **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
-        return render("auth/login.html", **ctx)
+        return render(_TMPL_LOGIN, **ctx)
 
     if not verify_breakglass_password(db, username, password):
         evaluate_login_attempt(
@@ -954,16 +987,16 @@ async def breakglass_login_post(
             request,
             settings,
             hide_chrome=True,
-            login_error="Identifiants invalides.",
+            login_error=_MSG_INVALID_CREDS,
             login_panel="local",
             **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
-        return render("auth/login.html", **ctx)
+        return render(_TMPL_LOGIN, **ctx)
 
     try:
         return _breakglass_login_response(username, request, settings, db, safe_rd)
     except RuntimeError as exc:
-        logger.error("breakglass login aborted: %s", exc)
+        logger.exception("breakglass login aborted: %s", exc)
         ctx = _ctx(
             request,
             settings,
@@ -972,7 +1005,7 @@ async def breakglass_login_post(
             login_panel="local",
             **_login_surface_flags(request, db, settings, rd=safe_rd),
         )
-        return render("auth/login.html", **ctx)
+        return render(_TMPL_LOGIN, **ctx)
 
 
 @router.get("/auth/setup")
@@ -982,7 +1015,7 @@ def setup_page(
     settings: Settings = Depends(get_settings),
 ):
     if get_default_idp_realm(db) or has_active_breakglass_account(db):
-        raise HTTPException(status_code=403, detail="Setup is locked")
+        raise HTTPException(status_code=403, detail=_MSG_SETUP_LOCKED)
     if not _is_breakglass_lan_allowed(request, db, settings):
         _log_breakglass_ip_denied(db, request, actor="setup", via="setup_get")
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -999,20 +1032,20 @@ async def setup_post(
     username: str = Form(...),
     password: str = Form(...),
     password_confirm: str = Form(...),
-    rd: str = Form("/dashboard"),
+    rd: str = Form(_PATH_DASHBOARD),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
     if get_default_idp_realm(db) or has_active_breakglass_account(db):
-        raise HTTPException(status_code=403, detail="Setup is locked")
+        raise HTTPException(status_code=403, detail=_MSG_SETUP_LOCKED)
     if not _is_breakglass_lan_allowed(request, db, settings):
         _log_breakglass_ip_denied(db, request, actor=username.strip() or "setup", via="setup_post")
         raise HTTPException(status_code=403, detail="Forbidden")
 
     # Setup always creates a break-glass admin — land on setup wizard.
-    safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else "/admin/setup-wizard"
-    if safe_rd in ("/apps", "/dashboard", "/admin/dashboard"):
-        safe_rd = "/admin/setup-wizard"
+    safe_rd = rd if rd.startswith("/") and not rd.startswith("//") else _PATH_SETUP_WIZARD
+    if safe_rd in (_PATH_APPS, _PATH_DASHBOARD, "/admin/dashboard"):
+        safe_rd = _PATH_SETUP_WIZARD
     username = username.strip()
     errors: list[str] = []
 
@@ -1039,7 +1072,7 @@ async def setup_post(
     try:
         create_initial_breakglass_account(db, username, password)
     except ValueError:
-        raise HTTPException(status_code=403, detail="Setup is locked") from None
+        raise HTTPException(status_code=403, detail=_MSG_SETUP_LOCKED) from None
 
     log_action(
         db,
@@ -1056,7 +1089,7 @@ def sso_start(
     settings: Settings = Depends(get_settings),
 ):
     realm = request.headers.get("X-Portal-Realm-Slug", settings.sso_portal_default_realm_slug)
-    rd = request.headers.get("X-Portal-OAuth2-Rd", "/apps")
+    rd = request.headers.get("X-Portal-OAuth2-Rd", _PATH_APPS)
     redirect_url = f"/oauth2/{realm}/start?rd={rd}"
     return render(
         "auth/sso_redirect.html",
@@ -1105,7 +1138,7 @@ def sso_failed(
         else "Connexion SSO échouée. Réessayez."
     )
     return render(
-        "auth/login.html",
+        _TMPL_LOGIN,
         **_ctx(
             request,
             settings,
@@ -1202,7 +1235,7 @@ def altcha_challenge_get(
     return JSONResponse(create_altcha_challenge(settings))
 
 
-@router.get("/auth/access-request")
+@router.get(_PATH_ACCESS_REQUEST)
 def access_request_get(
     request: Request,
     db: Session = Depends(get_db),
@@ -1212,7 +1245,7 @@ def access_request_get(
     return _access_request_page(request, settings, db)
 
 
-@router.post("/auth/access-request")
+@router.post(_PATH_ACCESS_REQUEST)
 def access_request_post(
     request: Request,
     db: Session = Depends(get_db),
@@ -1253,7 +1286,7 @@ def access_request_post(
             db,
             actor=(email or "").strip() or "honeypot",
             action="access_request.honeypot",
-            details={"path": "/auth/access-request"},
+            details={"path": _PATH_ACCESS_REQUEST},
             ip_address=client_ip,
         )
         return _access_request_page(
@@ -1274,7 +1307,7 @@ def access_request_post(
             db,
             actor=(email or "").strip() or "anonymous",
             action="access_request.rate_limited",
-            details={"path": "/auth/access-request", "retry_after": int(retry)},
+            details={"path": _PATH_ACCESS_REQUEST, "retry_after": int(retry)},
             ip_address=client_ip,
         )
         return _access_request_page(
@@ -1313,7 +1346,7 @@ def access_request_post(
             db,
             actor=(email or "").strip() or "anonymous",
             action="access_request.captcha_failed",
-            details={"path": "/auth/access-request", "kind": "altcha"},
+            details={"path": _PATH_ACCESS_REQUEST, "kind": "altcha"},
             ip_address=client_ip,
         )
         return _access_request_page(
@@ -1583,11 +1616,11 @@ def admin_dashboard(
 
     _ = (request, user)
     if get_setup_status(db, settings).needs_wizard:
-        return RedirectResponse(url="/admin/setup-wizard", status_code=302)
+        return RedirectResponse(url=_PATH_SETUP_WIZARD, status_code=302)
     return RedirectResponse(url="/admin/configuration", status_code=302)
 
 
-@admin_router.get("/admin/apps")
+@admin_router.get(_PATH_ADMIN_APPS)
 def admin_apps_list(
     request: Request,
     db: Session = Depends(get_db),
@@ -1623,7 +1656,7 @@ def admin_apps_delete(
 
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
-        raise HTTPException(status_code=404, detail="Application introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_APP_NOT_FOUND)
     label = app.label
     summary = purge_application(db, app, settings=settings)
     db.commit()
@@ -1642,7 +1675,7 @@ def admin_apps_delete(
     )
     secret = settings.vault_portal_internal_token or "dev"
     if not apply_req.get("ok"):
-        response = RedirectResponse(url="/admin/apps", status_code=302)
+        response = RedirectResponse(url=_PATH_ADMIN_APPS, status_code=302)
         flash_redirect(
             response,
             (
@@ -1654,7 +1687,7 @@ def admin_apps_delete(
         )
         return response
     return host_apply_wait_redirect(
-        next_path="/admin/apps",
+        next_path=_PATH_ADMIN_APPS,
         context_label=f"Application « {label} » supprimée.",
         audit_target=slug,
         audit_source="app.delete",
@@ -1909,7 +1942,7 @@ async def admin_access_request_approve_post(
         rid = int((realm_id or "").strip())
     except ValueError:
         response = RedirectResponse(
-            url="/admin/access-requests?status=pending", status_code=302
+            url=_PATH_ACCESS_PENDING, status_code=302
         )
         flash_redirect(response, "Choisissez un realm cible.", "error", secret)
         return response
@@ -1926,7 +1959,7 @@ async def admin_access_request_approve_post(
         )
     except AccessRequestError as exc:
         response = RedirectResponse(
-            url="/admin/access-requests?status=pending", status_code=302
+            url=_PATH_ACCESS_PENDING, status_code=302
         )
         flash_redirect(response, str(exc), "error", secret)
         return response
@@ -1972,7 +2005,7 @@ def admin_access_request_reject_post(
         )
     except AccessRequestError as exc:
         response = RedirectResponse(
-            url="/admin/access-requests?status=pending", status_code=302
+            url=_PATH_ACCESS_PENDING, status_code=302
         )
         flash_redirect(response, str(exc), "error", secret)
         return response
@@ -2169,7 +2202,7 @@ def admin_apps_edit(
         .count()
     )
     return render(
-        "admin/apps/edit.html",
+        _TMPL_APP_EDIT,
         **_ctx(
             request,
             settings,
@@ -2296,7 +2329,7 @@ def admin_apps_edit_post(
             .count()
         )
         return render(
-            "admin/apps/edit.html",
+            _TMPL_APP_EDIT,
             **_ctx(
                 request,
                 settings,
@@ -2357,7 +2390,7 @@ def admin_apps_edit_post(
             .count()
         )
         return render(
-            "admin/apps/edit.html",
+            _TMPL_APP_EDIT,
             **_ctx(
                 request,
                 settings,
@@ -2414,7 +2447,7 @@ def admin_apps_edit_post(
         },
     )
     if not apply_req.get("ok"):
-        response = RedirectResponse(url="/admin/apps", status_code=302)
+        response = RedirectResponse(url=_PATH_ADMIN_APPS, status_code=302)
         flash_redirect(
             response,
             (
@@ -2427,7 +2460,7 @@ def admin_apps_edit_post(
         )
         return response
     return host_apply_wait_redirect(
-        next_path="/admin/apps",
+        next_path=_PATH_ADMIN_APPS,
         context_label=f"Application '{label}' mise à jour.",
         audit_target=slug,
         audit_source="app.updated",
@@ -2532,7 +2565,7 @@ async def admin_app_crushftp_sync_companies(
                 {"ok": False, "errors": {"_form": msg}},
                 status_code=status,
             )
-        response = RedirectResponse(url="/admin/apps", status_code=302)
+        response = RedirectResponse(url=_PATH_ADMIN_APPS, status_code=302)
         flash_redirect(
             response,
             msg,
@@ -2543,7 +2576,7 @@ async def admin_app_crushftp_sync_companies(
 
     app = db.query(App).filter_by(slug=slug).first()
     if not app:
-        return _err("Application introuvable", 404)
+        return _err(_MSG_APP_NOT_FOUND, 404)
 
     # Parse form manually so JSON Accept + multipart never 500 on validation.
     try:
@@ -2592,7 +2625,7 @@ async def admin_app_crushftp_sync_companies(
     if err_n:
         msg += f", {err_n} erreur(s)"
     category = "warning" if err_n else "success"
-    response = RedirectResponse(url="/admin/apps", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_APPS, status_code=302)
     flash_redirect(
         response,
         msg,
@@ -2863,7 +2896,7 @@ async def admin_app_logo_upload(
     """Upload / replace app logo (admin only). Content-sniffed PNG/JPEG/WEBP, max 512 KB."""
     app = db.query(App).filter_by(id=app_id).first()
     if not app:
-        raise HTTPException(status_code=404, detail="Application introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_APP_NOT_FOUND)
     raw = await file.read()
     try:
         save_app_logo(app, raw)
@@ -2883,7 +2916,7 @@ def admin_app_logo_delete(
     """Remove logo and fall back to tile_icon / generic icon on the portal."""
     app = db.query(App).filter_by(id=app_id).first()
     if not app:
-        raise HTTPException(status_code=404, detail="Application introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_APP_NOT_FOUND)
     clear_app_logo(app)
     db.commit()
     log_action(db, actor=user.email, action="app.logo_removed", target=app.slug)
@@ -3214,7 +3247,7 @@ def admin_security_hot_store_config(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import save_hot_store_config
 
-    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
     try:
         save_hot_store_config(
             db,
@@ -3254,7 +3287,7 @@ def admin_security_hot_store_provision(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import provision_hot_store
 
-    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
     try:
         result = provision_hot_store(
             db,
@@ -3304,7 +3337,7 @@ def admin_security_hot_store_test(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import test_hot_store_config
 
-    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
     actor = admin.email or admin.username or "admin"
     try:
         result = test_hot_store_config(
@@ -3337,7 +3370,7 @@ def admin_security_hot_store_prepare(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import prepare_hot_store_schema
 
-    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
     try:
         prepare_hot_store_schema(
             db,
@@ -3363,7 +3396,7 @@ def admin_security_hot_store_migrate(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import run_hot_store_migrate
 
-    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
     try:
         counts = run_hot_store_migrate(
             db,
@@ -3395,7 +3428,7 @@ def admin_security_hot_store_skip_migrate(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import skip_hot_store_migrate
 
-    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
     try:
         skip_hot_store_migrate(
             db,
@@ -3425,7 +3458,7 @@ def admin_security_hot_store_enable(
     from app.db.hot_store import HotStoreError
     from app.db.hot_store_service import set_hot_store_enabled
 
-    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
     want = str(enabled).strip().lower() in ("1", "true", "on", "yes")
     try:
         set_hot_store_enabled(
@@ -3460,7 +3493,7 @@ def admin_hot_store_realign(
     signal, whose host script already ends with `docker compose up -d`; nothing
     new is granted, and no secret leaves the application.
     """
-    response = RedirectResponse(url="/admin/configuration#hot-store", status_code=302)
+    response = RedirectResponse(url=_PATH_HOT_STORE, status_code=302)
     signal = request_host_apply(settings)
     if not signal.get("ok"):
         return _hot_store_flash(
@@ -3481,7 +3514,7 @@ def admin_hot_store_realign(
         details={"channel": "apply-infra"},
     )
     return host_apply_wait_redirect(
-        next_path="/admin/configuration#hot-store",
+        next_path=_PATH_HOT_STORE,
         context_label="Réalignement du mot de passe PostgreSQL",
         audit_target="postgres",
         audit_source="hot_store.realign",
@@ -3508,7 +3541,7 @@ def admin_security_container_logs(
         actor=user.email or user.username or "admin",
         ip_address=_client_ip(request),
     )
-    response = RedirectResponse(url="/admin/security#container-logs", status_code=302)
+    response = RedirectResponse(url=_PATH_CONTAINER_LOGS, status_code=302)
     flash_redirect(
         response,
         "Paramètres logs containers enregistrés.",
@@ -3540,7 +3573,7 @@ async def admin_security_container_logs_test(
             {"ok": ok, "message": message, "lines": lines, "container": container},
             status_code=200 if ok else 400,
         )
-    response = RedirectResponse(url="/admin/security#container-logs", status_code=302)
+    response = RedirectResponse(url=_PATH_CONTAINER_LOGS, status_code=302)
     flash_redirect(
         response,
         message,
@@ -3570,7 +3603,7 @@ def admin_security_container_logs_add(
         msg, kind = "Container ajouté à la liste blanche.", "success"
     except ValueError:
         msg, kind = "Nom de container invalide.", "error"
-    response = RedirectResponse(url="/admin/security#container-logs", status_code=302)
+    response = RedirectResponse(url=_PATH_CONTAINER_LOGS, status_code=302)
     flash_redirect(
         response,
         msg,
@@ -3596,7 +3629,7 @@ def admin_security_container_logs_remove(
         actor=user.email or user.username or "admin",
         ip_address=_client_ip(request),
     )
-    response = RedirectResponse(url="/admin/security#container-logs", status_code=302)
+    response = RedirectResponse(url=_PATH_CONTAINER_LOGS, status_code=302)
     flash_redirect(
         response,
         "Container retiré de la liste blanche.",
@@ -3778,7 +3811,7 @@ def admin_security_banning_rules(
         actor=user.email or user.username or "admin",
         ip_address=_client_ip(request),
     )
-    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    response = RedirectResponse(url=_PATH_BANNING, status_code=302)
     flash_redirect(
         response,
         "Règles anti-abus enregistrées.",
@@ -3815,7 +3848,7 @@ def admin_security_banning_add(
         actor=user.email or user.username or "admin",
         ip_address=_client_ip(request),
     )
-    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    response = RedirectResponse(url=_PATH_BANNING, status_code=302)
     if ban is None and permanent and confirm_permanent != "on":
         flash_redirect(
             response,
@@ -3856,7 +3889,7 @@ def admin_security_banning_lift(
         actor=user.email or user.username or "admin",
         ip_address=_client_ip(request),
     )
-    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    response = RedirectResponse(url=_PATH_BANNING, status_code=302)
     flash_redirect(
         response,
         "Ban levé.",
@@ -3890,7 +3923,7 @@ def admin_security_allowlist_add(
         msg, level = "Entrée ajoutée à la liste blanche.", "success"
     except ValueError as exc:
         msg, level = str(exc), "error"
-    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    response = RedirectResponse(url=_PATH_BANNING, status_code=302)
     flash_redirect(
         response,
         msg,
@@ -3916,7 +3949,7 @@ def admin_security_allowlist_remove(
         actor=user.email or user.username or "admin",
         ip_address=_client_ip(request),
     )
-    response = RedirectResponse(url="/admin/security#banning", status_code=302)
+    response = RedirectResponse(url=_PATH_BANNING, status_code=302)
     flash_redirect(
         response,
         "Entrée retirée de la liste blanche.",
@@ -3987,7 +4020,7 @@ def admin_security_breakglass_jwt_secret_generate(
 
 @admin_router.get("/admin/security/vault-key")
 def admin_security_vault_key_redirect():
-    return RedirectResponse(url="/admin/security#vault", status_code=302)
+    return RedirectResponse(url=_PATH_VAULT, status_code=302)
 
 
 @admin_router.post("/admin/security/vault-key/rotate")
@@ -4001,7 +4034,7 @@ def admin_security_vault_key_rotate(
     from app.vault.key_rotation_service import KeyRotationError, rotate_application_key
 
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/security#vault", status_code=302)
+    response = RedirectResponse(url=_PATH_VAULT, status_code=302)
     if confirm != "on":
         flash_redirect(
             response,
@@ -4045,7 +4078,7 @@ def admin_security_vault_key_cadence(
     from app.portal_settings_service import set_vault_key_rotation_days
 
     token = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/admin/security#vault", status_code=302)
+    response = RedirectResponse(url=_PATH_VAULT, status_code=302)
     days = max(1, min(3650, int(rotation_days)))
     set_vault_key_rotation_days(
         db,
@@ -4079,7 +4112,7 @@ def admin_security_vault_key_export(
     )
 
     if passphrase != passphrase_confirm:
-        response = RedirectResponse(url="/admin/security#vault", status_code=302)
+        response = RedirectResponse(url=_PATH_VAULT, status_code=302)
         flash_redirect(
             response,
             "Export annulé : les passphrases ne correspondent pas.",
@@ -4090,7 +4123,7 @@ def admin_security_vault_key_export(
     try:
         payload = export_active_key_backup(settings, passphrase)
     except EncryptionKeyStoreError as exc:
-        response = RedirectResponse(url="/admin/security#vault", status_code=302)
+        response = RedirectResponse(url=_PATH_VAULT, status_code=302)
         flash_redirect(
             response,
             str(exc),

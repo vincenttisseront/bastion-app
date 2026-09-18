@@ -6,6 +6,8 @@ import html
 import math
 from typing import Any
 
+_SVG_CLOSE = "</svg>"
+
 
 def _esc(text: Any) -> str:
     return html.escape(str(text), quote=True)
@@ -55,7 +57,7 @@ def _empty_panel(
         f'viewBox="0 0 {width} {height}" width="100%" height="{height}" '
         f'role="img" aria-label="{_esc(title)}">'
         f'<rect class="waf-chart-bg" width="{width}" height="{height}" rx="8"/>'
-        f"{inner}</svg>"
+        f"{inner}{_SVG_CLOSE}"
     )
 
 
@@ -121,7 +123,7 @@ def render_series_chart(
                 f'<text class="waf-chart-axis" x="{x + bar_w // 2}" y="{height - 10}" '
                 f'text-anchor="middle">{_esc(str(point.get("label", ""))[:5])}</text>'
             )
-    parts.append("</svg>")
+    parts.append(_SVG_CLOSE)
     return "".join(parts)
 
 
@@ -148,7 +150,7 @@ def render_horizontal_bars(
             f'x2="{width - 24}" y2="52"/>'
             f'<text class="waf-chart-axis" x="{label_col_w}" y="48">0</text>'
             f'<text class="waf-chart-legend" x="16" y="72">Aucune entrée sur la période</text>'
-            f"</svg>"
+            + _SVG_CLOSE
         )
     inner_h = max(60, 36 + len(items) * row_height)
     height = inner_h + 8
@@ -185,7 +187,7 @@ def render_horizontal_bars(
         parts.append(
             f'<text class="waf-chart-hbar-val" x="{bar_x + bw + 8}" y="{y + 15}">{val}</text>'
         )
-    parts.append("</svg>")
+    parts.append(_SVG_CLOSE)
     return "".join(parts)
 
 
@@ -222,7 +224,7 @@ def render_donut_chart(
         parts.append(
             f'<text class="waf-chart-legend" x="180" y="{height // 2 + 4}">Aucune famille détectée</text>'
         )
-        parts.append("</svg>")
+        parts.append(_SVG_CLOSE)
         return "".join(parts)
 
     start = -math.pi / 2
@@ -264,7 +266,7 @@ def render_donut_chart(
             f'{_esc(it.get(label_key, ""))} ({val})</text>'
         )
         ly += 18
-    parts.append("</svg>")
+    parts.append(_SVG_CLOSE)
     return "".join(parts)
 
 
@@ -380,7 +382,7 @@ def render_dual_area_chart(
                 f'<circle class="sentinel-dot-secondary" cx="{x:.1f}" cy="{sy:.1f}" r="3">'
                 f'<title>{lbl}: {_esc(secondary_label)} {s_vals[i]}</title></circle>'
             )
-    parts.append("</svg>")
+    parts.append(_SVG_CLOSE)
     return "".join(parts)
 
 
@@ -406,7 +408,7 @@ def render_health_gauge(
         f'transform="rotate(-90 {cx} {cy})"/>',
         f'<text class="sentinel-gauge-value" x="{cx}" y="{cy + 2}" text-anchor="middle">{score}</text>',
         f'<text class="sentinel-gauge-label" x="{cx}" y="{cy + 18}" text-anchor="middle">/100</text>',
-        "</svg>",
+        _SVG_CLOSE,
     ]
     return "".join(parts)
 
@@ -463,7 +465,7 @@ def render_attack_heatmap(
                 f'<text class="sentinel-chart-axis" x="{x:.1f}" y="{height - 6}" '
                 f'text-anchor="middle">{_esc(str(col_labels[ci])[:4])}</text>'
             )
-    parts.append("</svg>")
+    parts.append(_SVG_CLOSE)
     return "".join(parts)
 
 

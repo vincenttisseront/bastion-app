@@ -30,6 +30,13 @@ from app.sso_settings import Settings, get_settings
 from app.web.flash import base_template_context
 from app.web.templates import render
 from app.web.user_context import UserContext, require_user_enriched
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +146,7 @@ async def files_list_alias(
     return await api_list_folder(folder_id, q, db, settings, user)
 
 
-@router.post("/files/folders")
+@router.post("/files/folders", responses=RESP_403)
 async def files_create_folder(
     request: Request,
     name: str = Form(...),
@@ -267,7 +274,7 @@ async def files_upload(
     )
 
 
-@router.get("/files/versions/{file_id}")
+@router.get("/files/versions/{file_id}", responses=RESP_403 | RESP_404)
 async def files_versions(
     file_id: int,
     db: Session = Depends(get_db),
@@ -311,7 +318,7 @@ async def files_versions(
     )
 
 
-@router.patch("/files/versions/{version_id}/channel")
+@router.patch("/files/versions/{version_id}/channel", responses=RESP_403 | RESP_404)
 async def files_version_channel(
     version_id: int,
     request: Request,
@@ -356,7 +363,7 @@ async def files_version_channel(
     )
 
 
-@router.patch("/files/versions/{version_id}")
+@router.patch("/files/versions/{version_id}", responses=RESP_403 | RESP_404)
 async def files_version_patch(
     version_id: int,
     request: Request,
@@ -509,7 +516,7 @@ async def files_download_by_slug(
     return await files_download_version(version.id, request, db, settings, user)
 
 
-@router.patch("/files/{file_id}/rename")
+@router.patch("/files/{file_id}/rename", responses=RESP_403 | RESP_404)
 async def files_rename(
     file_id: int,
     request: Request,
@@ -548,7 +555,7 @@ async def files_rename(
     return JSONResponse({"ok": True, "file": {"id": fr.id, "label": fr.label}})
 
 
-@router.delete("/files/{file_id}")
+@router.delete("/files/{file_id}", responses=RESP_403 | RESP_404)
 async def files_archive(
     file_id: int,
     request: Request,

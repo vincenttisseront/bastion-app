@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -503,6 +503,20 @@ def is_portal_admin(
         keycloak_user_id=user.keycloak_user_id,
         group_names=user.groups,
     )
+
+
+def elevate_portal_admin(
+    user: UserContext,
+    db: Session | None = None,
+    settings: Settings | None = None,
+) -> UserContext:
+    """Return a copy with ``is_admin`` set when the user is a portal admin.
+
+    Avoids mutating the Depends-injected ``UserContext`` (python:S5717).
+    """
+    if is_portal_admin(user, db, settings):
+        return replace(user, is_admin=True)
+    return user
 
 
 def require_user(
