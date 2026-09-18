@@ -22,6 +22,7 @@
       role="button"
       tabindex="0"
       aria-label="{{ _('Déposer un fichier') }}"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}"
     >
       <div class="file-dropzone-inner" id="file-dropzone-empty">
         <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" aria-hidden="true">
@@ -339,9 +340,6 @@
   function openPicker() { input.click(); }
 
   dropzone.addEventListener('click', openPicker);
-  dropzone.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(); }
-  });
   dropzone.addEventListener('dragover', function (e) {
     e.preventDefault();
     dropzone.classList.add('file-dropzone--active');

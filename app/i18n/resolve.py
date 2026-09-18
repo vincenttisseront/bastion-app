@@ -80,12 +80,12 @@ def locale_from_headers(headers: Headers) -> str:
 
 def set_locale_cookie(response: Response, locale: str, *, secure: bool = False) -> str:
     loc = normalize_locale(locale) or DEFAULT_LOCALE
-    response.set_cookie(
+    # JS locale switcher reads document.cookie — HttpOnly would break the mirror.
+    response.set_cookie(  # NOSONAR python:S3330
         key=LOCALE_COOKIE,
         value=loc,
         max_age=LOCALE_COOKIE_MAX_AGE,
-        # JS locale switcher reads document.cookie — HttpOnly would break the mirror.
-        httponly=False,  # NOSONAR python:S3330
+        httponly=False,
         samesite="lax",
         path="/",
         secure=secure,

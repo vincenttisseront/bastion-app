@@ -332,7 +332,8 @@
                        placeholder="{{ _('Passphrase (≥ 12 car.)') }}" autocomplete="new-password" required minlength="12">
               </div>
               <div class="form-group">
-                <input class="form-input" type="password" name="passphrase_confirm"
+                <label class="form-label" for="export_passphrase_confirm">{{ _('Confirmer la passphrase') }}</label>
+                <input class="form-input" type="password" name="passphrase_confirm" id="export_passphrase_confirm"
                        placeholder="{{ _('Confirmer la passphrase') }}" autocomplete="new-password" required minlength="12">
                 <p class="form-help">{{ _("La passphrase n'est jamais stockée. Conservez le fichier hors du serveur.") }}</p>
               </div>

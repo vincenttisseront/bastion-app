@@ -207,7 +207,8 @@
         <thead>
           <tr>
             <th style="width:2rem;">
-              <input type="checkbox" data-bulk-select-page title="{{ _('Sélectionner la page') }}">
+              <input type="checkbox" data-bulk-select-page title="{{ _('Sélectionner la page') }}"
+                     aria-label="{{ _('Sélectionner la page') }}">
             </th>
             <th>{{ _('Identité') }}</th>
             <th>{{ _('Société') }}</th>
@@ -223,7 +224,8 @@
           {% set prov_ok = prov_rows | selectattr('status', 'equalto', 'success') | list %}
           <tr>
             <td>
-              <input type="checkbox" form="users-bulk-form" name="account_ids" value="{{ a.id }}" data-bulk-row>
+              <input type="checkbox" form="users-bulk-form" name="account_ids" value="{{ a.id }}" data-bulk-row
+                     aria-label="{{ _('Sélectionner') }} {{ a.username }}">
             </td>
             <td>
               <div class="users-id-name">{{ a.username }}</div>

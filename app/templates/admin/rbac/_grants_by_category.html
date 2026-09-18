@@ -15,6 +15,15 @@
 {% if not grant_rows %}
 <div class="table-wrap" style="border:none;border-radius:0;">
   <table class="data-table">
+    <thead>
+      <tr>
+        <th>{{ _('Ressource') }}</th>
+        <th>{{ _('Niveau') }}</th>
+        {% if show_granted_by %}<th>{{ _('Accordé par') }}</th>{% endif %}
+        {% if show_source %}<th>{{ _('Source') }}</th>{% endif %}
+        {% if show_actions %}<th>{{ _('Actions') }}</th>{% endif %}
+      </tr>
+    </thead>
     <tbody>
       <tr>
         <td colspan="{{ col_span }}">

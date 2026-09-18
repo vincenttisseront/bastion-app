@@ -62,6 +62,7 @@
       role="button"
       tabindex="0"
       aria-label="{{ _('Déposer un logo') }}"
+      onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();var i=document.getElementById('logo-file');if(i)i.click();}"
     >
       <div class="logo-dropzone-preview">
         <img

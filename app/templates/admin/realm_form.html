@@ -219,8 +219,8 @@
           </div>
           {% if realm and form_values.redirect_uri %}
           <div class="form-group">
-            <label class="form-label">{{ _('Redirect URI') }}</label>
-            <input type="text" class="form-input" value="{{ form_values.redirect_uri }}" readonly>
+            <label class="form-label" for="oidc_redirect_uri_ro">{{ _('Redirect URI') }}</label>
+            <input type="text" id="oidc_redirect_uri_ro" class="form-input" value="{{ form_values.redirect_uri }}" readonly>
             <p class="form-hint">{{ _('Calculé automatiquement — lecture seule') }}</p>
           </div>
           {% endif %}

@@ -88,12 +88,13 @@
         </div>
       </div>
       {% if not account.keycloak_user_id %}
-      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak" onclick="event.stopPropagation();">
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/retry-keycloak"
+            onclick="event.stopPropagation();" onkeydown="event.stopPropagation();">
         <button type="submit" class="btn btn-primary btn-sm">Relancer Keycloak</button>
       </form>
       {% else %}
       <form method="post" action="/admin/rbac/accounts/{{ account.id }}/reset-password"
-            onclick="event.stopPropagation();"
+            onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
             style="display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center;">
         <label class="form-check" style="margin:0;">
           <input type="checkbox" name="send_email" value="1"
@@ -104,7 +105,7 @@
                 data-confirm="Réinitialiser le mot de passe Keycloak de « {{ account.username }} » ?">Reset password</button>
       </form>
       <form method="post" action="/admin/rbac/accounts/{{ account.id }}/verify-email"
-            onclick="event.stopPropagation();"
+            onclick="event.stopPropagation();" onkeydown="event.stopPropagation();"
             style="display:inline;">
         <button type="submit" class="btn btn-ghost btn-sm"
                 data-confirm="Marquer l’email de « {{ account.username }} » comme vérifié dans Keycloak ?">{{ _('Vérifier email') }}</button>
@@ -239,7 +240,8 @@
         </div>
       </div>
       {% if (failed_rows or pending_apps) and account.keycloak_user_id %}
-      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision-retry-all" onclick="event.stopPropagation();">
+      <form method="post" action="/admin/rbac/accounts/{{ account.id }}/provision-retry-all"
+            onclick="event.stopPropagation();" onkeydown="event.stopPropagation();">
         <button type="submit" class="btn btn-ghost btn-sm">{{ _('Relancer les échecs') }}</button>
       </form>
       {% endif %}

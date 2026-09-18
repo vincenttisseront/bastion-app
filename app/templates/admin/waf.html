@@ -755,7 +755,7 @@
         <input type="hidden" name="scope_kind" id="waf_ex_scope_kind" value="args">
 
         <div class="form-group" id="waf-ex-target-wrap">
-          <label class="form-label" for="waf_ex_collection">{{ _('Variable à ignorer') }}</label>
+          <label class="form-label" for="waf_ex_target">{{ _('Variable à ignorer') }}</label>
           <div class="form-row" style="align-items:center;gap:.5rem">
             <select class="form-select is-mono" id="waf_ex_collection" aria-label="{{ _('Type de variable') }}">
               <option value="args" selected>{{ _('ARGS (paramètre)') }}</option>
@@ -764,7 +764,8 @@
               <option value="headers">REQUEST_HEADERS</option>
             </select>
             <input class="form-input is-mono" type="text" id="waf_ex_target" name="target_name"
-                   placeholder="search_term" pattern="[A-Za-z0-9._-]*" maxlength="128">
+                   placeholder="search_term" pattern="[A-Za-z0-9._-]*" maxlength="128"
+                   aria-label="{{ _('Nom de la variable') }}">
           </div>
           <p class="form-help">Ex. <code class="mono">ARGS</code> + <code class="mono">content</code> → <code class="mono">ctl:ruleRemoveTargetById=…;ARGS:content</code></p>
         </div>
@@ -1014,6 +1015,7 @@
             <a class="btn btn-secondary btn-sm" href="/admin/security/waf/diagnostic.json" download>{{ _('Télécharger .json') }}</a>
             <span class="form-help muted" id="waf-diag-copy-status" aria-live="polite"></span>
           </div>
+          <label class="form-label" for="waf-diagnostic-json">{{ _('Export JSON diagnostic') }}</label>
           <textarea id="waf-diagnostic-json" class="form-input is-mono waf-diagnostic-json" readonly rows="18" spellcheck="false">{{ diagnostic_export_json }}</textarea>
         </div>
       </div>
