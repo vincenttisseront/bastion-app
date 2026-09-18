@@ -6,7 +6,7 @@
     var target = null;
     for (var i = 0; i < panels.length; i++) {
       var panel = panels[i];
-      var match = panel.getAttribute('data-login-panel') === name;
+      var match = panel.dataset.loginPanel === name;
       if (match) {
         panel.hidden = false;
         target = panel;
@@ -14,7 +14,7 @@
         panel.hidden = true;
       }
     }
-    root.setAttribute('data-active-panel', name);
+    root.dataset.activePanel = name;
     if (!target) return;
     var focusable = target.querySelector(
       'input:not([type="hidden"]):not([disabled]), button.login-sso-cta, a.login-sso-cta'
@@ -33,7 +33,7 @@
     for (var i = 0; i < toggles.length; i++) {
       (function (btn) {
         btn.addEventListener('click', function () {
-          var id = btn.getAttribute('data-password-toggle');
+          var id = btn.dataset.passwordToggle;
           var input = id ? document.getElementById(id) : null;
           if (!input) return;
           var show = input.type === 'password';
@@ -55,7 +55,7 @@
       var btn = event.target.closest('[data-login-show]');
       if (!btn || !root.contains(btn)) return;
       event.preventDefault();
-      showPanel(root, btn.getAttribute('data-login-show') || 'sso');
+      showPanel(root, btn.dataset.loginShow || 'sso');
     });
   }
 
@@ -75,7 +75,7 @@
   }
 
   function selectRealm(root, btn) {
-    var slug = btn.getAttribute('data-login-realm') || '';
+    var slug = btn.dataset.loginRealm || '';
     if (!slug || btn.classList.contains('is-active')) return;
     // Full navigation: native form vs oauth2 CTA differ per realm.
     try {
@@ -127,7 +127,7 @@
   function init() {
     var root = document.querySelector('[data-login-root]');
     if (!root) return;
-    var initial = root.getAttribute('data-initial-panel') || 'sso';
+    var initial = root.dataset.initialPanel || 'sso';
     showPanel(root, initial);
     bindPanelSwitch(root);
     bindPasswordToggles(root);

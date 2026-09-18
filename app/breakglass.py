@@ -911,6 +911,29 @@ def validate_breakglass_cookie(
     return _jti_allowed(payload, db)
 
 
+def _resolve_refresh_payload(
+    cookie_value: str,
+    *,
+    secret: str | None,
+    db: Session | None,
+    settings: Settings | None,
+) -> tuple[dict[str, Any], str] | None:
+    """Validate cookie and return (payload, signing_secret) for idle refresh."""
+    if settings is not None:
+        payload, _used_fallback = decode_breakglass_token_with_fallback(
+            cookie_value, settings, db=db
+        )
+        if payload is None or not _jti_allowed(payload, db):
+            return None
+        return payload, resolve_breakglass_signing_secret(settings, db=db)
+    if not secret or not validate_breakglass_cookie(cookie_value, secret, db=db):
+        return None
+    payload = decode_breakglass_token(cookie_value, secret)
+    if payload is None:
+        return None
+    return payload, secret
+
+
 def maybe_refresh_breakglass_cookie(
     cookie_value: str,
     secret: str | None = None,
@@ -926,20 +949,12 @@ def maybe_refresh_breakglass_cookie(
     the refreshed token is always signed with ``resolve_breakglass_signing_secret``
     (upgrades old cookies to the active dedicated HMAC key).
     """
-    if settings is not None:
-        payload, _used_fallback = decode_breakglass_token_with_fallback(
-            cookie_value, settings, db=db
-        )
-        if payload is None or not _jti_allowed(payload, db):
-            return None
-        sign_secret = resolve_breakglass_signing_secret(settings, db=db)
-    else:
-        if not secret or not validate_breakglass_cookie(cookie_value, secret, db=db):
-            return None
-        payload = decode_breakglass_token(cookie_value, secret)
-        if payload is None:
-            return None
-        sign_secret = secret
+    resolved = _resolve_refresh_payload(
+        cookie_value, secret=secret, db=db, settings=settings
+    )
+    if resolved is None:
+        return None
+    payload, sign_secret = resolved
 
     jti = payload.get("jti")
     if not jti:

@@ -362,6 +362,39 @@ def render_dual_area_chart(
     parts.append(f'<path class="sentinel-area-secondary" d="{_area_path(s_vals)}"/>')
     parts.append(f'<polyline class="sentinel-line-primary" fill="none" points="{_points(p_vals)}"/>')
     parts.append(f'<polyline class="sentinel-line-secondary" fill="none" points="{_points(s_vals)}"/>')
+    _append_dual_series_markers(
+        parts,
+        series=series,
+        p_vals=p_vals,
+        s_vals=s_vals,
+        pad_l=pad_l,
+        pad_t=pad_t,
+        chart_h=chart_h,
+        step=step,
+        max_v=max_v,
+        height=height,
+        primary_label=primary_label,
+        secondary_label=secondary_label,
+    )
+    parts.append(_SVG_CLOSE)
+    return "".join(parts)
+
+
+def _append_dual_series_markers(
+    parts: list[str],
+    *,
+    series: list[dict[str, Any]],
+    p_vals: list[int],
+    s_vals: list[int],
+    pad_l: float,
+    pad_t: float,
+    chart_h: float,
+    step: float,
+    max_v: int,
+    height: int,
+    primary_label: str,
+    secondary_label: str,
+) -> None:
     for i, point in enumerate(series):
         if len(series) <= 12 or i % max(1, len(series) // 6) == 0:
             x = pad_l + i * step
@@ -369,21 +402,20 @@ def render_dual_area_chart(
                 f'<text class="sentinel-chart-axis" x="{x:.1f}" y="{height - 12}" '
                 f'text-anchor="middle">{_esc(str(point.get("label", ""))[:5])}</text>'
             )
-        if i < len(p_vals):
-            x = pad_l + i * step
-            py = pad_t + chart_h - int((p_vals[i] / max_v) * chart_h)
-            sy = pad_t + chart_h - int((s_vals[i] / max_v) * chart_h)
-            lbl = _esc(str(point.get("label", "")))
-            parts.append(
-                f'<circle class="sentinel-dot-primary" cx="{x:.1f}" cy="{py:.1f}" r="3">'
-                f'<title>{lbl}: {_esc(primary_label)} {p_vals[i]}</title></circle>'
-            )
-            parts.append(
-                f'<circle class="sentinel-dot-secondary" cx="{x:.1f}" cy="{sy:.1f}" r="3">'
-                f'<title>{lbl}: {_esc(secondary_label)} {s_vals[i]}</title></circle>'
-            )
-    parts.append(_SVG_CLOSE)
-    return "".join(parts)
+        if i >= len(p_vals):
+            continue
+        x = pad_l + i * step
+        py = pad_t + chart_h - int((p_vals[i] / max_v) * chart_h)
+        sy = pad_t + chart_h - int((s_vals[i] / max_v) * chart_h)
+        lbl = _esc(str(point.get("label", "")))
+        parts.append(
+            f'<circle class="sentinel-dot-primary" cx="{x:.1f}" cy="{py:.1f}" r="3">'
+            f'<title>{lbl}: {_esc(primary_label)} {p_vals[i]}</title></circle>'
+        )
+        parts.append(
+            f'<circle class="sentinel-dot-secondary" cx="{x:.1f}" cy="{sy:.1f}" r="3">'
+            f'<title>{lbl}: {_esc(secondary_label)} {s_vals[i]}</title></circle>'
+        )
 
 
 def render_health_gauge(

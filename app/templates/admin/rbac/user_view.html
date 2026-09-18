@@ -730,18 +730,18 @@
   var panels = document.querySelectorAll('.user-fiche-panel[data-panel]');
   function activate(name) {
     tabs.forEach(function (t) {
-      var on = t.getAttribute('data-tab') === name;
+      var on = t.dataset.tab === name;
       t.classList.toggle('active', on);
       t.setAttribute('aria-selected', on ? 'true' : 'false');
     });
     panels.forEach(function (p) {
-      p.hidden = p.getAttribute('data-panel') !== name;
+      p.hidden = p.dataset.panel !== name;
     });
   }
   tabs.forEach(function (t) {
     t.addEventListener('click', function (e) {
       e.preventDefault();
-      var name = t.getAttribute('data-tab');
+      var name = t.dataset.tab;
       activate(name);
       if (history.replaceState) history.replaceState(null, '', '#' + name);
     });
@@ -752,7 +752,7 @@
 
   document.querySelectorAll('[data-copy-device]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var full = btn.getAttribute('data-device-id') || '';
+      var full = btn.dataset.deviceId || '';
       if (!navigator.clipboard || !navigator.clipboard.writeText) return;
       var previous = btn.textContent;
       navigator.clipboard.writeText(full).then(function () {
@@ -851,13 +851,13 @@
   }
   document.querySelectorAll('[data-vault-configure]').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var row = formRow(btn.getAttribute('data-vault-configure'));
+      var row = formRow(btn.dataset.vaultConfigure);
       if (row) row.hidden = !row.hidden;
     });
   });
   document.querySelectorAll('[data-vault-save]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
-      var slug = btn.getAttribute('data-vault-save');
+      var slug = btn.dataset.vaultSave;
       var row = formRow(slug);
       var username = row.querySelector('[data-vault-user]').value.trim();
       var password = row.querySelector('[data-vault-pass]').value;
@@ -901,7 +901,7 @@
   });
   document.querySelectorAll('[data-vault-clear]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
-      var slug = btn.getAttribute('data-vault-clear');
+      var slug = btn.dataset.vaultClear;
       var confirmed = window.bastionConfirm
         ? await window.bastionConfirm({
             title: 'Supprimer le credential',
@@ -933,7 +933,7 @@
   });
   document.querySelectorAll('[data-vault-test]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
-      var slug = btn.getAttribute('data-vault-test');
+      var slug = btn.dataset.vaultTest;
       btn.disabled = true;
       setMsg(slug, 'Test en cours (mot de passe chargé depuis le vault)…', 'warn');
       try {

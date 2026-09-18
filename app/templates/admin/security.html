@@ -1277,7 +1277,7 @@
       panel.setAttribute('aria-hidden', on ? 'false' : 'true');
     });
     document.querySelectorAll('#security-tabs .tab').forEach(function (tab) {
-      var on = tab.getAttribute('data-tab') === id;
+      var on = tab.dataset.tab === id;
       tab.classList.toggle('active', on);
       tab.setAttribute('aria-selected', on ? 'true' : 'false');
     });
@@ -1302,7 +1302,7 @@
     }
 
     function refreshSummary(rule) {
-      var kind = rule.getAttribute('data-summary-kind');
+      var kind = rule.dataset.summaryKind;
       var enabled = rule.querySelector('[data-banning-enabled]');
       var summary = rule.querySelector('[data-banning-summary]');
       if (!summary || !enabled) return;
@@ -1398,7 +1398,7 @@
 
     document.querySelectorAll('[data-banning-modal-open]').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        openModal(btn.getAttribute('data-banning-modal-open'));
+        openModal(btn.dataset.banningModalOpen);
       });
     });
     document.querySelectorAll('[data-banning-modal-dismiss]').forEach(function (el) {
@@ -1489,7 +1489,7 @@
   var enabled = document.getElementById('subdomain_sso_enabled');
   var ackGroup = document.getElementById('infra-ack-group');
   var ack = document.getElementById('infra_ack');
-  var wasEnabled = enabled && enabled.getAttribute('data-was-enabled') === '1';
+  var wasEnabled = enabled && enabled.dataset.wasEnabled === '1';
   var bypassConfirm = false;
 
   function syncAck() {
@@ -1505,8 +1505,8 @@
     var list = [];
     document.querySelectorAll('#subdomain-sso .data-table tbody tr[data-app-label]').forEach(function (tr) {
       list.push({
-        label: tr.getAttribute('data-app-label') || '',
-        detail: tr.getAttribute('data-app-fqdn') || '—',
+        label: tr.dataset.appLabel || '',
+        detail: tr.dataset.appFqdn || '—',
       });
     });
     return list;
@@ -1553,9 +1553,9 @@
   if (!shell || !shellBody || !shellStatus) return;
 
   async function runTest(btn) {
-    var url = (btn && btn.getAttribute('data-test-url')) || '/admin/security/container-logs/test';
-    var csrf = (btn && btn.getAttribute('data-csrf')) || '';
-    var container = (btn && btn.getAttribute('data-container')) || '';
+    var url = (btn && btn.dataset.testUrl) || '/admin/security/container-logs/test';
+    var csrf = (btn && btn.dataset.csrf) || '';
+    var container = (btn && btn.dataset.container) || '';
     if (!container && containerSelect) container = containerSelect.value || '';
 
     shell.hidden = false;

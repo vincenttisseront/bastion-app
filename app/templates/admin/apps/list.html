@@ -168,7 +168,7 @@ document.addEventListener('DOMContentLoaded', function () {
     form.addEventListener('submit', function (e) {
       if (form.dataset.confirmed === '1') return;
       e.preventDefault();
-      var label = form.getAttribute('data-app-label') || 'cette application';
+      var label = form.dataset.appLabel || 'cette application';
       var run = function (ok) {
         if (!ok) return;
         form.dataset.confirmed = '1';
@@ -301,14 +301,14 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function openImport(btn) {
-      var slug = btn.getAttribute('data-app-slug') || '';
+      var slug = btn.dataset.appSlug || '';
       form.action = '/admin/apps/' + encodeURIComponent(slug) + '/crushftp/sync-companies';
-      if (labelEl) labelEl.textContent = btn.getAttribute('data-app-label') || slug;
-      if (vfsEl) vfsEl.textContent = btn.getAttribute('data-vfs-base') || '—';
-      var prefer = (btn.getAttribute('data-realm-slug') || '').trim();
+      if (labelEl) labelEl.textContent = btn.dataset.appLabel || slug;
+      if (vfsEl) vfsEl.textContent = btn.dataset.vfsBase || '—';
+      var prefer = (btn.dataset.realmSlug || '').trim();
       if (realmSelect && prefer) {
         Array.prototype.forEach.call(realmSelect.options, function (opt) {
-          if ((opt.getAttribute('data-slug') || '') === prefer) {
+          if ((opt.dataset.slug || '') === prefer) {
             opt.selected = true;
           }
         });

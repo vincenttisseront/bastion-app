@@ -69,6 +69,10 @@ from app.web.openapi_responses import (
 
 logger = logging.getLogger(__name__)
 
+_MSG_REALM_NOT_FOUND = 'Realm introuvable'
+_PATH_RBAC_USERS = '/admin/rbac/users'
+_KC_REALMS_PATH = '/realms/'
+
 router = APIRouter(tags=["admin-rbac-accounts"], dependencies=[Depends(require_admin)])
 
 # One-shot temporary Keycloak password after create/reset — httponly cookie, never logged.
@@ -351,7 +355,7 @@ async def admin_rbac_user_view(
 
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
-        raise HTTPException(status_code=404, detail="Realm introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_REALM_NOT_FOUND)
 
     if account is None and keycloak_user_id:
         account = (
@@ -757,7 +761,7 @@ async def admin_rbac_users_new_submit(
         return _form_error("Realm cible requis")
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
-        return _form_error("Realm introuvable", status_code=404)
+        return _form_error(_MSG_REALM_NOT_FOUND, status_code=404)
     if not realm_provisioning_ready(realm):
         return _form_error(
             "Provisioning non activé pour ce realm — activez-le dans la fiche realm "
@@ -969,9 +973,9 @@ def admin_rbac_account_detail(
                     pending_apps.append(apps_by_id[aid])
 
     keycloak_console_url = None
-    if account.keycloak_user_id and realm and "/realms/" in (realm.issuer_url or ""):
-        base = realm.issuer_url.split("/realms/")[0].rstrip("/")
-        realm_name = realm.issuer_url.rstrip("/").split("/realms/")[-1]
+    if account.keycloak_user_id and realm and _KC_REALMS_PATH in (realm.issuer_url or ""):
+        base = realm.issuer_url.split(_KC_REALMS_PATH)[0].rstrip("/")
+        realm_name = realm.issuer_url.rstrip("/").split(_KC_REALMS_PATH)[-1]
         keycloak_console_url = (
             f"{base}/admin/master/console/#/{realm_name}/users/{account.keycloak_user_id}/settings"
         )
@@ -1242,12 +1246,12 @@ async def admin_rbac_user_reset_password(
     secret = settings.vault_portal_internal_token or "dev"
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
-        raise HTTPException(status_code=404, detail="Realm introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_REALM_NOT_FOUND)
     uid = (keycloak_user_id or "").strip()
     fallback = (
         f"/admin/rbac/users/view?realm_id={realm.id}&keycloak_user_id={uid}#identite"
         if uid
-        else "/admin/rbac/users"
+        else _PATH_RBAC_USERS
     )
     account = (
         db.query(BastionAccount)
@@ -1509,12 +1513,12 @@ async def admin_rbac_user_verify_email(
     secret = settings.vault_portal_internal_token or "dev"
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
-        raise HTTPException(status_code=404, detail="Realm introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_REALM_NOT_FOUND)
     uid = (keycloak_user_id or "").strip()
     fallback = (
         f"/admin/rbac/users/view?realm_id={realm.id}&keycloak_user_id={uid}"
         if uid
-        else "/admin/rbac/users"
+        else _PATH_RBAC_USERS
     )
     account = (
         db.query(BastionAccount)
@@ -1634,12 +1638,12 @@ async def admin_rbac_user_require_otp(
     secret = settings.vault_portal_internal_token or "dev"
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
-        raise HTTPException(status_code=404, detail="Realm introuvable")
+        raise HTTPException(status_code=404, detail=_MSG_REALM_NOT_FOUND)
     uid = (keycloak_user_id or "").strip()
     fallback = (
         f"/admin/rbac/users/view?realm_id={realm.id}&keycloak_user_id={uid}#identite"
         if uid
-        else "/admin/rbac/users"
+        else _PATH_RBAC_USERS
     )
     account = (
         db.query(BastionAccount)
@@ -1970,7 +1974,7 @@ async def admin_rbac_account_delete(
         )
         return response
 
-    response = RedirectResponse(url="/admin/rbac/users", status_code=302)
+    response = RedirectResponse(url=_PATH_RBAC_USERS, status_code=302)
     if errors:
         flash_redirect(
             response,

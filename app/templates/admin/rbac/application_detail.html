@@ -229,8 +229,8 @@
           }).join(' ');
           suggestions.querySelectorAll('[data-pick-user]').forEach(function (btn) {
             btn.addEventListener('click', function () {
-              userId.value = btn.getAttribute('data-pick-user');
-              userDisplay.value = btn.getAttribute('data-pick-label');
+              userId.value = btn.dataset.pickUser;
+              userDisplay.value = btn.dataset.pickLabel;
               userQuery.value = btn.textContent;
               suggestions.textContent = '';
             });

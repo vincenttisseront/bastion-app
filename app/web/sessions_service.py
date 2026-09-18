@@ -43,6 +43,10 @@ from app.web.user_context import (
 
 logger = logging.getLogger(__name__)
 
+_MSG_SESSION_NOT_FOUND = "Session not found"
+_MSG_IP_NOT_CAPTURED = "Non capturé"
+_LBL_SERVER_DRIVER_SESSION = "Session serveur (driver)"
+
 # Registry TTLs for /sessions (ActiveSession rows). Independent of browser cookies but
 # should stay aligned so the UI does not show "ghost" sessions after auth is dead.
 SESSION_IDLE_TTL = timedelta(hours=8)  # OIDC / app: idle since last_seen
@@ -360,7 +364,7 @@ def portal_cookie_diagnostics(request: Request | None) -> dict[str, Any]:
     if ua:
         out.update(ua)
     else:
-        out["user_agent_label"] = "Non capturé"
+        out["user_agent_label"] = _MSG_IP_NOT_CAPTURED
         out["browser_note"] = (
             "User-Agent absent sur la requête (proxy / client). "
             "Rechargez /apps depuis le navigateur après déploiement."
@@ -523,7 +527,7 @@ def app_cookie_diagnostics(
         out.update(ua)
         out["browser_note"] = None
     else:
-        out["user_agent_label"] = "Session serveur (driver)"
+        out["user_agent_label"] = _LBL_SERVER_DRIVER_SESSION
         out["browser_note"] = (
             "Session créée côté bastion (robotic), sans User-Agent navigateur propre."
         )
@@ -552,7 +556,7 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
     presence_only = bool(details.get("presence_only")) and not present
     if not ua_label:
         if details.get("verifiable") or details.get("driver") in ("crushftp", "generic_form"):
-            ua_label = "Session serveur (driver)"
+            ua_label = _LBL_SERVER_DRIVER_SESSION
             browser_note = browser_note or (
                 "Session créée côté bastion, sans User-Agent navigateur propre."
             )
@@ -564,7 +568,7 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
         elif details.get("user_agent"):
             ua_label = summarize_user_agent(details.get("user_agent"))
         else:
-            ua_label = "Non capturé"
+            ua_label = _MSG_IP_NOT_CAPTURED
             browser_note = browser_note or "User-Agent absent sur la requête d’enregistrement."
     if presence_only and not present:
         cookie_title = (
@@ -1324,8 +1328,8 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
                 g["user"] = label
             if s.get("user_agent_label") and s.get("user_agent_label") not in (
                 "—",
-                "Non capturé",
-                "Session serveur (driver)",
+                _MSG_IP_NOT_CAPTURED,
+                _LBL_SERVER_DRIVER_SESSION,
             ):
                 g["portal_user_agent_label"] = s.get("user_agent_label")
                 g["portal_user_agent"] = s.get("user_agent")
@@ -1351,7 +1355,7 @@ def group_sessions_by_user(sessions: list[dict[str, Any]]) -> list[dict[str, Any
         for s in g["sessions"]:
             if s.get("verifiable") and (
                 not s.get("user_agent")
-                or s.get("user_agent_label") in (None, "—", "Session serveur (driver)")
+                or s.get("user_agent_label") in (None, "—", _LBL_SERVER_DRIVER_SESSION)
             ):
                 s["user_agent_label"] = f"Navigateur portail : {portal_ua}"
                 s["browser_note"] = (
@@ -1820,7 +1824,7 @@ def revoke_session(
     """Hard revoke: delete the ActiveSession row (admin « Révoquer cette session »)."""
     session = get_session_by_id(db, session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=404, detail=_MSG_SESSION_NOT_FOUND)
     result = revoke_active_session(
         db,
         session,
@@ -1842,7 +1846,7 @@ def isolate_session(
     """Soft isolate: keep the row with status=isolated (not used by the Révoquer button)."""
     session = get_session_by_id(db, session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=404, detail=_MSG_SESSION_NOT_FOUND)
     result = revoke_active_session(
         db,
         session,
@@ -1863,7 +1867,7 @@ def rotate_keys(
 ):
     session = get_session_by_id(db, session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=404, detail=_MSG_SESSION_NOT_FOUND)
     log_action(
         db,
         actor=user.email,

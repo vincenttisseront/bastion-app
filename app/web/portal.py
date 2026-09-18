@@ -25,6 +25,10 @@ from app.web.openapi_responses import RESP_403, RESP_404
 
 router = APIRouter(tags=["portal"], dependencies=[Depends(require_user_enriched)])
 
+_PATH_PROFILE_SECURITY = "/profile#section-security"
+_PATH_PROFILE_DEVICES = "/profile#section-devices"
+_MSG_APP_NOT_ACCESSIBLE = "App not accessible"
+
 # Human-readable access status for end-user surfaces (never expose raw levels).
 _ACCESS_STATUS = {
     "view": "Lecture seule",
@@ -315,7 +319,7 @@ async def portal_device_approve(
     _require_portal_csrf(request, settings, csrf_token)
     device = _owned_device_or_404(db, device_id, user)
     secret = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/profile#section-devices", status_code=302)
+    response = RedirectResponse(url=_PATH_PROFILE_DEVICES, status_code=302)
     try:
         device_service.user_approve_device(
             db,
@@ -350,7 +354,7 @@ async def portal_device_reject(
     _require_portal_csrf(request, settings, csrf_token)
     device = _owned_device_or_404(db, device_id, user)
     secret = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/profile#section-devices", status_code=302)
+    response = RedirectResponse(url=_PATH_PROFILE_DEVICES, status_code=302)
     try:
         device_service.user_reject_device(
             db, device, actor=user.email or user.username or "user"
@@ -382,7 +386,7 @@ async def portal_device_revoke(
     _require_portal_csrf(request, settings, csrf_token)
     device = _owned_device_or_404(db, device_id, user)
     secret = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/profile#section-devices", status_code=302)
+    response = RedirectResponse(url=_PATH_PROFILE_DEVICES, status_code=302)
     try:
         device_service.user_revoke_device(
             db, device, actor=user.email or user.username or "user"
@@ -418,7 +422,7 @@ async def profile_change_password(
 
     _require_portal_csrf(request, settings, csrf_token)
     secret = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/profile#section-security", status_code=302)
+    response = RedirectResponse(url=_PATH_PROFILE_SECURITY, status_code=302)
     if not password_self_service_available(db, user, settings):
         flash_redirect(response, "Changement de mot de passe indisponible.", "error", secret)
         return response
@@ -461,7 +465,7 @@ async def profile_revoke_session(
 
     _require_portal_csrf(request, settings, csrf_token)
     secret = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/profile#section-security", status_code=302)
+    response = RedirectResponse(url=_PATH_PROFILE_SECURITY, status_code=302)
     if not self_service_security_available(db, user, settings):
         flash_redirect(response, "Révocation indisponible.", "error", secret)
         return response
@@ -513,7 +517,7 @@ async def profile_revoke_other_sessions(
 
     _require_portal_csrf(request, settings, csrf_token)
     secret = settings.vault_portal_internal_token or "dev"
-    response = RedirectResponse(url="/profile#section-security", status_code=302)
+    response = RedirectResponse(url=_PATH_PROFILE_SECURITY, status_code=302)
     if not self_service_security_available(db, user, settings):
         flash_redirect(response, "Révocation indisponible.", "error", secret)
         return response
@@ -554,7 +558,7 @@ async def app_launch_ping(
     )
     match = next((e for e in entries if e.app.id == app_id), None)
     if match is None:
-        return JSONResponse({"ok": False, "detail": "App not accessible"}, status_code=404)
+        return JSONResponse({"ok": False, "detail": _MSG_APP_NOT_ACCESSIBLE}, status_code=404)
     if not match.can_launch:
         return JSONResponse({"ok": False, "detail": "Launch not allowed"}, status_code=403)
 
@@ -598,7 +602,7 @@ async def app_favorite_add(
 
     match = _accessible_app_or_error(db, user, app_id)
     if match is None:
-        return JSONResponse({"ok": False, "detail": "App not accessible"}, status_code=404)
+        return JSONResponse({"ok": False, "detail": _MSG_APP_NOT_ACCESSIBLE}, status_code=404)
     try:
         created = add_favorite(
             db,
@@ -624,7 +628,7 @@ async def app_favorite_remove(
 
     match = _accessible_app_or_error(db, user, app_id)
     if match is None:
-        return JSONResponse({"ok": False, "detail": "App not accessible"}, status_code=404)
+        return JSONResponse({"ok": False, "detail": _MSG_APP_NOT_ACCESSIBLE}, status_code=404)
     try:
         removed = remove_favorite(
             db,

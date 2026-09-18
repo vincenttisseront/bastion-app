@@ -959,7 +959,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var head = section.querySelector('[data-form-accordion-toggle]');
     var expandBtn = section.querySelector('.ds-accordion-expand');
     if (!head) return;
-    if (section.hasAttribute('data-open-default')) {
+    if (section.dataset.openDefault != null) {
       section.classList.add('is-open');
       if (expandBtn) expandBtn.setAttribute('aria-expanded', 'true');
     }

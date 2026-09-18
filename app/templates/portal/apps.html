@@ -352,11 +352,11 @@
   function openWithIdentity(tile, options) {
     options = options || {};
     var preferNewTab = options.preferNewTab !== false;
-    var slug = tile.getAttribute('data-app-slug');
-    var label = tile.getAttribute('data-app-label') || slug;
-    var identityUsername = tile.getAttribute('data-identity-username') || '';
+    var slug = tile.dataset.appSlug;
+    var label = tile.dataset.appLabel || slug;
+    var identityUsername = tile.dataset.identityUsername || '';
     var endpoint =
-      tile.getAttribute('data-open-identity-url') ||
+      tile.dataset.openIdentityUrl ||
       ('/api/apps/' + encodeURIComponent(slug) + '/open-with-identity');
     if (!slug || !window.bastionPasswordPrompt) return;
 
@@ -392,9 +392,9 @@
 
   function launchTile(tile) {
     if (!tile || tile.classList.contains('app-tile--disabled')) return;
-    launchPing(tile.getAttribute('data-app-id'));
-    if (tile.hasAttribute('data-open-with-identity') ||
-        tile.getAttribute('data-credential-mode') === 'identite_utilisateur') {
+    launchPing(tile.dataset.appId);
+    if (tile.dataset.openWithIdentity != null ||
+        tile.dataset.credentialMode === 'identite_utilisateur') {
       openWithIdentity(tile, { preferNewTab: true });
       return;
     }
@@ -456,13 +456,13 @@
     if (!tile || tile.classList.contains('app-tile--disabled')) return;
     e.preventDefault();
     e.stopPropagation();
-    launchPing(tile.getAttribute('data-app-id'));
+    launchPing(tile.dataset.appId);
     openWithIdentity(tile, { preferNewTab: true });
   });
 
   function toggleFavorite(btn) {
-    var appId = btn.getAttribute('data-app-id');
-    var favorited = btn.getAttribute('data-favorited') === '1';
+    var appId = btn.dataset.appId;
+    var favorited = btn.dataset.favorited === '1';
     if (!appId) return;
     btn.disabled = true;
     fetch('/api/apps/' + encodeURIComponent(appId) + '/favorite', {
@@ -506,9 +506,9 @@
   }
 
   document.querySelectorAll('.app-tile[data-app-id]:not(.app-tile--disabled):not([data-open-with-identity])').forEach(function (tile) {
-    if (tile.getAttribute('data-credential-mode') === 'identite_utilisateur') return;
+    if (tile.dataset.credentialMode === 'identite_utilisateur') return;
     tile.addEventListener('click', function () {
-      launchPing(tile.getAttribute('data-app-id'));
+      launchPing(tile.dataset.appId);
     });
   });
 
@@ -519,10 +519,10 @@
   function setAppsView(mode) {
     var view = mode === 'list' ? 'list' : 'grid';
     grids.forEach(function (grid) {
-      grid.setAttribute('data-apps-view', view);
+      grid.dataset.appsView = view;
     });
     document.querySelectorAll('.portal-view-btn[data-apps-view]').forEach(function (btn) {
-      var on = btn.getAttribute('data-apps-view') === view;
+      var on = btn.dataset.appsView === view;
       btn.classList.toggle('is-active', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
@@ -533,7 +533,7 @@
 
   document.querySelectorAll('.portal-view-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      setAppsView(btn.getAttribute('data-apps-view'));
+      setAppsView(btn.dataset.appsView);
     });
   });
 
@@ -550,7 +550,7 @@
         return !t.hidden && t.style.display !== 'none';
       });
       sec.hidden = !visible;
-      var nav = document.querySelector('[data-section-nav="' + sec.getAttribute('data-apps-section') + '"]');
+      var nav = document.querySelector('[data-section-nav="' + sec.dataset.appsSection + '"]');
       if (nav) {
         nav.hidden = !visible;
         var li = nav.closest('li');
