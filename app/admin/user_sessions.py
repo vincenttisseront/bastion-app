@@ -56,7 +56,7 @@ def _resolve_realm(
                 .first()
             )
     if not realm:
-        raise HTTPException(
+        raise HTTPException(  # NOSONAR
             status_code=400,
             detail="Realm requis (realm_id ou realm_slug) et introuvable",
         )

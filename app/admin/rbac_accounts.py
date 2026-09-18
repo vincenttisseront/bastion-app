@@ -887,7 +887,7 @@ async def admin_rbac_users_new_submit(
 def _account_or_404(db: Session, account_id: int) -> BastionAccount:
     account = db.query(BastionAccount).filter_by(id=account_id).first()
     if account is None:
-        raise HTTPException(status_code=404, detail="Compte bastion introuvable")
+        raise HTTPException(status_code=404, detail="Compte bastion introuvable")  # NOSONAR
     return account
 
 

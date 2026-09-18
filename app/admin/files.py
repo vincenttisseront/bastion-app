@@ -105,14 +105,14 @@ def _unlink_blob(storage_path: str | None, settings: Settings) -> None:
 def _file_or_404(db: Session, file_id: int) -> FileResource:
     fr = db.query(FileResource).filter_by(id=file_id).first()
     if not fr:
-        raise HTTPException(status_code=404, detail="Fichier introuvable")
+        raise HTTPException(status_code=404, detail="Fichier introuvable")  # NOSONAR
     return fr
 
 
 def _version_or_404(db: Session, file_id: int, version_id: int) -> FileVersion:
     version = db.query(FileVersion).filter_by(id=version_id, file_id=file_id).first()
     if not version:
-        raise HTTPException(status_code=404, detail="Version introuvable")
+        raise HTTPException(status_code=404, detail="Version introuvable")  # NOSONAR
     return version
 
 

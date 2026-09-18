@@ -17,6 +17,7 @@ from app.models import App
 from app.sso_settings import Settings, get_settings
 from app.testing_framework.throttle import throttle_retry_after
 from app.web.user_context import require_admin
+from app.web.openapi_responses import RESP_404
 
 router = APIRouter(tags=["health"], dependencies=[Depends(require_admin)])
 
@@ -25,7 +26,7 @@ def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
 
 
-@router.post("/admin/health/probe/{app_id}")
+@router.post("/admin/health/probe/{app_id}", responses=RESP_404)
 async def probe_single_app(
     app_id: int,
     request: Request,

@@ -28,6 +28,14 @@ from app.sso_settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
+_MSG_KC_INVALID_CREDS = "Identifiants Keycloak invalides"
+_HTML_PARSER = "html.parser"
+_MSG_INVALID_CREDS = "Identifiants invalides"
+_MSG_OTP_INVALID = "OTP invalide"
+_CONTENT_TYPE_FORM = "application/x-www-form-urlencoded"
+_MSG_INCOMPLETE_CREDS = "Identifiants incomplets"
+_USER_AGENT_OIDC_BFF = "bastion-oidc-bff/1.0"
+
 _HTTP_TIMEOUT = httpx.Timeout(5.0, connect=5.0)
 _AUTH_PATH = "/realms/{realm}/protocol/openid-connect/auth"
 _TOKEN_PATH = "/realms/{realm}/protocol/openid-connect/token"
@@ -137,7 +145,7 @@ def _require_bff_config(
 
 
 def _extract_form_by_id(html: str, form_id: str) -> tuple[str, dict[str, str]]:
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, _HTML_PARSER)
     form = soup.find("form", id=form_id)
     if form is None:
         raise OidcBffError(f"Formulaire Keycloak introuvable ({form_id})")
@@ -161,7 +169,7 @@ def _extract_login_form(html: str) -> tuple[str, dict[str, str]]:
 
 
 def _extract_otp_form(html: str) -> tuple[str, dict[str, str]] | None:
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, _HTML_PARSER)
     if soup.find("form", id=_OTP_FORM_ID) is None:
         return None
     return _extract_form_by_id(html, _OTP_FORM_ID)
@@ -169,7 +177,7 @@ def _extract_otp_form(html: str) -> tuple[str, dict[str, str]] | None:
 
 def _extract_totp_setup(html: str) -> _TotpSetupParsed | None:
     """Parse Keycloak CONFIGURE_TOTP page (``kc-totp-settings-form``)."""
-    soup = BeautifulSoup(html or "", "html.parser")
+    soup = BeautifulSoup(html or "", _HTML_PARSER)
     form = soup.find("form", id=_TOTP_SETUP_FORM_ID)
     if form is None:
         # Some themes omit the id — fall back to a form that posts totpSecret.
@@ -247,7 +255,7 @@ def _html_indicates_invalid_credentials(html: str) -> bool:
         "pf-m-danger",
     )
     if any(m in lower for m in markers):
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(html, _HTML_PARSER)
         feedback = soup.find(id="input-error") or soup.find(class_="kc-feedback-text")
         if feedback is not None:
             return True
@@ -259,7 +267,7 @@ def _html_indicates_invalid_credentials(html: str) -> bool:
 
 
 def _html_indicates_unsupported_flow(html: str) -> str | None:
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, _HTML_PARSER)
     for form_id in _UNSUPPORTED_FORM_IDS:
         if soup.find("form", id=form_id) is not None:
             return f"étape interactive Keycloak détectée ({form_id})"
@@ -578,7 +586,7 @@ async def _exchange_code_for_tokens(
         token_resp = await client.post(
             token_url,
             data=token_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={"Content-Type": _CONTENT_TYPE_FORM},
         )
     except httpx.HTTPError as exc:
         logger.warning(
@@ -708,7 +716,7 @@ def _html_diag_flags(html: str) -> str:
     if hint:
         flags.append(f"hint={hint}")
     try:
-        soup = BeautifulSoup(text, "html.parser")
+        soup = BeautifulSoup(text, _HTML_PARSER)
         title = soup.find("title")
         if title:
             title_text = " ".join(title.get_text(" ", strip=True).split())[:80]
@@ -800,7 +808,7 @@ def _keycloak_http_error_hint(html: str) -> str | None:
     # Login theme redisplays (title "Sign in to …") are not error pages — skip
     # them here; callers classify kc-form-login via InvalidCredentialsError.
     try:
-        soup = BeautifulSoup(html or "", "html.parser")
+        soup = BeautifulSoup(html or "", _HTML_PARSER)
         title = soup.find("title")
         if title:
             title_text = " ".join(title.get_text(" ", strip=True).split())
@@ -836,7 +844,7 @@ async def start_headless_login(
     realm = (realm or "").strip()
     username = (username or "").strip()
     if not realm or not username or password is None or password == "":
-        raise InvalidCredentialsError("Identifiants incomplets")
+        raise InvalidCredentialsError(_MSG_INCOMPLETE_CREDS)
     if db is None:
         raise OidcBffConfigError("db session required for headless login")
 
@@ -879,7 +887,7 @@ async def start_headless_login(
     async with httpx.AsyncClient(
         timeout=_HTTP_TIMEOUT,
         follow_redirects=False,
-        headers={"User-Agent": "bastion-oidc-bff/1.0"},
+        headers={"User-Agent": _USER_AGENT_OIDC_BFF},
     ) as client:
         login_html, session_base = await _fetch_login_html(
             client, auth_url, auth_params, base=base
@@ -912,7 +920,7 @@ async def start_headless_login(
             post_resp = await client.post(
                 action_url,
                 data=form_fields,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={"Content-Type": _CONTENT_TYPE_FORM},
             )
         except httpx.HTTPError as exc:
             logger.warning("oidc_bff login POST failed realm=%s err=%s", realm, type(exc).__name__)
@@ -1064,7 +1072,7 @@ async def submit_headless_otp(
     attempt_id = (attempt_id or "").strip()
     otp_code = (otp_code or "").strip()
     if not attempt_id or not otp_code:
-        raise InvalidCredentialsError("Identifiants incomplets")
+        raise InvalidCredentialsError(_MSG_INCOMPLETE_CREDS)
 
     purge_expired_oidc_login_attempts(db)
 
@@ -1075,7 +1083,7 @@ async def submit_headless_otp(
             db.delete(row)
             db.flush()
         # No enumeration: same generic failure as bad password.
-        raise InvalidCredentialsError("Identifiants invalides")
+        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
 
     try:
         cookies = json.loads(decrypt_secret(row.keycloak_cookies_encrypted, settings))
@@ -1084,19 +1092,19 @@ async def submit_headless_otp(
         # JSONDecodeError is a ValueError subclass.
         db.delete(row)
         db.flush()
-        raise InvalidCredentialsError("Identifiants invalides") from None
+        raise InvalidCredentialsError(_MSG_INVALID_CREDS) from None
 
     if not isinstance(cookies, list) or not isinstance(form_blob, dict):
         db.delete(row)
         db.flush()
-        raise InvalidCredentialsError("Identifiants invalides")
+        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
 
     otp_action = str(form_blob.get("action") or "")
     otp_fields = form_blob.get("fields")
     if not otp_action or not isinstance(otp_fields, dict):
         db.delete(row)
         db.flush()
-        raise InvalidCredentialsError("Identifiants invalides")
+        raise InvalidCredentialsError(_MSG_INVALID_CREDS)
 
     kind = str(form_blob.get("kind") or "otp").strip() or "otp"
     fields = {str(k): str(v) for k, v in otp_fields.items()}
@@ -1105,7 +1113,7 @@ async def submit_headless_otp(
         if not (fields.get("totpSecret") or "").strip():
             db.delete(row)
             db.flush()
-            raise InvalidCredentialsError("Identifiants invalides")
+            raise InvalidCredentialsError(_MSG_INVALID_CREDS)
         fields["userLabel"] = (fields.get("userLabel") or "").strip() or "Bastion"
     else:
         # Keycloak TOTP field is usually ``otp``.
@@ -1130,14 +1138,14 @@ async def submit_headless_otp(
     async with httpx.AsyncClient(
         timeout=_HTTP_TIMEOUT,
         follow_redirects=False,
-        headers={"User-Agent": "bastion-oidc-bff/1.0"},
+        headers={"User-Agent": _USER_AGENT_OIDC_BFF},
     ) as client:
         _restore_cookies(client, cookies)
         try:
             post_resp = await client.post(
                 action_url,
                 data=fields,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={"Content-Type": _CONTENT_TYPE_FORM},
             )
         except httpx.HTTPError as exc:
             logger.warning(
@@ -1168,7 +1176,7 @@ async def submit_headless_otp(
                         row, client, post_resp.text or "", settings=settings, kind=kind
                     )
                 db.flush()
-            raise InvalidOtpError("OTP invalide") from None
+            raise InvalidOtpError(_MSG_OTP_INVALID) from None
         except UnsupportedAuthFlowError:
             db.delete(row)
             db.flush()
@@ -1184,7 +1192,7 @@ async def submit_headless_otp(
                     row, client, outcome[1], settings=settings, kind="totp_setup"
                 )
                 db.flush()
-            raise InvalidOtpError("OTP invalide")
+            raise InvalidOtpError(_MSG_OTP_INVALID)
 
         if outcome[0] == "otp":
             otp_parsed = _extract_otp_form(outcome[1])
@@ -1193,7 +1201,7 @@ async def submit_headless_otp(
                 if row.otp_failures >= MAX_OTP_FAILURES:
                     db.delete(row)
                 db.flush()
-                raise InvalidOtpError("OTP invalide")
+                raise InvalidOtpError(_MSG_OTP_INVALID)
             new_action, new_fields = otp_parsed
             form_json = json.dumps(
                 {"kind": "otp", "action": new_action, "fields": new_fields},
@@ -1216,7 +1224,7 @@ async def submit_headless_otp(
                 db.flush()
             else:
                 db.flush()
-            raise InvalidOtpError("OTP invalide")
+            raise InvalidOtpError(_MSG_OTP_INVALID)
 
         tokens = await _exchange_code_for_tokens(
             client,
@@ -1334,7 +1342,7 @@ async def _perform_headless_login_no_db(
     realm = (realm or "").strip()
     username = (username or "").strip()
     if not realm or not username or password is None or password == "":
-        raise InvalidCredentialsError("Identifiants incomplets")
+        raise InvalidCredentialsError(_MSG_INCOMPLETE_CREDS)
     base, client_id, client_secret, redirect_uri = _require_bff_config(
         base=keycloak_base_url,
         client_id=client_id,
@@ -1358,7 +1366,7 @@ async def _perform_headless_login_no_db(
     async with httpx.AsyncClient(
         timeout=_HTTP_TIMEOUT,
         follow_redirects=False,
-        headers={"User-Agent": "bastion-oidc-bff/1.0"},
+        headers={"User-Agent": _USER_AGENT_OIDC_BFF},
     ) as client:
         login_html, session_base = await _fetch_login_html(
             client, auth_url, auth_params, base=base
@@ -1381,7 +1389,7 @@ async def _perform_headless_login_no_db(
             post_resp = await client.post(
                 action_url,
                 data=form_fields,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                headers={"Content-Type": _CONTENT_TYPE_FORM},
             )
         except httpx.HTTPError as exc:
             raise OidcBffError("Impossible de joindre Keycloak (login)") from exc
@@ -1564,13 +1572,13 @@ async def _interpret_post_password_response(
                 "oidc_bff post_password invalid_credentials status=200 html=%s",
                 _html_diag_flags(html),
             )
-            raise InvalidCredentialsError("Identifiants Keycloak invalides")
+            raise InvalidCredentialsError(_MSG_KC_INVALID_CREDS)
         if _html_indicates_invalid_credentials(html):
             logger.warning(
                 "oidc_bff post_password invalid_credentials status=200 html=%s",
                 _html_diag_flags(html),
             )
-            raise InvalidCredentialsError("Identifiants Keycloak invalides")
+            raise InvalidCredentialsError(_MSG_KC_INVALID_CREDS)
         logger.warning(
             "oidc_bff post_password unexpected_200 html=%s",
             _html_diag_flags(html),
@@ -1591,13 +1599,13 @@ async def _interpret_post_password_response(
                 "oidc_bff post_password invalid_credentials status=400 html=%s",
                 _html_diag_flags(html),
             )
-            raise InvalidCredentialsError("Identifiants Keycloak invalides")
+            raise InvalidCredentialsError(_MSG_KC_INVALID_CREDS)
         if _html_indicates_invalid_credentials(html):
             logger.warning(
                 "oidc_bff post_password invalid_credentials status=400 html=%s",
                 _html_diag_flags(html),
             )
-            raise InvalidCredentialsError("Identifiants Keycloak invalides")
+            raise InvalidCredentialsError(_MSG_KC_INVALID_CREDS)
 
     hint = _keycloak_http_error_hint(resp.text or "")
     logger.warning(
@@ -1633,4 +1641,4 @@ async def verify_keycloak_password(
     )
     if result.status in ("success", "otp_required", "totp_setup_required"):
         return
-    raise InvalidCredentialsError("Identifiants Keycloak invalides")
+    raise InvalidCredentialsError(_MSG_KC_INVALID_CREDS)

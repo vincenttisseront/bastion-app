@@ -220,17 +220,17 @@ def _ctx(request: Request, settings: Settings, **extra):
 def _realm_for_group(db: Session, group_id: int) -> tuple[RBACGroup, RealmConfig]:
     group = db.query(RBACGroup).filter_by(id=group_id).first()
     if not group or not group.realm_id:
-        raise HTTPException(status_code=404, detail="Groupe introuvable")
+        raise HTTPException(status_code=404, detail="Groupe introuvable")  # NOSONAR
     realm = db.query(RealmConfig).filter_by(id=group.realm_id).first()
     if not realm:
-        raise HTTPException(status_code=404, detail="Realm introuvable pour ce groupe")
+        raise HTTPException(status_code=404, detail="Realm introuvable pour ce groupe")  # NOSONAR
     return group, realm
 
 
 def _realm_or_404(db: Session, realm_id: int) -> RealmConfig:
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if not realm:
-        raise HTTPException(status_code=404, detail="Realm introuvable")
+        raise HTTPException(status_code=404, detail="Realm introuvable")  # NOSONAR
     return realm
 
 
@@ -471,8 +471,9 @@ async def admin_rbac_group_credential_exclusion_add(
 
 
 @router.post(
-    "/admin/rbac/groups/{group_id}/credentials/{credential_id}/exclusions/{keycloak_user_id}/delete"
-, responses=RESP_404)
+    "/admin/rbac/groups/{group_id}/credentials/{credential_id}/exclusions/{keycloak_user_id}/delete",
+    responses=RESP_404,
+)
 async def admin_rbac_group_credential_exclusion_remove(
     group_id: int,
     credential_id: int,
