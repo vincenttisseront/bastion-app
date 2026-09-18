@@ -85,6 +85,10 @@ pipeline {
           timeout(time: 20, unit: 'MINUTES') {
             sh '''
               set -eux
+              # Workspace Jenkins persistant : purger les artefacts d'un build précédent
+              # (ruff/junit) avant le scan secrets.
+              mkdir -p "${WORKSPACE}/reports"
+              find "${WORKSPACE}/reports" -mindepth 1 -maxdepth 1 ! -name betterleaks -exec rm -rf {} +
               mkdir -p "${WORKSPACE}/reports/betterleaks"
               chmod -R a+rwX "${WORKSPACE}/reports/betterleaks"
               test -f "${WORKSPACE}/.betterleaks.toml"
