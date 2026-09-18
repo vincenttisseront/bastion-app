@@ -147,6 +147,27 @@ def verify_csrf_token(request: Request, secret: str, csrf_token: str = "") -> bo
     )
 
 
+def _resolve_branding_for_template(extra: dict[str, Any], db) -> Any:
+    branding = extra.pop("branding", None)
+    if branding is not None:
+        return branding
+    from app.branding import get_branding_settings
+
+    if db is not None:
+        return get_branding_settings(db)
+    # Exception handlers / early paths may lack Depends(get_db).
+    try:
+        from app.database import SessionLocal
+
+        tmp = SessionLocal()
+        try:
+            return get_branding_settings(tmp)
+        finally:
+            tmp.close()
+    except Exception:
+        return get_branding_settings(None)
+
+
 def base_template_context(request: Request, settings: Any, app_version: str, **extra: Any) -> dict[str, Any]:
     from datetime import datetime, timezone
 
@@ -170,25 +191,7 @@ def base_template_context(request: Request, settings: Any, app_version: str, **e
         is_admin = bool(extra["is_admin"])
 
     messages = get_flash_messages(request, secret)
-
-    branding = extra.pop("branding", None)
-    if branding is None:
-        from app.branding import get_branding_settings
-
-        if db is not None:
-            branding = get_branding_settings(db)
-        else:
-            # Exception handlers / early paths may lack Depends(get_db).
-            try:
-                from app.database import SessionLocal
-
-                tmp = SessionLocal()
-                try:
-                    branding = get_branding_settings(tmp)
-                finally:
-                    tmp.close()
-            except Exception:
-                branding = get_branding_settings(None)
+    branding = _resolve_branding_for_template(extra, db)
 
     from app.i18n.catalog import t as translate
     from app.i18n.helpers import build_js_catalog, localize_mapping

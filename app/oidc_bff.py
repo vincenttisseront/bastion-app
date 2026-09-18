@@ -395,26 +395,7 @@ def revoke_oidc_session_from_request(
         actor = claims.username or claims.sub
         jti = claims.jti
     else:
-        from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
-
-        secret = resolve_oidc_session_jwt_secret(db, settings)
-        if secret:
-            try:
-                payload: dict[str, Any] = jwt.decode(
-                    raw,
-                    secret,
-                    algorithms=["HS256"],
-                    options={"verify_exp": False, "verify_aud": False},
-                )
-                if payload.get("type") == "oidc":
-                    actor = str(
-                        payload.get("username") or payload.get("sub") or "unknown"
-                    )
-                    jti_val = payload.get("jti")
-                    if isinstance(jti_val, str):
-                        jti = jti_val
-            except jwt.PyJWTError:
-                pass
+        actor, jti = _actor_jti_from_unverified_oidc_cookie(raw, db, settings)
     if jti:
         try:
             revoke_oidc_jti(db, jti, revoked_by=str(actor), reason="logout")
@@ -422,6 +403,31 @@ def revoke_oidc_session_from_request(
         except LookupError:
             pass
     return actor
+
+
+def _actor_jti_from_unverified_oidc_cookie(
+    raw: str, db: Session, settings: Settings
+) -> tuple[str, str | None]:
+    from app.oidc_bff_config_service import resolve_oidc_session_jwt_secret
+
+    secret = resolve_oidc_session_jwt_secret(db, settings)
+    if not secret:
+        return "unknown", None
+    try:
+        payload: dict[str, Any] = jwt.decode(
+            raw,
+            secret,
+            algorithms=["HS256"],
+            options={"verify_exp": False, "verify_aud": False},
+        )
+    except jwt.PyJWTError:
+        return "unknown", None
+    if payload.get("type") != "oidc":
+        return "unknown", None
+    actor = str(payload.get("username") or payload.get("sub") or "unknown")
+    jti_val = payload.get("jti")
+    jti = jti_val if isinstance(jti_val, str) else None
+    return actor, jti
 
 
 def validate_oidc_session_cookie(
