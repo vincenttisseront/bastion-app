@@ -20,6 +20,7 @@ from app.database import get_db
 from app.models import BreakGlassSession, utcnow
 from app.request_client_ip import client_ip_from_request
 from app.sso_settings import Settings, get_settings
+from app.web.openapi_responses import RESP_401, RESP_403, RESP_404
 
 logger = logging.getLogger(__name__)
 
@@ -1131,7 +1132,7 @@ def _serialize_session(row: BreakGlassSession) -> dict[str, Any]:
     }
 
 
-@router.post("/login")
+@router.post("/login", responses=RESP_401 | RESP_403)
 async def breakglass_login(
     body: BreakglassLoginBody,
     request: Request,
@@ -1279,7 +1280,7 @@ def breakglass_sessions_list(
     }
 
 
-@admin_router.post("/sessions/{jti}/revoke")
+@admin_router.post("/sessions/{jti}/revoke", responses=RESP_403 | RESP_404)
 def breakglass_session_revoke(
     jti: str,
     request: Request,

@@ -41,6 +41,12 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +54,7 @@ logger = logging.getLogger(__name__)
 def _require_csrf(request: Request, settings: Settings, csrf_token: str = "") -> None:
     secret = settings.vault_portal_internal_token or "dev-insecure"
     if not verify_csrf_token(request, secret, csrf_token):
-        raise HTTPException(status_code=403, detail="CSRF token invalide")
+        raise HTTPException(status_code=403, detail="CSRF token invalide")  # NOSONAR
 
 router = APIRouter(tags=["admin-realms"], dependencies=[Depends(require_admin)])
 
@@ -761,7 +767,7 @@ async def admin_realms_create(
     return response
 
 
-@router.get("/admin/realms/{realm_id}/edit")
+@router.get("/admin/realms/{realm_id}/edit", responses=RESP_404)
 def admin_realms_edit(
     realm_id: int,
     request: Request,
@@ -785,7 +791,7 @@ def admin_realms_edit(
     )
 
 
-@router.post("/admin/realms/{realm_id}")
+@router.post("/admin/realms/{realm_id}", responses=RESP_404)
 async def admin_realms_update(
     realm_id: int,
     request: Request,
@@ -1188,7 +1194,7 @@ async def admin_realms_test_port(
     return JSONResponse({"ok": True, **result})
 
 
-@router.post("/admin/realms/{realm_id}/test")
+@router.post("/admin/realms/{realm_id}/test", responses=RESP_404)
 async def admin_realms_test(
     realm_id: int,
     request: Request,
@@ -1241,7 +1247,7 @@ def _error_response(request: Request, status_code: int, detail: str) -> JSONResp
     return None
 
 
-@router.post("/admin/realms/{realm_id}/enable")
+@router.post("/admin/realms/{realm_id}/enable", responses=RESP_400 | RESP_403 | RESP_404)
 def admin_realms_enable(
     realm_id: int,
     request: Request,
@@ -1286,7 +1292,7 @@ def admin_realms_enable(
     return response
 
 
-@router.post("/admin/realms/{realm_id}/disable")
+@router.post("/admin/realms/{realm_id}/disable", responses=RESP_403 | RESP_404)
 def admin_realms_disable(
     realm_id: int,
     request: Request,
@@ -1320,7 +1326,7 @@ def admin_realms_disable(
     return response
 
 
-@router.post("/admin/realms/{realm_id}/oidc-native-session/enable")
+@router.post("/admin/realms/{realm_id}/oidc-native-session/enable", responses=RESP_403 | RESP_404)
 def admin_realms_oidc_native_enable(
     realm_id: int,
     request: Request,
@@ -1360,7 +1366,7 @@ def admin_realms_oidc_native_enable(
     return response
 
 
-@router.post("/admin/realms/{realm_id}/oidc-native-session/disable")
+@router.post("/admin/realms/{realm_id}/oidc-native-session/disable", responses=RESP_403 | RESP_404)
 def admin_realms_oidc_native_disable(
     realm_id: int,
     request: Request,
@@ -1400,7 +1406,7 @@ def admin_realms_oidc_native_disable(
     return response
 
 
-@router.post("/admin/realms/{realm_id}/oidc-bff/test")
+@router.post("/admin/realms/{realm_id}/oidc-bff/test", responses=RESP_404)
 async def admin_realms_oidc_bff_test(
     realm_id: int,
     request: Request,
@@ -1447,7 +1453,7 @@ async def admin_realms_oidc_bff_test_draft(
     return JSONResponse(result, status_code=status)
 
 
-@router.post("/admin/realms/{realm_id}/export")
+@router.post("/admin/realms/{realm_id}/export", responses=RESP_403 | RESP_404 | RESP_409)
 def admin_realms_export(
     realm_id: int,
     request: Request,
@@ -1492,7 +1498,7 @@ def admin_realms_export(
     return response
 
 
-@router.delete("/admin/realms/{realm_id}")
+@router.delete("/admin/realms/{realm_id}", responses=RESP_400 | RESP_404)
 def admin_realms_delete(
     realm_id: int,
     request: Request,

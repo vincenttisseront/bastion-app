@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from app.audit import log_action
 from app.database import get_db
+from app.i18n.catalog import t
+from app.i18n.resolve import DEFAULT_LOCALE
 from app.models import ActiveSession, App, AuditLog, utcnow
 from app.request_client_ip import (
     client_ip_from_request,
@@ -22,7 +24,12 @@ from app.request_client_ip import (
 )
 from app.sso_settings import Settings, get_settings
 from app.user_agent_label import summarize_user_agent
-from app.web.user_context import UserContext, is_portal_admin, require_admin, require_user
+from app.web.user_context import (
+    UserContext,
+    elevate_portal_admin,
+    require_admin,
+    require_user,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -288,18 +295,19 @@ def _format_last_seen(last_seen_at: datetime | None) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-def _relative_ago(last_seen_at: datetime | None) -> str:
+def _relative_ago(last_seen_at: datetime | None, *, locale: str | None = None) -> str:
+    loc = locale or DEFAULT_LOCALE
     dt = _aware(last_seen_at)
     if dt is None:
         return "—"
     seconds = max(0, int((utcnow() - dt).total_seconds()))
     if seconds < 60:
-        return f"il y a {seconds}s"
+        return t("il y a {s}s", loc, s=seconds)
     if seconds < 3600:
-        return f"il y a {seconds // 60} min"
+        return t("il y a {m} min", loc, m=seconds // 60)
     if seconds < 86400:
-        return f"il y a {seconds // 3600} h"
-    return f"il y a {seconds // 86400} j"
+        return t("il y a {h} h", loc, h=seconds // 3600)
+    return t("il y a {d} j", loc, d=seconds // 86400)
 
 
 def request_client_diagnostics(request: Request | None) -> dict[str, Any]:
@@ -966,25 +974,31 @@ def _touch_app_session(
     return row
 
 
-def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any]:
+def _row_to_dict(
+    row: ActiveSession,
+    db: Session | None = None,
+    *,
+    locale: str | None = None,
+) -> dict[str, Any]:
+    loc = locale or DEFAULT_LOCALE
     details = row.details if isinstance(row.details, dict) else None
     diag = _diagnostics_summary(details)
     protocol = (row.protocol or "").upper()
     is_breakglass = protocol == _PROTOCOL_BREAKGLASS
     if row.kind == KIND_USER:
         if is_breakglass:
-            resource_title = "Portail break-glass"
-            resource_subtitle = "Session d'urgence (hors Keycloak)"
+            resource_title = t("Portail break-glass", loc)
+            resource_subtitle = t("Session d'urgence (hors Keycloak)", loc)
             type_label = "Break-glass"
             auth_family = "breakglass"
         else:
-            resource_title = "Portail SSO"
+            resource_title = t("Portail SSO", loc)
             cookies = (details or {}).get("cookies_present") or []
             if any(str(c) == "bastion_session" for c in cookies):
-                resource_subtitle = "Session OIDC native (bastion_session)"
+                resource_subtitle = t("Session OIDC native (bastion_session)", loc)
             else:
-                resource_subtitle = "Session OIDC (oauth2-proxy / native)"
-            type_label = "Portail OIDC"
+                resource_subtitle = t("Session OIDC (oauth2-proxy / native)", loc)
+            type_label = t("Portail OIDC", loc)
             auth_family = "oidc"
     else:
         resource_title = diag.get("app_label") or row.target
@@ -993,7 +1007,7 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
             resource_subtitle = f"user · {app_user} · slug · {row.target}"
         else:
             resource_subtitle = f"slug · {row.target}"
-        type_label = "Application"
+        type_label = t("Application", loc)
         auth_family = "app"
     raw_ip = (row.source_ip or "").strip()
     infra = bool(raw_ip) and is_infra_hop(raw_ip)
@@ -1001,7 +1015,7 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
         client_ip_display = "—"
         client_ip_note = None
     elif infra:
-        client_ip_display = "indisponible (IP proxy)"
+        client_ip_display = t("indisponible (IP proxy)", loc)
         client_ip_note = (
             f"Valeur capturée={raw_ip} (hop infra Traefik/docker). "
             "La vraie IP client n'a pas traversé la chaîne de proxys."
@@ -1025,29 +1039,29 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
             live_status_label = "ACTIVE"
         elif verified_status == "invalid":
             live_status = "invalid"
-            live_status_label = "INVALIDE"
+            live_status_label = t("INVALIDE", loc)
         else:
             live_status = "unverified"
-            live_status_label = "NON VÉRIFIÉ"
+            live_status_label = t("NON VÉRIFIÉ", loc)
     elif presence_only:
         live_status = "presence"
-        live_status_label = "ACTIVITÉ SSO"
+        live_status_label = t("ACTIVITÉ SSO", loc)
     elif row.kind == KIND_USER:
         # Honest declarative badge — not equivalent to app live-verify.
         freshness = _portal_freshness(row, protocol=protocol)
         if row.status == "isolated":
             live_status = "isolated"
-            live_status_label = "ISOLÉ"
+            live_status_label = t("ISOLÉ", loc)
         else:
             live_status = "declarative"
-            live_status_label = "REGISTRE"
+            live_status_label = t("REGISTRE", loc)
     else:
         live_status = row.status if row.status != "isolated" else "isolated"
         live_status_label = (row.status or "active").upper()
 
     verified_ago = None
     if row.last_verified_at:
-        verified_ago = _relative_ago(row.last_verified_at)
+        verified_ago = _relative_ago(row.last_verified_at, locale=loc)
 
     sso_logout = None
     if auth_family == "oidc" and details:
@@ -1117,7 +1131,7 @@ def _row_to_dict(row: ActiveSession, db: Session | None = None) -> dict[str, Any
         "started_at": row.started_at.isoformat() if row.started_at else None,
         "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
         "last_seen_label": _format_last_seen(row.last_seen_at),
-        "last_seen_ago": _relative_ago(row.last_seen_at),
+        "last_seen_ago": _relative_ago(row.last_seen_at, locale=loc),
         "details": {
             k: v
             for k, v in (details or {}).items()
@@ -1337,6 +1351,7 @@ def get_active_sessions(
     viewer: UserContext | None = None,
     kind: str | None = None,
     include_isolated: bool = True,
+    locale: str | None = None,
 ) -> list[dict[str, Any]]:
     """List sessions visible to viewer (admin = all, else own email)."""
     try:
@@ -1350,7 +1365,7 @@ def get_active_sessions(
             email = (viewer.email or viewer.username or "").strip().lower()
             q = q.filter(ActiveSession.user_email == email)
         rows = q.order_by(ActiveSession.last_seen_at.desc()).all()
-        return [_row_to_dict(r, db=db) for r in rows]
+        return [_row_to_dict(r, db=db, locale=locale) for r in rows]
     except Exception:
         logger.exception("get_active_sessions failed")
         try:
@@ -1609,16 +1624,22 @@ def list_sessions(
     settings: Settings = Depends(get_settings),
     kind: str | None = Query(None),
 ):
-    if is_portal_admin(user, db, settings):
-        user.is_admin = True
-    sessions = get_active_sessions(db, viewer=user, kind=kind)
+    user = elevate_portal_admin(user, db, settings)
+    from app.i18n.middleware import get_request_locale
+
+    locale = get_request_locale(request)
+    sessions = get_active_sessions(db, viewer=user, kind=kind, locale=locale)
     payload: dict[str, Any] = {
         "sessions": sessions,
         "groups": build_session_groups(db, sessions),
         "counts": {
-            "all": len(get_active_sessions(db, viewer=user)),
-            "user": len(get_active_sessions(db, viewer=user, kind=KIND_USER)),
-            "app": len(get_active_sessions(db, viewer=user, kind=KIND_APP)),
+            "all": len(get_active_sessions(db, viewer=user, locale=locale)),
+            "user": len(
+                get_active_sessions(db, viewer=user, kind=KIND_USER, locale=locale)
+            ),
+            "app": len(
+                get_active_sessions(db, viewer=user, kind=KIND_APP, locale=locale)
+            ),
         },
     }
     # Temporary diagnostic for IP capture (admins only) — remove once validated.
@@ -1640,8 +1661,7 @@ async def live_verify_sessions(
     """
     from app.web.session_verify import live_verify_user_sessions
 
-    if is_portal_admin(user, db, settings):
-        user.is_admin = True
+    user = elevate_portal_admin(user, db, settings)
 
     body: dict[str, Any] = {}
     try:
@@ -1662,16 +1682,23 @@ async def live_verify_sessions(
         actor=user.email or user.username,
         ip_address=client_ip_from_request(request),
     )
-    sessions = get_active_sessions(db, viewer=user)
+    from app.i18n.middleware import get_request_locale
+
+    locale = get_request_locale(request)
+    sessions = get_active_sessions(db, viewer=user, locale=locale)
     return {
         "verified": verified,
         "revoked": [v["id"] for v in verified if v.get("revoked")],
         "groups": build_session_groups(db, sessions),
         "sessions": sessions,
         "counts": {
-            "all": len(get_active_sessions(db, viewer=user)),
-            "user": len(get_active_sessions(db, viewer=user, kind=KIND_USER)),
-            "app": len(get_active_sessions(db, viewer=user, kind=KIND_APP)),
+            "all": len(get_active_sessions(db, viewer=user, locale=locale)),
+            "user": len(
+                get_active_sessions(db, viewer=user, kind=KIND_USER, locale=locale)
+            ),
+            "app": len(
+                get_active_sessions(db, viewer=user, kind=KIND_APP, locale=locale)
+            ),
         },
     }
 

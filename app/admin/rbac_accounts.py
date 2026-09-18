@@ -59,6 +59,13 @@ from app.web.constants import APP_VERSION
 from app.web.flash import base_template_context, flash_redirect
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -306,7 +313,7 @@ def admin_rbac_users_new_form(
     )
 
 
-@router.get("/admin/rbac/users/view")
+@router.get("/admin/rbac/users/view", responses=RESP_404)
 async def admin_rbac_user_view(
     request: Request,
     db: Session = Depends(get_db),
@@ -1220,7 +1227,7 @@ async def admin_rbac_account_reset_password(
     return response
 
 
-@router.post("/admin/rbac/users/reset-password")
+@router.post("/admin/rbac/users/reset-password", responses=RESP_404)
 async def admin_rbac_user_reset_password(
     request: Request,
     db: Session = Depends(get_db),
@@ -1488,7 +1495,7 @@ async def admin_rbac_account_verify_email(
     return response
 
 
-@router.post("/admin/rbac/users/verify-email")
+@router.post("/admin/rbac/users/verify-email", responses=RESP_404)
 async def admin_rbac_user_verify_email(
     request: Request,
     db: Session = Depends(get_db),
@@ -1613,7 +1620,7 @@ async def admin_rbac_account_require_otp(
     return response
 
 
-@router.post("/admin/rbac/users/require-otp")
+@router.post("/admin/rbac/users/require-otp", responses=RESP_404)
 async def admin_rbac_user_require_otp(
     request: Request,
     db: Session = Depends(get_db),
@@ -1850,7 +1857,7 @@ async def admin_rbac_account_provision_selected(
     return response
 
 
-@router.post("/admin/rbac/accounts/{account_id}/provision/{application_id}")
+@router.post("/admin/rbac/accounts/{account_id}/provision/{application_id}", responses=RESP_404)
 async def admin_rbac_account_provision_retry(
     account_id: int,
     application_id: int,
@@ -1983,7 +1990,7 @@ async def admin_rbac_account_delete(
     return response
 
 
-@router.post("/admin/rbac/accounts/{account_id}/provision-retry-all")
+@router.post("/admin/rbac/accounts/{account_id}/provision-retry-all", responses=RESP_400)
 async def admin_rbac_account_provision_retry_all(
     account_id: int,
     request: Request,

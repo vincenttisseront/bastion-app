@@ -178,7 +178,8 @@
         <input type="hidden" name="status" value="{{ filter_status }}">
         <input type="search" list="bulk-groups-datalist" id="bulk-group-search" class="form-input"
                placeholder="{{ _('Filtre grp…') }}" autocomplete="off" data-bulk-group-filter aria-label="{{ _('Filtrer le groupe') }}">
-        <select id="bulk-group-id" name="group_id" class="form-select" required data-bulk-group-select aria-label="{{ _('Groupe Keycloak') }}">
+        <label class="visually-hidden" for="bulk-group-id">{{ _('Groupe Keycloak') }}</label>
+        <select id="bulk-group-id" name="group_id" class="form-select" required data-bulk-group-select>
           <option value="">{{ _('Choisir grp…') }}</option>
           {% for g in bulk_groups | default([]) %}
           <option value="{{ g.id }}" data-name="{{ g.name }}">{{ g.name }}{% if g.member_count is not none %} ({{ g.member_count }}){% endif %}</option>

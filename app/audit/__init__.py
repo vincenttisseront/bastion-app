@@ -124,7 +124,7 @@ def log_action(
             logger.exception("audit log rollback failed")
         return None
 
-    if forward_to_siem and entry is not None:
+    if forward_to_siem:
         try:
             from app.siem.outbox import try_enqueue_audit
 
