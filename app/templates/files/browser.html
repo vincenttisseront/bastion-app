@@ -79,7 +79,8 @@
     {% if listing.can_manage %}
     <a class="btn btn-ghost btn-sm" id="fb-rights" href="/admin/rbac" hidden>{{ _('🔒 Droits') }}</a>
     {% endif %}
-    <input type="search" class="form-input fb-search" id="fb-search" placeholder="{{ _('Rechercher…') }}">
+    <input type="search" class="form-input fb-search" id="fb-search" placeholder="{{ _('Rechercher…') }}"
+           aria-label="{{ _('Rechercher…') }}">
   </div>
 
   <div class="fb-progress" id="fb-progress"><span></span></div>
@@ -99,7 +100,8 @@
       <tbody id="fb-body">
         {% for d in listing.folders %}
         <tr class="fb-row" data-kind="folder" data-id="{{ d.id }}">
-          <td><input type="checkbox" class="fb-check" data-kind="folder" data-id="{{ d.id }}"></td>
+          <td><input type="checkbox" class="fb-check" data-kind="folder" data-id="{{ d.id }}"
+                     aria-label="{{ _('Sélectionner') }} {{ d.name }}"></td>
           <td><div class="fb-name">📁 {{ d.name }}</div></td>
           <td>—</td>
           <td>—</td>
@@ -109,7 +111,8 @@
         {% endfor %}
         {% for f in listing.files %}
         <tr class="fb-row" data-kind="file" data-id="{{ f.id }}" data-version-id="{{ f.version_id or '' }}" data-can-download="{{ '1' if f.can_download else '0' }}">
-          <td><input type="checkbox" class="fb-check" data-kind="file" data-id="{{ f.id }}" data-version-id="{{ f.version_id or '' }}"></td>
+          <td><input type="checkbox" class="fb-check" data-kind="file" data-id="{{ f.id }}" data-version-id="{{ f.version_id or '' }}"
+                     aria-label="{{ _('Sélectionner') }} {{ f.label }}"></td>
           <td><div class="fb-name">📄 {{ f.label }}</div></td>
           <td class="mono">{% if f.size_bytes %}{{ (f.size_bytes / 1048576) | round(1) }} MB{% else %}—{% endif %}</td>
           <td>{{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '—' }}</td>

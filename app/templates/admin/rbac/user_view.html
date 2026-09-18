@@ -498,13 +498,13 @@
                 </p>
                 <div class="form-row" style="flex-wrap:wrap; gap:var(--sp-3); align-items:flex-end;">
                   <div class="form-group">
-                    <label class="form-label">{{ _('Login individuel') }}</label>
-                    <input type="text" class="form-input" data-vault-user autocomplete="off"
+                    <label class="form-label" for="vault-user-{{ va.slug }}">{{ _('Login individuel') }}</label>
+                    <input type="text" class="form-input" id="vault-user-{{ va.slug }}" data-vault-user autocomplete="off"
                            value="{{ va.robotic_username or '' }}" placeholder="{{ _('service-account') }}">
                   </div>
                   <div class="form-group">
-                    <label class="form-label">{{ _('Nouveau mot de passe (optionnel)') }}</label>
-                    <input type="password" class="form-input" data-vault-pass autocomplete="new-password"
+                    <label class="form-label" for="vault-pass-{{ va.slug }}">{{ _('Nouveau mot de passe (optionnel)') }}</label>
+                    <input type="password" class="form-input" id="vault-pass-{{ va.slug }}" data-vault-pass autocomplete="new-password"
                            placeholder="{{ _('Laisser vide pour tester le vault') }}">
                   </div>
                   <button type="button" class="btn btn-secondary btn-sm" data-vault-save="{{ va.slug }}">{{ _('Enregistrer') }}</button>

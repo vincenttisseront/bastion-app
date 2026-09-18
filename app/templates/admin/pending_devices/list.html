@@ -50,14 +50,16 @@
                 data-device='{{ row.drawer | tojson }}'
                 tabindex="0"
                 role="button"
-                title="{{ _('Voir le détail') }}">
+                title="{{ _('Voir le détail') }}"
+                onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click();}">
               <td class="mono truncate" title="{{ row.user_key }}">{{ row.user_key }}</td>
               <td class="truncate" title="{{ row.display_name }}">{{ row.display_name }}</td>
               <td class="truncate" title="{{ row.app_label or '' }}">{{ row.app_label or '—' }}</td>
               <td>{{ row.request_count }}</td>
               <td class="mono">{{ row.last_seen_label }}</td>
               <td><span class="badge {{ row.status_badge_class }}">{{ row.status_label }}</span></td>
-              <td class="pending-device-actions" style="white-space:nowrap;text-align:right;" onclick="event.stopPropagation()">
+              <td class="pending-device-actions" style="white-space:nowrap;text-align:right;"
+                  onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">
                 {% if row.status == 'pending' %}
                 <form method="post" action="/admin/activesync/devices/{{ row.id }}/approve" style="display:inline;">
                   <input type="hidden" name="redirect_url" value="{{ list_redirect }}">
@@ -234,12 +236,6 @@
   document.querySelectorAll('#pending-devices-table tr.pending-device-row').forEach(function (tr) {
     tr.addEventListener('click', function () {
       openDrawer(parseRow(tr), tr);
-    });
-    tr.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter' || ev.key === ' ') {
-        ev.preventDefault();
-        openDrawer(parseRow(tr), tr);
-      }
     });
   });
 
