@@ -439,6 +439,35 @@ def skip_hot_store_migrate(
     return row
 
 
+def _prepare_hot_store_for_enable(
+    db: Session,
+    settings: Settings,
+    row: PortalSettings,
+    *,
+    actor: str,
+    ip_address: str | None,
+) -> PortalSettings:
+    _require_configured(row)
+    if not row.hot_store_schema_prepared_at and not row.hot_store_last_migrate_at:
+        raise HotStoreError("Préparez d’abord le schéma PostgreSQL")
+    if not row.hot_store_last_migrate_at and not row.hot_store_migrate_skipped_at:
+        raise HotStoreError(
+            "Migrez les données ou passez explicitement l’étape de migration"
+        )
+    result = test_hot_store_config(db, settings, actor=actor, ip_address=ip_address)
+    if not result.get("ok"):
+        raise HotStoreError("Connexion PostgreSQL en échec — activation refusée")
+    eng = sync_hot_engine_from_config(db, settings)
+    if eng is None:
+        raise HotStoreError("Impossible d’ouvrir le moteur PostgreSQL")
+    prepare_hot_schema(eng)
+    try:
+        reset_hot_table_sequences(eng)
+    except Exception:
+        logger.exception("hot store: sequence realign before enable failed")
+    return ensure_portal_settings(db, settings)
+
+
 def set_hot_store_enabled(
     db: Session,
     settings: Settings,
@@ -450,25 +479,9 @@ def set_hot_store_enabled(
     row = ensure_portal_settings(db, settings)
     new_value = bool(enabled)
     if new_value:
-        _require_configured(row)
-        if not row.hot_store_schema_prepared_at and not row.hot_store_last_migrate_at:
-            raise HotStoreError("Préparez d’abord le schéma PostgreSQL")
-        if not row.hot_store_last_migrate_at and not row.hot_store_migrate_skipped_at:
-            raise HotStoreError(
-                "Migrez les données ou passez explicitement l’étape de migration"
-            )
-        result = test_hot_store_config(db, settings, actor=actor, ip_address=ip_address)
-        if not result.get("ok"):
-            raise HotStoreError("Connexion PostgreSQL en échec — activation refusée")
-        eng = sync_hot_engine_from_config(db, settings)
-        if eng is None:
-            raise HotStoreError("Impossible d’ouvrir le moteur PostgreSQL")
-        prepare_hot_schema(eng)
-        try:
-            reset_hot_table_sequences(eng)
-        except Exception:
-            logger.exception("hot store: sequence realign before enable failed")
-        row = ensure_portal_settings(db, settings)
+        row = _prepare_hot_store_for_enable(
+            db, settings, row, actor=actor, ip_address=ip_address
+        )
 
     previous = bool(getattr(row, "hot_store_enabled", False))
     row.hot_store_enabled = new_value
