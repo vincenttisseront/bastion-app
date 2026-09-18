@@ -119,6 +119,10 @@ def test_build_apps_sections_favorites_and_applications():
         "vault-app",
     ]
 
+    en_sections = build_apps_sections(tiles, favorite_ids=[1], locale="en")
+    assert en_sections[0]["label"] == "Quick access"
+    assert en_sections[1]["label"] == "Applications"
+
     empty_fav = build_apps_sections(tiles, favorite_ids=[])
     assert empty_fav[0]["id"] == "favorites"
     assert empty_fav[0]["apps"] == []

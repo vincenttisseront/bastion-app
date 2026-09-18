@@ -92,6 +92,7 @@ def build_apps_sections(
     favorite_ids: list[int] | None = None,
     show_empty_favorites: bool = True,
     recent_sessions: list[dict[str, Any]] | None = None,
+    locale: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Group portal apps for Okta-style sections.
@@ -102,9 +103,13 @@ def build_apps_sections(
     ``recent_sessions`` is accepted for backward compatibility but ignored;
     Accès rapides is driven only by favorites.
     """
+    from app.i18n.catalog import t
+    from app.i18n.resolve import DEFAULT_LOCALE
+
+    loc = locale or DEFAULT_LOCALE
     _ = recent_sessions  # legacy kwarg — favorites replaced auto-recent
     sections: list[dict[str, Any]] = []
-    by_id = {t["id"]: t for t in tiles if t.get("id") is not None}
+    by_id = {t_tile["id"]: t_tile for t_tile in tiles if t_tile.get("id") is not None}
 
     favorite_apps: list[dict[str, Any]] = []
     seen: set[int] = set()
@@ -125,7 +130,7 @@ def build_apps_sections(
         sections.append(
             {
                 "id": "favorites",
-                "label": "Accès rapides",
+                "label": t("Accès rapides", loc),
                 "apps": favorite_apps,
                 "is_favorites": True,
                 "is_recent": True,  # template alias for id_prefix / nav
@@ -136,7 +141,7 @@ def build_apps_sections(
         sections.append(
             {
                 "id": "applications",
-                "label": "Applications",
+                "label": t("Applications", loc),
                 "apps": list(tiles),
                 "is_favorites": False,
                 "is_recent": False,

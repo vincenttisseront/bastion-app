@@ -59,6 +59,12 @@ def test_t_english_common_chrome() -> None:
     assert t("Confirmer", "en") == "Confirm"
     assert t("Rechercher…", "en") == "Search…"
     assert t("Accès refusé", "en") == "Access denied"
+    assert t("Mes fichiers", "en") == "My files"
+    assert t("Accès rapides", "en") == "Quick access"
+    assert t("Bonjour {name}", "en", name="Ada") == "Hello Ada"
+    assert t("Vue d’ensemble —", "en") == "Overview —"
+    assert t("Vue d'ensemble —", "en") == "Overview —"
+    assert t("applicatives", "en") == "applications"
 
 
 def test_t_missing_key_falls_back_to_msgid() -> None:
@@ -130,6 +136,93 @@ def test_profile_locale_form_switches_language(client) -> None:
     assert "Preferences" in page.text
     assert "My applications" in page.text
     assert "Language" in page.text
+
+
+def _visible_html(html: str) -> str:
+    """Strip script/style so __i18n catalog keys do not false-positive FR checks."""
+    import re
+
+    out = re.sub(r"<script\b[^>]*>.*?</script>", " ", html, flags=re.I | re.S)
+    out = re.sub(r"<style\b[^>]*>.*?</style>", " ", out, flags=re.I | re.S)
+    return out
+
+
+def test_portal_apps_files_profile_english(client, db_session) -> None:
+    """Portal apps / files / profile render English chrome with portal_locale=en."""
+    from app.models import App
+    from app.rbac.grants_service import AccessGrantCreate, create_grant
+
+    app = App(
+        slug="wiki-i18n",
+        label="Wiki",
+        upstream_url="https://wiki.example.com/",
+        enabled=True,
+        access_mode="sso_gate",
+    )
+    db_session.add(app)
+    db_session.commit()
+    db_session.refresh(app)
+    create_grant(
+        db_session,
+        AccessGrantCreate(
+            subject_type="user",
+            keycloak_user_id="kc-user-i18n",
+            resource_type="application",
+            application_id=app.id,
+            access_level="launch",
+        ),
+        "admin",
+    )
+    db_session.commit()
+
+    headers = {
+        "X-Email": "user@example.com",
+        "X-Preferred-Username": "user",
+        "X-User-Id": "kc-user-i18n",
+        "X-Groups": "",
+    }
+    client.cookies.set("portal_locale", "en")
+
+    apps = client.get("/apps", headers=headers)
+    assert apps.status_code == 200
+    apps_vis = _visible_html(apps.text)
+    assert "My files" in apps_vis
+    assert "Hello" in apps_vis
+    assert "Quick access" in apps_vis
+    assert "Mes fichiers" not in apps_vis
+    assert "Bonjour" not in apps_vis
+    assert "Accès rapides" not in apps_vis
+
+    files = client.get("/files", headers=headers)
+    assert files.status_code == 200
+    files_vis = _visible_html(files.text)
+    assert "My files" in files_vis
+    assert "Mes fichiers" not in files_vis
+    assert "<th>Name</th>" in files_vis
+    assert "<th>Nom</th>" not in files_vis
+
+    profile = client.get("/profile", headers=headers)
+    assert profile.status_code == 200
+    profile_vis = _visible_html(profile.text)
+    assert "Preferences" in profile_vis
+    assert "My files" in profile_vis
+    assert "Name" in profile_vis
+    assert "Mes fichiers" not in profile_vis
+
+
+def test_dashboard_english_overview(client) -> None:
+    """Admin dashboard overview labels follow portal_locale=en."""
+    client.cookies.set("portal_locale", "en")
+    r = client.get(
+        "/dashboard",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert r.status_code == 200
+    vis = _visible_html(r.text)
+    assert "Overview" in vis
+    assert "Vue d'ensemble" not in vis
+    assert "Vue d’ensemble" not in vis
+    assert ">applications<" in vis or ">applications</span>" in vis
 
 
 def test_error_page_english(client) -> None:

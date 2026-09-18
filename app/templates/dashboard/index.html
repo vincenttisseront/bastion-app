@@ -33,7 +33,7 @@
         <span class="metric-split-sep" aria-hidden="true">·</span>
         <a class="metric-split" href="/sessions?kind=app">
           <span class="metric-split-num" data-dash="sessions-app">{{ metrics.active_sessions_app | default(0) }}</span>
-          <span class="metric-split-lbl">applicatives</span>
+          <span class="metric-split-lbl">{{ _('applicatives') }}</span>
         </a>
       </div>
       <div class="metric-label">{{ _('Sessions actives') }}</div>
@@ -51,7 +51,7 @@
       <div class="metric-label">{{ _('Tentatives bloquées') }}</div>
       <div class="metric-sub" data-dash="blocked-sub">
         {% if metrics.blocked_attempts is none %}
-          Indisponible
+          {{ _('Indisponible') }}
         {% else %}
           {{ metrics.blocked_attempts_window_hours | default(24) }} {{ _('h ·') }} {{ metrics.blocked_attempts_waf | default(0) }} {{ _('WAF ·') }} {{ metrics.blocked_attempts_auth | default(0) }} auth
           {% if metrics.blocked_attempts_active_bans | default(0) %}

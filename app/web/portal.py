@@ -186,6 +186,7 @@ async def apps_portal(
     touch_portal_session(db, user, _client_ip(request), request=request)
     portal_admin = _resolve_portal_admin(user, db, settings)
     tiles = _effective_tiles(db, user)
+    from app.i18n.middleware import get_request_locale
     from app.web.portal_enrichment import build_apps_sections
     from app.web.portal_favorites import list_favorite_app_ids
 
@@ -193,7 +194,8 @@ async def apps_portal(
     fav_set = set(favorite_ids)
     for tile in tiles:
         tile["is_favorite"] = tile.get("id") in fav_set
-    sections = build_apps_sections(tiles, favorite_ids=favorite_ids)
+    locale = get_request_locale(request)
+    sections = build_apps_sections(tiles, favorite_ids=favorite_ids, locale=locale)
     as_ctx = _portal_activesync_context(db, user)
     return render(
         "portal/apps.html",
@@ -245,6 +247,10 @@ async def user_profile(
         )
     max_age = int(getattr(settings, "oidc_session_max_age", 43200) or 43200)
     session_ttl_hours = max(1, round(max_age / 3600))
+    from app.i18n.catalog import t
+    from app.i18n.middleware import get_request_locale
+
+    locale = get_request_locale(request)
     return render(
         "portal/profile.html",
         **_portal_page_ctx(
@@ -255,7 +261,10 @@ async def user_profile(
             apps=tiles,
             apps_preview=tiles[:6],
             account_url=account_url,
-            role_label="Administrateur" if portal_admin else "Utilisateur",
+            role_label=t(
+                "Administrateur" if portal_admin else "Utilisateur",
+                locale,
+            ),
             password_change_available=password_change_available,
             security_available=security_available,
             sso_sessions=sso_sessions,
