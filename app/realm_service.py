@@ -13,6 +13,16 @@ from app.models import RealmConfig
 from app.secret_crypto import encrypt_secret
 from app.security import require_internal_token
 from app.sso_settings import Settings, get_settings
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 
 router = APIRouter(
     prefix="/api/admin/realms",
@@ -83,7 +93,7 @@ def list_realms(
     return db.query(RealmConfig).all()
 
 
-@router.post("", response_model=RealmOut, status_code=201)
+@router.post("", response_model=RealmOut, status_code=201, responses=RESP_400 | RESP_409)
 def create_realm(
     body: RealmCreate,
     request: Request,
@@ -134,7 +144,7 @@ def create_realm(
     return realm
 
 
-@router.delete("/{slug}", status_code=204)
+@router.delete("/{slug}", status_code=204, responses=RESP_400 | RESP_404)
 def delete_realm(
     slug: str,
     request: Request,

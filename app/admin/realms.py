@@ -58,6 +58,13 @@ def _require_csrf(request: Request, settings: Settings, csrf_token: str = "") ->
 
 router = APIRouter(tags=["admin-realms"], dependencies=[Depends(require_admin)])
 
+_TMPL_REALM_FORM = "admin/realm_form.html"
+_PATH_ADMIN_REALMS = "/admin/realms"
+_MSG_CLIENT_ID_REQUIRED = "Client ID requis"
+_MSG_CLIENT_SECRET_REQUIRED = "Client secret requis"
+_OIDC_DEFAULT_SCOPES = "openid profile email"
+_MSG_ENABLE_TEST_REQUIRED = "Impossible d'activer un realm dont le test de connexion n'a pas réussi"
+
 
 def _port_collision_message(new_port: int) -> str:
     return (
@@ -260,7 +267,7 @@ def _realm_form_values(
     issuer_url: str = "",
     client_id: str = "",
     oauth2_proxy_port: int | str = "",
-    scopes: str = "openid profile email",
+    scopes: str = _OIDC_DEFAULT_SCOPES,
     is_default: bool = False,
 ) -> dict[str, Any]:
     if realm:
@@ -297,7 +304,7 @@ def _realm_form_values(
         "issuer_url": issuer_url,
         "client_id": client_id,
         "oauth2_proxy_port": oauth2_proxy_port,
-        "scopes": scopes or "openid profile email",
+        "scopes": scopes or _OIDC_DEFAULT_SCOPES,
         "is_default": is_default,
         "redirect_uri": "",
         "last_test_status": None,
@@ -328,7 +335,7 @@ def _apply_default_realm(db: Session, realm: RealmConfig, is_default: bool) -> N
 
 def _guard_activation(realm: RealmConfig, enabled: bool) -> str | None:
     if enabled and realm.last_test_status != "ok":
-        return "Impossible d'activer un realm dont le test de connexion n'a pas réussi"
+        return _MSG_ENABLE_TEST_REQUIRED
     return None
 
 
@@ -345,7 +352,7 @@ def _safe_encrypt_secret(plaintext: str, settings: Settings) -> tuple[str | None
         return None, str(exc)
 
 
-@router.get("/admin/realms")
+@router.get(_PATH_ADMIN_REALMS)
 def admin_realms_list(
     request: Request,
     db: Session = Depends(get_db),
@@ -455,7 +462,7 @@ def admin_realms_new(
     except NoAvailablePortError:
         suggested_port = ""
     return render(
-        "admin/realm_form.html",
+        _TMPL_REALM_FORM,
         **_ctx(
             request,
             settings,
@@ -467,7 +474,7 @@ def admin_realms_new(
     )
 
 
-@router.post("/admin/realms")
+@router.post(_PATH_ADMIN_REALMS)
 async def admin_realms_create(
     request: Request,
     slug: str = Form(""),
@@ -488,7 +495,7 @@ async def admin_realms_create(
     oidc_bff_client_secret: str = Form(""),
     oidc_bff_redirect_uri: str = Form(""),
     oauth2_proxy_port: int = Form(4180),
-    scopes: str = Form("openid profile email"),
+    scopes: str = Form(_OIDC_DEFAULT_SCOPES),
     is_default: str | None = Form(None),
     oidc_mfa_enabled: str | None = Form(None),
     show_on_login: str | None = Form(None),
@@ -544,7 +551,7 @@ async def admin_realms_create(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
             status_code=400,
         )
@@ -566,7 +573,7 @@ async def admin_realms_create(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
             status_code=400,
         )
@@ -576,7 +583,7 @@ async def admin_realms_create(
     if enc_err:
         errors["_form"] = enc_err
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
             status_code=400,
         )
@@ -586,14 +593,14 @@ async def admin_realms_create(
     admin_secret_encrypted: str | None = None
     if admin_client_id or admin_secret_plain:
         if not admin_client_id:
-            errors["keycloak_admin_client_id"] = "Client ID requis"
+            errors["keycloak_admin_client_id"] = _MSG_CLIENT_ID_REQUIRED
         if not admin_secret_plain:
-            errors["keycloak_admin_client_secret"] = "Client secret requis"
+            errors["keycloak_admin_client_secret"] = _MSG_CLIENT_SECRET_REQUIRED
         if errors:
             if _wants_json(request):
                 return JSONResponse({"ok": False, "errors": errors}, status_code=400)
             return render(
-                "admin/realm_form.html",
+                _TMPL_REALM_FORM,
                 **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
                 status_code=400,
             )
@@ -601,7 +608,7 @@ async def admin_realms_create(
         if enc_err:
             errors["_form"] = enc_err
             return render(
-                "admin/realm_form.html",
+                _TMPL_REALM_FORM,
                 **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
                 status_code=400,
             )
@@ -611,9 +618,9 @@ async def admin_realms_create(
     provision_secret_encrypted: str | None = None
     if provision_client_id or provision_secret_plain:
         if not provision_client_id:
-            errors["keycloak_provision_client_id"] = "Client ID requis"
+            errors["keycloak_provision_client_id"] = _MSG_CLIENT_ID_REQUIRED
         if not provision_secret_plain:
-            errors["keycloak_provision_client_secret"] = "Client secret requis"
+            errors["keycloak_provision_client_secret"] = _MSG_CLIENT_SECRET_REQUIRED
         if not errors:
             provision_secret_encrypted, enc_err = _safe_encrypt_secret(
                 provision_secret_plain, settings
@@ -631,7 +638,7 @@ async def admin_realms_create(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
             status_code=400,
         )
@@ -688,7 +695,7 @@ async def admin_realms_create(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
             status_code=400,
         )
@@ -720,7 +727,7 @@ async def admin_realms_create(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(request, settings, realm=None, form_values=form_values, errors=errors),
             status_code=400,
         )
@@ -736,7 +743,7 @@ async def admin_realms_create(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": smtp_errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(
                 request, settings, realm=None, form_values=form_values, errors=smtp_errors
             ),
@@ -757,7 +764,7 @@ async def admin_realms_create(
     if _wants_json(request):
         return JSONResponse({"ok": True, "id": realm.id, "slug": realm.slug})
 
-    response = RedirectResponse(url="/admin/realms", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
     flash_redirect(
         response,
         f"Realm '{realm.slug}' créé.",
@@ -779,7 +786,7 @@ def admin_realms_edit(
     if not realm:
         raise HTTPException(status_code=404)
     return render(
-        "admin/realm_form.html",
+        _TMPL_REALM_FORM,
         **_ctx(
             request,
             settings,
@@ -812,7 +819,7 @@ async def admin_realms_update(
     oidc_bff_client_secret: str = Form(""),
     oidc_bff_redirect_uri: str = Form(""),
     oauth2_proxy_port: int = Form(4180),
-    scopes: str = Form("openid profile email"),
+    scopes: str = Form(_OIDC_DEFAULT_SCOPES),
     is_default: str | None = Form(None),
     oidc_mfa_enabled: str | None = Form(None),
     show_on_login: str | None = Form(None),
@@ -872,7 +879,7 @@ async def admin_realms_update(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(request, settings, realm=realm, form_values=form_values, errors=errors),
             status_code=400,
         )
@@ -896,7 +903,7 @@ async def admin_realms_update(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(request, settings, realm=realm, form_values=form_values, errors=errors),
             status_code=400,
         )
@@ -916,7 +923,7 @@ async def admin_realms_update(
         encrypted_secret, enc_err = _safe_encrypt_secret(data.client_secret, settings)
         if enc_err:
             return render(
-                "admin/realm_form.html",
+                _TMPL_REALM_FORM,
                 **_ctx(
                     request,
                     settings,
@@ -934,34 +941,34 @@ async def admin_realms_update(
         if not admin_id:
             if _wants_json(request):
                 return JSONResponse(
-                    {"ok": False, "errors": {"keycloak_admin_client_id": "Client ID requis"}},
+                    {"ok": False, "errors": {"keycloak_admin_client_id": _MSG_CLIENT_ID_REQUIRED}},
                     status_code=400,
                 )
             return render(
-                "admin/realm_form.html",
+                _TMPL_REALM_FORM,
                 **_ctx(
                     request,
                     settings,
                     realm=realm,
                     form_values=form_values,
-                    errors={"keycloak_admin_client_id": "Client ID requis"},
+                    errors={"keycloak_admin_client_id": _MSG_CLIENT_ID_REQUIRED},
                 ),
                 status_code=400,
             )
         if not admin_secret_plain and not realm.keycloak_admin_client_secret_encrypted:
             if _wants_json(request):
                 return JSONResponse(
-                    {"ok": False, "errors": {"keycloak_admin_client_secret": "Client secret requis"}},
+                    {"ok": False, "errors": {"keycloak_admin_client_secret": _MSG_CLIENT_SECRET_REQUIRED}},
                     status_code=400,
                 )
             return render(
-                "admin/realm_form.html",
+                _TMPL_REALM_FORM,
                 **_ctx(
                     request,
                     settings,
                     realm=realm,
                     form_values=form_values,
-                    errors={"keycloak_admin_client_secret": "Client secret requis"},
+                    errors={"keycloak_admin_client_secret": _MSG_CLIENT_SECRET_REQUIRED},
                 ),
                 status_code=400,
             )
@@ -971,7 +978,7 @@ async def admin_realms_update(
             encrypted_admin, enc_err = _safe_encrypt_secret(admin_secret_plain, settings)
             if enc_err:
                 return render(
-                    "admin/realm_form.html",
+                    _TMPL_REALM_FORM,
                     **_ctx(
                         request,
                         settings,
@@ -995,9 +1002,9 @@ async def admin_realms_update(
     provision_errors: dict[str, str] = {}
     if provision_id or provision_secret_plain:
         if not provision_id:
-            provision_errors["keycloak_provision_client_id"] = "Client ID requis"
+            provision_errors["keycloak_provision_client_id"] = _MSG_CLIENT_ID_REQUIRED
         elif not provision_secret_plain and not realm.keycloak_provision_client_secret_encrypted:
-            provision_errors["keycloak_provision_client_secret"] = "Client secret requis"
+            provision_errors["keycloak_provision_client_secret"] = _MSG_CLIENT_SECRET_REQUIRED
         else:
             realm.keycloak_provision_client_id = provision_id
             if provision_secret_plain:
@@ -1025,7 +1032,7 @@ async def admin_realms_update(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": provision_errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(
                 request,
                 settings,
@@ -1051,7 +1058,7 @@ async def admin_realms_update(
                     {"ok": False, "errors": {"_form": activation_err}}, status_code=400
                 )
             return render(
-                "admin/realm_form.html",
+                _TMPL_REALM_FORM,
                 **_ctx(
                     request,
                     settings,
@@ -1080,7 +1087,7 @@ async def admin_realms_update(
                 {"ok": False, "errors": {"_form": bff_err}}, status_code=400
             )
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(
                 request,
                 settings,
@@ -1101,7 +1108,7 @@ async def admin_realms_update(
         if _wants_json(request):
             return JSONResponse({"ok": False, "errors": smtp_errors}, status_code=400)
         return render(
-            "admin/realm_form.html",
+            _TMPL_REALM_FORM,
             **_ctx(
                 request,
                 settings,
@@ -1128,7 +1135,7 @@ async def admin_realms_update(
     if _wants_json(request):
         return JSONResponse({"ok": True, "id": realm.id})
 
-    response = RedirectResponse(url="/admin/realms", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
     flash_redirect(
         response,
         f"Realm '{realm.slug}' mis à jour.",
@@ -1221,7 +1228,7 @@ async def admin_realms_test(
     client_secret = _resolve_client_secret(body.get("client_secret"), realm, settings)
     if not client_secret:
         return JSONResponse(
-            {"ok": False, "errors": {"client_secret": "Client secret requis"}},
+            {"ok": False, "errors": {"client_secret": _MSG_CLIENT_SECRET_REQUIRED}},
             status_code=400,
         )
 
@@ -1264,12 +1271,12 @@ def admin_realms_enable(
         if resp := _error_response(
             request,
             400,
-            "Impossible d'activer un realm dont le test de connexion n'a pas réussi",
+            _MSG_ENABLE_TEST_REQUIRED,
         ):
             return resp
         raise HTTPException(
             status_code=400,
-            detail="Impossible d'activer un realm dont le test de connexion n'a pas réussi",
+            detail=_MSG_ENABLE_TEST_REQUIRED,
         )
     realm.enabled = True
     db.commit()
@@ -1282,7 +1289,7 @@ def admin_realms_enable(
     )
     if _wants_json(request):
         return JSONResponse({"ok": True})
-    response = RedirectResponse(url="/admin/realms", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
     flash_redirect(
         response,
         f"Realm '{realm.slug}' activé.",
@@ -1316,7 +1323,7 @@ def admin_realms_disable(
     )
     if _wants_json(request):
         return JSONResponse({"ok": True})
-    response = RedirectResponse(url="/admin/realms", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
     flash_redirect(
         response,
         f"Realm '{realm.slug}' désactivé.",
@@ -1356,7 +1363,7 @@ def admin_realms_oidc_native_enable(
         return JSONResponse(
             {"ok": True, "slug": realm.slug, "oidc_native_session_enabled": True}
         )
-    response = RedirectResponse(url="/admin/realms", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
     flash_redirect(
         response,
         f"Session native OIDC activée pour '{realm.slug}'.",
@@ -1396,7 +1403,7 @@ def admin_realms_oidc_native_disable(
         return JSONResponse(
             {"ok": True, "slug": realm.slug, "oidc_native_session_enabled": False}
         )
-    response = RedirectResponse(url="/admin/realms", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
     flash_redirect(
         response,
         f"Session native OIDC désactivée pour '{realm.slug}'.",
@@ -1493,7 +1500,7 @@ def admin_realms_export(
     )
     if _wants_json(request):
         return JSONResponse({"ok": True, "message": message, "paths": paths})
-    response = RedirectResponse(url="/admin/realms", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
     flash_redirect(response, message, "success", settings.vault_portal_internal_token or "dev")
     return response
 
@@ -1541,7 +1548,7 @@ def admin_realms_delete(
     )
     if _wants_json(request):
         return JSONResponse({"ok": True})
-    response = RedirectResponse(url="/admin/realms", status_code=302)
+    response = RedirectResponse(url=_PATH_ADMIN_REALMS, status_code=302)
     flash_redirect(
         response,
         f"Realm '{slug}' supprimé.",

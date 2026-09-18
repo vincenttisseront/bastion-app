@@ -19,6 +19,16 @@ from app.files.service import (
     resolve_storage_path,
     store_file_version,
 )
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 from app.models import FileChannelAssignment, FileResource, FileVersion, RBACGroup, RealmConfig
 from app.rbac.grants_service import ACCESS_LEVELS, build_file_access_view
 from app.request_client_ip import client_ip_from_request
@@ -173,7 +183,7 @@ def admin_files_resolve_name(
     return JSONResponse({"ok": True, "results": results, "best": best})
 
 
-@router.post("/admin/files/deposit")
+@router.post("/admin/files/deposit", responses=RESP_400)
 async def admin_files_deposit(
     request: Request,
     mode: str = Form(...),
@@ -540,7 +550,7 @@ async def admin_files_upload_version(
     return response
 
 
-@router.post("/admin/files/{file_id}/versions/{version_id}/promote")
+@router.post("/admin/files/{file_id}/versions/{version_id}/promote", responses=RESP_400)
 @router.patch("/admin/files/{file_id}/versions/{version_id}")
 async def admin_files_promote_or_patch_version(
     file_id: int,
@@ -703,7 +713,7 @@ async def admin_files_assign_beta(
     return response
 
 
-@router.post("/admin/files/{file_id}/channel-assignments/{assignment_id}/delete")
+@router.post("/admin/files/{file_id}/channel-assignments/{assignment_id}/delete", responses=RESP_404)
 @router.delete("/admin/files/{file_id}/channel-assignments/{assignment_id}")
 async def admin_files_unassign_beta(
     file_id: int,

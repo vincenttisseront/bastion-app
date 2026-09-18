@@ -36,6 +36,20 @@ _NGX_PROXY_X_AUTH_APP = "        proxy_set_header X-Auth-App $auth_app;"
 _NGX_PROXY_X_AUTH_SOURCE = "        proxy_set_header X-Auth-Source $auth_source;"
 _NGX_MODSECURITY_OFF = "        modsecurity off;"
 _NGX_AUTH_REQUEST_OFF = "        auth_request off;"
+_NGX_PROXY_PASS_UPSTREAM = "        proxy_pass $app_upstream;"
+_NGX_PROXY_HTTP_VERSION = "        proxy_http_version 1.1;"
+_NGX_PROXY_BUFFERING_OFF = "        proxy_buffering off;"
+_NGX_PROXY_REQUEST_BUFFERING_OFF = "        proxy_request_buffering off;"
+_NGX_PROXY_CONNECT_TIMEOUT_60 = "        proxy_connect_timeout 60s;"
+_NGX_PROXY_X_FORWARDED_PROTO = "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;"
+_NGX_PROXY_X_REAL_IP = "        proxy_set_header X-Real-IP $remote_addr;"
+_NGX_PROXY_X_FORWARDED_FOR = "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"
+_NGX_PROXY_COOKIE = "        proxy_set_header Cookie $http_cookie;"
+_NGX_AUTH_SET_USER = "        auth_request_set $auth_user $upstream_http_x_auth_user;"
+_NGX_AUTH_SET_APP = "        auth_request_set $auth_app $upstream_http_x_auth_app;"
+_NGX_AUTH_SET_SOURCE = "        auth_request_set $auth_source $upstream_http_x_auth_source;"
+_NGX_PROXY_REDIRECT_OFF = "        proxy_redirect off;"
+_NGX_RETURN_CRUSH_UI = "        return 302 /WebInterface/new-ui/index.html;"
 
 
 def iter_subdomain_proxy_apps(db: Session) -> list[App]:
@@ -136,26 +150,26 @@ def _activesync_locations(
         f"        error_page 401 = @activesync_unauthorized_{slug};",
         "",
         "        client_max_body_size 64m;",
-        "        proxy_pass $app_upstream;",
-        "        proxy_redirect off;",
-        "        proxy_http_version 1.1;",
-        "        proxy_buffering off;",
-        "        proxy_request_buffering off;",
+        _NGX_PROXY_PASS_UPSTREAM,
+        _NGX_PROXY_REDIRECT_OFF,
+        _NGX_PROXY_HTTP_VERSION,
+        _NGX_PROXY_BUFFERING_OFF,
+        _NGX_PROXY_REQUEST_BUFFERING_OFF,
         "        proxy_read_timeout 3600s;",
         "        proxy_send_timeout 3600s;",
-        "        proxy_connect_timeout 60s;",
+        _NGX_PROXY_CONNECT_TIMEOUT_60,
         *ssl_lines,
         _NGX_PROXY_HOST,
-        "        proxy_set_header X-Real-IP $remote_addr;",
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        _NGX_PROXY_X_REAL_IP,
+        _NGX_PROXY_X_FORWARDED_FOR,
+        _NGX_PROXY_X_FORWARDED_PROTO,
         "        # Upstream (grommunio) validates Basic; auth_request only gates access.",
         _NGX_PROXY_AUTHORIZATION,
         _NGX_PROXY_PASS_REQUEST_HEADERS,
         "",
-        "        auth_request_set $auth_user $upstream_http_x_auth_user;",
-        "        auth_request_set $auth_app $upstream_http_x_auth_app;",
-        "        auth_request_set $auth_source $upstream_http_x_auth_source;",
+        _NGX_AUTH_SET_USER,
+        _NGX_AUTH_SET_APP,
+        _NGX_AUTH_SET_SOURCE,
         _NGX_PROXY_X_AUTH_USER,
         _NGX_PROXY_X_AUTH_APP,
         _NGX_PROXY_X_AUTH_SOURCE,
@@ -169,23 +183,23 @@ def _activesync_locations(
         f"        error_page 401 = @activesync_unauthorized_{slug};",
         "",
         "        client_max_body_size 1m;",
-        "        proxy_pass $app_upstream;",
-        "        proxy_redirect off;",
-        "        proxy_http_version 1.1;",
-        "        proxy_buffering off;",
-        "        proxy_request_buffering off;",
+        _NGX_PROXY_PASS_UPSTREAM,
+        _NGX_PROXY_REDIRECT_OFF,
+        _NGX_PROXY_HTTP_VERSION,
+        _NGX_PROXY_BUFFERING_OFF,
+        _NGX_PROXY_REQUEST_BUFFERING_OFF,
         "        proxy_read_timeout 120s;",
         "        proxy_send_timeout 120s;",
         *ssl_lines,
         _NGX_PROXY_HOST,
-        "        proxy_set_header X-Real-IP $remote_addr;",
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        _NGX_PROXY_X_REAL_IP,
+        _NGX_PROXY_X_FORWARDED_FOR,
+        _NGX_PROXY_X_FORWARDED_PROTO,
         _NGX_PROXY_AUTHORIZATION,
         "",
-        "        auth_request_set $auth_user $upstream_http_x_auth_user;",
-        "        auth_request_set $auth_app $upstream_http_x_auth_app;",
-        "        auth_request_set $auth_source $upstream_http_x_auth_source;",
+        _NGX_AUTH_SET_USER,
+        _NGX_AUTH_SET_APP,
+        _NGX_AUTH_SET_SOURCE,
         _NGX_PROXY_X_AUTH_USER,
         _NGX_PROXY_X_AUTH_APP,
         _NGX_PROXY_X_AUTH_SOURCE,
@@ -229,22 +243,22 @@ def _m2m_bypass_proxy_lines(
         else []
     )
     return [
-        "        proxy_pass $app_upstream;",
+        _NGX_PROXY_PASS_UPSTREAM,
         *redirect_lines,
-        "        proxy_http_version 1.1;",
-        "        proxy_buffering off;",
-        "        proxy_request_buffering off;",
+        _NGX_PROXY_HTTP_VERSION,
+        _NGX_PROXY_BUFFERING_OFF,
+        _NGX_PROXY_REQUEST_BUFFERING_OFF,
         "        proxy_buffer_size 128k;",
         "        proxy_buffers 8 128k;",
         "        proxy_busy_buffers_size 256k;",
         *upgrade_lines,
-        "        proxy_connect_timeout 60s;",
+        _NGX_PROXY_CONNECT_TIMEOUT_60,
         f"        proxy_read_timeout {read_timeout};",
         f"        proxy_send_timeout {send_timeout};",
         *ssl_lines,
         _NGX_PROXY_HOST,
         *forwarded_ip_lines,
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        _NGX_PROXY_X_FORWARDED_PROTO,
         _NGX_PROXY_AUTHORIZATION,
         *cookie_lines,
         "        proxy_cookie_path / /;",
@@ -367,25 +381,25 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             f"https://{fqdn_esc}$1;",
         ]
     else:
-        cookie_lines = ["        proxy_set_header Cookie $http_cookie;"]
+        cookie_lines = [_NGX_PROXY_COOKIE]
         forwarded_ip_lines = [
-            "        proxy_set_header X-Real-IP $remote_addr;",
-            "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
+            _NGX_PROXY_X_REAL_IP,
+            _NGX_PROXY_X_FORWARDED_FOR,
         ]
-        redirect_lines = ["        proxy_redirect off;"]
+        redirect_lines = [_NGX_PROXY_REDIRECT_OFF]
 
     named_upstream = f"@app_upstream_{slug}"
     # Prefer X-Auth-Request-Email — same $upstream_http_x_auth_request_* vars the
     # portal already uses successfully with auth_request_set. Short X-Auth-Email
     # is still returned by FastAPI for clients that read it directly.
     auth_request_set_user_lines = [
-        "        auth_request_set $auth_user $upstream_http_x_auth_user;",
-        "        auth_request_set $auth_app $upstream_http_x_auth_app;",
+        _NGX_AUTH_SET_USER,
+        _NGX_AUTH_SET_APP,
         "        auth_request_set $auth_email $upstream_http_x_auth_request_email;",
         "        auth_request_set $auth_preferred $upstream_http_x_auth_preferred_username;",
         "        auth_request_set $auth_display $upstream_http_x_auth_display_name;",
         "        auth_request_set $auth_groups $upstream_http_x_auth_groups;",
-        "        auth_request_set $auth_source $upstream_http_x_auth_source;",
+        _NGX_AUTH_SET_SOURCE,
     ]
     # Identity from auth_request only (never $http_*) — trusted-header SSO for
     # upstreams (Open WebUI WEBUI_AUTH_TRUSTED_*, Authelia-style apps, …).
@@ -403,15 +417,15 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_set_header X-Forwarded-Groups $auth_groups;",
     ]
     proxy_body_lines = [
-        f"        proxy_pass $app_upstream;",
+        f_NGX_PROXY_PASS_UPSTREAM,
         *redirect_lines,
-        "        proxy_http_version 1.1;",
+        _NGX_PROXY_HTTP_VERSION,
         "        # Stream transfers both ways — with buffering on, nginx spools the",
         "        # whole upload to client_body_temp before forwarding (a 2G file",
         "        # would fill the container disk and CrushFTP sees nothing for",
         "        # minutes). Same directives as the legacy hand-written vhost.",
-        "        proxy_buffering off;",
-        "        proxy_request_buffering off;",
+        _NGX_PROXY_BUFFERING_OFF,
+        _NGX_PROXY_REQUEST_BUFFERING_OFF,
         # Response-header buffers (independent of proxy_buffering): Immich/oauth
         # Set-Cookie jars blow the default 4k/8k → 502 "upstream sent too big header".
         "        proxy_buffer_size 128k;",
@@ -421,13 +435,13 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         # $connection_upgrade — raw $http_connection is empty on HTTP/2 hops.
         "        proxy_set_header Upgrade $http_upgrade;",
         "        proxy_set_header Connection $connection_upgrade;",
-        "        proxy_connect_timeout 60s;",
+        _NGX_PROXY_CONNECT_TIMEOUT_60,
         "        proxy_read_timeout 3600s;",
         "        proxy_send_timeout 3600s;",
         *ssl_lines,
         _NGX_PROXY_HOST,
         *forwarded_ip_lines,
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        _NGX_PROXY_X_FORWARDED_PROTO,
         *cookie_lines,
         "        proxy_cookie_path / /;",
         f"        proxy_cookie_domain {upstream_host_esc} {fqdn_esc};",
@@ -486,13 +500,13 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         _NGX_AUTH_REQUEST_OFF,
         _NGX_MODSECURITY_OFF,
         "        proxy_pass http://$bastion_app_upstream/api/internal/session-cookie-hop;",
-        "        proxy_http_version 1.1;",
+        _NGX_PROXY_HTTP_VERSION,
         f"        proxy_set_header Host {portal_esc};",
-        "        proxy_set_header X-Real-IP $remote_addr;",
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        _NGX_PROXY_X_REAL_IP,
+        _NGX_PROXY_X_FORWARDED_FOR,
+        _NGX_PROXY_X_FORWARDED_PROTO,
         "        proxy_set_header X-Forwarded-Host $host;",
-        "        proxy_set_header Cookie $http_cookie;",
+        _NGX_PROXY_COOKIE,
         "        proxy_pass_request_body off;",
         "    }",
         "",
@@ -500,13 +514,13 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         _NGX_AUTH_REQUEST_OFF,
         _NGX_MODSECURITY_OFF,
         "        proxy_pass http://$bastion_app_upstream/api/internal/sso-session-mirror;",
-        "        proxy_http_version 1.1;",
+        _NGX_PROXY_HTTP_VERSION,
         f"        proxy_set_header Host {portal_esc};",
-        "        proxy_set_header X-Real-IP $remote_addr;",
-        "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;",
-        "        proxy_set_header X-Forwarded-Proto $bastion_forwarded_proto;",
+        _NGX_PROXY_X_REAL_IP,
+        _NGX_PROXY_X_FORWARDED_FOR,
+        _NGX_PROXY_X_FORWARDED_PROTO,
         "        proxy_set_header X-Forwarded-Host $host;",
-        "        proxy_set_header Cookie $http_cookie;",
+        _NGX_PROXY_COOKIE,
         "        proxy_pass_request_body off;",
         "    }",
         "",
@@ -553,13 +567,13 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         lines.extend(
             [
                 "    location = /WebInterface/new-ui {",
-                "        return 302 /WebInterface/new-ui/index.html;",
+                _NGX_RETURN_CRUSH_UI,
                 "    }",
                 "    location = /WebInterface/new-ui/ {",
-                "        return 302 /WebInterface/new-ui/index.html;",
+                _NGX_RETURN_CRUSH_UI,
                 "    }",
                 "    location = / {",
-                "        return 302 /WebInterface/new-ui/index.html;",
+                _NGX_RETURN_CRUSH_UI,
                 "    }",
                 "",
             ]

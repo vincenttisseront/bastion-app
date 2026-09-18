@@ -21,6 +21,7 @@ from app.web.flash import base_template_context, flash_redirect, verify_csrf_tok
 from app.web.sessions_service import touch_app_session, touch_portal_session
 from app.web.templates import render
 from app.web.user_context import UserContext, is_portal_admin, require_user_enriched
+from app.web.openapi_responses import RESP_403, RESP_404
 
 router = APIRouter(tags=["portal"], dependencies=[Depends(require_user_enriched)])
 
@@ -287,7 +288,7 @@ def _owned_device_or_404(db: Session, device_id: int, user: UserContext):
         username=user.username,
         keycloak_user_id=user.keycloak_user_id,
     ):
-        raise HTTPException(status_code=404, detail="Appareil introuvable")
+        raise HTTPException(status_code=404, detail="Appareil introuvable")  # NOSONAR
     return device
 
 
@@ -295,10 +296,13 @@ def _require_portal_csrf(request: Request, settings: Settings, csrf_token: str) 
     # Must match base_template_context's fallback ("dev-insecure").
     secret = settings.vault_portal_internal_token or "dev-insecure"
     if not verify_csrf_token(request, secret, csrf_token):
-        raise HTTPException(status_code=403, detail="Jeton CSRF invalide")
+        raise HTTPException(status_code=403, detail="Jeton CSRF invalide")  # NOSONAR
 
 
-@router.post("/profile/activesync/devices/{device_id}/approve")
+@router.post(
+    "/profile/activesync/devices/{device_id}/approve",
+    responses=RESP_403 | RESP_404,
+)
 async def portal_device_approve(
     device_id: int,
     request: Request,
@@ -331,7 +335,10 @@ async def portal_device_approve(
     return response
 
 
-@router.post("/profile/activesync/devices/{device_id}/reject")
+@router.post(
+    "/profile/activesync/devices/{device_id}/reject",
+    responses=RESP_403 | RESP_404,
+)
 async def portal_device_reject(
     device_id: int,
     request: Request,
@@ -360,7 +367,10 @@ async def portal_device_reject(
     return response
 
 
-@router.post("/profile/activesync/devices/{device_id}/revoke")
+@router.post(
+    "/profile/activesync/devices/{device_id}/revoke",
+    responses=RESP_403 | RESP_404,
+)
 async def portal_device_revoke(
     device_id: int,
     request: Request,
@@ -389,7 +399,7 @@ async def portal_device_revoke(
     return response
 
 
-@router.post("/profile/password")
+@router.post("/profile/password", responses=RESP_403)
 async def profile_change_password(
     request: Request,
     csrf_token: str = Form(""),
@@ -431,7 +441,7 @@ async def profile_change_password(
     return response
 
 
-@router.post("/profile/sessions/revoke")
+@router.post("/profile/sessions/revoke", responses=RESP_403)
 async def profile_revoke_session(
     request: Request,
     csrf_token: str = Form(""),
@@ -486,7 +496,7 @@ async def profile_revoke_session(
     return response
 
 
-@router.post("/profile/sessions/revoke-others")
+@router.post("/profile/sessions/revoke-others", responses=RESP_403)
 async def profile_revoke_other_sessions(
     request: Request,
     csrf_token: str = Form(""),

@@ -22,6 +22,16 @@ from app.vault.app_credential_service import (
     get_app_credential,
     set_app_credential,
 )
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 from app.vault.credential_connection_test import (
     credential_test_legacy_response,
     test_app_credential_connection,
@@ -59,7 +69,7 @@ def _credential_out(cred) -> CredentialOut:
     )
 
 
-@router.post("/{slug}/credential", response_model=CredentialOut)
+@router.post("/{slug}/credential", response_model=CredentialOut, responses=RESP_400 | RESP_503)
 def create_or_replace_credential(
     slug: str,
     body: CredentialSetBody,
@@ -85,7 +95,7 @@ def create_or_replace_credential(
     return _credential_out(cred)
 
 
-@router.get("/{slug}/credential", response_model=CredentialOut)
+@router.get("/{slug}/credential", response_model=CredentialOut, responses=RESP_404)
 def read_credential(
     slug: str,
     db: Session = Depends(get_db),
@@ -113,7 +123,7 @@ def delete_credential(
     return None
 
 
-@router.post("/{slug}/credential/test")
+@router.post("/{slug}/credential/test", responses=RESP_503)
 async def test_credential(
     slug: str,
     request: Request,

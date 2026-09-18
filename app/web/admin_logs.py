@@ -31,6 +31,16 @@ from app.web.admin_logs_query import (
     parse_status_list,
     serialize_audit_row,
 )
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 from app.web.audit_export import build_audit_csv_export, build_audit_pdf_export
 from app.web.constants import APP_VERSION
 from app.i18n.middleware import get_request_locale
@@ -661,7 +671,7 @@ def admin_logs_save_columns(
     return response
 
 
-@router.post("/admin/logs/views")
+@router.post("/admin/logs/views", responses=RESP_400)
 def admin_logs_save_view(
     request: Request,
     name: str = Form(...),
@@ -849,7 +859,7 @@ def admin_logs_catalogue(
         filters={"domain": domain or "", "severity": severity or "", "q": q or ""},
     )
 
-@router.get("/admin/logs/containers/{name}/logs")
+@router.get("/admin/logs/containers/{name}/logs", responses=RESP_503)
 async def admin_container_logs_snapshot(
     name: str,
     request: Request,
@@ -873,7 +883,7 @@ async def admin_container_logs_snapshot(
     return {"container": container, "text": text}
 
 
-@router.get("/admin/logs/containers/{name}/stream")
+@router.get("/admin/logs/containers/{name}/stream", responses=RESP_503)
 async def admin_container_logs_stream(
     name: str,
     request: Request,

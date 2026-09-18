@@ -24,6 +24,15 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_FK_REALM_CONFIGS_ID = "realm_configs.id"
+_FK_APPS_ID = "apps.id"
+_REL_ALL_DELETE_ORPHAN = "all, delete-orphan"
+_FK_RBAC_GROUPS_ID = "rbac_groups.id"
+_FK_APPS_SLUG = "apps.slug"
+_FK_FILE_FOLDERS_ID = "file_folders.id"
+_FK_FILE_RESOURCES_ID = "file_resources.id"
+_FK_RBAC_ROLES_ID = "rbac_roles.id"
+
 class App(Base):
     """Application registered in the catalogue."""
 
@@ -93,7 +102,7 @@ class App(Base):
     credentials = relationship(
         "AppCredential",
         back_populates="app",
-        cascade="all, delete-orphan",
+        cascade=_REL_ALL_DELETE_ORPHAN,
         foreign_keys="AppCredential.app_slug",
     )
 
@@ -110,7 +119,7 @@ class RBACGroup(Base):
     realm_slug = Column(String, nullable=True)
 
     # Multi-realm Keycloak sync fields.
-    realm_id = Column(Integer, ForeignKey("realm_configs.id"), nullable=True, index=True)
+    realm_id = Column(Integer, ForeignKey(_FK_REALM_CONFIGS_ID), nullable=True, index=True)
     keycloak_group_id = Column(String, nullable=True, index=True)
     path = Column(String, nullable=True)
     member_count = Column(Integer, nullable=True)
@@ -154,7 +163,7 @@ class RbacRole(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False, index=True)
-    inherits_from_id = Column(Integer, ForeignKey("rbac_roles.id"), nullable=True)
+    inherits_from_id = Column(Integer, ForeignKey(_FK_RBAC_ROLES_ID), nullable=True)
     is_critical = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -163,7 +172,7 @@ class RbacRole(Base):
     permissions = relationship(
         "RolePermission",
         back_populates="role",
-        cascade="all, delete-orphan",
+        cascade=_REL_ALL_DELETE_ORPHAN,
         foreign_keys="RolePermission.role_id",
     )
 
@@ -174,7 +183,7 @@ class RolePermission(Base):
     __tablename__ = "role_permissions"
 
     id = Column(Integer, primary_key=True)
-    role_id = Column(Integer, ForeignKey("rbac_roles.id"), nullable=False, index=True)
+    role_id = Column(Integer, ForeignKey(_FK_RBAC_ROLES_ID), nullable=False, index=True)
     module_id = Column(
         Integer, ForeignKey("permission_modules.id"), nullable=False, index=True
     )
@@ -201,16 +210,16 @@ class AccessGrant(Base):
 
     id = Column(Integer, primary_key=True)
     subject_type = Column(String, nullable=False)  # group | user
-    rbac_group_id = Column(Integer, ForeignKey("rbac_groups.id"), nullable=True)
+    rbac_group_id = Column(Integer, ForeignKey(_FK_RBAC_GROUPS_ID), nullable=True)
     keycloak_user_id = Column(String, nullable=True)
     user_display_cache = Column(String, nullable=True)
 
     resource_type = Column(String, nullable=False)  # application | system_role | rbac_role | file | folder
-    application_id = Column(Integer, ForeignKey("apps.id"), nullable=True)
+    application_id = Column(Integer, ForeignKey(_FK_APPS_ID), nullable=True)
     system_role = Column(String, nullable=True)
-    rbac_role_id = Column(Integer, ForeignKey("rbac_roles.id"), nullable=True)
-    file_id = Column(Integer, ForeignKey("file_resources.id"), nullable=True)
-    folder_id = Column(Integer, ForeignKey("file_folders.id"), nullable=True)
+    rbac_role_id = Column(Integer, ForeignKey(_FK_RBAC_ROLES_ID), nullable=True)
+    file_id = Column(Integer, ForeignKey(_FK_FILE_RESOURCES_ID), nullable=True)
+    folder_id = Column(Integer, ForeignKey(_FK_FILE_FOLDERS_ID), nullable=True)
 
     access_level = Column(String, default="view", nullable=False)
     granted_at = Column(DateTime(timezone=True), default=utcnow)
@@ -255,7 +264,7 @@ class FileFolder(Base):
 
     id = Column(Integer, primary_key=True)
     parent_folder_id = Column(
-        Integer, ForeignKey("file_folders.id", ondelete="CASCADE"), nullable=True, index=True
+        Integer, ForeignKey(_FK_FILE_FOLDERS_ID, ondelete="CASCADE"), nullable=True, index=True
     )
     name = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
@@ -275,7 +284,7 @@ class FileResource(Base):
 
     id = Column(Integer, primary_key=True)
     folder_id = Column(
-        Integer, ForeignKey("file_folders.id", ondelete="SET NULL"), nullable=True, index=True
+        Integer, ForeignKey(_FK_FILE_FOLDERS_ID, ondelete="SET NULL"), nullable=True, index=True
     )
     slug = Column(String, unique=True, nullable=False, index=True)
     label = Column(String, nullable=False)
@@ -290,13 +299,13 @@ class FileResource(Base):
     versions = relationship(
         "FileVersion",
         back_populates="file_resource",
-        cascade="all, delete-orphan",
+        cascade=_REL_ALL_DELETE_ORPHAN,
         foreign_keys="FileVersion.file_id",
     )
     channel_assignments = relationship(
         "FileChannelAssignment",
         back_populates="file_resource",
-        cascade="all, delete-orphan",
+        cascade=_REL_ALL_DELETE_ORPHAN,
         foreign_keys="FileChannelAssignment.file_id",
     )
 
@@ -313,7 +322,7 @@ class FileVersion(Base):
     id = Column(Integer, primary_key=True)
     file_id = Column(
         Integer,
-        ForeignKey("file_resources.id", ondelete="CASCADE"),
+        ForeignKey(_FK_FILE_RESOURCES_ID, ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -353,19 +362,19 @@ class FileChannelAssignment(Base):
     id = Column(Integer, primary_key=True)
     file_id = Column(
         Integer,
-        ForeignKey("file_resources.id", ondelete="CASCADE"),
+        ForeignKey(_FK_FILE_RESOURCES_ID, ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
     folder_id = Column(
         Integer,
-        ForeignKey("file_folders.id", ondelete="CASCADE"),
+        ForeignKey(_FK_FILE_FOLDERS_ID, ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
     subject_type = Column(String, nullable=False)  # group | user
     rbac_group_id = Column(
-        Integer, ForeignKey("rbac_groups.id", ondelete="CASCADE"), nullable=True
+        Integer, ForeignKey(_FK_RBAC_GROUPS_ID, ondelete="CASCADE"), nullable=True
     )
     keycloak_user_id = Column(String, nullable=True, index=True)
     user_display_cache = Column(String, nullable=True)
@@ -407,7 +416,7 @@ class AppCredential(Base):
     id = Column(Integer, primary_key=True)
     app_slug = Column(
         String,
-        ForeignKey("apps.slug"),
+        ForeignKey(_FK_APPS_SLUG),
         nullable=False,
         unique=True,
         index=True,
@@ -430,7 +439,7 @@ class UserAppCredential(Base):
     id = Column(Integer, primary_key=True)
     app_slug = Column(
         String,
-        ForeignKey("apps.slug"),
+        ForeignKey(_FK_APPS_SLUG),
         nullable=False,
         index=True,
     )
@@ -462,7 +471,7 @@ class UserAppFavorite(Base):
     keycloak_user_id = Column(String, nullable=False, index=True)
     application_id = Column(
         Integer,
-        ForeignKey("apps.id", ondelete="CASCADE"),
+        ForeignKey(_FK_APPS_ID, ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -491,13 +500,13 @@ class GroupAppCredential(Base):
     id = Column(Integer, primary_key=True)
     rbac_group_id = Column(
         Integer,
-        ForeignKey("rbac_groups.id", ondelete="CASCADE"),
+        ForeignKey(_FK_RBAC_GROUPS_ID, ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     app_slug = Column(
         String,
-        ForeignKey("apps.slug"),
+        ForeignKey(_FK_APPS_SLUG),
         nullable=False,
         index=True,
     )
@@ -522,7 +531,7 @@ class GroupAppCredential(Base):
     exclusions = relationship(
         "GroupAppCredentialExclusion",
         back_populates="group_credential",
-        cascade="all, delete-orphan",
+        cascade=_REL_ALL_DELETE_ORPHAN,
         foreign_keys="GroupAppCredentialExclusion.group_app_credential_id",
     )
 
@@ -669,7 +678,7 @@ class BastionAccount(Base):
 
     id = Column(Integer, primary_key=True)
 
-    realm_id = Column(Integer, ForeignKey("realm_configs.id"), nullable=False, index=True)
+    realm_id = Column(Integer, ForeignKey(_FK_REALM_CONFIGS_ID), nullable=False, index=True)
     username = Column(String, nullable=False)
     email = Column(String, nullable=False)
     first_name = Column(String, nullable=True)
@@ -695,7 +704,7 @@ class BastionAccount(Base):
     provisionings = relationship(
         "BastionAccountProvisioning",
         back_populates="account",
-        cascade="all, delete-orphan",
+        cascade=_REL_ALL_DELETE_ORPHAN,
         foreign_keys="BastionAccountProvisioning.bastion_account_id",
     )
 
@@ -714,7 +723,7 @@ class BastionAccountProvisioning(Base):
     bastion_account_id = Column(
         Integer, ForeignKey("bastion_accounts.id"), nullable=False, index=True
     )
-    application_id = Column(Integer, ForeignKey("apps.id"), nullable=False, index=True)
+    application_id = Column(Integer, ForeignKey(_FK_APPS_ID), nullable=False, index=True)
 
     driver_name = Column(String, nullable=False)  # "crushftp" | "generic" | "none"
     status = Column(String, default="pending", nullable=False)
@@ -1334,12 +1343,12 @@ class ActiveSyncDevice(Base):
 
     id = Column(Integer, primary_key=True)
     application_id = Column(
-        Integer, ForeignKey("apps.id", ondelete="CASCADE"), nullable=False, index=True
+        Integer, ForeignKey(_FK_APPS_ID, ondelete="CASCADE"), nullable=False, index=True
     )
 
     user_key = Column(String, nullable=False, index=True)
     keycloak_user_id = Column(String, nullable=True, index=True)
-    realm_id = Column(Integer, ForeignKey("realm_configs.id"), nullable=True, index=True)
+    realm_id = Column(Integer, ForeignKey(_FK_REALM_CONFIGS_ID), nullable=True, index=True)
 
     # Opaque client-generated token — case is significant, never normalized.
     device_id = Column(String, nullable=False, index=True)
@@ -1391,7 +1400,7 @@ class AccessRequest(Base):
     id = Column(Integer, primary_key=True)
     # Null until admin approval assigns the target realm.
     realm_id = Column(
-        Integer, ForeignKey("realm_configs.id"), nullable=True, index=True
+        Integer, ForeignKey(_FK_REALM_CONFIGS_ID), nullable=True, index=True
     )
     username = Column(String, nullable=False)
     email = Column(String, nullable=False, index=True)
