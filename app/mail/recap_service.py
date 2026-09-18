@@ -733,6 +733,8 @@ def _recap_html(
 
     footer_links = ""
     if recap.portal_url:
+        # Label extracted: py311 forbids backslash / quote reuse inside f-string exprs.
+        access_requests_label = t("Demandes d'accès", loc)
         footer_links = (
             '<p style="margin:0 0 8px;">'
             f'<a href="{_esc(hosts_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Domaines", loc))}</a>'
@@ -741,7 +743,7 @@ def _recap_html(
             " · "
             f'<a href="{_esc(devices_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Appareils", loc))}</a>'
             " · "
-            f'<a href="{_esc(access_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Demandes d\'accès", loc))}</a>'
+            f'<a href="{_esc(access_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(access_requests_label)}</a>'
             " · "
             f'<a href="{_esc(logs_cta)}" style="color:#0f766e;text-decoration:none;">{_esc(t("Logs sécurité", loc))}</a>'
             "</p>"
