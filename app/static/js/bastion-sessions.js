@@ -901,19 +901,24 @@
       });
       var app = data.app_sessions || {};
       var sso = data.sso || {};
-      var appLine =
-        app.ok === false
-          ? BastionI18n.t('Sessions app : échec —') +
-            ' ' +
-            (app.error || BastionI18n.t('erreur'))
-          : BastionI18n.t('Sessions app :') +
-            ' ' +
-            (app.revoked_count || 0) +
-            ' ' +
-            BastionI18n.t('révoquée(s)') +
-            (app.failed_count
-              ? ', ' + app.failed_count + ' ' + BastionI18n.t('échec(s)')
-              : '');
+      var appLine;
+      if (app.ok === false) {
+        appLine =
+          BastionI18n.t('Sessions app : échec —') +
+          ' ' +
+          (app.error || BastionI18n.t('erreur'));
+      } else {
+        appLine =
+          BastionI18n.t('Sessions app :') +
+          ' ' +
+          (app.revoked_count || 0) +
+          ' ' +
+          BastionI18n.t('révoquée(s)');
+        if (app.failed_count) {
+          appLine +=
+            ', ' + app.failed_count + ' ' + BastionI18n.t('échec(s)');
+        }
+      }
       if (app.failed && app.failed.length) {
         appLine +=
           ' (' +

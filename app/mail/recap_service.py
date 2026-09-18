@@ -411,6 +411,66 @@ def build_daily_recap(
     return recap
 
 
+def _plural_bit(
+    n: int,
+    *,
+    one: str,
+    many: str,
+    loc: str,
+) -> str:
+    return t(one, loc, n=n) if n == 1 else t(many, loc, n=n)
+
+
+def _recap_subject(recap: DailyRecap, date_label: str, loc: str) -> str:
+    n_hosts = recap.new_hosts_count
+    n_pending = recap.pending_accounts_total
+    n_alerts = recap.alerts_total + len(recap.bans)
+    if not recap.noteworthy:
+        return t(
+            "[Portail] Récap 24h — rien à signaler ({date_label})",
+            loc,
+            date_label=date_label,
+        )
+    bits: list[str] = []
+    if n_hosts or recap.pending_hosts_total:
+        bits.append(
+            _plural_bit(
+                n_hosts,
+                one="{n} domaine découvert",
+                many="{n} domaines découverts",
+                loc=loc,
+            )
+        )
+    if n_pending:
+        bits.append(
+            _plural_bit(
+                n_pending,
+                one="{n} compte en attente",
+                many="{n} comptes en attente",
+                loc=loc,
+            )
+        )
+    if recap.pending_devices_total:
+        bits.append(
+            _plural_bit(
+                recap.pending_devices_total,
+                one="{n} appareil en attente",
+                many="{n} appareils en attente",
+                loc=loc,
+            )
+        )
+    if n_alerts:
+        bits.append(
+            _plural_bit(n_alerts, one="{n} alerte", many="{n} alertes", loc=loc)
+        )
+    return t(
+        "[Portail] Récap 24h — {bits} ({date_label})",
+        loc,
+        bits=", ".join(bits),
+        date_label=date_label,
+    )
+
+
 def format_recap_email(
     recap: DailyRecap,
     *,
@@ -418,53 +478,7 @@ def format_recap_email(
 ) -> tuple[str, str, str]:
     loc = _loc(locale)
     date_label = _fmt_date_fr(recap.until, loc)
-    n_hosts = recap.new_hosts_count
-    n_pending = recap.pending_accounts_total
-    n_alerts = recap.alerts_total + len(recap.bans)
-    if recap.noteworthy:
-        bits = []
-        if n_hosts or recap.pending_hosts_total:
-            bits.append(
-                t(
-                    "{n} domaine découvert",
-                    loc,
-                    n=n_hosts,
-                )
-                if n_hosts == 1
-                else t("{n} domaines découverts", loc, n=n_hosts)
-            )
-        if n_pending:
-            bits.append(
-                t("{n} compte en attente", loc, n=n_pending)
-                if n_pending == 1
-                else t("{n} comptes en attente", loc, n=n_pending)
-            )
-        if recap.pending_devices_total:
-            n_dev = recap.pending_devices_total
-            bits.append(
-                t("{n} appareil en attente", loc, n=n_dev)
-                if n_dev == 1
-                else t("{n} appareils en attente", loc, n=n_dev)
-            )
-        if n_alerts:
-            bits.append(
-                t("{n} alerte", loc, n=n_alerts)
-                if n_alerts == 1
-                else t("{n} alertes", loc, n=n_alerts)
-            )
-        subject = t(
-            "[Portail] Récap 24h — {bits} ({date_label})",
-            loc,
-            bits=", ".join(bits),
-            date_label=date_label,
-        )
-    else:
-        subject = t(
-            "[Portail] Récap 24h — rien à signaler ({date_label})",
-            loc,
-            date_label=date_label,
-        )
-
+    subject = _recap_subject(recap, date_label, loc)
     text = _recap_text(recap, date_label, locale=loc)
     html_body = _recap_html(recap, date_label, locale=loc)
     return subject, text, html_body
