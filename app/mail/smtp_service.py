@@ -126,6 +126,33 @@ def _smtp_exc_detail(exc: BaseException) -> tuple[int | None, str]:
     return code, text
 
 
+def _smtp_typed_message(
+    exc: smtplib.SMTPException,
+    *,
+    code: int | None,
+    detail: str,
+    loc: str,
+) -> str | None:
+    suffix = (f" ({code})" if code else "") + (f" : {detail}" if detail else "")
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return t("Authentification SMTP refusée (identifiant / mot de passe)", loc)
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return t("Destinataire refusé par le serveur SMTP", loc) + suffix
+    if isinstance(exc, smtplib.SMTPSenderRefused):
+        return (
+            t("Expéditeur (From) refusé par le serveur SMTP", loc)
+            + suffix
+            + " — "
+            + t(
+                "vérifiez que l'adresse From est autorisée pour le compte SMTP",
+                loc,
+            )
+        )
+    if isinstance(exc, smtplib.SMTPDataError):
+        return t("Serveur SMTP a rejeté le contenu du message", loc) + suffix
+    return None
+
+
 def _raise_smtp_failure(
     exc: smtplib.SMTPException,
     *,
@@ -133,41 +160,9 @@ def _raise_smtp_failure(
 ) -> None:
     loc = locale or DEFAULT_LOCALE
     code, detail = _smtp_exc_detail(exc)
-    if isinstance(exc, smtplib.SMTPAuthenticationError):
-        raise SmtpError(
-            t("Authentification SMTP refusée (identifiant / mot de passe)", loc),
-            smtp_code=code,
-            smtp_detail=detail or None,
-        ) from exc
-    if isinstance(exc, smtplib.SMTPRecipientsRefused):
-        raise SmtpError(
-            t("Destinataire refusé par le serveur SMTP", loc)
-            + (f" ({code})" if code else "")
-            + (f" : {detail}" if detail else ""),
-            smtp_code=code,
-            smtp_detail=detail or None,
-        ) from exc
-    if isinstance(exc, smtplib.SMTPSenderRefused):
-        raise SmtpError(
-            t("Expéditeur (From) refusé par le serveur SMTP", loc)
-            + (f" ({code})" if code else "")
-            + (f" : {detail}" if detail else "")
-            + " — "
-            + t(
-                "vérifiez que l'adresse From est autorisée pour le compte SMTP",
-                loc,
-            ),
-            smtp_code=code,
-            smtp_detail=detail or None,
-        ) from exc
-    if isinstance(exc, smtplib.SMTPDataError):
-        raise SmtpError(
-            t("Serveur SMTP a rejeté le contenu du message", loc)
-            + (f" ({code})" if code else "")
-            + (f" : {detail}" if detail else ""),
-            smtp_code=code,
-            smtp_detail=detail or None,
-        ) from exc
+    typed = _smtp_typed_message(exc, code=code, detail=detail, loc=loc)
+    if typed is not None:
+        raise SmtpError(typed, smtp_code=code, smtp_detail=detail or None) from exc
     label = exc.__class__.__name__
     msg = t("Échec SMTP : {label}", loc, label=label)
     if code is not None:

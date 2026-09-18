@@ -374,7 +374,7 @@
           <div class="form-label" id="locale-pref-label" style="margin-top:var(--sp-5);">{{ _('Langue') }}</div>
           <p class="group-config-hint" style="margin:var(--sp-2) 0 var(--sp-3);">{{ _('Enregistré dans ce navigateur.') }}</p>
           {# Native POST — no JS required (radios only updated the UI before). #}
-          <form method="post" action="/api/locale" class="portal-theme-choices" role="group" aria-labelledby="locale-pref-label">
+          <form method="post" action="/api/locale" class="portal-theme-choices" aria-labelledby="locale-pref-label">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="next" value="/profile#section-prefs">
             <button type="submit" name="locale" value="fr" class="portal-theme-choice{% if locale == 'fr' %} is-active{% endif %}" data-locale-toggle="fr" aria-pressed="{{ 'true' if locale == 'fr' else 'false' }}">

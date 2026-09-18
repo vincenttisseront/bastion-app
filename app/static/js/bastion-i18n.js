@@ -7,11 +7,12 @@
   var COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
   function readCookie(name) {
-    var parts = ('; ' + (document.cookie || '')).split(';');
-    for (var i = 0; i < parts.length; i++) {
-      var p = parts[i].trim();
-      if (p.indexOf(name + '=') === 0) {
-        return decodeURIComponent(p.slice(name.length + 1));
+    var parts = (' ' + (document.cookie || '')).split(';');
+    var prefix = name + '=';
+    for (var part of parts) {
+      var p = part.trim();
+      if (p.startsWith(prefix)) {
+        return decodeURIComponent(p.slice(prefix.length));
       }
     }
     return null;
@@ -67,7 +68,7 @@
 
     var headers = { Accept: 'application/json' };
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
-    if (csrfMeta && csrfMeta.content) {
+    if (csrfMeta?.content) {
       headers['X-CSRF-Token'] = csrfMeta.content;
       body.append('csrf_token', csrfMeta.content);
     }
@@ -93,9 +94,8 @@
     var locale = getLocale();
     document.documentElement.setAttribute('lang', locale);
     var buttons = document.querySelectorAll('[data-locale-toggle]');
-    for (var i = 0; i < buttons.length; i++) {
-      var btn = buttons[i];
-      var target = btn.getAttribute('data-locale-toggle');
+    for (var btn of buttons) {
+      var target = btn.dataset.localeToggle;
       var active = target === locale;
       btn.setAttribute('aria-pressed', active ? 'true' : 'false');
       btn.classList.toggle('is-active', active);
@@ -104,14 +104,14 @@
       }
     }
     var selects = document.querySelectorAll('[data-locale-select]');
-    for (var j = 0; j < selects.length; j++) {
-      selects[j].value = locale;
+    for (var select of selects) {
+      select.value = locale;
     }
   }
 
   function localeFromControl(el) {
     if (!el) return null;
-    return el.getAttribute('data-locale-toggle') || el.value || null;
+    return el.dataset.localeToggle || el.value || null;
   }
 
   function isNativeLocaleSubmit(el) {
@@ -119,7 +119,7 @@
     if (!el || el.tagName !== 'BUTTON') return false;
     if ((el.getAttribute('type') || '').toLowerCase() === 'submit') return true;
     var form = el.form || el.closest('form');
-    return !!(form && form.getAttribute('action') === '/api/locale');
+    return form?.getAttribute('action') === '/api/locale';
   }
 
   function bindControls() {

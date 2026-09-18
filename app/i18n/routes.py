@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Form, Request
@@ -12,28 +13,30 @@ from app.sso_settings import get_settings
 
 router = APIRouter(tags=["i18n"])
 
+_DEFAULT_NEXT = "/dashboard"
+
 
 def _safe_next_url(raw: str | None, request: Request) -> str:
-    candidate = (raw or "").strip() or request.headers.get("referer") or "/dashboard"
+    candidate = (raw or "").strip() or request.headers.get("referer") or _DEFAULT_NEXT
     parsed = urlparse(candidate)
     if parsed.scheme or parsed.netloc:
         # Only same-host absolute URLs; otherwise fall back to path-only.
         if parsed.netloc and parsed.netloc != request.url.netloc:
-            return "/dashboard"
-        path = parsed.path or "/dashboard"
+            return _DEFAULT_NEXT
+        path = parsed.path or _DEFAULT_NEXT
         if parsed.query:
             path = f"{path}?{parsed.query}"
         return path
     if not candidate.startswith("/"):
-        return "/dashboard"
+        return _DEFAULT_NEXT
     return candidate
 
 
 @router.post("/api/locale")
 async def set_locale_api(
     request: Request,
-    locale: str = Form(...),
-    next: str = Form(""),
+    locale: Annotated[str, Form()],
+    next: Annotated[str, Form()] = "",
 ):
     settings = get_settings()
     loc = normalize_locale(locale)

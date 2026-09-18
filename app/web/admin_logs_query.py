@@ -157,45 +157,29 @@ def resolve_audit_target_display(
     return host or "—", host or ""
 
 
-def serialize_audit_row(row: AuditLog, *, locale: str | None = None) -> dict[str, Any]:
-    from app.audit import normalize_audit_actor
-    from app.i18n.resolve import DEFAULT_LOCALE
-
-    loc = locale or DEFAULT_LOCALE
-    raw_details = row.details if isinstance(row.details, dict) else {}
-    display_actor, details = normalize_audit_actor(row.actor, raw_details)
-    action = row.action or ""
-    summary_target = "" if action == "access_denied_unknown_host" else (row.target or "")
-    detail_short, detail_full = format_details_for_display(
-        details,
-        target=summary_target,
-        action=action,
-    )
-    status = None
+def _audit_status_from_details(details: dict[str, Any]) -> str | None:
     if "status" in details:
-        status = str(details.get("status"))
-    elif "success" in details:
-        status = "ok" if details.get("success") else "error"
-    elif "ok" in details and isinstance(details.get("ok"), bool):
-        status = "ok" if details.get("ok") else "error"
-    legacy_severity = derive_severity(row.action)
-    result = result_bucket(status, legacy_severity)
-    catalog_sev, historical = effective_catalog_severity(row, result)
+        return str(details.get("status"))
+    if "success" in details:
+        return "ok" if details.get("success") else "error"
+    if "ok" in details and isinstance(details.get("ok"), bool):
+        return "ok" if details.get("ok") else "error"
+    return None
+
+
+def _audit_event_fields(
+    row: AuditLog,
+    action: str,
+    loc: str,
+) -> tuple[str, Any, str, str, str, str, list[str]]:
     event_code = (getattr(row, "event_code", None) or "") or ""
     ev = None
     if event_code:
         ev = get_event_by_code(event_code)
         if ev is None and event_code.endswith("-0000"):
-            ev = resolve_event(action=row.action, code=event_code)
+            ev = resolve_event(action=action, code=event_code)
             if ev is not None and ev.code != event_code:
                 event_code = ev.code
-    extras: dict[str, str] = {}
-    for key in OPTIONAL_DETAIL_COLUMNS:
-        if key == "target":
-            extras["target"] = row.target or ""
-            continue
-        if key in details and details[key] is not None:
-            extras[key] = str(details[key])
     domain = ""
     event_label = ""
     event_title_fr = ""
@@ -214,6 +198,42 @@ def serialize_audit_row(row: AuditLog, *, locale: str | None = None) -> dict[str
             domain = parse_event_code(event_code)[0]
         except ValueError:
             domain = ""
+    return event_code, ev, domain, event_label, event_title_fr, runbook, ecs_category
+
+
+def _audit_extras(row: AuditLog, details: dict[str, Any]) -> dict[str, str]:
+    extras: dict[str, str] = {}
+    for key in OPTIONAL_DETAIL_COLUMNS:
+        if key == "target":
+            extras["target"] = row.target or ""
+            continue
+        if key in details and details[key] is not None:
+            extras[key] = str(details[key])
+    return extras
+
+
+def serialize_audit_row(row: AuditLog, *, locale: str | None = None) -> dict[str, Any]:
+    from app.audit import normalize_audit_actor
+    from app.i18n.resolve import DEFAULT_LOCALE
+
+    loc = locale or DEFAULT_LOCALE
+    raw_details = row.details if isinstance(row.details, dict) else {}
+    display_actor, details = normalize_audit_actor(row.actor, raw_details)
+    action = row.action or ""
+    summary_target = "" if action == "access_denied_unknown_host" else (row.target or "")
+    detail_short, detail_full = format_details_for_display(
+        details,
+        target=summary_target,
+        action=action,
+    )
+    status = _audit_status_from_details(details)
+    legacy_severity = derive_severity(row.action)
+    result = result_bucket(status, legacy_severity)
+    catalog_sev, historical = effective_catalog_severity(row, result)
+    event_code, _ev, domain, event_label, event_title_fr, runbook, ecs_category = (
+        _audit_event_fields(row, action, loc)
+    )
+    extras = _audit_extras(row, details)
     target_display, target_title = resolve_audit_target_display(
         action,
         row.target,

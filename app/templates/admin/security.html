@@ -1143,8 +1143,8 @@
             <div class="form-actions">
               <button type="submit" class="btn btn-primary">{{ _('Enregistrer') }}</button>
               {% if allowed %}
-              <label class="form-label" for="cls_test_container" style="margin:0;align-self:center;">{{ _('Tester') }}</label>
-              <select class="form-select input-narrow" id="cls_test_container" aria-label="{{ _('Conteneur pour le test') }}">
+              <label class="form-label" for="cls_test_container" style="margin:0;align-self:center;">{{ _('Tester — conteneur') }}</label>
+              <select class="form-select input-narrow" id="cls_test_container">
                 {% for name in allowed %}
                 <option value="{{ name }}">{{ name }}</option>
                 {% endfor %}

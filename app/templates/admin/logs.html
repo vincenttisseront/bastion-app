@@ -297,7 +297,7 @@
     {% else %}
     <div class="logs-toolbar audit-toolbar">
       <label class="form-label" for="app-access-select">{{ _('Application') }}</label>
-      <select class="form-select" id="app-access-select" aria-label="{{ _('Application') }}">
+      <select class="form-select" id="app-access-select">
         <option value="">{{ _('— Choisir —') }}</option>
         {% for a in app_access_apps %}
         <option value="{{ a.slug }}">{{ a.label }} · {{ a.public_fqdn }} ({{ a.access_mode }})</option>
