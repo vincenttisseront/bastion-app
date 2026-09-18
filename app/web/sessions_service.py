@@ -22,6 +22,16 @@ from app.request_client_ip import (
     is_infra_hop,
     prefer_client_ip,
 )
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 from app.sso_settings import Settings, get_settings
 from app.user_agent_label import summarize_user_agent
 from app.web.user_context import (
@@ -974,6 +984,130 @@ def _touch_app_session(
     return row
 
 
+def _resource_presentation(
+    row: ActiveSession,
+    *,
+    details: dict[str, Any] | None,
+    diag: dict[str, Any],
+    loc: str,
+    is_breakglass: bool,
+) -> tuple[str, str, str, str]:
+    """Return resource_title, resource_subtitle, type_label, auth_family."""
+    if row.kind == KIND_USER:
+        if is_breakglass:
+            return (
+                t("Portail break-glass", loc),
+                t("Session d'urgence (hors Keycloak)", loc),
+                "Break-glass",
+                "breakglass",
+            )
+        cookies = (details or {}).get("cookies_present") or []
+        if any(str(c) == "bastion_session" for c in cookies):
+            subtitle = t("Session OIDC native (bastion_session)", loc)
+        else:
+            subtitle = t("Session OIDC (oauth2-proxy / native)", loc)
+        return (
+            t("Portail SSO", loc),
+            subtitle,
+            t("Portail OIDC", loc),
+            "oidc",
+        )
+    app_user = (diag.get("robotic_username") or "").strip() or None
+    if app_user:
+        subtitle = f"user · {app_user} · slug · {row.target}"
+    else:
+        subtitle = f"slug · {row.target}"
+    return (
+        diag.get("app_label") or row.target,
+        subtitle,
+        t("Application", loc),
+        "app",
+    )
+
+
+def _client_ip_presentation(raw_ip: str, loc: str) -> tuple[str, str | None, bool]:
+    """Return client_ip_display, client_ip_note, is_infra_or_missing."""
+    infra = bool(raw_ip) and is_infra_hop(raw_ip)
+    if not raw_ip:
+        return "—", None, True
+    if infra:
+        note = (
+            f"Valeur capturée={raw_ip} (hop infra Traefik/docker). "
+            "La vraie IP client n'a pas traversé la chaîne de proxys."
+        )
+        return t("indisponible (IP proxy)", loc), note, True
+    return raw_ip, None, False
+
+
+def _live_status_presentation(
+    row: ActiveSession,
+    *,
+    details: dict[str, Any] | None,
+    diag: dict[str, Any],
+    protocol: str,
+    loc: str,
+) -> tuple[str, str, bool, bool, dict[str, Any] | None]:
+    """Return live_status, label, verifiable, presence_only, freshness."""
+    verifiable = bool(diag.get("verifiable"))
+    verified_status = (row.last_verified_status or "").strip().lower() or None
+    presence_only = bool(diag.get("presence_only")) or (
+        row.kind == KIND_APP
+        and bool((details or {}).get("presence_only"))
+        and not verifiable
+    )
+    freshness: dict[str, Any] | None = None
+    if verifiable:
+        if verified_status == "active":
+            return "active", "ACTIVE", verifiable, presence_only, None
+        if verified_status == "invalid":
+            return "invalid", t("INVALIDE", loc), verifiable, presence_only, None
+        return "unverified", t("NON VÉRIFIÉ", loc), verifiable, presence_only, None
+    if presence_only:
+        return "presence", t("ACTIVITÉ SSO", loc), verifiable, presence_only, None
+    if row.kind == KIND_USER:
+        freshness = _portal_freshness(row, protocol=protocol)
+        if row.status == "isolated":
+            return "isolated", t("ISOLÉ", loc), verifiable, presence_only, freshness
+        return "declarative", t("REGISTRE", loc), verifiable, presence_only, freshness
+    live_status = row.status if row.status != "isolated" else "isolated"
+    return live_status, (row.status or "active").upper(), verifiable, presence_only, None
+
+
+def _identity_binding_for_row(
+    row: ActiveSession,
+    *,
+    db: Session | None,
+    details: dict[str, Any] | None,
+    is_breakglass: bool,
+) -> Any:
+    if row.kind != KIND_USER or db is None:
+        return None
+    from app.security.session_binding_service import (
+        binding_summary_for_breakglass_jti,
+        binding_summary_for_sso_user,
+    )
+
+    if is_breakglass:
+        return binding_summary_for_breakglass_jti(db, (details or {}).get("jti"))
+    return binding_summary_for_sso_user(
+        db, username=row.username, email=row.user_email
+    )
+
+
+def _action_titles_for_row(*, is_breakglass: bool, auth_family: str) -> dict[str, str]:
+    action_titles = dict(_ACTION_TITLES)
+    if is_breakglass:
+        action_titles["revoke"] = (
+            "Révoquer : denylist jti break-glass + suppression du registre."
+        )
+    elif auth_family == "oidc":
+        action_titles["revoke"] = (
+            "Révoquer : retire la ligne du registre bastion uniquement "
+            "(ne coupe pas le cookie oauth2-proxy / Keycloak — utiliser Déconnecter)."
+        )
+    return action_titles
+
+
 def _row_to_dict(
     row: ActiveSession,
     db: Session | None = None,
@@ -985,116 +1119,37 @@ def _row_to_dict(
     diag = _diagnostics_summary(details)
     protocol = (row.protocol or "").upper()
     is_breakglass = protocol == _PROTOCOL_BREAKGLASS
-    if row.kind == KIND_USER:
-        if is_breakglass:
-            resource_title = t("Portail break-glass", loc)
-            resource_subtitle = t("Session d'urgence (hors Keycloak)", loc)
-            type_label = "Break-glass"
-            auth_family = "breakglass"
-        else:
-            resource_title = t("Portail SSO", loc)
-            cookies = (details or {}).get("cookies_present") or []
-            if any(str(c) == "bastion_session" for c in cookies):
-                resource_subtitle = t("Session OIDC native (bastion_session)", loc)
-            else:
-                resource_subtitle = t("Session OIDC (oauth2-proxy / native)", loc)
-            type_label = t("Portail OIDC", loc)
-            auth_family = "oidc"
-    else:
-        resource_title = diag.get("app_label") or row.target
-        app_user = (diag.get("robotic_username") or "").strip() or None
-        if app_user:
-            resource_subtitle = f"user · {app_user} · slug · {row.target}"
-        else:
-            resource_subtitle = f"slug · {row.target}"
-        type_label = t("Application", loc)
-        auth_family = "app"
-    raw_ip = (row.source_ip or "").strip()
-    infra = bool(raw_ip) and is_infra_hop(raw_ip)
-    if not raw_ip:
-        client_ip_display = "—"
-        client_ip_note = None
-    elif infra:
-        client_ip_display = t("indisponible (IP proxy)", loc)
-        client_ip_note = (
-            f"Valeur capturée={raw_ip} (hop infra Traefik/docker). "
-            "La vraie IP client n'a pas traversé la chaîne de proxys."
-        )
-    else:
-        client_ip_display = raw_ip
-        client_ip_note = None
-
-    verifiable = bool(diag.get("verifiable"))
-    verified_status = (row.last_verified_status or "").strip().lower() or None
-    freshness: dict[str, Any] | None = None
-    presence_only = bool(diag.get("presence_only")) or (
-        row.kind == KIND_APP
-        and bool((details or {}).get("presence_only"))
-        and not verifiable
+    resource_title, resource_subtitle, type_label, auth_family = _resource_presentation(
+        row,
+        details=details,
+        diag=diag,
+        loc=loc,
+        is_breakglass=is_breakglass,
     )
-    if verifiable:
-        # Never show ACTIVE by default for driven sessions — only after live check.
-        if verified_status == "active":
-            live_status = "active"
-            live_status_label = "ACTIVE"
-        elif verified_status == "invalid":
-            live_status = "invalid"
-            live_status_label = t("INVALIDE", loc)
-        else:
-            live_status = "unverified"
-            live_status_label = t("NON VÉRIFIÉ", loc)
-    elif presence_only:
-        live_status = "presence"
-        live_status_label = t("ACTIVITÉ SSO", loc)
-    elif row.kind == KIND_USER:
-        # Honest declarative badge — not equivalent to app live-verify.
-        freshness = _portal_freshness(row, protocol=protocol)
-        if row.status == "isolated":
-            live_status = "isolated"
-            live_status_label = t("ISOLÉ", loc)
-        else:
-            live_status = "declarative"
-            live_status_label = t("REGISTRE", loc)
-    else:
-        live_status = row.status if row.status != "isolated" else "isolated"
-        live_status_label = (row.status or "active").upper()
-
-    verified_ago = None
-    if row.last_verified_at:
-        verified_ago = _relative_ago(row.last_verified_at, locale=loc)
-
+    raw_ip = (row.source_ip or "").strip()
+    client_ip_display, client_ip_note, client_ip_is_infra = _client_ip_presentation(
+        raw_ip, loc
+    )
+    live_status, live_status_label, verifiable, presence_only, freshness = (
+        _live_status_presentation(
+            row, details=details, diag=diag, protocol=protocol, loc=loc
+        )
+    )
+    verified_status = (row.last_verified_status or "").strip().lower() or None
+    verified_ago = (
+        _relative_ago(row.last_verified_at, locale=loc) if row.last_verified_at else None
+    )
     sso_logout = None
     if auth_family == "oidc" and details:
         sso_logout = _sso_logout_badge(
             _parse_iso_dt(details.get("sso_logout_requested_at"))
         )
-
-    identity_binding = None
-    if row.kind == KIND_USER and db is not None:
-        from app.security.session_binding_service import (
-            binding_summary_for_breakglass_jti,
-            binding_summary_for_sso_user,
-        )
-
-        if is_breakglass:
-            identity_binding = binding_summary_for_breakglass_jti(
-                db, (details or {}).get("jti")
-            )
-        else:
-            identity_binding = binding_summary_for_sso_user(
-                db, username=row.username, email=row.user_email
-            )
-
-    action_titles = dict(_ACTION_TITLES)
-    if is_breakglass:
-        action_titles["revoke"] = (
-            "Révoquer : denylist jti break-glass + suppression du registre."
-        )
-    elif auth_family == "oidc":
-        action_titles["revoke"] = (
-            "Révoquer : retire la ligne du registre bastion uniquement "
-            "(ne coupe pas le cookie oauth2-proxy / Keycloak — utiliser Déconnecter)."
-        )
+    identity_binding = _identity_binding_for_row(
+        row, db=db, details=details, is_breakglass=is_breakglass
+    )
+    action_titles = _action_titles_for_row(
+        is_breakglass=is_breakglass, auth_family=auth_family
+    )
 
     return {
         "id": row.id,
@@ -1114,7 +1169,7 @@ def _row_to_dict(
         "source_ip": raw_ip or "—",
         "client_ip": client_ip_display,
         "client_ip_raw": raw_ip or None,
-        "client_ip_is_infra": infra or not raw_ip,
+        "client_ip_is_infra": client_ip_is_infra,
         "client_ip_note": client_ip_note,
         "identity_binding": identity_binding,
         "duration": _format_duration(row.started_at, utcnow()),
@@ -1648,7 +1703,7 @@ def list_sessions(
     return payload
 
 
-@router.post("/api/sessions/live-verify")
+@router.post("/api/sessions/live-verify", responses=RESP_400 | RESP_403)
 async def live_verify_sessions(
     request: Request,
     db: Session = Depends(get_db),
@@ -1703,7 +1758,7 @@ async def live_verify_sessions(
     }
 
 
-@admin_router.post("/admin/sessions/{session_id}/revoke")
+@admin_router.post("/admin/sessions/{session_id}/revoke", responses=RESP_404)
 def revoke_session(
     session_id: str,
     request: Request,
@@ -1725,7 +1780,7 @@ def revoke_session(
     return {"status": "ok", "session_id": result["session_id"], "action": result["action"]}
 
 
-@admin_router.post("/admin/sessions/{session_id}/isolate")
+@admin_router.post("/admin/sessions/{session_id}/isolate", responses=RESP_404)
 def isolate_session(
     session_id: str,
     request: Request,
@@ -1747,7 +1802,7 @@ def isolate_session(
     return {"status": "ok", "session_id": result["session_id"]}
 
 
-@admin_router.post("/admin/sessions/{session_id}/rotate-keys")
+@admin_router.post("/admin/sessions/{session_id}/rotate-keys", responses=RESP_404)
 def rotate_keys(
     session_id: str,
     request: Request,

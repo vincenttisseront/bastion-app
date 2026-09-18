@@ -15,6 +15,16 @@ from app.access_modes import (
     normalize_access_mode,
     validate_app_access_fields,
 )
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 from app.admin.export import export_app_catalogue_files
 from app.admin.infra_host_apply import request_host_apply
 from app.audit import list_audit_entries, log_action
@@ -904,7 +914,7 @@ def login_page(
     )
 
 
-@router.post("/auth/breakglass")
+@router.post("/auth/breakglass", responses=RESP_403)
 async def breakglass_login_post(
     request: Request,
     username: str = Form(...),
@@ -1008,7 +1018,7 @@ async def breakglass_login_post(
         return render(_TMPL_LOGIN, **ctx)
 
 
-@router.get("/auth/setup")
+@router.get("/auth/setup", responses=RESP_403)
 def setup_page(
     request: Request,
     db: Session = Depends(get_db),
@@ -1026,7 +1036,7 @@ def setup_page(
     )
 
 
-@router.post("/auth/setup")
+@router.post("/auth/setup", responses=RESP_403)
 async def setup_post(
     request: Request,
     username: str = Form(...),
@@ -1643,7 +1653,7 @@ def admin_apps_list(
     )
 
 
-@admin_router.post("/admin/apps/{slug}/delete")
+@admin_router.post("/admin/apps/{slug}/delete", responses=RESP_404)
 def admin_apps_delete(
     slug: str,
     request: Request,
@@ -1715,7 +1725,7 @@ def admin_pending_hosts_list(
     )
 
 
-@admin_router.get("/admin/pending-hosts/{host_id}/approve")
+@admin_router.get("/admin/pending-hosts/{host_id}/approve", responses=RESP_404)
 def admin_pending_host_approve_form(
     host_id: int,
     request: Request,
@@ -1741,7 +1751,7 @@ def admin_pending_host_approve_form(
     )
 
 
-@admin_router.post("/admin/pending-hosts/{host_id}/approve")
+@admin_router.post("/admin/pending-hosts/{host_id}/approve", responses=RESP_404)
 def admin_pending_host_approve_post(
     host_id: int,
     request: Request,
@@ -1789,7 +1799,7 @@ def admin_pending_host_approve_post(
     return response
 
 
-@admin_router.post("/admin/pending-hosts/{host_id}/reject")
+@admin_router.post("/admin/pending-hosts/{host_id}/reject", responses=RESP_404)
 def admin_pending_host_reject_post(
     host_id: int,
     db: Session = Depends(get_db),
@@ -1841,7 +1851,7 @@ def admin_pending_users_list(
     )
 
 
-@admin_router.post("/admin/pending-users/{user_id}/approve")
+@admin_router.post("/admin/pending-users/{user_id}/approve", responses=RESP_404)
 def admin_pending_user_approve_post(
     user_id: int,
     db: Session = Depends(get_db),
@@ -1868,7 +1878,7 @@ def admin_pending_user_approve_post(
     return response
 
 
-@admin_router.post("/admin/pending-users/{user_id}/reject")
+@admin_router.post("/admin/pending-users/{user_id}/reject", responses=RESP_404)
 def admin_pending_user_reject_post(
     user_id: int,
     db: Session = Depends(get_db),
@@ -2183,7 +2193,7 @@ def admin_apps_create_post(
     return response
 
 
-@admin_router.get("/admin/apps/{slug}/edit")
+@admin_router.get("/admin/apps/{slug}/edit", responses=RESP_404)
 def admin_apps_edit(
     slug: str,
     request: Request,
@@ -2217,7 +2227,7 @@ def admin_apps_edit(
     )
 
 
-@admin_router.post("/admin/apps/{slug}/edit")
+@admin_router.post("/admin/apps/{slug}/edit", responses=RESP_404)
 def admin_apps_edit_post(
     slug: str,
     request: Request,
@@ -2524,7 +2534,7 @@ async def admin_analyze_login_form(
     return result
 
 
-@admin_router.get("/admin/apps/{slug}/credential")
+@admin_router.get("/admin/apps/{slug}/credential", responses=RESP_404)
 def admin_app_credential_read(
     slug: str,
     db: Session = Depends(get_db),
@@ -2635,7 +2645,7 @@ async def admin_app_crushftp_sync_companies(
     return response
 
 
-@admin_router.post("/admin/apps/{slug}/credential")
+@admin_router.post("/admin/apps/{slug}/credential", responses=RESP_400 | RESP_404 | RESP_503)
 def admin_app_credential_save(
     slug: str,
     body: _VaultCredentialBody,
@@ -2679,7 +2689,7 @@ def admin_app_credential_save(
     }
 
 
-@admin_router.post("/admin/apps/{slug}/credential/test")
+@admin_router.post("/admin/apps/{slug}/credential/test", responses=RESP_404 | RESP_503)
 async def admin_app_credential_test(
     slug: str,
     request: Request,
@@ -2717,7 +2727,7 @@ async def admin_app_credential_test(
     return body
 
 
-@admin_router.get("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+@admin_router.get("/admin/apps/{slug}/users/{keycloak_user_id}/credential", responses=RESP_404)
 def admin_user_app_credential_read(
     slug: str,
     keycloak_user_id: str,
@@ -2743,7 +2753,7 @@ def admin_user_app_credential_read(
     }
 
 
-@admin_router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+@admin_router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential", responses=RESP_400 | RESP_404 | RESP_503)
 async def admin_user_app_credential_save(
     slug: str,
     keycloak_user_id: str,
@@ -2806,7 +2816,7 @@ async def admin_user_app_credential_save(
     }
 
 
-@admin_router.delete("/admin/apps/{slug}/users/{keycloak_user_id}/credential")
+@admin_router.delete("/admin/apps/{slug}/users/{keycloak_user_id}/credential", responses=RESP_403 | RESP_404)
 def admin_user_app_credential_delete(
     slug: str,
     keycloak_user_id: str,
@@ -2843,7 +2853,7 @@ def admin_user_app_credential_delete(
     return {"ok": True, "deleted": deleted, "has_override": False, "credential_source": "shared"}
 
 
-@admin_router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential/test")
+@admin_router.post("/admin/apps/{slug}/users/{keycloak_user_id}/credential/test", responses=RESP_404 | RESP_503)
 async def admin_user_app_credential_test(
     slug: str,
     keycloak_user_id: str,
@@ -2886,7 +2896,7 @@ async def admin_user_app_credential_test(
     return body
 
 
-@admin_router.post("/admin/apps/{app_id}/logo")
+@admin_router.post("/admin/apps/{app_id}/logo", responses=RESP_404)
 async def admin_app_logo_upload(
     app_id: int,
     file: UploadFile = File(...),
@@ -2907,7 +2917,7 @@ async def admin_app_logo_upload(
     return {"ok": True, "logo_url": logo_public_url(app)}
 
 
-@admin_router.delete("/admin/apps/{app_id}/logo")
+@admin_router.delete("/admin/apps/{app_id}/logo", responses=RESP_404)
 def admin_app_logo_delete(
     app_id: int,
     db: Session = Depends(get_db),

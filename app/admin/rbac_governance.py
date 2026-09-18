@@ -19,6 +19,16 @@ from app.rbac.governance_service import (
     permissions_matrix_for_role,
     serialize_role,
 )
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 from app.rbac.permission_seed import seed_governance_rbac
 from app.sso_settings import Settings, get_settings
 from app.web.flash import flash_redirect
@@ -46,7 +56,7 @@ def _ctx(request: Request, settings: Settings, **extra):
     return base_template_context(request, settings, APP_VERSION, **extra)
 
 
-@router.get("/admin/rbac/governance")
+@router.get("/admin/rbac/governance", responses=RESP_500)
 def admin_rbac_governance(
     request: Request,
     role_id: int | None = None,
@@ -180,7 +190,7 @@ async def admin_rbac_role_create(
     return response
 
 
-@router.post("/admin/rbac/groups/{group_id}/role-config")
+@router.post("/admin/rbac/groups/{group_id}/role-config", responses=RESP_404)
 async def admin_rbac_group_role_config(
     group_id: int,
     request: Request,

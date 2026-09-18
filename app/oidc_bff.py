@@ -21,6 +21,16 @@ from app.jwt_audience import (
     jwt_audience_matches,
     resolve_oidc_session_jwt_audience,
 )
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 from app.models import OidcSession, utcnow
 from app.oidc_bff_client import (
     InvalidCredentialsError,
@@ -506,7 +516,7 @@ def _auth_failure_response(
         reason=reason,
         detail=detail,
     )
-    raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE)
+    raise HTTPException(status_code=401, detail=_GENERIC_AUTH_FAILURE)  # NOSONAR
 
 
 def _safe_login_rd(rd: str | None, *, portal_domain: str = "") -> str:
@@ -744,7 +754,7 @@ def _record_unsupported_flow(
     )
 
 
-@router.post("/auth/login")
+@router.post("/auth/login", responses=RESP_401 | RESP_403 | RESP_503)
 async def oidc_login(
     request: Request,
     response: Response,

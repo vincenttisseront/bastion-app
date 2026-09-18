@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, replace
+from typing import cast
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -515,7 +516,7 @@ def elevate_portal_admin(
     Avoids mutating the Depends-injected ``UserContext`` (python:S5717).
     """
     if is_portal_admin(user, db, settings):
-        return replace(user, is_admin=True)
+        return cast(UserContext, replace(user, is_admin=True))
     return user
 
 

@@ -65,6 +65,16 @@ from app.web.sessions_service import admin_router as sessions_admin_router
 from app.web.sessions_service import router as sessions_router
 from app.web.templates import render
 from app.web.user_context import require_admin
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("app.main")
@@ -196,7 +206,7 @@ if STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-@app.get("/media/app-logos/{filename}")
+@app.get("/media/app-logos/{filename}", responses=RESP_404)
 async def serve_app_logo(filename: str):
     """Serve catalogue logos from PORTAL_DATA_DIR (not package static/)."""
     from app.web.app_logos import (
@@ -218,7 +228,7 @@ async def serve_app_logo(filename: str):
     )
 
 
-@app.get("/media/branding/{filename}")
+@app.get("/media/branding/{filename}", responses=RESP_404)
 async def serve_branding_asset(filename: str):
     """Serve branding logo/favicon from PORTAL_DATA_DIR."""
     from app.branding import media_type_for_branding_filename, resolve_branding_file

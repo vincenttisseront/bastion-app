@@ -17,6 +17,16 @@ from app.rbac.keycloak_admin import sync_keycloak_groups
 from app.sso_settings import Settings, get_settings
 from app.web.flash import flash_redirect
 from app.web.user_context import require_admin
+from app.web.openapi_responses import (
+    RESP_400,
+    RESP_401,
+    RESP_403,
+    RESP_404,
+    RESP_409,
+    RESP_422,
+    RESP_500,
+    RESP_503,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +83,7 @@ def admin_rbac_groups_list(
     raise HTTPException(status_code=406, detail="Only JSON supported for this endpoint")
 
 
-@router.post("/admin/rbac/groups/sync/{realm_id}")
+@router.post("/admin/rbac/groups/sync/{realm_id}", responses=RESP_404)
 async def admin_rbac_groups_sync(
     realm_id: int,
     request: Request,
@@ -172,7 +182,7 @@ async def admin_rbac_groups_sync(
     return response
 
 
-@router.post("/admin/rbac/groups/{group_id}/delete")
+@router.post("/admin/rbac/groups/{group_id}/delete", responses=RESP_404)
 async def admin_rbac_group_delete(
     group_id: int,
     request: Request,
