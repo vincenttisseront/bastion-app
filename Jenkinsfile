@@ -90,6 +90,7 @@ pipeline {
               test -f "${WORKSPACE}/.betterleaks.toml"
 
               # Arbre courant (toujours) + historique git disponible (clone Jenkins).
+              # Note: image stable utilise --git-workers (pas --source-workers de la doc main).
               set +e
               docker run --rm \
                 --volumes-from "${JENKINS_CONTAINER_NAME}" \
@@ -98,7 +99,6 @@ pipeline {
                 "${BETTERLEAKS_IMAGE}" \
                 dir . \
                   --config .betterleaks.toml \
-                  --source-workers 8 \
                   --redact \
                   --report-path reports/betterleaks/findings-dir.json \
                   --report-format json \
@@ -111,7 +111,7 @@ pipeline {
                 "${BETTERLEAKS_IMAGE}" \
                 git . \
                   --config .betterleaks.toml \
-                  --source-workers 8 \
+                  --git-workers 8 \
                   --redact \
                   --report-path reports/betterleaks/findings-git.json \
                   --report-format json \
