@@ -137,17 +137,25 @@ def _login_reject_hint(text: str, status: int) -> str:
             "ou une page web, pas l'API Teleport. Utilisez l'upstream_url interne "
             "(ex. https://10.x.x.x:3080), pas le FQDN public bastion."
         )
+    json_hint = _teleport_json_error_hint(body, status)
+    if json_hint:
+        return json_hint
+    return f"pas de cookie session Teleport (HTTP {status}, {len(body)} octets)"
+
+
+def _teleport_json_error_hint(body: str, status: int) -> str | None:
     try:
         payload = json.loads(body)
-        if isinstance(payload, dict):
-            err = payload.get("error") or payload.get("message")
-            if isinstance(err, dict):
-                err = err.get("message") or err.get("code")
-            if err:
-                return f"Teleport: {err} (HTTP {status})"
     except (json.JSONDecodeError, TypeError):
-        pass
-    return f"pas de cookie session Teleport (HTTP {status}, {len(body)} octets)"
+        return None
+    if not isinstance(payload, dict):
+        return None
+    err = payload.get("error") or payload.get("message")
+    if isinstance(err, dict):
+        err = err.get("message") or err.get("code")
+    if err:
+        return f"Teleport: {err} (HTTP {status})"
+    return None
 
 
 class TeleportDriver(RoboticDriver):

@@ -31,6 +31,51 @@ _SKIP_PREFIXES = (
 )
 
 
+def _security_denied_response(
+    db,
+    *,
+    reason: str | None,
+    ip: str | None,
+    path: str,
+    method: str,
+    username: str | None,
+) -> Response:
+    if reason == "rate_limited":
+        # Throttle (429 + Retry-After) — softer than a ban.
+        retry = rate_limit_retry_after(db, path, method)
+        logger.warning(
+            "security.rate_limited ip=%s path=%s method=%s "
+            "retry_after=%ss username=%s",
+            ip or "-",
+            path,
+            method,
+            max(1, retry),
+            username or "-",
+        )
+        return api_error_response(
+            status_code=429,
+            message="Trop de requêtes — réessayez dans quelques instants.",
+            headers={"Retry-After": str(max(1, retry))},
+        )
+    message = (
+        "Trop de connexions simultanées."
+        if reason == "concurrent_limit"
+        else "Accès temporairement bloqué."
+    )
+    status = 429 if reason == "concurrent_limit" else 403
+    logger.warning(
+        "security.request_denied reason=%s ip=%s path=%s method=%s "
+        "status=%s username=%s",
+        reason,
+        ip or "-",
+        path,
+        method,
+        status,
+        username or "-",
+    )
+    return api_error_response(status_code=status, message=message)
+
+
 class SecurityBanMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
@@ -52,40 +97,9 @@ class SecurityBanMiddleware(BaseHTTPMiddleware):
                 username=username or None,
             )
             if not allowed:
-                if reason == "rate_limited":
-                    # Throttle (429 + Retry-After) — softer than a ban.
-                    retry = rate_limit_retry_after(db, path, request.method)
-                    logger.warning(
-                        "security.rate_limited ip=%s path=%s method=%s "
-                        "retry_after=%ss username=%s",
-                        ip or "-",
-                        path,
-                        request.method,
-                        max(1, retry),
-                        username or "-",
-                    )
-                    return api_error_response(
-                        status_code=429,
-                        message="Trop de requêtes — réessayez dans quelques instants.",
-                        headers={"Retry-After": str(max(1, retry))},
-                    )
-                message = (
-                    "Trop de connexions simultanées."
-                    if reason == "concurrent_limit"
-                    else "Accès temporairement bloqué."
+                return _security_denied_response(
+                    db, reason=reason, ip=ip, path=path, method=request.method, username=username
                 )
-                status = 429 if reason == "concurrent_limit" else 403
-                logger.warning(
-                    "security.request_denied reason=%s ip=%s path=%s method=%s "
-                    "status=%s username=%s",
-                    reason,
-                    ip or "-",
-                    path,
-                    request.method,
-                    status,
-                    username or "-",
-                )
-                return api_error_response(status_code=status, message=message)
 
             begin_concurrent(ip)
             tracked = True

@@ -256,7 +256,14 @@ def get_headless_oidc_config(
     cfg = get_oidc_bff_config(db, realm_slug, settings)
     if cfg is not None:
         return cfg
+    return _portal_oidc_fallback_config(db, realm_slug, settings)
 
+
+def _portal_oidc_fallback_config(
+    db: Session,
+    realm_slug: str,
+    settings: Settings,
+) -> OidcBffConfig | None:
     slug = (realm_slug or "").strip()
     if not slug:
         return None

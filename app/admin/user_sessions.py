@@ -311,18 +311,7 @@ async def _do_revoke_sso(
     emails |= path_emails
     usernames |= path_usernames
 
-    logout_error: str | None = None
-    result: dict = {
-        "ok": False,
-        "keycloak_user_id": uid,
-        "realm_slug": logout_realm.slug,
-        "residual_note": SSO_LOGOUT_RESIDUAL_NOTE,
-    }
-    try:
-        result = await logout_keycloak_user(logout_realm, uid, settings)
-    except ValueError as exc:
-        logout_error = str(exc)
-
+    logout_error, result = await _logout_kc_user(logout_realm, uid, settings)
     local = _apply_local_session_revocation(
         db,
         identity=identity,
@@ -363,6 +352,20 @@ async def _do_revoke_sso(
             **local,
         }
     return {"ok": True, "action": _SESSIONS_REVOKE_SSO, **result, **local}
+
+
+async def _logout_kc_user(logout_realm, uid: str, settings) -> tuple[str | None, dict]:
+    result: dict = {
+        "ok": False,
+        "keycloak_user_id": uid,
+        "realm_slug": logout_realm.slug,
+        "residual_note": SSO_LOGOUT_RESIDUAL_NOTE,
+    }
+    try:
+        result = await logout_keycloak_user(logout_realm, uid, settings)
+        return None, result
+    except ValueError as exc:
+        return str(exc), result
 
 
 @router.post("/admin/users/{identity}/sessions/revoke-all")

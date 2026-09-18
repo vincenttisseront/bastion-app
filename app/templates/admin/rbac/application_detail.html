@@ -182,29 +182,31 @@
     if (!on) el.removeAttribute('name');
   }
 
+  function setNamed(el, name, enabled) {
+    if (!el) return;
+    el.disabled = !enabled;
+    if (enabled) el.setAttribute('name', name);
+    else el.removeAttribute('name');
+  }
+
   function syncSubject() {
     var isGroup = subjectSelect.value === 'group';
     groupBlocks.forEach(function (b) { b.hidden = !isGroup; });
     userBlocks.forEach(function (b) { b.hidden = isGroup; });
-    if (groupSelect) {
-      groupSelect.disabled = !isGroup;
-      if (isGroup) groupSelect.setAttribute('name', 'rbac_group_id');
-      else groupSelect.removeAttribute('name');
-    }
+    setNamed(groupSelect, 'rbac_group_id', isGroup);
     [realmSelect, userQuery, userId, userDisplay].forEach(function (el) {
-      if (!el) return;
-      el.disabled = isGroup;
+      if (el) el.disabled = isGroup;
     });
-    if (!isGroup) {
-      if (realmSelect) realmSelect.setAttribute('name', 'realm_id');
-      if (userId) userId.setAttribute('name', 'keycloak_user_id');
-      if (userDisplay) userDisplay.setAttribute('name', 'user_display_cache');
-    } else {
-      if (realmSelect) realmSelect.removeAttribute('name');
-      if (userId) userId.removeAttribute('name');
-      if (userDisplay) userDisplay.removeAttribute('name');
+    if (isGroup) {
+      setNamed(realmSelect, 'realm_id', false);
+      setNamed(userId, 'keycloak_user_id', false);
+      setNamed(userDisplay, 'user_display_cache', false);
       if (suggestions) suggestions.textContent = '';
+      return;
     }
+    setNamed(realmSelect, 'realm_id', true);
+    setNamed(userId, 'keycloak_user_id', true);
+    setNamed(userDisplay, 'user_display_cache', true);
   }
   subjectSelect.addEventListener('change', syncSubject);
   syncSubject();
