@@ -1,0 +1,42 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":preserveSemverRanges"
+  ],
+  "labels": ["dependencies"],
+  "timezone": "Europe/Paris",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "packageRules": [
+    {
+      "description": "Group Python runtime deps (pyproject.toml)",
+      "matchManagers": ["pep621", "setuptools"],
+      "matchDepTypes": ["dependencies"],
+      "groupName": "python-runtime"
+    },
+    {
+      "description": "Group Python dev tools (pytest, ruff, …)",
+      "matchManagers": ["pep621", "setuptools"],
+      "matchDepTypes": ["optional-dependencies"],
+      "groupName": "python-dev"
+    },
+    {
+      "description": "Group Docker base images",
+      "matchManagers": ["dockerfile"],
+      "groupName": "docker-images"
+    },
+    {
+      "description": "Pin major bumps — review separately",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "dependencies"]
+  }
+}
