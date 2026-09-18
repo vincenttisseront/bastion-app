@@ -69,6 +69,17 @@ def test_resolve_explicit_code():
     assert ev.label == "BREAKGLASS_LOGIN_FROM_NON_LAN"
 
 
+def test_resolve_sentinel_code_falls_back_to_action():
+    ev = resolve_event(code="BST-BGL-0000", action="breakglass.login_failed")
+    assert ev.code == "BST-BGL-2001"
+
+
+def test_resolve_unknown_explicit_code_uncatalogued():
+    ev = resolve_event(code="BST-SYS-9999", action="ignored.action")
+    assert ev.code.endswith("-0000")
+    assert ev.label == "UNCATALOGUED_EVENT"
+
+
 def test_uncatalogued_guess_domain():
     assert uncatalogued_event("breakglass.foo").code == "BST-BGL-0000"
     assert uncatalogued_event("file.upload").code == "BST-FILE-0000"

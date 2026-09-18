@@ -167,6 +167,26 @@ def test_resolve_teleport_login_base_url_accepts_internal(db_session: Session):
     assert resolve_teleport_login_base_url(app, settings) == "https://10.0.0.5:3080"
 
 
+def test_teleport_public_edge_helper_matches_fqdn_and_portal():
+    from app.bastion.drivers.teleport import _teleport_is_public_edge
+
+    assert _teleport_is_public_edge(
+        "https://teleport.example.test/web",
+        fqdn="teleport.example.test",
+        portal="portal.example.test",
+    )
+    assert _teleport_is_public_edge(
+        "https://portal.example.test/",
+        fqdn="teleport.example.test",
+        portal="portal.example.test",
+    )
+    assert not _teleport_is_public_edge(
+        "https://10.0.0.5:3080",
+        fqdn="teleport.example.test",
+        portal="portal.example.test",
+    )
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_teleport_driver_login_sends_public_host_binding():

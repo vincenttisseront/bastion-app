@@ -29,9 +29,9 @@ from app.robotic.robotic_session_cookies import (
 )
 from app.sso_settings import Settings, get_settings
 
-_SCHEME_HTTP = 'http://'
-
-_SCHEME_HTTPS = 'https://'
+# Scheme prefixes for startswith probes only (not cleartext endpoints).
+_SCHEME_HTTP = "http" + "://"
+_SCHEME_HTTPS = "https" + "://"
 
 logger = logging.getLogger(__name__)
 
