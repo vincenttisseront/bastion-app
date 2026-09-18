@@ -790,6 +790,17 @@ async def create_keycloak_group(
         raise ValueError(f"Groupe Keycloak « {name} » en conflit (409) sans id résolu")
     if resp.status_code >= 400:
         raise ValueError(f"Échec création groupe Keycloak (HTTP {resp.status_code})")
+    return await _resolve_created_group_id(realm, settings, name=name, resp=resp, token=token)
+
+
+async def _resolve_created_group_id(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    name: str,
+    resp,
+    token: str,
+) -> str:
     location = resp.headers.get("location", "")
     group_id = location.rstrip("/").rsplit("/", 1)[-1] if location else ""
     if not group_id:
@@ -1027,20 +1038,39 @@ def group_matches_sync_include(name: str, path: str, include: list[str]) -> bool
     path_n = _norm_group_token(path_l)
     path_base = path_l.rsplit("/", 1)[-1] if path_l else ""
     path_base_n = _norm_group_token(path_base)
-    for rule in include:
-        r = rule.strip().lower()
-        if not r:
-            continue
-        r_n = _norm_group_token(r)
-        if name_l == r or path_l == r or name_n == r_n or path_n == r_n or path_base_n == r_n:
-            return True
-        # Path prefix: "/Societes" matches "/Societes/ABIOM"
-        if path_l.startswith(r.rstrip("/") + "/") or path_l.rstrip("/") == r.rstrip("/"):
-            return True
-        # Normalized prefix on path segments
-        if r_n and path_n.startswith(r_n):
-            return True
-    return False
+    return any(
+        _include_rule_matches(
+            rule,
+            name_l=name_l,
+            path_l=path_l,
+            name_n=name_n,
+            path_n=path_n,
+            path_base_n=path_base_n,
+        )
+        for rule in include
+    )
+
+
+def _include_rule_matches(
+    rule: str,
+    *,
+    name_l: str,
+    path_l: str,
+    name_n: str,
+    path_n: str,
+    path_base_n: str,
+) -> bool:
+    r = rule.strip().lower()
+    if not r:
+        return False
+    r_n = _norm_group_token(r)
+    if name_l == r or path_l == r or name_n == r_n or path_n == r_n or path_base_n == r_n:
+        return True
+    # Path prefix: "/Societes" matches "/Societes/ABIOM"
+    if path_l.startswith(r.rstrip("/") + "/") or path_l.rstrip("/") == r.rstrip("/"):
+        return True
+    # Normalized prefix on path segments
+    return bool(r_n and path_n.startswith(r_n))
 
 
 async def sync_keycloak_groups(realm: RealmConfig, db: Session, settings: Settings) -> dict:

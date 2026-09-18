@@ -251,32 +251,36 @@ def _smtp_session(
     """Connect (and optionally STARTTLS / login / send). Raises SmtpError."""
     loc = locale or DEFAULT_LOCALE
     try:
-        if use_tls:
-            with smtplib.SMTP(host, port, timeout=20) as client:
+        with smtplib.SMTP(host, port, timeout=20) as client:
+            if use_tls:
                 client.ehlo()
                 context = ssl.create_default_context()
                 client.starttls(context=context)
                 client.ehlo()
-                if username and password:
-                    client.login(username, password)
-                if send_msg is not None:
-                    client.send_message(send_msg)
-                else:
-                    client.noop()
-        else:
-            with smtplib.SMTP(host, port, timeout=20) as client:
-                if username and password:
-                    client.login(username, password)
-                if send_msg is not None:
-                    client.send_message(send_msg)
-                else:
-                    client.noop()
+            _smtp_auth_and_send(
+                client, username=username, password=password, send_msg=send_msg
+            )
     except smtplib.SMTPException as exc:
         _raise_smtp_failure(exc, locale=loc)
     except OSError as exc:
         raise SmtpError(
             t("SMTP injoignable ({host}:{port})", loc, host=host, port=port)
         ) from exc
+
+
+def _smtp_auth_and_send(
+    client: smtplib.SMTP,
+    *,
+    username: str | None,
+    password: str,
+    send_msg: EmailMessage | None,
+) -> None:
+    if username and password:
+        client.login(username, password)
+    if send_msg is not None:
+        client.send_message(send_msg)
+    else:
+        client.noop()
 
 
 def test_smtp_connection(

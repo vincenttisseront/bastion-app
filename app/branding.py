@@ -150,11 +150,10 @@ def branding_to_dict(row: BrandingSettings) -> dict[str, Any]:
     )
     logo = (row.logo_path or "").strip() or None
     favicon = (row.favicon_path or "").strip() or None
+    logo_url, favicon_url = _branding_asset_urls(logo, favicon)
     return {
-        "company_name": (row.company_name or DEFAULTS["company_name"]).strip()
-        or DEFAULTS["company_name"],
-        "page_title": (row.page_title or DEFAULTS["page_title"]).strip()
-        or DEFAULTS["page_title"],
+        "company_name": _branding_text(row.company_name, "company_name"),
+        "page_title": _branding_text(row.page_title, "page_title"),
         "accent_color": primary,
         "primary_color": primary,
         "secondary_color": secondary,
@@ -167,13 +166,25 @@ def branding_to_dict(row: BrandingSettings) -> dict[str, Any]:
         "show_product_branding": bool(row.show_product_branding),
         "logo_path": logo,
         "favicon_path": favicon,
-        "logo_url": f"{MEDIA_URL_PREFIX}/{logo}" if logo else None,
-        "favicon_url": (
-            f"{MEDIA_URL_PREFIX}/{favicon}"
-            if favicon
-            else "/static/img/generic-shield.svg"
-        ),
+        "logo_url": logo_url,
+        "favicon_url": favicon_url,
     }
+
+
+def _branding_text(raw: str | None, default_key: str) -> str:
+    return (raw or DEFAULTS[default_key]).strip() or DEFAULTS[default_key]
+
+
+def _branding_asset_urls(
+    logo: str | None, favicon: str | None
+) -> tuple[str | None, str]:
+    logo_url = f"{MEDIA_URL_PREFIX}/{logo}" if logo else None
+    favicon_url = (
+        f"{MEDIA_URL_PREFIX}/{favicon}"
+        if favicon
+        else "/static/img/generic-shield.svg"
+    )
+    return logo_url, favicon_url
 
 
 def _branding_theme(raw: str | None) -> str:

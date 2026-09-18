@@ -217,6 +217,18 @@ def list_portal_native_sessions(
     return out
 
 
+def _native_session_owned_by(row: OidcSession, user: UserContext) -> bool:
+    uname = (row.username or "").strip().lower()
+    sub = (row.sub or "").strip()
+    if user.keycloak_user_id and sub == user.keycloak_user_id.strip():
+        return True
+    for ident in (user.email, user.username):
+        v = (ident or "").strip().lower()
+        if v and uname == v:
+            return True
+    return False
+
+
 def _native_session_identity_clauses(user: UserContext) -> list[Any]:
     clauses: list[Any] = []
     if user.keycloak_user_id:
@@ -431,23 +443,14 @@ def revoke_own_native_session(
         raise ProfileSecurityError("Session introuvable ou déjà expirée.")
     if row.expires_at and _coerce_utc(row.expires_at) <= utcnow():
         raise ProfileSecurityError("Session expirée.")
-    uname = (row.username or "").strip().lower()
-    sub = (row.sub or "").strip()
-    owned = False
-    if user.keycloak_user_id and sub == user.keycloak_user_id.strip():
-        owned = True
-    for ident in (user.email, user.username):
-        v = (ident or "").strip().lower()
-        if v and uname == v:
-            owned = True
-    if not owned:
+    if not _native_session_owned_by(row, user):
         raise ProfileSecurityError(_MSG_SESSION_MISSING)
     revoke_oidc_jti(db, token, revoked_by=actor, reason="profile_self_revoke")
     log_action(
         db,
         actor=actor,
         action=_AUDIT_PROFILE_SESSION_REVOKED,
-        target=sub or uname,
+        target=(row.sub or "").strip() or (row.username or "").strip().lower(),
         details={"jti": token, "kind": "portal_native", "self_service": True},
         ip_address=ip_address,
     )

@@ -124,30 +124,30 @@ def _looks_like_username(el: Tag) -> bool:
 
 
 def _pick_username_field(form: Tag, password_el: Tag) -> dict[str, Any] | None:
-    inputs = [
-        el
-        for el in form.find_all("input")
-        if isinstance(el, Tag)
-        and _input_type(el)
-        not in ("hidden", "submit", "button", "image", "reset", "checkbox", "radio", "file")
-    ]
-    # 1. email
+    inputs = _named_login_inputs(form)
     for el in inputs:
         if _input_type(el) == "email" and _attr(el, "name"):
             return {"name": _attr(el, "name"), "confidence": "high"}
-    # 2. text/email-like with username tokens
     for el in inputs:
         if _input_type(el) in ("text", "email", "tel", "search") and _looks_like_username(el):
             name = _attr(el, "name")
             if name:
                 return {"name": name, "confidence": "high"}
-    # 3. first text input before password in DOM order
     for el in inputs:
         if el is password_el:
             break
         if _input_type(el) == "text" and _attr(el, "name"):
             return {"name": _attr(el, "name"), "confidence": "medium"}
     return None
+
+
+def _named_login_inputs(form: Tag) -> list[Tag]:
+    skip = ("hidden", "submit", "button", "image", "reset", "checkbox", "radio", "file")
+    return [
+        el
+        for el in form.find_all("input")
+        if isinstance(el, Tag) and _input_type(el) not in skip
+    ]
 
 
 def _hidden_fields(form: Tag) -> list[dict[str, Any]]:

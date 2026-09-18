@@ -369,57 +369,20 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             locale=locale,
         )
     wants_json = _wants_json_response(request)
-    if exc.status_code == 401:
-        if wants_json:
-            return api_error_from_detail(
-                status_code=401,
-                detail=exc.detail,
-                headers=headers,
-                locale=locale,
-            )
-        return RedirectResponse(url=_PATH_AUTH_LOGIN, status_code=302)
+    if exc.status_code in (401, 429, 503) or (
+        wants_json and exc.status_code not in (403, 404)
+    ):
+        handled = _http_exc_simple_status(
+            request, exc, wants_json=wants_json, headers=headers, locale=locale
+        )
+        if handled is not None:
+            return handled
     if exc.status_code == 403:
-        if wants_json:
-            return api_error_from_detail(
-                status_code=403,
-                detail=exc.detail,
-                headers=headers,
-                locale=locale,
-            )
-        # Authenticated end-users hitting /dashboard or /admin → home launcher
-        from app.web.user_context import get_user_context
-
-        settings = get_settings()
-        if get_user_context(request, settings) is not None:
-            return RedirectResponse(url="/apps", status_code=302)
-        ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
-        return render("errors/403.html", **ctx, status_code=403)
+        return _http_exc_forbidden(request, exc, wants_json=wants_json, headers=headers, locale=locale)
     if exc.status_code == 404:
         settings = get_settings()
         ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
         return render("errors/404.html", **ctx, status_code=404)
-    if exc.status_code == 429:
-        if wants_json:
-            return api_error_from_detail(
-                status_code=429,
-                detail=exc.detail,
-                headers=headers,
-                locale=locale,
-            )
-        settings = get_settings()
-        ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
-        return render("errors/429.html", **ctx, status_code=429)
-    if exc.status_code == 503:
-        if wants_json:
-            return api_error_from_detail(
-                status_code=503,
-                detail=exc.detail,
-                headers=headers,
-                locale=locale,
-            )
-        settings = get_settings()
-        ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
-        return render("errors/503.html", **ctx, status_code=503)
     if wants_json:
         return api_error_from_detail(
             status_code=exc.status_code,
@@ -432,6 +395,62 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         status_code=exc.status_code,
         message=_exception_detail_message(exc.detail, locale),
     )
+
+
+def _http_exc_simple_status(
+    request: Request,
+    exc: StarletteHTTPException,
+    *,
+    wants_json: bool,
+    headers,
+    locale: str,
+):
+    if exc.status_code == 401:
+        if wants_json:
+            return api_error_from_detail(
+                status_code=401,
+                detail=exc.detail,
+                headers=headers,
+                locale=locale,
+            )
+        return RedirectResponse(url=_PATH_AUTH_LOGIN, status_code=302)
+    if exc.status_code in (429, 503):
+        if wants_json:
+            return api_error_from_detail(
+                status_code=exc.status_code,
+                detail=exc.detail,
+                headers=headers,
+                locale=locale,
+            )
+        settings = get_settings()
+        ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
+        return render(f"errors/{exc.status_code}.html", **ctx, status_code=exc.status_code)
+    return None
+
+
+def _http_exc_forbidden(
+    request: Request,
+    exc: StarletteHTTPException,
+    *,
+    wants_json: bool,
+    headers,
+    locale: str,
+):
+    if wants_json:
+        return api_error_from_detail(
+            status_code=403,
+            detail=exc.detail,
+            headers=headers,
+            locale=locale,
+        )
+    # Authenticated end-users hitting /dashboard or /admin → home launcher
+    from app.web.user_context import get_user_context
+
+    settings = get_settings()
+    if get_user_context(request, settings) is not None:
+        return RedirectResponse(url="/apps", status_code=302)
+    ctx = base_template_context(request, settings, APP_VERSION, hide_chrome=True)
+    return render("errors/403.html", **ctx, status_code=403)
 
 
 @app.exception_handler(Exception)
