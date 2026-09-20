@@ -6,6 +6,9 @@
     ":semanticCommits",
     ":preserveSemverRanges"
   ],
+  "registryAliases": {
+    "dhi.io": "dhi.io"
+  },
   "labels": ["dependencies"],
   "timezone": "Europe/Paris",
   "schedule": ["before 6am on monday"],
@@ -28,6 +31,12 @@
       "description": "Group Docker base images",
       "matchManagers": ["dockerfile"],
       "groupName": "docker-images"
+    },
+    {
+      "description": "Route DHI images to https://dhi.io (not Docker Hub library/python)",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["dhi.io/**"],
+      "registryUrls": ["https://dhi.io"]
     },
     {
       "description": "Pin major bumps — review separately",
