@@ -48,6 +48,7 @@ from app.bastion.m2m_policy import (
 from app.bastion.pending_host_service import (
     approve_pending_host,
     reject_pending_host,
+    reject_pending_hosts_bulk,
     suggest_slug,
 )
 from app.breakglass import (
@@ -1719,10 +1720,62 @@ def admin_pending_hosts_list(
     if status_filter != "all":
         query = query.filter_by(status=status_filter)
     rows = query.order_by(PendingHost.last_seen_at.desc()).limit(500).all()
+    pending_count = sum(1 for r in rows if r.status == "pending")
     return render(
         "admin/pending_hosts/list.html",
-        **_ctx(request, settings, rows=rows, status_filter=status_filter),
+        **_ctx(
+            request,
+            settings,
+            rows=rows,
+            status_filter=status_filter,
+            pending_count=pending_count,
+        ),
     )
+
+
+@admin_router.post("/admin/pending-hosts/bulk/reject")
+def admin_pending_hosts_bulk_reject_post(
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    host_ids: list[int] | None = Form(None),
+):
+    ids = [int(x) for x in (host_ids or []) if x is not None]
+    secret = settings.vault_portal_internal_token or "dev"
+    if not ids:
+        response = RedirectResponse(url="/admin/pending-hosts?status=pending", status_code=302)
+        flash_redirect(
+            response,
+            "Sélectionnez au moins un domaine à rejeter.",
+            "warning",
+            secret,
+        )
+        return response
+    rejected = reject_pending_hosts_bulk(db, host_ids=ids, actor=user.email)
+    n = len(rejected)
+    response = RedirectResponse(url="/admin/pending-hosts?status=rejected", status_code=302)
+    if n == 0:
+        flash_redirect(
+            response,
+            "Aucun domaine en attente n’a été rejeté.",
+            "warning",
+            secret,
+        )
+    elif n == 1:
+        flash_redirect(
+            response,
+            f"Domaine « {rejected[0].hostname} » rejeté.",
+            "success",
+            secret,
+        )
+    else:
+        flash_redirect(
+            response,
+            f"{n} domaines rejetés.",
+            "success",
+            secret,
+        )
+    return response
 
 
 @admin_router.get("/admin/pending-hosts/{host_id}/approve", responses=RESP_404)

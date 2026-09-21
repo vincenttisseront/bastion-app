@@ -3,7 +3,8 @@
 {% block breadcrumb %}Admin / {{ _('Domaines découverts') }}{% endblock %}
 
 {% block content %}
-<div class="page">
+{% set pending_count = pending_count | default(0) %}
+<div class="page" data-pending-hosts-bulk>
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ _('Domaines découverts') }}</h1>
@@ -18,7 +19,18 @@
   <div class="card">
     <div class="card-header">
       <span class="card-title">{{ _('File d’attente ·') }} {{ rows | length }}</span>
-      <div class="card-header-actions">
+      <div class="card-header-actions" style="display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;">
+        {% if pending_count > 0 %}
+        <form method="post" action="/admin/pending-hosts/bulk/reject" id="pending-hosts-bulk-reject"
+              class="users-bulk-bar" style="padding:0;border:0;margin:0;">
+          <span class="users-bulk-count" data-bulk-count>{{ _('0 sél.') }}</span>
+          <button type="submit" class="btn btn-ghost btn-sm" data-bulk-reject
+                  disabled
+                  data-confirm-tpl="{{ _('Rejeter {n} domaine(s) sélectionné(s) ?') }}"
+                  data-confirm-title="{{ _('Rejet groupé') }}"
+                  data-confirm-label="{{ _('Rejeter') }}">{{ _('Rejeter la sélection') }}</button>
+        </form>
+        {% endif %}
         <fieldset class="filter-group" aria-label="{{ _('Filtrer par statut') }}">
           <a href="/admin/pending-hosts?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">{{ _('En attente') }}</a>
           <a href="/admin/pending-hosts?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">{{ _('Approuvés') }}</a>
@@ -32,6 +44,13 @@
         <table class="data-table" id="pending-hosts-table">
           <thead>
             <tr>
+              {% if pending_count > 0 %}
+              <th style="width:2.25rem;">
+                <input type="checkbox" data-bulk-select-page
+                       title="{{ _('Sélectionner la page') }}"
+                       aria-label="{{ _('Sélectionner la page') }}">
+              </th>
+              {% endif %}
               <th>Hostname</th>
               <th>Hits</th>
               <th>{{ _('Dernière vue') }}</th>
@@ -43,6 +62,15 @@
           <tbody>
             {% for row in rows %}
             <tr>
+              {% if pending_count > 0 %}
+              <td>
+                {% if row.status == 'pending' %}
+                <input type="checkbox" form="pending-hosts-bulk-reject" name="host_ids"
+                       value="{{ row.id }}" data-bulk-row
+                       aria-label="{{ _('Sélectionner') }} {{ row.hostname }}">
+                {% endif %}
+              </td>
+              {% endif %}
               <td><code class="mono">{{ row.hostname }}</code></td>
               <td>{{ row.hit_count }}</td>
               <td class="mono">{{ row.last_seen_at }}</td>
@@ -74,7 +102,7 @@
             </tr>
             {% else %}
             <tr>
-              <td colspan="6">
+              <td colspan="{{ 7 if pending_count > 0 else 6 }}">
                 <div class="empty-state" style="padding:2rem;">
                   <div class="empty-title">{{ _('Aucun domaine') }} {{ status_filter if status_filter != 'all' else '' }}</div>
                   <div class="empty-desc">
@@ -92,4 +120,80 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if pending_count > 0 %}
+<script>
+(function () {
+  var root = document.querySelector('[data-pending-hosts-bulk]');
+  if (!root) return;
+  var form = document.getElementById('pending-hosts-bulk-reject');
+  var pageCb = root.querySelector('[data-bulk-select-page]');
+  var rows = Array.prototype.slice.call(root.querySelectorAll('[data-bulk-row]'));
+  var countEl = root.querySelector('[data-bulk-count]');
+  var rejectBtn = root.querySelector('[data-bulk-reject]');
+  var selLabel = {{ _('0 sél.') | tojson }};
+
+  function selectedCount() {
+    return rows.filter(function (r) { return r.checked; }).length;
+  }
+
+  function refresh() {
+    var n = selectedCount();
+    if (countEl) {
+      countEl.textContent = n ? (n + ' sél.') : selLabel;
+    }
+    if (rejectBtn) rejectBtn.disabled = n === 0;
+    if (pageCb && rows.length) {
+      pageCb.checked = n > 0 && n === rows.length;
+      pageCb.indeterminate = n > 0 && n < rows.length;
+    }
+  }
+
+  if (pageCb) {
+    pageCb.addEventListener('change', function () {
+      rows.forEach(function (r) { r.checked = pageCb.checked; });
+      refresh();
+    });
+  }
+  rows.forEach(function (r) {
+    r.addEventListener('change', refresh);
+  });
+
+  if (form && rejectBtn) {
+    rejectBtn.addEventListener('click', function (ev) {
+      if (rejectBtn.dataset.bastionConfirmOk === '1') {
+        rejectBtn.dataset.bastionConfirmOk = '';
+        return;
+      }
+      var n = selectedCount();
+      if (!n) {
+        ev.preventDefault();
+        return;
+      }
+      if (!window.bastionConfirm) return;
+      ev.preventDefault();
+      var tpl = rejectBtn.getAttribute('data-confirm-tpl') || 'Rejeter {n} domaine(s) ?';
+      var title = rejectBtn.getAttribute('data-confirm-title') || 'Rejet groupé';
+      var label = rejectBtn.getAttribute('data-confirm-label') || 'Rejeter';
+      window
+        .bastionConfirm({
+          title: title,
+          message: tpl.replace('{n}', String(n)),
+          confirmLabel: label,
+          danger: true,
+        })
+        .then(function (ok) {
+          if (!ok) return;
+          rejectBtn.dataset.bastionConfirmOk = '1';
+          rejectBtn.click();
+        });
+    });
+  }
+
+  refresh();
+})();
+</script>
+{% endif %}
 {% endblock %}
