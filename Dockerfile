@@ -4,8 +4,8 @@
 # Runtime image has no shell / apt (DHI minimal). Builder + migrate use *-dev.
 # Override bases: docker build --build-arg PYTHON_RUNTIME=dhi.io/python:3.12-debian13@sha256:…
 
-ARG PYTHON_RUNTIME=dhi.io/python:3.12-debian13
-ARG PYTHON_BUILDER=dhi.io/python:3.12-debian13-dev
+ARG PYTHON_RUNTIME=dhi.io/python:3.14-debian13
+ARG PYTHON_BUILDER=dhi.io/python:3.14-debian13-dev
 
 # ---------------------------------------------------------------------------
 # Builder — install app into a venv (wheels; gcc available on -dev if needed)
