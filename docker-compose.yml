@@ -200,7 +200,7 @@ services:
 
   # Let's Encrypt DNS-01 (Cloudflare) → certs for nginx :443
   acme-companion:
-    image: neilpang/acme.sh:3.1.4@sha256:08bad323dd6537ea2caba64260ef6e70e96057c4d9214afb9c07861db26653d9
+    image: neilpang/acme.sh:3.1.6@sha256:9982fd2eea6db4da6fe9137faa34be5126945ab49c55864eb1a3c5917d4e3c7d
     container_name: bastion-acme
     env_file:
       - path: ${ACME_ENV_FILE:-.env.acme}
