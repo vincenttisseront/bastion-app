@@ -82,7 +82,7 @@ def sanitize_logical_name(filename: str | None) -> str:
     if not raw or not _SAFE_LOGICAL_NAME.match(raw):
         return ACTIVE_BASENAME
     lower = raw.lower()
-    if not (lower.endswith(".pem") or lower.endswith(".crt")):
+    if not lower.endswith((".pem", ".crt")):
         return ACTIVE_BASENAME
     return raw
 
@@ -370,9 +370,9 @@ def _file_lock(lock_file: Path) -> Iterator[None]:
 
 
 def _set_file_mode(path: Path) -> None:
-    """Restrictive mode when the OS supports it; no chown, no recursive chmod."""
+    """Owner-only mode when the OS supports it; no chown, no recursive chmod."""
     try:
-        os.chmod(path, 0o644)
+        os.chmod(path, 0o600)
     except OSError:
         logger.debug("syslog CA chmod skipped for %s", path.name)
 

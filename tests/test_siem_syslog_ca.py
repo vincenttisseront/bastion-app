@@ -133,8 +133,9 @@ def test_reject_empty_file():
 
 
 def test_reject_private_key():
+    pem = _private_key_pem()
     with pytest.raises(ca.SyslogCaError, match="clé privée"):
-        ca.parse_and_validate_ca_pem(_private_key_pem())
+        ca.parse_and_validate_ca_pem(pem)
 
 
 def test_reject_bundle_with_private_key():
@@ -564,3 +565,152 @@ def test_api_ca_upload_with_skip_probe(client, db_session, tmp_path, monkeypatch
         assert 'id="siem-test-btn"' in page.text
     finally:
         app.dependency_overrides.pop(gs, None)
+
+
+def _enable_syslog_tls(db_session, settings, *, host: str = "10.0.0.10") -> None:
+    from app.siem.settings_service import update_siem_settings
+
+    update_siem_settings(
+        db_session,
+        settings,
+        enabled=True,
+        protocol="syslog_tls",
+        syslog_host=host,
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="",
+        webhook_auth_type="none",
+        webhook_auth_secret=None,
+        clear_webhook_secret=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        actor="admin@example.com",
+    )
+
+
+def test_sanitize_logical_name_accepts_crt_suffix():
+    assert ca.sanitize_logical_name("collector.crt") == "collector.crt"
+    assert ca.sanitize_logical_name("bad.exe") == ca.ACTIVE_BASENAME
+
+
+def test_get_ca_api_status_and_delete(db_session, tmp_path):
+    from app.siem.ca_service import delete_syslog_ca, get_ca_api_status, install_syslog_ca
+
+    settings = _settings(tmp_path)
+    _enable_syslog_tls(db_session, settings)
+    missing = get_ca_api_status(db_session, settings)
+    assert missing["configured"] is False
+    assert missing["logical_name"] is None
+
+    pem, _ = _build_ca(cn="Status CA")
+    installed = install_syslog_ca(
+        db_session,
+        settings,
+        raw=pem,
+        filename="status.pem",
+        actor="admin@example.com",
+        skip_tls_probe=True,
+    )
+    assert installed["configured"] is True
+    assert installed["logical_name"] == "status.pem"
+
+    deleted = delete_syslog_ca(
+        db_session, settings, actor="admin@example.com", ip_address="10.0.0.1"
+    )
+    assert deleted["configured"] is False
+    active = ca.resolve_ca_path(settings)
+    assert not active.is_file()
+
+
+def test_run_syslog_tls_ca_test_prechecks_and_success(db_session, tmp_path):
+    from app.siem.ca_service import install_syslog_ca, run_syslog_tls_ca_test
+    from app.siem.settings_service import update_siem_settings
+
+    settings = _settings(tmp_path)
+    update_siem_settings(
+        db_session,
+        settings,
+        enabled=True,
+        protocol="webhook_https",
+        syslog_host="",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="https://siem.example.com/hook",
+        webhook_auth_type="none",
+        webhook_auth_secret=None,
+        clear_webhook_secret=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        actor="admin@example.com",
+    )
+    ok, msg, lines = run_syslog_tls_ca_test(
+        db_session, settings, actor="admin@example.com"
+    )
+    assert ok is False
+    assert "Syslog TCP+TLS" in msg
+    assert any("✗" in line for line in lines)
+
+    _enable_syslog_tls(db_session, settings)
+    ok, msg, _ = run_syslog_tls_ca_test(db_session, settings, actor="admin@example.com")
+    assert ok is False
+    assert "aucune CA" in msg
+
+    pem, _ = _build_ca(cn="Probe CA")
+    install_syslog_ca(
+        db_session,
+        settings,
+        raw=pem,
+        filename="probe.pem",
+        actor="admin@example.com",
+        skip_tls_probe=True,
+    )
+
+    class _SslSock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def cipher(self):
+            return ("TLS_AES_256_GCM_SHA384", "TLSv1.3", 256)
+
+    ok, msg, lines = run_syslog_tls_ca_test(
+        db_session,
+        settings,
+        actor="admin@example.com",
+        sock_factory=lambda: _SslSock(),
+    )
+    assert ok is True
+    assert "Négociation TLS OK" in msg
+    assert any("✓" in line for line in lines)
+
+
+def test_run_syslog_tls_ca_test_probe_failure(db_session, tmp_path):
+    from app.siem.ca_service import install_syslog_ca, run_syslog_tls_ca_test
+
+    settings = _settings(tmp_path)
+    _enable_syslog_tls(db_session, settings)
+    pem, _ = _build_ca(cn="Fail Probe CA")
+    install_syslog_ca(
+        db_session,
+        settings,
+        raw=pem,
+        filename="fail.pem",
+        actor="admin@example.com",
+        skip_tls_probe=True,
+    )
+
+    def boom():
+        raise ca.SyslogCaError("refus de connexion")
+
+    ok, msg, lines = run_syslog_tls_ca_test(
+        db_session, settings, actor="admin@example.com", sock_factory=boom
+    )
+    assert ok is False
+    assert "refus de connexion" in msg
+    assert any("✗" in line for line in lines)
