@@ -310,6 +310,65 @@ def _m2m_bypass_locations(
     return blocks
 
 
+def _upstream_ssl_proxy_lines(
+    *,
+    upstream_is_https: bool,
+    crushftp: bool,
+    tls_verify: bool,
+) -> list[str]:
+    if not upstream_is_https:
+        return []
+    ssl_lines = [
+        "        proxy_ssl_server_name on;",
+        nginx_proxy_ssl_verify_directive(tls_verify),
+    ]
+    if crushftp:
+        # CrushFTP often negotiates poorly with default openssl defaults.
+        ssl_lines.insert(0, "        proxy_ssl_protocols TLSv1.2 TLSv1.3;")
+        ssl_lines.append("        proxy_ssl_session_reuse off;")
+    return ssl_lines
+
+
+def _upstream_cookie_forward_lines(
+    *,
+    crushftp: bool,
+    upstream_host: str,
+    upstream_host_esc: str,
+    fqdn_esc: str,
+) -> tuple[list[str], list[str], list[str]]:
+    """Return (cookie_lines, forwarded_ip_lines, redirect_lines)."""
+    if not crushftp:
+        return (
+            [_NGX_PROXY_COOKIE],
+            [_NGX_PROXY_X_REAL_IP, _NGX_PROXY_X_FORWARDED_FOR],
+            [_NGX_PROXY_REDIRECT_OFF],
+        )
+    # CrushFTP: forward ONLY CrushAuth + currentAuth. Never bastion_session /
+    # oauth2 JWTs (header too large → 502, or CrushFTP drops the session and
+    # Absolute-redirects to the upstream IP login page).
+    cookie_lines = [
+        '        set $bastion_upstream_cookie '
+        '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth";',
+        "        proxy_set_header Cookie $bastion_upstream_cookie;",
+    ]
+    # Robotic login + browser must present the SAME IP to CrushFTP or it
+    # invalidates CrushAuth (session IP lock).
+    forwarded_ip_lines = [
+        '        proxy_set_header X-Real-IP "";',
+        '        proxy_set_header X-Forwarded-For "";',
+    ]
+    upstream_host_re = re_safe.escape(upstream_host)
+    redirect_lines = [
+        f"        proxy_redirect http://{upstream_host_esc}/ "
+        f"https://{fqdn_esc}/;",
+        f"        proxy_redirect https://{upstream_host_esc}/ "
+        f"https://{fqdn_esc}/;",
+        f"        proxy_redirect ~^https?://{upstream_host_re}(?::\\d+)?(/.*)$ "
+        f"https://{fqdn_esc}$1;",
+    ]
+    return cookie_lines, forwarded_ip_lines, redirect_lines
+
+
 def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     """One HTTP server{} for front nginx (TLS offloaded). Includes hop + auth_request."""
     fqdn = (app.public_fqdn or "").strip()
@@ -331,62 +390,17 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
     crushftp = _is_crushftp_app(app)
     upstream_is_https = origin.lower().startswith("https://")
     tls_verify = resolve_upstream_tls_verify(app)
-    ssl_lines: list[str] = []
-    if upstream_is_https:
-        ssl_lines = [
-            "        proxy_ssl_server_name on;",
-            nginx_proxy_ssl_verify_directive(tls_verify),
-        ]
-        if crushftp:
-            # CrushFTP often negotiates poorly with default openssl defaults.
-            ssl_lines.insert(0, "        proxy_ssl_protocols TLSv1.2 TLSv1.3;")
-            ssl_lines.append("        proxy_ssl_session_reuse off;")
-
-    # CrushFTP: forward ONLY CrushAuth + currentAuth. Never bastion_session /
-    # oauth2 JWTs (header too large → 502, or CrushFTP drops the session and
-    # Absolute-redirects to the upstream IP login page).
-    # CRITICAL: put that Cookie filter in @app_upstream_* only — never in the
-    # same location as auth_request (inherited proxy_set_header starves the jar).
-    if crushftp:
-        cookie_lines = [
-            '        set $bastion_upstream_cookie '
-            '"CrushAuth=$cookie_CrushAuth; currentAuth=$cookie_currentAuth";',
-            "        proxy_set_header Cookie $bastion_upstream_cookie;",
-        ]
-        # Robotic login + browser must present the SAME IP to CrushFTP or it
-        # invalidates CrushAuth (session IP lock):
-        #   "User session invalidated due to IP change" in CrushFTP.log.
-        # The robotic login reaches CrushFTP directly (TCP source = docker
-        # host NAT, no forwarded headers), while browser traffic traverses
-        # the DMZ reverse proxy which ADDS X-Forwarded-For: <client-ip>.
-        # Simply omitting proxy_set_header here is NOT enough: nginx then
-        # forwards the inbound X-Forwarded-For/X-Real-IP unchanged and
-        # CrushFTP trusts it → two different IPs for the same CrushAuth →
-        # 302 login.html + cookie wipe loop. Explicitly BLANK the headers
-        # (empty value removes them) so CrushFTP only ever sees the TCP
-        # source IP, identical for both paths.
-        forwarded_ip_lines = [
-            '        proxy_set_header X-Real-IP "";',
-            '        proxy_set_header X-Forwarded-For "";',
-        ]
-        # CrushFTP often emits Absolute Location: http(s)://<upstream-ip>/...
-        # With proxy_redirect off the browser leaves the SSO vhost (IP login).
-        upstream_host_re = re_safe.escape(upstream_host)
-        redirect_lines = [
-            f"        proxy_redirect http://{upstream_host_esc}/ "
-            f"https://{fqdn_esc}/;",
-            f"        proxy_redirect https://{upstream_host_esc}/ "
-            f"https://{fqdn_esc}/;",
-            f"        proxy_redirect ~^https?://{upstream_host_re}(?::\\d+)?(/.*)$ "
-            f"https://{fqdn_esc}$1;",
-        ]
-    else:
-        cookie_lines = [_NGX_PROXY_COOKIE]
-        forwarded_ip_lines = [
-            _NGX_PROXY_X_REAL_IP,
-            _NGX_PROXY_X_FORWARDED_FOR,
-        ]
-        redirect_lines = [_NGX_PROXY_REDIRECT_OFF]
+    ssl_lines = _upstream_ssl_proxy_lines(
+        upstream_is_https=upstream_is_https,
+        crushftp=crushftp,
+        tls_verify=tls_verify,
+    )
+    cookie_lines, forwarded_ip_lines, redirect_lines = _upstream_cookie_forward_lines(
+        crushftp=crushftp,
+        upstream_host=upstream_host,
+        upstream_host_esc=upstream_host_esc,
+        fqdn_esc=fqdn_esc,
+    )
 
     named_upstream = f"@app_upstream_{slug}"
     # Prefer X-Auth-Request-Email — same $upstream_http_x_auth_request_* vars the

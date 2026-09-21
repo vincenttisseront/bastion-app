@@ -126,6 +126,33 @@ def _severity_rank_name(name: str) -> int | None:
         return None
 
 
+def _criterion_severity_matches(crit: str, sev: str) -> bool:
+    if not (
+        crit.upper().startswith("SEVERITY>=") or crit.lower().startswith("severity>=")
+    ):
+        return False
+    min_name = crit.split("=", 1)[-1].strip().upper()
+    min_rank = _severity_rank_name(min_name)
+    cur_rank = _severity_rank_name(sev) if sev else None
+    if min_rank is None or cur_rank is None:
+        return False
+    return cur_rank >= min_rank
+
+
+def _criterion_bst_matches(crit: str, *, code: str, domain: str) -> bool | None:
+    """Return True/False for BST criteria, or None if criterion is not BST-shaped."""
+    upper = crit.upper()
+    if not upper.startswith("BST-"):
+        return None
+    if crit.endswith("*"):
+        prefix = crit[:-1].upper()
+        if code.startswith(prefix):
+            return True
+        parts = prefix.rstrip("-").split("-")
+        return bool(len(parts) >= 2 and domain == parts[1])
+    return upper == code
+
+
 def _criterion_matches(
     criterion: str,
     *,
@@ -143,24 +170,14 @@ def _criterion_matches(
     sev = (catalog_severity or "").strip().upper()
     dom = (domain or "").strip().upper()
 
-    if crit.upper().startswith("SEVERITY>=") or crit.lower().startswith("severity>="):
-        min_name = crit.split("=", 1)[-1].strip().upper()
-        min_rank = _severity_rank_name(min_name)
-        cur_rank = _severity_rank_name(sev) if sev else None
-        if min_rank is None or cur_rank is None:
-            return False
-        return cur_rank >= min_rank
-
-    # Domain / code glob: BST-WAF-*
-    if crit.upper().startswith("BST-") and crit.endswith("*"):
-        prefix = crit[:-1].upper()
-        if code.startswith(prefix):
-            return True
-        parts = prefix.rstrip("-").split("-")
-        return bool(len(parts) >= 2 and dom == parts[1])
-
-    if crit.upper().startswith("BST-") and crit.upper() == code:
+    if _criterion_severity_matches(crit, sev):
         return True
+    if crit.upper().startswith("SEVERITY>=") or crit.lower().startswith("severity>="):
+        return False
+
+    bst = _criterion_bst_matches(crit, code=code, domain=dom)
+    if bst is not None:
+        return bst
 
     return crit == act
 
