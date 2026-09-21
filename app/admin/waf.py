@@ -382,6 +382,93 @@ def admin_waf_exclude_from_event(
     return response
 
 
+def _quick_toggle_bruteforce(
+    db: Session,
+    *,
+    turn_on: bool,
+    actor: str,
+    ip: str | None,
+    response: RedirectResponse,
+    settings: Settings,
+) -> None:
+    from app.security.banning.service import get_or_create_policy, update_policy_misc
+
+    current = get_or_create_policy(db)
+    update_policy_misc(
+        db,
+        enabled=turn_on,
+        breakglass_allow_cidrs=current.breakglass_allow_cidrs or "",
+        breakglass_deny_cidrs=current.breakglass_deny_cidrs or "",
+        actor=actor,
+        ip_address=ip,
+    )
+    flash_redirect(
+        response,
+        f"Anti-bruteforce {'activé' if turn_on else 'désactivé'}.",
+        "success",
+        _flash_secret(settings),
+    )
+
+
+def _quick_toggle_crs(
+    db: Session,
+    *,
+    turn_on: bool,
+    actor: str,
+    ip: str | None,
+    response: RedirectResponse,
+    settings: Settings,
+) -> None:
+    from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON
+
+    profile = waf_service.ensure_active_profile(db)
+    new_mode = MODE_ON if turn_on else MODE_OFF
+    waf_service.update_active_profile(
+        db,
+        mode=new_mode,
+        anomaly_threshold=int(profile.anomaly_threshold or 5),
+        actor=actor,
+        ip_address=ip,
+    )
+    flash_redirect(
+        response,
+        f"Inspection CRS → {new_mode}. Appliquer pour nginx.",
+        "success",
+        _flash_secret(settings),
+    )
+
+
+def _quick_toggle_geoloc(
+    db: Session,
+    *,
+    turn_on: bool,
+    actor: str,
+    ip: str | None,
+    response: RedirectResponse,
+    settings: Settings,
+) -> None:
+    if not settings.ip_geoloc_enabled:
+        flash_redirect(
+            response,
+            "Géolocalisation verrouillée par configuration serveur.",
+            "error",
+            _flash_secret(settings),
+        )
+        return
+    waf_service.set_ip_geoloc_enabled(
+        db,
+        enabled=turn_on,
+        actor=actor,
+        ip_address=ip,
+    )
+    flash_redirect(
+        response,
+        f"Géolocalisation IP {'activée' if turn_on else 'désactivée'}.",
+        "success",
+        _flash_secret(settings),
+    )
+
+
 @router.post("/admin/security/waf/actions/quick-toggle")
 def admin_waf_quick_toggle(
     request: Request,
@@ -392,69 +479,30 @@ def admin_waf_quick_toggle(
     user=Depends(require_admin),
 ):
     """Toggle CRS or anti-bruteforce from Sentinel dashboard."""
-    from app.bastion.nginx_waf_export import MODE_OFF, MODE_ON
-    from app.security.banning.service import get_or_create_policy, update_policy_misc
-
     response = RedirectResponse(url=_WAF_URL_BILAN, status_code=302)
     actor = _actor(user)
     ip = client_ip_from_request(request) or None
     turn_on = enabled == "on"
+    handlers = {
+        "bruteforce": _quick_toggle_bruteforce,
+        "crs": _quick_toggle_crs,
+        "geoloc": _quick_toggle_geoloc,
+    }
     try:
-        if toggle == "bruteforce":
-            current = get_or_create_policy(db)
-            update_policy_misc(
-                db,
-                enabled=turn_on,
-                breakglass_allow_cidrs=current.breakglass_allow_cidrs or "",
-                breakglass_deny_cidrs=current.breakglass_deny_cidrs or "",
-                actor=actor,
-                ip_address=ip,
-            )
+        handler = handlers.get(toggle)
+        if handler is None:
             flash_redirect(
-                response,
-                f"Anti-bruteforce {'activé' if turn_on else 'désactivé'}.",
-                "success",
-                _flash_secret(settings),
+                response, "Contrôle inconnu.", "error", _flash_secret(settings)
             )
-        elif toggle == "crs":
-            profile = waf_service.ensure_active_profile(db)
-            new_mode = MODE_ON if turn_on else MODE_OFF
-            waf_service.update_active_profile(
-                db,
-                mode=new_mode,
-                anomaly_threshold=int(profile.anomaly_threshold or 5),
-                actor=actor,
-                ip_address=ip,
-            )
-            flash_redirect(
-                response,
-                f"Inspection CRS → {new_mode}. Appliquer pour nginx.",
-                "success",
-                _flash_secret(settings),
-            )
-        elif toggle == "geoloc":
-            if not settings.ip_geoloc_enabled:
-                flash_redirect(
-                    response,
-                    "Géolocalisation verrouillée par configuration serveur.",
-                    "error",
-                    _flash_secret(settings),
-                )
-            else:
-                waf_service.set_ip_geoloc_enabled(
-                    db,
-                    enabled=turn_on,
-                    actor=actor,
-                    ip_address=ip,
-                )
-                flash_redirect(
-                    response,
-                    f"Géolocalisation IP {'activée' if turn_on else 'désactivée'}.",
-                    "success",
-                    _flash_secret(settings),
-                )
         else:
-            flash_redirect(response, "Contrôle inconnu.", "error", _flash_secret(settings))
+            handler(
+                db,
+                turn_on=turn_on,
+                actor=actor,
+                ip=ip,
+                response=response,
+                settings=settings,
+            )
     except ValueError as exc:
         flash_redirect(response, str(exc), "error", _flash_secret(settings))
     return response

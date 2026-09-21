@@ -1267,6 +1267,38 @@ def _build_heatmap_matrix(
     return matrix, row_labels, col_labels
 
 
+def _quarantine_ban_row(
+    ban: Any,
+    *,
+    geo_map: dict[str, dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    if ban.target_type != "ip" or not ban.target:
+        return None
+    ip = str(ban.target).strip()
+    if not ip:
+        return None
+    origin = origin_from_geoloc(ip, (geo_map or {}).get(ip))
+    return {
+        "id": ban.id,
+        "ip": ip,
+        "ban_count": 1,
+        "rule_type": ban.rule_type or "manual",
+        "rule_type_label": BAN_RULE_TYPE_LABELS.get(
+            ban.rule_type or "manual", ban.rule_type or "manual"
+        ),
+        "reason": (ban.reason or "")[:80],
+        "expires_at": (
+            ban.expires_at.isoformat()[:16].replace("T", " ")
+            if ban.expires_at
+            else None
+        ),
+        "permanent": bool(ban.permanent),
+        "origin_hint": origin["hint"],
+        "flag": origin["flag"],
+        "country": origin.get("country") or "",
+    }
+
+
 def build_quarantine_panel(
     db: Session,
     *,
@@ -1277,34 +1309,14 @@ def build_quarantine_panel(
     bans = list_active_bans(db)
     by_ip: dict[str, dict[str, Any]] = {}
     for ban in bans:
-        if ban.target_type != "ip" or not ban.target:
+        row = _quarantine_ban_row(ban, geo_map=geo_map)
+        if row is None:
             continue
-        ip = str(ban.target).strip()
-        if not ip:
-            continue
+        ip = row["ip"]
         if ip in by_ip:
             by_ip[ip]["ban_count"] = int(by_ip[ip]["ban_count"]) + 1
             continue
-        origin = origin_from_geoloc(ip, (geo_map or {}).get(ip))
-        by_ip[ip] = {
-            "id": ban.id,
-            "ip": ip,
-            "ban_count": 1,
-            "rule_type": ban.rule_type or "manual",
-            "rule_type_label": BAN_RULE_TYPE_LABELS.get(
-                ban.rule_type or "manual", ban.rule_type or "manual"
-            ),
-            "reason": (ban.reason or "")[:80],
-            "expires_at": (
-                ban.expires_at.isoformat()[:16].replace("T", " ")
-                if ban.expires_at
-                else None
-            ),
-            "permanent": bool(ban.permanent),
-            "origin_hint": origin["hint"],
-            "flag": origin["flag"],
-            "country": origin.get("country") or "",
-        }
+        by_ip[ip] = row
     rows = list(by_ip.values())
     total = len(rows)
     return {

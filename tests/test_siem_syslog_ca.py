@@ -714,3 +714,105 @@ def test_run_syslog_tls_ca_test_probe_failure(db_session, tmp_path):
     assert ok is False
     assert "refus de connexion" in msg
     assert any("✗" in line for line in lines)
+
+
+def test_sanitize_logical_name_empty_and_unsafe():
+    assert ca.sanitize_logical_name(None) == ca.ACTIVE_BASENAME
+    assert ca.sanitize_logical_name("") == ca.ACTIVE_BASENAME
+    assert ca.sanitize_logical_name("bad name.pem") == ca.ACTIVE_BASENAME
+    assert ca.sanitize_logical_name("ok.pem") == "ok.pem"
+
+
+def test_normalize_relative_path_rejects_bad_inputs():
+    with pytest.raises(ca.SyslogCaError, match="invalide"):
+        ca.normalize_relative_path("certs/../siem/syslog-collector-ca.pem")
+    with pytest.raises(ca.SyslogCaError, match="invalide"):
+        ca.normalize_relative_path("certs/siem/syslog-collector-ca.crt")
+    with pytest.raises(ca.SyslogCaError, match="invalide"):
+        ca.normalize_relative_path("/abs/certs/siem/syslog-collector-ca.pem")
+
+
+def test_resolve_rejects_wrong_basename(tmp_path):
+    settings = _settings(tmp_path)
+    with pytest.raises(ca.SyslogCaError, match="seul le fichier"):
+        ca.resolve_ca_path(settings, relative_path="certs/siem/other-ca.pem")
+
+
+def test_parse_rejects_non_pem_and_multi_cert():
+    with pytest.raises(ca.SyslogCaError, match="non PEM"):
+        ca.parse_and_validate_ca_pem(b"not-a-certificate")
+    pem, _ = _build_ca(cn="One")
+    pem2, _ = _build_ca(cn="Two")
+    with pytest.raises(ca.SyslogCaError, match="un seul certificat"):
+        ca.parse_and_validate_ca_pem(pem + b"\n" + pem2)
+    with pytest.raises(ca.SyslogCaError, match="invalide"):
+        ca.parse_and_validate_ca_pem(
+            b"-----BEGIN CERTIFICATE-----\nbm90LWEtdmFsaWQtY2VydA==\n-----END CERTIFICATE-----\n"
+        )
+
+
+def test_read_ca_file_info_absent_and_wrong_name(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    with pytest.raises(ca.SyslogCaError, match="absent"):
+        ca.read_ca_file_info(active)
+    staging = active.with_name(ca.STAGING_BASENAME)
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    staging.write_bytes(b"x")
+    with pytest.raises(ca.SyslogCaError, match="réservée"):
+        ca.read_ca_file_info(staging)
+
+
+def test_is_active_ca_valid_false_when_missing(tmp_path):
+    settings = _settings(tmp_path)
+    assert ca.is_active_ca_valid(settings) is False
+
+
+def test_derive_ca_status_badges_expired_invalid_test_required(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    active.parent.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now(timezone.utc)
+    expired = _build_ca_unchecked(
+        cn="Expired CA",
+        not_before=now - timedelta(days=30),
+        not_after=now - timedelta(days=1),
+    )
+    active.write_bytes(expired)
+    st = ca.derive_ca_status(settings)
+    assert st["configured"] is True
+    assert st["valid"] is False
+    assert st["badge"] == "expired"
+
+    active.write_bytes(
+        b"-----BEGIN CERTIFICATE-----\nbm90LWEtdmFsaWQtY2VydA==\n-----END CERTIFICATE-----\n"
+    )
+    st2 = ca.derive_ca_status(settings)
+    assert st2["configured"] is True
+    assert st2["valid"] is False
+    assert st2["badge"] == "invalid"
+
+    pem, _ = _build_ca(cn="Good Badge CA")
+    active.write_bytes(pem)
+    st3 = ca.derive_ca_status(settings, tls_test_ok=False)
+    assert st3["configured"] is True
+    assert st3["valid"] is True
+    assert st3["badge"] == "test_required"
+    st4 = ca.derive_ca_status(settings, tls_test_ok=True)
+    assert st4["badge"] == "valid"
+
+
+def test_derive_ca_status_missing_file(tmp_path):
+    settings = _settings(tmp_path)
+    st = ca.derive_ca_status(settings)
+    assert st["configured"] is False
+    assert st["badge"] == "missing"
+
+
+def test_ca_without_key_usage_extension_still_parses():
+    """CA signed without KeyUsage still validates; SKI/AKI may be absent."""
+    pem = _build_ca_unchecked(cn="Minimal CA", is_ca=True)
+    info = ca.parse_and_validate_ca_pem(pem)
+    assert info.basic_constraints_ca is True
+    assert isinstance(info.key_usage, list)

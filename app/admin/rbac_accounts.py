@@ -155,26 +155,34 @@ def pop_temporary_password_reveal(
         return None
     if int(data.get("exp") or 0) < int(time.time()):
         return None
-    matched = False
-    if account_id is not None and int(data.get("aid") or 0) == int(account_id):
-        matched = True
-    kid = (keycloak_user_id or "").strip()
-    if (
-        not matched
-        and kid
-        and data.get("kid") == kid
-        and (
-            realm_id is None
-            or int(data.get("rid") or 0) == int(realm_id)
-        )
+    if not _reveal_cookie_matches(
+        data,
+        account_id=account_id,
+        keycloak_user_id=keycloak_user_id,
+        realm_id=realm_id,
     ):
-        matched = True
-    if not matched:
         return None
     password = data.get("pw")
     if not isinstance(password, str) or not password:
         return None
     return password
+
+
+def _reveal_cookie_matches(
+    data: dict,
+    *,
+    account_id: int | None,
+    keycloak_user_id: str | None,
+    realm_id: int | None,
+) -> bool:
+    if account_id is not None and int(data.get("aid") or 0) == int(account_id):
+        return True
+    kid = (keycloak_user_id or "").strip()
+    if not kid or data.get("kid") != kid:
+        return False
+    if realm_id is None:
+        return True
+    return int(data.get("rid") or 0) == int(realm_id)
 
 
 def clear_temporary_password_reveal(response: Response) -> None:

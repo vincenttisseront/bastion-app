@@ -98,6 +98,33 @@ async def fetch_container_log_snapshot(
     return "".join(chunks)
 
 
+def _container_logs_precheck(
+    cfg: ContainerLogsConfig,
+    container: str | None,
+    lines: list[str],
+) -> tuple[str | None, str | None]:
+    """Return (error_message, target) — error_message set when the test cannot run."""
+    if not cfg.enabled:
+        lines.append("✗ Logs containers désactivés — cochez et enregistrez.")
+        return "Logs containers désactivés.", None
+    if not (cfg.proxy_url or "").strip():
+        lines.append("✗ URL du proxy Docker manquante.")
+        return "URL du proxy manquante.", None
+
+    allowed = docker_logs_whitelist(cfg)
+    if not allowed:
+        lines.append("✗ Liste blanche vide — ajoutez au moins un conteneur.")
+        return "Liste blanche vide.", None
+
+    if (container or "").strip():
+        try:
+            return None, assert_container_allowed(container or "", cfg)
+        except HTTPException:
+            lines.append(f"✗ Conteneur « {container} » non autorisé.")
+            return "Conteneur non autorisé.", None
+    return None, allowed[0]
+
+
 async def run_container_logs_connectivity_test(
     cfg: ContainerLogsConfig,
     container: str | None = None,
@@ -106,27 +133,9 @@ async def run_container_logs_connectivity_test(
 ) -> tuple[bool, str, list[str]]:
     """Verify proxy reachability and log fetch for a whitelisted container."""
     lines: list[str] = ["$ bastion container-logs connectivity-test"]
-    if not cfg.enabled:
-        lines.append("✗ Logs containers désactivés — cochez et enregistrez.")
-        return False, "Logs containers désactivés.", lines
-    if not (cfg.proxy_url or "").strip():
-        lines.append("✗ URL du proxy Docker manquante.")
-        return False, "URL du proxy manquante.", lines
-
-    allowed = docker_logs_whitelist(cfg)
-    if not allowed:
-        lines.append("✗ Liste blanche vide — ajoutez au moins un conteneur.")
-        return False, "Liste blanche vide.", lines
-
-    target: str | None = None
-    if (container or "").strip():
-        try:
-            target = assert_container_allowed(container or "", cfg)
-        except HTTPException:
-            lines.append(f"✗ Conteneur « {container} » non autorisé.")
-            return False, "Conteneur non autorisé.", lines
-    else:
-        target = allowed[0]
+    err, target = _container_logs_precheck(cfg, container, lines)
+    if err is not None or not target:
+        return False, err or "Précontrôle échoué.", lines
 
     tail = max(1, min(int(preview_tail or 5), 50))
     lines.append(f"→ proxy {cfg.proxy_url}")
