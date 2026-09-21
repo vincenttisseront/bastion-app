@@ -186,6 +186,73 @@ def test_reject_keeps_counting(db_session):
     assert again.hit_count == 2
 
 
+def test_reject_pending_hosts_bulk_skips_non_pending(db_session):
+    from app.bastion.pending_host_service import reject_pending_hosts_bulk
+
+    a = record_unknown_host(db_session, hostname="a.example.fr")
+    b = record_unknown_host(db_session, hostname="b.example.fr")
+    c = record_unknown_host(db_session, hostname="c.example.fr")
+    reject_pending_host(db_session, host_id=c.id, actor="admin@example.fr")
+
+    rejected = reject_pending_hosts_bulk(
+        db_session,
+        host_ids=[a.id, b.id, c.id, a.id, 999999],
+        actor="admin@example.fr",
+    )
+    assert {r.hostname for r in rejected} == {"a.example.fr", "b.example.fr"}
+    assert db_session.query(PendingHost).filter_by(hostname="a.example.fr").one().status == "rejected"
+    assert db_session.query(PendingHost).filter_by(hostname="b.example.fr").one().status == "rejected"
+    assert db_session.query(PendingHost).filter_by(hostname="c.example.fr").one().status == "rejected"
+
+
+def test_admin_bulk_reject_pending_hosts(client, db_session):
+    a = record_unknown_host(db_session, hostname="bulk-a.example.fr")
+    b = record_unknown_host(db_session, hostname="bulk-b.example.fr")
+    keep = record_unknown_host(db_session, hostname="keep.example.fr")
+
+    r = client.post(
+        "/admin/pending-hosts/bulk/reject",
+        data={"host_ids": [str(a.id), str(b.id)]},
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302
+    assert "/admin/pending-hosts?status=rejected" in r.headers.get("location", "")
+    db_session.expire_all()
+    assert db_session.query(PendingHost).filter_by(id=a.id).one().status == "rejected"
+    assert db_session.query(PendingHost).filter_by(id=b.id).one().status == "rejected"
+    assert db_session.query(PendingHost).filter_by(id=keep.id).one().status == "pending"
+
+
+def test_admin_bulk_reject_requires_selection(client, db_session):
+    record_unknown_host(db_session, hostname="lonely.example.fr")
+    r = client.post(
+        "/admin/pending-hosts/bulk/reject",
+        data={},
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302
+    assert "status=pending" in r.headers.get("location", "")
+    assert (
+        db_session.query(PendingHost).filter_by(hostname="lonely.example.fr").one().status
+        == "pending"
+    )
+
+
+def test_admin_pending_hosts_list_shows_bulk_reject(client, db_session):
+    record_unknown_host(db_session, hostname="queue.example.fr")
+    r = client.get(
+        "/admin/pending-hosts?status=pending",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert r.status_code == 200
+    assert 'action="/admin/pending-hosts/bulk/reject"' in r.text
+    assert "Rejeter la sélection" in r.text
+    assert 'name="host_ids"' in r.text
+    assert 'data-bulk-select-page' in r.text
+
+
 def test_internal_unknown_host_requires_token(client):
     r = client.get("/internal/unknown-host", headers={"Host": "teleport.example.fr"})
     assert r.status_code in (401, 403)

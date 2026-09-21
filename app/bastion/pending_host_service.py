@@ -163,6 +163,26 @@ def reject_pending_host(
     return row
 
 
+def reject_pending_hosts_bulk(
+    db: Session,
+    *,
+    host_ids: list[int],
+    actor: str,
+) -> list[PendingHost]:
+    """Reject only pending hosts; skip missing / already decided rows."""
+    rejected: list[PendingHost] = []
+    seen: set[int] = set()
+    for host_id in host_ids:
+        if host_id in seen:
+            continue
+        seen.add(host_id)
+        row = db.query(PendingHost).filter_by(id=host_id).first()
+        if row is None or row.status != "pending":
+            continue
+        rejected.append(reject_pending_host(db, host_id=host_id, actor=actor))
+    return rejected
+
+
 def approve_pending_host(
     db: Session,
     settings: Settings,
