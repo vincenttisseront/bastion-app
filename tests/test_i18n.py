@@ -67,8 +67,22 @@ def test_t_english_common_chrome() -> None:
     assert t("applicatives", "en") == "applications"
 
 
-def test_t_missing_key_falls_back_to_msgid() -> None:
-    assert t("___missing_key_xyz___", "en") == "___missing_key_xyz___"
+def test_english_catalog_covers_admin_chrome() -> None:
+    """High-traffic admin chrome must have EN entries (no FR fallback)."""
+    samples = {
+        "Sécurité": "Security",
+        "Santé": "Health",
+        "Fichiers": "Files",
+        "Domaines": "Domains",
+        "Alertes": "Alerts",
+        "Configuration WAF": "WAF configuration",
+        "Aucun changement en attente": "No pending changes",
+        "Sélectionnez au moins un domaine à rejeter.": "Select at least one domain to reject.",
+        "{n} domaines rejetés.": "{n} domains rejected.",
+    }
+    for fr, en in samples.items():
+        assert t(fr, "en") == en, fr
+
 
 
 def test_t_format_kwargs() -> None:
