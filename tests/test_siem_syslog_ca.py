@@ -1,0 +1,566 @@
+"""Syslog TLS CA validation, atomic store, and worker safety invariants."""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+
+from app.siem import syslog_ca as ca
+from app.sso_settings import Settings, get_settings
+
+
+def _settings(tmp_path: Path) -> Settings:
+    get_settings.cache_clear()
+    return Settings(
+        portal_domain="portal.example.com",
+        sso_portal_default_realm_slug="default",
+        exports_dir=str(tmp_path / "exports"),
+        portal_data_dir=str(tmp_path / "data"),
+        vault_portal_internal_token="test-secret",
+    )  # type: ignore[call-arg]
+
+
+def _build_ca(
+    *,
+    cn: str = "Example Syslog CA",
+    days_valid: int = 365,
+    days_ago_start: int = 1,
+    is_ca: bool = True,
+) -> tuple[bytes, str]:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    now = datetime.now(timezone.utc)
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=days_ago_start))
+        .not_valid_after(now + timedelta(days=days_valid))
+        .add_extension(
+            x509.BasicConstraints(ca=is_ca, path_length=None),
+            critical=True,
+        )
+    )
+    if is_ca:
+        builder = builder.add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
+    cert = builder.sign(key, hashes.SHA256())
+    pem = cert.public_bytes(serialization.Encoding.PEM)
+    fp = ca.parse_and_validate_ca_pem(pem).fingerprint_sha256 if is_ca and days_valid > 0 and days_ago_start >= 0 else ""
+    if is_ca and days_valid > 0 and days_ago_start >= 0:
+        # not yet valid case uses days_ago_start negative via caller
+        pass
+    try:
+        info = ca.parse_and_validate_ca_pem(pem)
+        fp = info.fingerprint_sha256
+    except ca.SyslogCaError:
+        fp = ""
+    return pem, fp
+
+
+def _build_ca_unchecked(
+    *,
+    cn: str = "Example Syslog CA",
+    not_before: datetime | None = None,
+    not_after: datetime | None = None,
+    is_ca: bool = True,
+) -> bytes:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    now = datetime.now(timezone.utc)
+    nb = not_before or (now - timedelta(days=1))
+    na = not_after or (now + timedelta(days=365))
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(nb)
+        .not_valid_after(na)
+        .add_extension(
+            x509.BasicConstraints(ca=is_ca, path_length=None),
+            critical=True,
+        )
+    )
+    cert = builder.sign(key, hashes.SHA256())
+    return cert.public_bytes(serialization.Encoding.PEM)
+
+
+def _private_key_pem() -> bytes:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+
+
+def test_parse_valid_ca_extracts_subject_issuer_fingerprint():
+    pem, _ = _build_ca(cn="Example Syslog CA")
+    info = ca.parse_and_validate_ca_pem(pem)
+    assert "CN=Example Syslog CA" in info.subject
+    assert "CN=Example Syslog CA" in info.issuer
+    assert info.basic_constraints_ca is True
+    assert len(info.fingerprint_sha256.replace(":", "")) == 64
+    assert b"BEGIN CERTIFICATE" in info.pem_bytes
+
+
+def test_reject_empty_file():
+    with pytest.raises(ca.SyslogCaError, match="vide"):
+        ca.parse_and_validate_ca_pem(b"")
+
+
+def test_reject_private_key():
+    with pytest.raises(ca.SyslogCaError, match="clé privée"):
+        ca.parse_and_validate_ca_pem(_private_key_pem())
+
+
+def test_reject_bundle_with_private_key():
+    pem, _ = _build_ca()
+    blob = pem + b"\n" + _private_key_pem()
+    with pytest.raises(ca.SyslogCaError, match="clé privée"):
+        ca.parse_and_validate_ca_pem(blob)
+
+
+def test_reject_non_ca_certificate():
+    pem = _build_ca_unchecked(cn="Leaf Host", is_ca=False)
+    with pytest.raises(ca.SyslogCaError, match="non-CA"):
+        ca.parse_and_validate_ca_pem(pem)
+
+
+def test_reject_expired_ca():
+    now = datetime.now(timezone.utc)
+    pem = _build_ca_unchecked(
+        not_before=now - timedelta(days=30),
+        not_after=now - timedelta(days=1),
+    )
+    with pytest.raises(ca.SyslogCaError, match="expiré"):
+        ca.parse_and_validate_ca_pem(pem)
+
+
+def test_reject_not_yet_valid_ca():
+    now = datetime.now(timezone.utc)
+    pem = _build_ca_unchecked(
+        not_before=now + timedelta(days=1),
+        not_after=now + timedelta(days=30),
+    )
+    with pytest.raises(ca.SyslogCaError, match="pas encore valide"):
+        ca.parse_and_validate_ca_pem(pem)
+
+
+def test_reject_oversized():
+    with pytest.raises(ca.SyslogCaError, match="volumineux"):
+        ca.parse_and_validate_ca_pem(b"X" * (ca.MAX_CA_BYTES + 1))
+
+
+def test_path_traversal_rejected(tmp_path):
+    settings = _settings(tmp_path)
+    with pytest.raises(ca.SyslogCaError):
+        ca.resolve_ca_path(settings, relative_path="../etc/passwd.pem")
+    with pytest.raises(ca.SyslogCaError):
+        ca.normalize_relative_path("/abs/certs/siem/syslog-collector-ca.pem")
+
+
+def test_resolve_uses_portal_data_dir_only(tmp_path):
+    settings = _settings(tmp_path)
+    path = ca.resolve_ca_path(settings, relative_path=ca.DEFAULT_RELATIVE_PATH)
+    assert path == (tmp_path / "data" / ca.DEFAULT_RELATIVE_PATH).resolve()
+    assert path.name == ca.ACTIVE_BASENAME
+
+
+def test_atomic_commit_and_fingerprint(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    pem, fp = _build_ca(cn="Example Syslog CA")
+    ca.write_staging_ca(active, pem)
+    assert ca.staging_path_for(active).is_file()
+    assert not active.is_file()
+    ca.commit_staging_to_active(active, expected_fingerprint=fp)
+    assert active.is_file()
+    assert not ca.staging_path_for(active).is_file()
+    info = ca.read_ca_file_info(active)
+    assert info.fingerprint_sha256 == fp
+
+
+def test_worker_must_not_read_staging(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    pem, _ = _build_ca()
+    staging = ca.write_staging_ca(active, pem)
+    with pytest.raises(ca.SyslogCaError, match="actif"):
+        ca.read_ca_file_info(staging)
+
+
+def test_invalid_ca_never_replaces_active(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    good_pem, good_fp = _build_ca(cn="Good CA")
+    ca.write_staging_ca(active, good_pem)
+    ca.commit_staging_to_active(active, expected_fingerprint=good_fp)
+
+    bad = _build_ca_unchecked(cn="Leaf", is_ca=False)
+    with pytest.raises(ca.SyslogCaError, match="non-CA"):
+        ca.parse_and_validate_ca_pem(bad)
+
+    # Bypass validation and attempt commit of invalid staging — must restore good CA.
+    ca.write_staging_ca(active, bad)
+    with pytest.raises(ca.SyslogCaError):
+        ca.commit_staging_to_active(
+            active, expected_fingerprint="00:" * 31 + "00"
+        )
+    assert ca.read_ca_file_info(active).fingerprint_sha256 == good_fp
+
+
+def test_probe_failure_discards_staging_keeps_active(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    good_pem, good_fp = _build_ca(cn="Good CA")
+    ca.write_staging_ca(active, good_pem)
+    ca.commit_staging_to_active(active, expected_fingerprint=good_fp)
+
+    new_pem, new_fp = _build_ca(cn="Other CA")
+    staging = ca.write_staging_ca(active, new_pem)
+
+    def boom():
+        raise TimeoutError("timeout")
+
+    with pytest.raises(ca.SyslogCaError, match="délai"):
+        ca.probe_tls_handshake(
+            host="10.0.0.10",
+            port=6514,
+            cafile=staging,
+            sock_factory=boom,
+        )
+    ca.discard_staging(active)
+    assert ca.read_ca_file_info(active).fingerprint_sha256 == good_fp
+    assert not staging.is_file()
+
+
+def test_rollback_after_failed_fingerprint(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    good_pem, good_fp = _build_ca(cn="Good CA")
+    ca.write_staging_ca(active, good_pem)
+    ca.commit_staging_to_active(active, expected_fingerprint=good_fp)
+
+    other_pem, _ = _build_ca(cn="Other CA")
+    ca.write_staging_ca(active, other_pem)
+    with pytest.raises(ca.SyslogCaError, match="empreinte"):
+        ca.commit_staging_to_active(active, expected_fingerprint="00:" * 31 + "00")
+    assert ca.read_ca_file_info(active).fingerprint_sha256 == good_fp
+
+
+def test_audit_details_never_include_pem():
+    pem, _ = _build_ca()
+    info = ca.parse_and_validate_ca_pem(pem)
+    details = ca.audit_safe_ca_details(info, result="ok", pem=pem.decode())
+    assert "pem" not in details
+    assert "BEGIN CERTIFICATE" not in str(details)
+    assert details["destination"] == "syslog_tls"
+    assert details["subject"]
+
+
+def test_derive_status_from_file_not_db_flag(tmp_path):
+    settings = _settings(tmp_path)
+    st = ca.derive_ca_status(settings, relative_path=ca.DEFAULT_RELATIVE_PATH)
+    assert st["configured"] is False
+    assert st["badge"] == "missing"
+
+    pem, _ = _build_ca()
+    active = ca.resolve_ca_path(settings)
+    ca.write_staging_ca(active, pem)
+    info = ca.parse_and_validate_ca_pem(pem)
+    ca.commit_staging_to_active(active, expected_fingerprint=info.fingerprint_sha256)
+    st2 = ca.derive_ca_status(settings, relative_path=ca.DEFAULT_RELATIVE_PATH)
+    assert st2["configured"] is True
+    assert st2["valid"] is True
+    assert "CN=Example Syslog CA" in st2["subject"]
+
+
+def test_ssl_context_rejects_unknown_basename(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    pem, _ = _build_ca()
+    weird = active.parent / "evil.pem"
+    weird.parent.mkdir(parents=True, exist_ok=True)
+    weird.write_bytes(pem)
+    with pytest.raises(ca.SyslogCaError, match="non autorisé"):
+        ca.build_ssl_context_for_cafile(weird)
+
+
+def test_two_idempotent_commits(tmp_path):
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    pem, fp = _build_ca()
+    for _ in range(2):
+        ca.write_staging_ca(active, pem)
+        ca.commit_staging_to_active(active, expected_fingerprint=fp)
+    assert ca.read_ca_file_info(active).fingerprint_sha256 == fp
+
+
+def test_transport_never_uses_staging_path(tmp_path, monkeypatch):
+    """Worker resolve path must be ACTIVE basename only."""
+    from app.siem.settings_service import SiemForwardingConfig
+    from app.siem.transport import SiemDeliveryError, deliver_syslog_tls
+
+    settings = _settings(tmp_path)
+    active = ca.resolve_ca_path(settings)
+    pem, fp = _build_ca()
+    ca.write_staging_ca(active, pem)
+    # Leave only staging — no active file.
+    assert not active.is_file()
+
+    config = SiemForwardingConfig(
+        enabled=True,
+        protocol="syslog_tls",
+        syslog_host="10.0.0.10",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="",
+        webhook_auth_type="none",
+        webhook_auth_configured=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        last_success_at=None,
+        syslog_ca_relative_path=ca.DEFAULT_RELATIVE_PATH,
+        syslog_ca_valid=False,
+    )
+    with pytest.raises(SiemDeliveryError):
+        deliver_syslog_tls(
+            {"action": "siem.connectivity.test", "id": 1},
+            config,
+            settings=settings,
+            sock_factory=lambda: MagicMock(),
+        )
+
+
+def test_install_probe_fail_keeps_previous_ca(db_session, tmp_path):
+    from app.siem.ca_service import install_syslog_ca
+    from app.siem.settings_service import get_siem_config, update_siem_settings
+
+    settings = _settings(tmp_path)
+    update_siem_settings(
+        db_session,
+        settings,
+        enabled=True,
+        protocol="syslog_tls",
+        syslog_host="10.0.0.10",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="",
+        webhook_auth_type="none",
+        webhook_auth_secret=None,
+        clear_webhook_secret=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        actor="admin@example.com",
+    )
+    good, _ = _build_ca(cn="Good CA")
+    install_syslog_ca(
+        db_session,
+        settings,
+        raw=good,
+        filename="good.pem",
+        actor="admin@example.com",
+        skip_tls_probe=True,
+    )
+    active = ca.resolve_ca_path(settings)
+    good_fp = ca.read_ca_file_info(active).fingerprint_sha256
+    other, _ = _build_ca(cn="Other CA")
+
+    def fail_probe(**kwargs):
+        raise ca.SyslogCaError("délai dépassé")
+
+    with pytest.raises(ca.SyslogCaError, match="délai"):
+        install_syslog_ca(
+            db_session,
+            settings,
+            raw=other,
+            filename="other.pem",
+            actor="admin@example.com",
+            probe_fn=fail_probe,
+        )
+    assert ca.read_ca_file_info(active).fingerprint_sha256 == good_fp
+    assert not ca.staging_path_for(active).is_file()
+    cfg = get_siem_config(db_session, settings=settings)
+    assert cfg.syslog_ca_valid is True
+    assert cfg.syslog_tls_verify is True
+
+
+def test_db_update_failure_restores_previous_file(db_session, tmp_path, monkeypatch):
+    from app.siem.ca_service import install_syslog_ca
+    from app.siem.settings_service import get_siem_config, update_siem_settings
+
+    settings = _settings(tmp_path)
+    update_siem_settings(
+        db_session,
+        settings,
+        enabled=True,
+        protocol="syslog_tls",
+        syslog_host="10.0.0.10",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="",
+        webhook_auth_type="none",
+        webhook_auth_secret=None,
+        clear_webhook_secret=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        actor="admin@example.com",
+    )
+    good, _ = _build_ca(cn="Good CA")
+    install_syslog_ca(
+        db_session,
+        settings,
+        raw=good,
+        filename="good.pem",
+        actor="admin@example.com",
+        skip_tls_probe=True,
+    )
+    active = ca.resolve_ca_path(settings)
+    good_fp = ca.read_ca_file_info(active).fingerprint_sha256
+    other, _ = _build_ca(cn="Other CA")
+
+    real_commit = db_session.commit
+    state = {"fail_next_ca_meta": False}
+
+    def selective_commit():
+        if state["fail_next_ca_meta"]:
+            state["fail_next_ca_meta"] = False
+            raise RuntimeError("db boom")
+        return real_commit()
+
+    monkeypatch.setattr(db_session, "commit", selective_commit)
+    state["fail_next_ca_meta"] = True
+    with pytest.raises(ca.SyslogCaError, match="mise à jour"):
+        install_syslog_ca(
+            db_session,
+            settings,
+            raw=other,
+            filename="other.pem",
+            actor="admin@example.com",
+            skip_tls_probe=True,
+        )
+    monkeypatch.setattr(db_session, "commit", real_commit)
+    assert ca.read_ca_file_info(active).fingerprint_sha256 == good_fp
+    cfg = get_siem_config(db_session, settings=settings)
+    assert cfg.syslog_ca_valid is True
+    assert cfg.syslog_tls_verify is True
+    assert cfg.active is True
+
+
+def test_worker_config_inactive_without_ca(db_session, tmp_path):
+    from app.siem.settings_service import get_siem_config, update_siem_settings
+
+    settings = _settings(tmp_path)
+    update_siem_settings(
+        db_session,
+        settings,
+        enabled=True,
+        protocol="syslog_tls",
+        syslog_host="10.0.0.10",
+        syslog_port=6514,
+        syslog_tls_verify=False,
+        webhook_url="",
+        webhook_auth_type="none",
+        webhook_auth_secret=None,
+        clear_webhook_secret=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        actor="admin@example.com",
+    )
+    cfg = get_siem_config(db_session, settings=settings)
+    assert cfg.syslog_tls_verify is True
+    assert cfg.syslog_ca_valid is False
+    assert cfg.active is False
+
+
+def test_api_ca_get_requires_admin(client):
+    r = client.get("/api/admin/siem/syslog-tls/ca")
+    assert r.status_code in (401, 403, 302)
+
+
+def test_api_ca_upload_with_skip_probe(client, db_session, tmp_path, monkeypatch):
+    from app.main import app
+    from app.siem.settings_service import update_siem_settings
+    from app.sso_settings import get_settings as gs
+
+    settings = _settings(tmp_path)
+    app.dependency_overrides[gs] = lambda: settings
+    try:
+        update_siem_settings(
+            db_session,
+            settings,
+            enabled=True,
+            protocol="syslog_tls",
+            syslog_host="10.0.0.10",
+            syslog_port=6514,
+            syslog_tls_verify=True,
+            webhook_url="",
+            webhook_auth_type="none",
+            webhook_auth_secret=None,
+            clear_webhook_secret=False,
+            filter_mode="denylist",
+            filter_actions=[],
+            retry_max_queue_size=100,
+            retry_max_age_minutes=60,
+            actor="admin@example.com",
+        )
+
+        def _install(db, settings, **kw):
+            from app.siem.ca_service import install_syslog_ca as real
+
+            kw["skip_tls_probe"] = True
+            return real(db, settings, **kw)
+
+        monkeypatch.setattr("app.web.admin_siem_ca.install_syslog_ca", _install)
+        headers = {"X-Email": "admin@example.com", "X-Groups": "portal-admins"}
+        pem, _ = _build_ca()
+        up = client.post(
+            "/api/admin/siem/syslog-tls/ca",
+            headers=headers,
+            files={"file": ("ca.pem", pem, "application/x-pem-file")},
+        )
+        assert up.status_code == 200, up.text
+        body = up.json()
+        assert body["configured"] is True
+        assert "BEGIN CERTIFICATE" not in str(body)
+        assert body.get("fingerprint_sha256")
+        page = client.get("/admin/configuration", headers=headers)
+        assert page.status_code == 200
+        assert "Autorité de certification TLS Syslog" in page.text
+        assert 'id="siem-ca-section"' in page.text
+        assert 'id="siem-ca-tls-test-btn"' in page.text
+        assert 'id="siem-test-btn"' in page.text
+    finally:
+        app.dependency_overrides.pop(gs, None)

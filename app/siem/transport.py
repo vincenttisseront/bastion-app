@@ -13,6 +13,7 @@ import httpx
 
 from app.siem.formatters import format_cef, format_ecs_json
 from app.siem.settings_service import SiemForwardingConfig
+from app.sso_settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,24 +32,51 @@ def _rfc5424_message(cef_body: str, *, hostname: str = "bastion") -> bytes:
     return msg.encode("utf-8")
 
 
+def _resolve_active_cafile(
+    config: SiemForwardingConfig,
+    settings: Settings | None,
+) -> str:
+    """Return absolute cafile path for the active CA only (never staging)."""
+    from app.siem import syslog_ca as ca
+
+    if not config.syslog_tls_verify:
+        raise SiemDeliveryError(
+            "syslog TLS verification is required — tls_verify cannot be disabled"
+        )
+    rel = (config.syslog_ca_relative_path or "").strip()
+    if not rel or not config.syslog_ca_valid:
+        raise SiemDeliveryError(
+            "syslog TLS CA missing or invalid — import a collector CA before forwarding"
+        )
+    try:
+        path = ca.resolve_ca_path(settings or get_settings(), relative_path=rel)
+    except ca.SyslogCaError as exc:
+        raise SiemDeliveryError(str(exc)) from exc
+    if path.name != ca.ACTIVE_BASENAME:
+        raise SiemDeliveryError("syslog TLS CA path refused")
+    if not path.is_file():
+        raise SiemDeliveryError("syslog TLS CA file absent")
+    return str(path)
+
+
 def deliver_syslog_tls(
     entry: dict[str, Any],
     config: SiemForwardingConfig,
     *,
     sock_factory=None,
+    settings: Settings | None = None,
 ) -> None:
     host = config.syslog_host
     port = config.syslog_port
     if not host:
         raise SiemDeliveryError("syslog_host empty")
-    if not config.syslog_tls_verify:
-        raise SiemDeliveryError(
-            "syslog TLS verification is required — trust the collector CA on the host "
-            "(syslog_tls_verify cannot be disabled)"
-        )
+    cafile = _resolve_active_cafile(config, settings)
     body = format_cef(entry)
     payload = _rfc5424_message(body)
-    ctx = ssl.create_default_context()
+    try:
+        ctx = ssl.create_default_context(cafile=cafile)
+    except OSError as exc:
+        raise SiemDeliveryError(f"syslog TLS CA unreadable: {exc}") from exc
 
     def _connect():
         raw = socket.create_connection((host, port), timeout=15)
@@ -109,9 +137,12 @@ def deliver_entry(
     secret: str | None = None,
     sock_factory=None,
     http_client: httpx.Client | None = None,
+    settings: Settings | None = None,
 ) -> None:
     if config.protocol == "syslog_tls":
-        deliver_syslog_tls(entry, config, sock_factory=sock_factory)
+        deliver_syslog_tls(
+            entry, config, sock_factory=sock_factory, settings=settings
+        )
     elif config.protocol == "webhook_https":
         deliver_webhook_https(entry, config, secret=secret, client=http_client)
     else:

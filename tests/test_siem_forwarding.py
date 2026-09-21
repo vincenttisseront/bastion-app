@@ -343,8 +343,45 @@ def test_webhook_delivery_mock(httpx_mock=None):
         )
 
 
-def test_syslog_tls_delivery_mock():
+def test_syslog_tls_delivery_mock(tmp_path, monkeypatch):
+    from app.siem import syslog_ca as ca
     from app.siem.settings_service import SiemForwardingConfig
+    from app.sso_settings import Settings, get_settings
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+    from datetime import datetime, timedelta, timezone
+
+    get_settings.cache_clear()
+    settings = Settings(
+        portal_domain="portal.example.com",
+        sso_portal_default_realm_slug="default",
+        exports_dir=str(tmp_path / "exports"),
+        portal_data_dir=str(tmp_path / "data"),
+        vault_portal_internal_token="test-secret",
+    )  # type: ignore[call-arg]
+    monkeypatch.setattr("app.siem.transport.get_settings", lambda: settings)
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.now(timezone.utc)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Example Syslog CA")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    pem = cert.public_bytes(serialization.Encoding.PEM)
+    active = ca.resolve_ca_path(settings)
+    info = ca.parse_and_validate_ca_pem(pem)
+    ca.write_staging_ca(active, info.pem_bytes)
+    ca.commit_staging_to_active(active, expected_fingerprint=info.fingerprint_sha256)
 
     config = SiemForwardingConfig(
         enabled=True,
@@ -360,6 +397,8 @@ def test_syslog_tls_delivery_mock():
         retry_max_queue_size=100,
         retry_max_age_minutes=60,
         last_success_at=None,
+        syslog_ca_relative_path=ca.DEFAULT_RELATIVE_PATH,
+        syslog_ca_valid=True,
     )
     sent = []
 
@@ -373,7 +412,12 @@ def test_syslog_tls_delivery_mock():
         def __exit__(self, *a):
             return False
 
-    deliver_entry(_sample_entry(), config, sock_factory=lambda: FakeSock())
+    deliver_entry(
+        _sample_entry(),
+        config,
+        sock_factory=lambda: FakeSock(),
+        settings=settings,
+    )
     assert sent
     raw = sent[0].decode("utf-8")
     assert "CEF:0|" in raw
@@ -400,9 +444,11 @@ def test_syslog_tls_rejects_verify_disabled():
         retry_max_queue_size=100,
         retry_max_age_minutes=60,
         last_success_at=None,
+        syslog_ca_relative_path=None,
+        syslog_ca_valid=False,
     )
     entry = _sample_entry()
-    with pytest.raises(SiemDeliveryError, match="verification is required"):
+    with pytest.raises(SiemDeliveryError, match="verification is required|tls_verify"):
         deliver_syslog_tls(entry, config, sock_factory=lambda: None)
 
 

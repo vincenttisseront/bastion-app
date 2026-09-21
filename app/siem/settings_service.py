@@ -34,13 +34,18 @@ class SiemForwardingConfig:
     retry_max_queue_size: int
     retry_max_age_minutes: int
     last_success_at: datetime | None
+    syslog_ca_relative_path: str | None = None
+    syslog_ca_valid: bool = False
 
     @property
     def active(self) -> bool:
         if not self.enabled:
             return False
         if self.protocol == "syslog_tls":
-            return bool(self.syslog_host.strip())
+            # tls_verify=false is never effective; CA file must be valid.
+            if not self.syslog_tls_verify:
+                return False
+            return bool(self.syslog_host.strip()) and self.syslog_ca_valid
         if self.protocol == "webhook_https":
             return self.webhook_url.startswith("https://")
         return False
@@ -71,15 +76,29 @@ def ensure_siem_settings(db: Session) -> SiemForwardingSettings:
     return row
 
 
-def get_siem_config(db: Session) -> SiemForwardingConfig:
+def get_siem_config(
+    db: Session, settings: Settings | None = None
+) -> SiemForwardingConfig:
+    from app.siem import syslog_ca as ca
+    from app.sso_settings import get_settings as _get_settings
+
     row = ensure_siem_settings(db)
     actions = row.filter_actions if isinstance(row.filter_actions, list) else []
+    rel = (getattr(row, "syslog_ca_relative_path", None) or "").strip() or None
+    resolved_settings = settings or _get_settings()
+    # Derive validity from the active file — never trust a DB boolean alone.
+    ca_valid = bool(rel) and ca.is_active_ca_valid(
+        resolved_settings, relative_path=rel
+    )
+    protocol = (row.protocol or "webhook_https").strip()
+    # tls_verify=false is never effective for Syslog TCP+TLS.
+    tls_verify = True if protocol == "syslog_tls" else bool(row.syslog_tls_verify)
     return SiemForwardingConfig(
         enabled=bool(row.enabled),
-        protocol=(row.protocol or "webhook_https").strip(),
+        protocol=protocol,
         syslog_host=(row.syslog_host or "").strip(),
         syslog_port=int(row.syslog_port or 6514),
-        syslog_tls_verify=bool(row.syslog_tls_verify),
+        syslog_tls_verify=tls_verify,
         webhook_url=(row.webhook_url or "").strip(),
         webhook_auth_type=(row.webhook_auth_type or "none").strip(),
         webhook_auth_configured=bool((row.webhook_auth_secret_encrypted or "").strip()),
@@ -88,6 +107,8 @@ def get_siem_config(db: Session) -> SiemForwardingConfig:
         retry_max_queue_size=max(1, min(int(row.retry_max_queue_size or 5000), 100_000)),
         retry_max_age_minutes=max(1, min(int(row.retry_max_age_minutes or 1440), 60 * 24 * 30)),
         last_success_at=row.last_success_at,
+        syslog_ca_relative_path=rel,
+        syslog_ca_valid=ca_valid,
     )
 
 
@@ -251,7 +272,11 @@ def update_siem_settings(
     row.protocol = proto
     row.syslog_host = (syslog_host or "").strip()
     row.syslog_port = max(1, min(int(syslog_port or 6514), 65535))
-    row.syslog_tls_verify = bool(syslog_tls_verify)
+    # Never persist tls_verify=false for Syslog TCP+TLS.
+    if proto == "syslog_tls":
+        row.syslog_tls_verify = True
+    else:
+        row.syslog_tls_verify = bool(syslog_tls_verify)
     row.webhook_url = url
     row.webhook_auth_type = auth
     row.filter_mode = mode
@@ -311,6 +336,10 @@ def _siem_settings_audit_details(row: SiemForwardingSettings) -> dict[str, Any]:
         "syslog_host": row.syslog_host,
         "syslog_port": row.syslog_port,
         "syslog_tls_verify": row.syslog_tls_verify,
+        "syslog_ca_relative_path": getattr(row, "syslog_ca_relative_path", None),
+        "syslog_ca_fingerprint_sha256": getattr(
+            row, "syslog_ca_fingerprint_sha256", None
+        ),
         "webhook_url": row.webhook_url,
         "webhook_auth_type": row.webhook_auth_type,
         "webhook_auth_configured": bool(row.webhook_auth_secret_encrypted),
