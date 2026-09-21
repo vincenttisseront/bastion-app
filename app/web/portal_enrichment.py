@@ -150,12 +150,15 @@ def build_apps_sections(
     return sections
 
 
-def _fmt_relative(dt: datetime | None) -> str:
+def _fmt_relative(dt: datetime | None, *, locale: str | None = None) -> str:
     if dt is None:
         return "—"
     try:
+        from app.i18n.catalog import t
+        from app.i18n.resolve import DEFAULT_LOCALE
         from app.models import utcnow
 
+        loc = locale or DEFAULT_LOCALE
         now = utcnow()
         if dt.tzinfo is None and now.tzinfo is not None:
             from datetime import timezone
@@ -164,12 +167,12 @@ def _fmt_relative(dt: datetime | None) -> str:
         delta = now - dt
         secs = int(delta.total_seconds())
         if secs < 60:
-            return "à l'instant"
+            return t("à l'instant", loc)
         if secs < 3600:
-            return f"il y a {secs // 60} min"
+            return t("il y a {m} min", loc, m=secs // 60)
         if secs < 86400:
-            return f"il y a {secs // 3600} h"
-        return f"il y a {secs // 86400} j"
+            return t("il y a {h} h", loc, h=secs // 3600)
+        return t("il y a {d} j", loc, d=secs // 86400)
     except Exception:
         return dt.isoformat() if hasattr(dt, "isoformat") else "—"
 
@@ -180,6 +183,7 @@ def recent_sessions_for_user(
     *,
     apps_by_slug: dict[str, dict[str, Any]] | None = None,
     limit: int = 8,
+    locale: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Recent app sessions for the portal sidebar.
@@ -212,7 +216,7 @@ def recent_sessions_for_user(
                 "slug": slug,
                 "label": label,
                 "protocol": (row.protocol or "WEB").upper(),
-                "last_seen_label": _fmt_relative(row.last_seen_at),
+                "last_seen_label": _fmt_relative(row.last_seen_at, locale=locale),
                 "launch_url": tile.get("launch_url") if tile else None,
                 "can_launch": bool(tile and tile.get("can_launch")),
                 "app_id": tile.get("id") if tile else None,
@@ -246,7 +250,7 @@ def recent_sessions_for_user(
                     "slug": slug,
                     "label": tile.get("label") if tile else slug,
                     "protocol": "WEB",
-                    "last_seen_label": _fmt_relative(entry.created_at),
+                    "last_seen_label": _fmt_relative(entry.created_at, locale=locale),
                     "launch_url": tile.get("launch_url") if tile else None,
                     "can_launch": bool(tile and tile.get("can_launch")),
                     "app_id": tile.get("id") if tile else None,

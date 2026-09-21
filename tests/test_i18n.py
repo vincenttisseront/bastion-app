@@ -230,3 +230,84 @@ def test_error_page_english(client) -> None:
     r = client.get("/this-page-does-not-exist-xyz")
     assert r.status_code == 404
     assert "Page not found" in r.text or "not found" in r.text.lower()
+
+
+def test_login_english_chrome(client) -> None:
+    """Login page chrome follows portal_locale=en (branding DB values stay as configured)."""
+    client.cookies.set("portal_locale", "en")
+    r = client.get("/auth/login")
+    assert r.status_code == 200
+    vis = _visible_html(r.text)
+    assert 'lang="en"' in r.text
+    assert "Sign in via SSO / Unique ID" in vis or "or" in vis
+    # Hardcoded FR chrome must not remain when EN catalog applies.
+    assert "Se connecter via SSO / Identifiant Unique" not in vis
+    assert "Pas encore de compte ?" not in vis
+
+
+def test_sessions_english_chrome(client) -> None:
+    client.cookies.set("portal_locale", "en")
+    r = client.get(
+        "/sessions",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert r.status_code == 200
+    vis = _visible_html(r.text)
+    assert "connection(s)" in vis or "Active sessions" in vis or "Sessions" in vis
+    assert "All" in vis
+    assert "Users" in vis
+    assert "Toutes" not in vis
+    assert "connexion(s)" not in vis
+
+
+def test_branding_english_chrome(client) -> None:
+    client.cookies.set("portal_locale", "en")
+    r = client.get(
+        "/admin/branding",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert r.status_code == 200
+    vis = _visible_html(r.text)
+    assert "Portal branding" in vis
+    assert "Company / portal name" in vis
+    assert "Primary" in vis
+    assert "Branding portail" not in vis
+    assert "Nom de la société / portail" not in vis
+    assert "Principale" not in vis
+
+
+def test_configuration_smtp_english_chrome(client) -> None:
+    client.cookies.set("portal_locale", "en")
+    r = client.get(
+        "/admin/configuration",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert r.status_code == 200
+    vis = _visible_html(r.text)
+    assert "Outbound SMTP" in vis
+    assert "Test connection" in vis or "Tester la connexion" not in vis
+    assert "General" in vis
+    assert "SMTP sortant" not in vis
+
+
+def test_setup_wizard_english_chrome(client) -> None:
+    client.cookies.set("portal_locale", "en")
+    r = client.get(
+        "/admin/setup-wizard",
+        headers={"X-Email": "admin@example.com", "X-Groups": "portal-admins"},
+    )
+    assert r.status_code == 200
+    vis = _visible_html(r.text)
+    assert "Local admin account" in vis or "Portal identity" in vis
+    assert "Compte admin local" not in vis
+
+
+def test_relative_ago_english() -> None:
+    from datetime import timedelta
+
+    from app.models import utcnow
+    from app.web.sessions_service import _relative_ago
+
+    assert _relative_ago(utcnow(), locale="en") == "0s ago"
+    assert _relative_ago(utcnow() - timedelta(minutes=5), locale="en") == "5 min ago"
+    assert "il y a" in _relative_ago(utcnow(), locale="fr")

@@ -38,13 +38,13 @@
   {% else %}
   <div class="session-kind-tabs" role="tablist">
     <a href="/sessions" class="session-kind-tab{% if session_kind == 'all' or not session_kind %} is-active{% endif %}" data-kind="all">
-      Toutes <span class="session-kind-count">{{ session_counts.all | default(sessions | length) }}</span>
+      {{ _('Toutes') }} <span class="session-kind-count">{{ session_counts.all | default(sessions | length) }}</span>
     </a>
     <a href="/sessions?kind=user" class="session-kind-tab{% if session_kind == 'user' %} is-active{% endif %}" data-kind="user">
-      Utilisateurs <span class="session-kind-count">{{ session_counts.user | default(0) }}</span>
+      {{ _('Utilisateurs') }} <span class="session-kind-count">{{ session_counts.user | default(0) }}</span>
     </a>
     <a href="/sessions?kind=app" class="session-kind-tab{% if session_kind == 'app' %} is-active{% endif %}" data-kind="app">
-      Applications <span class="session-kind-count">{{ session_counts.app | default(0) }}</span>
+      {{ _('Applications') }} <span class="session-kind-count">{{ session_counts.app | default(0) }}</span>
     </a>
   </div>
 
@@ -99,7 +99,7 @@
           <p class="sessions-detail-sub mono">{{ first.user_email }} · {{ first.realm }}</p>
         </div>
         <div class="session-actions-group">
-          <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} session(s)</span>
+          <span class="badge badge-{{ 'ok' if first.status == 'active' else 'warn' }}">{{ first.session_count }} {{ _('session(s)') }}</span>
           {% if is_admin and first.show_disconnect %}
           <button type="button" class="btn btn-danger btn-sm"
                   title="{{ _('Révoque sessions robotic/vault + session native portail + logout Keycloak. Hors break-glass. Cookie oauth2-proxy résiduel ~1h possible.') }}"
