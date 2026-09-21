@@ -103,7 +103,7 @@ from app.web.app_logos import (
     save_app_logo,
 )
 from app.web.constants import APP_VERSION
-from app.web.flash import base_template_context, flash_redirect, verify_csrf_token
+from app.web.flash import base_template_context, flash_i18n, flash_redirect, verify_csrf_token
 from app.web.metrics_service import get_dashboard_metrics
 from app.web.sessions_service import (
     build_session_groups,
@@ -1735,6 +1735,7 @@ def admin_pending_hosts_list(
 
 @admin_router.post("/admin/pending-hosts/bulk/reject")
 def admin_pending_hosts_bulk_reject_post(
+    request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -1744,7 +1745,8 @@ def admin_pending_hosts_bulk_reject_post(
     secret = settings.vault_portal_internal_token or "dev"
     if not ids:
         response = RedirectResponse(url="/admin/pending-hosts?status=pending", status_code=302)
-        flash_redirect(
+        flash_i18n(
+            request,
             response,
             "Sélectionnez au moins un domaine à rejeter.",
             "warning",
@@ -1755,25 +1757,30 @@ def admin_pending_hosts_bulk_reject_post(
     n = len(rejected)
     response = RedirectResponse(url="/admin/pending-hosts?status=rejected", status_code=302)
     if n == 0:
-        flash_redirect(
+        flash_i18n(
+            request,
             response,
             "Aucun domaine en attente n’a été rejeté.",
             "warning",
             secret,
         )
     elif n == 1:
-        flash_redirect(
+        flash_i18n(
+            request,
             response,
-            f"Domaine « {rejected[0].hostname} » rejeté.",
+            "Domaine « {hostname} » rejeté.",
             "success",
             secret,
+            hostname=rejected[0].hostname,
         )
     else:
-        flash_redirect(
+        flash_i18n(
+            request,
             response,
-            f"{n} domaines rejetés.",
+            "{n} domaines rejetés.",
             "success",
             secret,
+            n=n,
         )
     return response
 
@@ -1855,6 +1862,7 @@ def admin_pending_host_approve_post(
 @admin_router.post("/admin/pending-hosts/{host_id}/reject", responses=RESP_404)
 def admin_pending_host_reject_post(
     host_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
     user=Depends(require_admin),
@@ -1864,11 +1872,13 @@ def admin_pending_host_reject_post(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     response = RedirectResponse(url="/admin/pending-hosts?status=rejected", status_code=302)
-    flash_redirect(
+    flash_i18n(
+        request,
         response,
-        f"Domaine « {row.hostname} » rejeté.",
+        "Domaine « {hostname} » rejeté.",
         "success",
         settings.vault_portal_internal_token or "dev",
+        hostname=row.hostname,
     )
     return response
 

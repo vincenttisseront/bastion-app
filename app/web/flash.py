@@ -129,6 +129,20 @@ def flash_redirect(response: Response, message: str, category: str, secret: str)
     set_flash(response, [{"message": message, "category": category}], secret)
 
 
+def flash_i18n(
+    request: Request,
+    response: Response,
+    msgid: str,
+    category: str,
+    secret: str,
+    **kwargs,
+) -> None:
+    """Flash a French msgid translated for the current request locale."""
+    from app.i18n.helpers import request_t
+
+    flash_redirect(response, request_t(request, msgid, **kwargs), category, secret)
+
+
 def make_csrf_token(request: Request, secret: str) -> str:
     session_key = request.headers.get("X-Email") or request.cookies.get("bg_session", "")[:16]
     raw = f"csrf:{session_key}"
