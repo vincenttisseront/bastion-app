@@ -532,14 +532,24 @@
     return 'CA non configurée';
   }
 
+  function caBadgeClass(valid, configured) {
+    if (valid) return 'badge badge-ok';
+    if (configured) return 'badge badge-warn';
+    return 'badge badge-muted';
+  }
+
+  function defaultCaBadge(configured) {
+    return configured ? 'configured' : 'missing';
+  }
+
   function applyCaStatus(data) {
     if (!data) return;
     var configured = !!data.configured;
     var valid = !!data.valid;
-    var badge = data.badge || (configured ? 'configured' : 'missing');
+    var badge = data.badge || defaultCaBadge(configured);
     if (caBadge) {
       caBadge.dataset.badge = badge;
-      caBadge.className = 'badge ' + (valid ? 'badge-ok' : (configured ? 'badge-warn' : 'badge-muted'));
+      caBadge.className = caBadgeClass(valid, configured);
       caBadge.textContent = badgeLabel(badge, configured, valid);
     }
     var meta = document.getElementById('siem-ca-meta');
