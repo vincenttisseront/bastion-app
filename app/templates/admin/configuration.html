@@ -246,11 +246,88 @@
         </div>
         <div class="form-group">
           <label class="form-label form-check-row">
-            <input type="checkbox" name="syslog_tls_verify" value="on"{% if not siem or siem.syslog_tls_verify %} checked{% endif %}>
+            <input type="checkbox" name="syslog_tls_verify" value="on" id="siem_syslog_tls_verify"
+                   data-siem-field="syslog_tls_verify"
+                   {% if not siem or siem.syslog_tls_verify %} checked{% endif %}
+                   {% if siem_proto == 'syslog_tls' %} disabled{% endif %}>
             {{ _('Vérifier le certificat TLS syslog (obligatoire pour syslog TLS)') }}
           </label>
-          <p class="form-help">{{ _('La désactivation n’est plus supportée à l’envoi. Pour un certificat auto-signé, ajoutez la CA au trust store de l’hôte Bastion.') }}</p>
+          <p class="form-help">{{ _('La vérification TLS est obligatoire pour Syslog TCP+TLS. Importez la CA du collecteur ci-dessous — tls_verify=false n’est pas supporté.') }}</p>
         </div>
+
+        {% set ca = siem_ca | default({}) %}
+        <div class="form-group" id="siem-ca-section" data-siem-panel="syslog_tls" {% if siem_proto != 'syslog_tls' %}hidden{% endif %}>
+          <div class="form-section-title" style="font-size:0.95rem;">{{ _('Autorité de certification TLS Syslog') }}</div>
+          <p class="form-help">
+            {{ _('Importez uniquement le certificat public de l’autorité de certification au format PEM.') }}
+            {{ _('N’importez jamais de clé privée.') }}
+            {{ _('La vérification TLS sera activée après validation de la CA.') }}
+          </p>
+          <p class="form-help">
+            {{ _('La CA importée sert uniquement à vérifier le certificat du collecteur Syslog TLS.') }}
+            {{ _('Elle ne contient pas de clé privée.') }}
+          </p>
+          <div class="form-row" style="align-items:center;gap:0.75rem;flex-wrap:wrap;">
+            <span class="badge {% if ca.valid %}badge-ok{% elif ca.configured %}badge-warn{% else %}badge-muted{% endif %}"
+                  id="siem-ca-badge" data-badge="{{ ca.badge or 'missing' }}">
+              {% if ca.badge == 'valid' %}{{ _('CA valide') }}
+              {% elif ca.badge == 'expired' %}{{ _('CA expirée') }}
+              {% elif ca.badge == 'invalid' %}{{ _('CA invalide') }}
+              {% elif ca.badge == 'test_required' %}{{ _('Test TLS requis') }}
+              {% elif ca.configured %}{{ _('CA configurée') }}
+              {% else %}{{ _('CA non configurée') }}{% endif %}
+            </span>
+            {% if not ca.configured and siem_proto == 'syslog_tls' %}
+            <span class="form-help" id="siem-ca-warn">{{ _('Aucune CA valide — le forwarding Syslog TLS n’est pas opérationnel.') }}</span>
+            {% endif %}
+          </div>
+          <div id="siem-ca-meta" class="stack" style="margin-top:0.75rem;{% if not ca.configured %}display:none{% endif %}">
+            <div class="form-hint"><strong>{{ _('Subject') }}:</strong> <span class="mono" id="siem-ca-subject">{{ ca.subject or '' }}</span></div>
+            <div class="form-hint"><strong>{{ _('Issuer') }}:</strong> <span class="mono" id="siem-ca-issuer">{{ ca.issuer or '' }}</span></div>
+            <div class="form-hint"><strong>{{ _('Empreinte SHA-256') }}:</strong> <span class="mono" id="siem-ca-fp">{{ ca.fingerprint_sha256 or '' }}</span></div>
+            <div class="form-hint"><strong>{{ _('Validité') }}:</strong>
+              <span id="siem-ca-nb">{{ ca.not_before or '' }}</span>
+              →
+              <span id="siem-ca-na">{{ ca.not_after or '' }}</span>
+            </div>
+            <div class="form-hint"><strong>{{ _('Fichier') }}:</strong> <span class="mono" id="siem-ca-name">{{ ca.logical_name or '' }}</span></div>
+            <div class="form-hint"><strong>{{ _('Import') }}:</strong>
+              <span id="siem-ca-uploaded-at">{{ ca.uploaded_at or '' }}</span>
+              {% if ca.uploaded_by %} — <span id="siem-ca-uploaded-by">{{ ca.uploaded_by }}</span>{% endif %}
+            </div>
+          </div>
+          <div class="form-actions" style="margin-top:var(--sp-3);flex-wrap:wrap;gap:0.5rem;">
+            <label class="btn btn-secondary" style="cursor:pointer;">
+              {{ _('Choisir un certificat CA PEM') }}
+              <input type="file" id="siem-ca-file" accept=".pem,.crt,application/x-pem-file,application/x-x509-ca-cert" hidden>
+            </label>
+            <button type="button" class="btn btn-primary" id="siem-ca-import-btn"
+                    data-url="/api/admin/siem/syslog-tls/ca"
+                    data-csrf="{{ csrf_token }}">
+              {% if ca.configured %}{{ _('Remplacer la CA') }}{% else %}{{ _('Importer la CA') }}{% endif %}
+            </button>
+            <button type="button" class="btn btn-secondary" id="siem-ca-tls-test-btn"
+                    data-url="/api/admin/siem/syslog-tls/test"
+                    data-csrf="{{ csrf_token }}"
+                    {% if not ca.valid %}disabled{% endif %}>{{ _('Tester la connexion TLS') }}</button>
+            <button type="button" class="btn btn-danger" id="siem-ca-delete-btn"
+                    data-url="/api/admin/siem/syslog-tls/ca"
+                    data-csrf="{{ csrf_token }}"
+                    {% if not ca.configured %}hidden{% endif %}>{{ _('Supprimer la CA') }}</button>
+          </div>
+          <p class="form-hint" id="siem-ca-file-label" style="margin-top:0.35rem;"></p>
+          <div class="config-test-shell" id="siem-tls-test-shell" hidden aria-live="polite">
+            <div class="config-test-shell-header">
+              <span class="config-test-shell-heading">
+                <span class="config-test-shell-dots" aria-hidden="true"></span>
+                <span class="config-test-shell-title">{{ _('Test TLS Syslog') }}</span>
+              </span>
+              <span class="badge badge-muted" id="siem-tls-test-shell-status">…</span>
+            </div>
+            <pre class="config-test-shell-body font-mono" id="siem-tls-test-shell-body"></pre>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label" for="siem_webhook_url">{{ _('Webhook URL (HTTPS uniquement)') }}</label>
           <input class="form-input" id="siem_webhook_url" name="webhook_url" data-siem-field="webhook_url"
@@ -411,6 +488,194 @@
       } finally {
         testBtn.disabled = false;
         shell.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    });
+  }
+
+  /* SIEM Syslog TLS CA — explicit actions only (never on page load). */
+  var protoSelect = document.getElementById('siem_protocol');
+  var caSection = document.getElementById('siem-ca-section');
+  var tlsVerifyCb = document.getElementById('siem_syslog_tls_verify');
+  var caFileInput = document.getElementById('siem-ca-file');
+  var caFileLabel = document.getElementById('siem-ca-file-label');
+  var caImportBtn = document.getElementById('siem-ca-import-btn');
+  var caDeleteBtn = document.getElementById('siem-ca-delete-btn');
+  var caTlsTestBtn = document.getElementById('siem-ca-tls-test-btn');
+  var tlsShell = document.getElementById('siem-tls-test-shell');
+  var tlsShellBody = document.getElementById('siem-tls-test-shell-body');
+  var tlsShellStatus = document.getElementById('siem-tls-test-shell-status');
+  var caBadge = document.getElementById('siem-ca-badge');
+
+  function syncSiemCaVisibility() {
+    var isTls = protoSelect && protoSelect.value === 'syslog_tls';
+    if (caSection) caSection.hidden = !isTls;
+    if (tlsVerifyCb) {
+      if (isTls) {
+        tlsVerifyCb.checked = true;
+        tlsVerifyCb.disabled = true;
+      } else {
+        tlsVerifyCb.disabled = false;
+      }
+    }
+  }
+  if (protoSelect) {
+    protoSelect.addEventListener('change', syncSiemCaVisibility);
+    syncSiemCaVisibility();
+  }
+
+  function badgeLabel(badge, configured, valid) {
+    if (badge === 'valid') return 'CA valide';
+    if (badge === 'expired') return 'CA expirée';
+    if (badge === 'invalid') return 'CA invalide';
+    if (badge === 'test_required') return 'Test TLS requis';
+    if (configured) return 'CA configurée';
+    return 'CA non configurée';
+  }
+
+  function applyCaStatus(data) {
+    if (!data) return;
+    var configured = !!data.configured;
+    var valid = !!data.valid;
+    var badge = data.badge || (configured ? 'configured' : 'missing');
+    if (caBadge) {
+      caBadge.dataset.badge = badge;
+      caBadge.className = 'badge ' + (valid ? 'badge-ok' : (configured ? 'badge-warn' : 'badge-muted'));
+      caBadge.textContent = badgeLabel(badge, configured, valid);
+    }
+    var meta = document.getElementById('siem-ca-meta');
+    if (meta) meta.style.display = configured ? '' : 'none';
+    function setText(id, val) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = val || '';
+    }
+    setText('siem-ca-subject', data.subject);
+    setText('siem-ca-issuer', data.issuer);
+    setText('siem-ca-fp', data.fingerprint_sha256);
+    setText('siem-ca-nb', data.not_before);
+    setText('siem-ca-na', data.not_after);
+    setText('siem-ca-name', data.logical_name);
+    setText('siem-ca-uploaded-at', data.uploaded_at);
+    setText('siem-ca-uploaded-by', data.uploaded_by);
+    if (caImportBtn) {
+      caImportBtn.textContent = configured ? 'Remplacer la CA' : 'Importer la CA';
+    }
+    if (caDeleteBtn) caDeleteBtn.hidden = !configured;
+    if (caTlsTestBtn) caTlsTestBtn.disabled = !valid;
+  }
+
+  if (caFileInput && caFileLabel) {
+    caFileInput.addEventListener('change', function () {
+      var f = caFileInput.files && caFileInput.files[0];
+      caFileLabel.textContent = f ? f.name : '';
+    });
+  }
+
+  if (caImportBtn) {
+    caImportBtn.addEventListener('click', async function () {
+      var f = caFileInput && caFileInput.files && caFileInput.files[0];
+      if (!f) {
+        alert('Choisissez un certificat CA PEM.');
+        return;
+      }
+      var name = (f.name || '').toLowerCase();
+      if (!(name.endsWith('.pem') || name.endsWith('.crt'))) {
+        alert('Formats acceptés : .pem ou .crt');
+        return;
+      }
+      if (f.size > 65536) {
+        alert('Fichier trop volumineux.');
+        return;
+      }
+      var fd = new FormData();
+      fd.append('file', f, f.name);
+      caImportBtn.disabled = true;
+      try {
+        var resp = await fetch(caImportBtn.dataset.url || '/api/admin/siem/syslog-tls/ca', {
+          method: 'POST',
+          headers: { 'Accept': 'application/json', 'X-CSRF-Token': caImportBtn.dataset.csrf || '' },
+          body: fd,
+          credentials: 'same-origin',
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok || data.ok === false) {
+          alert(data.error || ('Échec import HTTP ' + resp.status));
+          return;
+        }
+        applyCaStatus(data);
+        if (caFileInput) caFileInput.value = '';
+        if (caFileLabel) caFileLabel.textContent = '';
+      } catch (err) {
+        alert('Erreur réseau: ' + (err && err.message ? err.message : String(err)));
+      } finally {
+        caImportBtn.disabled = false;
+      }
+    });
+  }
+
+  if (caDeleteBtn) {
+    caDeleteBtn.addEventListener('click', async function () {
+      if (!confirm('Supprimer la CA Syslog TLS ? Le forwarding TLS sécurisé ne fonctionnera plus jusqu’à réimport.')) {
+        return;
+      }
+      caDeleteBtn.disabled = true;
+      try {
+        var resp = await fetch(caDeleteBtn.dataset.url || '/api/admin/siem/syslog-tls/ca', {
+          method: 'DELETE',
+          headers: { 'Accept': 'application/json', 'X-CSRF-Token': caDeleteBtn.dataset.csrf || '' },
+          credentials: 'same-origin',
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) {
+          alert(data.error || ('Échec suppression HTTP ' + resp.status));
+          return;
+        }
+        applyCaStatus(data);
+      } catch (err) {
+        alert('Erreur réseau: ' + (err && err.message ? err.message : String(err)));
+      } finally {
+        caDeleteBtn.disabled = false;
+      }
+    });
+  }
+
+  if (caTlsTestBtn && tlsShell && tlsShellBody && tlsShellStatus) {
+    caTlsTestBtn.addEventListener('click', async function () {
+      tlsShell.hidden = false;
+      tlsShell.classList.remove('is-ok', 'is-err');
+      tlsShellStatus.className = 'badge badge-muted';
+      tlsShellStatus.textContent = 'en cours…';
+      tlsShellBody.textContent = '$ bastion siem syslog-tls-ca-test\n…';
+      caTlsTestBtn.disabled = true;
+      try {
+        var resp = await fetch(caTlsTestBtn.dataset.url || '/api/admin/siem/syslog-tls/test', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'X-CSRF-Token': caTlsTestBtn.dataset.csrf || '',
+          },
+          credentials: 'same-origin',
+        });
+        var data = await resp.json().catch(function () { return {}; });
+        var lines = Array.isArray(data.lines) ? data.lines : [];
+        if (!lines.length) {
+          lines = [
+            '$ bastion siem syslog-tls-ca-test',
+            (data.ok ? '✓ ' : '✗ ') + (data.message || ('HTTP ' + resp.status)),
+          ];
+        }
+        tlsShellBody.textContent = lines.join('\n');
+        var ok = !!data.ok;
+        tlsShell.classList.add(ok ? 'is-ok' : 'is-err');
+        tlsShellStatus.className = 'badge ' + (ok ? 'badge-ok' : 'badge-err');
+        tlsShellStatus.textContent = ok ? 'OK' : 'KO';
+      } catch (err) {
+        tlsShell.classList.add('is-err');
+        tlsShellStatus.className = 'badge badge-err';
+        tlsShellStatus.textContent = 'KO';
+        tlsShellBody.textContent = '$ bastion siem syslog-tls-ca-test\n✗ ' + (err && err.message ? err.message : String(err));
+      } finally {
+        caTlsTestBtn.disabled = false;
+        tlsShell.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     });
   }

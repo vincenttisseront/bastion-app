@@ -163,7 +163,7 @@ def process_outbox_once(
     settings = settings or get_settings()
     stats = {"sent": 0, "failed": 0, "purged": 0, "skipped": 0}
     try:
-        cfg = get_siem_config(session)
+        cfg = get_siem_config(session, settings=settings)
         stats["purged"] = purge_stale(session, cfg)
         if not cfg.enabled:
             return stats
@@ -188,6 +188,7 @@ def process_outbox_once(
                     secret=secret,
                     sock_factory=sock_factory,
                     http_client=http_client,
+                    settings=settings,
                 )
                 session.delete(item)
                 session.commit()
@@ -256,7 +257,7 @@ def run_connectivity_test(
     transcript lines for the admin UI terminal panel.
     """
     lines: list[str] = []
-    cfg = get_siem_config(db)
+    cfg = get_siem_config(db, settings=settings)
     lines.append("$ bastion siem connectivity-test")
     lines.append(f"enabled={cfg.enabled} protocol={cfg.protocol}")
 
@@ -266,6 +267,10 @@ def run_connectivity_test(
         return False, msg, lines
     if cfg.protocol == "syslog_tls" and not cfg.syslog_host:
         msg = "syslog_host manquant"
+        lines.append(f"✗ {msg}")
+        return False, msg, lines
+    if cfg.protocol == "syslog_tls" and not cfg.syslog_ca_valid:
+        msg = "aucune CA Syslog TLS valide — importez une CA avant le test"
         lines.append(f"✗ {msg}")
         return False, msg, lines
     if cfg.protocol == "webhook_https" and not cfg.webhook_url.startswith("https://"):
@@ -281,6 +286,7 @@ def run_connectivity_test(
     if cfg.protocol == "syslog_tls":
         lines.append(f"→ syslog_tls connect {cfg.syslog_host}:{cfg.syslog_port}")
         lines.append(f"  tls_verify={cfg.syslog_tls_verify}")
+        lines.append(f"  ca={cfg.syslog_ca_relative_path or 'missing'}")
         lines.append(f"  event={code} {label}")
         lines.append("  format=CEF over RFC5424")
         lookup = f"SIEM : cherchez signatureId={code}  (label {label})"
@@ -298,6 +304,7 @@ def run_connectivity_test(
             secret=secret,
             sock_factory=sock_factory,
             http_client=http_client,
+            settings=settings,
         )
         mark_siem_success(db)
         log_action(

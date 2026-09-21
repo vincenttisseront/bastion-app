@@ -1196,6 +1196,16 @@ class SiemForwardingSettings(Base):
     syslog_host = Column(String, nullable=False, default="")
     syslog_port = Column(Integer, nullable=False, default=6514)
     syslog_tls_verify = Column(Boolean, nullable=False, default=True)
+    # Logical relative path under PORTAL_DATA_DIR (never a host-absolute Docker path).
+    syslog_ca_relative_path = Column(String, nullable=True)
+    syslog_ca_logical_name = Column(String, nullable=True)
+    syslog_ca_subject = Column(String, nullable=True)
+    syslog_ca_issuer = Column(String, nullable=True)
+    syslog_ca_fingerprint_sha256 = Column(String, nullable=True)
+    syslog_ca_not_before = Column(DateTime(timezone=True), nullable=True)
+    syslog_ca_not_after = Column(DateTime(timezone=True), nullable=True)
+    syslog_ca_uploaded_at = Column(DateTime(timezone=True), nullable=True)
+    syslog_ca_uploaded_by = Column(String, nullable=True)
     webhook_url = Column(String, nullable=False, default="")
     # none | bearer | basic
     webhook_auth_type = Column(String, nullable=False, default="none")

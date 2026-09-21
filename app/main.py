@@ -46,6 +46,7 @@ from app.subdomain.subdomain_auth import router as subdomain_router
 from app.vault.routes import router as vault_router
 from app.web.admin_branding import router as admin_branding_router
 from app.web.admin_configuration import router as admin_configuration_router
+from app.web.admin_siem_ca import router as admin_siem_ca_router
 from app.web.admin_dependencies import router as admin_dependencies_router
 from app.web.admin_infrastructure import router as admin_infrastructure_router
 from app.web.admin_logs import router as admin_logs_router
@@ -503,6 +504,7 @@ app.include_router(admin_notifications_router)
 app.include_router(admin_dependencies_router)
 app.include_router(admin_branding_router)
 app.include_router(admin_configuration_router)
+app.include_router(admin_siem_ca_router)
 app.include_router(admin_setup_wizard_router)
 app.include_router(admin_infrastructure_router)
 app.include_router(audit_router)

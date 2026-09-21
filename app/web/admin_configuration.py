@@ -51,11 +51,13 @@ def admin_configuration_page(
 ):
     from app.db.hot_store import get_hot_store_status
     from app.mail.mta_sts_service import mta_sts_public_status
+    from app.siem.ca_service import get_ca_api_status
     from app.siem.settings_service import ensure_siem_settings
     from app.siem.settings_service import public_status as siem_public_status
 
     row = ensure_portal_settings(db, settings)
     siem_settings = ensure_siem_settings(db)
+    siem_ca = get_ca_api_status(db, settings)
     last_sent = getattr(row, "daily_recap_last_sent_at", None)
     last_sent_s = ""
     if last_sent is not None:
@@ -84,6 +86,7 @@ def admin_configuration_page(
         },
         siem_settings=siem_settings,
         siem_status=siem_public_status(db),
+        siem_ca=siem_ca,
         hot_store=get_hot_store_status(db, settings),
         mta_sts=mta_sts_public_status(db, settings),
     )
