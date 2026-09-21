@@ -66,10 +66,10 @@
       </div>
       <div class="form-body">
         <div class="form-group">
-          <label class="form-label" for="accent_color">Principale</label>
+          <label class="form-label" for="accent_color">{{ _('Principale') }}</label>
           <div class="brand-color-row">
             <input type="color" id="accent_color_picker" value="{{ b.accent_color }}"
-                   aria-label="Couleur principale"
+                   aria-label="{{ _('Couleur principale') }}"
                    class="brand-color-swatch">
             <input type="text" id="accent_color" name="accent_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.accent_color }}">
@@ -77,10 +77,10 @@
           <p class="form-help">{{ _('Boutons, nav active, icônes.') }}</p>
         </div>
         <div class="form-group">
-          <label class="form-label" for="secondary_color">Secondaire</label>
+          <label class="form-label" for="secondary_color">{{ _('Secondaire') }}</label>
           <div class="brand-color-row">
             <input type="color" id="secondary_color_picker" value="{{ b.secondary_color }}"
-                   aria-label="Couleur secondaire"
+                   aria-label="{{ _('Couleur secondaire') }}"
                    class="brand-color-swatch">
             <input type="text" id="secondary_color" name="secondary_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.secondary_color }}">
@@ -88,22 +88,22 @@
           <p class="form-help">{{ _('Surfaces secondaires dédiées.') }}</p>
         </div>
         <div class="form-group">
-          <label class="form-label" for="highlight_color">Accent / survol</label>
+          <label class="form-label" for="highlight_color">{{ _('Accent / survol') }}</label>
           <div class="brand-color-row">
             <input type="color" id="highlight_color_picker" value="{{ b.highlight_color }}"
-                   aria-label="Couleur d’accent"
+                   aria-label="{{ _('Couleur d’accent') }}"
                    class="brand-color-swatch">
             <input type="text" id="highlight_color" name="highlight_color" class="form-input is-mono brand-color-hex"
                    pattern="#[0-9A-Fa-f]{6}" maxlength="7" required value="{{ b.highlight_color }}">
           </div>
-          <p class="form-help">Hover, focus, liens.</p>
+          <p class="form-help">{{ _('Hover, focus, liens.') }}</p>
         </div>
 
         <div class="brand-palette-preview" id="brand-palette-preview" aria-label="{{ _('Aperçu palette') }}">
-          <div class="brand-preview-btn">Bouton</div>
-          <div class="brand-preview-chip">Survol</div>
-          <div class="brand-preview-secondary">Secondaire</div>
-          <div class="brand-preview-link">Lien</div>
+          <div class="brand-preview-btn">{{ _('Bouton') }}</div>
+          <div class="brand-preview-chip">{{ _('Survol') }}</div>
+          <div class="brand-preview-secondary">{{ _('Secondaire') }}</div>
+          <div class="brand-preview-link">{{ _('Lien') }}</div>
         </div>
 
         <div class="form-group" style="margin-top:1.25rem;">

@@ -6,9 +6,7 @@
   <div>
     <h1 class="page-title">{{ _('Configuration initiale') }}</h1>
     <p class="page-sub">
-{{ _('Les paramètres site (FQDN, slug realm) sont stockés en') }} <strong>{{ _('base') }}</strong>
-{{ _('— pas dans le') }} <span class="mono">.env</span>. Les secrets Docker
-      {{ _('(token interne, clé SQLCipher) restent côté compose.') }}
+      {{ _('Les paramètres site (FQDN, slug realm) sont stockés en base — pas dans le .env. Les secrets Docker (token interne, clé SQLCipher) restent côté compose.') }}
     </p>
   </div>
 </div>
@@ -38,7 +36,7 @@
     >
       <span class="wizard-step-rail" aria-hidden="true"></span>
       <span class="wizard-step-dot" aria-hidden="true">{{ loop.index }}</span>
-      <span class="wizard-step-label">{{ step.label }}</span>
+      <span class="wizard-step-label">{{ _(step.label) }}</span>
     </button>
     {% endfor %}
   </div>
@@ -77,7 +75,7 @@
             <small>{{ _('Exposé sur nginx') }} <span class="mono">server_name</span> {{ _('après reload (via') }} <span class="mono">exports/bastion-site.env</span>).</small>
           </div>
           <div class="form-group">
-            <label class="form-label" for="default_realm_slug">Slug realm OIDC core</label>
+            <label class="form-label" for="default_realm_slug">{{ _('Slug realm OIDC core') }}</label>
             <input class="form-input" id="default_realm_slug" name="default_realm_slug" required
                    pattern="[a-z0-9][a-z0-9_-]{0,62}"
                    placeholder="default"
@@ -91,7 +89,7 @@
 
     <section class="wizard-panel form-section" id="wizard-panel-oidc" role="tabpanel" data-wizard-panel="oidc" hidden>
       <div class="form-section-header">
-        <div class="form-section-title">Realm OIDC</div>
+        <div class="form-section-title">{{ _('Realm OIDC') }}</div>
         <div class="form-section-sub">{{ _('Secrets IdP en base (Fernet) — jamais dans le .env durable') }}</div>
       </div>
       <div class="form-body">
@@ -100,13 +98,13 @@
         <p class="form-prose">
           <a class="btn btn-secondary" href="/admin/realms">{{ _('Gérer les realms') }}</a>
           {% if not setup.realm_tested_ok %}
-{{ _('— lancez') }} <strong>{{ _('Test OIDC') }}</strong> puis <strong>Apply</strong> infrastructure.
+{{ _('— lancez') }} <strong>{{ _('Test OIDC') }}</strong> {{ _('puis') }} <strong>Apply</strong> {{ _('infrastructure.') }}
           {% endif %}
         </p>
         {% else %}
         <p class="form-prose">
 {{ _('Créez un realm avec le slug') }} <span class="mono">{{ setup.default_realm_slug }}</span>,
-          marquez-le <strong>{{ _('défaut') }}</strong> et activez-le.
+          {{ _('marquez-le') }} <strong>{{ _('défaut') }}</strong> {{ _('et activez-le.') }}
         </p>
         <a class="btn btn-primary" href="/admin/realms/new">{{ _('Nouveau realm') }}</a>
         {% endif %}
@@ -122,10 +120,10 @@
         <ul class="form-prose">
           <li><span class="mono">VAULT_PORTAL_INTERNAL_TOKEN</span> {{ _('— nginx ↔ app') }}
 
-            {% if setup.internal_token_ok %}<span class="badge badge-ok">OK</span>{% else %}<span class="badge badge-warn">manquant</span>{% endif %}
+            {% if setup.internal_token_ok %}<span class="badge badge-ok">OK</span>{% else %}<span class="badge badge-warn">{{ _('manquant') }}</span>{% endif %}
           </li>
           <li><span class="mono">VAULT_PORTAL_DB_ENCRYPTION_KEY</span> {{ _('/ fichier clés — SQLCipher') }}</li>
-          <li>Chemins volumes (<span class="mono">SSO_PORTAL_DATA_DIR</span>, …)</li>
+          <li>{{ _('Chemins volumes') }} (<span class="mono">SSO_PORTAL_DATA_DIR</span>, …)</li>
         </ul>
         {% if setup.has_breakglass and setup.has_default_realm and setup.portal_domain not in ['', 'localhost', 'portal.example.com'] %}
         <form method="post" action="/admin/setup-wizard/complete" class="mt-4">

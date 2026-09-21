@@ -157,7 +157,7 @@
         <input type="hidden" name="attempt_id" value="{{ attempt_id }}">
         <input type="hidden" name="username" value="{{ form_username | default('') }}">
         <div class="form-group">
-          <label class="form-label" for="oidc-otp">Code OTP</label>
+          <label class="form-label" for="oidc-otp">{{ _('Code OTP') }}</label>
           <div class="input-wrap">
             <svg class="input-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <input type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="8" id="oidc-otp" name="otp_code" class="form-input" required autofocus autocomplete="one-time-code" placeholder="123456">
@@ -170,7 +170,7 @@
       </p>
       {% else %}
       {% if oauth2_url %}
-      <div class="login-divider" role="separator">ou</div>
+      <div class="login-divider" role="separator">{{ _('ou') }}</div>
       {% endif %}
       <form method="post" action="/auth/login" class="form-body login-form" autocomplete="on">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -213,7 +213,7 @@
       {% endif %}
 
       {% if show_breakglass and not mfa_step and has_sso %}
-      <div class="login-divider" role="separator">ou</div>
+      <div class="login-divider" role="separator">{{ _('ou') }}</div>
       <button
         type="button"
         class="btn btn-ghost btn-full login-local-trigger"
@@ -268,7 +268,7 @@
             </button>
           </div>
         </div>
-        <button type="submit" class="btn btn-secondary btn-full">Se connecter</button>
+        <button type="submit" class="btn btn-secondary btn-full">{{ _('Se connecter') }}</button>
       </form>
     </div>
     {% elif not has_sso and not mfa_step %}
