@@ -173,6 +173,48 @@ def _includes_from_main(main_text: str) -> list[str]:
     return _INCLUDE_RE.findall(main_text or "")
 
 
+def _combine_engine_includes(
+    nginx_root: Path,
+    family: str,
+    includes: list[str],
+    *,
+    engine_overrides: dict[str, str] | None,
+) -> tuple[str, str | None]:
+    combined = ""
+    engine_source = None
+    for inc in includes:
+        local = _docker_path_to_local(nginx_root, inc)
+        if local is None:
+            if "engine-mode-generated.conf" in inc:
+                stub = "SecRuleEngine Off\n"
+                if engine_overrides and family in engine_overrides:
+                    stub = f"SecRuleEngine {engine_overrides[family]}\n"
+                combined += stub
+                engine_source = str(inc)
+            continue
+        combined += _read_text(local) + "\n"
+        if "engine-" in inc and inc.endswith(".conf") and "generated" not in inc:
+            engine_source = str(local)
+    return combined, engine_source
+
+
+def _resolve_anomaly_threshold(
+    nginx_root: Path, *, crs_setup_gen_loaded: bool
+) -> tuple[Any, str]:
+    crs_path = nginx_root / "modsecurity" / "crs-setup.conf"
+    threshold = parse_inbound_anomaly_threshold(_read_text(crs_path))
+    threshold_source = "crs-setup.conf (statique)"
+    if crs_setup_gen_loaded:
+        gen = _docker_path_to_local(
+            nginx_root, "/etc/nginx/modsecurity/generated/crs-setup-generated.conf"
+        )
+        if gen and gen.is_file():
+            t2 = parse_inbound_anomaly_threshold(_read_text(gen))
+            if t2 is not None:
+                return t2, str(gen.name)
+    return threshold, threshold_source
+
+
 def _effective_engine_for_family(
     nginx_root: Path,
     family: str,
@@ -190,37 +232,13 @@ def _effective_engine_for_family(
         "crs-setup-generated.conf" in inc for inc in includes
     )
 
-    combined = ""
-    engine_source = None
-    for inc in includes:
-        local = _docker_path_to_local(nginx_root, inc)
-        if local is None:
-            if "engine-mode-generated.conf" in inc:
-                stub = "SecRuleEngine Off\n"
-                if engine_overrides and family in engine_overrides:
-                    stub = f"SecRuleEngine {engine_overrides[family]}\n"
-                combined += stub
-                engine_source = str(inc)
-            continue
-        chunk = _read_text(local)
-        combined += chunk + "\n"
-        if "engine-" in inc and inc.endswith(".conf") and "generated" not in inc:
-            engine_source = str(local)
-
+    combined, engine_source = _combine_engine_includes(
+        nginx_root, family, includes, engine_overrides=engine_overrides
+    )
     mode = last_sec_rule_engine(combined)
-    crs_path = nginx_root / "modsecurity" / "crs-setup.conf"
-    threshold = parse_inbound_anomaly_threshold(_read_text(crs_path))
-    threshold_source = "crs-setup.conf (statique)"
-    if crs_setup_gen_loaded:
-        gen = _docker_path_to_local(
-            nginx_root, "/etc/nginx/modsecurity/generated/crs-setup-generated.conf"
-        )
-        if gen and gen.is_file():
-            t2 = parse_inbound_anomaly_threshold(_read_text(gen))
-            if t2 is not None:
-                threshold = t2
-                threshold_source = str(gen.name)
-
+    threshold, threshold_source = _resolve_anomaly_threshold(
+        nginx_root, crs_setup_gen_loaded=crs_setup_gen_loaded
+    )
     static_engine = last_sec_rule_engine(
         _read_text(nginx_root / "modsecurity" / f"engine-{family}.conf")
     )

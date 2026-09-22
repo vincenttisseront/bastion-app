@@ -240,6 +240,34 @@ def resolve_ip_geoloc_enabled(settings: Settings, profile: object | None = None)
     return True
 
 
+def _unique_public_ips(ips: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for raw in ips:
+        ip = (raw or "").strip()
+        if not is_public_ip(ip) or ip in seen:
+            continue
+        seen.add(ip)
+        unique.append(ip)
+    return unique
+
+
+def _fill_geoloc_from_cache(
+    unique: list[str],
+    entries: dict[str, Any],
+    ttl: int,
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    result: dict[str, dict[str, Any]] = {}
+    missing: list[str] = []
+    for ip in unique:
+        hit = _cached_entry(entries, ip, ttl)
+        if hit is not None:
+            result[ip] = hit
+        else:
+            missing.append(ip)
+    return result, missing
+
+
 def lookup_ip_origins(
     settings: Settings,
     ips: list[str],
@@ -250,29 +278,14 @@ def lookup_ip_origins(
     if not resolve_ip_geoloc_enabled(settings, profile):
         return {}
 
-    unique: list[str] = []
-    seen: set[str] = set()
-    for raw in ips:
-        ip = (raw or "").strip()
-        if not is_public_ip(ip) or ip in seen:
-            continue
-        seen.add(ip)
-        unique.append(ip)
+    unique = _unique_public_ips(ips)
     if not unique:
         return {}
 
     cache = _load_cache(settings)
     entries: dict[str, Any] = cache.setdefault("entries", {})
     ttl = _cache_ttl_seconds(settings)
-    result: dict[str, dict[str, Any]] = {}
-    missing: list[str] = []
-
-    for ip in unique:
-        hit = _cached_entry(entries, ip, ttl)
-        if hit is not None:
-            result[ip] = hit
-        else:
-            missing.append(ip)
+    result, missing = _fill_geoloc_from_cache(unique, entries, ttl)
 
     if missing and not _rate_limit_blocked():
         for offset in range(0, len(missing), BATCH_MAX):

@@ -1258,6 +1258,36 @@ async def admin_rbac_grants_create(
     return response
 
 
+def _self_revoke_portal_admin_response(
+    request: Request,
+    *,
+    redirect_url: str,
+    secret: str,
+):
+    if _wants_json(request) or request.method == "DELETE":
+        return JSONResponse(
+            {"ok": False, "detail": _SELF_REVOKE_PORTAL_ADMIN_MSG},
+            status_code=400,
+        )
+    response = RedirectResponse(url=redirect_url or "/admin/rbac/users", status_code=302)
+    flash_redirect(response, _SELF_REVOKE_PORTAL_ADMIN_MSG, "error", secret)
+    return response
+
+
+def _redirect_url_after_grant_delete(grant, redirect_url: str) -> str:
+    if redirect_url not in (_ADMIN_RBAC_PATH, ""):
+        return redirect_url
+    if grant.resource_type == "application" and grant.application_id:
+        return f"/admin/rbac/applications/{grant.application_id}"
+    if grant.resource_type == "file" and grant.file_id:
+        return f"/admin/files/{grant.file_id}"
+    if grant.subject_type == "group" and grant.rbac_group_id:
+        return f"/admin/rbac/groups/{grant.rbac_group_id}"
+    if grant.subject_type == "user" and grant.keycloak_user_id:
+        return "/admin/rbac/users"
+    return redirect_url or _ADMIN_RBAC_PATH
+
+
 @router.delete("/admin/rbac/grants/{grant_id}", responses=RESP_404)
 @router.post("/admin/rbac/grants/{grant_id}/delete")
 def admin_rbac_grants_delete(
@@ -1272,22 +1302,13 @@ def admin_rbac_grants_delete(
     if not existing:
         raise HTTPException(status_code=404, detail="Grant introuvable")
 
+    secret = settings.vault_portal_internal_token or "dev"
     if is_self_portal_admin_grant(
         existing, actor_keycloak_user_id=user.keycloak_user_id
     ):
-        if _wants_json(request) or request.method == "DELETE":
-            return JSONResponse(
-                {"ok": False, "detail": _SELF_REVOKE_PORTAL_ADMIN_MSG},
-                status_code=400,
-            )
-        response = RedirectResponse(url=redirect_url or "/admin/rbac/users", status_code=302)
-        flash_redirect(
-            response,
-            _SELF_REVOKE_PORTAL_ADMIN_MSG,
-            "error",
-            settings.vault_portal_internal_token or "dev",
+        return _self_revoke_portal_admin_response(
+            request, redirect_url=redirect_url, secret=secret
         )
-        return response
 
     grant = delete_grant(db, grant_id)
     if not grant:
@@ -1302,22 +1323,11 @@ def admin_rbac_grants_delete(
     )
     db.commit()
 
-    if redirect_url in (_ADMIN_RBAC_PATH, ""):
-        if (
-            grant.resource_type == "application"
-            and grant.application_id
-        ):
-            redirect_url = f"/admin/rbac/applications/{grant.application_id}"
-        elif grant.resource_type == "file" and grant.file_id:
-            redirect_url = f"/admin/files/{grant.file_id}"
-        elif grant.subject_type == "group" and grant.rbac_group_id:
-            redirect_url = f"/admin/rbac/groups/{grant.rbac_group_id}"
-        elif grant.subject_type == "user" and grant.keycloak_user_id:
-            redirect_url = "/admin/rbac/users"
+    redirect_url = _redirect_url_after_grant_delete(grant, redirect_url)
 
     if _wants_json(request) or request.method == "DELETE":
         return JSONResponse({"ok": True})
 
     response = RedirectResponse(url=redirect_url, status_code=302)
-    flash_redirect(response, "Droit retiré.", "success", settings.vault_portal_internal_token or "dev")
+    flash_redirect(response, "Droit retiré.", "success", secret)
     return response

@@ -828,6 +828,24 @@ def _iso(dt) -> str | None:
         return str(dt)
 
 
+def _wizard_step_status(
+    *,
+    locked: bool,
+    done: bool = False,
+    failed: bool = False,
+    skipped: bool = False,
+) -> str:
+    if locked:
+        return "locked"
+    if done:
+        return "done"
+    if failed:
+        return "failed"
+    if skipped:
+        return "skipped"
+    return "todo"
+
+
 def build_hot_store_wizard_steps(
     *,
     configured: bool,
@@ -854,7 +872,7 @@ def build_hot_store_wizard_steps(
             "id": sid,
             "label": label,
             "locked": locked,
-            "status": status,  # todo | done | failed | skipped | locked
+            "status": status,
             "optional": optional,
         }
 
@@ -863,40 +881,35 @@ def build_hot_store_wizard_steps(
             "config",
             "Connexion",
             locked=False,
-            status="done" if configured else "todo",
+            status=_wizard_step_status(locked=False, done=configured),
         ),
         _step(
             "test",
             "Test",
             locked=not configured,
-            status=(
-                "locked"
-                if not configured
-                else ("done" if tested else ("failed" if test_failed else "todo"))
+            status=_wizard_step_status(
+                locked=not configured,
+                done=tested,
+                failed=test_failed,
             ),
         ),
         _step(
             "schema",
             "Schéma",
             locked=not tested,
-            status=(
-                "locked"
-                if not tested
-                else ("done" if schema_prepared else "todo")
+            status=_wizard_step_status(
+                locked=not tested,
+                done=schema_prepared,
             ),
         ),
         _step(
             "migrate",
             "Migration",
             locked=not schema_prepared,
-            status=(
-                "locked"
-                if not schema_prepared
-                else (
-                    "done"
-                    if migrate_done
-                    else ("skipped" if migrate_skipped else "todo")
-                )
+            status=_wizard_step_status(
+                locked=not schema_prepared,
+                done=migrate_done,
+                skipped=migrate_skipped,
             ),
             optional=True,
         ),
@@ -904,10 +917,9 @@ def build_hot_store_wizard_steps(
             "enable",
             "Activation",
             locked=not (schema_prepared and migrate_ready),
-            status=(
-                "locked"
-                if not (schema_prepared and migrate_ready)
-                else ("done" if enabled else "todo")
+            status=_wizard_step_status(
+                locked=not (schema_prepared and migrate_ready),
+                done=enabled,
             ),
         ),
     ]
