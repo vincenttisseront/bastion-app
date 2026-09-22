@@ -110,3 +110,58 @@ def test_subdomain_preflight_requires_confirm_and_portal_armed(monkeypatch):
     err2 = _reactivate_subdomain_preflight(MagicMock(), settings, confirm=True)
     assert isinstance(err2, dict)
     assert "portal" in err2["error"].lower() or "armé" in err2["error"].lower()
+
+
+def test_subdomain_wait_and_smoke_helpers(monkeypatch):
+    from app.bastion.waf_reactivation import (
+        _reactivate_subdomain_smoke_failure,
+        _reactivate_subdomain_wait_for_engine,
+    )
+
+    assert (
+        _reactivate_subdomain_wait_for_engine(
+            MagicMock(),
+            prev_arm={},
+            actor="a",
+            paths={},
+            sync_detail="ok",
+            sync_fn=lambda _s: (True, "ok"),
+            injected=True,
+        )
+        is None
+    )
+
+    monkeypatch.setattr(
+        "app.bastion.waf_reactivation.wait_for_nginx_edge",
+        lambda _s: {"ok": True},
+    )
+    monkeypatch.setattr(
+        "app.bastion.waf_reactivation.wait_for_subdomain_engine_mode",
+        lambda *_a, **_k: {"ok": False, "mode": "Off", "export_mode": "Off"},
+    )
+    monkeypatch.setattr(
+        "app.bastion.waf_reactivation._rollback_subdomain", lambda *_a, **_k: None
+    )
+    fail = _reactivate_subdomain_wait_for_engine(
+        MagicMock(),
+        prev_arm={},
+        actor="a",
+        paths={"p": "1"},
+        sync_detail="synced",
+        sync_fn=lambda _s: (True, "ok"),
+        injected=False,
+    )
+    assert fail is not None
+    assert fail["rolled_back"] is True
+
+    smoke_fail = _reactivate_subdomain_smoke_failure(
+        MagicMock(),
+        prev_arm={},
+        actor="a",
+        paths={},
+        sync_detail="ok",
+        sync_fn=lambda _s: (True, "ok"),
+        smoke_result={"ok": False, "failed_summary": "bad", "failed": []},
+    )
+    assert smoke_fail["ok"] is False
+    assert "Smoke" in smoke_fail["error"]

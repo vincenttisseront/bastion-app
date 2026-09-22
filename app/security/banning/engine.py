@@ -808,55 +808,68 @@ def record_rate_limited_request(
     limited = False
     retry_after = 0
     for rule_type, kind in checks:
-        rule = get_rule(db, rule_type)
-        if not rule or not rule.enabled or int(rule.threshold or 0) <= 0:
-            continue
-        window = int(rule.window_seconds or 1)
-        threshold = int(rule.threshold)
-        count = _prune_and_count(db, kind, ip, window)
-        if count <= threshold:
-            continue
-        limited = True
-        retry_after = max(retry_after, window)
-        # Audit on the first rejection of the burst (count == threshold+1). If
-        # concurrent workers skip that exact count, still audit once when we
-        # first observe a limited window (count just above threshold).
-        should_audit = count == threshold + 1 or (
-            count > threshold + 1
-            and count <= threshold + 3
-            and not _recent_rate_limit_audit(db, ip=ip, rule_type=rule_type, window=window)
+        hit, wait = _evaluate_rate_limit_rule(
+            db, ip=ip, path=path, method=method, rule_type=rule_type, kind=kind
         )
-        if should_audit:
-            logger.warning(
-                "security.rate_limited ip=%s rule=%s count=%s/%s window=%ss path=%s",
-                ip,
-                rule_type,
-                count,
-                threshold,
-                window,
-                (path or "")[:120],
-            )
-            log_action(
-                db,
-                actor="system",
-                action="security.rate_limited",
-                target=f"ip:{ip}",
-                details={
-                    "rule_type": rule_type,
-                    "count": count,
-                    "threshold": threshold,
-                    "window_seconds": window,
-                    "path": (path or "")[:120],
-                    "method": (method or "")[:16],
-                },
-                ip_address=ip,
-            )
+        if hit:
+            limited = True
+            retry_after = max(retry_after, wait)
 
     try:
         db.commit()
     except Exception:
         db.rollback()
     return limited, retry_after
+
+
+def _evaluate_rate_limit_rule(
+    db: Session,
+    *,
+    ip: str,
+    path: str,
+    method: str,
+    rule_type: str,
+    kind: str,
+) -> tuple[bool, int]:
+    rule = get_rule(db, rule_type)
+    if not rule or not rule.enabled or int(rule.threshold or 0) <= 0:
+        return False, 0
+    window = int(rule.window_seconds or 1)
+    threshold = int(rule.threshold)
+    count = _prune_and_count(db, kind, ip, window)
+    if count <= threshold:
+        return False, 0
+    should_audit = count == threshold + 1 or (
+        count > threshold + 1
+        and count <= threshold + 3
+        and not _recent_rate_limit_audit(db, ip=ip, rule_type=rule_type, window=window)
+    )
+    if should_audit:
+        logger.warning(
+            "security.rate_limited ip=%s rule=%s count=%s/%s window=%ss path=%s",
+            ip,
+            rule_type,
+            count,
+            threshold,
+            window,
+            (path or "")[:120],
+        )
+        log_action(
+            db,
+            actor="system",
+            action="security.rate_limited",
+            target=f"ip:{ip}",
+            details={
+                "rule_type": rule_type,
+                "count": count,
+                "threshold": threshold,
+                "window_seconds": window,
+                "path": (path or "")[:120],
+                "method": (method or "")[:16],
+            },
+            ip_address=ip,
+        )
+    return True, window
 
 
 def rate_limit_retry_after(db: Session, path: str, method: str = "GET") -> int:

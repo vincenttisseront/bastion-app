@@ -227,7 +227,6 @@ def _merge_saved_view_filters(
     str | None,
 ]:
     """Apply saved view defaults; explicit query params take precedence."""
-    active_view_id: int | None = None
     if not view:
         return (
             action,
@@ -242,7 +241,7 @@ def _merge_saved_view_filters(
             severity,
             severity_min,
             event_code,
-            active_view_id,
+            None,
             columns,
         )
     saved = (
@@ -264,11 +263,60 @@ def _merge_saved_view_filters(
             severity,
             severity_min,
             event_code,
-            active_view_id,
+            None,
             columns,
         )
-    active_view_id = int(saved.id)
-    f = saved.filters_json
+    return _apply_saved_view_defaults(
+        saved,
+        action=action,
+        actor=actor,
+        date_from=date_from,
+        date_to=date_to,
+        ip=ip,
+        q=q,
+        detail=detail,
+        status=status,
+        domain=domain,
+        severity=severity,
+        severity_min=severity_min,
+        event_code=event_code,
+        columns=columns,
+    )
+
+
+def _apply_saved_view_defaults(
+    saved: SavedLogView,
+    *,
+    action: str | None,
+    actor: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    ip: str | None,
+    q: str | None,
+    detail: str | None,
+    status: list[str] | None,
+    domain: list[str] | None,
+    severity: list[str] | None,
+    severity_min: str | None,
+    event_code: str | None,
+    columns: str | None,
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    list[str] | None,
+    list[str] | None,
+    list[str] | None,
+    str | None,
+    str | None,
+    int | None,
+    str | None,
+]:
+    f = saved.filters_json if isinstance(saved.filters_json, dict) else {}
     action = action or f.get("action") or None
     actor = actor or f.get("actor") or None
     date_from = date_from or f.get("date_from") or None
@@ -299,7 +347,7 @@ def _merge_saved_view_filters(
         severity,
         severity_min,
         event_code,
-        active_view_id,
+        int(saved.id),
         columns,
     )
 

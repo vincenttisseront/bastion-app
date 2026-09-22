@@ -33,7 +33,7 @@ SECRET = "test-breakglass-secret-for-pytest-32b"
 
 def test_create_token_includes_jti():
     token = create_breakglass_token("admin", SECRET)
-    payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+    payload = jwt.decode(token, SECRET, algorithms=["HS256"], options={"verify_aud": False})
     assert payload["jti"]
     assert payload["type"] == "bg"
 
@@ -97,7 +97,7 @@ def test_refresh_preserves_jti(db_session: Session):
     db_session.commit()
     refreshed = maybe_refresh_breakglass_cookie(token, SECRET, db=db_session)
     assert refreshed is not None
-    payload = jwt.decode(refreshed, SECRET, algorithms=["HS256"])
+    payload = jwt.decode(refreshed, SECRET, algorithms=["HS256"], options={"verify_aud": False})
     assert payload["jti"] == jti
 
 
@@ -191,7 +191,7 @@ def test_api_revoke_then_oauth2_auth_401(client, db_session: Session):
     assert login.status_code == 200
     token = login.cookies.get(COOKIE_NAME)
     assert token
-    payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+    payload = jwt.decode(token, SECRET, algorithms=["HS256"], options={"verify_aud": False})
     jti = payload["jti"]
 
     respx.get("http://127.0.0.1:4180/oauth2/auth").mock(return_value=Response(401))
