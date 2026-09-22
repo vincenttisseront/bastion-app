@@ -133,3 +133,20 @@ def test_validate_auth_fields_app_oidc_requires_login_url():
         sso_bridge="app_oidc",
     )
     assert "login_form_url" in err
+
+
+def test_hot_store_flash_sets_cookie(monkeypatch):
+    seen = {}
+
+    def fake_flash(response, message, level, token):
+        seen["message"] = message
+        seen["level"] = level
+        seen["token"] = token
+
+    monkeypatch.setattr(pages, "flash_redirect", fake_flash)
+    resp = object()
+    settings = _settings()
+    out = pages._hot_store_flash(resp, "ok", "success", settings)
+    assert out is resp
+    assert seen["message"] == "ok"
+    assert seen["level"] == "success"

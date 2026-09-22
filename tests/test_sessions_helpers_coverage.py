@@ -22,7 +22,8 @@ def test_aware_and_parse_iso_dt():
     assert _aware(None) is None
     naive = datetime(2026, 1, 2, 3, 4, 5)
     aware = _aware(naive)
-    assert aware is not None and aware.tzinfo is timezone.utc
+    assert aware is not None
+    assert aware.tzinfo is timezone.utc
     already = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
     assert _aware(already) is already
 
@@ -31,7 +32,8 @@ def test_aware_and_parse_iso_dt():
     assert _parse_iso_dt(42) is None
     assert _parse_iso_dt("not-a-date") is None
     parsed = _parse_iso_dt("2026-01-02T03:04:05Z")
-    assert parsed is not None and parsed.tzinfo is not None
+    assert parsed is not None
+    assert parsed.tzinfo is not None
     assert _parse_iso_dt(already) is already
 
 

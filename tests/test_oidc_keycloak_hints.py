@@ -16,4 +16,5 @@ def test_keycloak_error_title_skips_login_and_reports_errors():
     assert _keycloak_error_title_hint(login, lower=login.lower()) is None
     err = "<html><title>Unexpected error</title></html>"
     hint = _keycloak_error_title_hint(err, lower=err.lower())
-    assert hint is not None and "Unexpected error" in hint
+    assert hint is not None
+    assert "Unexpected error" in hint

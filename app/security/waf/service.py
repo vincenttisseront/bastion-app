@@ -179,22 +179,19 @@ def update_active_profile(
     return profile
 
 
-def _validate_exclusion_fields(
-    *,
-    reason: str,
-    crs_rule_id: int | None,
-    uri_pattern: str | None,
-    host: str | None,
-    scope_kind: str | None,
-    target_name: str | None,
-    uri_match: str | None,
-    allow_global: bool,
-) -> tuple[str, str | None, str | None, str, str | None, str]:
+def _require_exclusion_reason(reason: str) -> str:
     reason_s = (reason or "").strip()
     if not reason_s:
         raise ValueError("raison obligatoire")
-    uri = (uri_pattern or "").strip() or None
-    host_s = (host or "").strip().lower() or None
+    return reason_s
+
+
+def _parse_exclusion_scope(
+    *,
+    scope_kind: str | None,
+    target_name: str | None,
+    uri_match: str | None,
+) -> tuple[str, str | None, str]:
     kind = (scope_kind or SCOPE_RULE).strip().lower()
     if kind not in VALID_SCOPE_KINDS:
         raise ValueError(f"scope_kind invalide: {scope_kind}")
@@ -206,12 +203,46 @@ def _validate_exclusion_fields(
         raise ValueError(
             "nom de variable requis (argument, cookie ou en-tête) pour ce type d'exclusion"
         )
-    if not uri and not host_s:
-        if not allow_global or kind != SCOPE_RULE:
-            raise ValueError(
-                "host ou URI requis (exclusion globale de règle entière "
-                "uniquement avec confirmation explicite)"
-            )
+    return kind, target, match
+
+
+def _require_exclusion_anchor(
+    uri: str | None,
+    host_s: str | None,
+    *,
+    kind: str,
+    allow_global: bool,
+) -> None:
+    if uri or host_s:
+        return
+    if allow_global and kind == SCOPE_RULE:
+        return
+    raise ValueError(
+        "host ou URI requis (exclusion globale de règle entière "
+        "uniquement avec confirmation explicite)"
+    )
+
+
+def _validate_exclusion_fields(
+    *,
+    reason: str,
+    crs_rule_id: int | None,
+    uri_pattern: str | None,
+    host: str | None,
+    scope_kind: str | None,
+    target_name: str | None,
+    uri_match: str | None,
+    allow_global: bool,
+) -> tuple[str, str | None, str | None, str, str | None, str]:
+    reason_s = _require_exclusion_reason(reason)
+    uri = (uri_pattern or "").strip() or None
+    host_s = (host or "").strip().lower() or None
+    kind, target, match = _parse_exclusion_scope(
+        scope_kind=scope_kind,
+        target_name=target_name,
+        uri_match=uri_match,
+    )
+    _require_exclusion_anchor(uri, host_s, kind=kind, allow_global=allow_global)
     if crs_rule_id is None:
         raise ValueError("crs_rule_id requis")
     return reason_s, uri, host_s, kind, target, match

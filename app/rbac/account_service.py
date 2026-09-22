@@ -582,6 +582,28 @@ async def assign_account_to_rbac_group(
     return target_account
 
 
+def _bastion_account_in_realm(
+    db: Session,
+    *,
+    realm_id: int,
+    source_account: BastionAccount,
+) -> BastionAccount | None:
+    target_account = (
+        db.query(BastionAccount)
+        .filter_by(realm_id=realm_id, username=source_account.username)
+        .first()
+    )
+    if target_account is not None and target_account.keycloak_user_id:
+        return target_account
+    email = (source_account.email or "").strip().lower()
+    if not email:
+        return target_account
+    for row in db.query(BastionAccount).filter_by(realm_id=realm_id).all():
+        if (row.email or "").strip().lower() == email and row.keycloak_user_id:
+            return row
+    return target_account
+
+
 async def remove_account_from_rbac_group(
     db: Session,
     settings: Settings,
@@ -598,19 +620,9 @@ async def remove_account_from_rbac_group(
     if target_realm is None:
         raise AccountCreationError("Realm du groupe introuvable")
 
-    target_account = (
-        db.query(BastionAccount)
-        .filter_by(realm_id=target_realm.id, username=source_account.username)
-        .first()
+    target_account = _bastion_account_in_realm(
+        db, realm_id=target_realm.id, source_account=source_account
     )
-    if target_account is None or not target_account.keycloak_user_id:
-        # Fallback: same email in that realm
-        email = (source_account.email or "").strip().lower()
-        if email:
-            for row in db.query(BastionAccount).filter_by(realm_id=target_realm.id).all():
-                if (row.email or "").strip().lower() == email and row.keycloak_user_id:
-                    target_account = row
-                    break
     if target_account is None or not target_account.keycloak_user_id:
         raise AccountCreationError(
             f"Aucun compte Keycloak lié dans le realm « {target_realm.slug} »"
