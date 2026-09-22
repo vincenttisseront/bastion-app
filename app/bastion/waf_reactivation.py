@@ -929,6 +929,83 @@ def _reactivate_subdomain_preflight(
     return arm, hosts
 
 
+def _reactivate_subdomain_wait_for_engine(
+    settings: Settings,
+    *,
+    prev_arm: dict[str, Any],
+    actor: str,
+    paths: dict[str, str],
+    sync_detail: str,
+    sync_fn: Callable[[Settings], tuple[bool, str]],
+    injected: bool,
+) -> dict[str, Any] | None:
+    if injected:
+        return None
+    edge = wait_for_nginx_edge(settings)
+    if not edge.get("ok"):
+        time.sleep(RELOAD_WAIT_SEC)
+    engine_wait = wait_for_subdomain_engine_mode(
+        settings,
+        MODE_DETECTION,
+        nudge=_nudge_waf_exports_watcher,
+    )
+    if engine_wait.get("ok"):
+        return None
+    _rollback_subdomain(
+        settings,
+        prev_arm=prev_arm,
+        actor=actor,
+        reason="subdomain_engine_mode_not_applied",
+        sync_reload=sync_fn,
+    )
+    return {
+        "ok": False,
+        "error": (
+            "nginx n'a pas basculé subdomain en DetectionOnly après reload "
+            f"(snapshot={engine_wait.get('mode')!r}, "
+            f"export={engine_wait.get('export_mode')!r})."
+        ),
+        "rolled_back": True,
+        "paths": paths,
+        "engine_wait": engine_wait,
+        "sync_detail": sync_detail,
+    }
+
+
+def _reactivate_subdomain_smoke_failure(
+    settings: Settings,
+    *,
+    prev_arm: dict[str, Any],
+    actor: str,
+    paths: dict[str, str],
+    sync_detail: str,
+    sync_fn: Callable[[Settings], tuple[bool, str]],
+    smoke_result: dict[str, Any],
+) -> dict[str, Any]:
+    _rollback_subdomain(
+        settings,
+        prev_arm=prev_arm,
+        actor=actor,
+        reason="subdomain_smoke_failed",
+        sync_reload=sync_fn,
+    )
+    summary = smoke_result.get("failed_summary") or _format_failed_probes(
+        smoke_result.get("failed") or []
+    )
+    return {
+        "ok": False,
+        "error": (
+            "Smoke subdomain en échec — rollback automatique vers Off."
+            + (f" Détail : {summary}" if summary else "")
+        ),
+        "rolled_back": True,
+        "paths": paths,
+        "smoke": smoke_result,
+        "failed_summary": summary,
+        "sync_detail": sync_detail,
+    }
+
+
 def reactivate_subdomain_engine(
     db: Session,
     settings: Settings,
@@ -1001,60 +1078,29 @@ def reactivate_subdomain_engine(
             "sync_detail": sync_detail,
         }
 
-    if smoke is None and sync_reload is None:
-        edge = wait_for_nginx_edge(settings)
-        if not edge.get("ok"):
-            time.sleep(RELOAD_WAIT_SEC)
-        engine_wait = wait_for_subdomain_engine_mode(
-            settings,
-            MODE_DETECTION,
-            nudge=_nudge_waf_exports_watcher,
-        )
-        if not engine_wait.get("ok"):
-            _rollback_subdomain(
-                settings,
-                prev_arm=prev_arm,
-                actor=actor,
-                reason="subdomain_engine_mode_not_applied",
-                sync_reload=sync_fn,
-            )
-            return {
-                "ok": False,
-                "error": (
-                    "nginx n'a pas basculé subdomain en DetectionOnly après reload "
-                    f"(snapshot={engine_wait.get('mode')!r}, "
-                    f"export={engine_wait.get('export_mode')!r})."
-                ),
-                "rolled_back": True,
-                "paths": paths,
-                "engine_wait": engine_wait,
-                "sync_detail": sync_detail,
-            }
+    wait_fail = _reactivate_subdomain_wait_for_engine(
+        settings,
+        prev_arm=prev_arm,
+        actor=actor,
+        paths=paths,
+        sync_detail=sync_detail,
+        sync_fn=sync_fn,
+        injected=(smoke is not None or sync_reload is not None),
+    )
+    if wait_fail is not None:
+        return wait_fail
 
     smoke_result = smoke_fn(db, settings)
     if not smoke_result.get("ok"):
-        _rollback_subdomain(
+        return _reactivate_subdomain_smoke_failure(
             settings,
             prev_arm=prev_arm,
             actor=actor,
-            reason="subdomain_smoke_failed",
-            sync_reload=sync_fn,
+            paths=paths,
+            sync_detail=sync_detail,
+            sync_fn=sync_fn,
+            smoke_result=smoke_result,
         )
-        summary = smoke_result.get("failed_summary") or _format_failed_probes(
-            smoke_result.get("failed") or []
-        )
-        return {
-            "ok": False,
-            "error": (
-                "Smoke subdomain en échec — rollback automatique vers Off."
-                + (f" Détail : {summary}" if summary else "")
-            ),
-            "rolled_back": True,
-            "paths": paths,
-            "smoke": smoke_result,
-            "failed_summary": summary,
-            "sync_detail": sync_detail,
-        }
 
     final_arm = dict(read_arm_state(settings))
     sub = dict(final_arm.get("subdomain") or {})

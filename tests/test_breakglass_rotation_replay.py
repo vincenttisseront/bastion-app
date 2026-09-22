@@ -90,8 +90,8 @@ def test_login_creates_chain_and_rotation_advances(db_session):
     assert tip.superseded_by is None
 
     # Absolute exp preserved
-    old_payload = jwt.decode(token, SECRET, algorithms=["HS256"])
-    new_payload = jwt.decode(result.set_cookie, SECRET, algorithms=["HS256"])
+    old_payload = jwt.decode(token, SECRET, algorithms=["HS256"], options={"verify_aud": False})
+    new_payload = jwt.decode(result.set_cookie, SECRET, algorithms=["HS256"], options={"verify_aud": False})
     assert int(new_payload["exp"]) == int(old_payload["exp"])
 
 
@@ -114,7 +114,7 @@ def test_grace_reuse_resyncs_without_cutting_chain(db_session):
     db_session.commit()
     assert r2.ok is True
     assert r2.set_cookie
-    tip_payload = jwt.decode(r2.set_cookie, SECRET, algorithms=["HS256"])
+    tip_payload = jwt.decode(r2.set_cookie, SECRET, algorithms=["HS256"], options={"verify_aud": False})
     assert tip_payload["jti"] == r1.jti
     assert not any(
         bool(x.chain_revoked)
@@ -220,7 +220,7 @@ def test_multiple_rotations_preserve_absolute_exp(db_session):
     initial_row = db_session.query(BreakGlassSession).filter_by(jti=jti0).first()
     initial_exp_db = initial_row.expires_at.replace(tzinfo=timezone.utc)
     initial_exp_jwt = int(
-        jwt.decode(token, SECRET, algorithms=["HS256"])["exp"]
+        jwt.decode(token, SECRET, algorithms=["HS256"], options={"verify_aud": False})["exp"]
     )
 
     for i in range(5):
@@ -231,7 +231,7 @@ def test_multiple_rotations_preserve_absolute_exp(db_session):
         assert result.ok, f"rotation {i} failed"
         assert result.set_cookie
         token = result.set_cookie
-        payload = jwt.decode(token, SECRET, algorithms=["HS256"])
+        payload = jwt.decode(token, SECRET, algorithms=["HS256"], options={"verify_aud": False})
         assert int(payload["exp"]) == initial_exp_jwt
         tip = db_session.query(BreakGlassSession).filter_by(jti=result.jti).first()
         assert tip.expires_at.replace(tzinfo=timezone.utc) == initial_exp_db
