@@ -567,6 +567,171 @@ def test_api_ca_upload_with_skip_probe(client, db_session, tmp_path, monkeypatch
         app.dependency_overrides.pop(gs, None)
 
 
+def test_api_ca_get_delete_test_and_bad_upload(client, db_session, tmp_path, monkeypatch):
+    from app.main import app
+    from app.sso_settings import get_settings as gs
+
+    settings = _settings(tmp_path)
+    app.dependency_overrides[gs] = lambda: settings
+    headers = {"X-Email": "admin@example.com", "X-Groups": "portal-admins"}
+    try:
+        _enable_syslog_tls(db_session, settings)
+
+        def _install(db, settings, **kw):
+            from app.siem.ca_service import install_syslog_ca as real
+
+            kw["skip_tls_probe"] = True
+            return real(db, settings, **kw)
+
+        monkeypatch.setattr("app.web.admin_siem_ca.install_syslog_ca", _install)
+
+        got = client.get("/api/admin/siem/syslog-tls/ca", headers=headers)
+        assert got.status_code == 200
+        assert got.json()["configured"] is False
+
+        bad = client.post(
+            "/api/admin/siem/syslog-tls/ca",
+            headers=headers,
+            files={"file": ("bad.pem", b"not-a-cert", "application/x-pem-file")},
+        )
+        assert bad.status_code == 400
+        assert bad.json()["ok"] is False
+
+        pem, _ = _build_ca(cn="API CA")
+        up = client.post(
+            "/api/admin/siem/syslog-tls/ca",
+            headers=headers,
+            files={"file": ("api.pem", pem, "application/x-pem-file")},
+        )
+        assert up.status_code == 200, up.text
+
+        class _SslSock:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_a):
+                return False
+
+            def cipher(self):
+                return ("TLS_AES_256_GCM_SHA384", "TLSv1.3", 256)
+
+        monkeypatch.setattr(
+            "app.web.admin_siem_ca.run_syslog_tls_ca_test",
+            lambda *a, **k: (True, "ok", ["✓"]),
+        )
+        probe = client.post("/api/admin/siem/syslog-tls/test", headers=headers)
+        assert probe.status_code == 200
+        assert probe.json()["ok"] is True
+
+        deleted = client.delete("/api/admin/siem/syslog-tls/ca", headers=headers)
+        assert deleted.status_code == 200
+        assert deleted.json()["configured"] is False
+    finally:
+        app.dependency_overrides.pop(gs, None)
+
+
+def test_install_rejects_when_syslog_host_missing_for_probe(db_session, tmp_path):
+    from app.siem.ca_service import install_syslog_ca
+    from app.siem.settings_service import update_siem_settings
+
+    settings = _settings(tmp_path)
+    update_siem_settings(
+        db_session,
+        settings,
+        enabled=True,
+        protocol="syslog_tls",
+        syslog_host="",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        webhook_url="",
+        webhook_auth_type="none",
+        webhook_auth_secret=None,
+        clear_webhook_secret=False,
+        filter_mode="denylist",
+        filter_actions=[],
+        retry_max_queue_size=100,
+        retry_max_age_minutes=60,
+        actor="admin@example.com",
+    )
+    pem, _ = _build_ca(cn="No Host CA")
+    with pytest.raises(ca.SyslogCaError, match="hôte Syslog"):
+        install_syslog_ca(
+            db_session,
+            settings,
+            raw=pem,
+            filename="nohost.pem",
+            actor="admin@example.com",
+            skip_tls_probe=False,
+        )
+
+
+def test_get_ca_api_status_fingerprint_mismatch_badge(db_session, tmp_path):
+    from app.siem.ca_service import get_ca_api_status, install_syslog_ca
+    from app.siem.settings_service import ensure_siem_settings
+
+    settings = _settings(tmp_path)
+    _enable_syslog_tls(db_session, settings)
+    pem, _ = _build_ca(cn="Mismatch CA")
+    install_syslog_ca(
+        db_session,
+        settings,
+        raw=pem,
+        filename="mm.pem",
+        actor="admin@example.com",
+        skip_tls_probe=True,
+    )
+    row = ensure_siem_settings(db_session)
+    row.syslog_ca_fingerprint_sha256 = "AA:BB:CC:DD"
+    db_session.commit()
+    status = get_ca_api_status(db_session, settings)
+    assert status["configured"] is True
+    assert status["badge"] == "configured"
+
+
+def test_run_syslog_tls_ca_test_missing_host(db_session, tmp_path, monkeypatch):
+    from app.siem import ca_service
+    from app.siem.ca_service import run_syslog_tls_ca_test
+
+    settings = _settings(tmp_path)
+    _enable_syslog_tls(db_session, settings)
+
+    cfg = MagicMock(
+        protocol="syslog_tls",
+        syslog_host="",
+        syslog_port=6514,
+        syslog_tls_verify=True,
+        syslog_ca_valid=True,
+        syslog_ca_relative_path=ca.DEFAULT_RELATIVE_PATH,
+    )
+    monkeypatch.setattr(ca_service, "get_siem_config", lambda *_a, **_k: cfg)
+    ok, msg, lines = run_syslog_tls_ca_test(
+        db_session, settings, actor="admin@example.com"
+    )
+    assert ok is False
+    assert "syslog_host" in msg
+    assert any("✗" in line for line in lines)
+
+
+def test_run_syslog_tls_ca_test_tls_verify_disabled(db_session, tmp_path, monkeypatch):
+    from app.siem import ca_service
+    from app.siem.ca_service import run_syslog_tls_ca_test
+
+    settings = _settings(tmp_path)
+    _enable_syslog_tls(db_session, settings)
+    cfg = MagicMock(
+        protocol="syslog_tls",
+        syslog_host="10.0.0.10",
+        syslog_port=6514,
+        syslog_tls_verify=False,
+        syslog_ca_valid=True,
+        syslog_ca_relative_path=ca.DEFAULT_RELATIVE_PATH,
+    )
+    monkeypatch.setattr(ca_service, "get_siem_config", lambda *_a, **_k: cfg)
+    ok, msg, _ = run_syslog_tls_ca_test(db_session, settings, actor="admin@example.com")
+    assert ok is False
+    assert "tls_verify" in msg
+
+
 def _enable_syslog_tls(db_session, settings, *, host: str = "10.0.0.10") -> None:
     from app.siem.settings_service import update_siem_settings
 
