@@ -115,7 +115,8 @@ def test_excess_perm_alert_line_and_aware():
     )
     line = _excess_perm_alert_line(old, cutoff)
     assert line is not None
-    assert "ops" in line and "logs" in line
+    assert "ops" in line
+    assert "logs" in line
 
     fresh = SimpleNamespace(
         can_write=True,
@@ -187,3 +188,354 @@ def test_validate_new_bastion_account_inputs_ok(monkeypatch):
         organization=" Acme ",
     )
     assert out == ("alice", "a@example.com", "Ann", "Lee", "Acme")
+
+
+def test_apply_verify_outcome_branches():
+    from app.web.session_verify import _INVALID_STREAK_TO_REVOKE, _apply_verify_outcome
+
+    now = datetime.now(timezone.utc)
+    revoke = MagicMock()
+
+    active = SimpleNamespace(
+        id=1, details={}, last_verified_status=None, last_verified_at=None
+    )
+    revoked, payload = _apply_verify_outcome(
+        MagicMock(),
+        active,
+        status="active",
+        now=now,
+        actor="admin@example.com",
+        email="user@example.com",
+        ip_address="10.0.0.1",
+        revoke_active_session=revoke,
+    )
+    assert revoked is False
+    assert payload["last_verified_status"] == "active"
+    assert active.details["consecutive_invalid_count"] == 0
+    revoke.assert_not_called()
+
+    soft = SimpleNamespace(
+        id=2,
+        details={"consecutive_invalid_count": 0},
+        last_verified_status=None,
+        last_verified_at=None,
+    )
+    revoked, payload = _apply_verify_outcome(
+        MagicMock(),
+        soft,
+        status="invalid",
+        now=now,
+        actor=None,
+        email="user@example.com",
+        ip_address=None,
+        revoke_active_session=revoke,
+    )
+    assert revoked is False
+    assert payload["consecutive_invalid_count"] == 1
+    revoke.assert_not_called()
+
+    hard = SimpleNamespace(
+        id=3,
+        details={"consecutive_invalid_count": _INVALID_STREAK_TO_REVOKE - 1},
+        last_verified_status=None,
+        last_verified_at=None,
+    )
+    revoked, payload = _apply_verify_outcome(
+        MagicMock(),
+        hard,
+        status="invalid",
+        now=now,
+        actor=None,
+        email="user@example.com",
+        ip_address="10.0.0.2",
+        revoke_active_session=revoke,
+    )
+    assert revoked is True
+    assert payload["revoked"] is True
+    revoke.assert_called_once()
+
+    unknown = SimpleNamespace(
+        id=4,
+        details={"consecutive_invalid_count": 5},
+        last_verified_status=None,
+        last_verified_at=None,
+    )
+    revoked, payload = _apply_verify_outcome(
+        MagicMock(),
+        unknown,
+        status="unknown",
+        now=now,
+        actor="a",
+        email="user@example.com",
+        ip_address=None,
+        revoke_active_session=revoke,
+    )
+    assert revoked is False
+    assert payload["last_verified_status"] == "unknown"
+    assert payload["consecutive_invalid_count"] == 5
+
+
+@pytest.mark.asyncio
+async def test_access_log_follow_once_paths(tmp_path: Path, monkeypatch):
+    from app.web.nginx_app_logs import _access_log_follow_once
+
+    settings = SimpleNamespace()
+    missing = tmp_path / "missing.log"
+    chunk, offset, stop = await _access_log_follow_once(
+        missing, settings, "app1", lines=10, offset=0
+    )
+    assert chunk is None
+    assert offset == 0
+    assert stop is False
+
+    log = tmp_path / "access.log"
+    log.write_bytes(b"line1\nline2\n")
+    size = log.stat().st_size
+    chunk, offset, stop = await _access_log_follow_once(
+        log, settings, "app1", lines=10, offset=size
+    )
+    assert chunk is None
+    assert offset == size
+    assert stop is False
+
+    log.write_bytes(b"line1\nline2\nline3\n")
+    chunk, offset, stop = await _access_log_follow_once(
+        log, settings, "app1", lines=10, offset=size
+    )
+    assert chunk is not None
+    assert "line3" in chunk
+    assert stop is False
+
+    monkeypatch.setattr(
+        "app.web.nginx_app_logs.read_access_log_tail",
+        lambda *_a, **_k: "rotated\n",
+    )
+    chunk, offset, stop = await _access_log_follow_once(
+        log, settings, "app1", lines=10, offset=10_000
+    )
+    assert chunk == "rotated\n"
+    assert stop is False
+
+
+def test_redirect_apply_terminal_and_timeout(monkeypatch):
+    from app.web.admin_infrastructure import (
+        _redirect_apply_terminal,
+        _redirect_apply_timeout,
+    )
+
+    flashes: list[tuple] = []
+
+    monkeypatch.setattr(
+        "app.web.admin_infrastructure.flash_redirect",
+        lambda resp, msg, level, token: flashes.append((msg, level)),
+    )
+    monkeypatch.setattr(
+        "app.web.admin_infrastructure.log_action",
+        lambda *a, **k: None,
+    )
+
+    user = SimpleNamespace(email="admin@example.com")
+    state = {
+        "status_path": "/tmp/st",
+        "log_path": "/tmp/log",
+        "request_pending": False,
+    }
+
+    ok = _redirect_apply_terminal(
+        db=MagicMock(),
+        user=user,
+        status="ok",
+        state=state,
+        next_path="/admin/infrastructure",
+        context_label="Export OK",
+        target="infrastructure",
+        source="admin.infrastructure",
+        elapsed=3,
+        token="dev",
+    )
+    assert ok.status_code == 302
+    assert flashes[-1][1] == "success"
+
+    fail = _redirect_apply_terminal(
+        db=MagicMock(),
+        user=user,
+        status="error",
+        state=state,
+        next_path="/admin/infrastructure",
+        context_label="",
+        target="infrastructure",
+        source="admin.infrastructure",
+        elapsed=3,
+        token="dev",
+    )
+    assert fail.status_code == 302
+    assert flashes[-1][1] == "error"
+
+    timed = _redirect_apply_timeout(
+        db=MagicMock(),
+        user=user,
+        state=state,
+        context_label="Ctx",
+        target="infrastructure",
+        source="admin.infrastructure",
+        elapsed=99,
+        timeout=60,
+        token="dev",
+    )
+    assert timed.status_code == 302
+    assert "60s" in flashes[-1][0]
+
+
+def test_group_delete_fail_response_json_and_redirect(monkeypatch):
+    from starlette.requests import Request as StarletteRequest
+
+    from app.admin.rbac_groups import _group_delete_fail_response
+
+    flashes: list[str] = []
+    monkeypatch.setattr(
+        "app.admin.rbac_groups.flash_redirect",
+        lambda resp, msg, level, secret: flashes.append(msg),
+    )
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/admin/rbac/groups/1/delete",
+        "raw_path": b"/admin/rbac/groups/1/delete",
+        "root_path": "",
+        "scheme": "https",
+        "query_string": b"",
+        "headers": [(b"accept", b"application/json")],
+        "client": ("10.0.0.1", 1234),
+        "server": ("portal.example.com", 443),
+    }
+    req = StarletteRequest(scope)
+    json_resp = _group_delete_fail_response(
+        req,
+        redirect_url=None,
+        group_id=1,
+        msg="busy",
+        status_code=409,
+        secret="dev",
+    )
+    assert json_resp.status_code == 409
+
+    scope2 = dict(scope)
+    scope2["headers"] = [(b"accept", b"text/html")]
+    req2 = StarletteRequest(scope2)
+    html = _group_delete_fail_response(
+        req2,
+        redirect_url="/admin/rbac",
+        group_id=1,
+        msg="busy",
+        status_code=409,
+        secret="dev",
+    )
+    assert html.status_code == 302
+    assert flashes[-1] == "busy"
+
+
+def test_fetch_live_audit_entries_filters(monkeypatch):
+    from app.web import admin_logs as mod
+
+    rows = [SimpleNamespace(id=10)]
+    qset = MagicMock()
+    qset.order_by.return_value.limit.return_value.all.return_value = rows
+    db = MagicMock()
+    db.query.return_value.filter.return_value = qset
+
+    class _Ctx:
+        def __enter__(self):
+            return db
+
+        def __exit__(self, *a):
+            return False
+
+    # SessionLocal() used as factory returning an object with close()
+    session = MagicMock()
+    session.query.return_value.filter.return_value = qset
+    monkeypatch.setattr(mod, "SessionLocal", lambda: session)
+    monkeypatch.setattr(
+        mod,
+        "apply_audit_filters",
+        lambda qs, **_k: qs,
+    )
+    monkeypatch.setattr(
+        mod,
+        "serialize_audit_row",
+        lambda r, locale=None: {"id": r.id, "action": "login"},
+    )
+
+    def _match(entry, **kwargs):
+        return entry["id"] == 10
+
+    out = mod._fetch_live_audit_entries(
+        last_id=1,
+        locale="fr",
+        filters={
+            "action": "login",
+            "actor": None,
+            "df": None,
+            "dt": None,
+            "ip": None,
+            "q": None,
+            "detail": None,
+            "event_code": None,
+            "statuses": None,
+            "domains": None,
+            "severities": None,
+            "sev_min": None,
+        },
+        entry_matches_live_filters=_match,
+    )
+    assert out == [{"id": 10, "action": "login"}]
+    session.close.assert_called_once()
+
+
+def test_reset_password_error_response_paths(monkeypatch):
+    from starlette.requests import Request as StarletteRequest
+
+    from app.admin.rbac_accounts import _reset_password_error_response
+
+    flashes: list[str] = []
+    monkeypatch.setattr(
+        "app.admin.rbac_accounts.flash_redirect",
+        lambda resp, msg, level, secret: flashes.append(msg),
+    )
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/admin/rbac/accounts/1/reset-password",
+        "raw_path": b"/x",
+        "root_path": "",
+        "scheme": "https",
+        "query_string": b"",
+        "headers": [(b"accept", b"application/json")],
+        "client": ("10.0.0.1", 1234),
+        "server": ("portal.example.com", 443),
+    }
+    json_resp = _reset_password_error_response(
+        StarletteRequest(scope),
+        exc=RuntimeError("boom"),
+        redirect_url="",
+        fallback="/admin/rbac",
+        secret="dev",
+    )
+    assert json_resp.status_code == 400
+
+    scope2 = dict(scope)
+    scope2["headers"] = [(b"accept", b"text/html")]
+    html = _reset_password_error_response(
+        StarletteRequest(scope2),
+        exc=RuntimeError("boom"),
+        redirect_url="/admin/rbac/accounts/1",
+        fallback="/admin/rbac",
+        secret="dev",
+    )
+    assert html.status_code == 302
+    assert flashes[-1] == "boom"

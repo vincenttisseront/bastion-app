@@ -114,7 +114,7 @@ async def verify_driven_session(row: ActiveSession) -> VerifyStatus:
     return "unknown"
 
 
-async def _apply_verify_outcome(
+def _apply_verify_outcome(
     db: Session,
     row: ActiveSession,
     *,
@@ -233,7 +233,7 @@ async def live_verify_user_sessions(
         if not is_driven_session(row):
             continue
         status = await verify_driven_session(row)
-        _revoked, payload = await _apply_verify_outcome(
+        _revoked, payload = _apply_verify_outcome(
             db,
             row,
             status=status,
