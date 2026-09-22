@@ -18,3 +18,35 @@ def test_keycloak_error_title_skips_login_and_reports_errors():
     hint = _keycloak_error_title_hint(err, lower=err.lower())
     assert hint is not None
     assert "Unexpected error" in hint
+
+
+def test_require_headless_login_inputs():
+    from app.oidc_bff_client import (
+        InvalidCredentialsError,
+        OidcBffConfigError,
+        _require_headless_login_inputs,
+    )
+
+    try:
+        _require_headless_login_inputs(
+            realm="", username="u", password="p", db=object()
+        )
+        raised = False
+    except InvalidCredentialsError:
+        raised = True
+    assert raised is True
+
+    try:
+        _require_headless_login_inputs(
+            realm="default", username="u", password="p", db=None
+        )
+        raised2 = False
+    except OidcBffConfigError:
+        raised2 = True
+    assert raised2 is True
+
+    realm, user = _require_headless_login_inputs(
+        realm=" default ", username=" alice ", password="x", db=object()
+    )
+    assert realm == "default"
+    assert user == "alice"

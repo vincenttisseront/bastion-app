@@ -892,17 +892,10 @@ def smoke_subdomain_probes(db: Session, settings: Settings) -> dict[str, Any]:
     }
 
 
-def reactivate_subdomain_engine(
-    db: Session,
-    settings: Settings,
-    *,
-    actor: str,
-    confirm: bool,
-    validate: Callable[[Settings], tuple[bool, str]] | None = None,
-    smoke: Callable[[Session, Settings], dict[str, Any]] | None = None,
-    sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
-) -> dict[str, Any]:
-    """Arm subdomain ModSecurity (DetectionOnly) after portal is armed; smoke + rollback."""
+def _reactivate_subdomain_preflight(
+    db: Session, settings: Settings, *, confirm: bool
+) -> tuple[dict[str, Any], list[str]] | dict[str, Any]:
+    """Return (arm_state, hosts) or an error payload."""
     if not confirm:
         return {
             "ok": False,
@@ -933,6 +926,24 @@ def reactivate_subdomain_engine(
             "error": "Aucune application subdomain_proxy activée avec FQDN.",
             "rolled_back": False,
         }
+    return arm, hosts
+
+
+def reactivate_subdomain_engine(
+    db: Session,
+    settings: Settings,
+    *,
+    actor: str,
+    confirm: bool,
+    validate: Callable[[Settings], tuple[bool, str]] | None = None,
+    smoke: Callable[[Session, Settings], dict[str, Any]] | None = None,
+    sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
+) -> dict[str, Any]:
+    """Arm subdomain ModSecurity (DetectionOnly) after portal is armed; smoke + rollback."""
+    preflight = _reactivate_subdomain_preflight(db, settings, confirm=confirm)
+    if isinstance(preflight, dict):
+        return preflight
+    arm, hosts = preflight
 
     prev_arm = dict(arm)
     mod_dir = waf_exports_dir(settings)

@@ -679,6 +679,59 @@ async def _assign_groups_and_provision_apps(
     assert keycloak_user_id  # caller guarantees
     _ = provision_token  # kept for call-site compatibility
 
+    selected_group_names = await _assign_selected_rbac_groups(
+        db,
+        settings,
+        account=account,
+        realm=realm,
+        group_ids=group_ids,
+        actor=actor,
+        ip_address=ip_address,
+        errors=errors,
+    )
+    if errors:
+        account.last_error = " ; ".join(errors)
+
+    for application_id in application_ids:
+        app = db.query(App).filter_by(id=application_id).first()
+        if app is None:
+            errors.append(f"Application #{application_id} introuvable")
+            continue
+        crushftp_groups = (
+            list(selected_group_names)
+            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
+            else None
+        )
+        # Always pass société + selected group names to drivers that support groups.
+        group_names_for_app = list(selected_group_names) if crushftp_groups is not None else None
+        row = await provision_account_app(
+            db,
+            settings,
+            account=account,
+            app=app,
+            actor=actor,
+            ip_address=ip_address,
+            group_names=group_names_for_app,
+        )
+        if row.status == PROVISIONING_FAILED:
+            errors.append(f"{app.label} : {row.detail}")
+        elif row.detail and "Groupes:" in row.detail and "=échec" in row.detail:
+            errors.append(f"{app.label} (groupes) : {row.detail}")
+
+    return errors
+
+
+async def _assign_selected_rbac_groups(
+    db: Session,
+    settings: Settings,
+    *,
+    account: BastionAccount,
+    realm: RealmConfig,
+    group_ids: list[int],
+    actor: str,
+    ip_address: str | None,
+    errors: list[str],
+) -> list[str]:
     selected_group_names: list[str] = []
     for group_id in group_ids:
         group = db.query(RBACGroup).filter_by(id=group_id).first()
@@ -720,36 +773,7 @@ async def _assign_groups_and_provision_apps(
                 },
                 ip_address=ip_address,
             )
-    if errors:
-        account.last_error = " ; ".join(errors)
-
-    for application_id in application_ids:
-        app = db.query(App).filter_by(id=application_id).first()
-        if app is None:
-            errors.append(f"Application #{application_id} introuvable")
-            continue
-        crushftp_groups = (
-            list(selected_group_names)
-            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
-            else None
-        )
-        # Always pass société + selected group names to drivers that support groups.
-        group_names_for_app = list(selected_group_names) if crushftp_groups is not None else None
-        row = await provision_account_app(
-            db,
-            settings,
-            account=account,
-            app=app,
-            actor=actor,
-            ip_address=ip_address,
-            group_names=group_names_for_app,
-        )
-        if row.status == PROVISIONING_FAILED:
-            errors.append(f"{app.label} : {row.detail}")
-        elif row.detail and "Groupes:" in row.detail and "=échec" in row.detail:
-            errors.append(f"{app.label} (groupes) : {row.detail}")
-
-    return errors
+    return selected_group_names
 
 
 async def push_keycloak_user_and_continue(

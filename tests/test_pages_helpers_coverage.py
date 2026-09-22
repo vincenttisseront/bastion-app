@@ -150,3 +150,37 @@ def test_hot_store_flash_sets_cookie(monkeypatch):
     assert out is resp
     assert seen["message"] == "ok"
     assert seen["level"] == "success"
+
+
+def test_ordered_enabled_realms_puts_default_first(db_session):
+    from app.models import RealmConfig
+    from app.secret_crypto import encrypt_secret
+
+    settings = _settings()
+    a = RealmConfig(
+        slug="alpha",
+        name="Alpha",
+        enabled=True,
+        issuer_url="https://idp.example.com/realms/alpha",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("s", settings),
+        redirect_uri="https://portal.example.com/oauth2/alpha/callback",
+        oauth2_proxy_port=4181,
+        is_default=False,
+    )
+    b = RealmConfig(
+        slug="default",
+        name="Default",
+        enabled=True,
+        issuer_url="https://idp.example.com/realms/default",
+        client_id="portal",
+        client_secret_encrypted=encrypt_secret("s", settings),
+        redirect_uri="https://portal.example.com/oauth2/default/callback",
+        oauth2_proxy_port=4180,
+        is_default=True,
+    )
+    db_session.add_all([a, b])
+    db_session.commit()
+    ordered = pages._ordered_enabled_realms(db_session, b)
+    assert ordered[0].slug == "default"
+    assert {r.slug for r in ordered} == {"default", "alpha"}
