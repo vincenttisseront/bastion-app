@@ -134,7 +134,8 @@ def test_extract_totp_setup_parses_secret_and_qr():
     assert parsed is not None
     assert parsed.totp_secret == "ABCDEFGHIJKLMNOP"
     assert "ABCD" in parsed.secret_display
-    assert parsed.qr_data_url and parsed.qr_data_url.startswith("data:image/png")
+    assert parsed.qr_data_url
+    assert parsed.qr_data_url.startswith("data:image/png")
     assert "required-action" in parsed.action
     assert parsed.fields.get("totpSecret") == "ABCDEFGHIJKLMNOP"
 
@@ -237,7 +238,9 @@ async def test_headless_login_success():
     assert result.preferred_username == "alice"
     assert result.expires_in == 300
     assert result.groups == ()
-    assert auth_route.called and login_route.called and token_route.called
+    assert auth_route.called
+    assert login_route.called
+    assert token_route.called
 
     auth_q = parse_qs(urlparse(str(auth_route.calls.last.request.url)).query)
     assert auth_q["client_id"] == ["bastion-bff"]

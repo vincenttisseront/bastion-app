@@ -83,7 +83,8 @@ def test_breakglass_secret_status_generate_makes_conforming(db_session):
     assert status.effective_source == "ui"
 
     ui = get_ui_breakglass_secret(db_session, settings)
-    assert ui and ui != LEGACY
+    assert ui
+    assert ui != LEGACY
     assert resolve_breakglass_signing_secret(settings, db=db_session) == ui
 
     new_token = create_breakglass_token("admin", ui)
@@ -131,7 +132,8 @@ def test_breakglass_secret_status_ui_rotation_keeps_old_cookie_valid(db_session)
     generate_or_rotate_ui_breakglass_secret(db_session, settings, actor="admin@test")
     second = get_ui_breakglass_secret(db_session, settings)
     previous = get_ui_breakglass_previous_secret(db_session, settings)
-    assert second and second != first
+    assert second
+    assert second != first
     assert previous == first
     assert resolve_breakglass_signing_secret(settings, db=db_session) == second
     assert validate_breakglass_cookie(old_cookie, settings=settings, db=db_session)

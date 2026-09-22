@@ -315,22 +315,22 @@ def test_diagnostic_export_expected_vs_actual():
 def test_build_unknown_host_panel_counts_pending_hosts(db_session: Session):
     record_unknown_host(
         db_session,
-        hostname="ar-systems.fr",
-        client_ip="34.155.98.34",
+        hostname="unknown.example.com",
+        client_ip="198.51.100.34",
         uri="/api/v2/settings",
         user_agent="PerplexityBot/1.0",
     )
     record_unknown_host(
         db_session,
-        hostname="ar-systems.fr",
-        client_ip="34.155.98.34",
+        hostname="unknown.example.com",
+        client_ip="198.51.100.34",
         uri="/robots.txt",
         user_agent="PerplexityBot/1.0",
     )
     panel = build_unknown_host_panel(db_session, hours=24)
     assert panel["hits_24h"] >= 2
     assert len(panel["top_ips"]) >= 1
-    assert panel["top_ips"][0]["ip"] == "34.155.98.34"
+    assert panel["top_ips"][0]["ip"] == "198.51.100.34"
 
 
 def test_build_attack_controls_merges_unknown_host(db_session: Session):
@@ -537,11 +537,66 @@ def test_feed_host_key_and_family_from_apps(db_session: Session):
         App(
             slug="sub",
             label="Sub",
-            upstream_url="https://origin.example.com",
-            public_fqdn="app.example.com",
-            access_mode="subdomain_proxy",
             enabled=True,
+            public_fqdn="sub.example.com",
+            access_mode="subdomain_proxy",
+            upstream_url="http://10.0.0.10/",
         )
     )
     db_session.commit()
-    assert _family_from_enabled_apps(db_session, "app.example.com") == "subdomain"
+    assert _family_from_enabled_apps(db_session, "sub.example.com") == "subdomain"
+
+
+def test_ip_deny_layer_states():
+    from app.bastion.waf_readability import _ip_deny_layer
+
+    promoted = _ip_deny_layer(
+        promoted_ips=["198.51.100.1"], ip_ban_count=0, min_occurrences=3
+    )
+    assert promoted["state"] == "actif"
+    assert promoted["css"] == "badge-ok"
+    assert "1 IP promue" in promoted["detail"]
+
+    quarantine = _ip_deny_layer(
+        promoted_ips=[], ip_ban_count=2, min_occurrences=3
+    )
+    assert quarantine["state"] == "app seul"
+    assert quarantine["css"] == "badge-warn"
+    assert "2 IP en quarantaine" in quarantine["detail"]
+
+    empty = _ip_deny_layer(promoted_ips=[], ip_ban_count=0, min_occurrences=3)
+    assert empty["state"] == "aucune IP"
+    assert empty["css"] == "badge-muted"
+
+
+def test_reactivation_summary_text_variants():
+    from app.bastion.waf_readability import _reactivation_summary_text
+
+    both = _reactivation_summary_text(
+        portal_armed=True, subdomain_armed=True, subdomain_already_on=False
+    )
+    assert "portail" in both.lower() or "Portal" in both or "DetectionOnly" in both
+
+    portal_only = _reactivation_summary_text(
+        portal_armed=True, subdomain_armed=False, subdomain_already_on=False
+    )
+    assert portal_only
+
+    idle = _reactivation_summary_text(
+        portal_armed=False, subdomain_armed=False, subdomain_already_on=False
+    )
+    assert idle
+
+
+def test_matching_rule_events_filters_by_id():
+    from app.bastion.waf_readability import _matching_rule_events
+
+    recent = [
+        {"rule_id": "941100", "all_rule_ids": ["941100"], "uri": "/a", "client_ip": "10.0.0.1"},
+        {"rule_id": "942100", "all_rule_ids": ["942100", "941100"], "uri": "/b"},
+        "skip-me",
+    ]
+    matched = _matching_rule_events(recent, "941100", limit=10)
+    assert len(matched) == 2
+    assert matched[0]["uri"] == "/b"
+    assert matched[1]["uri"] == "/a"

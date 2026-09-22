@@ -185,7 +185,7 @@ def _resolve_target(
     return "legacy", f"/proxy/{app.slug}/", None
 
 
-def _crushftp_login_base_url(app: App, settings: Settings, db: Session) -> str:
+def _crushftp_login_base_url(app: App, settings: Settings, _db: Session) -> str:
     """
     Base URL for CrushFTP robotic login/getUsername.
 

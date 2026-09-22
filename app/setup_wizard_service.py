@@ -202,6 +202,31 @@ def mark_setup_wizard_complete(
     return row
 
 
+def _site_step_status(*, domain_ok: bool, has_bg: bool) -> str:
+    if domain_ok:
+        return "done"
+    if has_bg:
+        return "current"
+    return "locked"
+
+
+def _oidc_step_status(*, has_realm: bool, domain_ok: bool, has_bg: bool) -> str:
+    if has_realm:
+        return "done"
+    if domain_ok:
+        return "current"
+    if has_bg:
+        return "todo"
+    return "locked"
+
+
+def _oidc_step_detail(*, has_realm: bool, realm, realm_tested: bool) -> str:
+    if not has_realm:
+        return "Issuer, client, secrets → Realms"
+    suffix = " (test OK)" if realm_tested else " — tester puis Apply"
+    return f"Realm « {realm.slug} »{suffix}"
+
+
 def get_setup_status(db: Session, settings: Settings) -> SetupStatus:
     row = ensure_portal_settings(db, settings)
     completed = getattr(row, "setup_wizard_completed_at", None) is not None
@@ -245,23 +270,18 @@ def get_setup_status(db: Session, settings: Settings) -> SetupStatus:
         SetupStep(
             id="site",
             label="Identité du portail",
-            status="done" if domain_ok else ("current" if has_bg else "locked"),
+            status=_site_step_status(domain_ok=domain_ok, has_bg=has_bg),
             detail=portal_domain if domain_ok else "FQDN + slug realm (stockés en base)",
             href="/admin/setup-wizard#site" if has_bg else None,
         ),
         SetupStep(
             id="oidc",
             label="Realm OIDC",
-            status=(
-                "done"
-                if has_realm
-                else ("current" if domain_ok else ("todo" if has_bg else "locked"))
+            status=_oidc_step_status(
+                has_realm=has_realm, domain_ok=domain_ok, has_bg=has_bg
             ),
-            detail=(
-                f"Realm « {realm.slug} »"
-                + (" (test OK)" if realm_tested else " — tester puis Apply")
-                if has_realm
-                else "Issuer, client, secrets → Realms"
+            detail=_oidc_step_detail(
+                has_realm=has_realm, realm=realm, realm_tested=realm_tested
             ),
             href="/admin/realms/new" if has_bg else None,
         ),

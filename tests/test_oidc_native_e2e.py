@@ -242,7 +242,9 @@ def test_e2e_login_sets_cookie_and_oauth2_auth_accepts(
     assert login.status_code == 200
     assert login.json()["status"] == "ok"
     assert COOKIE in login.cookies
-    assert auth_route.called and login_route.called and token_route.called
+    assert auth_route.called
+    assert login_route.called
+    assert token_route.called
 
     rows = db_session.query(OidcSession).all()
     assert len(rows) == 1

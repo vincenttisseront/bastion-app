@@ -2951,16 +2951,18 @@ def admin_user_app_credential_read(
     override = has_user_override(db, slug, keycloak_user_id)
     user_cred = get_user_credential(db, slug, keycloak_user_id) if override else None
     shared = get_app_credential(db, slug)
+    if user_cred is not None:
+        robotic_username = user_cred.robotic_username
+    elif shared is not None:
+        robotic_username = shared.robotic_username
+    else:
+        robotic_username = None
     return {
         "app_slug": slug,
         "keycloak_user_id": keycloak_user_id,
         "has_override": override,
         "credential_source": "user_override" if override else "shared",
-        "robotic_username": (
-            user_cred.robotic_username if user_cred is not None else (
-                shared.robotic_username if shared is not None else None
-            )
-        ),
+        "robotic_username": robotic_username,
         "shared_available": shared is not None and bool(shared.is_active),
     }
 

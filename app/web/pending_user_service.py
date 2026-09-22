@@ -294,6 +294,37 @@ def _discovery_row_should_skip(
     return False
 
 
+def _add_discovered_pending_user(
+    db: Session,
+    *,
+    email: str,
+    uname: str | None,
+    raw_email: str | None,
+    first_at,
+    last_at,
+    now,
+) -> None:
+    sample = (
+        db.query(ActiveSession)
+        .filter(ActiveSession.user_email == raw_email)
+        .order_by(ActiveSession.last_seen_at.desc())
+        .first()
+    )
+    db.add(
+        PendingUser(
+            user_email=email,
+            username=(uname or email.split("@", 1)[0] or email),
+            realm_slug=(sample.realm if sample else "unknown") or "unknown",
+            first_seen_at=first_at,
+            last_seen_at=last_at or first_at,
+            hit_count=1,
+            last_client_ip=sample.source_ip if sample else None,
+            status="pending",
+            updated_at=now,
+        )
+    )
+
+
 def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int:
     """Backfill pending rows for identities whose earliest session is recent.
 
@@ -339,25 +370,14 @@ def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int
         ):
             seen_canonical.add(email)
             continue
-
-        sample = (
-            db.query(ActiveSession)
-            .filter(ActiveSession.user_email == raw_email)
-            .order_by(ActiveSession.last_seen_at.desc())
-            .first()
-        )
-        db.add(
-            PendingUser(
-                user_email=email,
-                username=(uname or email.split("@", 1)[0] or email),
-                realm_slug=(sample.realm if sample else "unknown") or "unknown",
-                first_seen_at=first_at,
-                last_seen_at=last_at or first_at,
-                hit_count=1,
-                last_client_ip=sample.source_ip if sample else None,
-                status="pending",
-                updated_at=now,
-            )
+        _add_discovered_pending_user(
+            db,
+            email=email,
+            uname=uname,
+            raw_email=raw_email,
+            first_at=first_at,
+            last_at=last_at,
+            now=now,
         )
         seen_canonical.add(email)
         created += 1

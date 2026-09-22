@@ -176,7 +176,8 @@ def test_build_daily_recap_includes_hosts_users_alerts(db_session: Session):
     assert "Récapitulatif 24h" in html_body
     # Deep-link must include the concrete audit id (HTML-escaped & → &amp;).
     alert = next(a for a in recap.alerts if "BST-BGL" in a.title or "breakglass" in a.title.lower())
-    assert "id=" in alert.href and "event_code=BST-BGL-2001" in alert.href
+    assert "id=" in alert.href
+    assert "event_code=BST-BGL-2001" in alert.href
     assert "admin/logs?id=" in html_body
     assert "event_code=BST-BGL-2001" in html_body
     assert 'href="https://portal.test/admin/logs?id=' in html_body

@@ -292,6 +292,26 @@ def _format_axis_count(value: int) -> str:
     return str(n)
 
 
+def _append_dual_axis_tick(
+    parts: list[str],
+    *,
+    pad_l: float,
+    pad_r: float,
+    width: int,
+    gy: float,
+    tick_val: int,
+) -> None:
+    parts.append(
+        f'<line class="sentinel-chart-grid" x1="{pad_l}" y1="{gy}" '
+        f'x2="{width - pad_r}" y2="{gy}"/>'
+    )
+    parts.append(
+        f'<text class="sentinel-chart-axis sentinel-chart-axis-y" '
+        f'x="{pad_l - 6}" y="{gy + 3}" text-anchor="end">'
+        f"{_esc(_format_axis_count(tick_val))}</text>"
+    )
+
+
 def render_dual_area_chart(
     series: list[dict[str, Any]],
     *,
@@ -350,13 +370,13 @@ def render_dual_area_chart(
         ratio = i / y_ticks
         gy = pad_t + int(chart_h * ratio)
         tick_val = int(round(max_v * (1 - ratio)))
-        parts.append(
-            f'<line class="sentinel-chart-grid" x1="{pad_l}" y1="{gy}" '
-            f'x2="{width - pad_r}" y2="{gy}"/>'
-        )
-        parts.append(
-            f'<text class="sentinel-chart-axis sentinel-chart-axis-y" '
-            f'x="{pad_l - 6}" y="{gy + 3}" text-anchor="end">{_esc(_format_axis_count(tick_val))}</text>'
+        _append_dual_axis_tick(
+            parts,
+            pad_l=pad_l,
+            pad_r=pad_r,
+            width=width,
+            gy=gy,
+            tick_val=tick_val,
         )
     parts.append(f'<path class="sentinel-area-primary" d="{_area_path(p_vals)}"/>')
     parts.append(f'<path class="sentinel-area-secondary" d="{_area_path(s_vals)}"/>')
@@ -430,7 +450,12 @@ def render_health_gauge(
     cx, cy, r = width // 2, height // 2 + 4, 48
     circ = 2 * math.pi * r
     offset = circ * (1 - score / 100)
-    color = "#10b981" if score >= 75 else "#f59e0b" if score >= 50 else "#ef4444"
+    if score >= 75:
+        color = "#10b981"
+    elif score >= 50:
+        color = "#f59e0b"
+    else:
+        color = "#ef4444"
     parts = [
         f'<svg class="waf-chart waf-chart-gauge sentinel-chart" viewBox="0 0 {width} {height}" '
         f'width="100%" height="{height}" role="img" aria-label="{_esc(title)}: {score}%">',

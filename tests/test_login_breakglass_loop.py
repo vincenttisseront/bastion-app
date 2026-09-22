@@ -42,7 +42,9 @@ def test_login_clears_invalid_breakglass_instead_of_redirect_loop(
         )
 
     assert resp.status_code == 200
-    assert not (resp.headers.get("location") or "")
-    assert "break-glass" in resp.text.lower() or "connexion" in resp.text.lower()
+    location = resp.headers.get("location") or ""
+    assert location == ""
+    body = resp.text.lower()
+    assert any(token in body for token in ("break-glass", "connexion"))
     sc = (resp.headers.get("set-cookie") or "").lower()
     assert "bg_session" in sc

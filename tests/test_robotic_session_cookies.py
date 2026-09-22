@@ -176,7 +176,8 @@ def test_build_crushftp_host_only_by_default():
     crush = next(h for h in headers if h.startswith("CrushAuth="))
     current = next(h for h in headers if h.startswith("currentAuth="))
     assert "HttpOnly" in crush or "httponly" in crush.lower()
-    assert "HttpOnly" not in current and "httponly" not in current.lower()
+    assert "HttpOnly" not in current
+    assert "httponly" not in current.lower()
 
 
 def test_build_grommunio_cookies_host_only_by_default():
@@ -198,7 +199,8 @@ def test_build_grommunio_cookies_host_only_by_default():
     assert any("__Secure-GROMMUNIO_WEB=" in h for h in headers)
     for name in ("__Secure-GROMMUNIO_WEB", "domainname", "webapp_title", "grommunioAuthJwt"):
         cookie = next(h for h in headers if h.startswith(f"{name}="))
-        assert "Domain=" not in cookie and "domain=" not in cookie
+        assert "Domain=" not in cookie
+        assert "domain=" not in cookie
 
 
 def test_build_response_cookies_legacy_no_domain():

@@ -155,7 +155,7 @@ def policy_id_hint(policy_text: str) -> str:
     return digest
 
 
-def suggested_dns_txt(mail_domain: str, policy_text: str) -> str:
+def suggested_dns_txt(_mail_domain: str, policy_text: str) -> str:
     return f"v=STSv1; id={policy_id_hint(policy_text)}"
 
 
@@ -479,6 +479,22 @@ def _step(
     return {"id": sid, "label": label, "status": status, "detail": detail}
 
 
+def _dns_txt_step_detail(*, status: str, detail: str, dns_txt: str) -> str:
+    if status != "todo":
+        return detail
+    if dns_txt:
+        return f"Valeur : {dns_txt}"
+    return detail
+
+
+def _probe_result_message(*, ok: bool, dns_a_ok: bool, http_ok: bool) -> str:
+    if ok:
+        return "Politique joignable en HTTPS public."
+    if dns_a_ok and not http_ok:
+        return "DNS public OK mais HTTPS KO — certificat / edge."
+    return "DNS public incomplet (A et/ou TXT) — le DNS interne ne compte pas pour MTA-STS."
+
+
 def _build_setup_steps(
     *,
     enabled: bool,
@@ -574,7 +590,9 @@ def _build_setup_steps(
             sid="dns_txt",
             label=f"3. DNS TXT (public) : {dns_name or '_mta-sts.<domaine>'}",
             status=dns_txt_s,
-            detail=dns_txt_d if dns_txt_s != "todo" else (f"Valeur : {dns_txt}" if dns_txt else dns_txt_d),
+            detail=_dns_txt_step_detail(
+                status=dns_txt_s, detail=dns_txt_d, dns_txt=dns_txt
+            ),
         ),
         _step(sid="acme", label="4. Apply infra (certificat ACME TLS)", status=acme_s, detail=acme_d),
         _step(
@@ -828,15 +846,7 @@ def probe_mta_sts_publication(db: Session, settings: Settings) -> dict[str, Any]
         logger.exception("mta-sts: cannot persist probe")
 
     status = mta_sts_public_status(db, settings)
-    message = (
-        "Politique joignable en HTTPS public."
-        if ok
-        else (
-            "DNS public OK mais HTTPS KO — certificat / edge."
-            if dns_a_ok and not http_ok
-            else "DNS public incomplet (A et/ou TXT) — le DNS interne ne compte pas pour MTA-STS."
-        )
-    )
+    message = _probe_result_message(ok=ok, dns_a_ok=dns_a_ok, http_ok=http_ok)
     return {
         "ok": ok,
         "message": message,

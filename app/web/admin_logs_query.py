@@ -133,7 +133,7 @@ def effective_catalog_severity(row: AuditLog, result: str) -> tuple[str, bool]:
 def resolve_audit_target_display(
     action: str | None,
     target: str | None,
-    ip_address: str | None,
+    _ip_address: str | None,
     details: dict[str, Any] | None,
 ) -> tuple[str, str]:
     """Compact target for table; tooltip may include HTTP Host / URI.

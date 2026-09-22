@@ -593,10 +593,16 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
             "Présence SSO sur l’hôte applicatif (pas de cookies robotic dans le registre)."
         )
         label = "présence SSO"
+    if ok:
+        cookies_validity = "ok"
+    elif not present:
+        cookies_validity = "missing"
+    else:
+        cookies_validity = "unknown"
     return {
         "cookies_label": label,
         "cookies_ok": bool(ok),
-        "cookies_validity": "ok" if ok else ("missing" if not present else "unknown"),
+        "cookies_validity": cookies_validity,
         "cookies_title": cookie_title,
         "cookies_issued_at": details.get("cookies_issued_at"),
         "crushauth_age": details.get("crushauth_age"),

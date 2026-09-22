@@ -398,7 +398,7 @@ def register_pending_version(db: Session, version: int) -> None:
     )
 
 
-def export_active_key_backup(settings: Settings, passphrase: str) -> bytes:
+def export_active_key_backup(_settings: Settings, passphrase: str) -> bytes:
     """Wrap active key material with a passphrase-derived Fernet key (PBKDF2)."""
     phrase = (passphrase or "").strip()
     if len(phrase) < 12:

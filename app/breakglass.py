@@ -1053,6 +1053,39 @@ def clear_breakglass_cookie(
         response.delete_cookie(**clear_kwargs, domain=domain)
 
 
+def _try_revoke_breakglass_with_secret(
+    bg_cookie: str,
+    sec: str,
+    db: Session,
+) -> str | None:
+    """Decode with one secret and revoke jti. None = try next candidate."""
+    try:
+        raw = jwt.decode(
+            bg_cookie,
+            sec,
+            algorithms=["HS256"],
+            options={"verify_exp": False, "verify_aud": False},
+        )
+    except jwt.PyJWTError:
+        return None
+    if raw.get("type") != "bg":
+        return None
+    username = str(raw.get("sub") or "unknown")
+    jti = raw.get("jti")
+    if jti:
+        try:
+            revoke_breakglass_jti(
+                db,
+                str(jti),
+                revoked_by=str(username),
+                reason="logout",
+            )
+            db.commit()
+        except LookupError:
+            pass
+    return username
+
+
 def _revoke_breakglass_via_candidate_secrets(
     bg_cookie: str,
     db: Session,
@@ -1064,7 +1097,6 @@ def _revoke_breakglass_via_candidate_secrets(
         get_ui_breakglass_secret,
     )
 
-    username = "unknown"
     candidates = [
         resolve_breakglass_signing_secret(settings, db=db),
         get_ui_breakglass_secret(db, settings) or "",
@@ -1076,32 +1108,10 @@ def _revoke_breakglass_via_candidate_secrets(
         if not sec or sec in seen:
             continue
         seen.add(sec)
-        try:
-            raw = jwt.decode(
-                bg_cookie,
-                sec,
-                algorithms=["HS256"],
-                options={"verify_exp": False, "verify_aud": False},
-            )
-            if raw.get("type") != "bg":
-                continue
-            username = str(raw.get("sub") or "unknown")
-            jti = raw.get("jti")
-            if jti:
-                try:
-                    revoke_breakglass_jti(
-                        db,
-                        str(jti),
-                        revoked_by=str(username),
-                        reason="logout",
-                    )
-                    db.commit()
-                except LookupError:
-                    pass
-            break
-        except jwt.PyJWTError:
-            continue
-    return username
+        username = _try_revoke_breakglass_with_secret(bg_cookie, sec, db)
+        if username is not None:
+            return username
+    return "unknown"
 
 
 def revoke_breakglass_session_from_request(

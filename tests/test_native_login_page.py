@@ -289,10 +289,8 @@ def test_get_login_realm_query_selects_clients(
     assert 'id="login-realm" value="ar-systems"' not in response.text
     assert 'data-login-realm="clients"' in response.text
     assert "Connexion — Clients" not in response.text
-    assert (
-        'id="login-audience-clients"' in response.text
-        and 'aria-selected="true"' in response.text
-    )
+    assert 'id="login-audience-clients"' in response.text
+    assert 'aria-selected="true"' in response.text
 
 
 def test_html_post_keeps_selected_realm_on_error(

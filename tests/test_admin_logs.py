@@ -362,7 +362,8 @@ def test_logs_saved_view_roundtrip(client: TestClient, db_session: Session):
     assert f'data-audit-id="' in applied.text
     assert "alice@ex.com" in applied.text
     assert "bob@ex.com" not in applied.text
-    assert 'name="detail"' in applied.text and 'value="boom"' in applied.text
+    assert 'name="detail"' in applied.text
+    assert 'value="boom"' in applied.text
     assert "Erreurs Alice" in applied.text
     assert ">reason<" in applied.text or "reason" in applied.text
     assert "Sécurité" in applied.text  # system default view seeded
