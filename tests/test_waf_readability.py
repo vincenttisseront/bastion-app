@@ -525,3 +525,23 @@ def test_build_efficiency_visuals_status_panels(tmp_path: Path):
         {"present": True, "status": "ok"},
     )
     assert unverifiable["status"] == "unverifiable"
+
+
+def test_feed_host_key_and_family_from_apps(db_session: Session):
+    from app.bastion.waf_readability import _family_from_enabled_apps, _feed_host_key
+    from app.models import App
+
+    assert _feed_host_key("") == ""
+    assert _feed_host_key("App.Example.com:443") == "app.example.com"
+    db_session.add(
+        App(
+            slug="sub",
+            label="Sub",
+            upstream_url="https://origin.example.com",
+            public_fqdn="app.example.com",
+            access_mode="subdomain_proxy",
+            enabled=True,
+        )
+    )
+    db_session.commit()
+    assert _family_from_enabled_apps(db_session, "app.example.com") == "subdomain"

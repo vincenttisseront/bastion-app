@@ -1019,6 +1019,10 @@ def _resolve_vhost_family(
         return "portal"
     if db is None:
         return None
+    return _family_from_enabled_apps(db, name)
+
+
+def _family_from_enabled_apps(db: Session, name: str) -> str | None:
     try:
         rows = (
             db.query(App.public_fqdn, App.access_mode)
@@ -1028,13 +1032,14 @@ def _resolve_vhost_family(
     except Exception:
         return None
     for fqdn, access_mode in rows:
-        if _feed_host_key(str(fqdn or "")) == name:
-            mode = str(access_mode or "")
-            if mode == "subdomain_proxy":
-                return "subdomain"
-            if mode == "public_proxy":
-                return "public"
-            return "portal"
+        if _feed_host_key(str(fqdn or "")) != name:
+            continue
+        mode = str(access_mode or "")
+        if mode == "subdomain_proxy":
+            return "subdomain"
+        if mode == "public_proxy":
+            return "public"
+        return "portal"
     return None
 
 
@@ -1587,12 +1592,19 @@ def build_efficiency_visuals(
             variant="unverifiable",
         )
 
+    return _efficiency_chart_svgs(settings, efficiency)
+
+
+def _efficiency_chart_svgs(
+    settings: Settings, efficiency: dict[str, Any]
+) -> dict[str, Any]:
     summary = read_audit_summary(settings)
     series = summary.get("series") or {}
     window = (summary.get("windows") or {}).get("24h") or {}
     series_24h = series.get("24h") or []
     series_7d = series.get("7d") or []
     measured_zero = efficiency.get("status") == "measured_zero"
+    empty_variant = "measured_zero" if measured_zero else "empty"
 
     top_rules = [
         {
@@ -1603,11 +1615,11 @@ def build_efficiency_visuals(
         for r in (window.get("top_rules") or [])
     ]
     top_hosts = [
-        {"label": h.get("host"), "count": h.get("count")} for h in (window.get("top_hosts") or [])
+        {"label": h.get("host"), "count": h.get("count")}
+        for h in (window.get("top_hosts") or [])
     ]
     families = window.get("rule_families") or []
 
-    empty_variant = "measured_zero" if measured_zero else "empty"
     return {
         "status": efficiency.get("status") or "ok",
         "detections_hourly_svg": render_series_chart(

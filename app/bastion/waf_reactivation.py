@@ -831,6 +831,35 @@ def _nudge_waf_exports_watcher(settings: Settings) -> None:
             logger.debug("nudge touch failed for %s", path, exc_info=True)
 
 
+def _probe_one_subdomain_host(
+    host: str, *, base: str, paths: tuple[str, ...]
+) -> dict[str, Any]:
+    probe: dict[str, Any] | None = None
+    last: dict[str, Any] | None = None
+    for path in paths:
+        for attempt in range(SMOKE_RETRIES):
+            last = _http_probe(f"{base}{path}", host=host, expect_not_5xx=True)
+            last["critical"] = True
+            last["subdomain_host"] = host
+            last["path"] = path
+            last["attempt"] = attempt + 1
+            if last.get("ok"):
+                probe = last
+                break
+        if probe is not None:
+            break
+    if probe is not None:
+        return probe
+    return last or {
+        "ok": False,
+        "url": f"{base}/auth/login",
+        "host": host,
+        "error": "probe failed",
+        "critical": True,
+        "subdomain_host": host,
+    }
+
+
 def smoke_subdomain_probes(db: Session, settings: Settings) -> dict[str, Any]:
     """HTTP smoke on each enabled subdomain_proxy Host (edge :8080, no 5xx).
 
@@ -850,32 +879,7 @@ def smoke_subdomain_probes(db: Session, settings: Settings) -> dict[str, Any]:
     base = "http://nginx:8080"
     # Fast local responses first — avoid waiting out upstream proxy timeouts.
     paths = ("/auth/login", "/healthz")
-    probes: list[dict[str, Any]] = []
-    for host in hosts:
-        probe: dict[str, Any] | None = None
-        last: dict[str, Any] | None = None
-        for path in paths:
-            for attempt in range(SMOKE_RETRIES):
-                last = _http_probe(f"{base}{path}", host=host, expect_not_5xx=True)
-                last["critical"] = True
-                last["subdomain_host"] = host
-                last["path"] = path
-                last["attempt"] = attempt + 1
-                if last.get("ok"):
-                    probe = last
-                    break
-            if probe is not None:
-                break
-        if probe is None:
-            probe = last or {
-                "ok": False,
-                "url": f"{base}/auth/login",
-                "host": host,
-                "error": "probe failed",
-                "critical": True,
-                "subdomain_host": host,
-            }
-        probes.append(probe)
+    probes = [_probe_one_subdomain_host(host, base=base, paths=paths) for host in hosts]
 
     failed_critical = [p for p in probes if p.get("critical") and not p.get("ok")]
     ok = not failed_critical

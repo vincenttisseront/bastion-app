@@ -226,6 +226,54 @@ async def _oauth2_proxy_auth_response(
         return Response(status_code=503)
 
 
+def _apply_oauth2_sso_binding(
+    db: Session,
+    request: Request,
+    oauth2_resp: Response,
+) -> None:
+    from app.web.user_context import _human_label, looks_like_uuid
+
+    email = oauth2_resp.headers.get("X-Auth-Request-Email") or ""
+    preferred = (
+        oauth2_resp.headers.get("X-Auth-Request-Preferred-Username") or ""
+    )
+    x_user = oauth2_resp.headers.get("X-Auth-Request-User") or ""
+    readable = _human_label(email, preferred)
+    kc_id = x_user.strip() if looks_like_uuid(x_user) else None
+    username = readable or (
+        None if looks_like_uuid(x_user) else (x_user.strip() or None)
+    )
+    try:
+        evaluate_sso_binding(
+            db,
+            request,
+            username=username,
+            keycloak_user_id=kc_id,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _breakglass_auth_response(
+    db: Session,
+    request: Request,
+    settings: Settings,
+    bg_cookie: str,
+) -> Response | None:
+    # rotate=False: nginx auth_request does not forward Set-Cookie.
+    result = process_breakglass_auth_request(
+        db, request, bg_cookie, settings, rotate=False
+    )
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+    if not result.ok:
+        return Response(status_code=401)
+    return Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
+
+
 @router.get("/internal/oauth2-auth")
 async def oauth2_auth(
     request: Request,
@@ -252,43 +300,12 @@ async def oauth2_auth(
     # Otherwise a leftover bg_session sends /apps → 302 /dashboard and never hits oauth2.
     oauth2_resp = await _oauth2_proxy_auth_response(request, settings, db)
     if oauth2_resp is not None and oauth2_resp.status_code in (200, 202):
-        from app.web.user_context import _human_label, looks_like_uuid
-
-        email = oauth2_resp.headers.get("X-Auth-Request-Email") or ""
-        preferred = (
-            oauth2_resp.headers.get("X-Auth-Request-Preferred-Username") or ""
-        )
-        x_user = oauth2_resp.headers.get("X-Auth-Request-User") or ""
-        readable = _human_label(email, preferred)
-        kc_id = x_user.strip() if looks_like_uuid(x_user) else None
-        username = readable or (
-            None if looks_like_uuid(x_user) else (x_user.strip() or None)
-        )
-        try:
-            evaluate_sso_binding(
-                db,
-                request,
-                username=username,
-                keycloak_user_id=kc_id,
-            )
-            db.commit()
-        except Exception:
-            db.rollback()
+        _apply_oauth2_sso_binding(db, request, oauth2_resp)
         return oauth2_resp
 
     bg_cookie = request.cookies.get(COOKIE_NAME)
     if bg_cookie:
-        # rotate=False: nginx auth_request does not forward Set-Cookie.
-        result = process_breakglass_auth_request(
-            db, request, bg_cookie, settings, rotate=False
-        )
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
-        if not result.ok:
-            return Response(status_code=401)
-        return Response(status_code=200, headers={"X-Auth-Source": "breakglass"})
+        return _breakglass_auth_response(db, request, settings, bg_cookie)
 
     if oauth2_resp is not None:
         return oauth2_resp
