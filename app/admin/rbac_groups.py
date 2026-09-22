@@ -66,6 +66,27 @@ def _safe_redirect_url(raw: str | None, fallback: str) -> str:
     return fallback
 
 
+def _group_delete_fail_response(
+    request: Request,
+    *,
+    redirect_url: str | None,
+    group_id: int,
+    msg: str,
+    status_code: int,
+    secret: str,
+):
+    if _wants_json(request):
+        return JSONResponse(
+            {"ok": False, "errors": {"_form": msg}}, status_code=status_code
+        )
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, f"/admin/rbac/groups/{group_id}"),
+        status_code=302,
+    )
+    flash_redirect(response, msg, "error", secret)
+    return response
+
+
 @router.get("/admin/rbac/groups", responses=RESP_406)
 def admin_rbac_groups_list(
     request: Request,
@@ -223,44 +244,35 @@ async def admin_rbac_group_delete(
         db.commit()
     except GroupNotEmptyError as exc:
         db.rollback()
-        msg = str(exc)
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=409)
-        response = RedirectResponse(
-            url=_safe_redirect_url(redirect_url, f"/admin/rbac/groups/{group_id}"),
-            status_code=302,
+        return _group_delete_fail_response(
+            request,
+            redirect_url=redirect_url,
+            group_id=group_id,
+            msg=str(exc),
+            status_code=409,
+            secret=settings.vault_portal_internal_token or "dev",
         )
-        flash_redirect(
-            response, msg, "error", settings.vault_portal_internal_token or "dev"
-        )
-        return response
     except ValueError as exc:
         db.rollback()
-        msg = str(exc) or "Échec de la suppression du groupe"
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=400)
-        response = RedirectResponse(
-            url=_safe_redirect_url(redirect_url, f"/admin/rbac/groups/{group_id}"),
-            status_code=302,
+        return _group_delete_fail_response(
+            request,
+            redirect_url=redirect_url,
+            group_id=group_id,
+            msg=str(exc) or "Échec de la suppression du groupe",
+            status_code=400,
+            secret=settings.vault_portal_internal_token or "dev",
         )
-        flash_redirect(
-            response, msg, "error", settings.vault_portal_internal_token or "dev"
-        )
-        return response
     except Exception:
         db.rollback()
         logger.exception("RBAC group delete failed group_id=%s", group_id)
-        msg = "Erreur serveur pendant la suppression du groupe"
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "errors": {"_form": msg}}, status_code=500)
-        response = RedirectResponse(
-            url=_safe_redirect_url(redirect_url, f"/admin/rbac/groups/{group_id}"),
-            status_code=302,
+        return _group_delete_fail_response(
+            request,
+            redirect_url=redirect_url,
+            group_id=group_id,
+            msg="Erreur serveur pendant la suppression du groupe",
+            status_code=500,
+            secret=settings.vault_portal_internal_token or "dev",
         )
-        flash_redirect(
-            response, msg, "error", settings.vault_portal_internal_token or "dev"
-        )
-        return response
 
     if _wants_json(request):
         return JSONResponse({"ok": True, **result})

@@ -114,6 +114,77 @@ async def verify_driven_session(row: ActiveSession) -> VerifyStatus:
     return "unknown"
 
 
+async def _apply_verify_outcome(
+    db: Session,
+    row: ActiveSession,
+    *,
+    status: VerifyStatus,
+    now,
+    actor: str | None,
+    email: str,
+    ip_address: str | None,
+    revoke_active_session,
+) -> tuple[bool, dict[str, Any]]:
+    """Update row from verify status. Returns (revoked, result_payload)."""
+    details = _details_dict(row)
+    if status == "active":
+        details["consecutive_invalid_count"] = 0
+        row.last_verified_status = "active"
+        row.last_verified_at = now
+        row.details = details
+        return False, {
+            "id": row.id,
+            "last_verified_status": status,
+            "last_verified_at": now.isoformat(),
+            "consecutive_invalid_count": 0,
+            "revoked": False,
+        }
+
+    if status == "invalid":
+        streak = int(details.get("consecutive_invalid_count") or 0) + 1
+        details["consecutive_invalid_count"] = streak
+        row.last_verified_status = "invalid"
+        row.last_verified_at = now
+        row.details = details
+        if streak >= _INVALID_STREAK_TO_REVOKE:
+            session_id = row.id
+            revoke_active_session(
+                db,
+                row,
+                actor=actor or email,
+                reason="downstream_session_expired",
+                ip_address=ip_address,
+                delete=True,
+            )
+            return True, {
+                "id": session_id,
+                "last_verified_status": "invalid",
+                "last_verified_at": now.isoformat(),
+                "consecutive_invalid_count": streak,
+                "revoked": True,
+                "reason": "downstream_session_expired",
+            }
+        return False, {
+            "id": row.id,
+            "last_verified_status": status,
+            "last_verified_at": now.isoformat(),
+            "consecutive_invalid_count": streak,
+            "revoked": False,
+        }
+
+    row.last_verified_status = "unknown"
+    row.last_verified_at = now
+    return False, {
+        "id": row.id,
+        "last_verified_status": status,
+        "last_verified_at": now.isoformat(),
+        "consecutive_invalid_count": int(
+            (_details_dict(row).get("consecutive_invalid_count") or 0)
+        ),
+        "revoked": False,
+    }
+
+
 async def live_verify_user_sessions(
     db: Session,
     *,
@@ -162,59 +233,17 @@ async def live_verify_user_sessions(
         if not is_driven_session(row):
             continue
         status = await verify_driven_session(row)
-        details = _details_dict(row)
-        revoked = False
-
-        if status == "active":
-            details["consecutive_invalid_count"] = 0
-            row.last_verified_status = "active"
-            row.last_verified_at = now
-            row.details = details
-        elif status == "invalid":
-            streak = int(details.get("consecutive_invalid_count") or 0) + 1
-            details["consecutive_invalid_count"] = streak
-            row.last_verified_status = "invalid"
-            row.last_verified_at = now
-            row.details = details
-            if streak >= _INVALID_STREAK_TO_REVOKE:
-                session_id = row.id
-                revoke_active_session(
-                    db,
-                    row,
-                    actor=actor or email,
-                    reason="downstream_session_expired",
-                    ip_address=ip_address,
-                    delete=True,
-                )
-                revoked = True
-                results.append(
-                    {
-                        "id": session_id,
-                        "last_verified_status": "invalid",
-                        "last_verified_at": now.isoformat(),
-                        "consecutive_invalid_count": streak,
-                        "revoked": True,
-                        "reason": "downstream_session_expired",
-                    }
-                )
-                continue
-        else:
-            # unknown: do not change streak, do not revoke
-            row.last_verified_status = "unknown"
-            row.last_verified_at = now
-
-        if not revoked:
-            results.append(
-                {
-                    "id": row.id,
-                    "last_verified_status": status,
-                    "last_verified_at": now.isoformat(),
-                    "consecutive_invalid_count": int(
-                        (_details_dict(row).get("consecutive_invalid_count") or 0)
-                    ),
-                    "revoked": False,
-                }
-            )
+        _revoked, payload = await _apply_verify_outcome(
+            db,
+            row,
+            status=status,
+            now=now,
+            actor=actor,
+            email=email,
+            ip_address=ip_address,
+            revoke_active_session=revoke_active_session,
+        )
+        results.append(payload)
 
     db.commit()
     return results

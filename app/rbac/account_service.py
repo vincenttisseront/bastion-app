@@ -924,6 +924,36 @@ async def retry_bastion_account_keycloak(
     )
 
 
+def _validate_new_bastion_account_inputs(
+    *,
+    realm: RealmConfig,
+    username: str,
+    email: str,
+    first_name: str | None,
+    last_name: str | None,
+    organization: str | None,
+) -> tuple[str, str, str, str, str]:
+    username = (username or "").strip()
+    email = (email or "").strip()
+    first_name = (first_name or "").strip() or None
+    last_name = (last_name or "").strip() or None
+    organization = normalize_organization_name(organization)
+    if not username or not email:
+        raise AccountCreationError("Identifiant et email sont requis")
+    if not first_name or not last_name:
+        raise AccountCreationError("Prénom et nom sont requis")
+    if "@" not in email:
+        raise AccountCreationError("Email invalide")
+    if not organization:
+        raise AccountCreationError(_MSG_ORG_REQUIRED)
+    if not realm_provisioning_ready(realm):
+        raise AccountCreationError(
+            "Provisioning non activé pour ce realm — activez-le dans la fiche realm "
+            "(compte de service provisioning + opt-in explicite)."
+        )
+    return username, email, first_name, last_name, organization
+
+
 async def create_bastion_account(
     db: Session,
     settings: Settings,
@@ -946,27 +976,19 @@ async def create_bastion_account(
     ``temp_password`` is set only when Keycloak creation succeeded in this call —
     never logged; caller may email it then must drop the reference.
     """
-    username = (username or "").strip()
-    email = (email or "").strip()
-    first_name = (first_name or "").strip() or None
-    last_name = (last_name or "").strip() or None
-    organization = normalize_organization_name(organization)
+    username, email, first_name, last_name, organization = (
+        _validate_new_bastion_account_inputs(
+            realm=realm,
+            username=username,
+            email=email,
+            first_name=first_name,
+            last_name=last_name,
+            organization=organization,
+        )
+    )
     group_ids = list(group_ids or [])
     application_ids = list(application_ids or [])
 
-    if not username or not email:
-        raise AccountCreationError("Identifiant et email sont requis")
-    if not first_name or not last_name:
-        raise AccountCreationError("Prénom et nom sont requis")
-    if "@" not in email:
-        raise AccountCreationError("Email invalide")
-    if not organization:
-        raise AccountCreationError(_MSG_ORG_REQUIRED)
-    if not realm_provisioning_ready(realm):
-        raise AccountCreationError(
-            "Provisioning non activé pour ce realm — activez-le dans la fiche realm "
-            "(compte de service provisioning + opt-in explicite)."
-        )
     existing = (
         db.query(BastionAccount)
         .filter_by(realm_id=realm.id, username=username)

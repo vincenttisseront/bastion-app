@@ -187,6 +187,94 @@ def admin_infrastructure_apply(
     )
 
 
+def _redirect_apply_terminal(
+    *,
+    db: Session,
+    user,
+    status: str,
+    state: dict,
+    next_path: str,
+    context_label: str,
+    target: str,
+    source: str,
+    elapsed: int,
+    token: str,
+) -> RedirectResponse:
+    log_action(
+        db,
+        actor=user.email,
+        action=f"infrastructure.apply.{status}",
+        target=target,
+        details={
+            "source": source,
+            "status_path": state.get("status_path"),
+            "log_path": state.get("log_path"),
+            "request_pending": state.get("request_pending"),
+            "elapsed_sec": elapsed,
+        },
+    )
+    response = RedirectResponse(url=next_path, status_code=302)
+    prefix = f"{context_label} " if context_label else ""
+    if status == "ok":
+        flash_redirect(
+            response,
+            f"{prefix}Export et apply hôte confirmés.".strip(),
+            "success",
+            token,
+        )
+    else:
+        flash_redirect(
+            response,
+            (
+                f"{prefix}L'apply hôte a échoué. "
+                "Voir Admin → Infrastructure pour le log détaillé."
+            ).strip(),
+            "error",
+            token,
+        )
+    return response
+
+
+def _redirect_apply_timeout(
+    *,
+    db: Session,
+    user,
+    state: dict,
+    context_label: str,
+    target: str,
+    source: str,
+    elapsed: int,
+    timeout: int,
+    token: str,
+) -> RedirectResponse:
+    log_action(
+        db,
+        actor=user.email,
+        action="infrastructure.apply.pending_timeout",
+        target=target,
+        details={
+            "source": source,
+            "elapsed_sec": elapsed,
+            "timeout_sec": timeout,
+            "request_pending": state.get("request_pending"),
+            "status_path": state.get("status_path"),
+        },
+    )
+    response = RedirectResponse(url=_ADMIN_INFRASTRUCTURE_PATH, status_code=302)
+    prefix = f"{context_label} " if context_label else ""
+    flash_redirect(
+        response,
+        (
+            f"{prefix}Apply hôte toujours en attente après {timeout}s. "
+            "Vérifiez le watcher systemd ou lancez "
+            "scripts/apply-infra-docker.sh sur l'hôte."
+        ).strip(),
+        "error",
+        token,
+    )
+    return response
+
+
 @router.get("/admin/infrastructure/apply-wait")
 def admin_infrastructure_apply_wait(
     request: Request,
@@ -214,68 +302,31 @@ def admin_infrastructure_apply_wait(
     status = (state.get("status") or "").strip().lower()
 
     if host_apply_is_terminal(status):
-        log_action(
-            db,
-            actor=user.email,
-            action=f"infrastructure.apply.{status}",
+        return _redirect_apply_terminal(
+            db=db,
+            user=user,
+            status=status,
+            state=state,
+            next_path=next_path,
+            context_label=context_label,
             target=target,
-            details={
-                "source": source,
-                "status_path": state.get("status_path"),
-                "log_path": state.get("log_path"),
-                "request_pending": state.get("request_pending"),
-                "elapsed_sec": elapsed,
-            },
+            source=source,
+            elapsed=elapsed,
+            token=token,
         )
-        response = RedirectResponse(url=next_path, status_code=302)
-        if status == "ok":
-            prefix = f"{context_label} " if context_label else ""
-            flash_redirect(
-                response,
-                f"{prefix}Export et apply hôte confirmés.".strip(),
-                "success",
-                token,
-            )
-        else:
-            prefix = f"{context_label} " if context_label else ""
-            flash_redirect(
-                response,
-                (
-                    f"{prefix}L'apply hôte a échoué. "
-                    "Voir Admin → Infrastructure pour le log détaillé."
-                ).strip(),
-                "error",
-                token,
-            )
-        return response
 
     if elapsed >= timeout:
-        log_action(
-            db,
-            actor=user.email,
-            action="infrastructure.apply.pending_timeout",
+        return _redirect_apply_timeout(
+            db=db,
+            user=user,
+            state=state,
+            context_label=context_label,
             target=target,
-            details={
-                "source": source,
-                "elapsed_sec": elapsed,
-                "timeout_sec": timeout,
-                "request_pending": state.get("request_pending"),
-                "status_path": state.get("status_path"),
-            },
+            source=source,
+            elapsed=elapsed,
+            timeout=timeout,
+            token=token,
         )
-        response = RedirectResponse(url=_ADMIN_INFRASTRUCTURE_PATH, status_code=302)
-        prefix = f"{context_label} " if context_label else ""
-        flash_redirect(
-            response,
-            (
-                f"{prefix}Apply hôte toujours en attente après {timeout}s. "
-                "Vérifiez le watcher systemd ou lancez "
-                "scripts/apply-infra-docker.sh sur l'hôte."
-            ).strip(),
-            "error",
-            token,
-        )
-        return response
 
     refresh_params = {
         "next": next_path,
