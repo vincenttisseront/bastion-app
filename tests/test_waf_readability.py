@@ -12,6 +12,7 @@ from app.bastion.waf_readability import (
     UNKNOWN_HOST_FEED_RULE_LABEL,
     build_attack_controls,
     build_efficiency_panel,
+    build_efficiency_visuals,
     build_executive_summary,
     build_protection_layers,
     build_protection_verdict,
@@ -19,6 +20,7 @@ from app.bastion.waf_readability import (
     build_threat_intel_visuals,
     build_unknown_host_panel,
     _apply_feed_target,
+    _efficiency_zero_explanation,
     _enrich_feed_source,
     _event_severity,
     _resolve_vhost_family,
@@ -495,3 +497,31 @@ def test_quarantine_panel_dedupes_ip_and_limits(db_session: Session):
     by_ip = {r["ip"]: r for r in panel["rows"]}
     assert by_ip["8.234.135.108"]["ban_count"] == 5
     assert panel["truncated"] is False
+
+
+def test_efficiency_zero_explanation_by_mode():
+    assert "arrêté" in _efficiency_zero_explanation(MODE_OFF)
+    assert "audit" in _efficiency_zero_explanation(MODE_DETECTION).lower()
+    assert "CRS" in _efficiency_zero_explanation(MODE_ON)
+
+
+def test_build_efficiency_visuals_status_panels(tmp_path: Path):
+    settings = Settings(
+        environment="test",
+        database_url="sqlite://",
+        nginx_app_logs_dir=str(tmp_path),
+    )
+    unavailable = build_efficiency_visuals(
+        settings,
+        {"verifiable": True},
+        {"present": False, "message": "missing", "resolution": "fix aggregator"},
+    )
+    assert unavailable["status"] == "unavailable"
+    assert unavailable["detections_hourly_svg"]
+
+    unverifiable = build_efficiency_visuals(
+        settings,
+        {"verifiable": False},
+        {"present": True, "status": "ok"},
+    )
+    assert unverifiable["status"] == "unverifiable"

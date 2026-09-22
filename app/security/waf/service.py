@@ -179,20 +179,17 @@ def update_active_profile(
     return profile
 
 
-def add_exclusion(
-    db: Session,
+def _validate_exclusion_fields(
     *,
     reason: str,
     crs_rule_id: int | None,
     uri_pattern: str | None,
     host: str | None,
-    actor: str,
-    ip_address: str | None = None,
-    scope_kind: str | None = None,
-    target_name: str | None = None,
-    uri_match: str | None = None,
-    allow_global: bool = False,
-) -> WafExclusion:
+    scope_kind: str | None,
+    target_name: str | None,
+    uri_match: str | None,
+    allow_global: bool,
+) -> tuple[str, str | None, str | None, str, str | None, str]:
     reason_s = (reason or "").strip()
     if not reason_s:
         raise ValueError("raison obligatoire")
@@ -217,6 +214,33 @@ def add_exclusion(
             )
     if crs_rule_id is None:
         raise ValueError("crs_rule_id requis")
+    return reason_s, uri, host_s, kind, target, match
+
+
+def add_exclusion(
+    db: Session,
+    *,
+    reason: str,
+    crs_rule_id: int | None,
+    uri_pattern: str | None,
+    host: str | None,
+    actor: str,
+    ip_address: str | None = None,
+    scope_kind: str | None = None,
+    target_name: str | None = None,
+    uri_match: str | None = None,
+    allow_global: bool = False,
+) -> WafExclusion:
+    reason_s, uri, host_s, kind, target, match = _validate_exclusion_fields(
+        reason=reason,
+        crs_rule_id=crs_rule_id,
+        uri_pattern=uri_pattern,
+        host=host,
+        scope_kind=scope_kind,
+        target_name=target_name,
+        uri_match=uri_match,
+        allow_global=allow_global,
+    )
     row = WafExclusion(
         reason=reason_s,
         crs_rule_id=int(crs_rule_id),

@@ -416,6 +416,55 @@ def _realm_is_login_ready(realm: RealmConfig) -> bool:
     )
 
 
+def _ordered_enabled_realms(
+    db: Session, default: RealmConfig | None
+) -> list[RealmConfig]:
+    enabled_rows = (
+        db.query(RealmConfig)
+        .filter(RealmConfig.enabled.is_(True))
+        .order_by(RealmConfig.slug.asc())
+        .all()
+    )
+    ordered: list[RealmConfig] = []
+    if default is not None:
+        ordered.append(default)
+    for row in enabled_rows:
+        if default is None or row.id != default.id:
+            ordered.append(row)
+    return ordered
+
+
+def _select_login_realm(
+    login_realms: list[RealmConfig], *, want: str
+) -> RealmConfig | None:
+    if want:
+        for row in login_realms:
+            if (row.slug or "").lower() == want:
+                return row
+    if login_realms:
+        return login_realms[0]
+    return None
+
+
+def _native_realm_option_dicts(
+    db: Session,
+    settings: Settings,
+    login_realms: list[RealmConfig],
+    *,
+    is_native,
+) -> list[dict]:
+    return [
+        {
+            "slug": row.slug,
+            "name": row.name,
+            "label": _login_audience_label(row),
+            "native": is_native(db, row.slug, settings),
+            "mfa": bool(getattr(row, "oidc_mfa_enabled", True)),
+        }
+        for row in login_realms
+    ]
+
+
 def _login_surface_flags(
     request: Request,
     db: Session,
@@ -426,65 +475,31 @@ def _login_surface_flags(
 ) -> dict:
     """Shared flags for auth/login.html (native SSO vs oauth2-proxy vs break-glass)."""
     from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
+    from app.rbac.access_request_service import realms_advertising_access_requests
 
     default = get_default_idp_realm(db)
-    enabled_rows = (
-        db.query(RealmConfig)
-        .filter(RealmConfig.enabled.is_(True))
-        .order_by(RealmConfig.slug.asc())
-        .all()
-    )
-    # Default first, then other enabled realms (stable chooser order).
-    ordered: list[RealmConfig] = []
-    if default is not None:
-        ordered.append(default)
-    for row in enabled_rows:
-        if default is None or row.id != default.id:
-            ordered.append(row)
-
-    # Chooser lists every login-ready realm (native form and/or oauth2-proxy).
-    login_realms: list[RealmConfig] = [
-        row for row in ordered if _realm_is_login_ready(row)
-    ]
-
+    ordered = _ordered_enabled_realms(db, default)
+    login_realms = [row for row in ordered if _realm_is_login_ready(row)]
     want = (preferred_realm or request.query_params.get("realm") or "").strip().lower()
-    selected: RealmConfig | None = None
-    if want:
-        for row in login_realms:
-            if (row.slug or "").lower() == want:
-                selected = row
-                break
-    if selected is None and login_realms:
-        selected = login_realms[0]
+    selected = _select_login_realm(login_realms, want=want)
 
     selected_native = bool(
         selected
         and is_oidc_native_session_enabled_for_realm(db, selected.slug, settings)
     )
-    show_native = selected_native
-    # oauth2-proxy CTA for the selected realm when it is not on the native pilot.
     oauth2_url = (
         oauth2_start_url(selected.slug, rd)
         if selected is not None and not selected_native
         else None
     )
-    from app.rbac.access_request_service import realms_advertising_access_requests
-
-    access_realms = realms_advertising_access_requests(db)
-    native_realm_options = [
-        {
-            "slug": row.slug,
-            "name": row.name,
-            "label": _login_audience_label(row),
-            "native": is_oidc_native_session_enabled_for_realm(
-                db, row.slug, settings
-            ),
-            "mfa": bool(getattr(row, "oidc_mfa_enabled", True)),
-        }
-        for row in login_realms
-    ]
+    native_realm_options = _native_realm_option_dicts(
+        db,
+        settings,
+        login_realms,
+        is_native=is_oidc_native_session_enabled_for_realm,
+    )
     return {
-        "show_native_login": show_native,
+        "show_native_login": selected_native,
         "native_realm_slug": selected.slug if selected else None,
         "native_realm_name": selected.name if selected else None,
         "native_realm_label": (
@@ -494,7 +509,7 @@ def _login_surface_flags(
         "show_realm_chooser": len(native_realm_options) > 1,
         "oauth2_url": oauth2_url,
         "show_breakglass": _show_breakglass_form(request, db, settings),
-        "show_access_request": bool(access_realms),
+        "show_access_request": bool(realms_advertising_access_requests(db)),
         "rd": rd,
     }
 

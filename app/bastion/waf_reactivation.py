@@ -523,6 +523,94 @@ def disarm_engine(
     }
 
 
+def _reactivate_wait_for_engine(
+    db: Session,
+    settings: Settings,
+    *,
+    profile: Any,
+    previous_mode: str,
+    prev_arm: dict[str, Any] | None,
+    actor: str,
+    paths: dict[str, str],
+    sync_detail: str,
+    sync_fn: Callable[[Settings], tuple[bool, str]],
+    injected: bool,
+) -> dict[str, Any] | None:
+    """Wait for nginx edge when not using injected sync/smoke (prod path)."""
+    if injected:
+        return None
+    edge = wait_for_nginx_edge(settings)
+    if not edge.get("ok"):
+        time.sleep(RELOAD_WAIT_SEC)
+    engine_wait = wait_for_portal_engine_mode(settings, MODE_DETECTION)
+    if engine_wait.get("ok"):
+        return None
+    _rollback(
+        db,
+        settings,
+        profile=profile,
+        previous_mode=previous_mode,
+        prev_arm=prev_arm,
+        actor=actor,
+        reason="engine_mode_not_applied",
+        sync_reload=sync_fn,
+    )
+    return {
+        "ok": False,
+        "error": (
+            "nginx n'a pas basculé en DetectionOnly après reload "
+            f"(mode snapshot={engine_wait.get('mode')!r}). "
+            "Vérifier le watcher bastion-nginx ou forcer "
+            "sync-exports-to-confd.sh + reload."
+        ),
+        "rolled_back": True,
+        "paths": paths,
+        "engine_wait": engine_wait,
+        "sync_detail": sync_detail,
+    }
+
+
+def _reactivate_smoke_failure(
+    db: Session,
+    settings: Settings,
+    *,
+    profile: Any,
+    previous_mode: str,
+    prev_arm: dict[str, Any] | None,
+    actor: str,
+    paths: dict[str, str],
+    sync_detail: str,
+    sync_fn: Callable[[Settings], tuple[bool, str]],
+    smoke_result: dict[str, Any],
+) -> dict[str, Any]:
+    _rollback(
+        db,
+        settings,
+        profile=profile,
+        previous_mode=previous_mode,
+        prev_arm=prev_arm,
+        actor=actor,
+        reason="smoke_failed",
+        sync_reload=sync_fn,
+    )
+    failed = smoke_result.get("failed") or []
+    summary = smoke_result.get("failed_summary") or _format_failed_probes(failed)
+    err = (
+        "Smoke post-reload en échec — rollback automatique vers Off."
+        + (f" Détail : {summary}" if summary else "")
+    )
+    return {
+        "ok": False,
+        "error": err,
+        "rolled_back": True,
+        "paths": paths,
+        "smoke": smoke_result,
+        "failed_probes": failed,
+        "failed_summary": summary,
+        "sync_detail": sync_detail,
+    }
+
+
 def reactivate_engine(
     db: Session,
     settings: Settings,
@@ -600,65 +688,35 @@ def reactivate_engine(
             "sync_detail": sync_detail,
         }
 
-    # Wait for watcher reload when docker exec was skipped (prod).
-    if smoke is None and sync_reload is None:
-        edge = wait_for_nginx_edge(settings)
-        if not edge.get("ok"):
-            time.sleep(RELOAD_WAIT_SEC)
-        engine_wait = wait_for_portal_engine_mode(settings, MODE_DETECTION)
-        if not engine_wait.get("ok"):
-            _rollback(
-                db,
-                settings,
-                profile=profile,
-                previous_mode=previous_mode,
-                prev_arm=prev_arm,
-                actor=actor,
-                reason="engine_mode_not_applied",
-                sync_reload=sync_fn,
-            )
-            return {
-                "ok": False,
-                "error": (
-                    "nginx n'a pas basculé en DetectionOnly après reload "
-                    f"(mode snapshot={engine_wait.get('mode')!r}). "
-                    "Vérifier le watcher bastion-nginx ou forcer "
-                    "sync-exports-to-confd.sh + reload."
-                ),
-                "rolled_back": True,
-                "paths": paths,
-                "engine_wait": engine_wait,
-                "sync_detail": sync_detail,
-            }
+    wait_fail = _reactivate_wait_for_engine(
+        db,
+        settings,
+        profile=profile,
+        previous_mode=previous_mode,
+        prev_arm=prev_arm,
+        actor=actor,
+        paths=paths,
+        sync_detail=sync_detail,
+        sync_fn=sync_fn,
+        injected=(smoke is not None or sync_reload is not None),
+    )
+    if wait_fail is not None:
+        return wait_fail
 
     smoke_result = smoke_fn(settings)
     if not smoke_result.get("ok"):
-        _rollback(
+        return _reactivate_smoke_failure(
             db,
             settings,
             profile=profile,
             previous_mode=previous_mode,
             prev_arm=prev_arm,
             actor=actor,
-            reason="smoke_failed",
-            sync_reload=sync_fn,
+            paths=paths,
+            sync_detail=sync_detail,
+            sync_fn=sync_fn,
+            smoke_result=smoke_result,
         )
-        failed = smoke_result.get("failed") or []
-        summary = smoke_result.get("failed_summary") or _format_failed_probes(failed)
-        err = (
-            "Smoke post-reload en échec — rollback automatique vers Off."
-            + (f" Détail : {summary}" if summary else "")
-        )
-        return {
-            "ok": False,
-            "error": err,
-            "rolled_back": True,
-            "paths": paths,
-            "smoke": smoke_result,
-            "failed_probes": failed,
-            "failed_summary": summary,
-            "sync_detail": sync_detail,
-        }
 
     write_arm_state(
         settings,
