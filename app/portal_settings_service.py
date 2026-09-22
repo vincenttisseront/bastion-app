@@ -130,56 +130,46 @@ def set_subdomain_sso_enabled(
     return row
 
 
-def _normalize_smtp_fields(
-    *,
-    smtp_enabled: bool,
-    smtp_host: str | None,
-    smtp_port: int | None,
-    smtp_use_tls: bool,
-    smtp_username: str | None,
-    smtp_from_email: str | None,
-    smtp_from_name: str | None,
-    daily_recap_enabled: bool,
-    daily_recap_email: str | None,
-    daily_recap_hour: int | None,
-) -> dict[str, Any]:
-    host = (smtp_host or "").strip() or None
-    from_email = (smtp_from_email or "").strip() or None
-    username = (smtp_username or "").strip() or None
-    from_name = (smtp_from_name or "").strip() or None
-    recap_email = (daily_recap_email or "").strip() or None
-    port = int(smtp_port) if smtp_port else 587
-    enabled = bool(smtp_enabled)
-    recap_on = bool(daily_recap_enabled)
-    try:
-        recap_hour = int(daily_recap_hour) if daily_recap_hour is not None else 7
-    except (TypeError, ValueError):
-        recap_hour = 7
-    recap_hour = max(0, min(23, recap_hour))
+def _smtp_optional_str(value: str | None) -> str | None:
+    return (value or "").strip() or None
 
-    if enabled and not host:
+
+def _clamp_recap_hour(raw: int | None) -> int:
+    try:
+        hour = int(raw) if raw is not None else 7
+    except (TypeError, ValueError):
+        hour = 7
+    return max(0, min(23, hour))
+
+
+def _require_smtp_fields(fields: dict[str, Any]) -> None:
+    if fields["enabled"] and not fields["host"]:
         raise ValueError("Hôte SMTP requis lorsque SMTP est activé")
-    if enabled and not from_email:
+    if fields["enabled"] and not fields["from_email"]:
         raise ValueError("Expéditeur requis lorsque SMTP est activé")
-    if recap_on and not (recap_email or from_email):
+    if fields["recap_on"] and not (fields["recap_email"] or fields["from_email"]):
         raise ValueError(
             "Destinataire du récap (ou expéditeur SMTP) requis lorsque le récap est activé"
         )
-    if recap_email and "@" not in recap_email:
+    if fields["recap_email"] and "@" not in fields["recap_email"]:
         raise ValueError("Adresse du récap quotidien invalide")
 
-    return {
-        "enabled": enabled,
-        "host": host,
-        "port": port,
-        "use_tls": bool(smtp_use_tls),
-        "username": username,
-        "from_email": from_email,
-        "from_name": from_name,
-        "recap_on": recap_on,
-        "recap_email": recap_email,
-        "recap_hour": recap_hour,
+
+def _normalize_smtp_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    fields = {
+        "enabled": bool(raw.get("smtp_enabled")),
+        "host": _smtp_optional_str(raw.get("smtp_host")),
+        "port": int(raw["smtp_port"]) if raw.get("smtp_port") else 587,
+        "use_tls": bool(raw.get("smtp_use_tls")),
+        "username": _smtp_optional_str(raw.get("smtp_username")),
+        "from_email": _smtp_optional_str(raw.get("smtp_from_email")),
+        "from_name": _smtp_optional_str(raw.get("smtp_from_name")),
+        "recap_on": bool(raw.get("daily_recap_enabled")),
+        "recap_email": _smtp_optional_str(raw.get("daily_recap_email")),
+        "recap_hour": _clamp_recap_hour(raw.get("daily_recap_hour")),
     }
+    _require_smtp_fields(fields)
+    return fields
 
 
 def update_smtp_settings(
@@ -205,16 +195,18 @@ def update_smtp_settings(
 
     row = ensure_portal_settings(db, settings)
     fields = _normalize_smtp_fields(
-        smtp_enabled=smtp_enabled,
-        smtp_host=smtp_host,
-        smtp_port=smtp_port,
-        smtp_use_tls=smtp_use_tls,
-        smtp_username=smtp_username,
-        smtp_from_email=smtp_from_email,
-        smtp_from_name=smtp_from_name,
-        daily_recap_enabled=daily_recap_enabled,
-        daily_recap_email=daily_recap_email,
-        daily_recap_hour=daily_recap_hour,
+        {
+            "smtp_enabled": smtp_enabled,
+            "smtp_host": smtp_host,
+            "smtp_port": smtp_port,
+            "smtp_use_tls": smtp_use_tls,
+            "smtp_username": smtp_username,
+            "smtp_from_email": smtp_from_email,
+            "smtp_from_name": smtp_from_name,
+            "daily_recap_enabled": daily_recap_enabled,
+            "daily_recap_email": daily_recap_email,
+            "daily_recap_hour": daily_recap_hour,
+        }
     )
 
     previous_enabled = bool(row.smtp_enabled)
