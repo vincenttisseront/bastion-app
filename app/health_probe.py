@@ -295,6 +295,78 @@ async def probe_and_persist_app(db: Session, app: App) -> dict[str, Any]:
     return probe_result_payload(app)
 
 
+async def _probe_single_enabled_app(
+    db: Session,
+    app_id: int,
+    *,
+    summary: dict[str, int],
+    results: list[dict[str, Any]],
+    apps: list[App],
+) -> None:
+    from app.database import release_db_connection
+
+    app = db.get(App, app_id)
+    if app is None:
+        return
+    slug = app.slug
+    try:
+        url = probe_target_url(app)
+        if not url:
+            no_url = {
+                "status": "error",
+                "http_code": None,
+                "latency_ms": None,
+                "error": "Aucune URL upstream configurée",
+            }
+            apply_probe_result(app, no_url)
+            db.commit()
+            summary["error"] += 1
+            results.append(probe_result_payload(app))
+            apps.append(app)
+            release_db_connection(db)
+            logger.warning("Health probe %s → error (no url)", slug)
+            return
+
+        release_db_connection(db)
+        result = await probe_application(app)
+        app = db.get(App, app_id)
+        if app is None:
+            summary["error"] += 1
+            return
+        apply_probe_result(app, result)
+        db.commit()
+        key = result["status"]
+        if key in summary:
+            summary[key] += 1
+        results.append(probe_result_payload(app))
+        apps.append(app)
+        release_db_connection(db)
+        if key == "ok":
+            logger.info(
+                "Health probe %s → ok http=%s url=%s",
+                slug,
+                result.get("http_code"),
+                url,
+            )
+        else:
+            logger.warning(
+                "Health probe %s → %s http=%s url=%s error=%s",
+                slug,
+                key,
+                result.get("http_code"),
+                url,
+                result.get("error"),
+            )
+    except Exception:
+        logger.exception("Health probe failed for app %s", slug)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        release_db_connection(db)
+        summary["error"] += 1
+
+
 async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
     """Probe all enabled apps with probe_enabled=True. Never raises."""
     from app.database import release_db_connection
@@ -304,7 +376,6 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
     apps: list[App] = []
 
     try:
-        # Collect IDs first so we can release the pool connection during HTTP waits.
         app_ids = [
             row[0]
             for row in (
@@ -317,67 +388,9 @@ async def probe_all_enabled_apps(db: Session) -> dict[str, Any]:
         release_db_connection(db)
 
         for app_id in app_ids:
-            app = db.get(App, app_id)
-            if app is None:
-                continue
-            slug = app.slug
-            try:
-                url = probe_target_url(app)
-                if not url:
-                    no_url = {
-                        "status": "error",
-                        "http_code": None,
-                        "latency_ms": None,
-                        "error": "Aucune URL upstream configurée",
-                    }
-                    apply_probe_result(app, no_url)
-                    db.commit()
-                    summary["error"] += 1
-                    results.append(probe_result_payload(app))
-                    apps.append(app)
-                    release_db_connection(db)
-                    logger.warning("Health probe %s → error (no url)", slug)
-                    continue
-
-                # Hold no pool connection for the (up to 10s) HTTP probe.
-                release_db_connection(db)
-                result = await probe_application(app)
-                app = db.get(App, app_id)
-                if app is None:
-                    summary["error"] += 1
-                    continue
-                apply_probe_result(app, result)
-                db.commit()
-                key = result["status"]
-                if key in summary:
-                    summary[key] += 1
-                results.append(probe_result_payload(app))
-                apps.append(app)
-                release_db_connection(db)
-                if key == "ok":
-                    logger.info(
-                        "Health probe %s → ok http=%s url=%s",
-                        slug,
-                        result.get("http_code"),
-                        url,
-                    )
-                else:
-                    logger.warning(
-                        "Health probe %s → %s http=%s url=%s error=%s",
-                        slug,
-                        key,
-                        result.get("http_code"),
-                        url,
-                        result.get("error"),
-                    )
-            except Exception:
-                logger.exception("Health probe failed for app %s", slug)
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                release_db_connection(db)
-                summary["error"] += 1
+            await _probe_single_enabled_app(
+                db, app_id, summary=summary, results=results, apps=apps
+            )
 
         no_url_count = sum(
             1 for app in apps if not probe_target_url(app) and app.last_probe_error

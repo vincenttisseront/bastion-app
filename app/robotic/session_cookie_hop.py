@@ -268,6 +268,54 @@ def redirect_via_subdomain_sso_mirror(rd: str, *, portal_domain: str) -> str:
     )
 
 
+def _expire_cookie_names_for_session(cookies: dict[str, str]) -> list[str]:
+    expire_names: list[str] = []
+    if "__Host-session" in cookies or "__Secure-session" in cookies:
+        from app.bastion.drivers.teleport import stale_teleport_browser_cookies
+
+        expire_names.extend(stale_teleport_browser_cookies())
+    return expire_names
+
+
+def _clear_parent_domain_cookies(
+    response: Response,
+    cookies: dict[str, str],
+    *,
+    shared_parent: str,
+) -> None:
+    for key in cookies:
+        if key.startswith("__Secure-") or key.startswith("__Host-"):
+            continue
+        response.set_cookie(
+            key=key,
+            value="",
+            path="/",
+            domain=shared_parent,
+            max_age=0,
+            httponly=cookie_should_be_httponly(key),
+            secure=True,
+            samesite="lax",
+        )
+
+
+def _clear_legacy_hop_cookies(
+    response: Response, *, shared_parent: str | None
+) -> None:
+    for hop_name in _LEGACY_HOP_COOKIE_NAMES:
+        clear_hop: dict = {
+            "key": hop_name,
+            "value": "",
+            "path": "/",
+            "max_age": 0,
+            "httponly": True,
+            "secure": True,
+            "samesite": "lax",
+        }
+        if shared_parent:
+            clear_hop["domain"] = shared_parent
+        response.set_cookie(**clear_hop)
+
+
 def apply_host_only_session_cookies(
     response: Response,
     cookies: dict[str, str],
@@ -277,10 +325,7 @@ def apply_host_only_session_cookies(
 ) -> None:
     """Set target session cookies host-only; expire parent-domain copies + hop cookie."""
     expire_names = list(expire_cookie_names or ())
-    if "__Host-session" in cookies or "__Secure-session" in cookies:
-        from app.bastion.drivers.teleport import stale_teleport_browser_cookies
-
-        expire_names.extend(stale_teleport_browser_cookies())
+    expire_names.extend(_expire_cookie_names_for_session(cookies))
 
     for key, value in cookies.items():
         if not value:
@@ -307,32 +352,10 @@ def apply_host_only_session_cookies(
             samesite="lax",
         )
     if shared_parent:
-        for key in cookies:
-            if key.startswith("__Secure-") or key.startswith("__Host-"):
-                continue
-            response.set_cookie(
-                key=key,
-                value="",
-                path="/",
-                domain=shared_parent,
-                max_age=0,
-                httponly=cookie_should_be_httponly(key),
-                secure=True,
-                samesite="lax",
-            )
-    for hop_name in _LEGACY_HOP_COOKIE_NAMES:
-        clear_hop: dict = {
-            "key": hop_name,
-            "value": "",
-            "path": "/",
-            "max_age": 0,
-            "httponly": True,
-            "secure": True,
-            "samesite": "lax",
-        }
-        if shared_parent:
-            clear_hop["domain"] = shared_parent
-        response.set_cookie(**clear_hop)
+        _clear_parent_domain_cookies(
+            response, cookies, shared_parent=shared_parent
+        )
+    _clear_legacy_hop_cookies(response, shared_parent=shared_parent)
 
 
 def _read_hop_token(request: Request) -> str:

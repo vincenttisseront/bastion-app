@@ -278,6 +278,22 @@ def revoke_oidc_jti(
     return row
 
 
+def _oidc_row_matches_identity(
+    row: OidcSession,
+    *,
+    emails: set[str],
+    usernames: set[str],
+    subs: set[str],
+) -> bool:
+    uname = (row.username or "").strip().lower()
+    sub = (row.sub or "").strip()
+    if sub and sub in subs:
+        return True
+    if uname and (uname in usernames or uname in emails):
+        return True
+    return False
+
+
 def revoke_oidc_sessions_for_identity(
     db: Session,
     *,
@@ -308,14 +324,9 @@ def revoke_oidc_sessions_for_identity(
     now = utcnow()
     count = 0
     for row in rows:
-        uname = (row.username or "").strip().lower()
-        sub = (row.sub or "").strip()
-        match = False
-        if sub and sub in subs:
-            match = True
-        elif uname and (uname in usernames or uname in emails):
-            match = True
-        if not match:
+        if not _oidc_row_matches_identity(
+            row, emails=emails, usernames=usernames, subs=subs
+        ):
             continue
         row.revoked = True
         row.revoked_at = now

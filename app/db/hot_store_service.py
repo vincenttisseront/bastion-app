@@ -82,6 +82,35 @@ def _hot_dsn_from_row(row: PortalSettings, settings: Settings) -> str:
     )
 
 
+def _normalize_hot_store_fields(
+    *,
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    sslmode: str,
+) -> dict[str, Any]:
+    host = (host or "").strip()
+    database = (database or "").strip() or "bastion_hot"
+    user = (user or "").strip() or "bastion_hot"
+    sslmode = (sslmode or "prefer").strip() or "prefer"
+    if sslmode not in ("prefer", "require", "disable", "allow", "verify-ca", "verify-full"):
+        raise HotStoreError(f"sslmode invalide : {sslmode}")
+    try:
+        port_i = int(port or 5432)
+    except (TypeError, ValueError) as exc:
+        raise HotStoreError("Port PostgreSQL invalide") from exc
+    if not host:
+        raise HotStoreError("Hôte PostgreSQL requis")
+    return {
+        "host": host,
+        "port": port_i,
+        "database": database,
+        "user": user,
+        "sslmode": sslmode,
+    }
+
+
 def save_hot_store_config(
     db: Session,
     settings: Settings,
@@ -101,18 +130,14 @@ def save_hot_store_config(
             "Chiffrement Fernet requis pour stocker le mot de passe PostgreSQL"
         )
     row = ensure_portal_settings(db, settings)
-    host = (host or "").strip()
-    database = (database or "").strip() or "bastion_hot"
-    user = (user or "").strip() or "bastion_hot"
-    sslmode = (sslmode or "prefer").strip() or "prefer"
-    if sslmode not in ("prefer", "require", "disable", "allow", "verify-ca", "verify-full"):
-        raise HotStoreError(f"sslmode invalide : {sslmode}")
-    try:
-        port_i = int(port or 5432)
-    except (TypeError, ValueError) as exc:
-        raise HotStoreError("Port PostgreSQL invalide") from exc
-    if not host:
-        raise HotStoreError("Hôte PostgreSQL requis")
+    fields = _normalize_hot_store_fields(
+        host=host, port=port, database=database, user=user, sslmode=sslmode
+    )
+    host = fields["host"]
+    port_i = fields["port"]
+    database = fields["database"]
+    user = fields["user"]
+    sslmode = fields["sslmode"]
 
     prev_host = (row.hot_store_host or "").strip()
     prev_port = int(row.hot_store_port or 5432) if row.hot_store_port else 5432
@@ -132,7 +157,6 @@ def save_hot_store_config(
     row.hot_store_sslmode = sslmode
     if (password or "").strip():
         row.hot_store_password_encrypted = encrypt_secret(password.strip(), settings)
-    # Force a fresh connection test after any save.
     _clear_test_state(row)
     if endpoint_changed:
         _clear_schema_and_downstream(row)
