@@ -2992,5 +2992,17 @@
   "⬆ Uploader": "⬆ Upload",
   "⬇ Télécharger": "⬇ Download",
   "🔍 Analyser": "🔍 Analyze",
-  "🔒 Droits": "🔒 Permissions"
+  "🔒 Droits": "🔒 Permissions",
+  "Approuver {n} demande(s) sélectionnée(s) ?": "Approve {n} selected request(s)?",
+  "Approuver la sélection": "Approve selection",
+  "Approbation groupée": "Bulk approve",
+  "Rejeter {n} demande(s) sélectionnée(s) ?": "Reject {n} selected request(s)?",
+  "Sélectionnez au moins une demande à rejeter.": "Select at least one request to reject.",
+  "Sélectionnez au moins une demande à approuver.": "Select at least one request to approve.",
+  "Aucune demande en attente n’a été rejetée.": "No pending request was rejected.",
+  "Aucune demande n’a été approuvée.": "No request was approved.",
+  "{n} demandes rejetées.": "{n} requests rejected.",
+  "{n} demandes approuvées.": "{n} requests approved.",
+  "Choisissez un realm cible pour l’approbation groupée.": "Choose a target realm for bulk approval.",
+  "Envoyer les identifiants par email": "Send credentials by email"
 }

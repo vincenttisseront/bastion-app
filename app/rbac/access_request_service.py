@@ -341,3 +341,73 @@ def reject_access_request(
     db.commit()
     db.refresh(row)
     return row
+
+
+def reject_access_requests_bulk(
+    db: Session,
+    *,
+    request_ids: list[int],
+    actor: str,
+    notes: str | None = None,
+    ip_address: str | None = None,
+) -> list[AccessRequest]:
+    """Reject only pending requests; skip missing / already decided rows."""
+    rejected: list[AccessRequest] = []
+    seen: set[int] = set()
+    for request_id in request_ids:
+        if request_id in seen:
+            continue
+        seen.add(request_id)
+        row = db.query(AccessRequest).filter_by(id=request_id).first()
+        if row is None or row.status != "pending":
+            continue
+        rejected.append(
+            reject_access_request(
+                db,
+                request_id=request_id,
+                actor=actor,
+                notes=notes,
+                ip_address=ip_address,
+            )
+        )
+    return rejected
+
+
+async def approve_access_requests_bulk(
+    db: Session,
+    settings: Settings,
+    *,
+    request_ids: list[int],
+    actor: str,
+    realm_id: int,
+    ip_address: str | None = None,
+    send_credentials: bool | None = None,
+) -> tuple[list[tuple[AccessRequest, BastionAccount]], list[str]]:
+    """Approve pending requests into one realm; collect per-row failures."""
+    approved: list[tuple[AccessRequest, BastionAccount]] = []
+    errors: list[str] = []
+    seen: set[int] = set()
+    for request_id in request_ids:
+        if request_id in seen:
+            continue
+        seen.add(request_id)
+        row = db.query(AccessRequest).filter_by(id=request_id).first()
+        label = row.username if row is not None else str(request_id)
+        if row is None or row.status != "pending":
+            continue
+        try:
+            approved_row, account, step_errors = await approve_access_request(
+                db,
+                settings,
+                request_id=request_id,
+                actor=actor,
+                realm_id=realm_id,
+                ip_address=ip_address,
+                send_credentials=send_credentials,
+            )
+            approved.append((approved_row, account))
+            for err in step_errors:
+                errors.append(f"{label}: {err}")
+        except AccessRequestError as exc:
+            errors.append(f"{label}: {exc}")
+    return approved, errors
