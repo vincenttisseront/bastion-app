@@ -48,19 +48,21 @@ def test_apply_saved_view_defaults_fills_missing():
     saved.columns_json = ["action", "actor"]
     out = _apply_saved_view_defaults(
         saved,
-        action=None,
-        actor=None,
-        date_from=None,
-        date_to=None,
-        ip=None,
-        q=None,
-        detail=None,
-        status=None,
-        domain=None,
-        severity=None,
-        severity_min=None,
-        event_code=None,
-        columns=None,
+        {
+            "action": None,
+            "actor": None,
+            "date_from": None,
+            "date_to": None,
+            "ip": None,
+            "q": None,
+            "detail": None,
+            "status": None,
+            "domain": None,
+            "severity": None,
+            "severity_min": None,
+            "event_code": None,
+            "columns": None,
+        },
     )
     assert out[0] == "login"
     assert out[1] == "ops"

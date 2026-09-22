@@ -227,79 +227,86 @@ def _merge_saved_view_filters(
     str | None,
 ]:
     """Apply saved view defaults; explicit query params take precedence."""
+    current = {
+        "action": action,
+        "actor": actor,
+        "date_from": date_from,
+        "date_to": date_to,
+        "ip": ip,
+        "q": q,
+        "detail": detail,
+        "status": status,
+        "domain": domain,
+        "severity": severity,
+        "severity_min": severity_min,
+        "event_code": event_code,
+        "columns": columns,
+    }
     if not view:
-        return (
-            action,
-            actor,
-            date_from,
-            date_to,
-            ip,
-            q,
-            detail,
-            status,
-            domain,
-            severity,
-            severity_min,
-            event_code,
-            None,
-            columns,
-        )
+        return _filters_tuple(current, active_view_id=None)
     saved = (
         db.query(SavedLogView)
         .filter_by(id=view, user_email=user_key)
         .first()
     )
     if not saved or not isinstance(saved.filters_json, dict):
-        return (
-            action,
-            actor,
-            date_from,
-            date_to,
-            ip,
-            q,
-            detail,
-            status,
-            domain,
-            severity,
-            severity_min,
-            event_code,
-            None,
-            columns,
-        )
-    return _apply_saved_view_defaults(
-        saved,
-        action=action,
-        actor=actor,
-        date_from=date_from,
-        date_to=date_to,
-        ip=ip,
-        q=q,
-        detail=detail,
-        status=status,
-        domain=domain,
-        severity=severity,
-        severity_min=severity_min,
-        event_code=event_code,
-        columns=columns,
+        return _filters_tuple(current, active_view_id=None)
+    return _apply_saved_view_defaults(saved, current)
+
+
+def _filters_tuple(
+    current: dict[str, Any], *, active_view_id: int | None
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    list[str] | None,
+    list[str] | None,
+    list[str] | None,
+    str | None,
+    str | None,
+    int | None,
+    str | None,
+]:
+    return (
+        current.get("action"),
+        current.get("actor"),
+        current.get("date_from"),
+        current.get("date_to"),
+        current.get("ip"),
+        current.get("q"),
+        current.get("detail"),
+        current.get("status"),
+        current.get("domain"),
+        current.get("severity"),
+        current.get("severity_min"),
+        current.get("event_code"),
+        active_view_id,
+        current.get("columns"),
     )
+
+
+def _pick_str(current: dict[str, Any], saved: dict[str, Any], key: str) -> str | None:
+    return current.get(key) or saved.get(key) or None
+
+
+def _pick_list(
+    current: dict[str, Any], saved: dict[str, Any], key: str
+) -> list[str] | None:
+    cur = current.get(key)
+    if cur:
+        return cur
+    raw = saved.get(key)
+    return raw if isinstance(raw, list) else None
 
 
 def _apply_saved_view_defaults(
     saved: SavedLogView,
-    *,
-    action: str | None,
-    actor: str | None,
-    date_from: str | None,
-    date_to: str | None,
-    ip: str | None,
-    q: str | None,
-    detail: str | None,
-    status: list[str] | None,
-    domain: list[str] | None,
-    severity: list[str] | None,
-    severity_min: str | None,
-    event_code: str | None,
-    columns: str | None,
+    current: dict[str, Any],
 ) -> tuple[
     str | None,
     str | None,
@@ -317,39 +324,24 @@ def _apply_saved_view_defaults(
     str | None,
 ]:
     f = saved.filters_json if isinstance(saved.filters_json, dict) else {}
-    action = action or f.get("action") or None
-    actor = actor or f.get("actor") or None
-    date_from = date_from or f.get("date_from") or None
-    date_to = date_to or f.get("date_to") or None
-    ip = ip or f.get("ip") or None
-    q = q or f.get("q") or None
-    detail = detail or f.get("detail") or None
-    event_code = event_code or f.get("event_code") or None
-    severity_min = severity_min or f.get("severity_min") or None
-    if not status and isinstance(f.get("status"), list):
-        status = f.get("status")
-    if not domain and isinstance(f.get("domain"), list):
-        domain = f.get("domain")
-    if not severity and isinstance(f.get("severity"), list):
-        severity = f.get("severity")
-    if not columns and isinstance(saved.columns_json, list):
-        columns = ",".join(str(c) for c in saved.columns_json)
-    return (
-        action,
-        actor,
-        date_from,
-        date_to,
-        ip,
-        q,
-        detail,
-        status,
-        domain,
-        severity,
-        severity_min,
-        event_code,
-        int(saved.id),
-        columns,
-    )
+    merged = {
+        "action": _pick_str(current, f, "action"),
+        "actor": _pick_str(current, f, "actor"),
+        "date_from": _pick_str(current, f, "date_from"),
+        "date_to": _pick_str(current, f, "date_to"),
+        "ip": _pick_str(current, f, "ip"),
+        "q": _pick_str(current, f, "q"),
+        "detail": _pick_str(current, f, "detail"),
+        "event_code": _pick_str(current, f, "event_code"),
+        "severity_min": _pick_str(current, f, "severity_min"),
+        "status": _pick_list(current, f, "status"),
+        "domain": _pick_list(current, f, "domain"),
+        "severity": _pick_list(current, f, "severity"),
+        "columns": current.get("columns"),
+    }
+    if not merged["columns"] and isinstance(saved.columns_json, list):
+        merged["columns"] = ",".join(str(c) for c in saved.columns_json)
+    return _filters_tuple(merged, active_view_id=int(saved.id))
 
 
 def _active_chips(filters: dict[str, Any]) -> list[dict[str, str]]:

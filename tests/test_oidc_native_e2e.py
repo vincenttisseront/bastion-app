@@ -301,7 +301,7 @@ def test_e2e_bad_password_401_no_session_row(
     )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Identifiants invalides."
+    assert response.json()["message"] == "Identifiants invalides."
     assert COOKIE not in response.cookies
     assert db_session.query(OidcSession).count() == 0
 
@@ -394,7 +394,7 @@ def test_e2e_password_failures_ban_username_then_unban_expired(
         headers={"X-Real-IP": ip},
     )
     assert r1.status_code == 401
-    assert r1.json()["detail"] == "Identifiants invalides."
+    assert r1.json()["message"] == "Identifiants invalides."
 
     r2 = client.post(
         "/auth/login",
@@ -402,7 +402,7 @@ def test_e2e_password_failures_ban_username_then_unban_expired(
         headers={"X-Real-IP": ip},
     )
     assert r2.status_code == 403
-    assert r2.json()["detail"] == "Compte temporairement bloqué suite à trop de tentatives."
+    assert r2.json()["message"] == "Compte temporairement bloqué suite à trop de tentatives."
 
     ban = find_active_ban(db_session, username="bob")
     assert ban is not None
@@ -427,7 +427,7 @@ def test_e2e_password_failures_ban_username_then_unban_expired(
         headers={"X-Real-IP": ip},
     )
     assert r4.status_code == 401
-    assert r4.json()["detail"] == "Identifiants invalides."
+    assert r4.json()["message"] == "Identifiants invalides."
 
 
 @respx.mock
@@ -499,7 +499,7 @@ def test_e2e_otp_failures_ban_username_then_unban_expired(
         headers={"X-Real-IP": ip},
     )
     assert r2.status_code == 403
-    assert r2.json()["detail"] == "Compte temporairement bloqué suite à trop de tentatives."
+    assert r2.json()["message"] == "Compte temporairement bloqué suite à trop de tentatives."
 
     ban = find_active_ban(db_session, username="alice")
     assert ban is not None
@@ -514,7 +514,7 @@ def test_e2e_otp_failures_ban_username_then_unban_expired(
         headers={"X-Real-IP": ip},
     )
     assert r3.status_code == 401
-    assert r3.json()["detail"] == "Identifiants invalides."
+    assert r3.json()["message"] == "Identifiants invalides."
 
 
 def _otp_html(*, error: bool = False) -> str:
@@ -646,7 +646,7 @@ def test_e2e_otp_flow_success(
         headers={"X-Real-IP": "10.0.0.50"},
     )
     assert reuse.status_code == 401
-    assert reuse.json()["detail"] == "Identifiants invalides."
+    assert reuse.json()["message"] == "Identifiants invalides."
 
 
 @respx.mock
@@ -690,7 +690,7 @@ def test_e2e_otp_wrong_then_lockout(
             headers={"X-Real-IP": "10.0.0.51"},
         )
         assert bad.status_code == 401
-        assert bad.json()["detail"] == "Identifiants invalides."
+        assert bad.json()["message"] == "Identifiants invalides."
         if i < MAX_OTP_FAILURES - 1:
             assert (
                 db_session.query(OidcLoginAttempt)
@@ -741,5 +741,5 @@ def test_e2e_otp_expired_attempt_generic_401(
         headers={"X-Real-IP": "10.0.0.52"},
     )
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Identifiants invalides."
+    assert resp.json()["message"] == "Identifiants invalides."
     assert "expired" not in resp.text.lower()
