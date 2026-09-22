@@ -748,47 +748,58 @@ def list_breakglass_chains(
 
     chains: list[dict[str, Any]] = []
     for chain_id, members in by_chain.items():
-        first = members[0]
-        tip = next((m for m in reversed(members) if not m.superseded_by), members[-1])
-        max_exp = max(
-            (
-                m.expires_at
-                if m.expires_at.tzinfo
-                else m.expires_at.replace(tzinfo=timezone.utc)
-            )
-            for m in members
-            if m.expires_at is not None
-        )
-        chain_revoked = any(bool(m.chain_revoked) for m in members)
-        expired = max_exp <= now
-        if not include_expired and (expired or chain_revoked):
+        entry = _breakglass_chain_entry(chain_id, members, now=now)
+        if entry is None:
             continue
-        if chain_revoked:
-            status = "chain_revoked"
-        elif expired:
-            status = "expired"
-        else:
-            status = "active"
-        chains.append(
-            {
-                "chain_id": chain_id,
-                "username": tip.username or first.username,
-                "rotation_count": max(0, len(members) - 1),
-                "jti_current": tip.jti,
-                "issued_at": first.issued_at.isoformat() if first.issued_at else None,
-                "expires_at": max_exp.isoformat() if max_exp else None,
-                "status": status,
-                "active": status == "active",
-                "chain_revoked": chain_revoked,
-                "member_count": len(members),
-            }
-        )
-
-    chains.sort(
-        key=lambda c: c.get("issued_at") or "",
-        reverse=True,
-    )
+        if not include_expired and (
+            entry["status"] in ("expired", "chain_revoked")
+        ):
+            continue
+        chains.append(entry)
+    chains.sort(key=lambda c: c.get("issued_at") or "", reverse=True)
     return chains[: max(1, min(limit, 500))]
+
+
+def _breakglass_chain_entry(
+    chain_id: str,
+    members: list[BreakGlassSession],
+    *,
+    now,
+) -> dict[str, Any] | None:
+    if not members:
+        return None
+    first = members[0]
+    tip = next((m for m in reversed(members) if not m.superseded_by), members[-1])
+    dated = [
+        m.expires_at
+        if m.expires_at.tzinfo
+        else m.expires_at.replace(tzinfo=timezone.utc)
+        for m in members
+        if m.expires_at is not None
+    ]
+    if not dated:
+        return None
+    max_exp = max(dated)
+    chain_revoked = any(bool(m.chain_revoked) for m in members)
+    expired = max_exp <= now
+    if chain_revoked:
+        status = "chain_revoked"
+    elif expired:
+        status = "expired"
+    else:
+        status = "active"
+    return {
+        "chain_id": chain_id,
+        "username": tip.username or first.username,
+        "rotation_count": max(0, len(members) - 1),
+        "jti_current": tip.jti,
+        "issued_at": first.issued_at.isoformat() if first.issued_at else None,
+        "expires_at": max_exp.isoformat() if max_exp else None,
+        "status": status,
+        "active": status == "active",
+        "chain_revoked": chain_revoked,
+        "member_count": len(members),
+    }
 
 
 def purge_expired_breakglass_sessions(

@@ -832,6 +832,22 @@ def _keycloak_http_error_hint(html: str) -> str | None:
     return _keycloak_error_title_hint(html, lower=lower)
 
 
+def _require_headless_login_inputs(
+    *,
+    realm: str,
+    username: str,
+    password: str | None,
+    db: Session | None,
+) -> tuple[str, str]:
+    realm_s = (realm or "").strip()
+    username_s = (username or "").strip()
+    if not realm_s or not username_s or password is None or password == "":
+        raise InvalidCredentialsError(_MSG_INCOMPLETE_CREDS)
+    if db is None:
+        raise OidcBffConfigError("db session required for headless login")
+    return realm_s, username_s
+
+
 async def start_headless_login(
     realm: str,
     username: str,
@@ -846,12 +862,9 @@ async def start_headless_login(
 ) -> LoginStepResult:
     """Authorize + submit password. Returns tokens or ``otp_required`` + attempt_id."""
     settings = settings or get_settings()
-    realm = (realm or "").strip()
-    username = (username or "").strip()
-    if not realm or not username or password is None or password == "":
-        raise InvalidCredentialsError(_MSG_INCOMPLETE_CREDS)
-    if db is None:
-        raise OidcBffConfigError("db session required for headless login")
+    realm, username = _require_headless_login_inputs(
+        realm=realm, username=username, password=password, db=db
+    )
 
     purge_expired_oidc_login_attempts(db)
 

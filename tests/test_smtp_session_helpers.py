@@ -140,3 +140,49 @@ def test_send_email_rejects_unconfigured_and_bad_recipient():
     )
     with pytest.raises(SmtpError, match="destinataire"):
         send_email(cfg, settings, to_email="nope", subject="x", body_text="y")
+
+
+def test_test_smtp_connection_missing_host_and_from(db_session, monkeypatch):
+    from app.mail.smtp_service import test_smtp_connection
+    from app.sso_settings import Settings
+
+    settings = Settings(
+        vault_portal_internal_token="test-secret",
+        portal_secret_encryption_key="test-encryption-key-for-pytest-only",
+    )
+    row = MagicMock(smtp_host="", smtp_from_email="")
+    monkeypatch.setattr(
+        "app.mail.smtp_service.ensure_portal_settings", lambda *_a, **_k: row
+    )
+    ok, msg = test_smtp_connection(db_session, settings, actor="admin")
+    assert ok is False
+    assert "Hôte" in msg or "hôte" in msg.lower()
+
+    row.smtp_host = "smtp.example.com"
+    row.smtp_from_email = ""
+    ok2, msg2 = test_smtp_connection(db_session, settings, actor="admin")
+    assert ok2 is False
+    assert "Expéditeur" in msg2 or "expéditeur" in msg2.lower()
+
+
+def test_send_email_decrypt_failure(monkeypatch):
+    settings = MagicMock()
+    cfg = MagicMock(
+        smtp_enabled=True,
+        smtp_host="smtp.example.com",
+        smtp_from_email="noreply@example.com",
+        smtp_from_name="",
+        smtp_port=587,
+        smtp_use_tls=True,
+        smtp_username="u",
+        smtp_password_encrypted="cipher",
+    )
+
+    def boom(*_a, **_k):
+        raise ValueError("bad key")
+
+    monkeypatch.setattr("app.mail.smtp_service.decrypt_secret", boom)
+    with pytest.raises(SmtpError):
+        send_email(
+            cfg, settings, to_email="user@example.com", subject="x", body_text="y"
+        )
