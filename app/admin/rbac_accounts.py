@@ -920,6 +920,51 @@ def _crushftp_group_names_for_account(db: Session, account: BastionAccount) -> l
     return [g.name for g in groups if g.name]
 
 
+def _want_send_email(send_email: str) -> bool:
+    return send_email.strip().lower() in ("1", "true", "on", "yes")
+
+
+def _reset_password_error_response(
+    request: Request,
+    *,
+    exc: BaseException,
+    redirect_url: str,
+    fallback: str,
+    secret: str,
+) -> Response:
+    if _wants_json(request):
+        return JSONResponse(
+            {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
+        )
+    response = RedirectResponse(
+        url=_safe_redirect_url(redirect_url, fallback), status_code=302
+    )
+    flash_redirect(response, str(exc), "error", secret)
+    return response
+
+
+def _flash_reset_password_outcome(
+    response: Response,
+    *,
+    want_email: bool,
+    email_error: str | None,
+    secret: str,
+    emailed_ok_msg: str,
+    no_email_msg: str,
+) -> None:
+    if want_email and email_error:
+        flash_redirect(
+            response,
+            f"Mot de passe réinitialisé, mais l'email a échoué : {email_error}",
+            "warning",
+            secret,
+        )
+    elif want_email:
+        flash_redirect(response, emailed_ok_msg, "success", secret)
+    else:
+        flash_redirect(response, no_email_msg, "success", secret)
+
+
 def _safe_redirect_url(raw: str | None, fallback: str) -> str:
     """Only allow same-origin relative admin paths (open-redirect guard)."""
     value = (raw or "").strip()
@@ -1144,7 +1189,7 @@ async def admin_rbac_account_reset_password(
     account = _account_or_404(db, account_id)
     secret = settings.vault_portal_internal_token or "dev"
     fallback = f"/admin/rbac/accounts/{account.id}"
-    want_email = send_email.strip().lower() in ("1", "true", "on", "yes")
+    want_email = _want_send_email(send_email)
     email_error: str | None = None
     reveal_pw: str | None = None
     logger.info(
@@ -1176,15 +1221,13 @@ async def admin_rbac_account_reset_password(
             account.username,
             str(exc)[:200],
         )
-        if _wants_json(request):
-            return JSONResponse(
-                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
-            )
-        response = RedirectResponse(
-            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        return _reset_password_error_response(
+            request,
+            exc=exc,
+            redirect_url=redirect_url,
+            fallback=fallback,
+            secret=secret,
         )
-        flash_redirect(response, str(exc), "error", secret)
-        return response
 
     logger.info(
         "admin_rbac reset_password ok account_id=%s username=%s "
@@ -1214,28 +1257,19 @@ async def admin_rbac_account_reset_password(
             secret=secret,
         )
         reveal_pw = None  # noqa: F841
-    if want_email and email_error:
-        flash_redirect(
-            response,
-            f"Mot de passe réinitialisé, mais l'email a échoué : {email_error}",
-            "warning",
-            secret,
-        )
-    elif want_email:
-        flash_redirect(
-            response,
-            f"Mot de passe temporaire réinitialisé et envoyé à {account.email}.",
-            "success",
-            secret,
-        )
-    else:
-        flash_redirect(
-            response,
+    _flash_reset_password_outcome(
+        response,
+        want_email=want_email,
+        email_error=email_error,
+        secret=secret,
+        emailed_ok_msg=(
+            f"Mot de passe temporaire réinitialisé et envoyé à {account.email}."
+        ),
+        no_email_msg=(
             "Mot de passe temporaire réinitialisé (UPDATE_PASSWORD au prochain login). "
-            "Il est affiché une seule fois ci-dessous.",
-            "success",
-            secret,
-        )
+            "Il est affiché une seule fois ci-dessous."
+        ),
+    )
     return response
 
 
@@ -1271,7 +1305,7 @@ async def admin_rbac_user_reset_password(
     if account is not None:
         fallback = f"/admin/rbac/users/view?account_id={account.id}#identite"
 
-    want_email = send_email.strip().lower() in ("1", "true", "on", "yes")
+    want_email = _want_send_email(send_email)
     email_error: str | None = None
     reveal_pw: str | None = None
     try:
@@ -1292,15 +1326,13 @@ async def admin_rbac_user_reset_password(
             reveal_pw = password
         password = None  # noqa: F841
     except AccountCreationError as exc:
-        if _wants_json(request):
-            return JSONResponse(
-                {"ok": False, "errors": {"_form": str(exc)}}, status_code=400
-            )
-        response = RedirectResponse(
-            url=_safe_redirect_url(redirect_url, fallback), status_code=302
+        return _reset_password_error_response(
+            request,
+            exc=exc,
+            redirect_url=redirect_url,
+            fallback=fallback,
+            secret=secret,
         )
-        flash_redirect(response, str(exc), "error", secret)
-        return response
 
     if _wants_json(request):
         return JSONResponse(
@@ -1325,28 +1357,17 @@ async def admin_rbac_user_reset_password(
         )
         reveal_pw = None  # noqa: F841
     to_label = (account.email if account else None) or "l'utilisateur"
-    if want_email and email_error:
-        flash_redirect(
-            response,
-            f"Mot de passe réinitialisé, mais l'email a échoué : {email_error}",
-            "warning",
-            secret,
-        )
-    elif want_email:
-        flash_redirect(
-            response,
-            f"Mot de passe réinitialisé et envoyé à {to_label}.",
-            "success",
-            secret,
-        )
-    else:
-        flash_redirect(
-            response,
+    _flash_reset_password_outcome(
+        response,
+        want_email=want_email,
+        email_error=email_error,
+        secret=secret,
+        emailed_ok_msg=f"Mot de passe réinitialisé et envoyé à {to_label}.",
+        no_email_msg=(
             "Mot de passe Keycloak réinitialisé. "
-            "Il est affiché une seule fois ci-dessous.",
-            "success",
-            secret,
-        )
+            "Il est affiché une seule fois ci-dessous."
+        ),
+    )
     return response
 
 

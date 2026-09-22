@@ -570,6 +570,35 @@ def read_access_log_tail(
     return "\n".join(parts[-n:]) + "\n"
 
 
+async def _access_log_follow_once(
+    path: Path,
+    settings: Settings,
+    slug: str,
+    *,
+    lines: int | None,
+    offset: int,
+) -> tuple[str | None, int, bool]:
+    """One follow poll. Returns (chunk, new_offset, stop)."""
+    try:
+        if not path.is_file():
+            return None, offset, False
+        size = path.stat().st_size
+        if size < offset:
+            chunk = read_access_log_tail(settings, slug, lines=lines)
+            new_offset = path.stat().st_size if path.is_file() else 0
+            return (chunk or None), new_offset, False
+        if size == offset:
+            return None, offset, False
+        async with await anyio.open_file(path, "rb") as fh:
+            await fh.seek(offset)
+            data = await fh.read()
+        text = data.decode("utf-8", errors="replace") if data else None
+        return text, size, False
+    except OSError:
+        logger.exception("nginx access log follow failed slug=%s", slug)
+        return None, offset, True
+
+
 async def iter_access_log_follow(
     settings: Settings,
     slug: str,
@@ -590,26 +619,10 @@ async def iter_access_log_follow(
         offset = 0
     while True:
         await asyncio.sleep(poll_seconds)
-        try:
-            if not path.is_file():
-                continue
-            size = path.stat().st_size
-            if size < offset:
-                # Log rotated — re-emit recent tail.
-                offset = 0
-                chunk = read_access_log_tail(settings, slug, lines=lines)
-                if chunk:
-                    yield chunk
-                offset = path.stat().st_size if path.is_file() else 0
-                continue
-            if size == offset:
-                continue
-            async with await anyio.open_file(path, "rb") as fh:
-                await fh.seek(offset)
-                data = await fh.read()
-            offset = size
-            if data:
-                yield data.decode("utf-8", errors="replace")
-        except OSError:
-            logger.exception("nginx access log follow failed slug=%s", slug)
+        chunk, offset, stop = await _access_log_follow_once(
+            path, settings, slug, lines=lines, offset=offset
+        )
+        if stop:
             break
+        if chunk:
+            yield chunk

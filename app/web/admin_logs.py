@@ -553,6 +553,60 @@ def admin_logs_page(
     )
 
 
+def _fetch_live_audit_entries(
+    *,
+    last_id: int,
+    locale: str | None,
+    action: str | None,
+    actor: str | None,
+    df,
+    dt,
+    ip: str | None,
+    q: str | None,
+    detail: str | None,
+    event_code: str | None,
+    statuses,
+    domains,
+    severities,
+    sev_min: str | None,
+    entry_matches_live_filters,
+) -> list[dict[str, Any]]:
+    db = SessionLocal()
+    try:
+        qset = apply_audit_filters(
+            db.query(AuditLog).filter(AuditLog.id > last_id),
+            action=action or None,
+            actor=actor or None,
+            date_from=df,
+            date_to=dt,
+            ip=ip or None,
+            q=q or None,
+            detail_kw=detail or None,
+            event_code=event_code or None,
+        )
+        rows = qset.order_by(AuditLog.id.asc()).limit(50).all()
+        entries = [serialize_audit_row(r, locale=locale) for r in rows]
+        return [
+            e
+            for e in entries
+            if entry_matches_live_filters(
+                e,
+                action=action,
+                actor=actor,
+                ip=ip,
+                q=q,
+                detail_kw=detail,
+                status=statuses,
+                event_code=event_code,
+                domains=domains,
+                severities=severities,
+                severity_min=sev_min,
+            )
+        ]
+    finally:
+        db.close()
+
+
 @router.get("/admin/logs/stream")
 async def admin_logs_stream(
     request: Request,
@@ -619,6 +673,7 @@ async def admin_logs_stream(
     dt = _parse_date_end(date_to)
     timeout = int(settings.admin_logs_sse_timeout_seconds or 1800)
     timeout = max(5, min(timeout, 86400))
+    locale = get_request_locale(request)
 
     _db0 = SessionLocal()
     try:
@@ -633,42 +688,23 @@ async def admin_logs_stream(
             while time.monotonic() - started < timeout:
                 if await request.is_disconnected():
                     break
-
-                db = SessionLocal()
-                try:
-                    qset = apply_audit_filters(
-                        db.query(AuditLog).filter(AuditLog.id > last_id),
-                        action=action or None,
-                        actor=actor or None,
-                        date_from=df,
-                        date_to=dt,
-                        ip=ip or None,
-                        q=q or None,
-                        detail_kw=detail or None,
-                        event_code=event_code or None,
-                    )
-                    rows = qset.order_by(AuditLog.id.asc()).limit(50).all()
-                    entries = [serialize_audit_row(r, locale=get_request_locale(request)) for r in rows]
-                    entries = [
-                        e
-                        for e in entries
-                        if entry_matches_live_filters(
-                            e,
-                            action=action,
-                            actor=actor,
-                            ip=ip,
-                            q=q,
-                            detail_kw=detail,
-                            status=statuses,
-                            event_code=event_code,
-                            domains=domains,
-                            severities=severities,
-                            severity_min=sev_min,
-                        )
-                    ]
-                finally:
-                    db.close()
-
+                entries = _fetch_live_audit_entries(
+                    last_id=last_id,
+                    locale=locale,
+                    action=action,
+                    actor=actor,
+                    df=df,
+                    dt=dt,
+                    ip=ip,
+                    q=q,
+                    detail=detail,
+                    event_code=event_code,
+                    statuses=statuses,
+                    domains=domains,
+                    severities=severities,
+                    sev_min=sev_min,
+                    entry_matches_live_filters=entry_matches_live_filters,
+                )
                 for entry in entries:
                     last_id = max(last_id, int(entry["id"]))
                     yield f"id: {entry['id']}\ndata: {json.dumps(entry, ensure_ascii=False)}\n\n"

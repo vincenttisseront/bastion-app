@@ -49,6 +49,68 @@ def _client_ip(request: Request) -> str:
     return request.headers.get("X-Real-IP", request.client.host if request.client else "")
 
 
+def _mode_is_total(mode: str) -> bool:
+    return mode in ("total", "full", "acces_total")
+
+
+def _resolve_role_for_group_config(db: Session, body: dict, mode: str):
+    from app.models import RbacRole
+    from app.rbac.permission_seed import SECURITY_ADMIN_ROLE_NAME
+
+    role_name = SECURITY_ADMIN_ROLE_NAME if _mode_is_total(mode) else None
+    role_id = body.get("rbac_role_id")
+    if role_id:
+        return db.query(RbacRole).filter_by(id=int(role_id)).first()
+    if role_name:
+        return db.query(RbacRole).filter_by(name=role_name).first()
+    return None
+
+
+def _replace_group_rbac_role_grants(
+    db: Session,
+    *,
+    group_id: int,
+    role,
+    mode: str,
+    granted_by: str,
+) -> None:
+    from app.models import AccessGrant
+    from app.rbac.grants_service import AccessGrantCreate, create_grant, delete_grant
+
+    existing = (
+        db.query(AccessGrant)
+        .filter_by(
+            subject_type="group",
+            rbac_group_id=group_id,
+            resource_type="rbac_role",
+        )
+        .all()
+    )
+    for g in existing:
+        delete_grant(db, g.id)
+
+    if role is None:
+        return
+    create_grant(
+        db,
+        AccessGrantCreate(
+            subject_type="group",
+            rbac_group_id=group_id,
+            resource_type="rbac_role",
+            rbac_role_id=role.id,
+            access_level="manage" if _mode_is_total(mode) else "view",
+        ),
+        granted_by=granted_by,
+    )
+
+
+def _apply_group_meta_updates(group, body: dict) -> None:
+    if "description" in body:
+        group.description = (body.get("description") or "").strip() or None
+    if "group_tag" in body:
+        group.group_tag = (body.get("group_tag") or "").strip() or None
+
+
 def _ctx(request: Request, settings: Settings, **extra):
     from app.web.constants import APP_VERSION
     from app.web.flash import base_template_context
@@ -199,9 +261,7 @@ async def admin_rbac_group_role_config(
     user=Depends(require_admin),
 ):
     """Assign / replace rbac_role AccessGrant for a group (Total vs Limité shortcut)."""
-    from app.models import AccessGrant, RBACGroup, RbacRole
-    from app.rbac.grants_service import AccessGrantCreate, create_grant, delete_grant
-    from app.rbac.permission_seed import SECURITY_ADMIN_ROLE_NAME
+    from app.models import RBACGroup
 
     group = db.query(RBACGroup).filter_by(id=group_id).first()
     if not group:
@@ -209,47 +269,15 @@ async def admin_rbac_group_role_config(
 
     body = await request.json() if _wants_json(request) else dict(await request.form())
     mode = str(body.get("mode") or "limited").strip().lower()
-    role_name = (
-        SECURITY_ADMIN_ROLE_NAME if mode in ("total", "full", "acces_total") else None
+    role = _resolve_role_for_group_config(db, body, mode)
+    _replace_group_rbac_role_grants(
+        db,
+        group_id=group_id,
+        role=role,
+        mode=mode,
+        granted_by=user.email or user.username,
     )
-    role_id = body.get("rbac_role_id")
-    role = None
-    if role_id:
-        role = db.query(RbacRole).filter_by(id=int(role_id)).first()
-    elif role_name:
-        role = db.query(RbacRole).filter_by(name=role_name).first()
-
-    # Remove existing rbac_role grants for this group.
-    existing = (
-        db.query(AccessGrant)
-        .filter_by(
-            subject_type="group",
-            rbac_group_id=group_id,
-            resource_type="rbac_role",
-        )
-        .all()
-    )
-    for g in existing:
-        delete_grant(db, g.id)
-
-    if role is not None:
-        create_grant(
-            db,
-            AccessGrantCreate(
-                subject_type="group",
-                rbac_group_id=group_id,
-                resource_type="rbac_role",
-                rbac_role_id=role.id,
-                access_level="manage" if mode in ("total", "full", "acces_total") else "view",
-            ),
-            granted_by=user.email or user.username,
-        )
-
-    # Optional description / tag updates
-    if "description" in body:
-        group.description = (body.get("description") or "").strip() or None
-    if "group_tag" in body:
-        group.group_tag = (body.get("group_tag") or "").strip() or None
+    _apply_group_meta_updates(group, body)
 
     log_action(
         db,

@@ -332,14 +332,7 @@ def record_systemd_unit_purge(slug: str, settings: Settings) -> Path:
     return purge_list
 
 
-def prune_deleted_realm_exports(db: Session, settings: Settings) -> dict[str, list[str]]:
-    """Remove oauth2-proxy config files for realms that no longer exist in DB.
-
-    This enables "purge on delete" without directly touching systemd/nginx. Apply infra
-    can reconcile based on export dir contents.
-    """
-    exports_path = _exports_path(settings)
-    existing_slugs = {slug for (slug,) in db.query(RealmConfig.slug).all() if slug}
+def _prune_stale_oauth2_conf(exports_path: Path, existing_slugs: set[str]) -> list[str]:
     removed: list[str] = []
     for path in exports_path.glob("oauth2-proxy-*.conf"):
         slug = path.stem.removeprefix("oauth2-proxy-")
@@ -348,22 +341,38 @@ def prune_deleted_realm_exports(db: Session, settings: Settings) -> dict[str, li
                 path.unlink(missing_ok=True)
                 removed.append(str(path))
             except OSError:
-                # best-effort; keep going
                 continue
+    return removed
+
+
+def _prune_stale_oauth2_dirs(exports_path: Path, existing_slugs: set[str]) -> list[str]:
+    removed: list[str] = []
     oauth2_root = exports_path / "oauth2"
-    if oauth2_root.is_dir():
-        for slug_dir in oauth2_root.iterdir():
-            if not slug_dir.is_dir():
-                continue
-            if slug_dir.name in existing_slugs:
-                continue
-            try:
-                for child in slug_dir.iterdir():
-                    child.unlink(missing_ok=True)
-                slug_dir.rmdir()
-                removed.append(str(slug_dir))
-            except OSError:
-                continue
+    if not oauth2_root.is_dir():
+        return removed
+    for slug_dir in oauth2_root.iterdir():
+        if not slug_dir.is_dir() or slug_dir.name in existing_slugs:
+            continue
+        try:
+            for child in slug_dir.iterdir():
+                child.unlink(missing_ok=True)
+            slug_dir.rmdir()
+            removed.append(str(slug_dir))
+        except OSError:
+            continue
+    return removed
+
+
+def prune_deleted_realm_exports(db: Session, settings: Settings) -> dict[str, list[str]]:
+    """Remove oauth2-proxy config files for realms that no longer exist in DB.
+
+    This enables "purge on delete" without directly touching systemd/nginx. Apply infra
+    can reconcile based on export dir contents.
+    """
+    exports_path = _exports_path(settings)
+    existing_slugs = {slug for (slug,) in db.query(RealmConfig.slug).all() if slug}
+    removed = _prune_stale_oauth2_conf(exports_path, existing_slugs)
+    removed.extend(_prune_stale_oauth2_dirs(exports_path, existing_slugs))
     return {"removed": removed}
 
 

@@ -364,29 +364,39 @@ def role_distribution_summary(db: Session) -> dict[str, Any]:
     }
 
 
+def _aware_dt(value):
+    from datetime import timezone
+
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _excess_perm_alert_line(perm, cutoff) -> str | None:
+    if not (perm.can_write or perm.can_delete):
+        return None
+    updated = _aware_dt(perm.updated_at)
+    if updated is not None and updated >= cutoff:
+        return None
+    mod = perm.module.key if perm.module else str(perm.module_id)
+    role = perm.role.name if perm.role else str(perm.role_id)
+    age = "jamais mise à jour" if updated is None else f"depuis {updated.date()}"
+    return f"{role} / {mod}: write/delete {age}"
+
+
 def excess_permission_alerts(db: Session, *, days: int = 90) -> list[str]:
     """
     V1: RolePermission with write/delete true and updated_at older than ``days``,
     or never updated (created with seed and untouched).
     """
-    from datetime import timedelta, timezone
-
-    def _aware(value):
-        if value is None:
-            return None
-        if getattr(value, "tzinfo", None) is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
+    from datetime import timedelta
 
     cutoff = utcnow() - timedelta(days=days)
     alerts: list[str] = []
     for perm in db.query(RolePermission).all():
-        if not (perm.can_write or perm.can_delete):
-            continue
-        updated = _aware(perm.updated_at)
-        if updated is None or updated < cutoff:
-            mod = perm.module.key if perm.module else str(perm.module_id)
-            role = perm.role.name if perm.role else str(perm.role_id)
-            age = "jamais mise à jour" if updated is None else f"depuis {updated.date()}"
-            alerts.append(f"{role} / {mod}: write/delete {age}")
+        line = _excess_perm_alert_line(perm, cutoff)
+        if line:
+            alerts.append(line)
     return alerts[:12]
