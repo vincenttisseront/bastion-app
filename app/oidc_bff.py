@@ -441,6 +441,52 @@ def _actor_jti_from_unverified_oidc_cookie(
     return actor, jti
 
 
+def _parse_oidc_groups(raw_groups) -> tuple[str, ...]:
+    if isinstance(raw_groups, list):
+        return tuple(
+            str(g).strip()
+            for g in raw_groups
+            if isinstance(g, (str, int)) and str(g).strip()
+        )
+    if isinstance(raw_groups, str) and raw_groups.strip():
+        return tuple(g.strip() for g in raw_groups.split(",") if g.strip())
+    return ()
+
+
+def _oidc_claims_from_payload(payload: dict) -> OidcSessionClaims | None:
+    jti = payload.get("jti")
+    sub = payload.get("sub")
+    realm = payload.get("realm")
+    if not isinstance(jti, str) or not jti:
+        return None
+    if not isinstance(sub, str) or not sub:
+        return None
+    if not isinstance(realm, str) or not realm:
+        return None
+    username = payload.get("username")
+    if username is not None and not isinstance(username, str):
+        username = None
+    exp = payload.get("exp")
+    if not isinstance(exp, int):
+        return None
+    email_raw = payload.get("email")
+    email = (
+        str(email_raw).strip()
+        if isinstance(email_raw, str) and email_raw.strip()
+        else None
+    )
+    return OidcSessionClaims(
+        sub=sub,
+        username=username,
+        realm=realm,
+        jti=jti,
+        exp=exp,
+        type="oidc",
+        groups=_parse_oidc_groups(payload.get("groups")),
+        email=email,
+    )
+
+
 def validate_oidc_session_cookie(
     cookie_value: str,
     *,
@@ -478,43 +524,12 @@ def validate_oidc_session_cookie(
     strict_aud = bool(getattr(settings, "oidc_session_jwt_audience_strict", False))
     if not jwt_audience_matches(payload, expected_aud, strict=strict_aud):
         return None
-    jti = payload.get("jti")
-    sub = payload.get("sub")
-    realm = payload.get("realm")
-    if not isinstance(jti, str) or not jti:
+    claims = _oidc_claims_from_payload(payload)
+    if claims is None:
         return None
-    if not isinstance(sub, str) or not sub:
+    if is_oidc_jti_revoked(db, claims.jti):
         return None
-    if not isinstance(realm, str) or not realm:
-        return None
-    if is_oidc_jti_revoked(db, jti):
-        return None
-    username = payload.get("username")
-    if username is not None and not isinstance(username, str):
-        username = None
-    exp = payload.get("exp")
-    if not isinstance(exp, int):
-        return None
-    raw_groups = payload.get("groups")
-    groups: tuple[str, ...] = ()
-    if isinstance(raw_groups, list):
-        groups = tuple(
-            str(g).strip() for g in raw_groups if isinstance(g, (str, int)) and str(g).strip()
-        )
-    elif isinstance(raw_groups, str) and raw_groups.strip():
-        groups = tuple(g.strip() for g in raw_groups.split(",") if g.strip())
-    email_raw = payload.get("email")
-    email = str(email_raw).strip() if isinstance(email_raw, str) and email_raw.strip() else None
-    return OidcSessionClaims(
-        sub=sub,
-        username=username,
-        realm=realm,
-        jti=jti,
-        exp=exp,
-        type="oidc",
-        groups=groups,
-        email=email,
-    )
+    return claims
 
 
 def _auth_failure_response(

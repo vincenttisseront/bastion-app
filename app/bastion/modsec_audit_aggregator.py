@@ -614,6 +614,29 @@ def _prune_hourly(hourly: dict[str, Any], *, keep_days: int = 7) -> None:
             hourly.pop(key, None)
 
 
+def _accumulate_hourly_bucket(
+    bucket: dict[str, Any],
+    *,
+    rules: Counter[str],
+    hosts: Counter[str],
+    attackers: Counter[str],
+    fam_counter: Counter[str],
+) -> tuple[int, int, int, int]:
+    inspected = int(bucket.get("inspected") or 0)
+    detections = int(bucket.get("detections") or 0)
+    blocks = int(bucket.get("blocks") or 0)
+    critical = int(bucket.get("critical") or 0)
+    for rid, count in (bucket.get("rules") or {}).items():
+        rules[str(rid)] += int(count)
+    for host, count in (bucket.get("hosts") or {}).items():
+        hosts[str(host)] += int(count)
+    for ip, count in (bucket.get("attackers") or {}).items():
+        attackers[str(ip)] += int(count)
+    for fam, count in (bucket.get("families") or {}).items():
+        fam_counter[str(fam)] += int(count)
+    return inspected, detections, blocks, critical
+
+
 def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     cutoff_key = _hour_key(cutoff)
@@ -623,22 +646,19 @@ def _sum_window(hourly: dict[str, Any], hours: int) -> dict[str, Any]:
     attackers: Counter[str] = Counter()
     fam_counter: Counter[str] = Counter()
     for key, bucket in hourly.items():
-        if key < cutoff_key:
+        if key < cutoff_key or not isinstance(bucket, dict):
             continue
-        if not isinstance(bucket, dict):
-            continue
-        inspected += int(bucket.get("inspected") or 0)
-        detections += int(bucket.get("detections") or 0)
-        blocks += int(bucket.get("blocks") or 0)
-        critical += int(bucket.get("critical") or 0)
-        for rid, count in (bucket.get("rules") or {}).items():
-            rules[str(rid)] += int(count)
-        for host, count in (bucket.get("hosts") or {}).items():
-            hosts[str(host)] += int(count)
-        for ip, count in (bucket.get("attackers") or {}).items():
-            attackers[str(ip)] += int(count)
-        for fam, count in (bucket.get("families") or {}).items():
-            fam_counter[str(fam)] += int(count)
+        i, d, b, c = _accumulate_hourly_bucket(
+            bucket,
+            rules=rules,
+            hosts=hosts,
+            attackers=attackers,
+            fam_counter=fam_counter,
+        )
+        inspected += i
+        detections += d
+        blocks += b
+        critical += c
 
     block_rate = round((blocks / inspected) * 100, 1) if inspected else 0.0
     top_rules = [

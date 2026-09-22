@@ -1053,40 +1053,18 @@ def clear_breakglass_cookie(
         response.delete_cookie(**clear_kwargs, domain=domain)
 
 
-def revoke_breakglass_session_from_request(
-    request: Request,
+def _revoke_breakglass_via_candidate_secrets(
+    bg_cookie: str,
     db: Session,
     settings: Settings,
 ) -> str:
-    """Revoke the current break-glass jti if present. Returns actor for audit."""
-    username = "unknown"
-    bg_cookie = request.cookies.get(COOKIE_NAME)
-    if not bg_cookie:
-        return username
-
-    payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
-    if payload:
-        username = str(payload.get("sub") or "unknown")
-        jti = payload.get("jti")
-        if jti:
-            try:
-                revoke_breakglass_jti(
-                    db,
-                    str(jti),
-                    revoked_by=str(username),
-                    reason="logout",
-                )
-                db.commit()
-            except LookupError:
-                pass
-        return username
-
-    # Logout even if idle-expired: try decode without idle via transition secrets
+    """Best-effort revoke when the cookie is idle-expired but still decodable."""
     from app.breakglass_secret_service import (
         get_ui_breakglass_previous_secret,
         get_ui_breakglass_secret,
     )
 
+    username = "unknown"
     candidates = [
         resolve_breakglass_signing_secret(settings, db=db),
         get_ui_breakglass_secret(db, settings) or "",
@@ -1124,6 +1102,37 @@ def revoke_breakglass_session_from_request(
         except jwt.PyJWTError:
             continue
     return username
+
+
+def revoke_breakglass_session_from_request(
+    request: Request,
+    db: Session,
+    settings: Settings,
+) -> str:
+    """Revoke the current break-glass jti if present. Returns actor for audit."""
+    username = "unknown"
+    bg_cookie = request.cookies.get(COOKIE_NAME)
+    if not bg_cookie:
+        return username
+
+    payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
+    if payload:
+        username = str(payload.get("sub") or "unknown")
+        jti = payload.get("jti")
+        if jti:
+            try:
+                revoke_breakglass_jti(
+                    db,
+                    str(jti),
+                    revoked_by=str(username),
+                    reason="logout",
+                )
+                db.commit()
+            except LookupError:
+                pass
+        return username
+
+    return _revoke_breakglass_via_candidate_secrets(bg_cookie, db, settings)
 
 
 

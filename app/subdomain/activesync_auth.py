@@ -102,6 +102,30 @@ def _should_log_allow(
     return True
 
 
+def _enrich_activesync_device_details(
+    details: dict,
+    *,
+    device_id: str | None,
+    device_type: str | None,
+    user_agent: str,
+) -> None:
+    if not device_id:
+        return
+    details["device_id"] = device_id
+    from app.subdomain.eas_device_identity import describe_eas_device
+
+    identity = describe_eas_device(
+        device_id=device_id,
+        device_type=device_type,
+        user_agent=user_agent,
+        client_kind=details["client_kind"],
+    )
+    for key in ("apple_serial", "model_label", "display_name"):
+        value = identity.get(key)
+        if value:
+            details[key] = value
+
+
 def _log_activesync(
     db: Session,
     *,
@@ -132,22 +156,12 @@ def _log_activesync(
         details["auth_source"] = auth_source
     if reason:
         details["reason"] = reason
-    # Promote the device out of the raw query string: it used to be readable
-    # only by hand-parsing ``uri``.
-    if device_id:
-        details["device_id"] = device_id
-        from app.subdomain.eas_device_identity import describe_eas_device
-
-        identity = describe_eas_device(
-            device_id=device_id,
-            device_type=device_type,
-            user_agent=user_agent,
-            client_kind=details["client_kind"],
-        )
-        for key in ("apple_serial", "model_label", "display_name"):
-            value = identity.get(key)
-            if value:
-                details[key] = value
+    _enrich_activesync_device_details(
+        details,
+        device_id=device_id,
+        device_type=device_type,
+        user_agent=user_agent,
+    )
     if device_type:
         details["device_type"] = device_type
     if device_status:

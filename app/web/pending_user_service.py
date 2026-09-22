@@ -269,6 +269,31 @@ def record_first_login_if_new(
     return row
 
 
+def _discovery_row_should_skip(
+    db: Session,
+    *,
+    email: str,
+    uname: str | None,
+    raw_email: str | None,
+    seen_canonical: set[str],
+) -> bool:
+    if email in seen_canonical:
+        return True
+    if is_breakglass_email(email):
+        return True
+    if is_known_bastion_user(db, email=email, username=uname):
+        return True
+    sample = (
+        db.query(ActiveSession)
+        .filter(ActiveSession.user_email == raw_email)
+        .order_by(ActiveSession.last_seen_at.desc())
+        .first()
+    )
+    if sample is not None and (sample.protocol or "").upper() == _PROTOCOL_BREAKGLASS:
+        return True
+    return False
+
+
 def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int:
     """Backfill pending rows for identities whose earliest session is recent.
 
@@ -303,12 +328,15 @@ def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int
             continue
         uname = (username or "").strip() or None
         email = resolve_canonical_email(db, user_email=raw_email, username=uname)
-        if not email or email in seen_canonical:
+        if not email:
             continue
-        if is_breakglass_email(email):
-            seen_canonical.add(email)
-            continue
-        if is_known_bastion_user(db, email=email, username=uname):
+        if _discovery_row_should_skip(
+            db,
+            email=email,
+            uname=uname,
+            raw_email=raw_email,
+            seen_canonical=seen_canonical,
+        ):
             seen_canonical.add(email)
             continue
 
@@ -318,9 +346,6 @@ def discover_recent_first_logins(db: Session, *, within_hours: int = 168) -> int
             .order_by(ActiveSession.last_seen_at.desc())
             .first()
         )
-        if sample is not None and (sample.protocol or "").upper() == _PROTOCOL_BREAKGLASS:
-            seen_canonical.add(email)
-            continue
         db.add(
             PendingUser(
                 user_email=email,
