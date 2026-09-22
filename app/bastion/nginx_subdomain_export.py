@@ -119,8 +119,6 @@ _AUTH_COOKIE_CAPTURE_LINES = (
 
 def _activesync_locations(
     slug: str,
-    upstream_host_esc: str,
-    fqdn_esc: str,
     *,
     upstream_is_https: bool = False,
     upstream_tls_verify: bool = False,
@@ -596,8 +594,6 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         lines.extend(
             _activesync_locations(
                 slug,
-                upstream_host_esc,
-                fqdn_esc,
                 upstream_is_https=upstream_is_https,
                 upstream_tls_verify=tls_verify,
             )

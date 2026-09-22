@@ -137,7 +137,8 @@ def test_extract_modsec_matched_target():
     assert name2 == "session_id"
 
     kind3, name3 = extract_modsec_matched_target("no match here")
-    assert kind3 is None and name3 is None
+    assert kind3 is None
+    assert name3 is None
 
 
 def test_aggregator_captures_matched_target(tmp_path: Path):

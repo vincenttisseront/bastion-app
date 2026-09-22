@@ -83,3 +83,30 @@ def test_complete_requires_domain_and_realm(db_session, monkeypatch):
     monkeypatch.setattr(settings, "portal_domain", "portal.example.com")
     with pytest.raises(ValueError):
         mark_setup_wizard_complete(db_session, settings, actor="admin")
+
+
+def test_setup_step_status_helpers():
+    from app.setup_wizard_service import (
+        _oidc_step_detail,
+        _oidc_step_status,
+        _site_step_status,
+    )
+
+    assert _site_step_status(domain_ok=True, has_bg=False) == "done"
+    assert _site_step_status(domain_ok=False, has_bg=True) == "current"
+    assert _site_step_status(domain_ok=False, has_bg=False) == "locked"
+
+    assert _oidc_step_status(has_realm=True, domain_ok=False, has_bg=False) == "done"
+    assert _oidc_step_status(has_realm=False, domain_ok=True, has_bg=False) == "current"
+    assert _oidc_step_status(has_realm=False, domain_ok=False, has_bg=True) == "todo"
+    assert _oidc_step_status(has_realm=False, domain_ok=False, has_bg=False) == "locked"
+
+    class _Realm:
+        slug = "corp"
+
+    assert "corp" in _oidc_step_detail(
+        has_realm=True, realm=_Realm(), realm_tested=True
+    )
+    assert "Issuer" in _oidc_step_detail(
+        has_realm=False, realm=None, realm_tested=False
+    )

@@ -275,10 +275,18 @@ def read_nginx_waf_reality_from_repo(
         for f in families.values()
         if f.get("anomaly_threshold") is not None
     }
-    aggregate_mode = modes.pop() if len(modes) == 1 else ("mixed" if modes else None)
-    aggregate_threshold = (
-        thresholds.pop() if len(thresholds) == 1 else ("mixed" if thresholds else None)
-    )
+    if len(modes) == 1:
+        aggregate_mode = modes.pop()
+    elif modes:
+        aggregate_mode = "mixed"
+    else:
+        aggregate_mode = None
+    if len(thresholds) == 1:
+        aggregate_threshold = thresholds.pop()
+    elif thresholds:
+        aggregate_threshold = "mixed"
+    else:
+        aggregate_threshold = None
 
     return {
         "present": True,

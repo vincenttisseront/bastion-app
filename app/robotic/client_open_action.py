@@ -244,7 +244,7 @@ def _identity_error_response(
 def _touch_open_session(
     result,
     *,
-    settings: Settings,
+    _settings: Settings,
     db: Session,
     user: UserContext,
     request: Request,
@@ -329,7 +329,7 @@ def _cookie_redirect(
     status_code: int = 302,
 ) -> RedirectResponse:
     _touch_open_session(
-        result, settings=settings, db=db, user=user, request=request, slug=slug
+        result, _settings=settings, db=db, user=user, request=request, slug=slug
     )
     if _uses_session_cookie_hop(result):
         hop = session_hop_url(result.fqdn)
@@ -368,7 +368,7 @@ def _cookie_json_open(
 ) -> JSONResponse:
     """JSON success for API clients — Set-Cookie + target_url."""
     _touch_open_session(
-        result, settings=settings, db=db, user=user, request=request, slug=slug
+        result, _settings=settings, db=db, user=user, request=request, slug=slug
     )
     if _uses_session_cookie_hop(result):
         response = JSONResponse(

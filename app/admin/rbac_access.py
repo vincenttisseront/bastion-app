@@ -656,11 +656,12 @@ async def admin_rbac_users_page(
         u["account_source"] = (
             "bastion" if linked and linked.origin == "bastion" else "keycloak"
         )
-        u["realm_id"] = (
-            linked.realm_id
-            if linked
-            else (selected_realm.id if selected_realm else None)
-        )
+        if linked:
+            u["realm_id"] = linked.realm_id
+        elif selected_realm:
+            u["realm_id"] = selected_realm.id
+        else:
+            u["realm_id"] = None
         if linked:
             rows = list(linked.provisionings or [])
             u["provision_ok"] = sum(1 for r in rows if r.status == "success")

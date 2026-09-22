@@ -204,3 +204,14 @@ def test_setup_steps_reflect_public_probe(db_session, tmp_path):
     assert by_id2["acme"]["status"] == "done"
     assert by_id2["verify"]["status"] == "done"
     assert status2["status_badge"] == "ok"
+
+
+def test_mta_sts_detail_and_probe_message_helpers():
+    from app.mail.mta_sts_service import _dns_txt_step_detail, _probe_result_message
+
+    assert _dns_txt_step_detail(status="done", detail="ok", dns_txt="v=STSv1") == "ok"
+    assert "Valeur" in _dns_txt_step_detail(status="todo", detail="x", dns_txt="v=STSv1; id=abc")
+    assert _dns_txt_step_detail(status="todo", detail="fallback", dns_txt="") == "fallback"
+    assert "joignable" in _probe_result_message(ok=True, dns_a_ok=True, http_ok=True)
+    assert "HTTPS KO" in _probe_result_message(ok=False, dns_a_ok=True, http_ok=False)
+    assert "incomplet" in _probe_result_message(ok=False, dns_a_ok=False, http_ok=False)

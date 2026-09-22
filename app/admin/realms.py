@@ -233,7 +233,7 @@ def _smtp_access_form_values(realm: RealmConfig | None) -> dict[str, Any]:
 
 def _apply_smtp_access_from_form(
     realm: RealmConfig,
-    settings: Settings,
+    _settings: Settings,
     *,
     access_request_enabled: bool,
     send_credentials_email: bool,

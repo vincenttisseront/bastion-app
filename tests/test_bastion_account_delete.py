@@ -222,7 +222,8 @@ async def test_delete_account_remote_failure_keeps_fiche(db_session):
         db_session, settings, account=account, actor="admin@example.com"
     )
     assert deleted is False
-    assert errors and "CrushFTP" in errors[0]
+    assert errors
+    assert "CrushFTP" in errors[0]
 
     kept = db_session.query(BastionAccount).filter_by(id=account_id).first()
     assert kept is not None

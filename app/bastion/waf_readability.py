@@ -155,6 +155,31 @@ def mode_pilotable(active: dict[str, Any], settings: Settings | None = None) -> 
     return bool(read_arm_state(settings).get("armed"))
 
 
+def _reactivation_summary_text(
+    *,
+    portal_armed: bool,
+    subdomain_armed: bool,
+    subdomain_already_on: bool,
+) -> str:
+    if not portal_armed:
+        return (
+            "Active le moteur du portail en DetectionOnly, recharge nginx, "
+            "puis contrôle /_portal_nginx_ok, /api/health et /auth/login. "
+            "En cas d'échec : retour automatique à Off."
+        )
+    if subdomain_already_on:
+        return "Moteur portail armé. Sous-domaines en blocage (On)."
+    if subdomain_armed:
+        return (
+            "Moteur portail armé. Sous-domaines en DetectionOnly — promotion On "
+            "disponible si le profil est en On."
+        )
+    return (
+        "Moteur portail armé. Vous pouvez activer ModSecurity sur les applications "
+        "en sous-domaine."
+    )
+
+
 def build_reactivation_panel(
     profile: WafProfile,
     active: dict[str, Any],
@@ -216,24 +241,10 @@ def build_reactivation_panel(
             "Rate-limits portail",
         ],
         "title": "Réactivation ModSecurity",
-        "summary": (
-            "Active le moteur du portail en DetectionOnly, recharge nginx, "
-            "puis contrôle /_portal_nginx_ok, /api/health et /auth/login. "
-            "En cas d'échec : retour automatique à Off."
-            if not portal_armed
-            else (
-                "Moteur portail armé. "
-                + (
-                    "Sous-domaines en blocage (On)."
-                    if subdomain_already_on
-                    else (
-                        "Sous-domaines en DetectionOnly — promotion On disponible "
-                        "si le profil est en On."
-                        if subdomain_armed
-                        else "Vous pouvez activer ModSecurity sur les applications en sous-domaine."
-                    )
-                )
-            )
+        "summary": _reactivation_summary_text(
+            portal_armed=portal_armed,
+            subdomain_armed=subdomain_armed,
+            subdomain_already_on=subdomain_already_on,
         ),
         "subdomain_summary": (
             "DetectionOnly sur les FQDN subdomain_proxy actifs "
@@ -620,6 +631,33 @@ def build_protection_verdict(
     }
 
 
+def _ip_deny_layer(
+    *,
+    promoted_ips: list,
+    ip_ban_count: int,
+    min_occurrences: int,
+) -> dict[str, Any]:
+    if promoted_ips:
+        state, css = "actif", "badge-ok"
+        detail = f"{len(promoted_ips)} IP promue(s) vers nginx (waf-ip-deny.conf)"
+    elif ip_ban_count:
+        state, css = "app seul", "badge-warn"
+        detail = (
+            f"{ip_ban_count} IP en quarantaine · 0 promue(s) nginx "
+            f"(≥{min_occurrences} occ. WAF ou permanent, puis Appliquer)"
+        )
+    else:
+        state, css = "aucune IP", "badge-muted"
+        detail = "Aucune IP bannie"
+    return {
+        "name": "Blocage IP (deny)",
+        "state": state,
+        "css": css,
+        "detail": detail,
+        "alert": False,
+    }
+
+
 def build_protection_layers(
     db: Session,
     profile: WafProfile,
@@ -687,30 +725,11 @@ def build_protection_layers(
             ),
             "alert": False,
         },
-        {
-            "name": "Blocage IP (deny)",
-            "state": (
-                "actif"
-                if promoted_ips
-                else ("app seul" if ip_ban_count else "aucune IP")
-            ),
-            "css": (
-                "badge-ok"
-                if promoted_ips
-                else ("badge-warn" if ip_ban_count else "badge-muted")
-            ),
-            "detail": (
-                f"{len(promoted_ips)} IP promue(s) vers nginx (waf-ip-deny.conf)"
-                if promoted_ips
-                else (
-                    f"{ip_ban_count} IP en quarantaine · 0 promue(s) nginx "
-                    f"(≥{int(profile.ip_deny_min_occurrences or 3)} occ. WAF ou permanent, puis Appliquer)"
-                    if ip_ban_count
-                    else "Aucune IP bannie"
-                )
-            ),
-            "alert": False,
-        },
+        _ip_deny_layer(
+            promoted_ips=promoted_ips,
+            ip_ban_count=ip_ban_count,
+            min_occurrences=int(profile.ip_deny_min_occurrences or 3),
+        ),
         {
             "name": "Filtrage d'hôtes",
             "state": "actif",
@@ -1195,7 +1214,7 @@ def build_executive_summary(
     settings: Settings,
     active: dict[str, Any],
     efficiency: dict[str, Any],
-    attack_controls: dict[str, Any],
+    _attack_controls: dict[str, Any],
     unknown_host_panel: dict[str, Any],
     layers: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -1390,6 +1409,38 @@ def build_quick_controls(
     ]
 
 
+def _matching_rule_events(
+    recent_raw: list,
+    rid: str,
+    *,
+    limit: int = 25,
+) -> list[dict[str, Any]]:
+    matching: list[dict[str, Any]] = []
+    for ev in reversed(recent_raw):
+        if not isinstance(ev, dict):
+            continue
+        all_ids = [str(x) for x in (ev.get("all_rule_ids") or [])]
+        primary = str(ev.get("rule_id") or "")
+        if rid != primary and rid not in all_ids:
+            continue
+        matching.append(
+            {
+                "timestamp": (ev.get("timestamp") or "")[:19].replace("T", " "),
+                "client_ip": ev.get("client_ip") or "—",
+                "host": ev.get("host") or "—",
+                "uri": (ev.get("uri") or "—")[:120],
+                "blocked": bool(ev.get("blocked")),
+                "message": (ev.get("message") or "")[:160],
+                "rule_id": primary or rid,
+                "all_rule_ids": all_ids or [rid],
+                "rule_chain_display": ev.get("rule_chain_display") or "",
+            }
+        )
+        if len(matching) >= limit:
+            break
+    return matching
+
+
 def build_threat_intel_visuals(
     settings: Settings,
     active: dict[str, Any],
@@ -1445,29 +1496,7 @@ def build_threat_intel_visuals(
             continue
         count = int(r.get("count") or 0)
         max_count = max(max_count, count)
-        matching: list[dict[str, Any]] = []
-        for ev in reversed(recent_raw):
-            if not isinstance(ev, dict):
-                continue
-            all_ids = [str(x) for x in (ev.get("all_rule_ids") or [])]
-            primary = str(ev.get("rule_id") or "")
-            if rid != primary and rid not in all_ids:
-                continue
-            matching.append(
-                {
-                    "timestamp": (ev.get("timestamp") or "")[:19].replace("T", " "),
-                    "client_ip": ev.get("client_ip") or "—",
-                    "host": ev.get("host") or "—",
-                    "uri": (ev.get("uri") or "—")[:120],
-                    "blocked": bool(ev.get("blocked")),
-                    "message": (ev.get("message") or "")[:160],
-                    "rule_id": primary or rid,
-                    "all_rule_ids": all_ids or [rid],
-                    "rule_chain_display": ev.get("rule_chain_display") or "",
-                }
-            )
-            if len(matching) >= 25:
-                break
+        matching = _matching_rule_events(recent_raw, rid, limit=25)
         top_rules.append(
             {
                 "rule_id": rid,

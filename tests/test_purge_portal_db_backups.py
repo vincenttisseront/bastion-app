@@ -11,7 +11,8 @@ _ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _ROOT / "scripts" / "purge-portal-db-backups.py"
 _spec = importlib.util.spec_from_file_location("purge_portal_db_backups", _SCRIPT)
 _mod = importlib.util.module_from_spec(_spec)
-assert _spec and _spec.loader
+assert _spec is not None
+assert _spec.loader is not None
 sys.modules["purge_portal_db_backups"] = _mod
 _spec.loader.exec_module(_mod)
 purge_portal_db_backups = _mod.purge_portal_db_backups

@@ -126,23 +126,20 @@ def _enrich_activesync_device_details(
             details[key] = value
 
 
-def _log_activesync(
-    db: Session,
+def _activesync_audit_details(
     *,
-    action: str,
     app: App | None,
-    actor: str,
     client_ip: str | None,
     uri: str,
     host: str,
     user_agent: str,
-    auth_source: str | None = None,
-    client_kind: str | None = None,
-    reason: str | None = None,
-    device_id: str | None = None,
-    device_type: str | None = None,
-    device_status: str | None = None,
-) -> None:
+    auth_source: str | None,
+    client_kind: str | None,
+    reason: str | None,
+    device_id: str | None,
+    device_type: str | None,
+    device_status: str | None,
+) -> dict:
     details: dict = {
         "uri": (uri or "/")[:1024],
         "host": (host or "")[:255] or None,
@@ -170,11 +167,48 @@ def _log_activesync(
         details["application_id"] = app.id
         details["allow_activesync"] = bool(app.allow_activesync)
         details["activesync_device_control"] = bool(app.activesync_device_control)
+    return details
+
+
+def _log_activesync(
+    db: Session,
+    *,
+    action: str,
+    app: App | None,
+    actor: str,
+    client_ip: str | None,
+    uri: str,
+    host: str,
+    user_agent: str,
+    auth_source: str | None = None,
+    client_kind: str | None = None,
+    reason: str | None = None,
+    device_id: str | None = None,
+    device_type: str | None = None,
+    device_status: str | None = None,
+) -> None:
+    details = _activesync_audit_details(
+        app=app,
+        client_ip=client_ip,
+        uri=uri,
+        host=host,
+        user_agent=user_agent,
+        auth_source=auth_source,
+        client_kind=client_kind,
+        reason=reason,
+        device_id=device_id,
+        device_type=device_type,
+        device_status=device_status,
+    )
+    if app is not None:
+        target = app.slug
+    else:
+        target = (host or "")[:255] or None
     log_action(
         db,
         actor=actor or "anonymous",
         action=action,
-        target=(app.slug if app else (host or "")[:255]) or None,
+        target=target,
         details=details,
         ip_address=client_ip or None,
     )

@@ -105,7 +105,8 @@ def test_grace_reuse_resyncs_without_cutting_chain(db_session):
         db_session, _request(cookie=token), token, settings
     )
     db_session.commit()
-    assert r1.ok and r1.set_cookie
+    assert r1.ok
+    assert r1.set_cookie
 
     # Immediate replay of OLD cookie → grace
     r2 = process_breakglass_auth_request(
@@ -196,7 +197,8 @@ def test_rotation_preserves_identity_anchors(db_session):
     row = db_session.query(BreakGlassSession).filter_by(jti=jti).first()
     first_subnet = row.first_ip_subnet
     first_fp = row.first_fingerprint_hash
-    assert first_subnet and first_fp
+    assert first_subnet
+    assert first_fp
 
     r1 = process_breakglass_auth_request(
         db_session, _request(cookie=token, ip="203.0.113.10"), token, settings

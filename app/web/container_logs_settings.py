@@ -122,7 +122,7 @@ def get_container_logs_config(db: Session) -> ContainerLogsConfig:
 
 def _audit_updated(
     db: Session,
-    row: ContainerLogsSettings,
+    _row: ContainerLogsSettings,
     *,
     actor: str,
     ip_address: str | None,

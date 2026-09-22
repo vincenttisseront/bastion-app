@@ -258,3 +258,14 @@ async def test_impersonate_teleport(db_session: Session):
     req = route.calls.last.request
     assert req.headers["Host"] == "teleport.example.test"
     assert req.headers["Origin"] == "https://teleport.example.test"
+
+def test_teleport_login_reject_hint_mfa_and_html():
+    from app.bastion.drivers.teleport import _login_reject_hint, _teleport_mfa_hint
+
+    assert _teleport_mfa_hint("need second factor now")
+    assert _teleport_mfa_hint("please enter totp")
+    assert _teleport_mfa_hint("hello") is None
+    hint_mfa = _login_reject_hint("MFA required", 200)
+    assert "MFA" in hint_mfa or "second" in hint_mfa.lower()
+    assert "HTML" in _login_reject_hint("<!DOCTYPE html><html></html>", 302)
+    assert "identifiants" in _login_reject_hint("access denied", 401).lower()

@@ -22,7 +22,8 @@ SCRIPT = (
 @pytest.fixture(scope="module")
 def norm():
     spec = importlib.util.spec_from_file_location("modsec_wazuh_normalizer", SCRIPT)
-    assert spec and spec.loader
+    assert spec is not None
+    assert spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -31,7 +32,7 @@ def norm():
 def _audit(
     *,
     rule_id: str = "942100",
-    host: str = "portal.ar-systems.fr",
+    host: str = "portal.example.com",
     http_code: int = 403,
     uri: str = "/admin/x?token=secret",
     engine: str = "On",

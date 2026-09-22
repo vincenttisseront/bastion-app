@@ -74,14 +74,16 @@ def build_acme_domains_manifest(db: Session, settings: Settings) -> dict[str, An
         if not host or host in seen:
             return
         seen.add(host)
+        if upstream_url:
+            upstream = (upstream_url or "").rstrip("/") + "/"
+        else:
+            upstream = ""
         domains.append(
             {
                 "fqdn": host,
                 "slug": slug,
                 "family": family,
-                "upstream_url": (upstream_url or "").rstrip("/") + "/"
-                if upstream_url
-                else "",
+                "upstream_url": upstream,
             }
         )
 

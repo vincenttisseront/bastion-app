@@ -436,7 +436,8 @@ def test_provision_hot_store_service(db_session, monkeypatch):
         actor="admin@example.com",
     )
     assert result["role_created"] is True
-    assert calls and calls[0]["password"] == "new-app-secret"
+    assert calls
+    assert calls[0]["password"] == "new-app-secret"
     assert calls[0]["admin_password"] == "old-init-secret"
 
     row = ensure_portal_settings(db_session, settings)

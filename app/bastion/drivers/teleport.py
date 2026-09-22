@@ -116,20 +116,13 @@ def _login_reject_hint(text: str, status: int) -> str:
     if not body:
         return f"réponse vide (HTTP {status})"
     lowered = body.lower()
-    if "second factor" in lowered or "second_factor" in lowered:
-        return (
-            "Teleport exige encore un second facteur (MFA/TOTP) — "
-            "désactivez-le pour ce compte vault ou utilisez un compte sans MFA"
-        )
+    mfa_hint = _teleport_mfa_hint(lowered)
+    if mfa_hint:
+        return mfa_hint
     if status in (401, 403) or "access denied" in lowered or "invalid username" in lowered:
         return (
             f"identifiants refusés (HTTP {status}) — "
             "vérifiez le credential vault ou le compte Teleport local"
-        )
-    if "mfa" in lowered or "otp" in lowered or "totp" in lowered:
-        return (
-            "Teleport exige encore un second facteur (MFA/TOTP) — "
-            "désactivez-le pour ce compte vault ou utilisez un compte sans MFA"
         )
     if "<html" in lowered or "<!doctype" in lowered:
         return (
@@ -141,6 +134,20 @@ def _login_reject_hint(text: str, status: int) -> str:
     if json_hint:
         return json_hint
     return f"pas de cookie session Teleport (HTTP {status}, {len(body)} octets)"
+
+
+def _teleport_mfa_hint(lowered: str) -> str | None:
+    if "second factor" in lowered or "second_factor" in lowered:
+        return (
+            "Teleport exige encore un second facteur (MFA/TOTP) — "
+            "désactivez-le pour ce compte vault ou utilisez un compte sans MFA"
+        )
+    if "mfa" in lowered or "otp" in lowered or "totp" in lowered:
+        return (
+            "Teleport exige encore un second facteur (MFA/TOTP) — "
+            "désactivez-le pour ce compte vault ou utilisez un compte sans MFA"
+        )
+    return None
 
 
 def _teleport_json_error_hint(body: str, status: int) -> str | None:

@@ -83,7 +83,8 @@ def _form(content: bytes) -> dict[str, list[str]]:
 
 def _assert_basic_auth(request):
     auth = request.headers.get("Authorization") or request.headers.get("authorization")
-    assert auth is not None and auth.startswith("Basic ")
+    assert auth is not None
+    assert auth.startswith("Basic ")
     decoded = base64.b64decode(auth.split(" ", 1)[1]).decode()
     assert decoded == "crushadmin:admin-pass"
     cookie = request.headers.get("Cookie") or request.headers.get("cookie") or ""
