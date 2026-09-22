@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Mapping
+from typing import Any, Mapping
 
 from sqlalchemy.orm import Session
 
@@ -130,28 +130,19 @@ def set_subdomain_sso_enabled(
     return row
 
 
-def update_smtp_settings(
-    db: Session,
-    settings: Settings,
+def _normalize_smtp_fields(
     *,
-    actor: str,
-    ip_address: str | None = None,
     smtp_enabled: bool,
     smtp_host: str | None,
     smtp_port: int | None,
     smtp_use_tls: bool,
     smtp_username: str | None,
-    smtp_password: str | None,
     smtp_from_email: str | None,
     smtp_from_name: str | None,
-    daily_recap_enabled: bool = False,
-    daily_recap_email: str | None = None,
-    daily_recap_hour: int | None = 7,
-) -> PortalSettings:
-    """Persist global SMTP settings. Empty password keeps the existing secret."""
-    from app.secret_crypto import encrypt_secret
-
-    row = ensure_portal_settings(db, settings)
+    daily_recap_enabled: bool,
+    daily_recap_email: str | None,
+    daily_recap_hour: int | None,
+) -> dict[str, Any]:
     host = (smtp_host or "").strip() or None
     from_email = (smtp_from_email or "").strip() or None
     username = (smtp_username or "").strip() or None
@@ -177,17 +168,66 @@ def update_smtp_settings(
     if recap_email and "@" not in recap_email:
         raise ValueError("Adresse du récap quotidien invalide")
 
+    return {
+        "enabled": enabled,
+        "host": host,
+        "port": port,
+        "use_tls": bool(smtp_use_tls),
+        "username": username,
+        "from_email": from_email,
+        "from_name": from_name,
+        "recap_on": recap_on,
+        "recap_email": recap_email,
+        "recap_hour": recap_hour,
+    }
+
+
+def update_smtp_settings(
+    db: Session,
+    settings: Settings,
+    *,
+    actor: str,
+    ip_address: str | None = None,
+    smtp_enabled: bool,
+    smtp_host: str | None,
+    smtp_port: int | None,
+    smtp_use_tls: bool,
+    smtp_username: str | None,
+    smtp_password: str | None,
+    smtp_from_email: str | None,
+    smtp_from_name: str | None,
+    daily_recap_enabled: bool = False,
+    daily_recap_email: str | None = None,
+    daily_recap_hour: int | None = 7,
+) -> PortalSettings:
+    """Persist global SMTP settings. Empty password keeps the existing secret."""
+    from app.secret_crypto import encrypt_secret
+
+    row = ensure_portal_settings(db, settings)
+    fields = _normalize_smtp_fields(
+        smtp_enabled=smtp_enabled,
+        smtp_host=smtp_host,
+        smtp_port=smtp_port,
+        smtp_use_tls=smtp_use_tls,
+        smtp_username=smtp_username,
+        smtp_from_email=smtp_from_email,
+        smtp_from_name=smtp_from_name,
+        daily_recap_enabled=daily_recap_enabled,
+        daily_recap_email=daily_recap_email,
+        daily_recap_hour=daily_recap_hour,
+    )
+
     previous_enabled = bool(row.smtp_enabled)
-    row.smtp_enabled = enabled
-    row.smtp_host = host
-    row.smtp_port = port
-    row.smtp_use_tls = bool(smtp_use_tls)
-    row.smtp_username = username
-    row.smtp_from_email = from_email
-    row.smtp_from_name = from_name
-    row.daily_recap_enabled = recap_on
-    row.daily_recap_email = recap_email
-    row.daily_recap_hour = recap_hour
+    row.smtp_enabled = fields["enabled"]
+    row.smtp_host = fields["host"]
+    row.smtp_port = fields["port"]
+    row.smtp_use_tls = fields["use_tls"]
+    row.smtp_username = fields["username"]
+    row.smtp_from_email = fields["from_email"]
+    row.smtp_from_name = fields["from_name"]
+    row.daily_recap_enabled = fields["recap_on"]
+    row.daily_recap_email = fields["recap_email"]
+    row.daily_recap_hour = fields["recap_hour"]
 
     pwd = (smtp_password or "").strip()
     password_updated = False
@@ -205,15 +245,15 @@ def update_smtp_settings(
         action="portal_settings.smtp_updated",
         target="portal_settings",
         details={
-            "smtp_enabled": enabled,
+            "smtp_enabled": fields["enabled"],
             "previous_enabled": previous_enabled,
-            "smtp_host": host,
-            "smtp_port": port,
-            "smtp_use_tls": bool(smtp_use_tls),
-            "smtp_from_email": from_email,
+            "smtp_host": fields["host"],
+            "smtp_port": fields["port"],
+            "smtp_use_tls": fields["use_tls"],
+            "smtp_from_email": fields["from_email"],
             "password_updated": password_updated,
-            "daily_recap_enabled": recap_on,
-            "daily_recap_hour": recap_hour,
+            "daily_recap_enabled": fields["recap_on"],
+            "daily_recap_hour": fields["recap_hour"],
         },
         ip_address=ip_address,
     )

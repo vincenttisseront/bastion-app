@@ -1273,19 +1273,10 @@ async def admin_rbac_account_reset_password(
     return response
 
 
-@router.post("/admin/rbac/users/reset-password", responses=RESP_404)
-async def admin_rbac_user_reset_password(
-    request: Request,
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    user=Depends(require_admin),
-    realm_id: int = Form(...),
-    keycloak_user_id: str = Form(...),
-    send_email: str = Form(""),
-    redirect_url: str = Form(""),
-):
-    """Reset Keycloak password from the user fiche (SSO-only or bastion-linked)."""
-    secret = settings.vault_portal_internal_token or "dev"
+def _user_reset_password_context(
+    db: Session, *, realm_id: int, keycloak_user_id: str
+) -> tuple[RealmConfig, BastionAccount | None, str, str]:
+    """Resolve realm, optional bastion account, uid, and redirect fallback."""
     realm = db.query(RealmConfig).filter_by(id=realm_id).first()
     if realm is None:
         raise HTTPException(status_code=404, detail=_MSG_REALM_NOT_FOUND)
@@ -1304,6 +1295,37 @@ async def admin_rbac_user_reset_password(
     )
     if account is not None:
         fallback = f"/admin/rbac/users/view?account_id={account.id}#identite"
+    return realm, account, uid, fallback
+
+
+def _json_reset_password_ok(
+    *, want_email: bool, email_error: str | None
+) -> JSONResponse:
+    return JSONResponse(
+        {
+            "ok": email_error is None,
+            "emailed": want_email and email_error is None,
+            "email_error": email_error,
+        }
+    )
+
+
+@router.post("/admin/rbac/users/reset-password", responses=RESP_404)
+async def admin_rbac_user_reset_password(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    realm_id: int = Form(...),
+    keycloak_user_id: str = Form(...),
+    send_email: str = Form(""),
+    redirect_url: str = Form(""),
+):
+    """Reset Keycloak password from the user fiche (SSO-only or bastion-linked)."""
+    secret = settings.vault_portal_internal_token or "dev"
+    realm, account, uid, fallback = _user_reset_password_context(
+        db, realm_id=realm_id, keycloak_user_id=keycloak_user_id
+    )
 
     want_email = _want_send_email(send_email)
     email_error: str | None = None
@@ -1335,13 +1357,7 @@ async def admin_rbac_user_reset_password(
         )
 
     if _wants_json(request):
-        return JSONResponse(
-            {
-                "ok": email_error is None,
-                "emailed": want_email and email_error is None,
-                "email_error": email_error,
-            }
-        )
+        return _json_reset_password_ok(want_email=want_email, email_error=email_error)
 
     response = RedirectResponse(
         url=_safe_redirect_url(redirect_url, fallback), status_code=302

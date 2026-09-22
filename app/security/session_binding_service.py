@@ -52,6 +52,54 @@ def apply_breakglass_login_anchor(
     db.flush()
 
 
+def _seed_breakglass_first_sight(
+    db: Session,
+    row: BreakGlassSession,
+    *,
+    subnet: str,
+    fp: str,
+) -> None:
+    row.first_ip_subnet = subnet or None
+    row.first_fingerprint_hash = fp or None
+    row.last_ip_subnet = subnet or None
+    row.last_fingerprint_hash = fp or None
+    if row.mismatch_count is None:
+        row.mismatch_count = 0
+    db.flush()
+
+
+def _reject_breakglass_strong_drift(
+    db: Session,
+    row: BreakGlassSession,
+    *,
+    username: str,
+    jti: str,
+    subnet: str,
+    fp: str,
+    client_ip: str | None,
+) -> None:
+    row.mismatch_count = int(row.mismatch_count or 0) + 1
+    db.flush()
+    log_action(
+        db,
+        actor=username or "breakglass",
+        action=ACTION_HIJACK,
+        target=jti,
+        details={
+            "family": "breakglass",
+            "jti": jti,
+            "username": username,
+            "expected_subnet": row.first_ip_subnet,
+            "observed_subnet": subnet or None,
+            "expected_fingerprint": row.first_fingerprint_hash,
+            "observed_fingerprint": fp or None,
+            "mismatch_count": row.mismatch_count,
+            "policy": "stepup_401",
+        },
+        ip_address=client_ip or None,
+    )
+
+
 def evaluate_breakglass_binding(
     db: Session,
     request: Request,
@@ -73,13 +121,7 @@ def evaluate_breakglass_binding(
     client_ip = client_ip_from_request(request)
 
     if not (row.first_ip_subnet or row.first_fingerprint_hash):
-        row.first_ip_subnet = subnet or None
-        row.first_fingerprint_hash = fp or None
-        row.last_ip_subnet = subnet or None
-        row.last_fingerprint_hash = fp or None
-        if row.mismatch_count is None:
-            row.mismatch_count = 0
-        db.flush()
+        _seed_breakglass_first_sight(db, row, subnet=subnet, fp=fp)
         return True
 
     drift = classify_drift(
@@ -88,25 +130,14 @@ def evaluate_breakglass_binding(
     )
 
     if drift == "strong":
-        row.mismatch_count = int(row.mismatch_count or 0) + 1
-        db.flush()
-        log_action(
+        _reject_breakglass_strong_drift(
             db,
-            actor=username or "breakglass",
-            action=ACTION_HIJACK,
-            target=jti,
-            details={
-                "family": "breakglass",
-                "jti": jti,
-                "username": username,
-                "expected_subnet": row.first_ip_subnet,
-                "observed_subnet": subnet or None,
-                "expected_fingerprint": row.first_fingerprint_hash,
-                "observed_fingerprint": fp or None,
-                "mismatch_count": row.mismatch_count,
-                "policy": "stepup_401",
-            },
-            ip_address=client_ip or None,
+            row,
+            username=username,
+            jti=jti,
+            subnet=subnet,
+            fp=fp,
+            client_ip=client_ip,
         )
         return False
 

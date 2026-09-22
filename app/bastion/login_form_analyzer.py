@@ -187,6 +187,49 @@ def _hidden_fields(form: Tag) -> list[dict[str, Any]]:
     return out
 
 
+def _analyze_one_form(form: Tag, page_url: str) -> dict[str, Any] | None:
+    password_el = None
+    for el in form.find_all("input"):
+        if isinstance(el, Tag) and _input_type(el) == "password" and _attr(el, "name"):
+            password_el = el
+            break
+    if password_el is None:
+        return None
+
+    action_raw = _attr(form, "action")
+    action = urljoin(page_url, action_raw) if action_raw else page_url
+
+    method_attr = _attr(form, "method")
+    method_explicit = bool(method_attr)
+    if method_explicit:
+        method = method_attr.upper()
+        if method not in ("GET", "POST"):
+            method = "POST"
+    else:
+        method = "POST"
+
+    username = _pick_username_field(form, password_el)
+    field_count = len(
+        [
+            el
+            for el in form.find_all("input")
+            if isinstance(el, Tag) and _attr(el, "name")
+        ]
+    )
+    return {
+        "action": action,
+        "method": method,
+        "method_explicit": method_explicit,
+        "username_field": username,
+        "password_field": {
+            "name": _attr(password_el, "name"),
+            "confidence": "high",
+        },
+        "hidden_fields": _hidden_fields(form),
+        "field_count": field_count,
+    }
+
+
 def analyze_html(html: str, page_url: str) -> list[dict[str, Any]]:
     """Parse HTML and return candidate login forms (those with a password input)."""
     soup = BeautifulSoup(html or "", "html.parser")
@@ -194,49 +237,9 @@ def analyze_html(html: str, page_url: str) -> list[dict[str, Any]]:
     for form in soup.find_all("form"):
         if not isinstance(form, Tag):
             continue
-        password_el = None
-        for el in form.find_all("input"):
-            if isinstance(el, Tag) and _input_type(el) == "password" and _attr(el, "name"):
-                password_el = el
-                break
-        if password_el is None:
-            continue
-
-        action_raw = _attr(form, "action")
-        action = urljoin(page_url, action_raw) if action_raw else page_url
-
-        method_attr = _attr(form, "method")
-        method_explicit = bool(method_attr)
-        if method_explicit:
-            method = method_attr.upper()
-            if method not in ("GET", "POST"):
-                method = "POST"
-        else:
-            # HTML default is GET; vault admin default is POST — signal convention.
-            method = "POST"
-
-        username = _pick_username_field(form, password_el)
-        field_count = len(
-            [
-                el
-                for el in form.find_all("input")
-                if isinstance(el, Tag) and _attr(el, "name")
-            ]
-        )
-        forms.append(
-            {
-                "action": action,
-                "method": method,
-                "method_explicit": method_explicit,
-                "username_field": username,
-                "password_field": {
-                    "name": _attr(password_el, "name"),
-                    "confidence": "high",
-                },
-                "hidden_fields": _hidden_fields(form),
-                "field_count": field_count,
-            }
-        )
+        parsed = _analyze_one_form(form, page_url)
+        if parsed is not None:
+            forms.append(parsed)
     return forms
 
 

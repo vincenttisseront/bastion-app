@@ -332,9 +332,7 @@ def _ctl_action_for_exclusion(ex: WafExclusion, rule_id: int) -> str:
     return f"ctl:ruleRemoveById={rule_id}"
 
 
-def _sanitize_generated_rules(text: str) -> str:
-    """Guarantee the export cannot leave dangling continuations or percent macros."""
-    lines = text.splitlines()
+def _drop_unsafe_secrule_lines(lines: list[str]) -> list[str]:
     cleaned: list[str] = []
     for line in lines:
         stripped = line.lstrip()
@@ -345,6 +343,10 @@ def _sanitize_generated_rules(text: str) -> str:
                 )
                 continue
         cleaned.append(line)
+    return cleaned
+
+
+def _drop_dangling_chain_secrules(cleaned: list[str]) -> list[str]:
     final: list[str] = []
     i = 0
     while i < len(cleaned):
@@ -361,6 +363,13 @@ def _sanitize_generated_rules(text: str) -> str:
                 continue
         final.append(line)
         i += 1
+    return final
+
+
+def _sanitize_generated_rules(text: str) -> str:
+    """Guarantee the export cannot leave dangling continuations or percent macros."""
+    cleaned = _drop_unsafe_secrule_lines(text.splitlines())
+    final = _drop_dangling_chain_secrules(cleaned)
     return "\n".join(final) + "\n"
 
 
