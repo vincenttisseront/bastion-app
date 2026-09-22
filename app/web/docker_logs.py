@@ -150,15 +150,19 @@ async def run_container_logs_connectivity_test(
     preview = [ln for ln in text.splitlines() if ln.strip()]
     byte_count = len(text.encode("utf-8", errors="replace"))
     lines.append(f"✓ {len(preview)} ligne(s) lues ({byte_count} octets)")
-    if preview:
-        lines.append("--- extrait ---")
-        for row in preview[:8]:
-            lines.append(row[:240])
-        if len(preview) > 8:
-            lines.append(f"… ({len(preview) - 8} ligne(s) supplémentaire(s))")
-    else:
-        lines.append("(flux vide — conteneur joignable, aucun log récent)")
+    _append_log_preview(lines, preview)
     return True, f"Logs récupérés pour {target}.", lines
+
+
+def _append_log_preview(lines: list[str], preview: list[str]) -> None:
+    if not preview:
+        lines.append("(flux vide — conteneur joignable, aucun log récent)")
+        return
+    lines.append("--- extrait ---")
+    for row in preview[:8]:
+        lines.append(row[:240])
+    if len(preview) > 8:
+        lines.append(f"… ({len(preview) - 8} ligne(s) supplémentaire(s))")
 
 
 async def iter_container_log_follow(

@@ -600,3 +600,19 @@ def test_matching_rule_events_filters_by_id():
     assert len(matched) == 2
     assert matched[0]["uri"] == "/b"
     assert matched[1]["uri"] == "/a"
+
+
+def test_snapshot_check_detail_variants():
+    from app.bastion.waf_readability import _snapshot_check_detail
+
+    present = _snapshot_check_detail(
+        snap_present=True, snap_generated_at="2026-01-01T00:00:00Z", snap_age=5
+    )
+    assert "2026-01-01T00:00:00Z" in present
+    assert "(5 min)" in present
+    assert "illisible" in _snapshot_check_detail(
+        snap_present=True, snap_generated_at=None, snap_age=None
+    )
+    assert _snapshot_check_detail(
+        snap_present=False, snap_generated_at=None, snap_age=None
+    ) == "Absent"

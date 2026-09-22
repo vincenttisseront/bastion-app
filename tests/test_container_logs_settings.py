@@ -195,3 +195,17 @@ def test_security_page_has_container_logs_test_ui(client: TestClient):
     assert page.status_code == 200
     assert 'id="container-logs-test-btn"' in page.text
     assert 'id="container-logs-test-shell"' in page.text
+
+
+def test_append_log_preview_empty_and_truncated():
+    from app.web.docker_logs import _append_log_preview
+
+    empty: list[str] = []
+    _append_log_preview(empty, [])
+    assert empty == ["(flux vide — conteneur joignable, aucun log récent)"]
+
+    lines: list[str] = []
+    _append_log_preview(lines, [f"line-{i}" for i in range(10)])
+    assert lines[0] == "--- extrait ---"
+    assert len([ln for ln in lines if ln.startswith("line-")]) == 8
+    assert any("supplémentaire" in ln for ln in lines)

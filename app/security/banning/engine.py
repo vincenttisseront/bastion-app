@@ -620,48 +620,27 @@ def record_sensitive_request(
 
     hammer = get_rule(db, RULE_HAMMERING)
     if hammer and hammer.enabled and int(hammer.threshold or 0) > 0:
-        count = _prune_and_count(db, "hammer", ip, int(hammer.window_seconds or 1))
-        if count >= int(hammer.threshold):
-            ban = apply_ban(
-                db,
-                target_type=TARGET_IP,
-                target=ip,
-                reason=f"Hammering: {count} requests in {hammer.window_seconds}s",
-                rule_type=RULE_HAMMERING,
-                permanent=bool(hammer.ban_permanent),
-                ban_minutes=int(hammer.ban_minutes or 60),
-                actor="system",
-                ip_address=ip,
-                confirm_permanent=bool(hammer.ban_permanent),
-            )
+        ban = _apply_hammer_ban_if_threshold(
+            db,
+            ip=ip,
+            rule=hammer,
+            kind="hammer",
+            rule_type=RULE_HAMMERING,
+            reason_prefix="Hammering",
+        )
 
-    if is_login_path(path, method):
+    if ban is None and is_login_path(path, method):
         login_hammer = get_rule(db, RULE_HAMMERING_LOGIN)
-        if (
-            login_hammer
-            and login_hammer.enabled
-            and int(login_hammer.threshold or 0) > 0
-            and ban is None
-        ):
-            count = _prune_and_count(
-                db, "hammer_login", ip, int(login_hammer.window_seconds or 1)
+        if login_hammer and login_hammer.enabled and int(login_hammer.threshold or 0) > 0:
+            ban = _apply_hammer_ban_if_threshold(
+                db,
+                ip=ip,
+                rule=login_hammer,
+                kind="hammer_login",
+                rule_type=RULE_HAMMERING_LOGIN,
+                reason_prefix="Login hammering",
+                reason_unit="login requests",
             )
-            if count >= int(login_hammer.threshold):
-                ban = apply_ban(
-                    db,
-                    target_type=TARGET_IP,
-                    target=ip,
-                    reason=(
-                        f"Login hammering: {count} login requests "
-                        f"in {login_hammer.window_seconds}s"
-                    ),
-                    rule_type=RULE_HAMMERING_LOGIN,
-                    permanent=bool(login_hammer.ban_permanent),
-                    ban_minutes=int(login_hammer.ban_minutes or 60),
-                    actor="system",
-                    ip_address=ip,
-                    confirm_permanent=bool(login_hammer.ban_permanent),
-                )
 
     if ban is None:
         # Persist counter events even when no ban was applied.
@@ -670,6 +649,35 @@ def record_sensitive_request(
         except Exception:
             db.rollback()
     return ban
+
+
+def _apply_hammer_ban_if_threshold(
+    db: Session,
+    *,
+    ip: str,
+    rule: Any,
+    kind: str,
+    rule_type: str,
+    reason_prefix: str,
+    reason_unit: str = "requests",
+) -> SecurityBan | None:
+    count = _prune_and_count(db, kind, ip, int(rule.window_seconds or 1))
+    if count < int(rule.threshold):
+        return None
+    return apply_ban(
+        db,
+        target_type=TARGET_IP,
+        target=ip,
+        reason=(
+            f"{reason_prefix}: {count} {reason_unit} in {rule.window_seconds}s"
+        ),
+        rule_type=rule_type,
+        permanent=bool(rule.ban_permanent),
+        ban_minutes=int(rule.ban_minutes or 60),
+        actor="system",
+        ip_address=ip,
+        confirm_permanent=bool(rule.ban_permanent),
+    )
 
 
 def record_unknown_host_refusal(

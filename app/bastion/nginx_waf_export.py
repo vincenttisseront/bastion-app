@@ -385,76 +385,80 @@ def render_exclusions_generated(exclusions: list[WafExclusion]) -> str:
     for ex in exclusions:
         if not ex.active:
             continue
-        rule_id = ex.crs_rule_id
-        if rule_id is None:
-            lines.append(
-                f"# skip exclusion id={ex.id}: crs_rule_id required "
-                f"(host={_modsec_comment(ex.host or '')} "
-                f"uri={_modsec_comment(ex.uri_pattern or '')})"
-            )
-            continue
-        rule_id_i = int(rule_id)
-        host = (ex.host or "").strip().lower()
-        uri_raw = (ex.uri_pattern or "").strip()
-        kind = (getattr(ex, "scope_kind", None) or SCOPE_RULE).strip().lower()
-        target = _sanitize_target_name(getattr(ex, "target_name", None))
-        uri_match = (getattr(ex, "uri_match", None) or URI_MATCH_EXACT).strip().lower()
-        sec_id = EXCLUSION_SECRULE_ID_BASE + int(ex.id or 0)
-
-        reason = _modsec_comment(ex.reason or "")
-        lines.append(
-            f"# exclusion id={ex.id} reason={reason} "
-            f"scope={kind} target={target or '-'} uri_match={uri_match}"
-        )
-
-        uri = uri_raw
-        if uri_raw and "%" in uri_raw:
-            decoded = _decode_uri_for_modsec(uri_raw)
-            if decoded is None:
-                lines.append(
-                    "# skip SecRule: URI still contains pct after decode "
-                    "(use a decoded path in the WAF UI)"
-                )
-                lines.append("")
-                continue
-            lines.append(
-                f"# uri decoded for ModSecurity: {_modsec_comment(uri_raw)} -> "
-                f"{_modsec_comment(decoded)}"
-            )
-            uri = decoded
-
-        ctl = _ctl_action_for_exclusion(ex, rule_id_i)
-
-        if not host and not uri:
-            lines.append("# WARN: global rule remove (no host/URI scope)")
-            lines.append(f"SecRuleRemoveById {rule_id_i}")
-            lines.append("")
-            continue
-
-        if host and uri:
-            lines.append(
-                f'SecRule REQUEST_HEADERS:Host "@streq {_modsec_quote(host)}" '
-                f'"id:{sec_id},phase:1,pass,nolog,chain"'
-            )
-            lines.append(
-                f'SecRule REQUEST_URI "{_uri_operator(uri, uri_match)}" "{ctl}"'
-            )
-        elif host:
-            lines.append(
-                f'SecRule REQUEST_HEADERS:Host "@streq {_modsec_quote(host)}" '
-                f'"id:{sec_id},phase:1,pass,nolog,{ctl}"'
-            )
-        else:
-            lines.append(
-                f'SecRule REQUEST_URI "{_uri_operator(uri, uri_match)}" '
-                f'"id:{sec_id},phase:1,pass,nolog,{ctl}"'
-            )
-        lines.append("")
+        _append_exclusion_lines(lines, ex)
 
     if len(lines) <= 5:
         lines.append("# (no active exclusions)")
         lines.append("")
     return _sanitize_generated_rules("\n".join(lines))
+
+
+def _append_exclusion_lines(lines: list[str], ex: WafExclusion) -> None:
+    rule_id = ex.crs_rule_id
+    if rule_id is None:
+        lines.append(
+            f"# skip exclusion id={ex.id}: crs_rule_id required "
+            f"(host={_modsec_comment(ex.host or '')} "
+            f"uri={_modsec_comment(ex.uri_pattern or '')})"
+        )
+        return
+    rule_id_i = int(rule_id)
+    host = (ex.host or "").strip().lower()
+    uri_raw = (ex.uri_pattern or "").strip()
+    kind = (getattr(ex, "scope_kind", None) or SCOPE_RULE).strip().lower()
+    target = _sanitize_target_name(getattr(ex, "target_name", None))
+    uri_match = (getattr(ex, "uri_match", None) or URI_MATCH_EXACT).strip().lower()
+    sec_id = EXCLUSION_SECRULE_ID_BASE + int(ex.id or 0)
+
+    reason = _modsec_comment(ex.reason or "")
+    lines.append(
+        f"# exclusion id={ex.id} reason={reason} "
+        f"scope={kind} target={target or '-'} uri_match={uri_match}"
+    )
+
+    uri = uri_raw
+    if uri_raw and "%" in uri_raw:
+        decoded = _decode_uri_for_modsec(uri_raw)
+        if decoded is None:
+            lines.append(
+                "# skip SecRule: URI still contains pct after decode "
+                "(use a decoded path in the WAF UI)"
+            )
+            lines.append("")
+            return
+        lines.append(
+            f"# uri decoded for ModSecurity: {_modsec_comment(uri_raw)} -> "
+            f"{_modsec_comment(decoded)}"
+        )
+        uri = decoded
+
+    ctl = _ctl_action_for_exclusion(ex, rule_id_i)
+
+    if not host and not uri:
+        lines.append("# WARN: global rule remove (no host/URI scope)")
+        lines.append(f"SecRuleRemoveById {rule_id_i}")
+        lines.append("")
+        return
+
+    if host and uri:
+        lines.append(
+            f'SecRule REQUEST_HEADERS:Host "@streq {_modsec_quote(host)}" '
+            f'"id:{sec_id},phase:1,pass,nolog,chain"'
+        )
+        lines.append(
+            f'SecRule REQUEST_URI "{_uri_operator(uri, uri_match)}" "{ctl}"'
+        )
+    elif host:
+        lines.append(
+            f'SecRule REQUEST_HEADERS:Host "@streq {_modsec_quote(host)}" '
+            f'"id:{sec_id},phase:1,pass,nolog,{ctl}"'
+        )
+    else:
+        lines.append(
+            f'SecRule REQUEST_URI "{_uri_operator(uri, uri_match)}" '
+            f'"id:{sec_id},phase:1,pass,nolog,{ctl}"'
+        )
+    lines.append("")
 
 
 def render_ip_deny_conf(ips: list[str], *, min_occurrences: int) -> str:
