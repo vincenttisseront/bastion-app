@@ -135,7 +135,7 @@ def test_oidc_login_invalid_credentials_generic_401(
         )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Identifiants invalides."
+    assert response.json()["message"] == "Identifiants invalides."
     assert COOKIE not in response.cookies
     assert db_session.query(OidcSession).count() == 0
 
@@ -154,7 +154,7 @@ def test_oidc_login_mfa_also_generic_401(
         )
 
     assert response.status_code == 401
-    assert response.json()["detail"] == "Identifiants invalides."
+    assert response.json()["message"] == "Identifiants invalides."
     audit = (
         db_session.query(AuditLog)
         .filter_by(action="oidc_login_unsupported_flow")
@@ -263,7 +263,7 @@ def test_oidc_login_enabled_but_bff_config_missing_503(
         headers={"X-Real-IP": "10.0.0.23"},
     )
     assert response.status_code == 503
-    assert "non configuré" in response.json()["detail"].lower()
+    assert "non configuré" in response.json()["message"].lower()
     assert COOKIE not in response.cookies
     assert db_session.query(OidcSession).count() == 0
 

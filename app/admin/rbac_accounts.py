@@ -1780,6 +1780,46 @@ async def admin_rbac_account_retry_keycloak(
     return response
 
 
+async def _provision_apps_for_account(
+    db: Session,
+    settings: Settings,
+    *,
+    account,
+    application_ids: list[int],
+    crush_groups: list[str],
+    actor: str | None,
+    ip_address: str | None,
+) -> tuple[list[str], int]:
+    results: list[str] = []
+    failures = 0
+    for application_id in application_ids:
+        app = db.query(App).filter_by(id=application_id, enabled=True).first()
+        if app is None:
+            results.append(f"#{application_id} introuvable")
+            failures += 1
+            continue
+        group_names = (
+            crush_groups
+            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
+            else None
+        )
+        row = await provision_account_app(
+            db,
+            settings,
+            account=account,
+            app=app,
+            actor=actor,
+            ip_address=ip_address,
+            group_names=group_names or None,
+        )
+        if row.status == "failed":
+            failures += 1
+            results.append(f"{app.label} : {row.detail}")
+        else:
+            results.append(f"{app.label} : {row.status}")
+    return results, failures
+
+
 @router.post("/admin/rbac/accounts/{account_id}/provision")
 async def admin_rbac_account_provision_selected(
     account_id: int,
@@ -1811,33 +1851,15 @@ async def admin_rbac_account_provision_selected(
         return response
 
     crush_groups = _crushftp_group_names_for_account(db, account)
-    results: list[str] = []
-    failures = 0
-    for application_id in application_ids:
-        app = db.query(App).filter_by(id=application_id, enabled=True).first()
-        if app is None:
-            results.append(f"#{application_id} introuvable")
-            failures += 1
-            continue
-        group_names = (
-            crush_groups
-            if normalize_provisioning_driver(app.provisioning_driver) == "crushftp"
-            else None
-        )
-        row = await provision_account_app(
-            db,
-            settings,
-            account=account,
-            app=app,
-            actor=user.email,
-            ip_address=_client_ip(request),
-            group_names=group_names or None,
-        )
-        if row.status == "failed":
-            failures += 1
-            results.append(f"{app.label} : {row.detail}")
-        else:
-            results.append(f"{app.label} : {row.status}")
+    results, failures = await _provision_apps_for_account(
+        db,
+        settings,
+        account=account,
+        application_ids=application_ids,
+        crush_groups=crush_groups,
+        actor=user.email,
+        ip_address=_client_ip(request),
+    )
 
     if _wants_json(request):
         return JSONResponse(
