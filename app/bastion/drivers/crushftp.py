@@ -611,6 +611,7 @@ class CrushFTPProvisioningDriver:
         group_names: list[str] | None = None,
     ) -> ProvisioningResult:
         """Create/update user with company VFS, then optional CrushFTP groups."""
+        _ = db
         admin = self._resolve_admin(app, settings)
         if isinstance(admin, ProvisioningResult):
             return admin
@@ -737,7 +738,7 @@ class CrushFTPProvisioningDriver:
         app,
         username: str,
         group_name: str,
-        session=None,  # unused — kept for call-site compat; Basic Auth is per-request
+        _session=None,  # unused — kept for call-site compat; Basic Auth is per-request
     ) -> ProvisioningResult:
         return await self._group_op(
             db=db,
@@ -756,7 +757,7 @@ class CrushFTPProvisioningDriver:
         app,
         username: str,
         group_name: str,
-        session=None,
+        _session=None,
     ) -> ProvisioningResult:
         return await self._group_op(
             db=db,
@@ -1118,6 +1119,7 @@ class CrushFTPProvisioningDriver:
         return False, msg
 
     async def disable_account(self, *, db, settings, app, account) -> ProvisioningResult:
+        _ = (db, settings, app, account)
         return ProvisioningResult(
             status=PROVISIONING_FAILED,
             detail=(

@@ -343,9 +343,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
     path = request.url.path
     locale = get_request_locale(request)
-    if _json_api_path(path):
-        return api_error_from_detail(status_code=422, detail=exc.errors(), locale=locale)
-    if _wants_json_response(request):
+    if _json_api_path(path) or _wants_json_response(request):
         return api_error_from_detail(status_code=422, detail=exc.errors(), locale=locale)
     return _html_client_error_response(
         request,
@@ -378,6 +376,19 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         )
         if handled is not None:
             return handled
+    return _http_exc_remaining(
+        request, exc, wants_json=wants_json, headers=headers, locale=locale
+    )
+
+
+def _http_exc_remaining(
+    request: Request,
+    exc: StarletteHTTPException,
+    *,
+    wants_json: bool,
+    headers,
+    locale: str,
+):
     if exc.status_code == 403:
         return _http_exc_forbidden(request, exc, wants_json=wants_json, headers=headers, locale=locale)
     if exc.status_code == 404:

@@ -110,3 +110,48 @@ def test_setup_step_status_helpers():
     assert "Issuer" in _oidc_step_detail(
         has_realm=False, realm=None, realm_tested=False
     )
+
+
+def test_needs_setup_wizard_and_build_steps():
+    from app.setup_wizard_service import _build_setup_steps, _needs_setup_wizard
+
+    assert (
+        _needs_setup_wizard(
+            completed=True, domain_ok=False, has_realm=False, has_bg=True
+        )
+        is False
+    )
+    assert (
+        _needs_setup_wizard(
+            completed=False, domain_ok=True, has_realm=True, has_bg=True
+        )
+        is False
+    )
+    assert (
+        _needs_setup_wizard(
+            completed=False, domain_ok=False, has_realm=False, has_bg=True
+        )
+        is True
+    )
+    assert (
+        _needs_setup_wizard(
+            completed=False, domain_ok=False, has_realm=False, has_bg=False
+        )
+        is False
+    )
+
+    class _Realm:
+        slug = "corp"
+
+    steps = _build_setup_steps(
+        has_bg=True,
+        domain_ok=True,
+        has_realm=True,
+        realm=_Realm(),
+        realm_tested=True,
+        portal_domain="portal.example.com",
+        token_ok=True,
+    )
+    assert [s.id for s in steps] == ["admin", "site", "oidc", "docker"]
+    assert steps[0].status == "done"
+    assert steps[1].status == "done"

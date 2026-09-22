@@ -1677,6 +1677,19 @@ def _efficiency_chart_svgs(
     }
 
 
+def _snapshot_check_detail(
+    *,
+    snap_present: bool,
+    snap_generated_at: Any,
+    snap_age: int | None,
+) -> str:
+    if snap_present and snap_generated_at:
+        return f"Présent — généré {snap_generated_at} ({snap_age} min)"
+    if snap_present:
+        return "Fichier présent mais illisible"
+    return "Absent"
+
+
 def build_diagnostic_panel(
     settings: Settings,
     active: dict[str, Any],
@@ -1711,10 +1724,10 @@ def build_diagnostic_panel(
         {
             "name": "Snapshot nginx",
             "status": "ok" if active.get("verifiable") else "warn",
-            "detail": (
-                f"Présent — généré {snap_generated_at} ({snap_age} min)"
-                if snap_present and snap_generated_at
-                else ("Fichier présent mais illisible" if snap_present else "Absent")
+            "detail": _snapshot_check_detail(
+                snap_present=snap_present,
+                snap_generated_at=snap_generated_at,
+                snap_age=snap_age,
             ),
             "path": str(snap_path),
             "action": SNAPSHOT_CHECK_CMD if not active.get("verifiable") else None,

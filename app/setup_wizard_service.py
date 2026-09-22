@@ -227,39 +227,31 @@ def _oidc_step_detail(*, has_realm: bool, realm, realm_tested: bool) -> str:
     return f"Realm « {realm.slug} »{suffix}"
 
 
-def get_setup_status(db: Session, settings: Settings) -> SetupStatus:
-    row = ensure_portal_settings(db, settings)
-    completed = getattr(row, "setup_wizard_completed_at", None) is not None
-    db_domain = normalize_portal_domain(getattr(row, "portal_domain", None))
-    db_slug = normalize_realm_slug(getattr(row, "default_realm_slug", None))
-    portal_domain = db_domain or normalize_portal_domain(settings.portal_domain)
-    default_slug = (
-        db_slug
-        or normalize_realm_slug(settings.sso_portal_default_realm_slug)
-        or "default"
-    )
-
-    has_bg = has_active_breakglass_account(db)
-    realm = get_default_idp_realm(db)
-    has_realm = realm is not None
-    realm_tested = bool(
-        has_realm and (getattr(realm, "last_test_status", None) or "").lower() == "ok"
-    )
-    token_ok = bool((settings.vault_portal_internal_token or "").strip())
-
-    domain_ok = portal_domain not in _PLACEHOLDER_DOMAINS and bool(
-        _is_portal_domain_hostname(portal_domain)
-    )
-
-    # Mature installs (real domain via .env + default realm) are not nagged.
+def _needs_setup_wizard(
+    *,
+    completed: bool,
+    domain_ok: bool,
+    has_realm: bool,
+    has_bg: bool,
+) -> bool:
     if completed:
-        needs = False
-    elif domain_ok and has_realm and has_bg:
-        needs = False
-    else:
-        needs = has_bg and (not domain_ok or not has_realm)
+        return False
+    if domain_ok and has_realm and has_bg:
+        return False
+    return has_bg and (not domain_ok or not has_realm)
 
-    steps: list[SetupStep] = [
+
+def _build_setup_steps(
+    *,
+    has_bg: bool,
+    domain_ok: bool,
+    has_realm: bool,
+    realm,
+    realm_tested: bool,
+    portal_domain: str,
+    token_ok: bool,
+) -> list[SetupStep]:
+    return [
         SetupStep(
             id="admin",
             label="Compte admin local",
@@ -297,6 +289,47 @@ def get_setup_status(db: Session, settings: Settings) -> SetupStatus:
             href=None,
         ),
     ]
+
+
+def get_setup_status(db: Session, settings: Settings) -> SetupStatus:
+    row = ensure_portal_settings(db, settings)
+    completed = getattr(row, "setup_wizard_completed_at", None) is not None
+    db_domain = normalize_portal_domain(getattr(row, "portal_domain", None))
+    db_slug = normalize_realm_slug(getattr(row, "default_realm_slug", None))
+    portal_domain = db_domain or normalize_portal_domain(settings.portal_domain)
+    default_slug = (
+        db_slug
+        or normalize_realm_slug(settings.sso_portal_default_realm_slug)
+        or "default"
+    )
+
+    has_bg = has_active_breakglass_account(db)
+    realm = get_default_idp_realm(db)
+    has_realm = realm is not None
+    realm_tested = bool(
+        has_realm and (getattr(realm, "last_test_status", None) or "").lower() == "ok"
+    )
+    token_ok = bool((settings.vault_portal_internal_token or "").strip())
+
+    domain_ok = portal_domain not in _PLACEHOLDER_DOMAINS and bool(
+        _is_portal_domain_hostname(portal_domain)
+    )
+
+    needs = _needs_setup_wizard(
+        completed=completed,
+        domain_ok=domain_ok,
+        has_realm=has_realm,
+        has_bg=has_bg,
+    )
+    steps = _build_setup_steps(
+        has_bg=has_bg,
+        domain_ok=domain_ok,
+        has_realm=has_realm,
+        realm=realm,
+        realm_tested=realm_tested,
+        portal_domain=portal_domain,
+        token_ok=token_ok,
+    )
 
     return SetupStatus(
         needs_wizard=needs,
