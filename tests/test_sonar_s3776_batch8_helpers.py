@@ -20,16 +20,18 @@ from app.portal_settings_service import _normalize_smtp_fields
 
 def test_normalize_smtp_fields_ok_and_errors():
     fields = _normalize_smtp_fields(
-        smtp_enabled=True,
-        smtp_host="smtp.example.com",
-        smtp_port=465,
-        smtp_use_tls=True,
-        smtp_username="ops",
-        smtp_from_email="noreply@example.com",
-        smtp_from_name="Bastion",
-        daily_recap_enabled=True,
-        daily_recap_email="ops@example.com",
-        daily_recap_hour=8,
+        {
+            "smtp_enabled": True,
+            "smtp_host": "smtp.example.com",
+            "smtp_port": 465,
+            "smtp_use_tls": True,
+            "smtp_username": "ops",
+            "smtp_from_email": "noreply@example.com",
+            "smtp_from_name": "Bastion",
+            "daily_recap_enabled": True,
+            "daily_recap_email": "ops@example.com",
+            "daily_recap_hour": 8,
+        }
     )
     assert fields["host"] == "smtp.example.com"
     assert fields["port"] == 465
@@ -37,30 +39,45 @@ def test_normalize_smtp_fields_ok_and_errors():
 
     with pytest.raises(ValueError, match="Hôte SMTP"):
         _normalize_smtp_fields(
-            smtp_enabled=True,
-            smtp_host="",
-            smtp_port=587,
-            smtp_use_tls=True,
-            smtp_username=None,
-            smtp_from_email="a@example.com",
-            smtp_from_name=None,
-            daily_recap_enabled=False,
-            daily_recap_email=None,
-            daily_recap_hour=7,
+            {
+                "smtp_enabled": True,
+                "smtp_host": "",
+                "smtp_port": 587,
+                "smtp_use_tls": True,
+                "smtp_username": None,
+                "smtp_from_email": "a@example.com",
+                "smtp_from_name": None,
+                "daily_recap_enabled": False,
+                "daily_recap_email": None,
+                "daily_recap_hour": 7,
+            }
         )
     with pytest.raises(ValueError, match="invalide"):
         _normalize_smtp_fields(
-            smtp_enabled=False,
-            smtp_host=None,
-            smtp_port=None,
-            smtp_use_tls=False,
-            smtp_username=None,
-            smtp_from_email=None,
-            smtp_from_name=None,
-            daily_recap_enabled=True,
-            daily_recap_email="not-an-email",
-            daily_recap_hour=7,
+            {
+                "smtp_enabled": False,
+                "smtp_host": None,
+                "smtp_port": None,
+                "smtp_use_tls": False,
+                "smtp_username": None,
+                "smtp_from_email": None,
+                "smtp_from_name": None,
+                "daily_recap_enabled": True,
+                "daily_recap_email": "not-an-email",
+                "daily_recap_hour": 7,
+            }
         )
+
+
+def test_clamp_recap_hour_and_optional_str():
+    from app.portal_settings_service import _clamp_recap_hour, _smtp_optional_str
+
+    assert _smtp_optional_str("  x  ") == "x"
+    assert _smtp_optional_str("   ") is None
+    assert _clamp_recap_hour(None) == 7
+    assert _clamp_recap_hour(25) == 23
+    assert _clamp_recap_hour(-1) == 0
+    assert _clamp_recap_hour("bad") == 7  # type: ignore[arg-type]
 
 
 def test_normalize_hot_store_fields():
