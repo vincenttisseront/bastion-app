@@ -8,6 +8,7 @@ import threading
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -704,6 +705,25 @@ def record_unknown_host_refusal(
             db.rollback()
         return None
 
+    return _ban_unknown_host_hammering(
+        db,
+        ip_n=ip_n,
+        count=count,
+        rule=rule,
+        hostname=hostname,
+        uri=uri,
+    )
+
+
+def _ban_unknown_host_hammering(
+    db: Session,
+    *,
+    ip_n: str,
+    count: int,
+    rule: Any,
+    hostname: str | None,
+    uri: str | None,
+) -> SecurityBan | None:
     ban = apply_ban(
         db,
         target_type=TARGET_IP,

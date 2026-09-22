@@ -238,20 +238,34 @@ def recent_sso_logout_by_identity(
         .all()
     )
     for entry in audits:
-        details = entry.details if isinstance(entry.details, dict) else {}
-        if details.get("ok") is False:
-            continue
-        badge = _sso_logout_badge(_aware(entry.created_at), now=now)
-        if not badge:
-            continue
-        keys = set()
-        for k in (details.get("user_email"), details.get("username"), entry.target):
-            if isinstance(k, str) and k.strip():
-                keys.add(k.strip().lower())
-        for key in keys:
-            if key not in out:
-                out[key] = badge
+        _merge_sso_logout_audit_badge(out, entry, now=now)
     return out
+
+
+def _identity_keys_from_audit(entry: AuditLog) -> set[str]:
+    details = entry.details if isinstance(entry.details, dict) else {}
+    keys: set[str] = set()
+    for k in (details.get("user_email"), details.get("username"), entry.target):
+        if isinstance(k, str) and k.strip():
+            keys.add(k.strip().lower())
+    return keys
+
+
+def _merge_sso_logout_audit_badge(
+    out: dict[str, dict[str, Any]],
+    entry: AuditLog,
+    *,
+    now: datetime,
+) -> None:
+    details = entry.details if isinstance(entry.details, dict) else {}
+    if details.get("ok") is False:
+        return
+    badge = _sso_logout_badge(_aware(entry.created_at), now=now)
+    if not badge:
+        return
+    for key in _identity_keys_from_audit(entry):
+        if key not in out:
+            out[key] = badge
 
 
 def _portal_freshness(
@@ -1374,16 +1388,22 @@ def _canonical_email_map(sessions: list[dict[str, Any]]) -> dict[tuple[str, str]
             (s.get("user_email") or "").strip().lower(),
             (s.get("user") or "").strip().lower(),
         ):
-            if not candidate or "@" not in candidate:
-                continue
-            local = candidate.split("@", 1)[0]
-            if not local:
-                continue
-            key = (realm, local)
-            prev = best.get(key)
-            if prev is None or len(candidate) > len(prev):
-                best[key] = candidate
+            _maybe_prefer_email(best, realm=realm, candidate=candidate)
     return best
+
+
+def _maybe_prefer_email(
+    best: dict[tuple[str, str], str], *, realm: str, candidate: str
+) -> None:
+    if not candidate or "@" not in candidate:
+        return
+    local = candidate.split("@", 1)[0]
+    if not local:
+        return
+    key = (realm, local)
+    prev = best.get(key)
+    if prev is None or len(candidate) > len(prev):
+        best[key] = candidate
 
 
 def _canonical_user_email(

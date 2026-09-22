@@ -740,6 +740,20 @@ def build_protection_layers(
     return compact
 
 
+def _efficiency_zero_explanation(crs_mode: str | None) -> str:
+    if crs_mode == MODE_OFF:
+        return (
+            "0 requête inspectée : le moteur est arrêté. "
+            "Ces compteurs sont cohérents, ce n'est pas une panne de la supervision."
+        )
+    if crs_mode == MODE_DETECTION:
+        return (
+            "Aucune inspection enregistrée sur la période. "
+            "Vérifiez que l'audit ModSecurity est activé."
+        )
+    return "Aucune activité CRS enregistrée sur la période."
+
+
 def build_efficiency_panel(
     settings: Settings,
     active: dict[str, Any],
@@ -779,18 +793,7 @@ def build_efficiency_panel(
     status = "ok"
     if inspected == 0:
         status = "measured_zero"
-        if crs_mode == MODE_OFF:
-            zero_explanation = (
-                "0 requête inspectée : le moteur est arrêté. "
-                "Ces compteurs sont cohérents, ce n'est pas une panne de la supervision."
-            )
-        elif crs_mode == MODE_DETECTION:
-            zero_explanation = (
-                "Aucune inspection enregistrée sur la période. "
-                "Vérifiez que l'audit ModSecurity est activé."
-            )
-        else:
-            zero_explanation = "Aucune activité CRS enregistrée sur la période."
+        zero_explanation = _efficiency_zero_explanation(crs_mode)
 
     return {
         "present": True,
@@ -1532,6 +1535,32 @@ def build_threat_intel_visuals(
     }
 
 
+def _efficiency_status_panel_svgs(
+    *,
+    status: str,
+    title: str,
+    message: str,
+    resolution: str,
+    variant: str,
+) -> dict[str, Any]:
+    panel = _empty_panel(
+        title=title,
+        message=message,
+        resolution=resolution,
+        variant=variant,
+        width=360,
+        height=180,
+    )
+    return {
+        "status": status,
+        "detections_hourly_svg": panel,
+        "detections_daily_svg": panel,
+        "top_rules_svg": panel,
+        "top_hosts_svg": panel,
+        "families_svg": panel,
+    }
+
+
 def build_efficiency_visuals(
     settings: Settings,
     active: dict[str, Any],
@@ -1541,40 +1570,22 @@ def build_efficiency_visuals(
     if not efficiency.get("present"):
         msg = efficiency.get("message") or _MSG_DATA_UNAVAILABLE
         res = efficiency.get("resolution") or AGGREGATOR_UNAVAILABLE_RESOLUTION
-        panel = _empty_panel(
+        return _efficiency_status_panel_svgs(
+            status="unavailable",
             title=_MSG_DATA_UNAVAILABLE,
             message=msg,
             resolution=res,
             variant="unavailable",
-            width=360,
-            height=180,
         )
-        return {
-            "status": "unavailable",
-            "detections_hourly_svg": panel,
-            "detections_daily_svg": panel,
-            "top_rules_svg": panel,
-            "top_hosts_svg": panel,
-            "families_svg": panel,
-        }
 
     if not active.get("verifiable"):
-        panel = _empty_panel(
+        return _efficiency_status_panel_svgs(
+            status="unverifiable",
             title="Non vérifiable",
             message="Snapshot nginx absent — séries temporelles non interprétables.",
             resolution=SNAPSHOT_UNAVAILABLE_RESOLUTION,
             variant="unverifiable",
-            width=360,
-            height=180,
         )
-        return {
-            "status": "unverifiable",
-            "detections_hourly_svg": panel,
-            "detections_daily_svg": panel,
-            "top_rules_svg": panel,
-            "top_hosts_svg": panel,
-            "families_svg": panel,
-        }
 
     summary = read_audit_summary(settings)
     series = summary.get("series") or {}

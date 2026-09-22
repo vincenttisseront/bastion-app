@@ -17,6 +17,7 @@ from app.mail.smtp_service import (
     _smtp_exc_detail,
     _smtp_typed_message,
     build_email_message,
+    send_email,
     smtp_configured,
 )
 
@@ -110,3 +111,32 @@ def test_smtp_typed_messages_and_generic_raise():
     with pytest.raises(SmtpError) as ei:
         _raise_smtp_failure(generic, locale="fr")
     assert ei.value.smtp_code == 421
+
+
+def test_send_email_rejects_unconfigured_and_bad_recipient():
+    settings = MagicMock()
+    bare = MagicMock(
+        smtp_enabled=False,
+        smtp_host="",
+        smtp_from_email="",
+    )
+    with pytest.raises(SmtpError):
+        send_email(
+            bare,
+            settings,
+            to_email="user@example.com",
+            subject="x",
+            body_text="y",
+        )
+    cfg = MagicMock(
+        smtp_enabled=True,
+        smtp_host="smtp.example.com",
+        smtp_from_email="noreply@example.com",
+        smtp_from_name="",
+        smtp_port=587,
+        smtp_use_tls=True,
+        smtp_username="",
+        smtp_password_encrypted=None,
+    )
+    with pytest.raises(SmtpError, match="destinataire"):
+        send_email(cfg, settings, to_email="nope", subject="x", body_text="y")

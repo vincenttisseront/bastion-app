@@ -791,6 +791,28 @@ def _absolute_action_url(action: str, base: str) -> str:
     )
 
 
+def _keycloak_error_title_hint(html: str, *, lower: str) -> str | None:
+    """Parse Keycloak error page title; None for login redisplays."""
+    try:
+        soup = BeautifulSoup(html or "", _HTML_PARSER)
+        title = soup.find("title")
+        if not title:
+            return None
+        title_text = " ".join(title.get_text(" ", strip=True).split())
+        folded = title_text.casefold()
+        if not title_text:
+            return None
+        if (
+            folded.startswith("sign in")
+            or folded in {"connexion", "log in"}
+            or "kc-form-login" in lower
+        ):
+            return None
+        return f"page d'erreur Keycloak ({title_text[:80]})"
+    except Exception:
+        return None
+
+
 def _keycloak_http_error_hint(html: str) -> str | None:
     """Best-effort hint from Keycloak error HTML (never log secrets)."""
     lower = (html or "").lower()
@@ -807,24 +829,7 @@ def _keycloak_http_error_hint(html: str) -> str | None:
         )
     # Login theme redisplays (title "Sign in to …") are not error pages — skip
     # them here; callers classify kc-form-login via InvalidCredentialsError.
-    try:
-        soup = BeautifulSoup(html or "", _HTML_PARSER)
-        title = soup.find("title")
-        if title:
-            title_text = " ".join(title.get_text(" ", strip=True).split())
-            folded = title_text.casefold()
-            if not title_text:
-                return None
-            if (
-                folded.startswith("sign in")
-                or folded in {"connexion", "log in"}
-                or "kc-form-login" in lower
-            ):
-                return None
-            return f"page d'erreur Keycloak ({title_text[:80]})"
-    except Exception:
-        pass
-    return None
+    return _keycloak_error_title_hint(html, lower=lower)
 
 
 async def start_headless_login(
