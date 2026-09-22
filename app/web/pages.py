@@ -1982,6 +1982,7 @@ def admin_access_requests_list(
 
     status_filter = (status or "pending").strip().lower()
     rows = list_access_requests(db, status=status_filter)
+    pending_count = sum(1 for r in rows if r.status == "pending")
     return render(
         "admin/access_requests/list.html",
         **_ctx(
@@ -1989,9 +1990,142 @@ def admin_access_requests_list(
             settings,
             rows=rows,
             status_filter=status_filter,
+            pending_count=pending_count,
             approve_realms=realms_for_access_request_approve(db),
         ),
     )
+
+
+@admin_router.post("/admin/access-requests/bulk/reject")
+def admin_access_requests_bulk_reject_post(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    request_ids: list[int] | None = Form(None),
+    notes: str = Form(""),
+):
+    from app.rbac.access_request_service import reject_access_requests_bulk
+
+    ids = [int(x) for x in (request_ids or []) if x is not None]
+    secret = settings.vault_portal_internal_token or "dev"
+    if not ids:
+        response = RedirectResponse(url=_PATH_ACCESS_PENDING, status_code=302)
+        flash_redirect(
+            response,
+            "Sélectionnez au moins une demande à rejeter.",
+            "warning",
+            secret,
+        )
+        return response
+    rejected = reject_access_requests_bulk(
+        db,
+        request_ids=ids,
+        actor=user.email,
+        notes=notes,
+        ip_address=request.headers.get("X-Real-IP")
+        or (request.client.host if request.client else None),
+    )
+    n = len(rejected)
+    response = RedirectResponse(
+        url="/admin/access-requests?status=rejected", status_code=302
+    )
+    if n == 0:
+        flash_redirect(
+            response,
+            "Aucune demande en attente n’a été rejetée.",
+            "warning",
+            secret,
+        )
+    elif n == 1:
+        flash_redirect(
+            response,
+            f"Demande « {rejected[0].username} » rejetée.",
+            "success",
+            secret,
+        )
+    else:
+        flash_redirect(
+            response,
+            f"{n} demandes rejetées.",
+            "success",
+            secret,
+        )
+    return response
+
+
+@admin_router.post("/admin/access-requests/bulk/approve")
+async def admin_access_requests_bulk_approve_post(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    request_ids: list[int] | None = Form(None),
+    realm_id: str = Form(""),
+    send_credentials: str = Form(""),
+):
+    from app.rbac.access_request_service import approve_access_requests_bulk
+
+    ids = [int(x) for x in (request_ids or []) if x is not None]
+    secret = settings.vault_portal_internal_token or "dev"
+    want_email = send_credentials.strip().lower() in ("1", "true", "on", "yes")
+    if not ids:
+        response = RedirectResponse(url=_PATH_ACCESS_PENDING, status_code=302)
+        flash_redirect(
+            response,
+            "Sélectionnez au moins une demande à approuver.",
+            "warning",
+            secret,
+        )
+        return response
+    try:
+        rid = int((realm_id or "").strip())
+    except ValueError:
+        response = RedirectResponse(url=_PATH_ACCESS_PENDING, status_code=302)
+        flash_redirect(
+            response,
+            "Choisissez un realm cible pour l’approbation groupée.",
+            "error",
+            secret,
+        )
+        return response
+
+    approved, errors = await approve_access_requests_bulk(
+        db,
+        settings,
+        request_ids=ids,
+        actor=user.email,
+        realm_id=rid,
+        ip_address=request.headers.get("X-Real-IP")
+        or (request.client.host if request.client else None),
+        send_credentials=want_email,
+    )
+    n = len(approved)
+    if n == 0:
+        response = RedirectResponse(url=_PATH_ACCESS_PENDING, status_code=302)
+        msg = "Aucune demande n’a été approuvée."
+        if errors:
+            msg = f"{msg} {'; '.join(errors[:5])}"
+        flash_redirect(response, msg, "error", secret)
+        return response
+
+    if n == 1:
+        row, account = approved[0]
+        msg = (
+            f"Demande « {row.username} » approuvée — compte {account.username} "
+            f"({account.status})."
+        )
+    else:
+        msg = f"{n} demandes approuvées."
+    category = "success"
+    if errors:
+        msg = f"{msg} Avertissements : {'; '.join(errors[:5])}"
+        category = "warning"
+    response = RedirectResponse(
+        url="/admin/access-requests?status=approved", status_code=302
+    )
+    flash_redirect(response, msg, category, secret)
+    return response
 
 
 @admin_router.post("/admin/access-requests/{request_id}/approve")

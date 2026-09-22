@@ -389,6 +389,116 @@ def test_access_request_approve_requires_realm(client, db_session):
     assert row.status == "pending"
 
 
+def test_access_request_bulk_reject(client, db_session):
+    _realm(db_session)
+    rows = []
+    for i in range(3):
+        row = AccessRequest(
+            realm_id=None,
+            username=f"bulk{i}",
+            email=f"bulk{i}@example.com",
+            organization="Org",
+            status="pending",
+        )
+        db_session.add(row)
+        rows.append(row)
+    db_session.commit()
+    for row in rows:
+        db_session.refresh(row)
+
+    resp = client.post(
+        "/admin/access-requests/bulk/reject",
+        headers=ADMIN_HEADERS,
+        data={"request_ids": [str(rows[0].id), str(rows[1].id)]},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 302
+    db_session.refresh(rows[0])
+    db_session.refresh(rows[1])
+    db_session.refresh(rows[2])
+    assert rows[0].status == "rejected"
+    assert rows[1].status == "rejected"
+    assert rows[2].status == "pending"
+    assert rows[0].reviewed_by == "admin@example.com"
+
+
+@respx.mock
+def test_access_request_bulk_approve(client, db_session):
+    realm = _realm(db_session)
+    _company_group(db_session, realm, name="OrgCo")
+    rows = []
+    for i in range(2):
+        row = AccessRequest(
+            realm_id=None,
+            username=f"bappr{i}",
+            email=f"bappr{i}@example.com",
+            organization="OrgCo",
+            first_name="B",
+            last_name=f"A{i}",
+            status="pending",
+        )
+        db_session.add(row)
+        rows.append(row)
+    db_session.commit()
+    for row in rows:
+        db_session.refresh(row)
+
+    respx.post(TOKEN_URL).respond(200, json={"access_token": "prov-token"})
+    for i, row in enumerate(rows):
+        uid = f"kc-bulk-{i}"
+        respx.get(
+            f"{KC_ADMIN}/users",
+            params={"username": row.username, "exact": "true", "max": "2"},
+        ).respond(200, json=[])
+        respx.get(
+            f"{KC_ADMIN}/users",
+            params={"email": row.email, "exact": "true", "max": "2"},
+        ).respond(200, json=[])
+        respx.post(f"{KC_ADMIN}/users").respond(
+            201, headers={"Location": f"{KC_ADMIN}/users/{uid}"}
+        )
+        respx.put(f"{KC_ADMIN}/users/{uid}/groups/g-org").respond(204)
+
+    with patch("app.rbac.access_request_service.send_account_credentials_email"):
+        resp = client.post(
+            "/admin/access-requests/bulk/approve",
+            headers=ADMIN_HEADERS,
+            data={
+                "request_ids": [str(rows[0].id), str(rows[1].id)],
+                "realm_id": str(realm.id),
+                "send_credentials": "",
+            },
+            follow_redirects=False,
+        )
+    assert resp.status_code == 302, resp.text
+    for row in rows:
+        db_session.refresh(row)
+        assert row.status == "approved"
+        assert row.realm_id == realm.id
+        assert row.bastion_account_id is not None
+
+
+def test_access_request_list_has_bulk_controls(client, db_session):
+    _realm(db_session)
+    row = AccessRequest(
+        realm_id=None,
+        username="listui",
+        email="listui@example.com",
+        organization="Org",
+        status="pending",
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    resp = client.get("/admin/access-requests?status=pending", headers=ADMIN_HEADERS)
+    assert resp.status_code == 200
+    assert 'id="ar-bulk"' in resp.text
+    assert "/admin/access-requests/bulk/approve" in resp.text
+    assert "/admin/access-requests/bulk/reject" in resp.text
+    assert 'name="request_ids"' in resp.text
+    assert "data-access-requests-bulk" in resp.text
+
+
 def test_smtp_send_email_builds_message():
     from app.mail.smtp_service import send_email
     from app.models import PortalSettings

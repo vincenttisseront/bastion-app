@@ -1,68 +1,69 @@
 {% extends "base.html" %}
 {% block title %}{{ _("Demandes d'accès") }}{% endblock %}
 {% block breadcrumb %}Admin / {{ _("Demandes d'accès") }}{% endblock %}
-{% block body_class %}app-layout page-access-requests{% endblock %}
+{% block body_class %}app-layout page-access-requests page-users-compact{% endblock %}
 
 {% block head_extra %}
 <style>
 .page-access-requests .table-wrap{overflow-x:auto;overflow-y:hidden}
 .page-access-requests .data-table{min-width:0;table-layout:fixed;width:100%}
 .page-access-requests .data-table th,
-.page-access-requests .data-table td{overflow:hidden;text-overflow:ellipsis}
-.page-access-requests .ar-col-user{width:18%}
+.page-access-requests .data-table td{
+  overflow:hidden;text-overflow:ellipsis;vertical-align:middle;
+  padding:5px 8px;white-space:nowrap;
+}
+.page-access-requests .ar-col-check{width:2.25rem;overflow:visible}
+.page-access-requests .ar-col-user{width:26%}
 .page-access-requests .ar-col-org{width:12%}
-.page-access-requests .ar-col-realm{width:10%}
-.page-access-requests .ar-col-date{width:12%}
-.page-access-requests .ar-col-status{width:10%}
+.page-access-requests .ar-col-realm{width:9%}
+.page-access-requests .ar-col-date{width:9%}
+.page-access-requests .ar-col-status{width:8%}
 .page-access-requests .data-table th.ar-col-actions,
 .page-access-requests .data-table td.ar-col-actions{
   width:28%;
   overflow:visible;
   text-overflow:clip;
-  white-space:normal;
-  vertical-align:top;
-}
-.page-access-requests .ar-actions{
-  display:flex;
-  flex-direction:column;
-  align-items:stretch;
-  gap:var(--sp-2);
-  min-width:0;
-}
-.page-access-requests .ar-actions-row{
-  display:flex;
-  flex-wrap:wrap;
-  align-items:center;
-  gap:var(--sp-2);
-  min-width:0;
-}
-.page-access-requests .ar-actions .form-input{
-  min-width:0;
-  flex:1 1 8rem;
-  width:auto;
-  max-width:100%;
-}
-.page-access-requests .ar-actions .form-check{
-  display:inline-flex;
-  align-items:center;
-  gap:var(--sp-1);
-  margin:0;
   white-space:nowrap;
 }
-.page-access-requests .ar-msg{
-  color:var(--text-3);
-  font-size:var(--fs-sm);
-  white-space:normal;
-  overflow-wrap:anywhere;
-  word-break:break-word;
-  max-width:100%;
+.page-access-requests .ar-identity{min-width:0}
+.page-access-requests .ar-id-line{
+  display:flex;align-items:baseline;gap:6px;min-width:0;overflow:hidden;
 }
-.page-access-requests .ar-identity .mono{overflow:hidden;text-overflow:ellipsis}
+.page-access-requests .ar-id-line .mono{
+  font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;
+}
+.page-access-requests .ar-id-line .ar-email{
+  font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-3);
+  overflow:hidden;text-overflow:ellipsis;min-width:0;
+}
+.page-access-requests .ar-actions{
+  display:inline-flex;flex-wrap:nowrap;align-items:center;gap:4px;
+  justify-content:flex-end;max-width:100%;
+}
+.page-access-requests .ar-actions form{
+  display:inline-flex;flex-wrap:nowrap;align-items:center;gap:4px;margin:0;
+}
+.page-access-requests .ar-actions .form-input,
+.page-access-requests .ar-actions .form-select{
+  height:1.6rem;min-height:1.6rem;padding:0 6px;font-size:var(--fs-xs);
+  width:7.25rem;max-width:8.5rem;flex:0 1 auto;
+}
+.page-access-requests .ar-actions .form-check{
+  display:inline-flex;align-items:center;gap:3px;margin:0;
+  font-size:var(--fs-xs);color:var(--text-3);white-space:nowrap;
+}
+.page-access-requests .ar-actions .btn{
+  padding:2px 8px;font-size:var(--fs-xs);line-height:1.35;min-height:0;
+}
+.page-access-requests .users-bulk-bar .form-select{
+  min-width:8rem;max-width:11rem;
+}
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="page">
+{% set pending_count = pending_count | default(0) %}
+<div class="page" data-access-requests-bulk>
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ _("Demandes d'accès") }}</h1>
@@ -73,7 +74,35 @@
   <div class="card">
     <div class="card-header">
       <span class="card-title">{{ _('File d’attente ·') }} {{ rows | length }}</span>
-      <div class="card-header-actions">
+      <div class="card-header-actions" style="display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;">
+        {% if pending_count > 0 %}
+        <form method="post" id="ar-bulk" class="users-bulk-bar" style="padding:0;border:0;margin:0;">
+          <span class="users-bulk-count" data-bulk-count>{{ _('0 sél.') }}</span>
+          <label class="visually-hidden" for="ar-bulk-realm">{{ _('Realm cible') }}</label>
+          <select id="ar-bulk-realm" name="realm_id" class="form-select" data-bulk-realm{% if not approve_realms %} disabled{% endif %}>
+            <option value="">{{ _('— Realm —') }}</option>
+            {% for realm in approve_realms %}
+            <option value="{{ realm.id }}">{{ realm.name }} ({{ realm.slug }})</option>
+            {% endfor %}
+          </select>
+          <label class="form-check" style="margin:0;font-size:var(--fs-xs);white-space:nowrap;">
+            <input type="checkbox" name="send_credentials" value="1">
+            <span>{{ _('Email') }}</span>
+          </label>
+          <button type="submit" formaction="/admin/access-requests/bulk/approve"
+                  class="btn btn-primary btn-sm" data-bulk-approve
+                  disabled{% if not approve_realms %} title="{{ _('Aucun realm avec provisioning prêt') }}"{% endif %}
+                  data-confirm-tpl="{{ _('Approuver {n} demande(s) sélectionnée(s) ?') }}"
+                  data-confirm-title="{{ _('Approbation groupée') }}"
+                  data-confirm-label="{{ _('Approuver') }}">{{ _('Approuver la sélection') }}</button>
+          <button type="submit" formaction="/admin/access-requests/bulk/reject"
+                  class="btn btn-ghost btn-sm" data-bulk-reject
+                  disabled
+                  data-confirm-tpl="{{ _('Rejeter {n} demande(s) sélectionnée(s) ?') }}"
+                  data-confirm-title="{{ _('Rejet groupé') }}"
+                  data-confirm-label="{{ _('Rejeter') }}">{{ _('Rejeter la sélection') }}</button>
+        </form>
+        {% endif %}
         <fieldset class="filter-group" aria-label="{{ _('Filtrer par statut') }}">
           <a class="filter-chip{% if status_filter == 'pending' %} active{% endif %}" href="/admin/access-requests?status=pending">{{ _('En attente') }}</a>
           <a class="filter-chip{% if status_filter == 'approved' %} active{% endif %}" href="/admin/access-requests?status=approved">{{ _('Approuvées') }}</a>
@@ -88,6 +117,13 @@
         <table class="data-table">
           <thead>
             <tr>
+              {% if pending_count > 0 %}
+              <th class="ar-col-check">
+                <input type="checkbox" data-bulk-select-page
+                       title="{{ _('Sélectionner la page') }}"
+                       aria-label="{{ _('Sélectionner la page') }}">
+              </th>
+              {% endif %}
               <th class="ar-col-user">{{ _('Identifiant') }}</th>
               <th class="ar-col-org">{{ _('Société') }}</th>
               <th class="ar-col-realm">Realm</th>
@@ -99,16 +135,24 @@
           <tbody>
             {% for r in rows %}
             <tr>
-              <td class="ar-identity">
-                <div class="mono" title="{{ r.username }}">{{ r.username }}</div>
-                <div class="form-hint" title="{{ r.email }}">{{ r.email }}</div>
-                {% if r.message %}
-                <div class="ar-msg" title="{{ r.message }}">{{ r.message }}</div>
+              {% if pending_count > 0 %}
+              <td class="ar-col-check">
+                {% if r.status == 'pending' %}
+                <input type="checkbox" form="ar-bulk" name="request_ids"
+                       value="{{ r.id }}" data-bulk-row
+                       aria-label="{{ _('Sélectionner') }} {{ r.username }}">
                 {% endif %}
+              </td>
+              {% endif %}
+              <td class="ar-identity" title="{% if r.message %}{{ r.message }}{% else %}{{ r.username }} · {{ r.email }}{% endif %}">
+                <div class="ar-id-line">
+                  <span class="mono">{{ r.username }}</span>
+                  <span class="ar-email">{{ r.email }}</span>
+                </div>
               </td>
               <td title="{{ r.organization or '' }}">{{ r.organization or '—' }}</td>
               <td class="mono" title="{% if r.realm %}{{ r.realm.slug }}{% endif %}">{% if r.realm %}{{ r.realm.slug }}{% else %}—{% endif %}</td>
-              <td class="mono">{{ r.created_at }}</td>
+              <td class="mono">{% if r.created_at %}{{ r.created_at.strftime('%Y-%m-%d %H:%M') }}{% else %}—{% endif %}</td>
               <td>
                 {% if r.status == 'pending' %}<span class="badge badge-warn">{{ _('En attente') }}</span>
                 {% elif r.status == 'approved' %}<span class="badge badge-ok">{{ _('Approuvée') }}</span>
@@ -117,21 +161,21 @@
               <td class="ar-col-actions">
                 {% if r.status == 'pending' %}
                 <div class="ar-actions">
-                  <form method="post" action="/admin/access-requests/{{ r.id }}/approve" class="ar-actions-row">
+                  <form method="post" action="/admin/access-requests/{{ r.id }}/approve">
                     <label class="visually-hidden" for="approve-realm-{{ r.id }}">{{ _('Realm cible') }}</label>
                     <select id="approve-realm-{{ r.id }}" name="realm_id" class="form-input" required>
                       <option value="">{{ _('— Realm —') }}</option>
                       {% for realm in approve_realms %}
-                      <option value="{{ realm.id }}">{{ realm.name }} ({{ realm.slug }})</option>
+                      <option value="{{ realm.id }}">{{ realm.slug }}</option>
                       {% endfor %}
                     </select>
-                    <label class="form-check">
+                    <label class="form-check" title="{{ _('Envoyer les identifiants par email') }}">
                       <input type="checkbox" name="send_credentials" value="1">
                       <span>{{ _('Email') }}</span>
                     </label>
                     <button type="submit" class="btn btn-primary btn-sm"{% if not approve_realms %} disabled title="{{ _('Aucun realm avec provisioning prêt') }}"{% endif %}>{{ _('Approuver') }}</button>
                   </form>
-                  <form method="post" action="/admin/access-requests/{{ r.id }}/reject" class="ar-actions-row">
+                  <form method="post" action="/admin/access-requests/{{ r.id }}/reject">
                     <button type="submit" class="btn btn-ghost btn-sm">{{ _('Rejeter') }}</button>
                   </form>
                 </div>
@@ -154,4 +198,92 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+{% if pending_count > 0 %}
+<script>
+(function () {
+  var root = document.querySelector('[data-access-requests-bulk]');
+  if (!root) return;
+  var form = document.getElementById('ar-bulk');
+  var pageCb = root.querySelector('[data-bulk-select-page]');
+  var rows = Array.prototype.slice.call(root.querySelectorAll('[data-bulk-row]'));
+  var countEl = root.querySelector('[data-bulk-count]');
+  var rejectBtn = root.querySelector('[data-bulk-reject]');
+  var approveBtn = root.querySelector('[data-bulk-approve]');
+  var realmSel = root.querySelector('[data-bulk-realm]');
+  var selLabel = {{ _('0 sél.') | tojson }};
+
+  function selectedCount() {
+    return rows.filter(function (r) { return r.checked; }).length;
+  }
+
+  function refresh() {
+    var n = selectedCount();
+    if (countEl) {
+      countEl.textContent = n ? (n + ' sél.') : selLabel;
+    }
+    if (rejectBtn) rejectBtn.disabled = n === 0;
+    if (approveBtn) {
+      var hasRealm = realmSel && realmSel.value;
+      approveBtn.disabled = n === 0 || !hasRealm || (realmSel && realmSel.disabled);
+    }
+    if (pageCb && rows.length) {
+      pageCb.checked = n > 0 && n === rows.length;
+      pageCb.indeterminate = n > 0 && n < rows.length;
+    }
+  }
+
+  if (pageCb) {
+    pageCb.addEventListener('change', function () {
+      rows.forEach(function (r) { r.checked = pageCb.checked; });
+      refresh();
+    });
+  }
+  rows.forEach(function (r) {
+    r.addEventListener('change', refresh);
+  });
+  if (realmSel) {
+    realmSel.addEventListener('change', refresh);
+  }
+
+  function wireConfirm(btn) {
+    if (!btn) return;
+    btn.addEventListener('click', function (ev) {
+      if (btn.dataset.bastionConfirmOk === '1') {
+        btn.dataset.bastionConfirmOk = '';
+        return;
+      }
+      var n = selectedCount();
+      if (!n || btn.disabled) {
+        ev.preventDefault();
+        return;
+      }
+      if (!window.bastionConfirm) return;
+      ev.preventDefault();
+      var tpl = btn.getAttribute('data-confirm-tpl') || '';
+      var title = btn.getAttribute('data-confirm-title') || '';
+      var label = btn.getAttribute('data-confirm-label') || '';
+      window
+        .bastionConfirm({
+          title: title,
+          message: tpl.replace('{n}', String(n)),
+          confirmLabel: label,
+          danger: btn === rejectBtn,
+        })
+        .then(function (ok) {
+          if (!ok) return;
+          btn.dataset.bastionConfirmOk = '1';
+          btn.click();
+        });
+    });
+  }
+
+  wireConfirm(rejectBtn);
+  wireConfirm(approveBtn);
+  refresh();
+})();
+</script>
+{% endif %}
 {% endblock %}
