@@ -216,15 +216,17 @@ def _group_distribution_rows(
     for g in rows_orm:
         count = int(g.member_count or 0)
         share = int(round(100.0 * count / memberships)) if memberships else 0
+        if max_count:
+            bar_percent = int(round(100.0 * count / max_count))
+        else:
+            bar_percent = 0
         rows.append(
             {
                 "id": g.id,
                 "name": g.name,
                 "member_count": count,
                 "percent": share,
-                "bar_percent": (
-                    int(round(100.0 * count / max_count)) if max_count else 0
-                ),
+                "bar_percent": bar_percent,
             }
         )
     return rows

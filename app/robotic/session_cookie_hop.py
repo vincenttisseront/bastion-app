@@ -127,7 +127,7 @@ def unseal_session_hop_payload(
 
 def session_hop_url(fqdn: str, *, next_path: str | None = None) -> str:
     host = (fqdn or "").strip().rstrip("/")
-    if host.startswith(_SCHEME_HTTPS) or host.startswith(_SCHEME_HTTP):
+    if host.startswith((_SCHEME_HTTPS, _SCHEME_HTTP)):
         base = host
     else:
         base = f"https://{host}"
@@ -167,7 +167,7 @@ def _portal_apps_url(settings: Settings) -> str:
     portal = (settings.portal_domain or "").strip().rstrip("/")
     if not portal:
         return "/apps"
-    if portal.startswith(_SCHEME_HTTPS) or portal.startswith(_SCHEME_HTTP):
+    if portal.startswith((_SCHEME_HTTPS, _SCHEME_HTTP)):
         return f"{portal.rstrip('/')}/apps"
     return f"https://{portal}/apps"
 
@@ -210,7 +210,7 @@ def attach_session_hop_portal_cookies(
         if not cookies.get(key):
             continue
         # __Secure-/__Host- cookies must not carry a Domain attribute (browsers reject).
-        if key.startswith("__Secure-") or key.startswith("__Host-"):
+        if key.startswith(("__Secure-", "__Host-")):
             continue
         clear_kwargs: dict = {
             "key": key,
@@ -284,7 +284,7 @@ def _clear_parent_domain_cookies(
     shared_parent: str,
 ) -> None:
     for key in cookies:
-        if key.startswith("__Secure-") or key.startswith("__Host-"):
+        if key.startswith(("__Secure-", "__Host-")):
             continue
         response.set_cookie(
             key=key,
@@ -390,7 +390,7 @@ def _hop_handler(
     shared = shared_parent_domain(host.split(":")[0], settings.portal_domain or "")
     # Prefer absolute URL on the app FQDN (sealed n may be https://fqdn/).
     sealed_next = (body.get("n") or "").strip()
-    if sealed_next.startswith(_SCHEME_HTTPS) or sealed_next.startswith(_SCHEME_HTTP):
+    if sealed_next.startswith((_SCHEME_HTTPS, _SCHEME_HTTP)):
         target = sealed_next
     else:
         target = _absolute_app_url(request, target_path)

@@ -115,9 +115,8 @@ def is_known_bastion_user(
         return True
 
     grant_q = db.query(AccessGrant).filter(AccessGrant.subject_type == "user")
-    if kc:
-        if grant_q.filter(AccessGrant.keycloak_user_id == kc).first():
-            return True
+    if kc and grant_q.filter(AccessGrant.keycloak_user_id == kc).first():
+        return True
     grants = grant_q.limit(500).all()
     for g in grants:
         disp = (g.user_display_cache or "").strip().lower()

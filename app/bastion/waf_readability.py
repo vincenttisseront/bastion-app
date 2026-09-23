@@ -965,19 +965,10 @@ def build_attack_controls(
     if not attacks:
         attacks = recent[:15]
 
-    merged_attackers: dict[str, int] = {}
-    for atk in window.get("top_attackers") or []:
-        if not isinstance(atk, dict):
-            continue
-        ip = str(atk.get("ip") or "—").strip() or "—"
-        if ip != "—":
-            merged_attackers[ip] = merged_attackers.get(ip, 0) + int(atk.get("count") or 0)
-    for atk in unknown_panel.get("top_ips") or []:
-        if not isinstance(atk, dict):
-            continue
-        ip = str(atk.get("ip") or "—").strip() or "—"
-        if ip != "—":
-            merged_attackers[ip] = merged_attackers.get(ip, 0) + int(atk.get("count") or 0)
+    merged_attackers = _merge_attacker_counts(
+        window.get("top_attackers") or [],
+        unknown_panel.get("top_ips") or [],
+    )
 
     top_attackers = []
     for ip, count in sorted(merged_attackers.items(), key=lambda x: -x[1])[:5]:
@@ -998,6 +989,19 @@ def build_attack_controls(
         "critical_24h": int(window.get("critical") or 0),
         "unknown_host": unknown_panel,
     }
+
+
+def _merge_attacker_counts(*groups: list) -> dict[str, int]:
+    merged: dict[str, int] = {}
+    for group in groups:
+        for atk in group:
+            if not isinstance(atk, dict):
+                continue
+            ip = str(atk.get("ip") or "—").strip() or "—"
+            if ip == "—":
+                continue
+            merged[ip] = merged.get(ip, 0) + int(atk.get("count") or 0)
+    return merged
 
 
 def _heatmap_row_key(ip: str, geo_map: dict[str, dict[str, Any]] | None) -> str:

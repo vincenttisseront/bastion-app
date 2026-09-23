@@ -849,7 +849,7 @@ def login_page(
         if request.cookies.get(COOKIE_NAME):
             return True
         return any(
-            (name or "").startswith("_oauth2_proxy") or (name or "").startswith("_kc_")
+            (name or "").startswith(("_oauth2_proxy", "_kc_"))
             for name in request.cookies
         )
 

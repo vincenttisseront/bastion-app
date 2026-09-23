@@ -80,3 +80,19 @@ def test_password_self_service_unavailable_without_issuer(db_session, monkeypatc
         lambda *_a, **_k: True,
     )
     assert password_self_service_available(db_session, _user(), settings) is False
+
+
+def test_native_session_expired_helper():
+    from datetime import datetime, timedelta, timezone
+
+    from app.web.profile_security_service import _native_session_expired
+
+    now = datetime.now(timezone.utc)
+
+    class _Row:
+        def __init__(self, expires_at):
+            self.expires_at = expires_at
+
+    assert _native_session_expired(_Row(None), now=now) is False
+    assert _native_session_expired(_Row(now - timedelta(minutes=1)), now=now) is True
+    assert _native_session_expired(_Row(now + timedelta(minutes=1)), now=now) is False

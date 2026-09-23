@@ -101,3 +101,23 @@ def test_canonical_email_map_prefers_longer():
     mapped = _canonical_email_map(sessions)
     assert mapped[("default", "a")] == "a@example.com"
     assert mapped[("default", "alice")] == "alice@example.com"
+
+
+def test_ua_label_from_details_variants():
+    from app.web.sessions_service import _LBL_SERVER_DRIVER_SESSION, _ua_label_from_details
+
+    label, note = _ua_label_from_details(
+        {"driver": "crushftp"}, presence_only=False, browser_note=None
+    )
+    assert label == _LBL_SERVER_DRIVER_SESSION
+    assert note
+
+    label, _note = _ua_label_from_details(
+        {"source": "subdomain_auth"}, presence_only=True, browser_note=None
+    )
+    assert "SSO" in label
+
+    label, _note = _ua_label_from_details(
+        {"user_agent": "Mozilla/5.0"}, presence_only=False, browser_note=None
+    )
+    assert label

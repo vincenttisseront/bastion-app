@@ -573,21 +573,9 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
     browser_note = details.get("browser_note")
     presence_only = bool(details.get("presence_only")) and not present
     if not ua_label:
-        if details.get("verifiable") or details.get("driver") in ("crushftp", "generic_form"):
-            ua_label = _LBL_SERVER_DRIVER_SESSION
-            browser_note = browser_note or (
-                "Session créée côté bastion, sans User-Agent navigateur propre."
-            )
-        elif presence_only or details.get("source") == "subdomain_auth":
-            ua_label = "Activité SSO (subdomain)"
-            browser_note = browser_note or (
-                "Présence détectée via auth_request — cookies robotic non capturés ici."
-            )
-        elif details.get("user_agent"):
-            ua_label = summarize_user_agent(details.get("user_agent"))
-        else:
-            ua_label = _MSG_IP_NOT_CAPTURED
-            browser_note = browser_note or "User-Agent absent sur la requête d’enregistrement."
+        ua_label, browser_note = _ua_label_from_details(
+            details, presence_only=presence_only, browser_note=browser_note
+        )
     if presence_only and not present:
         cookie_title = (
             "Présence SSO sur l’hôte applicatif (pas de cookies robotic dans le registre)."
@@ -616,6 +604,32 @@ def _diagnostics_summary(details: dict[str, Any] | None) -> dict[str, Any]:
         "driver": details.get("driver"),
         "presence_only": presence_only,
     }
+
+
+def _ua_label_from_details(
+    details: dict[str, Any],
+    *,
+    presence_only: bool,
+    browser_note: str | None,
+) -> tuple[str, str | None]:
+    if details.get("verifiable") or details.get("driver") in ("crushftp", "generic_form"):
+        return (
+            _LBL_SERVER_DRIVER_SESSION,
+            browser_note
+            or "Session créée côté bastion, sans User-Agent navigateur propre.",
+        )
+    if presence_only or details.get("source") == "subdomain_auth":
+        return (
+            "Activité SSO (subdomain)",
+            browser_note
+            or "Présence détectée via auth_request — cookies robotic non capturés ici.",
+        )
+    if details.get("user_agent"):
+        return summarize_user_agent(details.get("user_agent")), browser_note
+    return (
+        _MSG_IP_NOT_CAPTURED,
+        browser_note or "User-Agent absent sur la requête d’enregistrement.",
+    )
 
 
 def _ttls_for_row(row: ActiveSession) -> tuple[timedelta, timedelta]:

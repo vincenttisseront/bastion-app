@@ -336,7 +336,7 @@ def _drop_unsafe_secrule_lines(lines: list[str]) -> list[str]:
     cleaned: list[str] = []
     for line in lines:
         stripped = line.lstrip()
-        if stripped.startswith("SecRule") or stripped.startswith("SecRuleRemoveById"):
+        if stripped.startswith(("SecRule", "SecRuleRemoveById")):
             if "%" in line or r"\x25" in line or line.rstrip().endswith("\\"):
                 cleaned.append(
                     "# skipped unsafe SecRule (percent or line-continuation)"
