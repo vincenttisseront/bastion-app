@@ -202,33 +202,7 @@ async def _search_users(
     )
     by_id: dict[str, tuple[float, dict, RealmConfig]] = {}
     for realm in realms:
-        try:
-            found = await search_keycloak_users_fuzzy(
-                realm, q, settings, limit=RESULT_LIMIT
-            )
-        except ValueError:
-            logger.debug("global search users skipped realm=%s", realm.slug, exc_info=True)
-            continue
-        except Exception:
-            logger.exception("global search users failed realm=%s", realm.slug)
-            continue
-        for u in found:
-            uid = u.get("id")
-            if not isinstance(uid, str) or not uid:
-                continue
-            score = score_query_against_fields(
-                q,
-                [
-                    u.get("username") or "",
-                    u.get("email") or "",
-                    u.get("firstName") or "",
-                    u.get("lastName") or "",
-                ],
-            )
-            prev = by_id.get(uid)
-            if prev is None or score > prev[0]:
-                by_id[uid] = (score, u, realm)
-
+        await _accumulate_realm_users(by_id, realm, settings, q)
     ranked = sorted(by_id.values(), key=lambda t: (-t[0], t[1].get("username") or ""))
     out: list[dict[str, str]] = []
     for score, user, realm in ranked[:RESULT_LIMIT]:
@@ -243,6 +217,40 @@ async def _search_users(
             )
         )
     return out
+
+
+async def _accumulate_realm_users(
+    by_id: dict[str, tuple[float, dict, RealmConfig]],
+    realm: RealmConfig,
+    settings: Settings,
+    q: str,
+) -> None:
+    try:
+        found = await search_keycloak_users_fuzzy(
+            realm, q, settings, limit=RESULT_LIMIT
+        )
+    except ValueError:
+        logger.debug("global search users skipped realm=%s", realm.slug, exc_info=True)
+        return
+    except Exception:
+        logger.exception("global search users failed realm=%s", realm.slug)
+        return
+    for user in found:
+        uid = user.get("id")
+        if not isinstance(uid, str) or not uid:
+            continue
+        score = score_query_against_fields(
+            q,
+            [
+                user.get("username") or "",
+                user.get("email") or "",
+                user.get("firstName") or "",
+                user.get("lastName") or "",
+            ],
+        )
+        prev = by_id.get(uid)
+        if prev is None or score > prev[0]:
+            by_id[uid] = (score, user, realm)
 
 
 @router.get("/api/search")

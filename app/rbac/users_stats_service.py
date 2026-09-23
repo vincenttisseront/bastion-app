@@ -388,29 +388,47 @@ def enrich_granted_users(
     last_map = last_seen_for_users(db, granted_users)
     out: list[dict[str, Any]] = []
     for u in granted_users:
-        display = u.get("display") or u.get("keycloak_user_id") or "?"
-        uid = u.get("keycloak_user_id")
-        last = last_map.get(uid or "", {})
-        entry = {
-            **u,
-            "initials": avatar_initials(display),
-            "avatar_color": avatar_color_for(display),
-            "last_seen_at": last.get("last_seen_at"),
-            "last_ip": last.get("ip"),
-            "status": "privileged" if u.get("has_portal_admin") else "actif",
-        }
-        if status_filter and status_filter != "tous":
-            if status_filter == "privilegies" and not u.get("has_portal_admin"):
-                continue
-            if status_filter == "inactifs":
-                # Grant-only list has no Keycloak enabled=false — skip filter
-                continue
-        if group_filter:
-            needle = group_filter.strip().casefold()
-            via = [str(g).casefold() for g in (u.get("via_groups") or [])]
-            # Match membership labels; grant-only rows without via_groups stay
-            # visible unless a via_groups list exists and misses the filter.
-            if via and not any(needle in g or g in needle for g in via):
-                continue
+        entry = _enrich_granted_user_entry(u, last_map)
+        if _skip_granted_user(entry, status_filter=status_filter, group_filter=group_filter):
+            continue
         out.append(entry)
     return out
+
+
+def _enrich_granted_user_entry(
+    user: dict[str, Any], last_map: dict[str, Any]
+) -> dict[str, Any]:
+    display = user.get("display") or user.get("keycloak_user_id") or "?"
+    uid = user.get("keycloak_user_id")
+    last = last_map.get(uid or "", {})
+    return {
+        **user,
+        "initials": avatar_initials(display),
+        "avatar_color": avatar_color_for(display),
+        "last_seen_at": last.get("last_seen_at"),
+        "last_ip": last.get("ip"),
+        "status": "privileged" if user.get("has_portal_admin") else "actif",
+    }
+
+
+def _skip_granted_user(
+    entry: dict[str, Any],
+    *,
+    status_filter: str | None,
+    group_filter: str | None,
+) -> bool:
+    if status_filter and status_filter != "tous":
+        if status_filter == "privilegies" and not entry.get("has_portal_admin"):
+            return True
+        if status_filter == "inactifs":
+            # Grant-only list has no Keycloak enabled=false — skip filter
+            return True
+    if not group_filter:
+        return False
+    needle = group_filter.strip().casefold()
+    via = [str(g).casefold() for g in (entry.get("via_groups") or [])]
+    # Match membership labels; grant-only rows without via_groups stay
+    # visible unless a via_groups list exists and misses the filter.
+    if via and not any(needle in g or g in needle for g in via):
+        return True
+    return False

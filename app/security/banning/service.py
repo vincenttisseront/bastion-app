@@ -105,37 +105,7 @@ def update_ban_rules(
         row = db.query(SecurityBanRule).filter_by(rule_type=rule_type).first()
         if row is None:
             continue
-        row.enabled = bool(payload.get("enabled", row.enabled))
-        if "threshold" in payload:
-            row.threshold = max(0, int(payload["threshold"]))
-        if "window_seconds" in payload:
-            row.window_seconds = max(0, int(payload["window_seconds"]))
-        if "ban_minutes" in payload:
-            row.ban_minutes = max(0, int(payload["ban_minutes"]))
-        want_permanent = bool(payload.get("ban_permanent", False))
-        confirm = bool(payload.get("confirm_permanent", False))
-        if want_permanent and not confirm:
-            # Keep previous permanent flag rather than enabling without confirm.
-            want_permanent = bool(row.ban_permanent)
-            if not row.ban_permanent:
-                want_permanent = False
-        elif not want_permanent:
-            want_permanent = False
-        row.ban_permanent = want_permanent
-        cfg = dict(row.config_json or {})
-        if "usernames" in payload:
-            names = payload["usernames"]
-            if isinstance(names, str):
-                names = [
-                    _normalize_username(x)
-                    for x in names.replace(";", ",").split(",")
-                    if x.strip()
-                ]
-            cfg["usernames"] = [n for n in names if n]
-        if "ban_username" in payload:
-            cfg["ban_username"] = bool(payload["ban_username"])
-        row.config_json = cfg or None
-        row.updated_at = utcnow()
+        _apply_ban_rule_payload(row, payload)
         updated.append(row)
     db.commit()
     log_action(
@@ -147,6 +117,48 @@ def update_ban_rules(
         ip_address=ip_address,
     )
     return updated
+
+
+def _apply_ban_rule_payload(row: SecurityBanRule, payload: dict) -> None:
+    row.enabled = bool(payload.get("enabled", row.enabled))
+    if "threshold" in payload:
+        row.threshold = max(0, int(payload["threshold"]))
+    if "window_seconds" in payload:
+        row.window_seconds = max(0, int(payload["window_seconds"]))
+    if "ban_minutes" in payload:
+        row.ban_minutes = max(0, int(payload["ban_minutes"]))
+    row.ban_permanent = _resolve_ban_permanent(row, payload)
+    cfg = dict(row.config_json or {})
+    _merge_ban_rule_config(cfg, payload)
+    row.config_json = cfg or None
+    row.updated_at = utcnow()
+
+
+def _resolve_ban_permanent(row: SecurityBanRule, payload: dict) -> bool:
+    want_permanent = bool(payload.get("ban_permanent", False))
+    confirm = bool(payload.get("confirm_permanent", False))
+    if want_permanent and not confirm:
+        # Keep previous permanent flag rather than enabling without confirm.
+        if row.ban_permanent:
+            return True
+        return False
+    if not want_permanent:
+        return False
+    return True
+
+
+def _merge_ban_rule_config(cfg: dict, payload: dict) -> None:
+    if "usernames" in payload:
+        names = payload["usernames"]
+        if isinstance(names, str):
+            names = [
+                _normalize_username(x)
+                for x in names.replace(";", ",").split(",")
+                if x.strip()
+            ]
+        cfg["usernames"] = [n for n in names if n]
+    if "ban_username" in payload:
+        cfg["ban_username"] = bool(payload["ban_username"])
 
 
 def apply_manual_ban(
