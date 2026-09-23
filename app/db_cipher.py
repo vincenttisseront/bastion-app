@@ -291,8 +291,9 @@ def _sqlcipher_available() -> bool:
         return False
 
 
-def get_db_encryption_status(settings: Settings) -> DbEncryptionStatus:
-    """Build UI status for SQLCipher at-rest encryption (no key material exposed)."""
+def _probe_encryption_key(
+    settings: Settings,
+) -> tuple[Path, bool, bool, bool, str | None]:
     keys_dir = resolve_keys_dir(settings)
     key_path = keys_dir / DB_ENCRYPTION_KEY_FILENAME
     key_file_present = False
@@ -309,35 +310,57 @@ def get_db_encryption_status(settings: Settings) -> DbEncryptionStatus:
         source = "env"
     else:
         source = None
+    return keys_dir, key_file_present, env_configured, enabled, source
 
-    sqlcipher_ok = _sqlcipher_available()
-    db_path: str | None = None
-    db_exists = False
-    db_encrypted: bool | None = None
 
-    if not is_memory_database_url(settings.database_url):
-        try:
-            path = sqlite_path_from_url(settings.database_url)
-            db_path = str(path)
-            if path.is_file() and path.stat().st_size > 0:
-                db_exists = True
-                db_encrypted = not probe_plaintext_readable(path)
-        except DbEncryptionError:
-            db_path = settings.database_url
+def _probe_db_file(
+    settings: Settings,
+) -> tuple[str | None, bool, bool | None]:
+    if is_memory_database_url(settings.database_url):
+        return None, False, None
+    try:
+        path = sqlite_path_from_url(settings.database_url)
+        db_path = str(path)
+        if path.is_file() and path.stat().st_size > 0:
+            return db_path, True, not probe_plaintext_readable(path)
+        return db_path, False, None
+    except DbEncryptionError:
+        return settings.database_url, False, None
 
+
+def _encryption_status_badge(
+    *,
+    enabled: bool,
+    sqlcipher_ok: bool,
+    db_exists: bool,
+    db_encrypted: bool | None,
+) -> tuple[str, str]:
     if not enabled:
         if db_exists and db_encrypted:
-            badge, label = "error", "Clé manquante"
-        else:
-            badge, label = "muted", "Désactivé (fichier en clair)"
-    elif not sqlcipher_ok:
-        badge, label = "error", "Driver SQLCipher manquant"
-    elif db_exists and db_encrypted is False:
-        badge, label = "warn", "Migration requise"
-    elif db_exists and db_encrypted:
-        badge, label = "ok", "Actif"
-    else:
-        badge, label = "ok", "Prêt"
+            return "error", "Clé manquante"
+        return "muted", "Désactivé (fichier en clair)"
+    if not sqlcipher_ok:
+        return "error", "Driver SQLCipher manquant"
+    if db_exists and db_encrypted is False:
+        return "warn", "Migration requise"
+    if db_exists and db_encrypted:
+        return "ok", "Actif"
+    return "ok", "Prêt"
+
+
+def get_db_encryption_status(settings: Settings) -> DbEncryptionStatus:
+    """Build UI status for SQLCipher at-rest encryption (no key material exposed)."""
+    keys_dir, key_file_present, env_configured, enabled, source = _probe_encryption_key(
+        settings
+    )
+    db_path, db_exists, db_encrypted = _probe_db_file(settings)
+    sqlcipher_ok = _sqlcipher_available()
+    badge, label = _encryption_status_badge(
+        enabled=enabled,
+        sqlcipher_ok=sqlcipher_ok,
+        db_exists=db_exists,
+        db_encrypted=db_encrypted,
+    )
 
     return DbEncryptionStatus(
         enabled=enabled,

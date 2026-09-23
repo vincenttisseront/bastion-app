@@ -192,6 +192,47 @@ def prune_spurious_pending_users(db: Session) -> int:
     return changed
 
 
+def _refresh_pending_first_login(
+    existing: PendingUser,
+    *,
+    uname: str | None,
+    realm: str,
+    source_ip: str | None,
+    now,
+) -> PendingUser | None:
+    if existing.status != "pending":
+        return None
+    existing.last_seen_at = now
+    existing.hit_count = int(existing.hit_count or 0) + 1
+    if source_ip:
+        existing.last_client_ip = source_ip
+    if uname:
+        existing.username = uname
+    if realm:
+        existing.realm_slug = realm
+    existing.updated_at = now
+    return existing
+
+
+def _session_count_for_identity(
+    db: Session, *, email: str, uname: str | None
+) -> int:
+    session_emails = {email}
+    if uname:
+        for s in (
+            db.query(ActiveSession.user_email)
+            .filter(func.lower(ActiveSession.username) == uname.lower())
+            .all()
+        ):
+            if s[0]:
+                session_emails.add(s[0].strip().lower())
+    return (
+        db.query(ActiveSession)
+        .filter(ActiveSession.user_email.in_(sorted(session_emails)))
+        .count()
+    )
+
+
 def record_first_login_if_new(
     db: Session,
     *,
@@ -219,38 +260,15 @@ def record_first_login_if_new(
 
     existing = db.query(PendingUser).filter_by(user_email=email).first()
     if existing is not None:
-        if existing.status != "pending":
-            return None
-        existing.last_seen_at = now
-        existing.hit_count = int(existing.hit_count or 0) + 1
-        if source_ip:
-            existing.last_client_ip = source_ip
-        if uname:
-            existing.username = uname
-        if realm:
-            existing.realm_slug = realm
-        existing.updated_at = now
-        return existing
+        return _refresh_pending_first_login(
+            existing, uname=uname, realm=realm, source_ip=source_ip, now=now
+        )
 
     if not is_new_session_row:
         return None
 
     # Count sessions for this email OR username-linked ids (avoid false "first" on uuid twin)
-    session_emails = {email}
-    if uname:
-        for s in (
-            db.query(ActiveSession.user_email)
-            .filter(func.lower(ActiveSession.username) == uname.lower())
-            .all()
-        ):
-            if s[0]:
-                session_emails.add(s[0].strip().lower())
-    session_count = (
-        db.query(ActiveSession)
-        .filter(ActiveSession.user_email.in_(sorted(session_emails)))
-        .count()
-    )
-    if session_count > 1:
+    if _session_count_for_identity(db, email=email, uname=uname) > 1:
         return None
 
     row = PendingUser(

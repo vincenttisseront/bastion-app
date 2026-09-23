@@ -735,6 +735,113 @@ def _breakglass_jti_from_request(
     return str(jti) if jti else None
 
 
+def _portal_realm_for_user(user: UserContext) -> str:
+    # Break-glass is not an SSO realm member — never stamp default realm slug.
+    if user.is_breakglass:
+        return ""
+    return (user.realm_slug or "").strip() or (
+        get_settings().sso_portal_default_realm_slug or "default"
+    ).strip()
+
+
+def _create_portal_session_row(
+    db: Session,
+    *,
+    session_id: str,
+    email: str,
+    user: UserContext,
+    realm: str,
+    source_ip: str | None,
+    now,
+    details: dict[str, Any] | None,
+) -> ActiveSession:
+    # Drop mis-keyed portal row under the default realm when JWT/header
+    # now reports the real IdP realm (legacy empty portal_realm_slug cookie).
+    _drop_misattributed_default_portal_row(
+        db, email=email, correct_realm=realm, keep_id=session_id
+    )
+    row = ActiveSession(
+        id=session_id,
+        kind=KIND_USER,
+        user_email=email,
+        username=user.username or email,
+        realm=realm,
+        protocol=_protocol_for_user(user),
+        target="portal",
+        source_ip=source_ip,
+        status="active",
+        started_at=now,
+        last_seen_at=now,
+        details=details,
+    )
+    db.add(row)
+    return row
+
+
+def _update_portal_session_row(
+    row: ActiveSession,
+    *,
+    email: str,
+    user: UserContext,
+    realm: str,
+    source_ip: str | None,
+    now,
+    details: dict[str, Any] | None,
+) -> None:
+    row.user_email = email
+    row.username = user.username or email
+    row.protocol = _protocol_for_user(user)
+    row.realm = realm
+    row.source_ip = prefer_client_ip(row.source_ip, source_ip)
+    row.last_seen_at = now
+    if details:
+        row.details = _merge_details(
+            row.details if isinstance(row.details, dict) else None, details
+        )
+    if row.status != "isolated":
+        row.status = "active"
+
+
+def _drop_legacy_breakglass_portal_rows(
+    db: Session, *, email: str, keep_id: str
+) -> None:
+    for legacy in (
+        db.query(ActiveSession)
+        .filter(
+            ActiveSession.kind == KIND_USER,
+            ActiveSession.user_email == email,
+            ActiveSession.protocol == _PROTOCOL_BREAKGLASS,
+            ActiveSession.id != keep_id,
+        )
+        .all()
+    ):
+        db.delete(legacy)
+
+
+def _maybe_record_pending_first_login(
+    db: Session,
+    *,
+    email: str,
+    user: UserContext,
+    realm: str,
+    source_ip: str | None,
+    is_new_session_row: bool,
+) -> None:
+    try:
+        from app.web.pending_user_service import record_first_login_if_new
+
+        record_first_login_if_new(
+            db,
+            user_email=email,
+            username=user.username or email,
+            realm_slug=realm,
+            source_ip=source_ip,
+            is_new_session_row=is_new_session_row,
+        )
+    except Exception:
+        logger.exception("pending first-login record failed")
+
+
 def _touch_portal_session(
     db: Session,
     user: UserContext,
@@ -743,13 +850,7 @@ def _touch_portal_session(
     details: dict[str, Any] | None = None,
 ) -> ActiveSession:
     email = (user.email or user.username or "unknown").strip().lower()
-    # Break-glass is not an SSO realm member — never stamp default realm slug.
-    if user.is_breakglass:
-        realm = ""
-    else:
-        realm = (user.realm_slug or "").strip() or (
-            get_settings().sso_portal_default_realm_slug or "default"
-        ).strip()
+    realm = _portal_realm_for_user(user)
     if _looks_like_email(email):
         _heal_short_session_emails(db, full_email=email, username=user.username)
     session_id = _portal_session_id(email, realm)
@@ -757,66 +858,38 @@ def _touch_portal_session(
     row = db.query(ActiveSession).filter_by(id=session_id).first()
     is_new = row is None
     if is_new:
-        # Drop mis-keyed portal row under the default realm when JWT/header
-        # now reports the real IdP realm (legacy empty portal_realm_slug cookie).
-        _drop_misattributed_default_portal_row(
-            db, email=email, correct_realm=realm, keep_id=session_id
-        )
-        row = ActiveSession(
-            id=session_id,
-            kind=KIND_USER,
-            user_email=email,
-            username=user.username or email,
+        row = _create_portal_session_row(
+            db,
+            session_id=session_id,
+            email=email,
+            user=user,
             realm=realm,
-            protocol=_protocol_for_user(user),
-            target="portal",
             source_ip=source_ip,
-            status="active",
-            started_at=now,
-            last_seen_at=now,
+            now=now,
             details=details,
         )
-        db.add(row)
     else:
-        row.user_email = email
-        row.username = user.username or email
-        row.protocol = _protocol_for_user(user)
-        row.realm = realm
-        row.source_ip = prefer_client_ip(row.source_ip, source_ip)
-        row.last_seen_at = now
-        if details:
-            row.details = _merge_details(row.details if isinstance(row.details, dict) else None, details)
-        if row.status != "isolated":
-            row.status = "active"
+        _update_portal_session_row(
+            row,
+            email=email,
+            user=user,
+            realm=realm,
+            source_ip=source_ip,
+            now=now,
+            details=details,
+        )
 
-    # Drop legacy break-glass portal rows wrongly keyed under an SSO realm.
     if user.is_breakglass:
-        for legacy in (
-            db.query(ActiveSession)
-            .filter(
-                ActiveSession.kind == KIND_USER,
-                ActiveSession.user_email == email,
-                ActiveSession.protocol == _PROTOCOL_BREAKGLASS,
-                ActiveSession.id != session_id,
-            )
-            .all()
-        ):
-            db.delete(legacy)
-
-    if not user.is_breakglass:
-        try:
-            from app.web.pending_user_service import record_first_login_if_new
-
-            record_first_login_if_new(
-                db,
-                user_email=email,
-                username=user.username or email,
-                realm_slug=realm,
-                source_ip=source_ip,
-                is_new_session_row=is_new,
-            )
-        except Exception:
-            logger.exception("pending first-login record failed")
+        _drop_legacy_breakglass_portal_rows(db, email=email, keep_id=session_id)
+    else:
+        _maybe_record_pending_first_login(
+            db,
+            email=email,
+            user=user,
+            realm=realm,
+            source_ip=source_ip,
+            is_new_session_row=is_new,
+        )
     db.commit()
     db.refresh(row)
     return row

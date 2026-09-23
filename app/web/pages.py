@@ -301,6 +301,104 @@ def _apply_crushftp_admin_config(
     return errors
 
 
+def _stage_app_edit_form_fields(
+    app: App,
+    *,
+    label: str,
+    upstream_url: str,
+    mode: str,
+    fqdn: str | None,
+    desc: str | None,
+    allow_activesync: str | None,
+    upstream_tls_verify: str | None,
+    provisioning_driver: str,
+    crushftp_admin_base_url: str | None = None,
+    crushftp_admin_server_group: str | None = None,
+    crushftp_admin_username: str | None = None,
+    crushftp_vfs_base_path: str | None = None,
+    stage_crushftp_plaintext: bool = False,
+) -> None:
+    app.label = label
+    app.upstream_url = upstream_url
+    app.access_mode = mode
+    app.public_fqdn = fqdn
+    app.description = desc
+    app.allow_activesync, app.activesync_device_control = activesync_flags_for(
+        mode,
+        allow_activesync=allow_activesync == "on",
+        device_control=getattr(app, "activesync_device_control", False),
+    )
+    app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
+    app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
+    if not stage_crushftp_plaintext:
+        return
+    # Re-display CrushFTP admin fields from the form (do not encrypt yet).
+    app.crushftp_admin_base_url = (crushftp_admin_base_url or "").strip() or None
+    app.crushftp_admin_server_group = (
+        (crushftp_admin_server_group or "").strip() or None
+    )
+    app.crushftp_admin_username = (crushftp_admin_username or "").strip() or None
+    app.crushftp_vfs_base_path = (
+        (crushftp_vfs_base_path or "").strip().replace("\\", "/").rstrip("/") or None
+    )
+
+
+def _apps_edit_error_response(
+    request: Request,
+    settings: Settings,
+    db: Session,
+    app: App,
+    *,
+    errors: dict,
+    m2m_bypass_paths_text: str,
+    auth_mode: str,
+    sso_bridge: str,
+    login_form_url: str,
+    login_username_field: str,
+    login_password_field: str,
+    login_http_method: str,
+    login_extra_fields: str,
+    credential_mode: str,
+    identity_format: str,
+    injected_cookie_scope: str,
+):
+    _apply_auth_config(
+        app,
+        auth_mode=auth_mode,
+        sso_bridge=sso_bridge,
+        login_form_url=login_form_url,
+        login_username_field=login_username_field,
+        login_password_field=login_password_field,
+        login_http_method=login_http_method,
+        login_extra_fields=login_extra_fields,
+        credential_mode=credential_mode,
+        identity_format=identity_format,
+        injected_cookie_scope=injected_cookie_scope,
+    )
+    rbac_grant_count = (
+        db.query(AccessGrant)
+        .filter(
+            AccessGrant.resource_type == "application",
+            AccessGrant.application_id == app.id,
+        )
+        .count()
+    )
+    return render(
+        _TMPL_APP_EDIT,
+        **_ctx(
+            request,
+            settings,
+            app=app,
+            errors=errors,
+            m2m_bypass_paths_text=m2m_bypass_paths_text,
+            logo_url=logo_public_url(app),
+            vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
+            rbac_grant_count=rbac_grant_count,
+            provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
+        ),
+    )
+
+
 def _validate_auth_fields(
     access_mode: str,
     auth_mode: str,
@@ -1301,85 +1399,30 @@ def access_request_post(
         "organization": (organization or "").strip(),
         "message": (message or "").strip(),
     }
-
     client_ip = client_ip_from_request(request) or None
 
-    # Honeypot: bots that fill hidden fields get a fake success (no DB write).
-    if (website or "").strip():
-        log_action(
-            db,
-            actor=(email or "").strip() or "honeypot",
-            action="access_request.honeypot",
-            details={"path": _PATH_ACCESS_REQUEST},
-            ip_address=client_ip,
-        )
-        return _access_request_page(
-            request,
-            settings,
-            db,
-            request_submitted=True,
-            submitted={
-                "username": form_values["username"] or "—",
-                "organization": form_values["organization"] or "—",
-                "message": form_values["message"],
-            },
-        )
+    honeypot = _access_request_honeypot_response(
+        request, settings, db, website=website, email=email, form_values=form_values, client_ip=client_ip
+    )
+    if honeypot is not None:
+        return honeypot
 
-    retry = check_access_request_post_rate(client_ip)
-    if retry is not None:
-        log_action(
-            db,
-            actor=(email or "").strip() or "anonymous",
-            action="access_request.rate_limited",
-            details={"path": _PATH_ACCESS_REQUEST, "retry_after": int(retry)},
-            ip_address=client_ip,
-        )
-        return _access_request_page(
-            request,
-            settings,
-            db,
-            form_error=(
-                "Trop de demandes depuis cette adresse — "
-                f"réessayez dans {int(retry)} s."
-            ),
-            form_values=form_values,
-        )
-
-    if not realms_advertising_access_requests(db):
-        return _access_request_page(
-            request,
-            settings,
-            db,
-            form_error="Les demandes d'accès ne sont pas ouvertes actuellement.",
-            form_values=form_values,
-        )
-
-    secret = settings.vault_portal_internal_token or "dev-insecure"
-    expected = make_csrf_token(request, secret)
-    if not csrf_token or not hmac.compare_digest(csrf_token, expected):
-        return _access_request_page(
-            request,
-            settings,
-            db,
-            form_error="Session expirée — rechargez la page et réessayez.",
-            form_values=form_values,
-        )
-
-    if not verify_altcha_payload(settings, altcha):
-        log_action(
-            db,
-            actor=(email or "").strip() or "anonymous",
-            action="access_request.captcha_failed",
-            details={"path": _PATH_ACCESS_REQUEST, "kind": "altcha"},
-            ip_address=client_ip,
-        )
-        return _access_request_page(
-            request,
-            settings,
-            db,
-            form_error="Vérification anti-robot incorrecte ou expirée — réessayez.",
-            form_values=form_values,
-        )
+    blocked = _access_request_precheck(
+        request,
+        settings,
+        db,
+        csrf_token=csrf_token,
+        altcha=altcha,
+        email=email,
+        form_values=form_values,
+        client_ip=client_ip,
+        check_rate=check_access_request_post_rate,
+        realms_open=realms_advertising_access_requests,
+        make_csrf=make_csrf_token,
+        verify_altcha=verify_altcha_payload,
+    )
+    if blocked is not None:
+        return blocked
 
     try:
         submit_access_request(
@@ -1413,6 +1456,112 @@ def access_request_post(
             "message": form_values["message"],
         },
     )
+
+
+def _access_request_honeypot_response(
+    request: Request,
+    settings: Settings,
+    db: Session,
+    *,
+    website: str,
+    email: str,
+    form_values: dict,
+    client_ip: str | None,
+):
+    # Honeypot: bots that fill hidden fields get a fake success (no DB write).
+    if not (website or "").strip():
+        return None
+    log_action(
+        db,
+        actor=(email or "").strip() or "honeypot",
+        action="access_request.honeypot",
+        details={"path": _PATH_ACCESS_REQUEST},
+        ip_address=client_ip,
+    )
+    return _access_request_page(
+        request,
+        settings,
+        db,
+        request_submitted=True,
+        submitted={
+            "username": form_values["username"] or "—",
+            "organization": form_values["organization"] or "—",
+            "message": form_values["message"],
+        },
+    )
+
+
+def _access_request_precheck(
+    request: Request,
+    settings: Settings,
+    db: Session,
+    *,
+    csrf_token: str,
+    altcha: str,
+    email: str,
+    form_values: dict,
+    client_ip: str | None,
+    check_rate,
+    realms_open,
+    make_csrf,
+    verify_altcha,
+):
+    retry = check_rate(client_ip)
+    if retry is not None:
+        log_action(
+            db,
+            actor=(email or "").strip() or "anonymous",
+            action="access_request.rate_limited",
+            details={"path": _PATH_ACCESS_REQUEST, "retry_after": int(retry)},
+            ip_address=client_ip,
+        )
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error=(
+                "Trop de demandes depuis cette adresse — "
+                f"réessayez dans {int(retry)} s."
+            ),
+            form_values=form_values,
+        )
+
+    if not realms_open(db):
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error="Les demandes d'accès ne sont pas ouvertes actuellement.",
+            form_values=form_values,
+        )
+
+    secret = settings.vault_portal_internal_token or "dev-insecure"
+    expected = make_csrf(request, secret)
+    if not csrf_token or not hmac.compare_digest(csrf_token, expected):
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error="Session expirée — rechargez la page et réessayez.",
+            form_values=form_values,
+        )
+
+    if not verify_altcha(settings, altcha):
+        log_action(
+            db,
+            actor=(email or "").strip() or "anonymous",
+            action="access_request.captcha_failed",
+            details={"path": _PATH_ACCESS_REQUEST, "kind": "altcha"},
+            ip_address=client_ip,
+        )
+        return _access_request_page(
+            request,
+            settings,
+            db,
+            form_error="Vérification anti-robot incorrecte ou expirée — réessayez.",
+            form_values=form_values,
+        )
+    return None
 
 
 def _forgot_password_realms(db: Session) -> list[RealmConfig]:
@@ -2506,29 +2655,29 @@ def admin_apps_edit_post(
     if len((description or "").strip()) > _DESC_MAX:
         errors["description"] = f"La description ne doit pas dépasser {_DESC_MAX} caractères."
     if errors:
-        app.label = label
-        app.upstream_url = upstream_url
-        app.access_mode = mode
-        app.public_fqdn = fqdn
-        app.description = desc
-        app.allow_activesync, app.activesync_device_control = activesync_flags_for(
-            mode,
-            allow_activesync=allow_activesync == "on",
-            device_control=getattr(app, "activesync_device_control", False),
-        )
-        app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
-        app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
-        # Re-display CrushFTP admin fields from the form (do not encrypt yet).
-        app.crushftp_admin_base_url = (crushftp_admin_base_url or "").strip() or None
-        app.crushftp_admin_server_group = (
-            (crushftp_admin_server_group or "").strip() or None
-        )
-        app.crushftp_admin_username = (crushftp_admin_username or "").strip() or None
-        app.crushftp_vfs_base_path = (
-            (crushftp_vfs_base_path or "").strip().replace("\\", "/").rstrip("/") or None
-        )
-        _apply_auth_config(
+        _stage_app_edit_form_fields(
             app,
+            label=label,
+            upstream_url=upstream_url,
+            mode=mode,
+            fqdn=fqdn,
+            desc=desc,
+            allow_activesync=allow_activesync,
+            upstream_tls_verify=upstream_tls_verify,
+            provisioning_driver=provisioning_driver,
+            crushftp_admin_base_url=crushftp_admin_base_url,
+            crushftp_admin_server_group=crushftp_admin_server_group,
+            crushftp_admin_username=crushftp_admin_username,
+            crushftp_vfs_base_path=crushftp_vfs_base_path,
+            stage_crushftp_plaintext=True,
+        )
+        return _apps_edit_error_response(
+            request,
+            settings,
+            db,
+            app,
+            errors=errors,
+            m2m_bypass_paths_text=m2m_bypass_paths or "",
             auth_mode=auth_mode,
             sso_bridge=sso_bridge,
             login_form_url=login_form_url,
@@ -2539,28 +2688,6 @@ def admin_apps_edit_post(
             credential_mode=credential_mode,
             identity_format=identity_format,
             injected_cookie_scope=injected_cookie_scope,
-        )
-        rbac_grant_count = (
-            db.query(AccessGrant)
-            .filter(
-                AccessGrant.resource_type == "application",
-                AccessGrant.application_id == app.id,
-            )
-            .count()
-        )
-        return render(
-            _TMPL_APP_EDIT,
-            **_ctx(
-                request,
-                settings,
-                app=app,
-                errors=errors,
-                m2m_bypass_paths_text=m2m_bypass_paths or "",
-                logo_url=logo_public_url(app),
-                vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
-                rbac_grant_count=rbac_grant_count,
-                provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
-            ),
         )
     provision_driver = normalize_provisioning_driver(provisioning_driver)
     crush_errors: dict[str, str] = {}
@@ -2576,20 +2703,24 @@ def admin_apps_edit_post(
         )
     if crush_errors:
         errors.update(crush_errors)
-        app.label = label
-        app.upstream_url = upstream_url
-        app.access_mode = mode
-        app.public_fqdn = fqdn
-        app.description = desc
-        app.allow_activesync, app.activesync_device_control = activesync_flags_for(
-            mode,
-            allow_activesync=allow_activesync == "on",
-            device_control=getattr(app, "activesync_device_control", False),
-        )
-        app.upstream_tls_verify = upstream_tls_verify == "on" and mode != "sso_gate"
-        app.provisioning_driver = normalize_provisioning_driver(provisioning_driver)
-        _apply_auth_config(
+        _stage_app_edit_form_fields(
             app,
+            label=label,
+            upstream_url=upstream_url,
+            mode=mode,
+            fqdn=fqdn,
+            desc=desc,
+            allow_activesync=allow_activesync,
+            upstream_tls_verify=upstream_tls_verify,
+            provisioning_driver=provisioning_driver,
+        )
+        return _apps_edit_error_response(
+            request,
+            settings,
+            db,
+            app,
+            errors=errors,
+            m2m_bypass_paths_text=_m2m_bypass_paths_text(app),
             auth_mode=auth_mode,
             sso_bridge=sso_bridge,
             login_form_url=login_form_url,
@@ -2600,28 +2731,6 @@ def admin_apps_edit_post(
             credential_mode=credential_mode,
             identity_format=identity_format,
             injected_cookie_scope=injected_cookie_scope,
-        )
-        rbac_grant_count = (
-            db.query(AccessGrant)
-            .filter(
-                AccessGrant.resource_type == "application",
-                AccessGrant.application_id == app.id,
-            )
-            .count()
-        )
-        return render(
-            _TMPL_APP_EDIT,
-            **_ctx(
-                request,
-                settings,
-                app=app,
-                errors=errors,
-                m2m_bypass_paths_text=_m2m_bypass_paths_text(app),
-                logo_url=logo_public_url(app),
-                vault_enabled=vault_enabled_for_app(app.auth_mode, app.robotic_driver),
-                rbac_grant_count=rbac_grant_count,
-                provisioning_driver_labels=PROVISIONING_DRIVER_LABELS,
-            ),
         )
     app.label = label
     app.upstream_url = upstream_url
@@ -2831,6 +2940,18 @@ async def admin_app_crushftp_sync_companies(
             status=500 if not wants_json else 400,
         )
 
+    return _crushftp_sync_success_response(
+        settings, realm_slug=realm.slug, summary=summary, wants_json=wants_json
+    )
+
+
+def _crushftp_sync_success_response(
+    settings: Settings,
+    *,
+    realm_slug: str,
+    summary: dict,
+    wants_json: bool,
+):
     if wants_json:
         return JSONResponse({"ok": True, **summary})
 
@@ -2839,7 +2960,7 @@ async def admin_app_crushftp_sync_companies(
     found_n = len(summary.get("folders_found") or [])
     err_n = len(summary.get("errors") or [])
     msg = (
-        f"Sociétés CrushFTP synchronisées ({realm.slug}) : "
+        f"Sociétés CrushFTP synchronisées ({realm_slug}) : "
         f"{found_n} dossier(s), {created_n} créé(s), {existing_n} déjà présent(s)"
     )
     if err_n:

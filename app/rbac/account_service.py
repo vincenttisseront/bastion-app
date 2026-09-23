@@ -1117,6 +1117,77 @@ def send_account_credentials_email(
     )
 
 
+async def _resolve_reset_identity_labels(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    keycloak_user_id: str,
+    username: str | None,
+    email: str | None,
+    send_email: bool,
+) -> tuple[str, str]:
+    label = (username or "").strip()
+    to_email = (email or "").strip()
+    if send_email and (not label or not to_email):
+        try:
+            from app.rbac.keycloak_admin import fetch_keycloak_user
+
+            kc = await fetch_keycloak_user(realm, keycloak_user_id, settings)
+        except Exception:
+            kc = None
+        if isinstance(kc, dict):
+            label = label or (kc.get("username") or "").strip()
+            to_email = to_email or (kc.get("email") or "").strip()
+    return label or keycloak_user_id, to_email
+
+
+def _send_reset_credentials_email(
+    db: Session,
+    settings: Settings,
+    *,
+    realm: RealmConfig,
+    label: str,
+    to_email: str,
+    new_password: str,
+    actor: str,
+    ip_address: str | None,
+) -> str | None:
+    if not to_email or "@" not in to_email:
+        return "Adresse email Keycloak manquante — mot de passe non envoyé"
+    try:
+        send_credentials_email(
+            db,
+            settings,
+            realm=realm,
+            username=label,
+            to_email=to_email,
+            temporary_password=new_password,
+            kind="reset",
+        )
+        log_action(
+            db,
+            actor=actor,
+            action="account.credentials_emailed",
+            target=_account_target(realm, label),
+            details={"kind": "reset", "to": to_email},
+            ip_address=ip_address,
+        )
+        db.commit()
+        return None
+    except Exception as exc:
+        email_error = str(exc)
+        log_action(
+            db,
+            actor=actor,
+            action="account.credentials_email_failed",
+            target=_account_target(realm, label),
+            details={"kind": "reset", "error": email_error},
+            ip_address=ip_address,
+        )
+        db.commit()
+        return email_error
+
+
 async def reset_keycloak_user_password(
     db: Session,
     settings: Settings,
@@ -1144,19 +1215,15 @@ async def reset_keycloak_user_password(
         )
 
     from app.oidc_native_session import is_oidc_native_session_enabled_for_realm
-    from app.rbac.keycloak_admin import fetch_keycloak_user
 
-    label = (username or "").strip()
-    to_email = (email or "").strip()
-    if send_email and (not label or not to_email):
-        try:
-            kc = await fetch_keycloak_user(realm, uid, settings)
-        except Exception:
-            kc = None
-        if isinstance(kc, dict):
-            label = label or (kc.get("username") or "").strip()
-            to_email = to_email or (kc.get("email") or "").strip()
-    label = label or uid
+    label, to_email = await _resolve_reset_identity_labels(
+        realm,
+        settings,
+        keycloak_user_id=uid,
+        username=username,
+        email=email,
+        send_email=send_email,
+    )
 
     temporary = not is_oidc_native_session_enabled_for_realm(db, realm.slug, settings)
     new_password = generate_initial_password()
@@ -1217,39 +1284,16 @@ async def reset_keycloak_user_password(
 
     email_error: str | None = None
     if send_email:
-        if not to_email or "@" not in to_email:
-            email_error = "Adresse email Keycloak manquante — mot de passe non envoyé"
-        else:
-            try:
-                send_credentials_email(
-                    db,
-                    settings,
-                    realm=realm,
-                    username=label,
-                    to_email=to_email,
-                    temporary_password=new_password,
-                    kind="reset",
-                )
-                log_action(
-                    db,
-                    actor=actor,
-                    action="account.credentials_emailed",
-                    target=_account_target(realm, label),
-                    details={"kind": "reset", "to": to_email},
-                    ip_address=ip_address,
-                )
-                db.commit()
-            except Exception as exc:
-                email_error = str(exc)
-                log_action(
-                    db,
-                    actor=actor,
-                    action="account.credentials_email_failed",
-                    target=_account_target(realm, label),
-                    details={"kind": "reset", "error": email_error},
-                    ip_address=ip_address,
-                )
-                db.commit()
+        email_error = _send_reset_credentials_email(
+            db,
+            settings,
+            realm=realm,
+            label=label,
+            to_email=to_email,
+            new_password=new_password,
+            actor=actor,
+            ip_address=ip_address,
+        )
 
     return new_password, email_error
 

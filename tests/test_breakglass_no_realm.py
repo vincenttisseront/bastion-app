@@ -52,16 +52,24 @@ def test_get_user_context_breakglass_has_empty_realm(db_session: Session):
 
 
 def test_get_user_context_breakglass_header_clears_default_realm():
+    from starlette.datastructures import Headers
+
     settings = _settings()
     request = MagicMock()
-    request.headers = {
-        "X-Email": "admin@breakglass.local",
-        "X-Preferred-Username": "admin",
-        "X-Portal-Auth-Source": "breakglass",
-        "X-Portal-Realm-Slug": "ar-systems",
-        "X-Groups": "portal-admins",
-    }
+    request.headers = Headers(
+        {
+            "x-email": "admin@breakglass.local",
+            "x-preferred-username": "admin",
+            "x-portal-auth-source": "breakglass",
+            "x-portal-realm-slug": "ar-systems",
+            "x-groups": "portal-admins",
+            "x-portal-internal-token": "test-secret",
+        }
+    )
     request.cookies = {}
+    request.client = MagicMock(host="10.0.0.8")
+    request.url = MagicMock(path="/")
+    request.method = "GET"
 
     user = get_user_context(request, settings=settings, db=None)
     assert user is not None

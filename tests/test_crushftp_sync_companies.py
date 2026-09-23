@@ -138,9 +138,16 @@ def test_sync_companies_endpoint_creates_groups(client, db_session):
     async def fake_create_group(realm, settings, *, name, token=None):
         return f"kc-{name}"
 
+    async def fake_find_group(*_a, **_k):
+        return None
+
     with (
         patch("app.rbac.account_service.get_provision_token", fake_token),
         patch("app.rbac.account_service.create_keycloak_group", fake_create_group),
+        patch(
+            "app.rbac.account_service.find_keycloak_group_by_match_key",
+            fake_find_group,
+        ),
     ):
         resp = client.post(
             f"/admin/apps/{app.slug}/crushftp/sync-companies",
