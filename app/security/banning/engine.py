@@ -603,52 +603,71 @@ def record_sensitive_request(
         return None
     if not ip or is_allowlisted(db, ip=ip) or is_breakglass_ban_exempt(db, ip):
         return None
+    if _concurrent_over_threshold(db, ip):
+        # Refuse without ban — caller should return 429/403.
+        return None
 
-    concurrent_rule = get_rule(db, RULE_CONCURRENT)
-    if (
-        concurrent_rule
-        and concurrent_rule.enabled
-        and int(concurrent_rule.threshold or 0) > 0
-    ):
-        with _counter_lock:
-            active = _concurrent.get(ip, 0)
-        if active >= int(concurrent_rule.threshold):
-            # Refuse without ban — caller should return 429/403.
-            return None
-
-    ban: SecurityBan | None = None
-
-    hammer = get_rule(db, RULE_HAMMERING)
-    if hammer and hammer.enabled and int(hammer.threshold or 0) > 0:
-        ban = _apply_hammer_ban_if_threshold(
-            db,
-            ip=ip,
-            rule=hammer,
-            kind="hammer",
-            rule_type=RULE_HAMMERING,
-            reason_prefix="Hammering",
-        )
-
+    ban = _hammer_ban_for_ip(db, ip=ip)
     if ban is None and is_login_path(path, method):
-        login_hammer = get_rule(db, RULE_HAMMERING_LOGIN)
-        if login_hammer and login_hammer.enabled and int(login_hammer.threshold or 0) > 0:
-            ban = _apply_hammer_ban_if_threshold(
-                db,
-                ip=ip,
-                rule=login_hammer,
-                kind="hammer_login",
-                rule_type=RULE_HAMMERING_LOGIN,
-                reason_prefix="Login hammering",
-                reason_unit="login requests",
-            )
+        ban = _login_hammer_ban_for_ip(db, ip=ip)
 
     if ban is None:
-        # Persist counter events even when no ban was applied.
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
+        _commit_rate_counters(db)
     return ban
+
+
+def _concurrent_over_threshold(db: Session, ip: str) -> bool:
+    concurrent_rule = get_rule(db, RULE_CONCURRENT)
+    if (
+        not concurrent_rule
+        or not concurrent_rule.enabled
+        or int(concurrent_rule.threshold or 0) <= 0
+    ):
+        return False
+    with _counter_lock:
+        active = _concurrent.get(ip, 0)
+    return active >= int(concurrent_rule.threshold)
+
+
+def _hammer_ban_for_ip(db: Session, *, ip: str) -> SecurityBan | None:
+    hammer = get_rule(db, RULE_HAMMERING)
+    if not hammer or not hammer.enabled or int(hammer.threshold or 0) <= 0:
+        return None
+    return _apply_hammer_ban_if_threshold(
+        db,
+        ip=ip,
+        rule=hammer,
+        kind="hammer",
+        rule_type=RULE_HAMMERING,
+        reason_prefix="Hammering",
+    )
+
+
+def _login_hammer_ban_for_ip(db: Session, *, ip: str) -> SecurityBan | None:
+    login_hammer = get_rule(db, RULE_HAMMERING_LOGIN)
+    if (
+        not login_hammer
+        or not login_hammer.enabled
+        or int(login_hammer.threshold or 0) <= 0
+    ):
+        return None
+    return _apply_hammer_ban_if_threshold(
+        db,
+        ip=ip,
+        rule=login_hammer,
+        kind="hammer_login",
+        rule_type=RULE_HAMMERING_LOGIN,
+        reason_prefix="Login hammering",
+        reason_unit="login requests",
+    )
+
+
+def _commit_rate_counters(db: Session) -> None:
+    # Persist counter events even when no ban was applied.
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
 
 
 def _apply_hammer_ban_if_threshold(

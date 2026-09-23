@@ -623,6 +623,7 @@ def reactivate_engine(
     sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
 ) -> dict[str, Any]:
     """Arm portal ModSecurity (DetectionOnly by default), smoke, rollback on failure."""
+    _ = validate  # API hook reserved for pre-arm export validation
     if not confirm:
         return {
             "ok": False,
@@ -1017,6 +1018,7 @@ def reactivate_subdomain_engine(
     sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
 ) -> dict[str, Any]:
     """Arm subdomain ModSecurity (DetectionOnly) after portal is armed; smoke + rollback."""
+    _ = validate  # API hook reserved for pre-arm export validation
     preflight = _reactivate_subdomain_preflight(db, settings, confirm=confirm)
     if isinstance(preflight, dict):
         return preflight

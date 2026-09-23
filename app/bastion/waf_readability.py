@@ -677,32 +677,10 @@ def build_protection_layers(
     )
     unknown_refusals = _count_unknown_host_refusals_24h(db)
 
-    crs_mode = portal_engine_mode(active)
-    if crs_mode == MODE_ON:
-        crs_state, crs_css = "active", "badge-ok"
-        crs_detail = "Blocage actif"
-    elif crs_mode == MODE_DETECTION:
-        crs_state, crs_css = "observation", "badge-warn"
-        crs_detail = "Observation seule"
-    elif crs_mode == MODE_OFF:
-        crs_state, crs_css = "inactive", "badge-err"
-        crs_detail = "Moteur arrêté"
-    else:
-        crs_state, crs_css = "inconnu", "badge-muted"
-        crs_detail = "Non vérifiable"
-
-    headers_verifiable = bool(active.get("verifiable") and headers_panel.get("present"))
-    if headers_verifiable:
-        header_count = len(headers_panel.get("headers") or [])
-        if header_count:
-            headers_state, headers_css = "actif", "badge-ok"
-            headers_detail = f"{header_count} en-tête(s) actif(s) sur :443"
-        else:
-            headers_state, headers_css = "aucun détecté", "badge-muted"
-            headers_detail = "0 en-tête(s) actif(s) sur :443 (mesuré)"
-    else:
-        headers_state, headers_css = "non vérifiable", "badge-muted"
-        headers_detail = SNAPSHOT_UNAVAILABLE_RESOLUTION
+    crs_mode, crs_state, crs_css, crs_detail = _crs_layer_status(active)
+    headers_verifiable, headers_state, headers_css, headers_detail = (
+        _headers_layer_status(active, headers_panel)
+    )
 
     anti_bruteforce_css = "badge-ok" if policy.enabled else "badge-err"
     anti_bruteforce_state = "actif" if policy.enabled else "désactivé (global)"
@@ -757,6 +735,37 @@ def build_protection_layers(
         short, full = _compact_detail(layer["detail"])
         compact.append({**layer, "detail_short": short, "detail_full": full})
     return compact
+
+
+def _crs_layer_status(
+    active: dict[str, Any],
+) -> tuple[str | None, str, str, str]:
+    crs_mode = portal_engine_mode(active)
+    if crs_mode == MODE_ON:
+        return crs_mode, "active", "badge-ok", "Blocage actif"
+    if crs_mode == MODE_DETECTION:
+        return crs_mode, "observation", "badge-warn", "Observation seule"
+    if crs_mode == MODE_OFF:
+        return crs_mode, "inactive", "badge-err", "Moteur arrêté"
+    return crs_mode, "inconnu", "badge-muted", "Non vérifiable"
+
+
+def _headers_layer_status(
+    active: dict[str, Any],
+    headers_panel: dict[str, Any],
+) -> tuple[bool, str, str, str]:
+    headers_verifiable = bool(active.get("verifiable") and headers_panel.get("present"))
+    if not headers_verifiable:
+        return False, "non vérifiable", "badge-muted", SNAPSHOT_UNAVAILABLE_RESOLUTION
+    header_count = len(headers_panel.get("headers") or [])
+    if header_count:
+        return (
+            True,
+            "actif",
+            "badge-ok",
+            f"{header_count} en-tête(s) actif(s) sur :443",
+        )
+    return True, "aucun détecté", "badge-muted", "0 en-tête(s) actif(s) sur :443 (mesuré)"
 
 
 def _efficiency_zero_explanation(crs_mode: str | None) -> str:
@@ -1478,66 +1487,15 @@ def build_threat_intel_visuals(
     geoloc_enabled: bool = True,
 ) -> dict[str, Any]:
     """Threat intelligence charts for Sentinel dashboard."""
+    _ = active  # reserved for future CRS-mode-aware empty states
     if not efficiency.get("present"):
-        panel = _empty_panel(
-            title="Threat Intelligence",
-            message=efficiency.get("message") or _MSG_DATA_UNAVAILABLE,
-            resolution=efficiency.get("resolution") or AGGREGATOR_UNAVAILABLE_RESOLUTION,
-            variant="unavailable",
-            width=560,
-            height=200,
-        )
-        return {
-            "traffic_area_svg": panel,
-            "origin_heatmap_svg": panel,
-            "owasp_rules_svg": panel,
-            "blocks_hourly_svg": panel,
-            "families_svg": panel,
-            "top_attackers_svg": panel,
-            "top_rules": [],
-        }
+        return _threat_intel_unavailable(efficiency)
     summary = read_audit_summary(settings)
     measured_zero = efficiency.get("status") == "measured_zero"
-    series_24h = (summary.get("series") or {}).get("24h") or []
-    if not series_24h and measured_zero:
-        # Incomplete summary still gets a 24 h zero floor (visual chart, not grey box).
-        from datetime import datetime, timedelta, timezone
-
-        now = datetime.now(timezone.utc)
-        series_24h = [
-            {
-                "label": (now - timedelta(hours=i)).strftime("%Hh"),
-                "detections": 0,
-                "inspected": 0,
-                "blocks": 0,
-            }
-            for i in range(23, -1, -1)
-        ]
+    series_24h = _threat_intel_series_24h(summary, measured_zero=measured_zero)
     window = (summary.get("windows") or {}).get("24h") or {}
     recent_raw = list(summary.get("recent_events") or [])
-    top_rules: list[dict[str, Any]] = []
-    max_count = 1
-    for r in (window.get("top_rules") or [])[:5]:
-        rid = str(r.get("rule_id") or "").strip()
-        if not rid:
-            continue
-        count = int(r.get("count") or 0)
-        max_count = max(max_count, count)
-        matching = _matching_rule_events(recent_raw, rid, limit=25)
-        top_rules.append(
-            {
-                "rule_id": rid,
-                "label": rule_label(rid),
-                "count": count,
-                "events": matching,
-                "events_b64": base64.b64encode(
-                    json.dumps(matching, ensure_ascii=False).encode("utf-8")
-                ).decode("ascii"),
-                "events_count": len(matching),
-            }
-        )
-    for item in top_rules:
-        item["bar_pct"] = round((int(item["count"]) / max_count) * 100, 1)
+    top_rules = _threat_intel_top_rules(window, recent_raw)
     matrix, row_labels, col_labels = _build_heatmap_matrix(
         settings, db, geo_map=geo_map
     )
@@ -1594,6 +1552,76 @@ def build_threat_intel_visuals(
         ),
         "top_rules": top_rules,
     }
+
+
+def _threat_intel_unavailable(efficiency: dict[str, Any]) -> dict[str, Any]:
+    panel = _empty_panel(
+        title="Threat Intelligence",
+        message=efficiency.get("message") or _MSG_DATA_UNAVAILABLE,
+        resolution=efficiency.get("resolution") or AGGREGATOR_UNAVAILABLE_RESOLUTION,
+        variant="unavailable",
+        width=560,
+        height=200,
+    )
+    return {
+        "traffic_area_svg": panel,
+        "origin_heatmap_svg": panel,
+        "owasp_rules_svg": panel,
+        "blocks_hourly_svg": panel,
+        "families_svg": panel,
+        "top_attackers_svg": panel,
+        "top_rules": [],
+    }
+
+
+def _threat_intel_series_24h(
+    summary: dict[str, Any], *, measured_zero: bool
+) -> list[dict[str, Any]]:
+    series_24h = (summary.get("series") or {}).get("24h") or []
+    if series_24h or not measured_zero:
+        return series_24h
+    # Incomplete summary still gets a 24 h zero floor (visual chart, not grey box).
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    return [
+        {
+            "label": (now - timedelta(hours=i)).strftime("%Hh"),
+            "detections": 0,
+            "inspected": 0,
+            "blocks": 0,
+        }
+        for i in range(23, -1, -1)
+    ]
+
+
+def _threat_intel_top_rules(
+    window: dict[str, Any], recent_raw: list
+) -> list[dict[str, Any]]:
+    top_rules: list[dict[str, Any]] = []
+    max_count = 1
+    for r in (window.get("top_rules") or [])[:5]:
+        rid = str(r.get("rule_id") or "").strip()
+        if not rid:
+            continue
+        count = int(r.get("count") or 0)
+        max_count = max(max_count, count)
+        matching = _matching_rule_events(recent_raw, rid, limit=25)
+        top_rules.append(
+            {
+                "rule_id": rid,
+                "label": rule_label(rid),
+                "count": count,
+                "events": matching,
+                "events_b64": base64.b64encode(
+                    json.dumps(matching, ensure_ascii=False).encode("utf-8")
+                ).decode("ascii"),
+                "events_count": len(matching),
+            }
+        )
+    for item in top_rules:
+        item["bar_pct"] = round((int(item["count"]) / max_count) * 100, 1)
+    return top_rules
 
 
 def _efficiency_status_panel_svgs(
