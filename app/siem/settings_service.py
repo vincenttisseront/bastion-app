@@ -127,9 +127,7 @@ def _severity_rank_name(name: str) -> int | None:
 
 
 def _criterion_severity_matches(crit: str, sev: str) -> bool:
-    if not (
-        crit.upper().startswith("SEVERITY>=") or crit.lower().startswith("severity>=")
-    ):
+    if not crit.upper().startswith("SEVERITY>="):
         return False
     min_name = crit.split("=", 1)[-1].strip().upper()
     min_rank = _severity_rank_name(min_name)
@@ -172,7 +170,7 @@ def _criterion_matches(
 
     if _criterion_severity_matches(crit, sev):
         return True
-    if crit.upper().startswith("SEVERITY>=") or crit.lower().startswith("severity>="):
+    if crit.upper().startswith("SEVERITY>="):
         return False
 
     bst = _criterion_bst_matches(crit, code=code, domain=dom)

@@ -20,6 +20,19 @@ _MAX_SCOPES = 512
 _MAX_GROUPS_SYNC = 16_384
 
 
+def _optional_stripped(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _optional_secret_blank_to_none(value: str | None) -> str | None:
+    if value is not None and not value.strip():
+        return None
+    return value
+
+
 class RealmConfigBase(BaseModel):
     name: str = Field(max_length=_MAX_NAME)
     issuer_url: str = Field(max_length=_MAX_URL)
@@ -127,18 +140,12 @@ class RealmConfigCreate(RealmConfigBase):
     @field_validator("keycloak_admin_client_id")
     @classmethod
     def validate_keycloak_admin_client_id(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        return stripped or None
+        return _optional_stripped(value)
 
     @field_validator("keycloak_admin_client_secret")
     @classmethod
     def validate_keycloak_admin_client_secret(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        return stripped or None
+        return _optional_stripped(value)
 
 
 class RealmConfigUpdate(RealmConfigBase):
@@ -147,16 +154,12 @@ class RealmConfigUpdate(RealmConfigBase):
     @field_validator("client_secret")
     @classmethod
     def validate_client_secret(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            return None
-        return value
+        return _optional_secret_blank_to_none(value)
 
     @field_validator("keycloak_admin_client_secret")
     @classmethod
     def validate_keycloak_admin_client_secret(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            return None
-        return value
+        return _optional_secret_blank_to_none(value)
 
 
 class RealmTestBody(BaseModel):

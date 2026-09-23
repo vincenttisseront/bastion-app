@@ -764,7 +764,7 @@ def _absolute_action_url(action: str, base: str) -> str:
     action = (action or "").strip()
     if not action:
         return action
-    if not (action.startswith("http://") or action.startswith("https://")):
+    if not action.startswith(("http://", "https://")):
         abs_action = urljoin(base + "/", action.lstrip("/"))
     else:
         abs_action = action

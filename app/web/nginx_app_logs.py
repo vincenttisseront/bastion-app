@@ -458,7 +458,7 @@ def _entry_from_groups(
     method, path, protocol = _split_request(g.get("request") or "")
     status = g.get("status") or ""
     upstream = g.get("upstream_addr") or ""
-    is_internal = upstream.startswith("127.0.0.1:") or upstream.startswith("[::1]:")
+    is_internal = upstream.startswith(("127.0.0.1:", "[::1]:"))
     remote_user = _decode_nginx_escapes(g.get("remote_user") or "")
     client_ip = (g.get("x_portal_client_ip") or "").strip() or (g.get("remote_addr") or "")
     return {

@@ -1127,22 +1127,26 @@ def revoke_breakglass_session_from_request(
 
     payload, _fb = decode_breakglass_token_with_fallback(bg_cookie, settings, db=db)
     if payload:
-        username = str(payload.get("sub") or "unknown")
-        jti = payload.get("jti")
-        if jti:
-            try:
-                revoke_breakglass_jti(
-                    db,
-                    str(jti),
-                    revoked_by=str(username),
-                    reason="logout",
-                )
-                db.commit()
-            except LookupError:
-                pass
-        return username
+        return _revoke_breakglass_payload(payload, db)
 
     return _revoke_breakglass_via_candidate_secrets(bg_cookie, db, settings)
+
+
+def _revoke_breakglass_payload(payload: dict[str, Any], db: Session) -> str:
+    username = str(payload.get("sub") or "unknown")
+    jti = payload.get("jti")
+    if jti:
+        try:
+            revoke_breakglass_jti(
+                db,
+                str(jti),
+                revoked_by=str(username),
+                reason="logout",
+            )
+            db.commit()
+        except LookupError:
+            pass
+    return username
 
 
 

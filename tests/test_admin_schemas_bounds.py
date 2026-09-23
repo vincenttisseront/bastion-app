@@ -40,3 +40,29 @@ def test_issuer_url_max_length_rejected():
     payload = _valid(issuer_url="https://" + ("x" * 2041))
     with pytest.raises(ValidationError):
         RealmConfigCreate(**payload)
+
+
+def test_optional_stripped_and_blank_secret_helpers():
+    from app.admin.schemas import (
+        RealmConfigUpdate,
+        _optional_secret_blank_to_none,
+        _optional_stripped,
+    )
+
+    assert _optional_stripped(None) is None
+    assert _optional_stripped("  ") is None
+    assert _optional_stripped("  abc  ") == "abc"
+    assert _optional_secret_blank_to_none(None) is None
+    assert _optional_secret_blank_to_none("  ") is None
+    assert _optional_secret_blank_to_none("keep") == "keep"
+
+    updated = RealmConfigUpdate(
+        name="Default",
+        issuer_url="https://idp.example.com/realms/default",
+        client_id="portal",
+        oauth2_proxy_port=4180,
+        client_secret="   ",
+        keycloak_admin_client_secret="   ",
+    )
+    assert updated.client_secret is None
+    assert updated.keycloak_admin_client_secret is None

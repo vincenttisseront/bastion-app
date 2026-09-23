@@ -213,9 +213,7 @@ def _require_exclusion_anchor(
     kind: str,
     allow_global: bool,
 ) -> None:
-    if uri or host_s:
-        return
-    if allow_global and kind == SCOPE_RULE:
+    if uri or host_s or (allow_global and kind == SCOPE_RULE):
         return
     raise ValueError(
         "host ou URI requis (exclusion globale de règle entière "

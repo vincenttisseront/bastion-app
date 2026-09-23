@@ -616,3 +616,13 @@ def test_snapshot_check_detail_variants():
     assert _snapshot_check_detail(
         snap_present=False, snap_generated_at=None, snap_age=None
     ) == "Absent"
+
+
+def test_merge_attacker_counts():
+    from app.bastion.waf_readability import _merge_attacker_counts
+
+    merged = _merge_attacker_counts(
+        [{"ip": "198.51.100.1", "count": 2}, {"ip": "—", "count": 9}, "skip"],
+        [{"ip": "198.51.100.1", "count": 3}, {"ip": "198.51.100.2", "count": 1}],
+    )
+    assert merged == {"198.51.100.1": 5, "198.51.100.2": 1}

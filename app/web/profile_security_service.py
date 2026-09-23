@@ -208,13 +208,16 @@ def list_portal_native_sessions(
         .limit(10)
         .all()
     )
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        exp = _coerce_utc(row.expires_at)
-        if exp is not None and exp <= now:
-            continue
-        out.append(_native_session_card(row, current_jti=current_jti))
-    return out
+    return [
+        _native_session_card(row, current_jti=current_jti)
+        for row in rows
+        if not _native_session_expired(row, now=now)
+    ]
+
+
+def _native_session_expired(row: OidcSession, *, now) -> bool:
+    exp = _coerce_utc(row.expires_at)
+    return exp is not None and exp <= now
 
 
 def _native_session_owned_by(row: OidcSession, user: UserContext) -> bool:

@@ -404,7 +404,7 @@ def parse_crushftp_directory_names(body: str) -> list[str]:
     names: list[str] = []
 
     # Prefer JSON (format=jsonobj / json).
-    if text.startswith("{") or text.startswith("["):
+    if text.startswith(("{", "[")):
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
