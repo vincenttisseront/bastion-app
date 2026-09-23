@@ -294,38 +294,48 @@ def is_allowlisted(
     ip: str | None = None,
     username: str | None = None,
 ) -> bool:
-    if ip:
-        entries = (
-            db.query(SecurityAllowlistEntry)
-            .filter(SecurityAllowlistEntry.entry_type == TARGET_IP)
-            .all()
-        )
-        for entry in entries:
-            val = (entry.value or "").strip()
-            if not val:
-                continue
-            try:
-                if "/" in val:
-                    if ipaddress.ip_address(ip) in ipaddress.ip_network(val, strict=False):
-                        return True
-                elif ip == val:
-                    return True
-            except ValueError:
-                if ip == val:
-                    return True
+    if ip and _ip_is_allowlisted(db, ip):
+        return True
     uname = _normalize_username(username)
-    if uname:
-        row = (
-            db.query(SecurityAllowlistEntry)
-            .filter(
-                SecurityAllowlistEntry.entry_type == TARGET_USERNAME,
-                SecurityAllowlistEntry.value == uname,
-            )
-            .first()
-        )
-        if row is not None:
+    if uname and _username_is_allowlisted(db, uname):
+        return True
+    return False
+
+
+def _ip_is_allowlisted(db: Session, ip: str) -> bool:
+    entries = (
+        db.query(SecurityAllowlistEntry)
+        .filter(SecurityAllowlistEntry.entry_type == TARGET_IP)
+        .all()
+    )
+    for entry in entries:
+        if _ip_matches_allowlist_value(ip, entry.value):
             return True
     return False
+
+
+def _ip_matches_allowlist_value(ip: str, value: str | None) -> bool:
+    val = (value or "").strip()
+    if not val:
+        return False
+    try:
+        if "/" in val:
+            return ipaddress.ip_address(ip) in ipaddress.ip_network(val, strict=False)
+        return ip == val
+    except ValueError:
+        return ip == val
+
+
+def _username_is_allowlisted(db: Session, uname: str) -> bool:
+    row = (
+        db.query(SecurityAllowlistEntry)
+        .filter(
+            SecurityAllowlistEntry.entry_type == TARGET_USERNAME,
+            SecurityAllowlistEntry.value == uname,
+        )
+        .first()
+    )
+    return row is not None
 
 
 def lift_expired_bans(db: Session, *, actor: str = "system") -> int:

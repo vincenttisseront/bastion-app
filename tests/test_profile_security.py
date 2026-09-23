@@ -82,10 +82,11 @@ async def test_change_own_password_rejects_short_password(db_session: Session):
         vault_portal_internal_token="test-secret",
         portal_secret_encryption_key="test-encryption-key-for-pytest-only",
     )
+    user = _user()
     with pytest.raises(ProfileSecurityError, match="complexe"):
         await change_own_password(
             db_session,
-            user=_user(),
+            user=user,
             settings=settings,
             current_password="old-password-ok",
             new_password="short",

@@ -1450,47 +1450,63 @@ async def _fetch_login_html(
     url: str | httpx.URL = auth_url
     params: dict[str, str] | None = auth_params
     for hop in range(8):
-        try:
-            resp = await client.get(url, params=params)
-        except httpx.HTTPError as exc:
-            logger.warning("oidc_bff auth GET failed err=%s", type(exc).__name__)
-            raise OidcBffError("Impossible de joindre Keycloak (auth)") from exc
+        resp = await _auth_get(client, url, params)
         params = None
         _log_keycloak_http("auth_get", resp, hop=hop)
         if resp.status_code in {301, 302, 303, 307, 308}:
-            location = resp.headers.get("location") or ""
-            if not location:
-                raise OidcBffError("Redirect Keycloak sans Location")
-            if _location_has_auth_code(location):
-                raise OidcBffError(
-                    "Code OIDC reçu avant soumission du formulaire — flux inattendu"
-                )
-            if "login-actions/required-action" in location:
-                raise UnsupportedAuthFlowError(
-                    "Flux Keycloak non supporté en headless: required action"
-                )
-            url = urljoin(str(resp.url), location)
+            url = _auth_redirect_next_url(resp)
             continue
-        if resp.status_code != 200:
-            raise OidcBffError(
-                f"Keycloak auth HTTP {resp.status_code} inattendu"
-            )
-        text = resp.text
-        session_base = _origin_of(str(resp.url)) or base
-        if "kc-form-login" in text:
-            logger.info(
-                "oidc_bff auth_get login_form session_base=%s html=%s",
-                session_base,
-                _html_diag_flags(text),
-            )
-            return text, session_base
-        unsupported = _html_indicates_unsupported_flow(text)
-        if unsupported:
-            raise UnsupportedAuthFlowError(
-                f"Flux Keycloak non supporté en headless: {unsupported}"
-            )
-        raise OidcBffError("Page Keycloak sans formulaire de login")
+        return _auth_login_html_from_response(resp, base=base)
     raise OidcBffError("Trop de redirections Keycloak avant le formulaire de login")
+
+
+async def _auth_get(
+    client: httpx.AsyncClient,
+    url: str | httpx.URL,
+    params: dict[str, str] | None,
+) -> httpx.Response:
+    try:
+        return await client.get(url, params=params)
+    except httpx.HTTPError as exc:
+        logger.warning("oidc_bff auth GET failed err=%s", type(exc).__name__)
+        raise OidcBffError("Impossible de joindre Keycloak (auth)") from exc
+
+
+def _auth_redirect_next_url(resp: httpx.Response) -> str:
+    location = resp.headers.get("location") or ""
+    if not location:
+        raise OidcBffError("Redirect Keycloak sans Location")
+    if _location_has_auth_code(location):
+        raise OidcBffError(
+            "Code OIDC reçu avant soumission du formulaire — flux inattendu"
+        )
+    if "login-actions/required-action" in location:
+        raise UnsupportedAuthFlowError(
+            "Flux Keycloak non supporté en headless: required action"
+        )
+    return urljoin(str(resp.url), location)
+
+
+def _auth_login_html_from_response(
+    resp: httpx.Response, *, base: str
+) -> tuple[str, str]:
+    if resp.status_code != 200:
+        raise OidcBffError(f"Keycloak auth HTTP {resp.status_code} inattendu")
+    text = resp.text
+    session_base = _origin_of(str(resp.url)) or base
+    if "kc-form-login" in text:
+        logger.info(
+            "oidc_bff auth_get login_form session_base=%s html=%s",
+            session_base,
+            _html_diag_flags(text),
+        )
+        return text, session_base
+    unsupported = _html_indicates_unsupported_flow(text)
+    if unsupported:
+        raise UnsupportedAuthFlowError(
+            f"Flux Keycloak non supporté en headless: {unsupported}"
+        )
+    raise OidcBffError("Page Keycloak sans formulaire de login")
 
 
 async def _interpret_post_password_response(

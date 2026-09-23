@@ -276,25 +276,39 @@ def merge_device_duplicates(
     survivors: list[ActiveSyncDevice] = []
     changed = False
     for group in groups.values():
-        if len(group) == 1:
-            only = group[0]
-            clean = normalize_user_key(only.user_key)
-            if clean and clean != only.user_key:
-                only.user_key = clean
-                changed = True
-            survivors.append(only)
-            continue
-        winner = _pick_device_winner(group)
-        for loser in group:
-            if loser is winner:
-                continue
-            _absorb_device_into(winner, loser)
-            db.delete(loser)
-            changed = True
-        survivors.append(winner)
+        group_changed, survivors_part = _merge_device_group(db, group)
+        survivors.extend(survivors_part)
+        changed = changed or group_changed
 
     if not changed:
         return survivors
+    return _commit_merged_devices(db, devices, survivors)
+
+
+def _merge_device_group(
+    db: Session, group: list[ActiveSyncDevice]
+) -> tuple[bool, list[ActiveSyncDevice]]:
+    if len(group) == 1:
+        only = group[0]
+        clean = normalize_user_key(only.user_key)
+        if clean and clean != only.user_key:
+            only.user_key = clean
+            return True, [only]
+        return False, [only]
+    winner = _pick_device_winner(group)
+    for loser in group:
+        if loser is winner:
+            continue
+        _absorb_device_into(winner, loser)
+        db.delete(loser)
+    return True, [winner]
+
+
+def _commit_merged_devices(
+    db: Session,
+    devices: list[ActiveSyncDevice],
+    survivors: list[ActiveSyncDevice],
+) -> list[ActiveSyncDevice]:
     try:
         db.commit()
     except SQLAlchemyError:
@@ -303,17 +317,23 @@ def merge_device_duplicates(
             db.rollback()
         except SQLAlchemyError:
             logger.exception("activesync duplicate merge rollback failed")
-        # Fall back to an in-memory dedupe so the UI never double-lists.
-        seen: set[tuple[int, str]] = set()
-        unique: list[ActiveSyncDevice] = []
-        for device in sorted(devices, key=_device_merge_score, reverse=True):
-            key = (device.application_id, device.device_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            unique.append(device)
-        return unique
+        return _dedupe_devices_in_memory(devices)
     return survivors
+
+
+def _dedupe_devices_in_memory(
+    devices: list[ActiveSyncDevice],
+) -> list[ActiveSyncDevice]:
+    # Fall back to an in-memory dedupe so the UI never double-lists.
+    seen: set[tuple[int, str]] = set()
+    unique: list[ActiveSyncDevice] = []
+    for device in sorted(devices, key=_device_merge_score, reverse=True):
+        key = (device.application_id, device.device_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(device)
+    return unique
 
 
 def collapse_siblings_for_device(

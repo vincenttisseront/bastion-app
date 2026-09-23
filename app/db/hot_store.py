@@ -727,7 +727,7 @@ def _run_hot_provision(
 
     if role_exists:
         role_password_set = _provision_align_password(
-            engine, user=user, password=password, role_sql=role_sql
+            engine, password=password, role_sql=role_sql
         )
 
     app_dsn = build_hot_dsn(
@@ -851,7 +851,7 @@ def _provision_grant_schema(
 
 
 def _provision_align_password(
-    engine: Any, *, user: str, password: str, role_sql: str
+    engine: Any, *, password: str, role_sql: str
 ) -> bool:
     with _autocommit_connect(engine) as conn:
         lit = conn.execute(

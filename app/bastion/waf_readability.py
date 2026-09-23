@@ -329,31 +329,8 @@ def build_unknown_host_panel(
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     try:
         hits_24h = _count_unknown_host_refusals_24h(db)
-        top_rows = (
-            db.query(
-                PendingHost.last_client_ip,
-                func.sum(PendingHost.hit_count).label("hits"),
-            )
-            .filter(
-                PendingHost.last_seen_at >= since,
-                PendingHost.last_client_ip.isnot(None),
-                PendingHost.last_client_ip != "",
-            )
-            .group_by(PendingHost.last_client_ip)
-            .order_by(func.sum(PendingHost.hit_count).desc())
-            .limit(5)
-            .all()
-        )
-        audit_rows = (
-            db.query(AuditLog)
-            .filter(
-                AuditLog.action == "access_denied_unknown_host",
-                AuditLog.created_at >= since,
-            )
-            .order_by(AuditLog.created_at.desc())
-            .limit(25)
-            .all()
-        )
+        top_rows = _unknown_host_top_rows(db, since=since)
+        audit_rows = _unknown_host_audit_rows(db, since=since)
     except Exception:
         return {
             "present": False,
@@ -362,12 +339,60 @@ def build_unknown_host_panel(
             "recent": [],
         }
 
-    banned_ips: set[str] = set()
-    for ban in list_active_bans(db):
-        if ban.target_type == "ip" and ban.target:
-            banned_ips.add(str(ban.target).strip())
+    banned_ips = {
+        str(ban.target).strip()
+        for ban in list_active_bans(db)
+        if ban.target_type == "ip" and ban.target
+    }
+    top_ips = _unknown_host_top_ips(top_rows, banned_ips=banned_ips, geo_map=geo_map)
+    recent = _unknown_host_recent_events(audit_rows, banned_ips=banned_ips)
+    return {
+        "present": True,
+        "hits_24h": hits_24h,
+        "audit_events_24h": len(audit_rows),
+        "top_ips": top_ips,
+        "recent": recent,
+    }
 
-    top_ips = []
+
+def _unknown_host_top_rows(db: Session, *, since: datetime) -> list:
+    return (
+        db.query(
+            PendingHost.last_client_ip,
+            func.sum(PendingHost.hit_count).label("hits"),
+        )
+        .filter(
+            PendingHost.last_seen_at >= since,
+            PendingHost.last_client_ip.isnot(None),
+            PendingHost.last_client_ip != "",
+        )
+        .group_by(PendingHost.last_client_ip)
+        .order_by(func.sum(PendingHost.hit_count).desc())
+        .limit(5)
+        .all()
+    )
+
+
+def _unknown_host_audit_rows(db: Session, *, since: datetime) -> list:
+    return (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == "access_denied_unknown_host",
+            AuditLog.created_at >= since,
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(25)
+        .all()
+    )
+
+
+def _unknown_host_top_ips(
+    top_rows: list,
+    *,
+    banned_ips: set[str],
+    geo_map: dict[str, dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    top_ips: list[dict[str, Any]] = []
     for row in top_rows:
         if not row.last_client_ip:
             continue
@@ -383,45 +408,55 @@ def build_unknown_host_panel(
                 "flag": origin.get("flag") or "🌐",
             }
         )
+    return top_ips
 
-    recent: list[dict[str, Any]] = []
-    for row in audit_rows:
-        details = row.details if isinstance(row.details, dict) else {}
-        client_ip = str(row.ip_address or "—").strip() or "—"
-        host = str(row.target or "—")
-        uri = str(details.get("uri") or "/")[:80]
-        recent.append(
-            {
-                "timestamp": (
-                    row.created_at.isoformat()[:19].replace("T", " ")
-                    if row.created_at
-                    else ""
-                ),
-                "client_ip": client_ip,
-                "host": host,
-                "uri": uri,
-                "rule_id": "unknown_host",
-                "rule_label": UNKNOWN_HOST_FEED_RULE_LABEL,
-                "rule_title": UNKNOWN_HOST_FEED_RULE_TITLE,
-                "message": (details.get("user_agent") or "")[:80],
-                "blocked": True,
-                "critical": False,
-                "families": ["Scanner"],
-                "score": int(details.get("hit_count") or 0),
-                "banned": client_ip in banned_ips,
-                "can_ban": bool(client_ip and client_ip != "—"),
-                "can_exclude": False,
-                "source": "unknown_host",
-            }
-        )
 
+def _unknown_host_recent_events(
+    audit_rows: list, *, banned_ips: set[str]
+) -> list[dict[str, Any]]:
+    return [
+        _unknown_host_event_row(row, banned_ips=banned_ips) for row in audit_rows
+    ]
+
+
+def _unknown_host_event_row(
+    row: Any, *, banned_ips: set[str]
+) -> dict[str, Any]:
+    details = row.details if isinstance(row.details, dict) else {}
+    client_ip = _dash_ip(row.ip_address)
     return {
-        "present": True,
-        "hits_24h": hits_24h,
-        "audit_events_24h": len(audit_rows),
-        "top_ips": top_ips,
-        "recent": recent,
+        "timestamp": _audit_ts(row.created_at),
+        "client_ip": client_ip,
+        "host": str(row.target) if row.target else "—",
+        "uri": str(details.get("uri") if details.get("uri") is not None else "/")[:80],
+        "rule_id": "unknown_host",
+        "rule_label": UNKNOWN_HOST_FEED_RULE_LABEL,
+        "rule_title": UNKNOWN_HOST_FEED_RULE_TITLE,
+        "message": str(details.get("user_agent") or "")[:80],
+        "blocked": True,
+        "critical": False,
+        "families": ["Scanner"],
+        "score": int(details.get("hit_count") or 0),
+        "banned": client_ip in banned_ips,
+        "can_ban": client_ip != "—",
+        "can_exclude": False,
+        "source": "unknown_host",
     }
+
+
+def _dash_ip(value: Any) -> str:
+    if value is None:
+        return "—"
+    text = str(value).strip()
+    if not text:
+        return "—"
+    return text
+
+
+def _audit_ts(created_at: Any) -> str:
+    if not created_at:
+        return ""
+    return created_at.isoformat()[:19].replace("T", " ")
 
 
 def _verdict_action(
