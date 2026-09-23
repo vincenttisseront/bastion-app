@@ -524,103 +524,19 @@ def build_protection_verdict(
         }
 
     if real == MODE_OFF:
-        if not armed:
-            return {
-                "level": "inactive",
-                "css": "alert-err",
-                "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
-                "message": (
-                    "Moteur portal désarmé (SecRuleEngine Off). "
-                    "Appliquer seul ne réactive pas ModSecurity — "
-                    "utilisez l'onglet Réactivation (DetectionOnly + smoke HTTP)."
-                ),
-                "resolution": CRS_INACTIVE_RESOLUTION,
-                **_verdict_action(
-                    "#reactivation",
-                    label="Réactiver le moteur",
-                    page=page,
-                ),
-                "mode_pilotable": False,
-            }
-        if profile.mode != MODE_OFF or export_pending:
-            return {
-                "level": "inactive",
-                "css": "alert-err",
-                "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
-                "message": (
-                    "Moteur armé en base mais nginx est encore Off "
-                    f"(profil {desired}). Attendre le watcher (≈30 s) ou forcer "
-                    "sync-exports-to-confd.sh + reload sur bastion-nginx, puis Appliquer."
-                ),
-                "resolution": None,
-                **_verdict_action(
-                    None,
-                    label="Appliquer / synchroniser",
-                    apply=True,
-                    page=page,
-                ),
-                "mode_pilotable": True,
-            }
-        return {
-            "level": "inactive",
-            "css": "alert-warn",
-            "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
-            "message": "Profil et nginx sont tous deux Off.",
-            **_verdict_action(
-                _HASH_PROFILE,
-                label="Choisir un mode de protection",
-                page=page,
-            ),
-            "mode_pilotable": True,
-        }
+        return _verdict_when_engine_off(
+            desired=desired,
+            armed=armed,
+            export_pending=export_pending,
+            page=page,
+        )
 
     if real == MODE_DETECTION:
-        if desired == MODE_DETECTION and not export_pending:
-            return {
-                "level": "observe",
-                "css": "alert-warn",
-                "title": "Inspection active — observation",
-                "message": (
-                    "Les requêtes sont analysées par le CRS, mais aucune n'est bloquée "
-                    "(DetectionOnly)."
-                ),
-                **_verdict_action(_HASH_PROFILE, label="Ajuster le profil", page=page),
-            }
-        if desired == MODE_ON:
-            return {
-                "level": "mismatch",
-                "css": "alert-warn",
-                "title": "Profil On — nginx encore en observation",
-                "message": (
-                    "Le profil enregistré demande le blocage (On), mais le moteur portal "
-                    "tourne encore en DetectionOnly. Enregistrez si besoin, puis "
-                    "Appliquer pour activer le blocage CRS."
-                ),
-                **_verdict_action(
-                    None,
-                    label="Appliquer le blocage",
-                    apply=True,
-                    page=page,
-                ),
-            }
-        # desired Off or export drift while nginx observes
-        if desired != real or export_pending:
-            return {
-                "level": "mismatch",
-                "css": "alert-err",
-                "title": "Configuration non appliquée",
-                "message": (
-                    "Ce que vous avez enregistré n'est pas ce qui tourne actuellement "
-                    "sur nginx (profil "
-                    f"{desired} vs nginx {real})."
-                ),
-                **_verdict_action(
-                    None,
-                    label="Appliquer la configuration",
-                    apply=True,
-                    page=page,
-                ),
-            }
+        detection = _verdict_when_detection(
+            desired=desired, export_pending=export_pending, page=page, real=real
+        )
+        if detection is not None:
+            return detection
 
     if real == MODE_ON and desired == MODE_ON and not export_pending:
         return {
@@ -664,6 +580,120 @@ def build_protection_verdict(
             page=page,
         ),
     }
+
+
+def _verdict_when_engine_off(
+    *,
+    desired: str | None,
+    armed: bool,
+    export_pending: bool,
+    page: str,
+) -> dict[str, Any]:
+    if not armed:
+        return {
+            "level": "inactive",
+            "css": "alert-err",
+            "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
+            "message": (
+                "Moteur portal désarmé (SecRuleEngine Off). "
+                "Appliquer seul ne réactive pas ModSecurity — "
+                "utilisez l'onglet Réactivation (DetectionOnly + smoke HTTP)."
+            ),
+            "resolution": CRS_INACTIVE_RESOLUTION,
+            **_verdict_action(
+                "#reactivation",
+                label="Réactiver le moteur",
+                page=page,
+            ),
+            "mode_pilotable": False,
+        }
+    if desired != MODE_OFF or export_pending:
+        return {
+            "level": "inactive",
+            "css": "alert-err",
+            "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
+            "message": (
+                "Moteur armé en base mais nginx est encore Off "
+                f"(profil {desired}). Attendre le watcher (≈30 s) ou forcer "
+                "sync-exports-to-confd.sh + reload sur bastion-nginx, puis Appliquer."
+            ),
+            "resolution": None,
+            **_verdict_action(
+                None,
+                label="Appliquer / synchroniser",
+                apply=True,
+                page=page,
+            ),
+            "mode_pilotable": True,
+        }
+    return {
+        "level": "inactive",
+        "css": "alert-warn",
+        "title": _TITLE_CONTENT_INSPECTION_INACTIVE,
+        "message": "Profil et nginx sont tous deux Off.",
+        **_verdict_action(
+            _HASH_PROFILE,
+            label="Choisir un mode de protection",
+            page=page,
+        ),
+        "mode_pilotable": True,
+    }
+
+
+def _verdict_when_detection(
+    *,
+    desired: str | None,
+    export_pending: bool,
+    page: str,
+    real: str | None,
+) -> dict[str, Any] | None:
+    if desired == MODE_DETECTION and not export_pending:
+        return {
+            "level": "observe",
+            "css": "alert-warn",
+            "title": "Inspection active — observation",
+            "message": (
+                "Les requêtes sont analysées par le CRS, mais aucune n'est bloquée "
+                "(DetectionOnly)."
+            ),
+            **_verdict_action(_HASH_PROFILE, label="Ajuster le profil", page=page),
+        }
+    if desired == MODE_ON:
+        return {
+            "level": "mismatch",
+            "css": "alert-warn",
+            "title": "Profil On — nginx encore en observation",
+            "message": (
+                "Le profil enregistré demande le blocage (On), mais le moteur portal "
+                "tourne encore en DetectionOnly. Enregistrez si besoin, puis "
+                "Appliquer pour activer le blocage CRS."
+            ),
+            **_verdict_action(
+                None,
+                label="Appliquer le blocage",
+                apply=True,
+                page=page,
+            ),
+        }
+    # desired Off or export drift while nginx observes
+    if desired != real or export_pending:
+        return {
+            "level": "mismatch",
+            "css": "alert-err",
+            "title": "Configuration non appliquée",
+            "message": (
+                "Ce que vous avez enregistré n'est pas ce qui tourne actuellement "
+                "sur nginx (profil "
+                f"{desired} vs nginx {real})."
+            ),
+            **_verdict_action(
+                None,
+                label="Appliquer la configuration",
+                apply=True,
+                page=page,
+            ),
+        }
+    return None
 
 
 def _ip_deny_layer(
@@ -1835,50 +1865,16 @@ def build_diagnostic_panel(
     log_path = resolve_modsec_audit_log_path(settings)
 
     checks = [
-        {
-            "name": "Snapshot nginx",
-            "status": "ok" if active.get("verifiable") else "warn",
-            "detail": _snapshot_check_detail(
-                snap_present=snap_present,
-                snap_generated_at=snap_generated_at,
-                snap_age=snap_age,
-            ),
-            "path": str(snap_path),
-            "action": SNAPSHOT_CHECK_CMD if not active.get("verifiable") else None,
-            "resolution": SNAPSHOT_UNAVAILABLE_RESOLUTION if not active.get("verifiable") else None,
-        },
-        {
-            "name": "Agrégateur audit",
-            "status": "ok" if summary.get("present") else "warn",
-            "detail": (
-                f"Dernier résumé : {summary.get('generated_at') or '—'}"
-                if summary.get("present")
-                else "Jamais exécuté"
-            ),
-            "path": str(summary_path),
-            "action": AGGREGATOR_CHECK_CMD if not summary.get("present") else None,
-            "resolution": AGGREGATOR_UNAVAILABLE_RESOLUTION if not summary.get("present") else None,
-        },
-        {
-            "name": "Journal modsec_audit.log",
-            "status": "ok" if log_path.is_file() else "muted",
-            "detail": "Présent" if log_path.is_file() else "Absent (normal si CRS arrêté)",
-            "path": str(log_path),
-            "action": None,
-            "resolution": None,
-        },
-        {
-            "name": "En-têtes de sécurité",
-            "status": "ok" if headers_panel.get("present") else "warn",
-            "detail": (
-                f"{len(headers_panel.get('headers') or [])} en-tête(s) lus"
-                if headers_panel.get("present")
-                else "Non vérifiable sans snapshot"
-            ),
-            "path": headers_panel.get("path") or "—",
-            "action": SNAPSHOT_CHECK_CMD if not headers_panel.get("present") else None,
-            "resolution": SNAPSHOT_UNAVAILABLE_RESOLUTION if not headers_panel.get("present") else None,
-        },
+        _diag_snapshot_check(
+            active=active,
+            snap_path=snap_path,
+            snap_present=snap_present,
+            snap_generated_at=snap_generated_at,
+            snap_age=snap_age,
+        ),
+        _diag_aggregator_check(summary=summary, summary_path=summary_path),
+        _diag_audit_log_check(log_path=log_path),
+        _diag_headers_check(headers_panel=headers_panel),
     ]
 
     offset = (agg_state.get("log_file_state") or {}).get("offset")
@@ -1889,6 +1885,76 @@ def build_diagnostic_panel(
         "aggregator_state_present": agg_state.get("present"),
         "summary_path": str(summary_path),
         "last_apply_at": generated.get("last_apply_at"),
+    }
+
+
+def _diag_snapshot_check(
+    *,
+    active: dict[str, Any],
+    snap_path: Any,
+    snap_present: bool,
+    snap_generated_at: Any,
+    snap_age: int | None,
+) -> dict[str, Any]:
+    verifiable = bool(active.get("verifiable"))
+    return {
+        "name": "Snapshot nginx",
+        "status": "ok" if verifiable else "warn",
+        "detail": _snapshot_check_detail(
+            snap_present=snap_present,
+            snap_generated_at=snap_generated_at,
+            snap_age=snap_age,
+        ),
+        "path": str(snap_path),
+        "action": SNAPSHOT_CHECK_CMD if not verifiable else None,
+        "resolution": SNAPSHOT_UNAVAILABLE_RESOLUTION if not verifiable else None,
+    }
+
+
+def _diag_aggregator_check(
+    *, summary: dict[str, Any], summary_path: Any
+) -> dict[str, Any]:
+    present = bool(summary.get("present"))
+    detail = (
+        f"Dernier résumé : {summary.get('generated_at') or '—'}"
+        if present
+        else "Jamais exécuté"
+    )
+    return {
+        "name": "Agrégateur audit",
+        "status": "ok" if present else "warn",
+        "detail": detail,
+        "path": str(summary_path),
+        "action": AGGREGATOR_CHECK_CMD if not present else None,
+        "resolution": AGGREGATOR_UNAVAILABLE_RESOLUTION if not present else None,
+    }
+
+
+def _diag_audit_log_check(*, log_path: Any) -> dict[str, Any]:
+    present = log_path.is_file()
+    return {
+        "name": "Journal modsec_audit.log",
+        "status": "ok" if present else "muted",
+        "detail": "Présent" if present else "Absent (normal si CRS arrêté)",
+        "path": str(log_path),
+        "action": None,
+        "resolution": None,
+    }
+
+
+def _diag_headers_check(*, headers_panel: dict[str, Any]) -> dict[str, Any]:
+    present = bool(headers_panel.get("present"))
+    if present:
+        detail = f"{len(headers_panel.get('headers') or [])} en-tête(s) lus"
+    else:
+        detail = "Non vérifiable sans snapshot"
+    return {
+        "name": "En-têtes de sécurité",
+        "status": "ok" if present else "warn",
+        "detail": detail,
+        "path": headers_panel.get("path") or "—",
+        "action": SNAPSHOT_CHECK_CMD if not present else None,
+        "resolution": SNAPSHOT_UNAVAILABLE_RESOLUTION if not present else None,
     }
 
 

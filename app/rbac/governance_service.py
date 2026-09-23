@@ -243,8 +243,6 @@ def effective_flags_for_user(
     Union of RolePermission flags from AccessGrant resource_type=rbac_role
     assigned to the user (direct or via group name).
     """
-    from app.models import RBACGroup
-
     flags = {
         "can_read": False,
         "can_write": False,
@@ -255,37 +253,9 @@ def effective_flags_for_user(
     if module is None:
         return flags
 
-    role_ids: set[int] = set()
-    if keycloak_user_id:
-        for g in (
-            db.query(AccessGrant)
-            .filter_by(
-                subject_type="user",
-                keycloak_user_id=keycloak_user_id,
-                resource_type="rbac_role",
-            )
-            .all()
-        ):
-            if g.rbac_role_id:
-                role_ids.add(g.rbac_role_id)
-
-    names = [n for n in (group_names or []) if n]
-    if names:
-        groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all()
-        gids = [g.id for g in groups]
-        if gids:
-            for g in (
-                db.query(AccessGrant)
-                .filter(
-                    AccessGrant.subject_type == "group",
-                    AccessGrant.rbac_group_id.in_(gids),
-                    AccessGrant.resource_type == "rbac_role",
-                )
-                .all()
-            ):
-                if g.rbac_role_id:
-                    role_ids.add(g.rbac_role_id)
-
+    role_ids = _role_ids_for_user(
+        db, keycloak_user_id=keycloak_user_id, group_names=group_names
+    )
     if not role_ids:
         # Bootstrap: portal_admin system_role still implies full internal admin
         # until roles are assigned — callers may also check is_portal_admin.
@@ -304,6 +274,49 @@ def effective_flags_for_user(
         flags["can_delete"] = flags["can_delete"] or bool(perm.can_delete)
         flags["can_execute"] = flags["can_execute"] or bool(perm.can_execute)
     return flags
+
+
+def _role_ids_for_user(
+    db: Session,
+    *,
+    keycloak_user_id: str | None,
+    group_names: list[str] | None,
+) -> set[int]:
+    from app.models import RBACGroup
+
+    role_ids: set[int] = set()
+    if keycloak_user_id:
+        for grant in (
+            db.query(AccessGrant)
+            .filter_by(
+                subject_type="user",
+                keycloak_user_id=keycloak_user_id,
+                resource_type="rbac_role",
+            )
+            .all()
+        ):
+            if grant.rbac_role_id:
+                role_ids.add(grant.rbac_role_id)
+
+    names = [n for n in (group_names or []) if n]
+    if not names:
+        return role_ids
+    groups = db.query(RBACGroup).filter(RBACGroup.name.in_(names)).all()
+    gids = [g.id for g in groups]
+    if not gids:
+        return role_ids
+    for grant in (
+        db.query(AccessGrant)
+        .filter(
+            AccessGrant.subject_type == "group",
+            AccessGrant.rbac_group_id.in_(gids),
+            AccessGrant.resource_type == "rbac_role",
+        )
+        .all()
+    ):
+        if grant.rbac_role_id:
+            role_ids.add(grant.rbac_role_id)
+    return role_ids
 
 
 def user_can_module_action(
