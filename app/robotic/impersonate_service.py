@@ -826,55 +826,15 @@ async def impersonate(
     driver_name = (app.robotic_driver or "").strip().lower() if app else ""
     cred_mode = normalize_credential_mode(app.credential_mode if app else None)
 
-    if app is None or not app.enabled:
-        _audit_impersonate(
-            db,
-            app_slug=app_slug,
-            actor=actor,
-            ip_address=ip_address,
-            success=False,
-            driver=driver_name or "unknown",
-            error="app_not_found",
-            credential_mode=cred_mode if app else None,
-        )
-        raise ImpersonationError(f"App '{app_slug}' not found")
-
-    if driver_name not in _COOKIE_SSO_HANDLERS:
-        _audit_impersonate(
-            db,
-            app_slug=app_slug,
-            actor=actor,
-            ip_address=ip_address,
-            success=False,
-            driver=driver_name or "unknown",
-            error="unsupported_driver",
-            credential_mode=cred_mode,
-        )
-        if driver_name == "generic_basic_auth":
-            raise ImpersonationError(
-                f"App '{app_slug}' uses Basic Auth — access via proxy URL (Nginx auth_request)"
-            )
-        if driver_name == "generic_wsse":
-            raise ImpersonationError(
-                f"App '{app_slug}' uses X-WSSE — access via proxy URL (Nginx auth_request)"
-            )
-        raise ImpersonationError(f"App '{app_slug}' is not configured for robotic cookie SSO")
-
-    mode = normalize_access_mode(app.access_mode)
-    if mode not in PROXY_ACCESS_MODES:
-        _audit_impersonate(
-            db,
-            app_slug=app_slug,
-            actor=actor,
-            ip_address=ip_address,
-            success=False,
-            driver=driver_name,
-            error="invalid_access_mode",
-            credential_mode=cred_mode,
-        )
-        raise ImpersonationError(
-            f"App '{app_slug}' robotic SSO requires subdomain_proxy or legacy_path_proxy"
-        )
+    _ensure_cookie_sso_app(
+        db,
+        app=app,
+        app_slug=app_slug,
+        driver_name=driver_name,
+        cred_mode=cred_mode,
+        actor=actor,
+        ip_address=ip_address,
+    )
 
     if cred_mode == "identite_utilisateur":
         if not ephemeral_username or not ephemeral_password:
@@ -934,6 +894,67 @@ async def impersonate(
     finally:
         password = ""  # noqa: F841
         ephemeral_password = None  # noqa: F841
+
+
+def _ensure_cookie_sso_app(
+    db: Session,
+    *,
+    app: App | None,
+    app_slug: str,
+    driver_name: str,
+    cred_mode: str | None,
+    actor: str,
+    ip_address: str | None,
+) -> None:
+    if app is None or not app.enabled:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver=driver_name or "unknown",
+            error="app_not_found",
+            credential_mode=cred_mode if app else None,
+        )
+        raise ImpersonationError(f"App '{app_slug}' not found")
+
+    if driver_name not in _COOKIE_SSO_HANDLERS:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver=driver_name or "unknown",
+            error="unsupported_driver",
+            credential_mode=cred_mode,
+        )
+        if driver_name == "generic_basic_auth":
+            raise ImpersonationError(
+                f"App '{app_slug}' uses Basic Auth — access via proxy URL (Nginx auth_request)"
+            )
+        if driver_name == "generic_wsse":
+            raise ImpersonationError(
+                f"App '{app_slug}' uses X-WSSE — access via proxy URL (Nginx auth_request)"
+            )
+        raise ImpersonationError(f"App '{app_slug}' is not configured for robotic cookie SSO")
+
+    mode = normalize_access_mode(app.access_mode)
+    if mode not in PROXY_ACCESS_MODES:
+        _audit_impersonate(
+            db,
+            app_slug=app_slug,
+            actor=actor,
+            ip_address=ip_address,
+            success=False,
+            driver=driver_name,
+            error="invalid_access_mode",
+            credential_mode=cred_mode,
+        )
+        raise ImpersonationError(
+            f"App '{app_slug}' robotic SSO requires subdomain_proxy or legacy_path_proxy"
+        )
 
 
 async def get_basic_auth_header(

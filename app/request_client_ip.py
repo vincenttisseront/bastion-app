@@ -182,47 +182,45 @@ def client_ip_from_request(request: Request) -> str:
     - Trusted proxy → X-Real-IP if it is a non-infra client; else leftmost
       non-infra hop in X-Forwarded-For; else X-Portal-Client-IP (edge overwrite
       that survives Traefik); else empty string (fail closed: never treat
-      nginx edge ``172.24.0.108`` / Traefik as the user).
+      nginx edge / Traefik as the user).
     - CF-Connecting-IP / True-Client-IP / X-Client-IP are never read.
     """
     peer = (request.client.host if request.client else "") or ""
 
     if not is_trusted_proxy_peer(peer):
-        resolved = peer
         if _IP_PROBE:
             logger.info(
                 "sessions_ip_probe untrusted_peer peer=%s resolved=%s",
                 peer,
-                resolved,
+                peer,
             )
-        return resolved
+        return peer
 
-    x_real = (request.headers.get("X-Real-IP") or "").strip()
-    if x_real and _valid_ip(x_real) and not is_infra_hop(x_real):
-        resolved = x_real
-    else:
-        xff = request.headers.get("X-Forwarded-For") or ""
-        candidates = _xff_client_candidates(xff)
-        if candidates:
-            resolved = candidates[0]
-        else:
-            # Edge-only header (nginx edge overwrite). Never trust from the Internet
-            # directly — only when the TCP peer is already a trusted proxy.
-            portal = (request.headers.get("X-Portal-Client-IP") or "").strip()
-            if portal and _valid_ip(portal) and not is_infra_hop(portal):
-                resolved = portal
-            else:
-                resolved = ""
-
+    resolved = _resolve_ip_via_trusted_proxy(request)
     if _IP_PROBE:
         logger.info(
             "sessions_ip_probe trusted_peer peer=%s x_real=%s xff=%s "
             "x_portal=%s resolved=%s",
             peer,
-            x_real or None,
+            (request.headers.get("X-Real-IP") or "").strip() or None,
             (request.headers.get("X-Forwarded-For") or "").strip() or None,
             (request.headers.get("X-Portal-Client-IP") or "").strip() or None,
             resolved or None,
         )
-
     return resolved
+
+
+def _resolve_ip_via_trusted_proxy(request: Request) -> str:
+    x_real = (request.headers.get("X-Real-IP") or "").strip()
+    if x_real and _valid_ip(x_real) and not is_infra_hop(x_real):
+        return x_real
+    xff = request.headers.get("X-Forwarded-For") or ""
+    candidates = _xff_client_candidates(xff)
+    if candidates:
+        return candidates[0]
+    # Edge-only header (nginx edge overwrite). Never trust from the Internet
+    # directly — only when the TCP peer is already a trusted proxy.
+    portal = (request.headers.get("X-Portal-Client-IP") or "").strip()
+    if portal and _valid_ip(portal) and not is_infra_hop(portal):
+        return portal
+    return ""

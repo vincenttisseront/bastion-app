@@ -458,7 +458,7 @@ async def open_with_identity(
     wants_json = _wants_json(request)
 
     denied_resp = _open_identity_rbac_denied(
-        db, slug, user, request=request, settings=settings, wants_json=wants_json
+        db, slug, user, settings=settings, wants_json=wants_json
     )
     if denied_resp is not None:
         return denied_resp
@@ -571,7 +571,6 @@ def _open_identity_rbac_denied(
     slug: str,
     user: UserContext,
     *,
-    request: Request,
     settings: Settings,
     wants_json: bool,
 ):
