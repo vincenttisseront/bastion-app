@@ -71,7 +71,8 @@
                   </span>
                   <span class="form-hint" aria-hidden="true">block</span>
                   {% else %}
-                  <label class="perm-toggle{% if p.locked %} locked{% endif %}">
+                  <label class="perm-toggle{% if p.locked %} locked{% endif %}"
+                         aria-label="{{ m.label }} — {{ field }}">
                     <input type="checkbox"
                            data-field="{{ field }}"
                            data-module-id="{{ m.id }}"

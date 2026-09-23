@@ -396,50 +396,113 @@ def render_exclusions_generated(exclusions: list[WafExclusion]) -> str:
 def _append_exclusion_lines(lines: list[str], ex: WafExclusion) -> None:
     rule_id = ex.crs_rule_id
     if rule_id is None:
-        lines.append(
-            f"# skip exclusion id={ex.id}: crs_rule_id required "
-            f"(host={_modsec_comment(ex.host or '')} "
-            f"uri={_modsec_comment(ex.uri_pattern or '')})"
-        )
+        lines.append(_skip_exclusion_comment(ex))
         return
-    rule_id_i = int(rule_id)
-    host = (ex.host or "").strip().lower()
-    uri_raw = (ex.uri_pattern or "").strip()
-    kind = (getattr(ex, "scope_kind", None) or SCOPE_RULE).strip().lower()
-    target = _sanitize_target_name(getattr(ex, "target_name", None))
-    uri_match = (getattr(ex, "uri_match", None) or URI_MATCH_EXACT).strip().lower()
-    sec_id = EXCLUSION_SECRULE_ID_BASE + int(ex.id or 0)
-
-    reason = _modsec_comment(ex.reason or "")
+    meta = _exclusion_line_meta(ex, int(rule_id))
     lines.append(
-        f"# exclusion id={ex.id} reason={reason} "
-        f"scope={kind} target={target or '-'} uri_match={uri_match}"
+        f"# exclusion id={ex.id} reason={meta['reason']} "
+        f"scope={meta['kind']} target={meta['target']} "
+        f"uri_match={meta['uri_match']}"
+    )
+    uri = _decoded_exclusion_uri(lines, meta["uri_raw"])
+    if uri is None:
+        return
+    ctl = _ctl_action_for_exclusion(ex, meta["rule_id_i"])
+    _append_exclusion_secrules(
+        lines,
+        host=meta["host"],
+        uri=uri,
+        uri_match=meta["uri_match"],
+        sec_id=meta["sec_id"],
+        rule_id_i=meta["rule_id_i"],
+        ctl=ctl,
     )
 
-    uri = uri_raw
-    if uri_raw and "%" in uri_raw:
-        decoded = _decode_uri_for_modsec(uri_raw)
-        if decoded is None:
-            lines.append(
-                "# skip SecRule: URI still contains pct after decode "
-                "(use a decoded path in the WAF UI)"
-            )
-            lines.append("")
-            return
+
+def _skip_exclusion_comment(ex: WafExclusion) -> str:
+    host = _modsec_comment(_str_or_empty(ex.host))
+    uri = _modsec_comment(_str_or_empty(ex.uri_pattern))
+    return (
+        f"# skip exclusion id={ex.id}: crs_rule_id required "
+        f"(host={host} uri={uri})"
+    )
+
+
+def _str_or_empty(value: str | None) -> str:
+    return value if value else ""
+
+
+def _exclusion_line_meta(ex: WafExclusion, rule_id_i: int) -> dict[str, Any]:
+    host = _str_or_empty(ex.host).strip().lower()
+    uri_raw = _str_or_empty(ex.uri_pattern).strip()
+    kind = _attr_or(ex, "scope_kind", SCOPE_RULE).strip().lower()
+    target = _sanitize_target_name(getattr(ex, "target_name", None))
+    uri_match = _attr_or(ex, "uri_match", URI_MATCH_EXACT).strip().lower()
+    return {
+        "host": host,
+        "uri_raw": uri_raw,
+        "kind": kind,
+        "target": _display_target(target),
+        "uri_match": uri_match,
+        "sec_id": EXCLUSION_SECRULE_ID_BASE + _int_or_zero(ex.id),
+        "rule_id_i": rule_id_i,
+        "reason": _modsec_comment(_str_or_empty(ex.reason)),
+    }
+
+
+def _display_target(target: str | None) -> str:
+    if target is None or target == "":
+        return "-"
+    return target
+
+
+def _int_or_zero(value: Any) -> int:
+    if value is None:
+        return 0
+    return int(value)
+
+
+def _attr_or(obj: Any, name: str, default: str) -> str:
+    value = getattr(obj, name, None)
+    if value is None or value == "":
+        return default
+    return str(value)
+
+
+def _decoded_exclusion_uri(lines: list[str], uri_raw: str) -> str | None:
+    """Return decoded URI, or None when the exclusion must be skipped."""
+    if not uri_raw or "%" not in uri_raw:
+        return uri_raw
+    decoded = _decode_uri_for_modsec(uri_raw)
+    if decoded is None:
         lines.append(
-            f"# uri decoded for ModSecurity: {_modsec_comment(uri_raw)} -> "
-            f"{_modsec_comment(decoded)}"
+            "# skip SecRule: URI still contains pct after decode "
+            "(use a decoded path in the WAF UI)"
         )
-        uri = decoded
+        lines.append("")
+        return None
+    lines.append(
+        f"# uri decoded for ModSecurity: {_modsec_comment(uri_raw)} -> "
+        f"{_modsec_comment(decoded)}"
+    )
+    return decoded
 
-    ctl = _ctl_action_for_exclusion(ex, rule_id_i)
 
+def _append_exclusion_secrules(
+    lines: list[str],
+    *,
+    host: str,
+    uri: str,
+    uri_match: str,
+    sec_id: int,
+    rule_id_i: int,
+    ctl: str,
+) -> None:
     if not host and not uri:
         lines.append("# WARN: global rule remove (no host/URI scope)")
         lines.append(f"SecRuleRemoveById {rule_id_i}")
         lines.append("")
         return
-
     if host and uri:
         lines.append(
             f'SecRule REQUEST_HEADERS:Host "@streq {_modsec_quote(host)}" '

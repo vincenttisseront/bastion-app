@@ -1421,28 +1421,51 @@ def _matching_rule_events(
 ) -> list[dict[str, Any]]:
     matching: list[dict[str, Any]] = []
     for ev in reversed(recent_raw):
-        if not isinstance(ev, dict):
+        row = _rule_event_match_row(ev, rid)
+        if row is None:
             continue
-        all_ids = [str(x) for x in (ev.get("all_rule_ids") or [])]
-        primary = str(ev.get("rule_id") or "")
-        if rid != primary and rid not in all_ids:
-            continue
-        matching.append(
-            {
-                "timestamp": (ev.get("timestamp") or "")[:19].replace("T", " "),
-                "client_ip": ev.get("client_ip") or "—",
-                "host": ev.get("host") or "—",
-                "uri": (ev.get("uri") or "—")[:120],
-                "blocked": bool(ev.get("blocked")),
-                "message": (ev.get("message") or "")[:160],
-                "rule_id": primary or rid,
-                "all_rule_ids": all_ids or [rid],
-                "rule_chain_display": ev.get("rule_chain_display") or "",
-            }
-        )
+        matching.append(row)
         if len(matching) >= limit:
             break
     return matching
+
+
+def _rule_event_match_row(ev: Any, rid: str) -> dict[str, Any] | None:
+    if not isinstance(ev, dict):
+        return None
+    all_ids = [str(x) for x in _list_or_empty(ev.get("all_rule_ids"))]
+    primary = _str_default(ev.get("rule_id"), "")
+    if rid != primary and rid not in all_ids:
+        return None
+    return {
+        "timestamp": _str_default(ev.get("timestamp"), "")[:19].replace("T", " "),
+        "client_ip": _str_default(ev.get("client_ip"), "—"),
+        "host": _str_default(ev.get("host"), "—"),
+        "uri": _str_default(ev.get("uri"), "—")[:120],
+        "blocked": bool(ev.get("blocked")),
+        "message": _str_default(ev.get("message"), "")[:160],
+        "rule_id": _str_default(primary, rid),
+        "all_rule_ids": _nonempty_list(all_ids, [rid]),
+        "rule_chain_display": _str_default(ev.get("rule_chain_display"), ""),
+    }
+
+
+def _nonempty_list(value: list, default: list) -> list:
+    if value:
+        return value
+    return default
+
+
+def _list_or_empty(value: Any) -> list:
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _str_default(value: Any, default: str) -> str:
+    if value is None or value == "":
+        return default
+    return str(value)
 
 
 def build_threat_intel_visuals(
