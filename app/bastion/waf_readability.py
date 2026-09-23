@@ -1297,37 +1297,9 @@ def _build_heatmap_matrix(
     recent = summary.get("recent_events") or []
     col_labels = [f"{h:02d}h" for h in range(24)]
     network_counts: dict[str, dict[int, int]] = {}
-    for ev in recent:
-        if not isinstance(ev, dict):
-            continue
-        ip = str(ev.get("client_ip") or "").strip()
-        if not ip:
-            continue
-        net = _heatmap_row_key(ip, geo_map)
-        ts = str(ev.get("timestamp") or "")
-        hour = 0
-        if len(ts) >= 13:
-            try:
-                hour = int(ts[11:13])
-            except ValueError:
-                hour = 0
-        bucket = network_counts.setdefault(net, {})
-        bucket[hour] = bucket.get(hour, 0) + 1
+    _heatmap_accumulate_events(network_counts, recent, geo_map=geo_map)
     if db is not None:
-        since = datetime.now(timezone.utc) - timedelta(hours=24)
-        rows = (
-            db.query(PendingHost.last_client_ip, PendingHost.hit_count, PendingHost.last_seen_at)
-            .filter(PendingHost.last_seen_at >= since, PendingHost.last_client_ip.isnot(None))
-            .all()
-        )
-        for row in rows:
-            ip = str(row.last_client_ip or "").strip()
-            if not ip:
-                continue
-            net = _heatmap_row_key(ip, geo_map)
-            hour = row.last_seen_at.hour if row.last_seen_at else 0
-            bucket = network_counts.setdefault(net, {})
-            bucket[hour] = bucket.get(hour, 0) + int(row.hit_count or 1)
+        _heatmap_accumulate_pending(db, network_counts, geo_map=geo_map)
     if not network_counts:
         return [], [], col_labels
     ranked = sorted(
@@ -1336,10 +1308,57 @@ def _build_heatmap_matrix(
         reverse=True,
     )[:6]
     row_labels = [label for label, _ in ranked]
-    matrix = []
-    for _, hours in ranked:
-        matrix.append([hours.get(h, 0) for h in range(24)])
+    matrix = [[hours.get(h, 0) for h in range(24)] for _, hours in ranked]
     return matrix, row_labels, col_labels
+
+
+def _heatmap_accumulate_events(
+    network_counts: dict[str, dict[int, int]],
+    recent: list,
+    *,
+    geo_map: dict[str, dict[str, Any]] | None,
+) -> None:
+    for ev in recent:
+        if not isinstance(ev, dict):
+            continue
+        ip = str(ev.get("client_ip") or "").strip()
+        if not ip:
+            continue
+        net = _heatmap_row_key(ip, geo_map)
+        hour = _heatmap_hour_from_ts(str(ev.get("timestamp") or ""))
+        bucket = network_counts.setdefault(net, {})
+        bucket[hour] = bucket.get(hour, 0) + 1
+
+
+def _heatmap_hour_from_ts(ts: str) -> int:
+    if len(ts) < 13:
+        return 0
+    try:
+        return int(ts[11:13])
+    except ValueError:
+        return 0
+
+
+def _heatmap_accumulate_pending(
+    db: Session,
+    network_counts: dict[str, dict[int, int]],
+    *,
+    geo_map: dict[str, dict[str, Any]] | None,
+) -> None:
+    since = datetime.now(timezone.utc) - timedelta(hours=24)
+    rows = (
+        db.query(PendingHost.last_client_ip, PendingHost.hit_count, PendingHost.last_seen_at)
+        .filter(PendingHost.last_seen_at >= since, PendingHost.last_client_ip.isnot(None))
+        .all()
+    )
+    for row in rows:
+        ip = str(row.last_client_ip or "").strip()
+        if not ip:
+            continue
+        net = _heatmap_row_key(ip, geo_map)
+        hour = row.last_seen_at.hour if row.last_seen_at else 0
+        bucket = network_counts.setdefault(net, {})
+        bucket[hour] = bucket.get(hour, 0) + int(row.hit_count or 1)
 
 
 def _quarantine_ban_row(
@@ -1780,6 +1799,26 @@ def _snapshot_check_detail(
     return "Absent"
 
 
+def _read_snapshot_meta(snap_path: Any, *, present: bool) -> tuple[Any, int | None]:
+    if not present:
+        return None, None
+    try:
+        import json as _json
+        from datetime import datetime as _dt
+
+        raw = _json.loads(snap_path.read_text(encoding="utf-8"))
+        snap_generated_at = raw.get("generated_at")
+        if not snap_generated_at:
+            return snap_generated_at, None
+        ts = _dt.fromisoformat(str(snap_generated_at).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        snap_age = int((datetime.now(timezone.utc) - ts).total_seconds() // 60)
+        return snap_generated_at, snap_age
+    except (OSError, ValueError, TypeError):
+        return None, None
+
+
 def build_diagnostic_panel(
     settings: Settings,
     active: dict[str, Any],
@@ -1788,22 +1827,7 @@ def build_diagnostic_panel(
 ) -> dict[str, Any]:
     snap_path = resolve_nginx_waf_snapshot_path(settings)
     snap_present = snap_path.is_file()
-    snap_age = None
-    snap_generated_at = None
-    if snap_present:
-        try:
-            import json as _json
-            from datetime import datetime as _dt
-
-            raw = _json.loads(snap_path.read_text(encoding="utf-8"))
-            snap_generated_at = raw.get("generated_at")
-            if snap_generated_at:
-                ts = _dt.fromisoformat(str(snap_generated_at).replace("Z", "+00:00"))
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                snap_age = int((datetime.now(timezone.utc) - ts).total_seconds() // 60)
-        except (OSError, ValueError, TypeError):
-            pass
+    snap_generated_at, snap_age = _read_snapshot_meta(snap_path, present=snap_present)
 
     agg_state = read_aggregator_state(settings)
     summary_path = resolve_audit_summary_path(settings)

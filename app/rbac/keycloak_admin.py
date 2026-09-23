@@ -220,34 +220,50 @@ async def find_keycloak_user_by_identity(
     settings: Settings,
 ) -> dict | None:
     """Exact email/username match in a realm (for self-service forgot password)."""
-    from urllib.parse import quote
-
     ident = (identity or "").strip()
     if not ident:
         return None
     ident_l = ident.lower()
     for attr in ("email", "username"):
-        resp = await _admin_get(
-            realm, settings, f"/users?{attr}={quote(ident)}&exact=true&max=2"
+        hit = await _exact_user_attr_lookup(
+            realm, settings, attr=attr, ident=ident, ident_l=ident_l
         )
-        if resp.status_code >= 400:
-            continue
-        data = resp.json()
-        if not isinstance(data, list):
-            continue
-        for u in data:
-            email = (u.get("email") or "").strip().lower()
-            username = (u.get("username") or "").strip().lower()
-            if email == ident_l or username == ident_l:
-                return u
-        if len(data) == 1:
-            return data[0]
+        if hit is not None:
+            return hit
     candidates = await search_keycloak_users(realm, ident, settings, max_results=5)
-    for u in candidates:
-        email = (u.get("email") or "").strip().lower()
-        username = (u.get("username") or "").strip().lower()
+    return _first_identity_match(candidates, ident_l)
+
+
+async def _exact_user_attr_lookup(
+    realm: RealmConfig,
+    settings: Settings,
+    *,
+    attr: str,
+    ident: str,
+    ident_l: str,
+) -> dict | None:
+    resp = await _admin_get(
+        realm, settings, f"/users?{attr}={quote(ident)}&exact=true&max=2"
+    )
+    if resp.status_code >= 400:
+        return None
+    data = resp.json()
+    if not isinstance(data, list):
+        return None
+    match = _first_identity_match(data, ident_l)
+    if match is not None:
+        return match
+    if len(data) == 1:
+        return data[0]
+    return None
+
+
+def _first_identity_match(users: list, ident_l: str) -> dict | None:
+    for user in users:
+        email = (user.get("email") or "").strip().lower()
+        username = (user.get("username") or "").strip().lower()
         if email == ident_l or username == ident_l:
-            return u
+            return user
     return None
 
 

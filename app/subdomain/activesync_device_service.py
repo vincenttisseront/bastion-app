@@ -448,27 +448,16 @@ def record_sighting(
         return device
 
     try:
-        # Rewrite a legacy DOMAIN\user row onto the clean key so the fiche
-        # and future lookups share one identity.
-        if device.user_key != user_key:
-            device.user_key = user_key
-        device.last_seen_at = _utcnow()
-        device.request_count = int(device.request_count or 0) + max(1, hits)
-        if client_ip:
-            device.last_ip = client_ip
-        merged = list(device.sample_source_ips or [])
-        for candidate in [*ips, client_ip]:
-            if candidate and candidate not in merged:
-                if len(merged) >= ACTIVESYNC_DEVICE_MAX_SAMPLE_IPS:
-                    break
-                merged.append(candidate)
-        device.sample_source_ips = merged
-        if device_type and device.device_type != device_type:
-            device.device_type = device_type
-        if user_agent:
-            device.user_agent = user_agent[:512]
-        if client_kind:
-            device.client_kind = client_kind
+        _apply_sighting_update(
+            device,
+            user_key=user_key,
+            hits=hits,
+            ips=ips,
+            client_ip=client_ip,
+            device_type=device_type,
+            user_agent=user_agent,
+            client_kind=client_kind,
+        )
         db.commit()
     except SQLAlchemyError:
         logger.exception("activesync sighting update failed device_id=%s", device_id)
@@ -480,6 +469,40 @@ def record_sighting(
             db, application_id=app.id, device_id=device_id, keep=device
         )
     return device
+
+
+def _apply_sighting_update(
+    device: ActiveSyncDevice,
+    *,
+    user_key: str,
+    hits: int,
+    ips: list[str],
+    client_ip: str | None,
+    device_type: str | None,
+    user_agent: str | None,
+    client_kind: str | None,
+) -> None:
+    # Rewrite a legacy DOMAIN\user row onto the clean key so the fiche
+    # and future lookups share one identity.
+    if device.user_key != user_key:
+        device.user_key = user_key
+    device.last_seen_at = _utcnow()
+    device.request_count = int(device.request_count or 0) + max(1, hits)
+    if client_ip:
+        device.last_ip = client_ip
+    merged = list(device.sample_source_ips or [])
+    for candidate in [*ips, client_ip]:
+        if candidate and candidate not in merged:
+            if len(merged) >= ACTIVESYNC_DEVICE_MAX_SAMPLE_IPS:
+                break
+            merged.append(candidate)
+    device.sample_source_ips = merged
+    if device_type and device.device_type != device_type:
+        device.device_type = device_type
+    if user_agent:
+        device.user_agent = user_agent[:512]
+    if client_kind:
+        device.client_kind = client_kind
 
 
 def _create_device(

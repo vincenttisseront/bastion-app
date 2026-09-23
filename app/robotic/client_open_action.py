@@ -457,17 +457,11 @@ async def open_with_identity(
     """
     wants_json = _wants_json(request)
 
-    denied = _check_app_rbac(db, slug, user)
-    if denied is not None:
-        if wants_json:
-            return denied
-        detail = "Accès refusé à cette application."
-        try:
-            if denied.body:
-                detail = json.loads(denied.body).get("detail") or detail
-        except Exception:
-            pass
-        return _identity_error_redirect(settings=settings, message=str(detail))
+    denied_resp = _open_identity_rbac_denied(
+        db, slug, user, request=request, settings=settings, wants_json=wants_json
+    )
+    if denied_resp is not None:
+        return denied_resp
 
     app = get_app_by_slug(db, slug)
     if app is None or not app.enabled:
@@ -490,32 +484,11 @@ async def open_with_identity(
         )
 
     user_key = _identity_user_key(user)
-    if wait := check_identity_attempt_block(slug, user_key):
-        log_action(
-            db,
-            actor=user.email or user.username,
-            action="robotic.impersonate.blocked_identity",
-            target=f"app:{slug}",
-            details={
-                "app_slug": slug,
-                "success": False,
-                "reason": "too_many_failed_identity_attempts",
-                "credential_mode": "identite_utilisateur",
-            },
-            ip_address=_client_ip(request),
-        )
-        message = "Trop de tentatives échouées. Réessayez dans quelques minutes."
-        if wants_json:
-            return JSONResponse(
-                {
-                    "error": "too_many_attempts",
-                    "message": message,
-                    "retry_after": int(wait) + 1,
-                },
-                status_code=429,
-                headers={"Retry-After": str(int(wait) + 1)},
-            )
-        return _identity_error_redirect(settings=settings, message=message)
+    blocked = _open_identity_rate_blocked(
+        db, slug, user, user_key=user_key, request=request, settings=settings, wants_json=wants_json
+    )
+    if blocked is not None:
+        return blocked
 
     username = _oidc_login_username(user, getattr(app, "identity_format", None))
     if not username:
@@ -591,6 +564,69 @@ async def open_with_identity(
         slug=slug,
         status_code=303,
     )
+
+
+def _open_identity_rbac_denied(
+    db,
+    slug: str,
+    user: UserContext,
+    *,
+    request: Request,
+    settings: Settings,
+    wants_json: bool,
+):
+    denied = _check_app_rbac(db, slug, user)
+    if denied is None:
+        return None
+    if wants_json:
+        return denied
+    detail = "Accès refusé à cette application."
+    try:
+        if denied.body:
+            detail = json.loads(denied.body).get("detail") or detail
+    except Exception:
+        pass
+    return _identity_error_redirect(settings=settings, message=str(detail))
+
+
+def _open_identity_rate_blocked(
+    db,
+    slug: str,
+    user: UserContext,
+    *,
+    user_key: str,
+    request: Request,
+    settings: Settings,
+    wants_json: bool,
+):
+    wait = check_identity_attempt_block(slug, user_key)
+    if not wait:
+        return None
+    log_action(
+        db,
+        actor=user.email or user.username,
+        action="robotic.impersonate.blocked_identity",
+        target=f"app:{slug}",
+        details={
+            "app_slug": slug,
+            "success": False,
+            "reason": "too_many_failed_identity_attempts",
+            "credential_mode": "identite_utilisateur",
+        },
+        ip_address=_client_ip(request),
+    )
+    message = "Trop de tentatives échouées. Réessayez dans quelques minutes."
+    if wants_json:
+        return JSONResponse(
+            {
+                "error": "too_many_attempts",
+                "message": message,
+                "retry_after": int(wait) + 1,
+            },
+            status_code=429,
+            headers={"Retry-After": str(int(wait) + 1)},
+        )
+    return _identity_error_redirect(settings=settings, message=message)
 
 
 @router.get("/internal/basic-auth-header/{slug}")
