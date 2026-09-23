@@ -1037,9 +1037,11 @@
               <input class="form-input" id="ban_reason" name="reason" placeholder="Manuel">
             </div>
             <div>
-              <label class="form-label">Mode</label>
-              <label class="check-row"><input type="radio" name="ban_mode" value="temporary" checked data-ban-mode> {{ _('Temporaire') }}</label>
-              <label class="check-row"><input type="radio" name="ban_mode" value="permanent" data-ban-mode> Permanent</label>
+              <fieldset class="ban-mode-fieldset">
+                <legend class="form-label">Mode</legend>
+                <label class="check-row"><input type="radio" name="ban_mode" value="temporary" checked data-ban-mode> {{ _('Temporaire') }}</label>
+                <label class="check-row"><input type="radio" name="ban_mode" value="permanent" data-ban-mode> Permanent</label>
+              </fieldset>
             </div>
             <div id="ban-minutes-wrap">
               <label class="form-label" for="ban_minutes">{{ _('Durée (min) si temporaire') }}</label>

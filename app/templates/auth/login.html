@@ -126,7 +126,7 @@
         <p class="mono" style="word-break:break-all; text-align:center; margin:0 0 var(--sp-3); user-select:all;">{{ totp_secret_display }}</p>
         {% endif %}
       </div>
-      <form method="post" action="/auth/login" class="form-body login-form" autocomplete="one-time-code">
+      <form method="post" action="/auth/login" class="form-body login-form" autocomplete="off">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="rd" value="{{ rd | default('/apps') }}">
         {% if native_realm_slug %}
@@ -148,7 +148,7 @@
       </p>
       {% elif otp_required %}
       <p class="login-sub login-panel-lead">{{ _('Code à usage unique (OTP)') }}</p>
-      <form method="post" action="/auth/login" class="form-body login-form" autocomplete="one-time-code">
+      <form method="post" action="/auth/login" class="form-body login-form" autocomplete="off">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="rd" value="{{ rd | default('/apps') }}">
         {% if native_realm_slug %}
