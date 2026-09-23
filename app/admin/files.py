@@ -183,91 +183,67 @@ def admin_files_resolve_name(
     return JSONResponse({"ok": True, "results": results, "best": best})
 
 
-@router.post("/admin/files/deposit", responses=RESP_400)
-async def admin_files_deposit(
+def _deposit_error_response(
     request: Request,
-    mode: str = Form(...),
-    version_label: str = Form(...),
-    channel: str = Form("stable"),
-    changelog: str = Form(""),
-    upload: UploadFile = File(...),
-    file_id: int | None = Form(None),
-    label: str = Form(""),
-    slug: str = Form(""),
-    description: str = Form(""),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-    user=Depends(require_admin),
+    settings: Settings,
+    detail: str,
+    *,
+    status: int = 400,
+    flash_on_html: bool = False,
 ):
-    """Legacy composite deposit — prefer POST /files/upload."""
-    mode_norm = (mode or "").strip().lower()
-    if mode_norm not in ("new", "existing"):
-        detail = 'mode must be "new" or "existing"'
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "detail": detail}, status_code=400)
-        raise HTTPException(status_code=400, detail=detail)
-
-    data = await upload.read()
-    created_resource = False
-    written_path: str | None = None
-    fr: FileResource | None = None
-    version: FileVersion | None = None
-
-    try:
-        if mode_norm == "new":
-            fr = create_file_resource(
-                db,
-                slug=slug or None,
-                label=label,
-                description=description or None,
-                created_by=user.email,
-            )
-            created_resource = True
-        else:
-            if not file_id:
-                raise ValueError("file_id is required when mode=existing")
-            fr = db.query(FileResource).filter_by(id=file_id).first()
-            if not fr:
-                raise ValueError("Fichier introuvable")
-
-        version = store_file_version(
-            db,
-            file=fr,
-            channel=channel,
-            version_label=version_label,
-            filename=upload.filename or "upload.bin",
-            content_type=upload.content_type,
-            data=data,
-            uploaded_by=user.email,
-            changelog=changelog or None,
-            settings=settings,
-            encrypt=True,
-        )
-        written_path = version.storage_path
-        db.commit()
-    except ValueError as exc:
-        db.rollback()
-        _unlink_blob(written_path, settings)
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
+    if _wants_json(request):
+        return JSONResponse({"ok": False, "detail": detail}, status_code=status)
+    if flash_on_html:
         response = RedirectResponse(url="/files", status_code=302)
         flash_redirect(
-            response, str(exc), "error", settings.vault_portal_internal_token or "dev"
+            response, detail, "error", settings.vault_portal_internal_token or "dev"
         )
         return response
-    except Exception:
-        db.rollback()
-        _unlink_blob(written_path, settings)
-        logger.exception("deposit failed")
-        if _wants_json(request):
-            return JSONResponse({"ok": False, "detail": "Échec du dépôt"}, status_code=500)
-        raise
+    raise HTTPException(status_code=status, detail=detail)
 
-    assert fr is not None and version is not None
+
+def _deposit_resolve_resource(
+    db: Session,
+    *,
+    mode_norm: str,
+    file_id: int | None,
+    slug: str,
+    label: str,
+    description: str,
+    created_by: str,
+) -> tuple[FileResource, bool]:
+    if mode_norm == "new":
+        fr = create_file_resource(
+            db,
+            slug=slug or None,
+            label=label,
+            description=description or None,
+            created_by=created_by,
+        )
+        return fr, True
+    if not file_id:
+        raise ValueError("file_id is required when mode=existing")
+    fr = db.query(FileResource).filter_by(id=file_id).first()
+    if not fr:
+        raise ValueError("Fichier introuvable")
+    return fr, False
+
+
+def _deposit_success_response(
+    request: Request,
+    settings: Settings,
+    db: Session,
+    *,
+    fr: FileResource,
+    version: FileVersion,
+    mode_norm: str,
+    created_resource: bool,
+    actor: str,
+):
     if created_resource:
         log_action(
             db,
-            actor=user.email,
+            actor=actor,
             action="file.created",
             target=f"file:{fr.id}",
             details={"slug": fr.slug, "label": fr.label, "via": "deposit"},
@@ -275,7 +251,7 @@ async def admin_files_deposit(
         )
     log_action(
         db,
-        actor=user.email,
+        actor=actor,
         action="file.version.published",
         target=f"file:{fr.id}:version:{version.id}",
         details={
@@ -313,6 +289,89 @@ async def admin_files_deposit(
         settings.vault_portal_internal_token or "dev",
     )
     return response
+
+
+@router.post("/admin/files/deposit", responses=RESP_400)
+async def admin_files_deposit(
+    request: Request,
+    mode: str = Form(...),
+    version_label: str = Form(...),
+    channel: str = Form("stable"),
+    changelog: str = Form(""),
+    upload: UploadFile = File(...),
+    file_id: int | None = Form(None),
+    label: str = Form(""),
+    slug: str = Form(""),
+    description: str = Form(""),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    """Legacy composite deposit — prefer POST /files/upload."""
+    mode_norm = (mode or "").strip().lower()
+    if mode_norm not in ("new", "existing"):
+        return _deposit_error_response(
+            request,
+            settings,
+            'mode must be "new" or "existing"',
+        )
+
+    data = await upload.read()
+    written_path: str | None = None
+    fr: FileResource | None = None
+    version: FileVersion | None = None
+    created_resource = False
+
+    try:
+        fr, created_resource = _deposit_resolve_resource(
+            db,
+            mode_norm=mode_norm,
+            file_id=file_id,
+            slug=slug,
+            label=label,
+            description=description,
+            created_by=user.email,
+        )
+        version = store_file_version(
+            db,
+            file=fr,
+            channel=channel,
+            version_label=version_label,
+            filename=upload.filename or "upload.bin",
+            content_type=upload.content_type,
+            data=data,
+            uploaded_by=user.email,
+            changelog=changelog or None,
+            settings=settings,
+            encrypt=True,
+        )
+        written_path = version.storage_path
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        _unlink_blob(written_path, settings)
+        return _deposit_error_response(request, settings, str(exc), flash_on_html=True)
+    except Exception:
+        db.rollback()
+        _unlink_blob(written_path, settings)
+        logger.exception("deposit failed")
+        if _wants_json(request):
+            return JSONResponse(
+                {"ok": False, "detail": "Échec du dépôt"}, status_code=500
+            )
+        raise
+
+    assert fr is not None and version is not None
+    return _deposit_success_response(
+        request,
+        settings,
+        db,
+        fr=fr,
+        version=version,
+        mode_norm=mode_norm,
+        created_resource=created_resource,
+        actor=user.email,
+    )
 
 
 @router.post("/admin/files")

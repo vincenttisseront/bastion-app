@@ -1154,57 +1154,10 @@ def promote_subdomain_engine_to_on(
     sync_reload: Callable[[Settings], tuple[bool, str]] | None = None,
 ) -> dict[str, Any]:
     """Passe subdomain de DetectionOnly à On (smoke + rollback vers DetectionOnly)."""
-    if not confirm:
-        return {
-            "ok": False,
-            "error": "Confirmation requise pour promouvoir ModSecurity subdomain en On.",
-            "rolled_back": False,
-        }
-
-    if not read_arm_state(settings).get("armed"):
-        return {
-            "ok": False,
-            "error": "Le moteur portal doit être armé avant de promouvoir les sous-domaines.",
-            "rolled_back": False,
-        }
-    if not read_subdomain_armed(settings):
-        return {
-            "ok": False,
-            "error": (
-                "ModSecurity subdomain doit d'abord être réactivé en DetectionOnly "
-                "(onglet Réactivation)."
-            ),
-            "rolled_back": False,
-        }
-
-    profile = ensure_active_profile(db)
-    if profile.mode != MODE_ON:
-        return {
-            "ok": False,
-            "error": (
-                "Le profil WAF doit être en mode On (blocage) avant de promouvoir "
-                "les sous-domaines. Enregistrer le profil puis réessayer."
-            ),
-            "rolled_back": False,
-        }
-
-    arm = read_arm_state(settings)
-    sub = arm.get("subdomain") if isinstance(arm.get("subdomain"), dict) else {}
-    current_target = str(sub.get("target_mode") or MODE_DETECTION)
-    if current_target == MODE_ON:
-        return {
-            "ok": False,
-            "error": "ModSecurity subdomain est déjà en cible On.",
-            "rolled_back": False,
-        }
-
-    hosts = list_subdomain_smoke_hosts(db)
-    if not hosts:
-        return {
-            "ok": False,
-            "error": "Aucune application subdomain_proxy activée avec FQDN.",
-            "rolled_back": False,
-        }
+    preflight = _promote_subdomain_preflight(db, settings, confirm=confirm)
+    if isinstance(preflight, dict):
+        return preflight
+    arm, sub, hosts = preflight
 
     prev_arm = dict(arm)
     engine_path = subdomain_engine_mode_path(settings)
@@ -1264,48 +1217,17 @@ def promote_subdomain_engine_to_on(
             "sync_detail": sync_detail,
         }
 
-    if smoke is None and sync_reload is None:
-        edge = wait_for_nginx_edge(settings)
-        if not edge.get("ok"):
-            time.sleep(RELOAD_WAIT_SEC)
-        engine_wait = wait_for_subdomain_engine_mode(
-            settings,
-            MODE_ON,
-            nudge=_nudge_waf_exports_watcher,
-        )
-        if not engine_wait.get("ok"):
-            # One more forced sync before rolling back (stale snapshot is common).
-            sync_fn(settings)
-            _nudge_waf_exports_watcher(settings)
-            time.sleep(RELOAD_WAIT_SEC)
-            engine_wait = wait_for_subdomain_engine_mode(
-                settings,
-                MODE_ON,
-                attempts=15,
-                nudge=_nudge_waf_exports_watcher,
-            )
-        if not engine_wait.get("ok"):
-            _rollback_subdomain_promote(
-                settings,
-                prev_arm=prev_arm,
-                actor=actor,
-                reason="subdomain_engine_mode_on_not_applied",
-                sync_reload=sync_fn,
-            )
-            return {
-                "ok": False,
-                "error": (
-                    "nginx n'a pas basculé subdomain en On après reload "
-                    f"(snapshot={engine_wait.get('mode')!r}, "
-                    f"export={engine_wait.get('export_mode')!r}). "
-                    "Vérifier le watcher bastion-nginx et "
-                    "engine-subdomain-mode-generated.conf."
-                ),
-                "rolled_back": True,
-                "paths": paths,
-                "engine_wait": engine_wait,
-                "sync_detail": sync_detail,
-            }
+    wait_fail = _promote_subdomain_wait_engine(
+        settings,
+        prev_arm=prev_arm,
+        actor=actor,
+        paths=paths,
+        sync_detail=sync_detail,
+        sync_fn=sync_fn,
+        injected=(smoke is not None or sync_reload is not None),
+    )
+    if wait_fail is not None:
+        return wait_fail
 
     smoke_result = smoke_fn(db, settings)
     if not smoke_result.get("ok"):
@@ -1321,14 +1243,10 @@ def promote_subdomain_engine_to_on(
         )
         return {
             "ok": False,
-            "error": (
-                "Smoke subdomain en échec — retour automatique en DetectionOnly."
-                + (f" Détail : {summary}" if summary else "")
-            ),
+            "error": f"Smoke subdomain échoué après promote On — retour DetectionOnly. {summary}",
             "rolled_back": True,
             "paths": paths,
             "smoke": smoke_result,
-            "failed_summary": summary,
             "sync_detail": sync_detail,
         }
 
@@ -1367,8 +1285,121 @@ def promote_subdomain_engine_to_on(
         "smoke_hosts": hosts[:SUBDOMAIN_SMOKE_HOST_LIMIT],
         "message": (
             f"Moteur subdomain promu en On ({len(hosts[:SUBDOMAIN_SMOKE_HOST_LIMIT])} "
-            "sonde(s)). Smoke OK — blocage CRS actif sur les sous-domaines."
+            "sonde(s)). Smoke OK."
         ),
+    }
+
+
+def _promote_subdomain_preflight(
+    db: Session, settings: Settings, *, confirm: bool
+) -> dict[str, Any] | tuple[dict[str, Any], dict[str, Any], list]:
+    if not confirm:
+        return {
+            "ok": False,
+            "error": "Confirmation requise pour promouvoir ModSecurity subdomain en On.",
+            "rolled_back": False,
+        }
+
+    if not read_arm_state(settings).get("armed"):
+        return {
+            "ok": False,
+            "error": "Le moteur portal doit être armé avant de promouvoir les sous-domaines.",
+            "rolled_back": False,
+        }
+    if not read_subdomain_armed(settings):
+        return {
+            "ok": False,
+            "error": (
+                "ModSecurity subdomain doit d'abord être réactivé en DetectionOnly "
+                "(onglet Réactivation)."
+            ),
+            "rolled_back": False,
+        }
+
+    profile = ensure_active_profile(db)
+    if profile.mode != MODE_ON:
+        return {
+            "ok": False,
+            "error": (
+                "Le profil WAF doit être en mode On (blocage) avant de promouvoir "
+                "les sous-domaines. Enregistrer le profil puis réessayer."
+            ),
+            "rolled_back": False,
+        }
+
+    arm = read_arm_state(settings)
+    sub = arm.get("subdomain") if isinstance(arm.get("subdomain"), dict) else {}
+    current_target = str(sub.get("target_mode") or MODE_DETECTION)
+    if current_target == MODE_ON:
+        return {
+            "ok": False,
+            "error": "ModSecurity subdomain est déjà en cible On.",
+            "rolled_back": False,
+        }
+
+    hosts = list_subdomain_smoke_hosts(db)
+    if not hosts:
+        return {
+            "ok": False,
+            "error": "Aucune application subdomain_proxy activée avec FQDN.",
+            "rolled_back": False,
+        }
+    return arm, sub, hosts
+
+
+def _promote_subdomain_wait_engine(
+    settings: Settings,
+    *,
+    prev_arm: dict[str, Any],
+    actor: str,
+    paths: dict[str, str],
+    sync_detail: str,
+    sync_fn: Callable[[Settings], tuple[bool, str]],
+    injected: bool,
+) -> dict[str, Any] | None:
+    if injected:
+        return None
+    edge = wait_for_nginx_edge(settings)
+    if not edge.get("ok"):
+        time.sleep(RELOAD_WAIT_SEC)
+    engine_wait = wait_for_subdomain_engine_mode(
+        settings,
+        MODE_ON,
+        nudge=_nudge_waf_exports_watcher,
+    )
+    if not engine_wait.get("ok"):
+        # One more forced sync before rolling back (stale snapshot is common).
+        sync_fn(settings)
+        _nudge_waf_exports_watcher(settings)
+        time.sleep(RELOAD_WAIT_SEC)
+        engine_wait = wait_for_subdomain_engine_mode(
+            settings,
+            MODE_ON,
+            attempts=15,
+            nudge=_nudge_waf_exports_watcher,
+        )
+    if engine_wait.get("ok"):
+        return None
+    _rollback_subdomain_promote(
+        settings,
+        prev_arm=prev_arm,
+        actor=actor,
+        reason="subdomain_engine_mode_on_not_applied",
+        sync_reload=sync_fn,
+    )
+    return {
+        "ok": False,
+        "error": (
+            "nginx n'a pas basculé subdomain en On après reload "
+            f"(snapshot={engine_wait.get('mode')!r}, "
+            f"export={engine_wait.get('export_mode')!r}). "
+            "Vérifier le watcher bastion-nginx et "
+            "engine-subdomain-mode-generated.conf."
+        ),
+        "rolled_back": True,
+        "paths": paths,
+        "engine_wait": engine_wait,
+        "sync_detail": sync_detail,
     }
 
 

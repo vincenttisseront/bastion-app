@@ -845,6 +845,24 @@ async def find_keycloak_group_by_match_key(
     if not key:
         return None
     token = token or await get_provision_token(realm, settings)
+    groups = await _load_keycloak_groups_list(realm, settings, token=token)
+    matches = [
+        g
+        for g in _flatten_groups(groups)
+        if isinstance(g, dict)
+        and (
+            organization_match_key((g.get("name") or "").strip()) == key
+            or organization_match_key((g.get("path") or "").strip()) == key
+        )
+    ]
+    if not matches:
+        return None
+    return _pick_best_group_match(matches, organization)
+
+
+async def _load_keycloak_groups_list(
+    realm: RealmConfig, settings: Settings, *, token: str
+) -> list:
     resp = await _admin_get(
         realm,
         settings,
@@ -854,23 +872,14 @@ async def find_keycloak_group_by_match_key(
     if resp.status_code == 403:
         # Fall back to sync account (query-groups) when provision lacks it.
         raw = await fetch_keycloak_groups(realm, settings)
-        groups = raw if isinstance(raw, list) else []
-    elif resp.status_code >= 400:
+        return raw if isinstance(raw, list) else []
+    if resp.status_code >= 400:
         raise ValueError(f"Échec lecture groupes Keycloak (HTTP {resp.status_code})")
-    else:
-        data = resp.json()
-        groups = data if isinstance(data, list) else []
+    data = resp.json()
+    return data if isinstance(data, list) else []
 
-    matches: list[dict] = []
-    for g in _flatten_groups(groups):
-        if not isinstance(g, dict):
-            continue
-        gname = (g.get("name") or "").strip()
-        gpath = (g.get("path") or "").strip()
-        if organization_match_key(gname) == key or organization_match_key(gpath) == key:
-            matches.append(g)
-    if not matches:
-        return None
+
+def _pick_best_group_match(matches: list[dict], organization: str) -> dict:
     # Prefer exact case-insensitive name, then top-level path.
     want = (organization or "").strip().lower()
 
