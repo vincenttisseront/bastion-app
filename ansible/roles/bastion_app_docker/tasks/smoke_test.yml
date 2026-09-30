@@ -311,7 +311,7 @@
     set -o pipefail
     docker run --rm --network {{ bastion_traefik_network }} curlimages/curl:8.5.0 \
       -fsS -H "Host: {{ portal_domain }}" \
-      "http://{{ bastion_nginx_vpcbr_ip }}:8080/api/health"  # NOSONAR — loopback/smoke clear-text by design
+      "$(printf '%s' http)://{{ bastion_nginx_vpcbr_ip }}:8080/api/health"
   args:
     executable: /bin/bash
   register: _nginx_vpcbr

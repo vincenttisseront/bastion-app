@@ -8,7 +8,7 @@ ARG PYTHON_RUNTIME=dhi.io/python:3.14-debian13
 ARG PYTHON_BUILDER=dhi.io/python:3.14-debian13-dev
 
 # ---------------------------------------------------------------------------
-# Builder — install app into a venv (wheels; gcc available on -dev if needed)
+# Builder — install locked runtime deps into a venv (wheels only)
 # ---------------------------------------------------------------------------
 FROM ${PYTHON_BUILDER} AS builder
 
@@ -18,17 +18,15 @@ ENV LANG=C.UTF-8 \
     PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /src
-COPY pyproject.toml README.md requirements-docker.txt ./
-COPY app ./app
-# Locked wheels only (docker:S8541 / S8544). Local package is --no-deps after.
+COPY requirements-docker.txt ./
 RUN python -m venv /opt/venv \
     && pip install --no-cache-dir --upgrade --only-binary=:all: "pip==25.2" \
-    && pip install --no-cache-dir --only-binary=:all: -r requirements-docker.txt \
-    && pip install --no-cache-dir --no-deps .  # NOSONAR — local pyproject, deps already locked above
+    && pip install --no-cache-dir --only-binary=:all: -r requirements-docker.txt
 
 
 # ---------------------------------------------------------------------------
 # Runtime — minimal DHI (no shell). UID 65532 = DHI nonroot.
+# App sources on PYTHONPATH (no unlocked `pip install .`).
 # ---------------------------------------------------------------------------
 FROM ${PYTHON_RUNTIME} AS runtime
 
@@ -36,12 +34,14 @@ ENV LANG=C.UTF-8 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/app \
     BASTION_MANIFEST_ROOT=/app \
     TZ=UTC
 
 WORKDIR /app
 
 COPY --from=builder --chown=65532:65532 /opt/venv /opt/venv
+COPY --chown=65532:65532 app /app/app
 COPY --chown=65532:65532 alembic.ini /app/alembic.ini
 COPY --chown=65532:65532 migrations /app/migrations
 COPY --chown=65532:65532 scripts /app/scripts
@@ -66,12 +66,14 @@ ENV LANG=C.UTF-8 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/app \
     BASTION_MANIFEST_ROOT=/app \
     TZ=UTC
 
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
+COPY app /app/app
 COPY alembic.ini /app/alembic.ini
 COPY migrations /app/migrations
 COPY scripts /app/scripts
