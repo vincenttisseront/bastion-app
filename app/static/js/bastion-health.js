@@ -153,13 +153,13 @@
 
     document.querySelectorAll('.probe-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        probeApp(btn.dataset.appId, btn);
+        void probeApp(btn.dataset.appId, btn);
       });
     });
 
     var allBtn = document.getElementById('probe-all-btn');
     if (allBtn) {
-      allBtn.addEventListener('click', function () { probeAll(allBtn); });
+      allBtn.addEventListener('click', function () { void probeAll(allBtn); });
     }
   });
 })();

@@ -136,7 +136,7 @@
   ansible.builtin.uri:
     url: "https://{{ portal_domain }}/internal/subdomain-auth"
     method: GET
-    validate_certs: false
+    validate_certs: false  # NOSONAR — smoke against staging / lab TLS
     status_code: [200, 401, 302]
     follow_redirects: none
   register: _subdomain_auth

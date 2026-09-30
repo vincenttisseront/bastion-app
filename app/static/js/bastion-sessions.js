@@ -64,14 +64,14 @@
   }
 
   window.revokeSession = function (sessionId) {
-    postAction(
+    void postAction(
       '/admin/sessions/' + encodeURIComponent(sessionId) + '/revoke',
       BastionI18n.t('Révoquer cette session ?')
     );
   };
 
   window.rotateKeys = function (sessionId) {
-    postAction(
+    void postAction(
       '/admin/sessions/' + encodeURIComponent(sessionId) + '/rotate-keys',
       BastionI18n.t('Lancer la rotation des clés pour cette session ?')
     );
@@ -1010,7 +1010,7 @@
     selectedEmail = btn.dataset.userEmail || '';
     closeSessionDetailPanel();
     renderAll();
-    liveVerifySelected();
+    void liveVerifySelected();
   }
 
   function onSessionRowClick(ev) {
@@ -1131,7 +1131,7 @@
       });
     }
     document.addEventListener('keydown', onDrawerKeydown);
-    liveVerifySelected();
+    void liveVerifySelected();
     setInterval(refreshSessions, POLL_MS);
   }
 })();
