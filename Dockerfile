@@ -20,10 +20,11 @@ ENV LANG=C.UTF-8 \
 WORKDIR /src
 COPY pyproject.toml README.md requirements-docker.txt ./
 COPY app ./app
+# Locked wheels only (docker:S8541 / S8544). Local package is --no-deps after.
 RUN python -m venv /opt/venv \
-    && pip install --no-cache-dir --upgrade "pip==25.2" \
+    && pip install --no-cache-dir --upgrade --only-binary=:all: "pip==25.2" \
     && pip install --no-cache-dir --only-binary=:all: -r requirements-docker.txt \
-    && pip install --no-cache-dir --no-deps .
+    && pip install --no-cache-dir --no-deps .  # NOSONAR — local pyproject, deps already locked above
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +77,6 @@ COPY migrations /app/migrations
 COPY scripts /app/scripts
 COPY pyproject.toml package.json package-lock.json /app/
 
-USER root
-# NOSONAR — migrate one-shot needs root for volume chown (DHI runtime stays nonroot)
+USER root  # NOSONAR — migrate one-shot needs root for volume chown (runtime stays nonroot)
 # Default command overridden by compose (encrypt DB, alembic, chown).
 CMD ["alembic", "upgrade", "head"]

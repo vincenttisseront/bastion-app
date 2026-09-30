@@ -21,8 +21,8 @@ mkdir -p data/sso-portal/exports
   || echo "# stub" > data/sso-portal/exports/nginx-portal-realms.conf
 
 grep -q 'OAUTH2_PROXY_NETWORK_MODE' .env \
-  || printf '\nOAUTH2_PROXY_NETWORK_MODE=docker\nOAUTH2_PROXY_DEFAULT_URL=http://oauth2-proxy-core:4180\nDATABASE_URL=sqlite:////var/lib/sso-portal/portal.db\nEXPORTS_DIR=/var/lib/sso-portal/exports\n' >> .env
-  # NOSONAR — docker-internal clear-text URL (shell:S5332)
+  || printf '\nOAUTH2_PROXY_NETWORK_MODE=docker\nOAUTH2_PROXY_DEFAULT_URL=%s\nDATABASE_URL=sqlite:////var/lib/sso-portal/portal.db\nEXPORTS_DIR=/var/lib/sso-portal/exports\n' \
+    "http://oauth2-proxy-core:4180" >> .env  # NOSONAR — docker-internal clear-text URL
 
 export SSO_PORTAL_DATA_DIR="${SSO_PORTAL_DATA_DIR:-$ROOT/data/sso-portal}"
 export PORTAL_DOMAIN="${PORTAL_DOMAIN:-portal.example.com}"

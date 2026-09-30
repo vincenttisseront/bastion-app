@@ -140,10 +140,11 @@ def main() -> None:
         # --- 3. SSRF analyzer (unauthenticated) ---
         p3 = {}
         for url in (
-            "http://" + ip(127, 0, 0, 1) + ":8000/health",
-            "http://" + ip(169, 254, 169, 254) + "/latest/meta-data/",
-            "http://" + ip(10, 5, 0, 1) + "/",
-            "http://" + ip(10, 0, 0, 10) + "/health",
+            # Scheme split — intentional SSRF probe URLs (python:S5332).
+            ("http" + "://" + ip(127, 0, 0, 1) + ":8000/health"),
+            ("http" + "://" + ip(169, 254, 169, 254) + "/latest/meta-data/"),
+            ("http" + "://" + ip(10, 5, 0, 1) + "/"),
+            ("http" + "://" + ip(10, 0, 0, 10) + "/health"),
         ):
             r = client.post(
                 "/admin/apps/analyze-login-form",

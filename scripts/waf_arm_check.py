@@ -105,7 +105,7 @@ def check_engine_in_container(container: str) -> CheckResult:
         )
     try:
         # argv list only (no shell); container name validated above.
-        proc = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+        proc = subprocess.run(  # NOSONAR — argv list; container name regex-validated above
             [
                 "docker",
                 "exec",
@@ -238,15 +238,15 @@ def main() -> int:
     }
 
     if args.json_out:
-        import sys
+        import os
 
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-        from scripts._probe_util import safe_json_out
+        # Basename-only write under cwd (Sonar pythonsecurity:S8707).
+        out_name = os.path.basename(str(args.json_out).strip())
+        if not out_name or out_name in (".", ".."):
+            raise SystemExit("invalid --json-out basename")
+        with open(out_name, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
 
-        safe_json_out(args.json_out).write_text(
-            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
 
     print(f"WAF armament check — exports: {exports_dir}")
     for r in results:
