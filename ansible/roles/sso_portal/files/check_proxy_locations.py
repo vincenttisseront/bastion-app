@@ -4,8 +4,29 @@
 from __future__ import annotations
 
 import pathlib
-import re
 import sys
+
+
+def _location_header_and_body(text: str, start: int) -> tuple[str, str, int] | None:
+    """Return (header, body, line_no) for a `location … {` starting at start."""
+    brace = text.find("{", start)
+    if brace < 0:
+        return None
+    header = text[start:brace].strip()
+    depth = 1
+    i = brace + 1
+    while i < len(text) and depth:
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        i += 1
+    if depth != 0:
+        return None
+    body = text[brace + 1 : i - 1]
+    line_no = text[:start].count("\n") + 1
+    return header, body, line_no
 
 
 def main() -> int:
@@ -14,31 +35,30 @@ def main() -> int:
         return 2
 
     conf_dir = pathlib.Path(sys.argv[1])
-    # Flat location header + body without nested quantifiers (Sonar S8786).
-    loc_re = re.compile(
-        r"location\s+[^{;\n]*?/proxy/[^{]*\{",
-        re.MULTILINE,
-    )
     bad: list[str] = []
     for path in sorted(conf_dir.glob("*.conf")):
         text = path.read_text(encoding="utf-8", errors="replace")
-        for match in loc_re.finditer(text):
-            start = match.end()
-            # Brace-depth scan for the location body (avoids ReDoS regex).
-            depth = 1
-            i = start
-            while i < len(text) and depth:
-                ch = text[i]
-                if ch == "{":
-                    depth += 1
-                elif ch == "}":
-                    depth -= 1
-                i += 1
-            header = match.group(0).rstrip("{").strip()
-            body = text[start : i - 1] if depth == 0 else ""
-            line_no = text[: match.start()].count("\n") + 1
-            has_redirect = re.search(r"\breturn\s+30[123]\b", body) is not None
-            has_proxy_pass = re.search(r"\bproxy_pass\b", body) is not None
+        needle = "location"
+        pos = 0
+        while True:
+            idx = text.find(needle, pos)
+            if idx < 0:
+                break
+            # Word-boundary-ish: start of line or whitespace before location
+            if idx > 0 and text[idx - 1] not in " \t\n":
+                pos = idx + len(needle)
+                continue
+            header_body = _location_header_and_body(text, idx)
+            pos = idx + len(needle)
+            if not header_body:
+                continue
+            header, body, line_no = header_body
+            if "/proxy/" not in header:
+                continue
+            has_redirect = (
+                "return 301" in body or "return 302" in body or "return 303" in body
+            )
+            has_proxy_pass = "proxy_pass" in body
             if has_proxy_pass or not has_redirect:
                 bad.append(
                     f"{path}:{line_no}:{header} "

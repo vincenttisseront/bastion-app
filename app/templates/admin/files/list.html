@@ -221,9 +221,26 @@
   }
 
   function extractSemVer(name) {
-    // Avoid nested quantifiers (Sonar S8786 backtracking).
-    var m = String(name || '').match(/(\d+\.\d+\.\d+)/);
-    return m ? m[1] : '';
+    // Digit-run parse (no regex — Sonar javascript:S8786).
+    var s = String(name || '');
+    var n = s.length;
+    for (var i = 0; i < n; i++) {
+      var c = s.charCodeAt(i);
+      if (c < 48 || c > 57) continue;
+      var a = i;
+      while (i < n && (c = s.charCodeAt(i)) >= 48 && c <= 57) i++;
+      if (i >= n || s.charAt(i) !== '.') continue;
+      i++;
+      var b = i;
+      while (i < n && (c = s.charCodeAt(i)) >= 48 && c <= 57) i++;
+      if (b === i || i >= n || s.charAt(i) !== '.') continue;
+      i++;
+      var d = i;
+      while (i < n && (c = s.charCodeAt(i)) >= 48 && c <= 57) i++;
+      if (d === i) continue;
+      return s.slice(a, i);
+    }
+    return '';
   }
 
   function setMode(mode) {
