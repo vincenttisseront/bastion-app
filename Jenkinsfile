@@ -60,7 +60,7 @@ pipeline {
     SONAR_BACKEND = "${env.SONAR_BACKEND ?: 'server'}"
     // Override to "SonarQube Cloud" when SONAR_BACKEND=cloud (auto-default below if empty).
     SONAR_SERVER_NAME = "${env.SONAR_SERVER_NAME ?: ''}"
-    SONAR_PROJECT_KEY = "${env.SONAR_PROJECT_KEY ?: 'bastion-app'}"
+    SONAR_PROJECT_KEY = "${env.SONAR_PROJECT_KEY ?: ''}"
     // Requis si SONAR_BACKEND=cloud (clé org SonarCloud). Défaut = org GitHub liée.
     SONAR_ORGANIZATION = "${env.SONAR_ORGANIZATION ?: 'vincenttisseront'}"
     PYTHON_IMAGE = 'python:3.12-bookworm'
@@ -262,55 +262,62 @@ pipeline {
             if (!serverName) {
               serverName = (backend == 'cloud') ? 'SonarQube Cloud' : 'SonarQube'
             }
-            withSonarQubeEnv(serverName) {
-              // Community Build rejects sonar.branch.name (Developer+ only).
-              // Cloud Free: main-branch (+ PR→main) only — do not pass branch.name.
-              // Lint+Test runs python as root → root-owned coverage; scanner must
-              // run as root and reset .scannerwork.
-              if (backend == 'cloud') {
-                sh '''
-                  set -eux
-                  docker run --rm \
-                    --volumes-from "${JENKINS_CONTAINER_NAME}" \
-                    -u root:root \
-                    -w "${WORKSPACE}" \
-                    "${PYTHON_IMAGE}" \
-                    bash -lc "rm -rf .scannerwork && mkdir -p .scannerwork && chmod -R a+rwX .scannerwork coverage.xml reports 2>/dev/null || true"
-                  # SonarQube Cloud: public HTTPS, no Docker network pin to self-hosted.
-                  # SONAR_HOST_URL comes from withSonarQubeEnv (https://sonarcloud.io).
-                  docker run --rm \
-                    --volumes-from "${JENKINS_CONTAINER_NAME}" \
-                    -u root:root \
-                    --entrypoint sonar-scanner \
-                    -e SONAR_HOST_URL="${SONAR_HOST_URL}" \
-                    -e SONAR_TOKEN="${SONAR_AUTH_TOKEN}" \
-                    -w "${WORKSPACE}" \
-                    "${SONAR_SCANNER_IMAGE}" \
-                    -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
-                    -Dsonar.organization="${SONAR_ORGANIZATION}"
-                '''
-              } else {
-                sh '''
-                  set -eux
-                  docker run --rm \
-                    --volumes-from "${JENKINS_CONTAINER_NAME}" \
-                    -u root:root \
-                    -w "${WORKSPACE}" \
-                    "${PYTHON_IMAGE}" \
-                    bash -lc "rm -rf .scannerwork && mkdir -p .scannerwork && chmod -R a+rwX .scannerwork coverage.xml reports 2>/dev/null || true"
-                  # Join the same Docker network as sonarqube; force internal URL so
-                  # /batch/project.protobuf is not mangled by a reverse-proxy/WAF.
-                  docker run --rm \
-                    --volumes-from "${JENKINS_CONTAINER_NAME}" \
-                    --network "${SONAR_DOCKER_NETWORK}" \
-                    -u root:root \
-                    --entrypoint sonar-scanner \
-                    -e SONAR_HOST_URL="${SONAR_INTERNAL_URL}" \
-                    -e SONAR_TOKEN="${SONAR_AUTH_TOKEN}" \
-                    -w "${WORKSPACE}" \
-                    "${SONAR_SCANNER_IMAGE}" \
-                    -Dsonar.projectKey="${SONAR_PROJECT_KEY}"
-                '''
+            // Cloud import from GitHub uses org_repo keys; self-hosted keeps bastion-app.
+            def projectKey = (env.SONAR_PROJECT_KEY ?: '').trim()
+            if (!projectKey) {
+              projectKey = (backend == 'cloud') ? 'vincenttisseront_bastion-app' : 'bastion-app'
+            }
+            withEnv(["SONAR_PROJECT_KEY=${projectKey}"]) {
+              withSonarQubeEnv(serverName) {
+                // Community Build rejects sonar.branch.name (Developer+ only).
+                // Cloud Free: main-branch (+ PR→main) only — do not pass branch.name.
+                // Lint+Test runs python as root → root-owned coverage; scanner must
+                // run as root and reset .scannerwork.
+                if (backend == 'cloud') {
+                  sh '''
+                    set -eux
+                    docker run --rm \
+                      --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                      -u root:root \
+                      -w "${WORKSPACE}" \
+                      "${PYTHON_IMAGE}" \
+                      bash -lc "rm -rf .scannerwork && mkdir -p .scannerwork && chmod -R a+rwX .scannerwork coverage.xml reports 2>/dev/null || true"
+                    # SonarQube Cloud: public HTTPS, no Docker network pin to self-hosted.
+                    # SONAR_HOST_URL comes from withSonarQubeEnv (https://sonarcloud.io).
+                    docker run --rm \
+                      --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                      -u root:root \
+                      --entrypoint sonar-scanner \
+                      -e SONAR_HOST_URL="${SONAR_HOST_URL}" \
+                      -e SONAR_TOKEN="${SONAR_AUTH_TOKEN}" \
+                      -w "${WORKSPACE}" \
+                      "${SONAR_SCANNER_IMAGE}" \
+                      -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+                      -Dsonar.organization="${SONAR_ORGANIZATION}"
+                  '''
+                } else {
+                  sh '''
+                    set -eux
+                    docker run --rm \
+                      --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                      -u root:root \
+                      -w "${WORKSPACE}" \
+                      "${PYTHON_IMAGE}" \
+                      bash -lc "rm -rf .scannerwork && mkdir -p .scannerwork && chmod -R a+rwX .scannerwork coverage.xml reports 2>/dev/null || true"
+                    # Join the same Docker network as sonarqube; force internal URL so
+                    # /batch/project.protobuf is not mangled by a reverse-proxy/WAF.
+                    docker run --rm \
+                      --volumes-from "${JENKINS_CONTAINER_NAME}" \
+                      --network "${SONAR_DOCKER_NETWORK}" \
+                      -u root:root \
+                      --entrypoint sonar-scanner \
+                      -e SONAR_HOST_URL="${SONAR_INTERNAL_URL}" \
+                      -e SONAR_TOKEN="${SONAR_AUTH_TOKEN}" \
+                      -w "${WORKSPACE}" \
+                      "${SONAR_SCANNER_IMAGE}" \
+                      -Dsonar.projectKey="${SONAR_PROJECT_KEY}"
+                  '''
+                }
               }
             }
           }
