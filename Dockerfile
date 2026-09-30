@@ -18,11 +18,13 @@ ENV LANG=C.UTF-8 \
     PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /src
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md requirements-docker.txt ./
 COPY app ./app
 RUN python -m venv /opt/venv \
-    && pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir --upgrade "pip==25.2" \
+    && pip install --no-cache-dir --only-binary=:all: -r requirements-docker.txt \
+    && pip install --no-cache-dir --no-deps .
+
 
 # ---------------------------------------------------------------------------
 # Runtime — minimal DHI (no shell). UID 65532 = DHI nonroot.
@@ -75,5 +77,6 @@ COPY scripts /app/scripts
 COPY pyproject.toml package.json package-lock.json /app/
 
 USER root
+# NOSONAR — migrate one-shot needs root for volume chown (DHI runtime stays nonroot)
 # Default command overridden by compose (encrypt DB, alembic, chown).
 CMD ["alembic", "upgrade", "head"]

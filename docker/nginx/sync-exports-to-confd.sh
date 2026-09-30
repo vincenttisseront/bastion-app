@@ -34,9 +34,9 @@ if [[ -f /etc/nginx/templates-portal/vhost_sso_portal.conf.template ]]; then
 fi
 
 mkdir -p /var/log/nginx/apps
-# Shared bind-mount with bastion-app (Admin → Logs → Accès apps). Ensure writable
-# even when Docker created the host dir as root:root.
-chmod 0777 /var/log/nginx/apps 2>/dev/null || true
+# Shared bind-mount with bastion-app (Admin → Logs → Accès apps). Group-writable
+# for uid/gid 1000 (bastion-app + nginx); avoid world-writable (Sonar shell:S2612).
+chmod 0770 /var/log/nginx/apps 2>/dev/null || true
 if ! touch /var/log/nginx/apps/.bastion-write-ok 2>/dev/null; then
   echo "WARN: /var/log/nginx/apps not writable — Accès apps will stay empty" >&2
 else

@@ -503,6 +503,22 @@ def main(argv: list[str] | None = None) -> int:
     state_path = Path(
         args.state or "/tools/portal/data/modsec-wazuh-normalizer-state.json"
     )
+    # Confine CLI paths under data root (Sonar pythonsecurity:S8707).
+    data_root = Path(
+        os.environ.get("MODSEC_WAZUH_ROOT", "/tools/portal/data")
+    ).expanduser().resolve()
+
+    def _under_data(path: Path) -> Path:
+        resolved = path.expanduser().resolve()
+        try:
+            resolved.relative_to(data_root)
+        except ValueError as exc:
+            raise SystemExit(f"path escapes {data_root}: {path}") from exc
+        return resolved
+
+    source = _under_data(source)
+    output = _under_data(output)
+    state_path = _under_data(state_path)
 
     level = getattr(
         logging, os.environ.get("MODSEC_WAZUH_LOG_LEVEL", "INFO").upper(), logging.INFO

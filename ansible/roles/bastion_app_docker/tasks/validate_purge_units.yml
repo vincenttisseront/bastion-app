@@ -15,7 +15,7 @@
   ansible.builtin.file:
     path: "{{ sso_portal_exports_dir }}/systemd"
     state: directory
-    mode: "0755"
+    mode: "0750"
 
 - name: "VALIDATE_PURGE : snapshot nginx-portal-realms.conf (avant)"
   ansible.builtin.slurp:
@@ -26,7 +26,7 @@
 - name: "VALIDATE_PURGE : seed canary dans purge-units.list"
   ansible.builtin.copy:
     dest: "{{ _purge_list_path }}"
-    mode: "0644"
+    mode: "0640"
     content: |
       # AWX canary — safe (unité/conteneur inexistant)
       {{ _purge_canary_unit }}

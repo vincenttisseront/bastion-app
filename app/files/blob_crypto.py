@@ -71,6 +71,6 @@ def iter_decrypted_chunks(
             yield f.decrypt(token)
 
 
-def write_plaintext_blob(relative: str, data: bytes, *, root: Path) -> None:
-    """Write bytes at ``root / relative`` (``relative`` must not contain ``..``)."""
-    write_bytes_under(root, relative, data)
+def write_plaintext_blob(*relative_parts: str, data: bytes, root: Path) -> None:
+    """Write bytes at ``root / parts…`` (each part basename-validated)."""
+    write_bytes_under(root, data, *relative_parts)

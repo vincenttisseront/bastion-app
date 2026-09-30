@@ -13,7 +13,7 @@
   ansible.builtin.template:
     src: logrotate-bastion-nginx-logs.j2
     dest: /etc/logrotate.d/bastion-nginx-logs
-    mode: "0644"
+    mode: "0644"  # NOSONAR — logrotate.d requires world-readable
 
 - name: "RETENTION : logrotate dry-run (nginx-logs)"
   ansible.builtin.command: logrotate -d /etc/logrotate.d/bastion-nginx-logs

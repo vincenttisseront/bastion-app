@@ -12,12 +12,12 @@
   ansible.builtin.file:
     path: "{{ sso_portal_exports_dir }}/systemd"
     state: directory
-    mode: "0755"
+    mode: "0750"
 
 - name: "VALIDATE_PURGE (bare-metal) : seed canary"
   ansible.builtin.copy:
     dest: "{{ _purge_list_path }}"
-    mode: "0644"
+    mode: "0640"
     content: |
       # AWX canary — safe (unité inexistante)
       {{ _purge_canary_unit }}

@@ -18,7 +18,7 @@
     dest: "{{ modsec_wazuh_program }}"
     owner: root
     group: root
-    mode: "0755"
+    mode: "0750"
   notify: Restart modsec-wazuh-normalizer
 
 - name: "Install environment file"
@@ -27,7 +27,7 @@
     dest: "{{ modsec_wazuh_environment_file }}"
     owner: root
     group: root
-    mode: "0644"
+    mode: "0640"
   notify: Restart modsec-wazuh-normalizer
 
 - name: "Ensure NDJSON output file exists with Wazuh-readable mode"
@@ -47,7 +47,7 @@
     dest: "/etc/systemd/system/{{ modsec_wazuh_service_name }}.service"
     owner: root
     group: root
-    mode: "0644"
+    mode: "0640"
   notify:
     - Reload systemd daemon
     - Restart modsec-wazuh-normalizer
@@ -66,7 +66,7 @@
     dest: /etc/logrotate.d/modsec-wazuh-normalizer
     owner: root
     group: root
-    mode: "0644"
+    mode: "0640"
   when: modsec_wazuh_logrotate_enabled | bool
 
 - name: "Validate logrotate config"

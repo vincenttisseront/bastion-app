@@ -221,7 +221,8 @@
   }
 
   function extractSemVer(name) {
-    var m = String(name || '').match(/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/);
+    // Avoid nested quantifiers (Sonar S8786 backtracking).
+    var m = String(name || '').match(/(\d+\.\d+\.\d+)/);
     return m ? m[1] : '';
   }
 

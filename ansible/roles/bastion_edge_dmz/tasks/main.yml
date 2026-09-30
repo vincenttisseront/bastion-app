@@ -48,7 +48,7 @@
     dest: "{{ bastion_edge_nginx_conf_dir }}/{{ bastion_edge_catchall_conf_name }}"
     owner: root
     group: root
-    mode: "0644"
+    mode: "0640"
   notify: Reload nginx (edge DMZ)
 
 - name: "EDGE : nginx -t"

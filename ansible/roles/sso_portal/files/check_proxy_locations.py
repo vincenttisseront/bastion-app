@@ -14,16 +14,28 @@ def main() -> int:
         return 2
 
     conf_dir = pathlib.Path(sys.argv[1])
+    # Flat location header + body without nested quantifiers (Sonar S8786).
     loc_re = re.compile(
-        r"location\s+[^{;\n]*?/proxy/[^{]*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}",
+        r"location\s+[^{;\n]*?/proxy/[^{]*\{",
         re.MULTILINE,
     )
     bad: list[str] = []
     for path in sorted(conf_dir.glob("*.conf")):
         text = path.read_text(encoding="utf-8", errors="replace")
         for match in loc_re.finditer(text):
-            header = match.group(0).split("{", 1)[0].strip()
-            body = match.group(1)
+            start = match.end()
+            # Brace-depth scan for the location body (avoids ReDoS regex).
+            depth = 1
+            i = start
+            while i < len(text) and depth:
+                ch = text[i]
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                i += 1
+            header = match.group(0).rstrip("{").strip()
+            body = text[start : i - 1] if depth == 0 else ""
             line_no = text[: match.start()].count("\n") + 1
             has_redirect = re.search(r"\breturn\s+30[123]\b", body) is not None
             has_proxy_pass = re.search(r"\bproxy_pass\b", body) is not None

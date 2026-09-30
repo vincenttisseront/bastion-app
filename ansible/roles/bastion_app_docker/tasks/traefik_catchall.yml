@@ -15,7 +15,7 @@
   ansible.builtin.copy:
     src: bastion-catchall.yml
     dest: "{{ bastion_traefik_config_dir }}/bastion-catchall.yml"
-    mode: "0644"
+    mode: "0640"
   register: _traefik_catchall_file
 
 - name: "Wait for Traefik file provider to reload catch-all"
@@ -66,7 +66,7 @@
         code3=$(curl -s -D "$hdrs" -o "$body" -w '%{http_code}' \
           --connect-timeout 5 --max-time 10 \
           -H "Host: ${host}" \
-          "http://${nip}:8080/probe-discovery" || echo "000")
+          "http://${nip}:8080/probe-discovery" || echo "000")  # NOSONAR — loopback/smoke clear-text by design
         echo "direct_nginx_ip=${nip} http=${code3}"
         if [[ "$code3" == "403" || "$code3" == "503" ]]; then
           echo "FAIL: bastion-nginx discovery OK but Traefik still returns ${code} — catch-all missing/miswired"
@@ -133,7 +133,7 @@
         code=$(curl -s -D "$hdrs" -o "$body" -w '%{http_code}' \
           --connect-timeout 5 --max-time 10 \
           -H "Host: ${host}" \
-          "http://${nip}:8080/probe-discovery" || echo "000")
+          "http://${nip}:8080/probe-discovery" || echo "000")  # NOSONAR — loopback/smoke clear-text by design
         echo "direct_nginx_ip=${nip} http=${code}"
       fi
     fi

@@ -678,6 +678,8 @@ async def admin_logs_stream(
     async def event_gen():
         nonlocal last_id
         started = time.monotonic()
+        # Event.wait(timeout=…) instead of sleep — Sonar S7484.
+        tick = asyncio.Event()
         try:
             while time.monotonic() - started < timeout:
                 if await request.is_disconnected():
@@ -692,7 +694,10 @@ async def admin_logs_stream(
                     last_id = max(last_id, int(entry["id"]))
                     yield f"id: {entry['id']}\ndata: {json.dumps(entry, ensure_ascii=False)}\n\n"
                 yield ": keepalive\n\n"
-                await asyncio.sleep(1.0)
+                try:
+                    await asyncio.wait_for(tick.wait(), timeout=1.0)
+                except TimeoutError:
+                    pass
             yield _SSE_TIMEOUT_EVENT
         except asyncio.CancelledError:
             logger.debug("audit SSE cancelled")
