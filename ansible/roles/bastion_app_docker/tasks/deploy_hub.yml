@@ -8,7 +8,7 @@
     state: directory
     owner: "1000"
     group: "1000"
-    mode: "0755"
+    mode: "0750"
   loop:
     - "{{ bastion_app_docker_compose_dir }}"
     - "{{ bastion_app_docker_data_dir }}"
@@ -40,7 +40,7 @@
 - name: "scripts executable"
   ansible.builtin.file:
     path: "{{ item }}"
-    mode: "0755"
+    mode: "0750"
   loop:
     - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker.sh"
     - "{{ bastion_app_docker_compose_dir }}/scripts/apply-infra-docker-dispatch.sh"
@@ -59,7 +59,7 @@
     src: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg.example"
     dest: "{{ bastion_app_docker_compose_dir }}/docker/oauth2-core/oauth2-proxy.cfg"
     remote_src: true
-    mode: "0644"
+    mode: "0640"
     force: false
 
 - name: "oauth2 PKCE + cookie_secret"

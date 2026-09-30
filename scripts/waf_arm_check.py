@@ -238,7 +238,12 @@ def main() -> int:
     }
 
     if args.json_out:
-        Path(args.json_out).write_text(
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from scripts._probe_util import safe_json_out
+
+        safe_json_out(args.json_out).write_text(
             json.dumps(report, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )

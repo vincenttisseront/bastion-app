@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -24,13 +25,18 @@ def ensure_under(path: Path, root: Path) -> Path:
 
 
 def _basename_only(name: str) -> str:
-    """Accept a single path segment (no separators / traversal)."""
+    """Accept a single path segment (no separators / traversal).
+
+    Uses ``os.path.basename`` so static analyzers recognize the sanitizer
+    (Sonar pythonsecurity:S2083).
+    """
     text = (name or "").strip()
     if not text or text in (".", "..") or "/" in text or "\\" in text:
         raise ValueError(f"invalid basename: {name!r}")
-    if Path(text).name != text:
+    safe = os.path.basename(text)
+    if safe != text or safe in (".", "..") or not safe:
         raise ValueError(f"invalid basename: {name!r}")
-    return text
+    return safe
 
 
 def write_text_under(
@@ -40,21 +46,28 @@ def write_text_under(
     root_r = root.expanduser().resolve()
     path = root_r / _basename_only(name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding=encoding)
+    with open(path, "w", encoding=encoding) as fh:
+        fh.write(text)
     return path
 
 
-def write_bytes_under(root: Path, relative: str, data: bytes) -> Path:
-    """Write bytes at ``root / relative`` after rejecting ``..`` segments."""
+def write_bytes_under(root: Path, data: bytes, *segments: str) -> Path:
+    """Write bytes at ``root / a / b / …`` with each segment basename-validated."""
     root_r = root.expanduser().resolve()
-    rel = (relative or "").strip().replace("\\", "/")
-    parts = [p for p in rel.split("/") if p and p != "."]
-    if not parts or any(p == ".." for p in parts):
-        raise ValueError(f"invalid relative path: {relative!r}")
-    path = root_r.joinpath(*parts).resolve()
-    path.relative_to(root_r)
+    parts = [_basename_only(s) for s in segments]
+    if not parts:
+        raise ValueError("empty relative path")
+    # Build under root using only basename-sanitized segments (S2083).
+    path = root_r
+    for part in parts:
+        path = path / part
+    try:
+        path.resolve().relative_to(root_r)
+    except ValueError as exc:
+        raise ValueError(f"path escapes allowed root: {segments!r}") from exc
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    with open(path, "wb") as fh:
+        fh.write(data)
     return path
 
 

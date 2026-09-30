@@ -3,7 +3,7 @@
 
 - name: "SMOKE : GET /api/health"
   ansible.builtin.uri:
-    url: "http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/api/health"
+    url: "http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/api/health"  # NOSONAR — loopback/smoke clear-text by design
     return_content: true
     status_code: 200
   register: _health
@@ -144,7 +144,7 @@
 
 - name: "SMOKE : subdomain-auth direct FastAPI sans cookie / sans RFC1918 → 401"
   ansible.builtin.uri:
-    url: "http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/internal/subdomain-auth"
+    url: "http://{{ sso_portal_bind_host }}:{{ sso_portal_bind_port }}/internal/subdomain-auth"  # NOSONAR — loopback/smoke clear-text by design
     method: GET
     headers:
       X-Real-IP: "8.8.8.8"
@@ -171,7 +171,7 @@
   ansible.builtin.copy:
     src: check_proxy_locations.py
     dest: /tmp/check_proxy_locations.py
-    mode: "0755"
+    mode: "0750"
 
 - name: "SMOKE : détecter locations /proxy/ actives (proxy_pass) hors redirect 301/302"
   ansible.builtin.command:

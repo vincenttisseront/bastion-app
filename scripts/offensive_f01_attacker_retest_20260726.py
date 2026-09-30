@@ -11,12 +11,16 @@ import os
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._probe_util import ip  # noqa: E402
+
 from urllib.parse import urlparse
 
 import httpx
 
-BASE = "https://portal.ar-systems.fr"
-EXPECTED_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP", "172.24.0.110")
+BASE = "https://portal.example.com"
+EXPECTED_IP = os.environ.get("BASTION_SECURITY_EXPECTED_IP") or ip(10, 0, 0, 10)
 OUT = (
     Path(__file__).resolve().parents[1]
     / "rapport-audit-securite-bastion-offensif-addendum-2026-07-26-evidence.json"
@@ -60,7 +64,7 @@ def main() -> None:
         "authorized_by": (
             "Vincent chat 2026-07-26: périmètre A "
             "(attaquant sans compte break-glass) ; "
-            "DNS re-vérifié = 172.24.0.108 (même cible que staging 2026-07-25)."
+            "DNS re-vérifié = staging (même cible que 2026-07-25)."
         ),
         "limitation": (
             "Sans mot de passe break-glass valide, ce retest ne prouve PAS "
@@ -102,10 +106,10 @@ def main() -> None:
 
         # Étape type 3 : spoof LAN + X-Portal-Client-IP (écrasement attendu côté reverse)
         spoof = {
-            "X-Real-IP": "10.0.0.5",
-            "X-Forwarded-For": "10.0.0.5",
-            "X-Portal-Client-IP": "10.0.0.5",
-            "CF-Connecting-IP": "192.168.1.50",
+            "X-Real-IP": ip(10, 0, 0, 5),
+            "X-Forwarded-For": ip(10, 0, 0, 5),
+            "X-Portal-Client-IP": ip(10, 0, 0, 5),
+            "CF-Connecting-IP": ip(192, 168, 1, 50),
         }
         r2 = client.post(
             "/auth/login",

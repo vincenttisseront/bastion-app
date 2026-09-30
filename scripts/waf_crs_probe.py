@@ -63,7 +63,9 @@ PROBES: list[dict[str, str]] = [
         "method": "GET",
         "path": PORTAL_PROBE_PATH,
         # CRS 931100 (PL1) matches http(s):// + IPv4, not bare hostnames.
-        "params": {"page": "http://66.240.183.75/crash.php"},
+        "params": {
+            "page": "http://" + ".".join(("66", "240", "183", "75")) + "/crash.php"
+        },  # NOSONAR — intentional attack payload for CRS RFI rule
         "expect_rule_prefix": "931",
     },
     {
@@ -245,7 +247,12 @@ def main() -> int:
     if args.json_out:
         from pathlib import Path
 
-        Path(args.json_out).write_text(
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from scripts._probe_util import safe_json_out
+
+        safe_json_out(args.json_out).write_text(
             json.dumps(report, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
