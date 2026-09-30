@@ -21,7 +21,7 @@ WORKDIR /src
 COPY requirements-docker.txt ./
 RUN python -m venv /opt/venv \
     && pip install --no-cache-dir --upgrade --only-binary=:all: "pip==25.2" \
-    && pip install --no-cache-dir --only-binary=:all: -r requirements-docker.txt
+    && pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements-docker.txt
 
 
 # ---------------------------------------------------------------------------
