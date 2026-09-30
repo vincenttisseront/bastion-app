@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models import BreakGlassAccount
+from app.pathutil import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,7 @@ def verify_breakglass_password(db: Session, username: str, plain_password: str) 
             except SQLAlchemyError:
                 logger.exception(
                     "breakglass: last_used_at stamp failed user=%s — login continues",
-                    username,
+                    sanitize_log_value(username),
                 )
                 try:
                     db.rollback()

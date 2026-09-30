@@ -852,7 +852,7 @@ def store_file_version(
     if encrypt:
         write_encrypted_blob(absolute, data, settings=settings)
     else:
-        write_plaintext_blob(absolute, data, root=storage_root)
+        write_plaintext_blob(rel, data, root=storage_root)
     version.storage_path = rel
     db.flush()
     return version

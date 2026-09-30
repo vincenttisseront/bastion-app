@@ -13,12 +13,13 @@ from typing import Any
 
 import httpx
 
-from app.pathutil import ensure_under
+from app.pathutil import write_text_under
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
 
 CACHE_SCHEMA_VERSION = 1
+_CACHE_FILENAME = "ip-geoloc-v1.json"
 BATCH_MAX = 100
 DEFAULT_FIELDS = (
     "status,message,country,countryCode,regionName,city,isp,org,query,proxy,hosting"
@@ -101,7 +102,7 @@ def ip_lookup_url(ip: str) -> str | None:
 def _cache_path(settings: Settings) -> Path:
     root = Path(settings.portal_data_dir) / "cache"
     root.mkdir(parents=True, exist_ok=True)
-    return root / "ip-geoloc-v1.json"
+    return root / _CACHE_FILENAME
 
 
 def _load_cache(settings: Settings) -> dict[str, Any]:
@@ -131,10 +132,12 @@ def _load_cache(settings: Settings) -> dict[str, Any]:
 
 def _save_cache(settings: Settings, data: dict[str, Any]) -> None:
     global _cache_mtime, _cache_data
-    root = Path(settings.portal_data_dir)
-    path = ensure_under(_cache_path(settings), root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    root = Path(settings.portal_data_dir) / "cache"
+    path = write_text_under(
+        root,
+        _CACHE_FILENAME,
+        json.dumps(data, ensure_ascii=False, indent=2),
+    )
     with _lock:
         _cache_data = data
         try:

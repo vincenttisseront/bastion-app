@@ -60,6 +60,7 @@ from app.rbac.organization_names import (
     normalize_organization_name,
     organization_match_key,
 )
+from app.pathutil import sanitize_log_value
 from app.sso_settings import Settings
 from app.vault.user_app_credential_service import (
     resolve_credential,
@@ -1230,13 +1231,13 @@ async def reset_keycloak_user_password(
     logger.info(
         "account_password_reset start realm=%s username=%s account_id=%s "
         "keycloak_user_id=%s temporary=%s send_email=%s actor=%s",
-        realm.slug,
-        label,
+        sanitize_log_value(realm.slug),
+        sanitize_log_value(label),
         bastion_account_id,
-        uid,
+        sanitize_log_value(uid),
         temporary,
         bool(send_email),
-        actor,
+        sanitize_log_value(actor),
     )
     try:
         await reset_keycloak_password(

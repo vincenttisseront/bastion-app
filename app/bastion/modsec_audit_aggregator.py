@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from app import re_safe
-from app.pathutil import ensure_under
+from app.pathutil import write_text_under
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,8 @@ SUMMARY_SCHEMA_VERSION = 2
 STATE_SCHEMA_VERSION = 3
 MAX_RECENT_EVENTS = 100
 TOP_N = 5
+_STATE_FILENAME = "waf-audit-aggregator-state.json"
+_SUMMARY_FILENAME = "waf-audit-summary.json"
 
 # Short CRS labels for common rules (admin UX — not full OWASP catalog).
 _LBL_UNIX_CMD = "Injection commande Unix"
@@ -281,12 +283,12 @@ def resolve_modsec_audit_log_path(settings: Settings) -> Path:
 
 def resolve_aggregator_state_path(settings: Settings) -> Path:
     logs_dir = resolve_modsec_audit_log_path(settings).parent
-    return logs_dir / "waf-audit-aggregator-state.json"
+    return logs_dir / _STATE_FILENAME
 
 
 def resolve_audit_summary_path(settings: Settings) -> Path:
     logs_dir = resolve_modsec_audit_log_path(settings).parent
-    return logs_dir / "waf-audit-summary.json"
+    return logs_dir / _SUMMARY_FILENAME
 
 
 def _rule_label(rule_id: str) -> str:
@@ -468,11 +470,12 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _save_json(path: Path, data: dict[str, Any], *, root: Path) -> None:
-    safe = ensure_under(path, root)
-    safe.parent.mkdir(parents=True, exist_ok=True)
-    tmp = safe.with_suffix(safe.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    tmp.replace(safe)
+    name = path.name
+    write_text_under(
+        root,
+        name,
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+    )
 
 
 def _file_identity(path: Path) -> tuple[int, int]:

@@ -24,6 +24,7 @@ from app.audit.event_catalog import (
     resolve_event,
 )
 from app.models import AuditLog
+from app.pathutil import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +115,9 @@ def log_action(
                 ip=ip_address or "",
                 result="error",
             ),
-            display_actor,
-            action,
-            target,
+            sanitize_log_value(display_actor),
+            sanitize_log_value(action),
+            sanitize_log_value(target),
         )
         try:
             db.rollback()
