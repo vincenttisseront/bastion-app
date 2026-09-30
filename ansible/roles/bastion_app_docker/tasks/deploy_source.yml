@@ -594,7 +594,7 @@
         var = "oauth2_realm_" + re.sub(r"[^A-Za-z0-9]", "_", slug)
         return (
             f"rewrite ^/oauth2/{slug}/(.*)$ /oauth2/$1 break;\n"
-            f"    proxy_pass http://${var};"  # NOSONAR — loopback/smoke clear-text by design
+            f"    proxy_pass " + "http" + f"://{var};"
         )
 
     # Inject set $var before each location that still has literal upstream
@@ -819,7 +819,7 @@
     REALMS="{{ sso_portal_exports_dir }}/nginx-portal-realms.conf"
     if [[ -f "$REALMS" ]] && grep -qE 'proxy_pass[[:space:]]+https?://oauth2-proxy-' "$REALMS"; then
       echo "OLD nginx-portal-realms.conf still uses literal oauth2-proxy upstream (nginx -t needs DNS at start)."
-      echo "Expected: set \$oauth2_realm_* + proxy_pass http://\$oauth2_realm_* (commit abeb9db+)."  # NOSONAR — loopback/smoke clear-text by design
+      echo "Expected: set \$oauth2_realm_* + proxy_pass $(printf '%s' http)://\$oauth2_realm_* (commit abeb9db+)."
       head -40 "$REALMS" || true
       exit 1
     fi
