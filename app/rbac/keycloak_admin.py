@@ -75,9 +75,20 @@ async def _admin_get(
 ) -> httpx.Response:
     token = token or await get_admin_token(realm, settings)
     base, realm_name = _issuer_parts(realm.issuer_url)
-    url = f"{base}/admin/realms/{realm_name}{path}"
+    safe_path = _safe_admin_api_path(path)
+    url = f"{base}/admin/realms/{realm_name}{safe_path}"
     async with httpx.AsyncClient(timeout=10.0) as client:
         return await client.get(url, headers={"Authorization": f"Bearer {token}"})
+
+
+def _safe_admin_api_path(path: str) -> str:
+    """Reject traversal / absolute URLs in Keycloak Admin API path suffixes."""
+    text = (path or "").strip()
+    if not text.startswith("/") or text.startswith("//"):
+        raise ValueError("invalid Keycloak admin API path")
+    if ".." in text or "://" in text or "\\" in text:
+        raise ValueError("invalid Keycloak admin API path")
+    return text
 
 
 async def _admin_send(
@@ -96,7 +107,8 @@ async def _admin_send(
     """
     token = token or await get_admin_token(realm, settings)
     base, realm_name = _issuer_parts(realm.issuer_url)
-    url = f"{base}/admin/realms/{realm_name}{path}"
+    safe_path = _safe_admin_api_path(path)
+    url = f"{base}/admin/realms/{realm_name}{safe_path}"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             return await client.request(
@@ -107,7 +119,7 @@ async def _admin_send(
             )
     except httpx.TimeoutException as exc:
         raise ValueError(
-            f"Keycloak injoignable ou timeout lors de l'appel admin ({path})"
+            f"Keycloak injoignable ou timeout lors de l'appel admin ({safe_path})"
         ) from exc
     except httpx.RequestError as exc:
         raise ValueError(

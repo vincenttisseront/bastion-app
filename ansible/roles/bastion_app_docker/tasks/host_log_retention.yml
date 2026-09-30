@@ -7,7 +7,7 @@
     state: directory
     owner: "1000"
     group: "1000"
-    mode: "0777"
+    mode: "0750"
 
 - name: "RETENTION : install logrotate config for nginx-logs"
   ansible.builtin.template:

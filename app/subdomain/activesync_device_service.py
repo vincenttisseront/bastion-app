@@ -38,6 +38,7 @@ from app.subdomain.eas_device import (
     split_query,
 )
 from app.subdomain.eas_device_identity import describe_eas_device
+from app.pathutil import sanitize_log_value
 
 _MSG_DEVICE_BLOCKED_BY_ADMIN = 'Cet appareil est bloqué par un administrateur.'
 
@@ -1036,7 +1037,10 @@ def link_devices_to_keycloak_user(
     try:
         db.commit()
     except SQLAlchemyError:
-        logger.exception("activesync keycloak link failed user=%s", keycloak_user_id)
+        logger.exception(
+            "activesync keycloak link failed user=%s",
+            sanitize_log_value(keycloak_user_id),
+        )
         try:
             db.rollback()
         except SQLAlchemyError:

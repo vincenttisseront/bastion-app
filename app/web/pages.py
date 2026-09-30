@@ -70,6 +70,7 @@ from app.database import get_db
 from app.db.hot_store import hot_read
 from app.health_probe import compute_health_score, compute_status_counts, probe_row_from_app
 from app.models import AccessGrant, App, PendingHost, PendingUser, RBACGroup, RealmConfig
+from app.pathutil import sanitize_log_value
 from app.request_client_ip import client_ip_from_request
 from app.robotic.robotic_session_cookies import (
     normalize_injected_cookie_scope,
@@ -171,9 +172,9 @@ def _warn_if_fqdn_cookie_domain_incompatible(
         logger.warning(
             "App %s FQDN %r shares no parent domain with portal %r — "
             "cross-subdomain session cookies will never work for this combination",
-            app_slug,
-            fqdn,
-            portal_domain,
+            sanitize_log_value(app_slug),
+            sanitize_log_value(fqdn),
+            sanitize_log_value(portal_domain),
         )
 
 
@@ -2934,7 +2935,11 @@ async def admin_app_crushftp_sync_companies(
     except AccountCreationError as exc:
         return _err(str(exc))
     except Exception:
-        logger.exception("crushftp sync-companies failed app=%s realm=%s", slug, realm.slug)
+        logger.exception(
+            "crushftp sync-companies failed app=%s realm=%s",
+            sanitize_log_value(slug),
+            sanitize_log_value(realm.slug),
+        )
         return _err(
             "Erreur lors de l’import CrushFTP (voir logs serveur).",
             status=500 if not wants_json else 400,

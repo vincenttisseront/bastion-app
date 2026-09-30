@@ -24,6 +24,7 @@ from app.models import (
     SecurityRateEvent,
     utcnow,
 )
+from app.pathutil import sanitize_log_value
 
 _PATH_SSO_FAILED = '/auth/sso-failed'
 
@@ -454,7 +455,7 @@ def apply_ban(
     if permanent and not confirm_permanent:
         logger.warning(
             "refusing permanent ban without explicit confirmation (target=%s)",
-            target,
+            sanitize_log_value(target),
         )
         return None
 
@@ -472,8 +473,8 @@ def apply_ban(
     ):
         logger.info(
             "skipping automatic ban on break-glass allowed ip=%s rule=%s",
-            target,
-            rule_type,
+            sanitize_log_value(target),
+            sanitize_log_value(rule_type),
         )
         return None
 
