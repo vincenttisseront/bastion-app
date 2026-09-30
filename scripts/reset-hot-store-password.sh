@@ -35,7 +35,7 @@ step() { echo; echo "=== $* ==="; }
 fingerprint() {
   local value="${1-}"
   [[ -n "$value" ]] || { echo "absent"; return; }
-  printf '%s' "$value" | md5sum | cut -c1-8
+  printf '%s' "$value" | sha256sum | cut -c1-8
 }
 
 while [[ $# -gt 0 ]]; do

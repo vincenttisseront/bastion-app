@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 
+from app.pathutil import ensure_under
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -130,7 +131,9 @@ def _load_cache(settings: Settings) -> dict[str, Any]:
 
 def _save_cache(settings: Settings, data: dict[str, Any]) -> None:
     global _cache_mtime, _cache_data
-    path = _cache_path(settings)
+    root = Path(settings.portal_data_dir)
+    path = ensure_under(_cache_path(settings), root)
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     with _lock:
         _cache_data = data

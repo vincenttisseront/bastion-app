@@ -135,6 +135,9 @@ def main() -> int:
         final = sorted(_existing_columns(conn, TABLE))
         logger.info("final columns: %s", final)
         return 0
+    except sqlite3.Error:
+        logger.exception("audit_logs schema fix failed")
+        return 1
     finally:
         conn.close()
 

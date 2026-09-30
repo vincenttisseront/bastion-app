@@ -848,10 +848,11 @@ def store_file_version(
 
     rel = f"{file.id}/{version.id}_{checksum[:12]}"
     absolute = resolve_storage_path(rel, settings)
+    storage_root = ensure_files_storage_dir(settings)
     if encrypt:
         write_encrypted_blob(absolute, data, settings=settings)
     else:
-        write_plaintext_blob(absolute, data)
+        write_plaintext_blob(absolute, data, root=storage_root)
     version.storage_path = rel
     db.flush()
     return version

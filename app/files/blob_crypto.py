@@ -6,6 +6,7 @@ import struct
 from collections.abc import Iterator
 from pathlib import Path
 
+from app.pathutil import ensure_under
 from app.secret_crypto import get_fernet
 from app.sso_settings import Settings, get_settings
 
@@ -70,6 +71,8 @@ def iter_decrypted_chunks(
             yield f.decrypt(token)
 
 
-def write_plaintext_blob(path: Path, data: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+def write_plaintext_blob(path: Path, data: bytes, *, root: Path) -> None:
+    """Write bytes under ``root`` only (rejects path traversal)."""
+    target = ensure_under(path, root)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)

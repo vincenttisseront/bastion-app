@@ -334,7 +334,7 @@
     url: "https://{{ bastion_smoke_https_ip }}/api/health"
     headers:
       Host: "{{ portal_domain }}"
-    validate_certs: false
+    validate_certs: false  # NOSONAR — smoke against staging IP / self-signed edge
     return_content: true
     status_code: 200
   register: _traefik_health

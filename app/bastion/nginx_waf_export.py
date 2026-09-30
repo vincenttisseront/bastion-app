@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app import re_safe
 from app.models import SecurityBan, WafExclusion, WafProfile
+from app.pathutil import ensure_under
 from app.sso_settings import Settings
 
 _WAF_EFFECTIVE_STATUS_JSON = 'waf-effective-status.json'
@@ -110,7 +111,9 @@ def record_waf_apply_metadata(
     data["last_apply_nginx_t_ok"] = bool(nginx_t_ok) and not nginx_t_skipped
     detail = (nginx_t_detail or "").strip()
     data["last_apply_nginx_t_detail"] = detail[:500] if detail else ""
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    root = waf_exports_dir(settings)
+    safe_path = ensure_under(path, root)
+    safe_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def waf_exports_dir(settings: Settings) -> Path:

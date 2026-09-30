@@ -92,7 +92,7 @@
             <input type="url" class="form-input{% if errors.upstream_url %} is-invalid{% endif %}"
                    id="upstream_url" name="upstream_url"
                    value="{{ form_values.upstream_url }}"
-                   placeholder="https://10.0.31.103:443/" required autofocus
+                   placeholder="https://10.0.0.10:443/" required
                    autocomplete="off">
           </div>
           {% if errors.upstream_url %}<div class="form-error">{{ errors.upstream_url }}</div>{% endif %}

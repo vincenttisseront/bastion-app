@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from app import re_safe
+from app.pathutil import ensure_under
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -466,11 +467,12 @@ def _load_json(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _save_json(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+def _save_json(path: Path, data: dict[str, Any], *, root: Path) -> None:
+    safe = ensure_under(path, root)
+    safe.parent.mkdir(parents=True, exist_ok=True)
+    tmp = safe.with_suffix(safe.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    tmp.replace(safe)
 
 
 def _file_identity(path: Path) -> tuple[int, int]:
@@ -739,6 +741,7 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
     log_path = resolve_modsec_audit_log_path(settings)
     state_path = resolve_aggregator_state_path(settings)
     summary_path = resolve_audit_summary_path(settings)
+    root = state_path.parent
 
     state = _load_json(state_path)
     if state.get("schema_version") != STATE_SCHEMA_VERSION:
@@ -759,7 +762,7 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
             "status": "unavailable",
             "status_message": "Journal d'audit ModSecurity absent — données indisponibles.",
         }
-        _save_json(summary_path, summary)
+        _save_json(summary_path, summary, root=root)
         return summary
 
     try:
@@ -835,7 +838,7 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
     state["partial_line"] = partial
     state["files"][str(log_path)] = {"inode": inode, "offset": new_offset, "size": size}
     state["recent_events"] = recent
-    _save_json(state_path, state)
+    _save_json(state_path, state, root=root)
 
     window_24h = _sum_window(hourly, 24)
     window_7d = _sum_window(hourly, 24 * 7)
@@ -860,7 +863,7 @@ def run_aggregation(settings: Settings) -> dict[str, Any]:
             "log_inode": inode,
         },
     }
-    _save_json(summary_path, summary)
+    _save_json(summary_path, summary, root=root)
     return summary
 
 

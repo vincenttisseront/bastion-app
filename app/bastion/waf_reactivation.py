@@ -32,6 +32,7 @@ from app.bastion.nginx_waf_export import (
     write_waf_exports,
 )
 from app.models import App, WafProfile
+from app.pathutil import ensure_under
 from app.sso_settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -159,7 +160,8 @@ def render_engine_mode_line(mode: str) -> str:
 
 
 def write_arm_state(settings: Settings, payload: dict[str, Any]) -> Path:
-    path = arm_state_path(settings)
+    root = waf_exports_dir(settings)
+    path = ensure_under(arm_state_path(settings), root)
     path.parent.mkdir(parents=True, exist_ok=True)
     body = dict(payload)
     body["updated_at"] = datetime.now(timezone.utc).isoformat()
