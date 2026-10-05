@@ -34,6 +34,8 @@ _NGX_PROXY_PASS_REQUEST_HEADERS = "        proxy_pass_request_headers on;"
 _NGX_PROXY_X_AUTH_USER = "        proxy_set_header X-Auth-User $auth_user;"
 _NGX_PROXY_X_AUTH_APP = "        proxy_set_header X-Auth-App $auth_app;"
 _NGX_PROXY_X_AUTH_SOURCE = "        proxy_set_header X-Auth-Source $auth_source;"
+# Canonical backend identity for HTTP REMOTE_USER apps (Zabbix, …) — SSO email.
+_NGX_PROXY_X_REMOTE_USER = "        proxy_set_header X-Remote-User $bastion_remote_user;"
 _NGX_MODSECURITY_OFF = "        modsecurity off;"
 _NGX_AUTH_REQUEST_OFF = "        auth_request off;"
 _NGX_PROXY_PASS_UPSTREAM = "        proxy_pass $app_upstream;"
@@ -414,7 +416,8 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         _NGX_AUTH_SET_SOURCE,
     ]
     # Identity from auth_request only (never $http_*) — trusted-header SSO for
-    # upstreams (Open WebUI WEBUI_AUTH_TRUSTED_*, Authelia-style apps, …).
+    # upstreams (Zabbix REMOTE_USER via X-Remote-User, Open WebUI WEBUI_AUTH_TRUSTED_*,
+    # Authelia-style apps, …).
     proxy_auth_header_lines = [
         _NGX_PROXY_X_AUTH_USER,
         _NGX_PROXY_X_AUTH_APP,
@@ -423,6 +426,9 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
         "        proxy_set_header X-Auth-Display-Name $auth_display;",
         "        proxy_set_header X-Auth-Groups $auth_groups;",
         _NGX_PROXY_X_AUTH_SOURCE,
+        # Canonical identity for apps that read REMOTE_USER / AUTH_USER from
+        # $http_x_remote_user (not X-Forwarded-User / X-Forwarded-For).
+        _NGX_PROXY_X_REMOTE_USER,
         "        proxy_set_header X-Forwarded-Email $auth_email;",
         "        proxy_set_header X-Forwarded-User $auth_display;",
         "        proxy_set_header X-Forwarded-Preferred-Username $auth_preferred;",

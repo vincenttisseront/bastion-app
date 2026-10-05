@@ -150,8 +150,8 @@ def _allow_identity_headers(
         "X-Auth-App": app_slug,
     }
     if email_l:
-        # Dual names: nginx maps X-Auth-Email → X-Forwarded-Email; some stacks
-        # also inspect X-Auth-Request-Email (oauth2-proxy convention).
+        # Dual names: nginx maps X-Auth-Email → X-Forwarded-Email / X-Remote-User;
+        # some stacks also inspect X-Auth-Request-Email (oauth2-proxy convention).
         headers["X-Auth-Email"] = email_l
         headers["X-Auth-Request-Email"] = email_l
     if preferred_l or email_l:

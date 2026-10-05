@@ -85,9 +85,11 @@ SSO_BRIDGE_LABELS: dict[str, str] = {
 
 SSO_BRIDGE_HELP: dict[str, str] = {
     "trusted_headers": (
-        "Le bastion injecte X-Forwarded-Email / X-Auth-* après auth_request. "
-        "L’application doit être configurée pour faire confiance à ces en-têtes "
-        "et ne pas ouvrir son propre écran OAuth concurrent."
+        "Le bastion injecte X-Remote-User (email SSO), X-Forwarded-Email et "
+        "X-Auth-* après auth_request. Les apps HTTP (ex. Zabbix) mappent "
+        "X-Remote-User → REMOTE_USER / AUTH_USER. L’application doit faire "
+        "confiance à ces en-têtes et ne pas ouvrir son propre écran OAuth "
+        "concurrent."
     ),
     "app_oidc": (
         "L’application ignore les en-têtes bruts : elle crée sa session via "
