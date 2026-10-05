@@ -256,6 +256,13 @@ async def user_profile(
     from app.i18n.middleware import get_request_locale
 
     locale = get_request_locale(request)
+    from app.web.portal_public_links import profile_public_link_tiles
+
+    linked_public_apps, available_public_apps = profile_public_link_tiles(
+        db,
+        settings,
+        keycloak_user_id=user.keycloak_user_id,
+    )
     return render(
         "portal/profile.html",
         **_portal_page_ctx(
@@ -265,6 +272,8 @@ async def user_profile(
             portal_admin=portal_admin,
             apps=tiles,
             apps_preview=tiles[:6],
+            linked_public_apps=linked_public_apps,
+            available_public_apps=available_public_apps,
             account_url=account_url,
             role_label=t(
                 "Administrateur" if portal_admin else "Utilisateur",
@@ -640,3 +649,51 @@ async def app_favorite_remove(
     except FavoriteError as exc:
         return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
     return {"ok": True, "favorited": False, "removed": removed}
+
+
+@router.post("/api/apps/{app_id}/public-link")
+async def app_public_link_add(
+    app_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user: UserContext = Depends(require_user_enriched),
+):
+    """Pin a managed-domain public_proxy app on Mon profil → Mes liens."""
+    from app.web.portal_public_links import PublicLinkError, add_public_link
+
+    try:
+        created = add_public_link(
+            db,
+            settings,
+            keycloak_user_id=user.keycloak_user_id,
+            application_id=app_id,
+            actor=user.email or user.username or "user",
+            ip_address=_client_ip(request),
+        )
+    except PublicLinkError as exc:
+        return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
+    return {"ok": True, "linked": True, "created": created}
+
+
+@router.delete("/api/apps/{app_id}/public-link")
+async def app_public_link_remove(
+    app_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: UserContext = Depends(require_user_enriched),
+):
+    """Unpin a public_proxy app from Mes liens."""
+    from app.web.portal_public_links import PublicLinkError, remove_public_link
+
+    try:
+        removed = remove_public_link(
+            db,
+            keycloak_user_id=user.keycloak_user_id,
+            application_id=app_id,
+            actor=user.email or user.username or "user",
+            ip_address=_client_ip(request),
+        )
+    except PublicLinkError as exc:
+        return JSONResponse({"ok": False, "detail": str(exc)}, status_code=400)
+    return {"ok": True, "linked": False, "removed": removed}

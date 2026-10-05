@@ -488,6 +488,36 @@ class UserAppFavorite(Base):
     app = relationship("App", foreign_keys=[application_id])
 
 
+class UserPublicAppLink(Base):
+    """Per-user personal links to managed-domain public_proxy apps.
+
+    These apps stay out of the RBAC catalogue (/apps) but can be pinned on
+    Mon profil → Mes liens (e.g. monitoring exposed as public proxy).
+    """
+
+    __tablename__ = "user_public_app_links"
+
+    id = Column(Integer, primary_key=True)
+    keycloak_user_id = Column(String, nullable=False, index=True)
+    application_id = Column(
+        Integer,
+        ForeignKey(_FK_APPS_ID, ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "keycloak_user_id",
+            "application_id",
+            name="uq_user_public_app_link",
+        ),
+    )
+
+    app = relationship("App", foreign_keys=[application_id])
+
+
 class GroupAppCredential(Base):
     """Vault credential shared by all members of an RBAC group for one app.
 

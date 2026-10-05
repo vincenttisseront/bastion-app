@@ -3,7 +3,7 @@
 {% block body_class %}page-portal{% endblock %}
 
 {% block head_extra %}
-<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20260916-locale-form">
+<link rel="stylesheet" href="/static/css/bastion-portal.css?v=20261005-public-links">
 {% endblock %}
 
 {% block content %}
@@ -45,6 +45,7 @@
   <div class="portal-profile-layout">
     <nav class="portal-profile-nav card" aria-label="{{ _('Sections du profil') }}">
       <a href="#section-general" class="portal-profile-nav-link is-active" data-profile-nav>{{ _('Général') }}</a>
+      <a href="#section-links" class="portal-profile-nav-link" data-profile-nav>{{ _('Liens') }}</a>
       <a href="#section-devices" class="portal-profile-nav-link" data-profile-nav>{{ _('Appareils') }}</a>
       <a href="#section-security" class="portal-profile-nav-link" data-profile-nav>{{ _('Sécurité') }}</a>
       <a href="#section-prefs" class="portal-profile-nav-link" data-profile-nav>{{ _('Préférences') }}</a>
@@ -121,6 +122,79 @@
           </div>
           {% else %}
           <p class="text-2">{{ _('Aucune application pour le moment.') }}</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section id="section-links" class="card portal-profile-card">
+        <div class="card-header">
+          <h2 class="card-title">{{ _('Mes liens') }}</h2>
+        </div>
+        <div class="card-body">
+          <p class="text-2" style="margin:0 0 var(--sp-3);">
+            {{ _('Raccourcis vers des applications internes en proxy public sur un domaine géré (sans auth bastion).') }}
+          </p>
+
+          <h3 class="portal-links-subtitle">{{ _('Mes raccourcis') }}</h3>
+          {% if linked_public_apps %}
+          <div class="portal-apps-preview" aria-label="{{ _('Liens épinglés') }}" data-public-links-linked>
+            {% for app in linked_public_apps %}
+            <div class="portal-apps-preview-item portal-links-row" data-public-link-row data-app-id="{{ app.id }}">
+              <a class="portal-links-open" href="{{ app.launch_url }}" target="_blank" rel="noopener noreferrer" title="{{ app.public_fqdn }}">
+                <span class="portal-apps-preview-tile">{{ app_preview_icon(app) }}</span>
+                <span class="portal-links-meta">
+                  <span class="portal-apps-preview-label truncate">{{ app.label }}</span>
+                  <span class="portal-links-fqdn mono truncate">{{ app.public_fqdn }}</span>
+                </span>
+              </a>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                data-public-link-toggle
+                data-app-id="{{ app.id }}"
+                data-linked="1"
+              >{{ _('Retirer') }}</button>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-2" data-public-links-empty>{{ _('Aucun lien pour le moment. Ajoutez un service ci-dessous.') }}</p>
+          {% endif %}
+
+          <h3 class="portal-links-subtitle" style="margin-top:var(--sp-4);">{{ _('Services disponibles') }}</h3>
+          {% if available_public_apps %}
+          <div class="portal-apps-preview" aria-label="{{ _('Services proxy public disponibles') }}" data-public-links-available>
+            {% for app in available_public_apps %}
+            <div class="portal-apps-preview-item portal-links-row" data-public-link-row data-app-id="{{ app.id }}">
+              <div class="portal-links-open">
+                <span class="portal-apps-preview-tile">{{ app_preview_icon(app) }}</span>
+                <span class="portal-links-meta">
+                  <span class="portal-apps-preview-label truncate">{{ app.label }}</span>
+                  <span class="portal-links-fqdn mono truncate">{{ app.public_fqdn }}</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                data-public-link-toggle
+                data-app-id="{{ app.id }}"
+                data-linked="0"
+                data-label="{{ app.label }}"
+                data-fqdn="{{ app.public_fqdn }}"
+                data-launch="{{ app.launch_url }}"
+                data-logo="{{ app.logo_url or '' }}"
+              >{{ _('Ajouter') }}</button>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="text-2">
+            {% if linked_public_apps %}
+              {{ _('Tous les services disponibles sont déjà dans vos raccourcis.') }}
+            {% else %}
+              {{ _('Aucun proxy public sur un domaine géré pour le moment.') }}
+            {% endif %}
+          </p>
           {% endif %}
         </div>
       </section>
@@ -420,6 +494,40 @@
       submitButton: '#profile-password-submit'
     });
   }
+
+  function csrfToken() {
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta && meta.content) return meta.content;
+    var input = document.querySelector('input[name="csrf_token"]');
+    return input ? input.value : '';
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('[data-public-link-toggle]') : null;
+    if (!btn) return;
+    e.preventDefault();
+    var appId = btn.getAttribute('data-app-id');
+    var linked = btn.getAttribute('data-linked') === '1';
+    if (!appId) return;
+    btn.disabled = true;
+    fetch('/api/apps/' + encodeURIComponent(appId) + '/public-link', {
+      method: linked ? 'DELETE' : 'POST',
+      headers: {
+        'X-CSRF-Token': csrfToken(),
+        Accept: 'application/json',
+      },
+    })
+      .then(function (r) { return r.json().then(function (body) { return { ok: r.ok, body: body }; }); })
+      .then(function (res) {
+        if (!res.ok || !res.body || !res.body.ok) {
+          btn.disabled = false;
+          return;
+        }
+        window.location.hash = '#section-links';
+        window.location.reload();
+      })
+      .catch(function () { btn.disabled = false; });
+  });
 })();
 </script>
 {% endblock %}

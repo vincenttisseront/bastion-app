@@ -309,6 +309,7 @@ def test_generate_crushftp_auth_include_keeps_full_cookie_path():
     assert "proxy_set_header X-Auth-User $auth_user;" in named
     assert "proxy_set_header X-Forwarded-Email $auth_email;" in named
     assert "proxy_set_header X-Forwarded-User $auth_display;" in named
+    assert "proxy_set_header X-Remote-User $bastion_remote_user;" in named
 
 
 def test_generate_non_crushftp_forwards_trusted_identity_headers():
@@ -318,8 +319,8 @@ def test_generate_non_crushftp_forwards_trusted_identity_headers():
         label="Open WebUI",
         upstream_url="https://10.0.31.112/",
         access_mode="subdomain_proxy",
-        public_fqdn="open-webui.ar-systems.fr",
-        realm_slug="ar-systems",
+        public_fqdn="open-webui.example.org",
+        realm_slug="default",
         auth_mode="sso",
         enabled=True,
     )
@@ -327,6 +328,7 @@ def test_generate_non_crushftp_forwards_trusted_identity_headers():
     assert "auth_request_set $auth_email $upstream_http_x_auth_request_email;" in block
     assert "proxy_set_header X-Forwarded-Email $auth_email;" in block
     assert "proxy_set_header X-Forwarded-User $auth_display;" in block
+    assert "proxy_set_header X-Remote-User $bastion_remote_user;" in block
     assert "proxy_set_header X-Auth-Email $auth_email;" in block
     assert "proxy_set_header X-Auth-Source $auth_source;" in block
     assert "proxy_buffer_size 128k;" in block
