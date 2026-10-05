@@ -23,7 +23,9 @@ ACCESS_MODE_DESCRIPTIONS: dict[str, str] = {
     "subdomain_proxy": "Proxy transparent sur un FQDN dédié (modèle CrushFTP).",
     "legacy_path_proxy": "Proxy sous /proxy/{slug}/ — uniquement si l'app supporte un base_path.",
     "public_proxy": (
-        "Reverse proxy simple sans authentification bastion — hors catalogue utilisateur."
+        "Reverse proxy simple sans authentification bastion — hors catalogue "
+        "utilisateur ; les FQDN sur un domaine géré peuvent être épinglés "
+        "dans Mon profil → Mes liens."
     ),
 }
 

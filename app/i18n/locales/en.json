@@ -1450,7 +1450,6 @@
   "Langue": "Language",
   "Latence": "Latency",
   "Le JSON doit être un objet (clé/valeur).": "JSON must be an object (key/value).",
-  "Le bastion injecte X-Forwarded-Email / X-Auth-* après auth_request. L’application doit être configurée pour faire confiance à ces en-têtes et ne pas ouvrir son propre écran OAuth concurrent.": "The bastion injects X-Forwarded-Email / X-Auth-* after auth_request. The application must be configured to trust these headers and must not open its own concurrent OAuth screen.",
   "Le canal est indépendant des AccessGrant : retirer un bêta-testeur bascule sur stable sans toucher aux droits.": "The channel is independent of AccessGrants: removing a beta tester switches to stable without changing rights.",
   "Le débit a été temporairement limité. Attendez quelques secondes puis rechargez la page.": "Rate has been temporarily limited. Wait a few seconds then reload the page.",
   "Le fichier semble chiffré mais aucune clé n'est configurée": "The file appears encrypted but no key is configured",
@@ -3004,5 +3003,16 @@
   "{n} demandes rejetées.": "{n} requests rejected.",
   "{n} demandes approuvées.": "{n} requests approved.",
   "Choisissez un realm cible pour l’approbation groupée.": "Choose a target realm for bulk approval.",
-  "Envoyer les identifiants par email": "Send credentials by email"
+  "Envoyer les identifiants par email": "Send credentials by email",
+  "Liens": "Links",
+  "Mes liens": "My links",
+  "Mes raccourcis": "My shortcuts",
+  "Services disponibles": "Available services",
+  "Raccourcis vers des applications internes en proxy public sur un domaine géré (sans auth bastion).": "Shortcuts to internal apps exposed as public proxy on a managed domain (no bastion auth).",
+  "Liens épinglés": "Pinned links",
+  "Aucun lien pour le moment. Ajoutez un service ci-dessous.": "No links yet. Add a service below.",
+  "Services proxy public disponibles": "Available public proxy services",
+  "Tous les services disponibles sont déjà dans vos raccourcis.": "All available services are already in your shortcuts.",
+  "Aucun proxy public sur un domaine géré pour le moment.": "No public proxy on a managed domain yet.",
+  "Le bastion injecte X-Remote-User (email SSO), X-Forwarded-Email et X-Auth-* après auth_request. Les apps HTTP (ex. Zabbix) mappent X-Remote-User → REMOTE_USER / AUTH_USER. L’application doit faire confiance à ces en-têtes et ne pas ouvrir son propre écran OAuth concurrent.": "Bastion injects X-Remote-User (SSO email), X-Forwarded-Email and X-Auth-* after auth_request. HTTP apps (e.g. Zabbix) map X-Remote-User → REMOTE_USER / AUTH_USER. The application must trust these headers and must not open its own competing OAuth screen."
 }

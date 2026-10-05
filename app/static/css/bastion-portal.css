@@ -1196,6 +1196,45 @@ button.app-tile:focus-visible {
   color: var(--text);
 }
 
+.portal-links-subtitle {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-2, var(--text));
+}
+
+.portal-links-row {
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.portal-links-open {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  flex: 1;
+  text-decoration: none;
+  color: inherit;
+}
+
+.portal-links-open:hover {
+  text-decoration: none;
+  color: inherit;
+}
+
+.portal-links-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.portal-links-fqdn {
+  font-size: var(--fs-xs, 0.75rem);
+  color: var(--text-2, #6b7280);
+}
+
 .portal-security-actions {
   margin-top: var(--sp-4);
 }
