@@ -10,7 +10,8 @@ from app.admin.export import export_app_catalogue_files
 from app.audit import log_action
 from app.bastion.nginx_known_hosts_export import normalize_hostname
 from app.models import App, PendingHost, utcnow
-from app.security.banning.engine import find_active_ban, record_unknown_host_refusal
+from app.robotic.robotic_session_cookies import portal_sso_cookie_domain
+from app.security.banning.engine import record_unknown_host_refusal
 from app.sso_settings import Settings
 
 _SLUG_RE = re_safe.compile(r"^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$")
@@ -22,11 +23,78 @@ _INFRA_DISCOVERY_PROBE_HOST = re_safe.compile(
     re_safe.IGNORECASE,
 )
 
+_SORT_COLUMNS = frozenset({"hostname", "hits", "last_seen", "status", "ip"})
+
+# Until the setup wizard sets a real portal FQDN, do not filter discovery
+# (avoids hiding queues on fresh installs still on portal.example.com).
+_PLACEHOLDER_PORTAL_DOMAINS = frozenset(
+    {
+        "",
+        "localhost",
+        "portal.example.com",
+        "example.com",
+    }
+)
+
 
 def is_infra_discovery_probe(hostname: str | None) -> bool:
     """True for synthetic Host headers from deploy discovery smokes."""
     host = normalize_hostname(hostname or "") or ""
     return bool(_INFRA_DISCOVERY_PROBE_HOST.match(host))
+
+
+def parse_managed_domain_suffixes(raw: str | None) -> list[str]:
+    """Split admin-entered extras (newline / comma / space)."""
+    text = (raw or "").strip()
+    if not text:
+        return []
+    parts: list[str] = []
+    for chunk in text.replace(",", "\n").replace(";", "\n").splitlines():
+        for token in chunk.split():
+            host = normalize_hostname(token)
+            if host and host not in parts:
+                parts.append(host)
+    return parts
+
+
+def format_managed_domain_suffixes(suffixes: list[str]) -> str:
+    """Persist extras as one domain per line."""
+    return "\n".join(parse_managed_domain_suffixes("\n".join(suffixes)))
+
+
+def managed_domain_suffixes(
+    *,
+    portal_domain: str | None,
+    extra_raw: str | None = None,
+) -> list[str]:
+    """Apex / parent domains the bastion manages for discovery.
+
+    When the portal FQDN is still a placeholder, only admin extras apply (empty
+    list = no filter). After a real portal domain is set, the parent apex
+    (``portal.example.com`` → ``example.com``) and the portal FQDN are included.
+    """
+    out: list[str] = []
+    portal = normalize_hostname(portal_domain or "") or ""
+    if portal and portal not in _PLACEHOLDER_PORTAL_DOMAINS:
+        parent = portal_sso_cookie_domain(portal)
+        for candidate in (parent, portal):
+            if candidate and candidate not in out:
+                out.append(candidate)
+    for extra in parse_managed_domain_suffixes(extra_raw):
+        if extra not in out:
+            out.append(extra)
+    return out
+
+
+def hostname_is_managed(hostname: str | None, suffixes: list[str]) -> bool:
+    """True when host equals a managed suffix or is a subdomain of one."""
+    host = normalize_hostname(hostname or "") or ""
+    if not host or not suffixes:
+        return False
+    for suffix in suffixes:
+        if host == suffix or host.endswith("." + suffix):
+            return True
+    return False
 
 
 def purge_infra_discovery_probes(db: Session) -> int:
@@ -39,6 +107,29 @@ def purge_infra_discovery_probes(db: Session) -> int:
     deleted = 0
     for row in rows:
         if is_infra_discovery_probe(row.hostname):
+            db.delete(row)
+            deleted += 1
+    if deleted:
+        db.commit()
+    return deleted
+
+
+def purge_unmanaged_pending_hosts(
+    db: Session,
+    *,
+    suffixes: list[str],
+) -> int:
+    """Delete pending rows whose hostname is outside managed suffixes."""
+    if not suffixes:
+        return 0
+    rows = db.query(PendingHost).filter(PendingHost.status == "pending").all()
+    deleted = 0
+    for row in rows:
+        if is_infra_discovery_probe(row.hostname):
+            db.delete(row)
+            deleted += 1
+            continue
+        if not hostname_is_managed(row.hostname, suffixes):
             db.delete(row)
             deleted += 1
     if deleted:
@@ -63,16 +154,19 @@ def record_unknown_host(
     client_ip: str | None = None,
     user_agent: str | None = None,
     uri: str | None = None,
+    managed_suffixes: list[str] | None = None,
 ) -> PendingHost | None:
-    """Upsert a pending (or update rejected) discovery row. Returns None if host invalid.
+    """Upsert a pending discovery row. Returns None if host invalid / out of scope.
 
-    Also writes an audit_logs entry (Admin → Logs) so unregistered Host+URI are visible
-    alongside access_denied_no_grant. Repeated hits are throttled to avoid flood.
+    When ``managed_suffixes`` is a non-empty list, hosts outside those apexes are
+    ignored (no queue pollution from random Internet Host headers).
     """
     host = normalize_hostname(hostname)
     if not host or host in ("127.0.0.1", "localhost", "::1"):
         return None
     if is_infra_discovery_probe(host):
+        return None
+    if managed_suffixes is not None and not hostname_is_managed(host, managed_suffixes):
         return None
 
     now = utcnow()
@@ -98,19 +192,16 @@ def record_unknown_host(
             row.last_user_agent = user_agent[:512]
         if uri:
             row.last_uri = uri[:1024]
-        # approved hosts should already be in the known map; if still hitting
-        # discovery, leave status as-is (ops can re-apply infra).
         if row.status == "approved":
             pass
         elif row.status == "rejected":
-            pass  # stay rejected; still count hits
+            pass
         else:
             row.status = "pending"
         row.updated_at = now
     db.commit()
     db.refresh(row)
 
-    # Audit: first 5 hits, then every 10th — enough for live visibility without flood.
     hit = int(row.hit_count or 0)
     if is_new or hit <= 5 or hit % 10 == 0:
         log_action(
@@ -181,6 +272,32 @@ def reject_pending_hosts_bulk(
             continue
         rejected.append(reject_pending_host(db, host_id=host_id, actor=actor))
     return rejected
+
+
+def sort_pending_hosts(
+    rows: list[PendingHost],
+    *,
+    sort: str = "last_seen",
+    direction: str = "desc",
+) -> list[PendingHost]:
+    """Stable in-memory sort for the admin list (max 500 rows)."""
+    key = (sort or "last_seen").strip().lower()
+    if key not in _SORT_COLUMNS:
+        key = "last_seen"
+    asc = (direction or "desc").strip().lower() == "asc"
+
+    def sort_key(row: PendingHost):
+        if key == "hostname":
+            return (row.hostname or "").lower()
+        if key == "hits":
+            return int(row.hit_count or 0)
+        if key == "status":
+            return (row.status or "").lower()
+        if key == "ip":
+            return (row.last_client_ip or "").lower()
+        return row.last_seen_at or row.first_seen_at or utcnow()
+
+    return sorted(rows, key=sort_key, reverse=not asc)
 
 
 def approve_pending_host(

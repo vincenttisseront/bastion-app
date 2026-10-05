@@ -983,6 +983,9 @@ class PortalSettings(Base):
     portal_domain = Column(String, nullable=True)
     default_realm_slug = Column(String, nullable=True)
     setup_wizard_completed_at = Column(DateTime(timezone=True), nullable=True)
+    # Extra apex / parent domains for unknown-Host discovery (newline or CSV).
+    # Always combined with the portal parent (portal.example.com → example.com).
+    managed_domain_suffixes = Column(Text, nullable=True)
 
     # MTA-STS policy publication (Admin → Configuration) — nginx edge serves
     # https://mta-sts.<mail_domain>/.well-known/mta-sts.txt (RFC 8461).

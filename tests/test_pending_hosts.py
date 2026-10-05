@@ -42,7 +42,79 @@ def test_known_hosts_map_never_emits_ipv6_or_dollar(db_session, tmp_path):
 
 
 def test_suggest_slug():
-    assert suggest_slug("teleport.ar-systems.fr") == "teleport"
+    assert suggest_slug("teleport.example.com") == "teleport"
+
+
+def test_managed_domain_suffixes_from_portal():
+    from app.bastion.pending_host_service import (
+        hostname_is_managed,
+        managed_domain_suffixes,
+    )
+
+    # Placeholder portal → no automatic filter (extras only).
+    assert managed_domain_suffixes(portal_domain="portal.example.com") == []
+
+    suffixes = managed_domain_suffixes(portal_domain="portal.example.org")
+    assert "example.org" in suffixes
+    assert "portal.example.org" in suffixes
+    assert hostname_is_managed("www.example.org", suffixes)
+    assert hostname_is_managed("mail.example.org", suffixes)
+    assert not hostname_is_managed("www.epa.org", suffixes)
+
+    with_extra = managed_domain_suffixes(
+        portal_domain="portal.example.org",
+        extra_raw="partner.example.net\nother.example.net",
+    )
+    assert "partner.example.net" in with_extra
+    assert hostname_is_managed("app.partner.example.net", with_extra)
+
+
+def test_record_unknown_host_respects_managed_suffixes(db_session):
+    from app.bastion.pending_host_service import purge_unmanaged_pending_hosts
+
+    assert (
+        record_unknown_host(
+            db_session,
+            hostname="www.epa.org",
+            managed_suffixes=["example.com"],
+        )
+        is None
+    )
+    assert db_session.query(PendingHost).count() == 0
+
+    row = record_unknown_host(
+        db_session,
+        hostname="www.example.com",
+        managed_suffixes=["example.com"],
+    )
+    assert row is not None
+    assert row.hostname == "www.example.com"
+
+    # Pollution already in DB can be purged.
+    db_session.add(
+        PendingHost(hostname="www.genetec.com", status="pending", hit_count=3)
+    )
+    db_session.commit()
+    assert purge_unmanaged_pending_hosts(db_session, suffixes=["example.com"]) == 1
+    left = db_session.query(PendingHost).all()
+    assert len(left) == 1
+    assert left[0].hostname == "www.example.com"
+
+
+def test_sort_pending_hosts(db_session):
+    from app.bastion.pending_host_service import sort_pending_hosts
+
+    a = record_unknown_host(db_session, hostname="a.example.com")
+    b = record_unknown_host(db_session, hostname="z.example.com")
+    assert a and b
+    a.hit_count = 5
+    b.hit_count = 50
+    db_session.commit()
+    rows = db_session.query(PendingHost).all()
+    by_hits = sort_pending_hosts(rows, sort="hits", direction="desc")
+    assert by_hits[0].hostname == "z.example.com"
+    by_host = sort_pending_hosts(rows, sort="hostname", direction="asc")
+    assert by_host[0].hostname == "a.example.com"
 
 
 def test_infra_discovery_probe_not_recorded(db_session):

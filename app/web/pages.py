@@ -47,8 +47,12 @@ from app.bastion.m2m_policy import (
 )
 from app.bastion.pending_host_service import (
     approve_pending_host,
+    hostname_is_managed,
+    managed_domain_suffixes,
+    purge_unmanaged_pending_hosts,
     reject_pending_host,
     reject_pending_hosts_bulk,
+    sort_pending_hosts,
     suggest_slug,
 )
 from app.breakglass import (
@@ -1872,17 +1876,44 @@ def admin_apps_delete(
 def admin_pending_hosts_list(
     request: Request,
     status: str = Query("pending"),
+    sort: str = Query("last_seen"),
+    direction: str = Query("desc"),
+    scope: str = Query("managed"),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     from app.bastion.pending_host_service import purge_infra_discovery_probes
+    from app.portal_settings_service import ensure_portal_settings
+    from app.setup_wizard_service import get_effective_portal_domain
 
     purge_infra_discovery_probes(db)
+    portal_row = ensure_portal_settings(db, settings)
+    portal_domain = get_effective_portal_domain(db, settings)
+    suffixes = managed_domain_suffixes(
+        portal_domain=portal_domain,
+        extra_raw=getattr(portal_row, "managed_domain_suffixes", None),
+    )
     status_filter = (status or "pending").strip().lower()
+    scope_filter = (scope or "managed").strip().lower()
+    if scope_filter not in ("managed", "all"):
+        scope_filter = "managed"
+    sort_key = (sort or "last_seen").strip().lower()
+    sort_dir = (direction or "desc").strip().lower()
+    if sort_dir not in ("asc", "desc"):
+        sort_dir = "desc"
+
     query = db.query(PendingHost)
     if status_filter != "all":
         query = query.filter_by(status=status_filter)
-    rows = query.order_by(PendingHost.last_seen_at.desc()).limit(500).all()
+    rows = query.limit(500).all()
+    unmanaged_pending = 0
+    if suffixes:
+        for r in rows:
+            if r.status == "pending" and not hostname_is_managed(r.hostname, suffixes):
+                unmanaged_pending += 1
+        if scope_filter == "managed":
+            rows = [r for r in rows if hostname_is_managed(r.hostname, suffixes)]
+    rows = sort_pending_hosts(rows, sort=sort_key, direction=sort_dir)
     pending_count = sum(1 for r in rows if r.status == "pending")
     return render(
         "admin/pending_hosts/list.html",
@@ -1892,8 +1923,86 @@ def admin_pending_hosts_list(
             rows=rows,
             status_filter=status_filter,
             pending_count=pending_count,
+            sort=sort_key,
+            direction=sort_dir,
+            scope_filter=scope_filter,
+            managed_suffixes=suffixes,
+            managed_extras=getattr(portal_row, "managed_domain_suffixes", None) or "",
+            portal_domain=portal_domain,
+            unmanaged_pending=unmanaged_pending,
+            is_managed_host=lambda h: hostname_is_managed(h, suffixes),
         ),
     )
+
+
+@admin_router.post("/admin/pending-hosts/managed-domains")
+def admin_pending_hosts_managed_domains_post(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    managed_extras: str = Form(""),
+    status: str = Form("pending"),
+    scope: str = Form("managed"),
+    sort: str = Form("last_seen"),
+    direction: str = Form("desc"),
+):
+    from app.portal_settings_service import update_managed_domain_suffixes
+
+    secret = settings.vault_portal_internal_token or "dev"
+    update_managed_domain_suffixes(
+        db,
+        settings,
+        actor=user.email or user.username or "admin",
+        raw=managed_extras,
+        ip_address=client_ip_from_request(request),
+    )
+    q = (
+        f"?status={status or 'pending'}"
+        f"&scope={scope or 'managed'}"
+        f"&sort={sort or 'last_seen'}"
+        f"&direction={direction or 'desc'}"
+    )
+    response = RedirectResponse(url=f"/admin/pending-hosts{q}", status_code=302)
+    flash_i18n(
+        request,
+        response,
+        "Domaines gérés mis à jour — seuls ces suffixes alimentent la file.",
+        "success",
+        secret,
+    )
+    return response
+
+
+@admin_router.post("/admin/pending-hosts/purge-unmanaged")
+def admin_pending_hosts_purge_unmanaged_post(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+):
+    from app.portal_settings_service import ensure_portal_settings
+    from app.setup_wizard_service import get_effective_portal_domain
+
+    secret = settings.vault_portal_internal_token or "dev"
+    portal_row = ensure_portal_settings(db, settings)
+    suffixes = managed_domain_suffixes(
+        portal_domain=get_effective_portal_domain(db, settings),
+        extra_raw=getattr(portal_row, "managed_domain_suffixes", None),
+    )
+    deleted = purge_unmanaged_pending_hosts(db, suffixes=suffixes)
+    response = RedirectResponse(
+        url="/admin/pending-hosts?status=pending&scope=managed", status_code=302
+    )
+    flash_i18n(
+        request,
+        response,
+        "{n} domaine(s) hors périmètre purgé(s).",
+        "success",
+        secret,
+        n=deleted,
+    )
+    return response
 
 
 @admin_router.post("/admin/pending-hosts/bulk/reject")
