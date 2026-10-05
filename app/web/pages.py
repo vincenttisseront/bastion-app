@@ -1889,6 +1889,14 @@ def admin_pending_hosts_list(
     purge_infra_discovery_probes(db)
     portal_row = ensure_portal_settings(db, settings)
     portal_domain = get_effective_portal_domain(db, settings)
+    from app.bastion.pending_host_service import is_placeholder_portal_domain
+    from app.bastion.nginx_known_hosts_export import normalize_hostname
+    from app.setup_wizard_service import _is_portal_domain_hostname
+
+    req_host = normalize_hostname((request.headers.get("host") or "").split(":")[0]) or ""
+    if is_placeholder_portal_domain(portal_domain) and req_host:
+        if not is_placeholder_portal_domain(req_host) and _is_portal_domain_hostname(req_host):
+            portal_domain = req_host
     suffixes = managed_domain_suffixes(
         portal_domain=portal_domain,
         extra_raw=getattr(portal_row, "managed_domain_suffixes", None),

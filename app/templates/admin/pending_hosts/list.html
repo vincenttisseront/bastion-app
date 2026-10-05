@@ -14,7 +14,7 @@
 /admin/pending-hosts?status={{ status_filter }}&scope={{ scope_filter }}&sort={{ col }}&direction={% if sort == col and direction == 'asc' %}desc{% else %}asc{% endif %}
 {%- endmacro %}
 {% macro sort_mark(col) -%}
-{% if sort == col %}{% if direction == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
+{% if sort == col %}{% if direction == 'asc' %} ▲{% else %} ▼{% endif %}{% else %} ⇅{% endif %}
 {%- endmacro %}
 <div class="page" data-pending-hosts-bulk>
   <div class="page-header">
@@ -30,6 +30,20 @@
   <div class="card" style="margin-bottom:1rem;">
     <div class="card-header">
       <span class="card-title">{{ _('Domaines gérés par le bastion') }}</span>
+      {% if unmanaged_pending > 0 %}
+      <div class="card-header-actions">
+        <form method="post" action="/admin/pending-hosts/purge-unmanaged" style="margin:0;">
+          <button type="submit" class="btn btn-primary btn-sm"
+                  data-confirm-tpl="{{ _('Purger {n} domaine(s) hors périmètre ?') }}"
+                  data-confirm-title="{{ _('Purge hors périmètre') }}"
+                  data-confirm-label="{{ _('Purger') }}"
+                  data-confirm-n="{{ unmanaged_pending }}"
+                  data-purge-unmanaged>
+            {{ _('Purger hors périmètre') }} ({{ unmanaged_pending }})
+          </button>
+        </form>
+      </div>
+      {% endif %}
     </div>
     <div class="card-body">
       <p class="form-help" style="margin-top:0;">
@@ -41,6 +55,10 @@
         {% for s in managed_suffixes %}
         <span class="badge badge-muted mono">{{ s }}</span>
         {% endfor %}
+      </p>
+      {% else %}
+      <p class="form-help" style="color:var(--warn, #b45309);">
+        {{ _('Aucun suffixe géré détecté — définissez le FQDN portail (Setup) ou ajoutez des apex ci-dessous, sinon la file reste polluée.') }}
       </p>
       {% endif %}
       <form method="post" action="/admin/pending-hosts/managed-domains" class="form-stack" style="max-width:36rem;">
@@ -55,18 +73,6 @@
           <button type="submit" class="btn btn-primary btn-sm">{{ _('Enregistrer') }}</button>
         </div>
       </form>
-      {% if unmanaged_pending > 0 %}
-      <form method="post" action="/admin/pending-hosts/purge-unmanaged" style="margin-top:.75rem;">
-        <button type="submit" class="btn btn-ghost btn-sm"
-                data-confirm-tpl="{{ _('Purger {n} domaine(s) hors périmètre ?') }}"
-                data-confirm-title="{{ _('Purge hors périmètre') }}"
-                data-confirm-label="{{ _('Purger') }}"
-                data-confirm-n="{{ unmanaged_pending }}"
-                data-purge-unmanaged>
-          {{ _('Purger hors périmètre') }} ({{ unmanaged_pending }})
-        </button>
-      </form>
-      {% endif %}
     </div>
   </div>
 
@@ -74,6 +80,18 @@
     <div class="card-header">
       <span class="card-title">{{ _('File d’attente ·') }} {{ rows | length }}</span>
       <div class="card-header-actions" style="display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;">
+        {% if unmanaged_pending > 0 %}
+        <form method="post" action="/admin/pending-hosts/purge-unmanaged" style="margin:0;">
+          <button type="submit" class="btn btn-ghost btn-sm"
+                  data-confirm-tpl="{{ _('Purger {n} domaine(s) hors périmètre ?') }}"
+                  data-confirm-title="{{ _('Purge hors périmètre') }}"
+                  data-confirm-label="{{ _('Purger') }}"
+                  data-confirm-n="{{ unmanaged_pending }}"
+                  data-purge-unmanaged>
+            {{ _('Purger') }} ({{ unmanaged_pending }})
+          </button>
+        </form>
+        {% endif %}
         {% if pending_count > 0 %}
         <form method="post" action="/admin/pending-hosts/bulk/reject" id="pending-hosts-bulk-reject"
               class="users-bulk-bar" style="padding:0;border:0;margin:0;">
@@ -111,27 +129,27 @@
                        aria-label="{{ _('Sélectionner la page') }}">
               </th>
               {% endif %}
-              <th>
+              <th class="th-sortable">
                 <a href="{{ sort_href('hostname') }}" class="th-sort{% if sort == 'hostname' %} is-active{% endif %}">
                   Hostname{{ sort_mark('hostname') }}
                 </a>
               </th>
-              <th>
+              <th class="th-sortable">
                 <a href="{{ sort_href('hits') }}" class="th-sort{% if sort == 'hits' %} is-active{% endif %}">
                   Hits{{ sort_mark('hits') }}
                 </a>
               </th>
-              <th>
+              <th class="th-sortable">
                 <a href="{{ sort_href('last_seen') }}" class="th-sort{% if sort == 'last_seen' %} is-active{% endif %}">
                   {{ _('Dernière vue') }}{{ sort_mark('last_seen') }}
                 </a>
               </th>
-              <th>
+              <th class="th-sortable">
                 <a href="{{ sort_href('ip') }}" class="th-sort{% if sort == 'ip' %} is-active{% endif %}">
                   IP / URI{{ sort_mark('ip') }}
                 </a>
               </th>
-              <th>
+              <th class="th-sortable">
                 <a href="{{ sort_href('status') }}" class="th-sort{% if sort == 'status' %} is-active{% endif %}">
                   {{ _('Statut') }}{{ sort_mark('status') }}
                 </a>
