@@ -37,6 +37,11 @@ _PLACEHOLDER_PORTAL_DOMAINS = frozenset(
 )
 
 
+def is_placeholder_portal_domain(domain: str | None) -> bool:
+    host = normalize_hostname(domain or "") or ""
+    return host in _PLACEHOLDER_PORTAL_DOMAINS
+
+
 def is_infra_discovery_probe(hostname: str | None) -> bool:
     """True for synthetic Host headers from deploy discovery smokes."""
     host = normalize_hostname(hostname or "") or ""

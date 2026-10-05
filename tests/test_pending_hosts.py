@@ -48,10 +48,12 @@ def test_suggest_slug():
 def test_managed_domain_suffixes_from_portal():
     from app.bastion.pending_host_service import (
         hostname_is_managed,
+        is_placeholder_portal_domain,
         managed_domain_suffixes,
     )
 
     # Placeholder portal → no automatic filter (extras only).
+    assert is_placeholder_portal_domain("portal.example.com")
     assert managed_domain_suffixes(portal_domain="portal.example.com") == []
 
     suffixes = managed_domain_suffixes(portal_domain="portal.example.org")
