@@ -24,13 +24,34 @@ def count_pending_users(db: Session) -> int:
 
 
 def count_pending_hosts(db: Session) -> int:
-    """Pending unknown Hosts, excluding Ansible discovery-probe noise."""
+    """Pending unknown Hosts in the managed domain perimeter (excl. probes)."""
+    from app.bastion.pending_host_service import (
+        hostname_is_managed,
+        managed_domain_suffixes,
+    )
+    from app.portal_settings_service import ensure_portal_settings
+    from app.setup_wizard_service import get_effective_portal_domain
+    from app.sso_settings import get_settings
+
+    settings = get_settings()
+    portal_row = ensure_portal_settings(db, settings)
+    suffixes = managed_domain_suffixes(
+        portal_domain=get_effective_portal_domain(db, settings),
+        extra_raw=getattr(portal_row, "managed_domain_suffixes", None),
+    )
     rows = (
         db.query(PendingHost.hostname)
         .filter(PendingHost.status == "pending")
         .all()
     )
-    return sum(1 for (hostname,) in rows if not is_infra_discovery_probe(hostname))
+    count = 0
+    for (hostname,) in rows:
+        if is_infra_discovery_probe(hostname):
+            continue
+        if suffixes and not hostname_is_managed(hostname, suffixes):
+            continue
+        count += 1
+    return count
 
 
 def count_pending_devices(db: Session) -> int:
@@ -183,17 +204,35 @@ def _append_pending_users(db: Session, items: list[dict[str, Any]], loc: str) ->
 
 
 def _append_pending_hosts(db: Session, items: list[dict[str, Any]], loc: str) -> None:
-    rows = [
-        r
-        for r in (
-            db.query(PendingHost)
-            .filter(PendingHost.status == "pending")
-            .order_by(PendingHost.last_seen_at.desc())
-            .limit(200)
-            .all()
-        )
-        if not is_infra_discovery_probe(r.hostname)
-    ]
+    from app.bastion.pending_host_service import (
+        hostname_is_managed,
+        managed_domain_suffixes,
+    )
+    from app.portal_settings_service import ensure_portal_settings
+    from app.setup_wizard_service import get_effective_portal_domain
+    from app.sso_settings import get_settings
+
+    settings = get_settings()
+    portal_row = ensure_portal_settings(db, settings)
+    suffixes = managed_domain_suffixes(
+        portal_domain=get_effective_portal_domain(db, settings),
+        extra_raw=getattr(portal_row, "managed_domain_suffixes", None),
+    )
+    rows = []
+    for r in (
+        db.query(PendingHost)
+        .filter(PendingHost.status == "pending")
+        .order_by(PendingHost.last_seen_at.desc())
+        .limit(400)
+        .all()
+    ):
+        if is_infra_discovery_probe(r.hostname):
+            continue
+        if suffixes and not hostname_is_managed(r.hostname, suffixes):
+            continue
+        rows.append(r)
+        if len(rows) >= 200:
+            break
     if not rows:
         return
     n = len(rows)
@@ -312,4 +351,4 @@ def build_pending_action_items(
     _append_bastion_accounts(db, items, loc)
     total = sum(int(i["count"]) for i in items)
     return {"total": total, "entries": items}
-
+

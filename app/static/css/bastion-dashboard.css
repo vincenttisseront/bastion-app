@@ -160,6 +160,9 @@
 }
 .filter-chip{padding:3px 10px;border-radius:var(--r-full);font-size:var(--fs-xs);font-weight:700;cursor:pointer;border:1px solid transparent;transition:all var(--t-fast);opacity:.55;background:transparent;color:var(--text-2)}
 .filter-chip.active{opacity:1}
+.th-sort{color:inherit;text-decoration:none;font-weight:inherit}
+.th-sort:hover{color:var(--accent, var(--ok));text-decoration:underline}
+.th-sort.is-active{color:var(--accent, var(--ok))}
 .filter-chip[data-filter="all"].active{background:rgba(71,85,105,.15);color:var(--text);border-color:var(--border)}
 .filter-chip[data-filter="sso"].active{background:var(--info-bg);color:var(--info);border-color:rgba(96,165,250,.3)}
 .filter-chip[data-filter="robotic"].active{background:var(--purple-bg);color:var(--purple);border-color:rgba(139,92,246,.3)}

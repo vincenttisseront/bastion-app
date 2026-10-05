@@ -11,11 +11,17 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
-from app.bastion.pending_host_service import record_unknown_host
+from app.bastion.pending_host_service import (
+    managed_domain_suffixes,
+    record_unknown_host,
+)
 from app.database import get_db
+from app.portal_settings_service import ensure_portal_settings
 from app.request_client_ip import client_ip_from_request
 from app.security import require_nginx_internal_token
 from app.security.banning.engine import find_active_ban
+from app.setup_wizard_service import get_effective_portal_domain
+from app.sso_settings import Settings, get_settings
 
 router = APIRouter(tags=["unknown-host"])
 
@@ -77,6 +83,7 @@ def render_unknown_host_page(
 def unknown_host_gateway(
     request: Request,
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
     _token: str = Depends(require_nginx_internal_token),
 ) -> HTMLResponse:
     hostname = (
@@ -92,12 +99,18 @@ def unknown_host_gateway(
             status_code=403,
             headers={"Cache-Control": "no-store"},
         )
+    portal_row = ensure_portal_settings(db, settings)
+    suffixes = managed_domain_suffixes(
+        portal_domain=get_effective_portal_domain(db, settings),
+        extra_raw=getattr(portal_row, "managed_domain_suffixes", None),
+    )
     record_unknown_host(
         db,
         hostname=hostname,
         client_ip=client_ip,
         user_agent=request.headers.get("user-agent"),
         uri=uri,
+        managed_suffixes=suffixes or None,
     )
     return HTMLResponse(
         content=render_unknown_host_page(),

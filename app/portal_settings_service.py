@@ -252,6 +252,44 @@ def update_smtp_settings(
     return row
 
 
+def update_managed_domain_suffixes(
+    db: Session,
+    settings: Settings,
+    *,
+    actor: str,
+    raw: str | None,
+    ip_address: str | None = None,
+) -> PortalSettings:
+    """Persist extra managed apex domains for unknown-Host discovery."""
+    from app.bastion.pending_host_service import (
+        format_managed_domain_suffixes,
+        parse_managed_domain_suffixes,
+    )
+
+    row = ensure_portal_settings(db, settings)
+    previous = getattr(row, "managed_domain_suffixes", None) or ""
+    cleaned = format_managed_domain_suffixes(parse_managed_domain_suffixes(raw))
+    if (previous or "").strip() == cleaned:
+        return row
+    row.managed_domain_suffixes = cleaned or None
+    row.updated_at = utcnow()
+    row.updated_by = actor
+    db.commit()
+    db.refresh(row)
+    log_action(
+        db,
+        actor=actor,
+        action="portal_settings.managed_domain_suffixes",
+        target="portal_settings",
+        details={
+            "previous": parse_managed_domain_suffixes(previous),
+            "new": parse_managed_domain_suffixes(cleaned),
+        },
+        ip_address=ip_address,
+    )
+    return row
+
+
 __all__ = [
     "PORTAL_SETTINGS_ID",
     "parse_subdomain_sso_env",
@@ -262,4 +300,5 @@ __all__ = [
     "get_vault_key_rotation_days",
     "set_vault_key_rotation_days",
     "update_smtp_settings",
+    "update_managed_domain_suffixes",
 ]

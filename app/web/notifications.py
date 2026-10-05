@@ -206,13 +206,31 @@ def build_notification_feed(
     now = utcnow()
     since = now - timedelta(hours=24)
 
-    from app.bastion.pending_host_service import is_infra_discovery_probe
+    from app.bastion.pending_host_service import (
+        hostname_is_managed,
+        is_infra_discovery_probe,
+        managed_domain_suffixes,
+    )
+    from app.portal_settings_service import ensure_portal_settings
+    from app.setup_wizard_service import get_effective_portal_domain
+    from app.sso_settings import get_settings
 
+    settings = get_settings()
+    portal_row = ensure_portal_settings(db, settings)
+    suffixes = managed_domain_suffixes(
+        portal_domain=get_effective_portal_domain(db, settings),
+        extra_raw=getattr(portal_row, "managed_domain_suffixes", None),
+    )
     pending_q = db.query(PendingHost).filter(PendingHost.status == "pending")
-    pending_rows = [
-        r for r in pending_q.order_by(PendingHost.last_seen_at.desc()).limit(200).all()
-        if not is_infra_discovery_probe(r.hostname)
-    ]
+    pending_rows = []
+    for r in pending_q.order_by(PendingHost.last_seen_at.desc()).limit(400).all():
+        if is_infra_discovery_probe(r.hostname):
+            continue
+        if suffixes and not hostname_is_managed(r.hostname, suffixes):
+            continue
+        pending_rows.append(r)
+        if len(pending_rows) >= 200:
+            break
     pending_count = len(pending_rows)
     if pending_count:
         latest = pending_rows[0]

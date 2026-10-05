@@ -4,15 +4,69 @@
 
 {% block content %}
 {% set pending_count = pending_count | default(0) %}
+{% set sort = sort | default('last_seen') %}
+{% set direction = direction | default('desc') %}
+{% set status_filter = status_filter | default('pending') %}
+{% set scope_filter = scope_filter | default('managed') %}
+{% set managed_suffixes = managed_suffixes | default([]) %}
+{% set unmanaged_pending = unmanaged_pending | default(0) %}
+{% macro sort_href(col) -%}
+/admin/pending-hosts?status={{ status_filter }}&scope={{ scope_filter }}&sort={{ col }}&direction={% if sort == col and direction == 'asc' %}desc{% else %}asc{% endif %}
+{%- endmacro %}
+{% macro sort_mark(col) -%}
+{% if sort == col %}{% if direction == 'asc' %} ▲{% else %} ▼{% endif %}{% endif %}
+{%- endmacro %}
 <div class="page" data-pending-hosts-bulk>
   <div class="page-header">
     <div>
       <h1 class="page-title">{{ _('Domaines découverts') }}</h1>
       <p class="page-sub">
 {{ _('Hosts inconnus vus par bastion-nginx — approuver en proxy public (sans auth bastion)') }}
-
         {{ _('ou rejeter. Après approbation, nginx recharge la conf exportée sous quelques secondes.') }}
       </p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <div class="card-header">
+      <span class="card-title">{{ _('Domaines gérés par le bastion') }}</span>
+    </div>
+    <div class="card-body">
+      <p class="form-help" style="margin-top:0;">
+        {{ _('Seuls les Hosts sous ces suffixes entrent dans la file (dérivés du FQDN portail') }}
+        {% if portal_domain %}<code class="mono">{{ portal_domain }}</code>{% endif %}{{ _('). Ajoutez d’autres apex si besoin.') }}
+      </p>
+      {% if managed_suffixes %}
+      <p style="margin:.5rem 0 1rem;display:flex;flex-wrap:wrap;gap:.35rem;">
+        {% for s in managed_suffixes %}
+        <span class="badge badge-muted mono">{{ s }}</span>
+        {% endfor %}
+      </p>
+      {% endif %}
+      <form method="post" action="/admin/pending-hosts/managed-domains" class="form-stack" style="max-width:36rem;">
+        <input type="hidden" name="status" value="{{ status_filter }}">
+        <input type="hidden" name="scope" value="{{ scope_filter }}">
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="direction" value="{{ direction }}">
+        <label class="form-label" for="managed_extras">{{ _('Suffixes supplémentaires (un par ligne)') }}</label>
+        <textarea class="form-input" id="managed_extras" name="managed_extras" rows="3"
+                  placeholder="partner.example.com">{{ managed_extras }}</textarea>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.75rem;">
+          <button type="submit" class="btn btn-primary btn-sm">{{ _('Enregistrer') }}</button>
+        </div>
+      </form>
+      {% if unmanaged_pending > 0 %}
+      <form method="post" action="/admin/pending-hosts/purge-unmanaged" style="margin-top:.75rem;">
+        <button type="submit" class="btn btn-ghost btn-sm"
+                data-confirm-tpl="{{ _('Purger {n} domaine(s) hors périmètre ?') }}"
+                data-confirm-title="{{ _('Purge hors périmètre') }}"
+                data-confirm-label="{{ _('Purger') }}"
+                data-confirm-n="{{ unmanaged_pending }}"
+                data-purge-unmanaged>
+          {{ _('Purger hors périmètre') }} ({{ unmanaged_pending }})
+        </button>
+      </form>
+      {% endif %}
     </div>
   </div>
 
@@ -31,11 +85,17 @@
                   data-confirm-label="{{ _('Rejeter') }}">{{ _('Rejeter la sélection') }}</button>
         </form>
         {% endif %}
+        <fieldset class="filter-group" aria-label="{{ _('Périmètre') }}">
+          <a href="/admin/pending-hosts?status={{ status_filter }}&scope=managed&sort={{ sort }}&direction={{ direction }}"
+             class="filter-chip{% if scope_filter == 'managed' %} active{% endif %}">{{ _('Périmètre géré') }}</a>
+          <a href="/admin/pending-hosts?status={{ status_filter }}&scope=all&sort={{ sort }}&direction={{ direction }}"
+             class="filter-chip{% if scope_filter == 'all' %} active{% endif %}">{{ _('Tout (brut)') }}{% if unmanaged_pending %} · {{ unmanaged_pending }}{% endif %}</a>
+        </fieldset>
         <fieldset class="filter-group" aria-label="{{ _('Filtrer par statut') }}">
-          <a href="/admin/pending-hosts?status=pending" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">{{ _('En attente') }}</a>
-          <a href="/admin/pending-hosts?status=approved" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">{{ _('Approuvés') }}</a>
-          <a href="/admin/pending-hosts?status=rejected" class="filter-chip{% if status_filter == 'rejected' %} active{% endif %}">{{ _('Rejetés') }}</a>
-          <a href="/admin/pending-hosts?status=all" class="filter-chip{% if status_filter == 'all' %} active{% endif %}">Tout</a>
+          <a href="/admin/pending-hosts?status=pending&scope={{ scope_filter }}&sort={{ sort }}&direction={{ direction }}" class="filter-chip{% if status_filter == 'pending' %} active{% endif %}">{{ _('En attente') }}</a>
+          <a href="/admin/pending-hosts?status=approved&scope={{ scope_filter }}&sort={{ sort }}&direction={{ direction }}" class="filter-chip{% if status_filter == 'approved' %} active{% endif %}">{{ _('Approuvés') }}</a>
+          <a href="/admin/pending-hosts?status=rejected&scope={{ scope_filter }}&sort={{ sort }}&direction={{ direction }}" class="filter-chip{% if status_filter == 'rejected' %} active{% endif %}">{{ _('Rejetés') }}</a>
+          <a href="/admin/pending-hosts?status=all&scope={{ scope_filter }}&sort={{ sort }}&direction={{ direction }}" class="filter-chip{% if status_filter == 'all' %} active{% endif %}">Tout</a>
         </fieldset>
       </div>
     </div>
@@ -51,11 +111,31 @@
                        aria-label="{{ _('Sélectionner la page') }}">
               </th>
               {% endif %}
-              <th>Hostname</th>
-              <th>Hits</th>
-              <th>{{ _('Dernière vue') }}</th>
-              <th>IP / URI</th>
-              <th>{{ _('Statut') }}</th>
+              <th>
+                <a href="{{ sort_href('hostname') }}" class="th-sort{% if sort == 'hostname' %} is-active{% endif %}">
+                  Hostname{{ sort_mark('hostname') }}
+                </a>
+              </th>
+              <th>
+                <a href="{{ sort_href('hits') }}" class="th-sort{% if sort == 'hits' %} is-active{% endif %}">
+                  Hits{{ sort_mark('hits') }}
+                </a>
+              </th>
+              <th>
+                <a href="{{ sort_href('last_seen') }}" class="th-sort{% if sort == 'last_seen' %} is-active{% endif %}">
+                  {{ _('Dernière vue') }}{{ sort_mark('last_seen') }}
+                </a>
+              </th>
+              <th>
+                <a href="{{ sort_href('ip') }}" class="th-sort{% if sort == 'ip' %} is-active{% endif %}">
+                  IP / URI{{ sort_mark('ip') }}
+                </a>
+              </th>
+              <th>
+                <a href="{{ sort_href('status') }}" class="th-sort{% if sort == 'status' %} is-active{% endif %}">
+                  {{ _('Statut') }}{{ sort_mark('status') }}
+                </a>
+              </th>
               <th>{{ _('Actions') }}</th>
             </tr>
           </thead>
@@ -71,7 +151,12 @@
                 {% endif %}
               </td>
               {% endif %}
-              <td><code class="mono">{{ row.hostname }}</code></td>
+              <td>
+                <code class="mono">{{ row.hostname }}</code>
+                {% if managed_suffixes and scope_filter == 'all' and not is_managed_host(row.hostname) %}
+                <span class="badge" title="{{ _('Hors domaines gérés') }}">{{ _('hors périmètre') }}</span>
+                {% endif %}
+              </td>
               <td>{{ row.hit_count }}</td>
               <td class="mono">{{ row.last_seen_at }}</td>
               <td>
@@ -106,9 +191,13 @@
                 <div class="empty-state" style="padding:2rem;">
                   <div class="empty-title">{{ _('Aucun domaine') }} {{ status_filter if status_filter != 'all' else '' }}</div>
                   <div class="empty-desc">
+{% if scope_filter == 'managed' and unmanaged_pending > 0 %}
+{{ _('Aucun Host dans le périmètre géré. Passez sur « Tout (brut) » ou purgez les') }} {{ unmanaged_pending }} {{ _('hors périmètre.') }}
+{% else %}
 {{ _('Les Hosts inconnus apparaissent ici dès qu’un client atteint') }} <strong>bastion-nginx</strong>
 {{ _('via le catch-all Traefik (') }}<code>bastion-catchall</code>{{ _('). Un 404 Traefik « page not found » (ex. teleport.*) signifie que le catch-all n’est pas actif — relancer le JT portal Docker (tags') }} <code>discovery</code> {{ _('/ deploy) pour écrire') }} <code>/tools/keycloak/traefik-config/bastion-catchall.yml</code>
                     et recreater <code>bastion-nginx</code>.
+{% endif %}
                   </div>
                 </div>
               </td>
@@ -123,6 +212,32 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+(function () {
+  var purgeBtn = document.querySelector('[data-purge-unmanaged]');
+  if (purgeBtn && window.bastionConfirm) {
+    purgeBtn.addEventListener('click', function (ev) {
+      if (purgeBtn.dataset.bastionConfirmOk === '1') {
+        purgeBtn.dataset.bastionConfirmOk = '';
+        return;
+      }
+      ev.preventDefault();
+      var n = purgeBtn.getAttribute('data-confirm-n') || '0';
+      var tpl = purgeBtn.getAttribute('data-confirm-tpl') || 'Purger {n} domaine(s) ?';
+      window.bastionConfirm({
+        title: purgeBtn.getAttribute('data-confirm-title') || 'Purge',
+        message: tpl.replace('{n}', String(n)),
+        confirmLabel: purgeBtn.getAttribute('data-confirm-label') || 'Purger',
+        danger: true,
+      }).then(function (ok) {
+        if (!ok) return;
+        purgeBtn.dataset.bastionConfirmOk = '1';
+        purgeBtn.click();
+      });
+    });
+  }
+})();
+</script>
 {% if pending_count > 0 %}
 <script>
 (function () {
