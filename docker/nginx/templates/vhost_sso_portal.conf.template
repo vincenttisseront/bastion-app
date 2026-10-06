@@ -55,7 +55,15 @@ server {
     # are rewritten to a stub that records PendingHost + returns a neutral 403
     # (no portal/bastion branding). Map from conf.d/00-known-hosts-map.conf.
     # Keep portal as the only default_server — do not add a second one.
+    # /_portal_* probes stay local (no FastAPI) even when Host is still unknown.
+    set $bastion_do_unknown 0;
     if ($bastion_unknown_host) {
+        set $bastion_do_unknown 1;
+    }
+    if ($uri ~ ^/_portal_) {
+        set $bastion_do_unknown 0;
+    }
+    if ($bastion_do_unknown) {
         rewrite ^ /__bastion_unknown_host last;
     }
 
