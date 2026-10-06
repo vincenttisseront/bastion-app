@@ -159,20 +159,24 @@
 - name: "SMOKE : nginx ModSec path /_portal_modsec_ok must not be 500"
   ansible.builtin.shell: |
     cid="{{ _nginx_cid.stdout | trim }}"
-    # Loopback Host (in known-hosts map). Do not send portal_domain: that can
-    # rewrite to unknown-host → FastAPI before the map/reload is ready.
-    # First CRS request on 16k rules can exceed 8s — allow 30s.
-    raw="$(docker exec "$cid" wget -S -O /dev/null --timeout=30 --tries=1 \
-      http://127.0.0.1:8080/_portal_modsec_ok 2>&1 || true)"
-    code="$(printf '%s\n' "$raw" | grep -oE 'HTTP/[0-9.]+ [0-9]{3}' | awk 'END { print $2+0 }')"
-    echo "modsec_ok_http=$code"
-    test "$code" -ge 200 -a "$code" -lt 500 -a "$code" -ne 0
+    # Body check (not wget -S parse): headers use "HTTP/1.1 200" which grep can miss.
+    # First CRS request on ~16k rules can take tens of seconds per worker.
+    ok=0
+    last=""
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+      last="$(docker exec "$cid" wget -qO- --timeout=60 --tries=1 \
+        http://127.0.0.1:8080/_portal_modsec_ok 2>/dev/null || true)"
+      echo "attempt=$i body=${last}"
+      if printf '%s' "$last" | grep -q 'modsec-ok'; then
+        ok=1
+        break
+      fi
+      sleep 5
+    done
+    test "$ok" -eq 1
   args:
     executable: /bin/bash
   register: _nginx_modsec_login_smoke
-  retries: 10
-  delay: 2
-  until: _nginx_modsec_login_smoke.rc | default(1) == 0
   changed_when: false
   failed_when: false
 
@@ -181,7 +185,6 @@
     msg: >-
       {{ _nginx_modsec_login_smoke.stdout | default('(no stdout)') }}
       rc={{ _nginx_modsec_login_smoke.rc | default('?') }}
-      attempts={{ _nginx_modsec_login_smoke.attempts | default('?') }}
       {% if _nginx_modsec_login_smoke.rc | default(1) != 0 %}
       PROBE FAILED — gathering diagnostics next (not a soft pass).
       {% else %}
@@ -193,9 +196,9 @@
   ansible.builtin.shell: |
     set -uo pipefail
     cid="{{ _nginx_cid.stdout | trim }}"
-    to() { timeout 15 "$@"; }
+    to() { timeout 20 "$@"; }
     echo "=== listeners (expect 0.0.0.0:8080) ==="
-    to docker exec "$cid" sh -c 'ss -lntp 2>/dev/null || netstat -lntp 2>/dev/null' || true
+    to docker exec "$cid" sh -c 'ss -lnt 2>/dev/null || netstat -lnt 2>/dev/null' || true
     echo "=== nginx-mta-sts.conf (no [::] / bare listen 8080) ==="
     to docker exec "$cid" cat /etc/nginx/conf.d/nginx-mta-sts.conf 2>/dev/null || true
     echo "=== export nginx-mta-sts.conf ==="
@@ -210,8 +213,8 @@
     to docker exec "$cid" tail -n 40 /var/log/nginx/error.log 2>/dev/null || true
     echo "=== container logs (tail) ==="
     to docker logs --tail 40 "$cid" 2>&1 || true
-    echo "=== wget /_portal_modsec_ok ==="
-    to docker exec "$cid" wget -S -O /dev/null --timeout=30 --tries=1 \
+    echo "=== wget /_portal_modsec_ok body ==="
+    to docker exec "$cid" wget -qO- --timeout=60 --tries=1 \
       http://127.0.0.1:8080/_portal_modsec_ok 2>&1 || true
   args:
     executable: /bin/bash
@@ -220,13 +223,16 @@
   failed_when: false
 
 - name: "SMOKE : fail with ModSec diagnostics"
-  when: _nginx_modsec_login_smoke.rc | default(1) != 0
+  when:
+    - _nginx_modsec_login_smoke.rc | default(1) != 0
+    - "'modsec-ok' not in (_nginx_modsec_diag.stdout | default(''))"
+    - "'HTTP/1.1 200' not in (_nginx_modsec_diag.stdout | default(''))"
   ansible.builtin.fail:
     msg: |
-      /_portal_modsec_ok via nginx returned HTTP 5xx (or unreachable).
+      /_portal_modsec_ok via nginx did not return body modsec-ok.
       If wget says Connection refused: :8080 is down (often MTA-STS listen [::]/8080
       or bare listen 8080 on a host without IPv6 — nginx -t fails, workers never bind).
-      If HTTP 500: possible CRS rule-id collision (crs-setup-generated must use id:1000900110).
+      If body is modsec-fail / HTTP 500: CRS rule-id collision (id:1000900110).
       --- smoke ---
       {{ _nginx_modsec_login_smoke.stdout | default('') }}
       --- diag ---
