@@ -208,6 +208,9 @@ def test_generate_crushftp_block_filters_portal_cookies():
     assert "modsecurity off;" not in named_body
     assert "ctl:ruleEngine=On" in named_body
     assert "ctl:ruleRemoveById=930130" in named_body
+    assert "ctl:ruleRemoveByTag=attack-rfi" in named_body
+    assert "ctl:ruleRemoveByTag=attack-lfi" in named_body
+    assert "ctl:ruleRemoveByTag=attack-xss" in named_body
     assert "@beginsWith /WebInterface/function/" in named_body
     assert "ctl:requestBodyAccess=Off" in named_body
     assert "proxy_intercept_errors off;" in named_body

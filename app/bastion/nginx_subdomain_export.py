@@ -49,12 +49,9 @@ _CRUSHFTP_CRS_FUNCTION = (
     '        SecRule REQUEST_URI "@beginsWith /WebInterface/function/" '
     '"id:1500102,phase:1,pass,nolog,'
     "ctl:ruleRemoveById=930130,"
-    "ctl:ruleRemoveTargetById=930100;ARGS,"
-    "ctl:ruleRemoveTargetById=930110;ARGS,"
-    "ctl:ruleRemoveTargetById=930120;ARGS,"
-    "ctl:ruleRemoveTargetById=941100;ARGS:password,"
-    "ctl:ruleRemoveTargetById=941110;ARGS:password,"
-    "ctl:ruleRemoveTargetById=941160;ARGS:password,"
+    "ctl:ruleRemoveByTag=attack-rfi,"
+    "ctl:ruleRemoveByTag=attack-lfi,"
+    "ctl:ruleRemoveByTag=attack-xss,"
     "ctl:ruleRemoveTargetById=942100;ARGS:password,"
     'ctl:ruleRemoveTargetById=942110;ARGS:password"'
 )
@@ -246,11 +243,12 @@ def _crushftp_named_modsecurity_lines() -> list[str]:
 
     The subdomain snippet already sets the connector in server{}. This location
     turns the engine on (family switch / SecRuleEngine may be Off) and drops
-    known WebInterface false positives only — uploads/WebFS keep URI LFI/RCE.
+    known WebInterface false positives only — uploads/WebFS keep URI RCE.
+    UserManager save posts FILE:// VFS + XML (RFI/LFI/XSS tags on function/).
     """
     return [
         "        # CrushFTP WebInterface: CRS on. Exclusions are UI FPs only",
-        "        # (password*.js = 930130; function/ ARGS paths look like LFI).",
+        "        # (password*.js = 930130; function/ save posts FILE:// VFS + XML).",
         "        modsecurity on;",
         "        modsecurity_rules '",
         _CRUSHFTP_CRS_ENGINE_ON,
