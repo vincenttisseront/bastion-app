@@ -511,6 +511,8 @@
         | grep -q 'modsecurity on'
       docker exec bastion-nginx grep -A25 'location @app_upstream_' "$conf" \
         | grep -q 'ctl:ruleRemoveById=930130'
+      docker exec bastion-nginx grep -q 'location ^~ /WebInterface/function' "$conf"
+      docker exec bastion-nginx grep -q 'location @app_function_' "$conf"
     fi
     echo "subdomain export bastion_sub + vhost fqdn + Cookie capture OK"
   args:

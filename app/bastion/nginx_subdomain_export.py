@@ -45,16 +45,6 @@ _CRUSHFTP_CRS_JS_LFI = (
     '        SecRule REQUEST_URI "@rx ^/WebInterface/Resources/[^?]*\\.js$" '
     '"id:1500101,phase:1,pass,nolog,ctl:ruleRemoveById=930130"'
 )
-_CRUSHFTP_CRS_FUNCTION = (
-    '        SecRule REQUEST_URI "@beginsWith /WebInterface/function/" '
-    '"id:1500102,phase:1,pass,nolog,'
-    "ctl:ruleRemoveById=930130,"
-    "ctl:ruleRemoveByTag=attack-rfi,"
-    "ctl:ruleRemoveByTag=attack-lfi,"
-    "ctl:ruleRemoveByTag=attack-xss,"
-    "ctl:ruleRemoveTargetById=942100;ARGS:password,"
-    'ctl:ruleRemoveTargetById=942110;ARGS:password"'
-)
 _CRUSHFTP_CRS_UPLOAD_BODY = (
     '        SecRule REQUEST_HEADERS:Content-Type '
     '"@rx ^(?:multipart/form-data|application/octet-stream)" '
@@ -243,19 +233,52 @@ def _crushftp_named_modsecurity_lines() -> list[str]:
 
     The subdomain snippet already sets the connector in server{}. This location
     turns the engine on (family switch / SecRuleEngine may be Off) and drops
-    known WebInterface false positives only — uploads/WebFS keep URI RCE.
-    UserManager save posts FILE:// VFS + XML (RFI/LFI/XSS tags on function/).
+    the password*.js LFI FP. Command API is a separate location (CRS off).
     """
     return [
-        "        # CrushFTP WebInterface: CRS on. Exclusions are UI FPs only",
-        "        # (password*.js = 930130; function/ save posts FILE:// VFS + XML).",
+        "        # CrushFTP: CRS on (WebFS / uploads). password*.js = 930130.",
+        "        # /WebInterface/function is a dedicated location with CRS off.",
         "        modsecurity on;",
         "        modsecurity_rules '",
         _CRUSHFTP_CRS_ENGINE_ON,
         _CRUSHFTP_CRS_JS_LFI,
-        _CRUSHFTP_CRS_FUNCTION,
         _CRUSHFTP_CRS_UPLOAD_BODY,
         "        ';",
+    ]
+
+
+def _crushftp_function_api_locations(
+    *,
+    slug: str,
+    auth_request_set_user_lines: list[str],
+    proxy_body_lines: list[str],
+) -> list[str]:
+    """SSO-gated CrushFTP command API with CRS off (UserManager save = FILE:// + XML).
+
+    ctl:ruleRemoveByTag on @app_upstream runs too late (after CRS phase 1 → 403).
+    Cookie filter stays in the named location (must not share auth_request).
+    """
+    named = f"@app_function_{slug}"
+    return [
+        "    # CrushFTP command API — CRS off (FILE:// VFS + XML UserManager save).",
+        "    # ^~ beats location / so POSTs never inherit @app_upstream CRS.",
+        "    location ^~ /WebInterface/function {",
+        _NGX_MODSECURITY_OFF,
+        *_AUTH_COOKIE_CAPTURE_LINES,
+        "        auth_request /internal/subdomain-auth;",
+        *_AUTH_REQUEST_DIAG_LINES,
+        *auth_request_set_user_lines,
+        f"        error_page 401 403 503 = @portal_redirect_{slug};",
+        "        proxy_intercept_errors off;",
+        f"        try_files /nonexistent {named};",
+        "    }",
+        "",
+        f"    location {named} {{",
+        _NGX_MODSECURITY_OFF,
+        "        proxy_intercept_errors off;",
+        *proxy_body_lines,
+        "    }",
+        "",
     ]
 
 
@@ -684,6 +707,12 @@ def generate_subdomain_server_block(app: App, settings: Settings) -> str:
             "        proxy_intercept_errors off;",
             *proxy_body_lines,
             "    }",
+            "",
+            *_crushftp_function_api_locations(
+                slug=slug,
+                auth_request_set_user_lines=auth_request_set_user_lines,
+                proxy_body_lines=proxy_body_lines,
+            ),
         ]
     else:
         location_slash = [
