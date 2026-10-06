@@ -140,6 +140,9 @@ async def admin_rbac_groups_sync(
     try:
         result = await sync_keycloak_groups(realm, db, settings)
         db.commit()
+        from app.rbac.users_stats_service import clear_user_stats_cache
+
+        clear_user_stats_cache()
     except ValueError as exc:
         db.rollback()
         msg = str(exc) or "Erreur de synchronisation"

@@ -28,6 +28,13 @@
     </div>
     <div class="page-header-actions">
       <a href="/admin/realms" class="btn btn-ghost btn-sm">{{ _('← Realms') }}</a>
+      {% if realm and form_values.groups_sync_enabled %}
+      <form method="post" action="/admin/realms/{{ realm.id }}/sync" id="realm-sync-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="redirect_to" value="/admin/realms/{{ realm.id }}/edit">
+        <button class="btn btn-primary btn-sm" type="submit" title="{{ _('Importer les groupes Keycloak et relire les effectifs (users)') }}">{{ _('Forcer la sync') }}</button>
+      </form>
+      {% endif %}
     </div>
   </div>
 
@@ -329,6 +336,18 @@
           <div class="form-group">
             <span class="form-label">{{ _('Import groupes') }}</span>
             <span class="badge badge-{{ 'ok' if form_values.groups_sync_enabled else 'muted' }}">{{ 'Activé' if form_values.groups_sync_enabled else 'Non configuré' }}</span>
+            {% if form_values.groups_sync_enabled %}
+            <p class="form-hint" style="margin-top:var(--sp-2);">
+              {% if realm.last_groups_sync_status == 'ok' %}
+                {{ _('Dernière sync') }} : {{ realm.last_groups_sync_at or '—' }}
+              {% elif realm.last_groups_sync_status == 'error' %}
+                {{ _('Dernière sync en erreur') }} : {{ realm.last_groups_sync_error or '—' }}
+              {% else %}
+                {{ _('Jamais synchronisé') }}
+              {% endif %}
+            </p>
+            <button type="submit" form="realm-sync-form" class="btn btn-secondary btn-sm">{{ _('Forcer la sync groupes / users') }}</button>
+            {% endif %}
           </div>
           {% endif %}
           <div class="form-group">

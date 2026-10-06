@@ -10,8 +10,9 @@
 # on owasp/modsecurity-crs as of this pin).
 FROM owasp/modsecurity-crs:4.28.0-nginx-alpine-202607160307
 
-# Image defaults to USER nginx; our entrypoint writes conf.d + sync scripts.
-USER root  # NOSONAR — entrypoint must run as root to write conf.d before dropping privs
+# Image defaults to USER nginx; entrypoint writes conf.d then drops privileges.
+# NOSONAR: USER root is required for that entrypoint, not a runtime identity.
+USER root
 
 RUN apk add --no-cache bash gettext wget jq findutils openssl logrotate \
     && rm -f /etc/nginx/conf.d/default.conf \

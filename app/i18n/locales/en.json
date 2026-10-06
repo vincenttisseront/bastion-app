@@ -3014,5 +3014,16 @@
   "Services proxy public disponibles": "Available public proxy services",
   "Tous les services disponibles sont déjà dans vos raccourcis.": "All available services are already in your shortcuts.",
   "Aucun proxy public sur un domaine géré pour le moment.": "No public proxy on a managed domain yet.",
-  "Le bastion injecte X-Remote-User (email SSO), X-Forwarded-Email et X-Auth-* après auth_request. Les apps HTTP (ex. Zabbix) mappent X-Remote-User → REMOTE_USER / AUTH_USER. L’application doit faire confiance à ces en-têtes et ne pas ouvrir son propre écran OAuth concurrent.": "Bastion injects X-Remote-User (SSO email), X-Forwarded-Email and X-Auth-* after auth_request. HTTP apps (e.g. Zabbix) map X-Remote-User → REMOTE_USER / AUTH_USER. The application must trust these headers and must not open its own competing OAuth screen."
+  "Le bastion injecte X-Remote-User (email SSO), X-Forwarded-Email et X-Auth-* après auth_request. Les apps HTTP (ex. Zabbix) mappent X-Remote-User → REMOTE_USER / AUTH_USER. L’application doit faire confiance à ces en-têtes et ne pas ouvrir son propre écran OAuth concurrent.": "Bastion injects X-Remote-User (SSO email), X-Forwarded-Email and X-Auth-* after auth_request. HTTP apps (e.g. Zabbix) map X-Remote-User → REMOTE_USER / AUTH_USER. The application must trust these headers and must not open its own competing OAuth screen.",
+  "Sync": "Sync",
+  "Forcer la sync": "Force sync",
+  "Forcer la sync groupes / users": "Force groups / users sync",
+  "Dernière sync groupes / users Keycloak": "Last Keycloak groups / users sync",
+  "Sync non configurée — compte de service manquant": "Sync not configured — missing service account",
+  "Sync OK": "Sync OK",
+  "Échec sync": "Sync failed",
+  "Jamais synchronisé": "Never synced",
+  "Importer les groupes Keycloak et relire les effectifs (users)": "Import Keycloak groups and refresh member counts (users)",
+  "Configurer le compte de service Keycloak": "Configure the Keycloak service account",
+  "Dernière sync en erreur": "Last sync failed"
 }
