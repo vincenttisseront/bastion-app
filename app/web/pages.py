@@ -3513,7 +3513,9 @@ async def admin_rbac(
             | (RBACGroup.realm_slug.ilike(like))
             | (RBACGroup.description.ilike(like))
         )
-    if not show_empty:
+    # A named search must find LDAP/federated groups even when Keycloak
+    # Admin reports 0 members. Hide empties only on the unfiltered list.
+    if not show_empty and not needle:
         query = query.filter(func.coalesce(RBACGroup.member_count, 0) > 0)
     total = query.count()
     total_pages = max(1, (total + per_page - 1) // per_page)

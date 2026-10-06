@@ -84,7 +84,11 @@
 
   {% if group_stats.empty and not groups_include_empty %}
   <div class="groups-empty-banner">
+    {% if groups_q %}
+    <span>{{ _('Les groupes vides correspondant à la recherche sont inclus (Keycloak Admin compte souvent 0 membre LDAP).') }}</span>
+    {% else %}
     <span><strong>{{ group_stats.empty }}</strong> {{ _('groupes vides masqués') }}</span>
+    {% endif %}
     <a class="btn btn-ghost btn-sm"
        href="/admin/rbac?include_empty=1{% if groups_q %}&amp;q={{ groups_q | urlencode }}{% endif %}&amp;per_page={{ groups_per_page }}">{{ _('Afficher les vides') }}</a>
   </div>
@@ -196,7 +200,7 @@
                   <div class="empty-state" style="padding:var(--sp-4);">
                     <div class="empty-title">{{ _('Aucun groupe') }}</div>
                     <div class="empty-desc">
-                      {% if groups_q %}{{ _('Aucun résultat pour «') }} {{ groups_q }} ».{% elif not groups_include_empty and group_stats.empty %}
+                      {% if groups_q %}{{ _('Aucun résultat pour «') }} {{ groups_q }} ». {{ _('Vérifiez le filtre « Groupes à synchroniser » du realm.') }}{% elif not groups_include_empty and group_stats.empty %}
 {{ _('Tous les groupes sont vides —') }} <a href="/admin/rbac?include_empty=1">{{ _('afficher les vides') }}</a> ou synchronisez Keycloak.
                       {% else %}{{ _('Les groupes Keycloak synchronisés apparaîtront ici.') }}{% endif %}
                     </div>

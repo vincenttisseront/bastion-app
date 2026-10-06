@@ -266,8 +266,11 @@ def group_distribution(
     query = db.query(RBACGroup)
     needle = (q or "").strip()
     if needle:
-        query = query.filter(RBACGroup.name.ilike(f"%{needle}%"))
-    if not include_empty:
+        query = query.filter(
+            (RBACGroup.name.ilike(f"%{needle}%"))
+            | (RBACGroup.path.ilike(f"%{needle}%"))
+        )
+    if not include_empty and not needle:
         query = query.filter(func.coalesce(RBACGroup.member_count, 0) > 0)
 
     filtered_total = query.with_entities(func.count(RBACGroup.id)).scalar() or 0

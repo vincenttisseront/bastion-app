@@ -142,6 +142,9 @@ def test_group_distribution_sorts_and_hides_noise(db_session):
     assert len(with_empty["rows"]) == 3
     assert with_empty["rows"][-1]["name"] == "zzz-empty"
 
+    searched = group_distribution(db_session, q="zzz-empty")
+    assert [r["name"] for r in searched["rows"]] == ["zzz-empty"]
+
 
 def test_rbac_users_stats_page_graceful(client, monkeypatch):
     async def boom(*args, **kwargs):
