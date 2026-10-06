@@ -155,6 +155,25 @@ server {
         return 200 "portal nginx ok\n";
     }
 
+    # CRS collision smoke: same allow-list as _portal_nginx_ok, but ModSec stays
+    # on (server switch). Do not proxy a 500 to FastAPI — wget would hang.
+    location = /_portal_modsec_ok {
+        auth_request off;
+        allow 127.0.0.1;
+        allow 10.0.0.0/8;
+        allow 172.16.0.0/12;
+        allow 192.168.0.0/16;
+        deny all;
+        error_page 500 502 503 504 = @portal_modsec_ok_fail;
+        default_type text/plain;
+        return 200 "modsec-ok\n";
+    }
+    location @portal_modsec_ok_fail {
+        internal;
+        default_type text/plain;
+        return 500 "modsec-fail\n";
+    }
+
     location = /health {
         auth_request off;
         modsecurity off;
