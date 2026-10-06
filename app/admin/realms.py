@@ -46,6 +46,7 @@ from app.web.openapi_responses import (
     RESP_403,
     RESP_404,
     RESP_409,
+    RESP_429,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,13 @@ def _client_ip(request: Request) -> str:
 def _wants_json(request: Request) -> bool:
     accept = request.headers.get("accept", "")
     return "application/json" in accept or request.headers.get("x-requested-with") == "XMLHttpRequest"
+
+
+def _safe_admin_redirect(raw: str | None, fallback: str) -> str:
+    value = (raw or "").strip()
+    if value.startswith("/admin/") and "://" not in value and "\\" not in value:
+        return value
+    return fallback
 
 
 def _form_bool(value: str | None) -> bool:
@@ -1252,6 +1260,110 @@ def _error_response(request: Request, status_code: int, detail: str) -> JSONResp
     if _wants_json(request):
         return JSONResponse({"ok": False, "errors": {"_form": detail}}, status_code=status_code)
     return None
+
+
+def _groups_sync_flash(result: dict) -> str:
+    parts = [
+        f"{result.get('imported', 0)} nouveaux",
+        f"{result.get('updated', 0)} mis à jour",
+        f"{result.get('orphaned', 0)} orphelins",
+    ]
+    if result.get("skipped"):
+        parts.append(f"{result.get('skipped')} filtrés")
+    members_bit = ""
+    if result.get("members_refreshed"):
+        members_bit = (
+            f" · {result.get('members_total', 0)} utilisateur(s) "
+            f"sur {result.get('members_refreshed')} groupe(s)"
+        )
+    return f"Synchronisation groupes/users OK ({', '.join(parts)}){members_bit}."
+
+
+@router.post(
+    "/admin/realms/{realm_id}/sync",
+    responses=RESP_400 | RESP_403 | RESP_404 | RESP_429,
+)
+async def admin_realms_force_sync(
+    realm_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+    user=Depends(require_admin),
+    csrf_token: str = Form(""),
+    redirect_to: str = Form(""),
+):
+    """Force Keycloak groups (+ member counts) import for one realm."""
+    from app.admin.throttling import check_sync_rate_limit
+    from app.rbac.keycloak_admin import sync_keycloak_groups
+    from app.rbac.users_stats_service import clear_user_stats_cache
+
+    _require_csrf(request, settings, csrf_token)
+    realm = db.query(RealmConfig).filter_by(id=realm_id).first()
+    if not realm:
+        raise HTTPException(status_code=404)
+    dest = _safe_admin_redirect(redirect_to, _PATH_ADMIN_REALMS)
+    secret = settings.vault_portal_internal_token or "dev"
+
+    if wait := check_sync_rate_limit(f"rbac-sync:{realm_id}"):
+        msg = f"Trop de synchronisations — réessayez dans {wait:.0f}s"
+        if resp := _error_response(request, 429, msg):
+            return resp
+        response = RedirectResponse(url=dest, status_code=302)
+        flash_redirect(response, msg, "error", secret)
+        return response
+
+    try:
+        result = await sync_keycloak_groups(realm, db, settings)
+        db.commit()
+        clear_user_stats_cache()
+    except ValueError as exc:
+        db.rollback()
+        msg = str(exc) or "Erreur de synchronisation"
+        realm.last_groups_sync_status = "error"
+        realm.last_groups_sync_error = msg
+        db.commit()
+        if resp := _error_response(request, 400, msg):
+            return resp
+        response = RedirectResponse(url=dest, status_code=302)
+        flash_redirect(response, msg, "error", secret)
+        return response
+    except Exception:
+        db.rollback()
+        logger.exception("Realm groups/users sync failed")
+        msg = "Erreur serveur pendant la synchronisation des groupes"
+        realm.last_groups_sync_status = "error"
+        realm.last_groups_sync_error = msg
+        db.commit()
+        if resp := _error_response(request, 500, msg):
+            return resp
+        response = RedirectResponse(url=dest, status_code=302)
+        flash_redirect(response, msg, "error", secret)
+        return response
+
+    log_action(
+        db,
+        actor=user.email,
+        action="rbac.groups.sync",
+        target=realm.slug,
+        details={
+            k: result.get(k)
+            for k in (
+                "status",
+                "imported",
+                "updated",
+                "orphaned",
+                "skipped",
+                "members_refreshed",
+                "members_total",
+            )
+        },
+        ip_address=_client_ip(request),
+    )
+    if _wants_json(request):
+        return JSONResponse({"ok": True, **result})
+    response = RedirectResponse(url=dest, status_code=302)
+    flash_redirect(response, _groups_sync_flash(result), "success", secret)
+    return response
 
 
 @router.post("/admin/realms/{realm_id}/enable", responses=RESP_400 | RESP_403 | RESP_404)

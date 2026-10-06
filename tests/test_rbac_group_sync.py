@@ -163,3 +163,40 @@ def test_sync_403_role_missing_message(client, db_session):
     assert resp.status_code == 400
     assert "query-groups" in resp.json()["errors"]["_form"]
 
+
+@respx.mock
+def test_realm_list_force_sync_imports_groups(client, db_session):
+    settings = _test_settings()
+    realm = _make_realm(db_session, settings)
+
+    token_url = f"{realm.issuer_url}/protocol/openid-connect/token"
+    groups_url = "https://kc.example.com/admin/realms/demo/groups?briefRepresentation=false"
+    respx.post(token_url).respond(
+        200, json={"access_token": "t"}, headers={"content-type": "application/json"}
+    )
+    respx.get(groups_url).respond(
+        200,
+        json=[{"id": "g1", "name": "portal-admins", "path": "/portal-admins", "subGroups": []}],
+    )
+
+    import hashlib
+    import hmac
+
+    token = hmac.new(
+        b"test-secret", b"csrf:admin@example.com", hashlib.sha256
+    ).hexdigest()[:32]
+    resp = client.post(
+        f"/admin/realms/{realm.id}/sync",
+        headers={
+            **ADMIN_HEADERS,
+            "X-CSRF-Token": token,
+            "accept": "application/json",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["imported"] == 1
+    db_session.refresh(realm)
+    assert realm.last_groups_sync_status == "ok"
+

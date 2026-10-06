@@ -70,7 +70,8 @@
       {% for realm in realms %}
         {% if realm.groups_sync_enabled %}
           <form method="post" action="/admin/rbac/groups/sync/{{ realm.id }}">
-            <button class="btn btn-ghost btn-sm" type="submit">Synchroniser {{ realm.slug }}</button>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn btn-ghost btn-sm" type="submit">{{ _('Synchroniser') }} {{ realm.slug }}</button>
           </form>
         {% else %}
           <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">Configurer sync ({{ realm.slug }})</a>

@@ -73,6 +73,7 @@
               <th class="col-ico" title="{{ _('Session OIDC native') }}">{{ _('Natif') }}</th>
               <th class="col-ico" title="MFA / OTP">MFA</th>
               <th class="col-ico" title="{{ _('Visible sur la page de login') }}">Login</th>
+              <th class="col-ico" title="{{ _('Dernière sync groupes / users Keycloak') }}">Sync</th>
               <th></th>
             </tr>
           </thead>
@@ -108,9 +109,29 @@
               <td class="col-ico">
                 {{ status_ico(realm.show_on_login, (realm.login_label or realm.name) if realm.show_on_login else 'Masqué sur le login') }}
               </td>
+              <td class="col-ico">
+                {% if not realm.groups_sync_enabled %}
+                  {{ status_ico('none', _('Sync non configurée — compte de service manquant'), kind='tri') }}
+                {% elif realm.last_groups_sync_status == 'ok' %}
+                  {{ status_ico('ok', _('Sync OK') ~ ' — ' ~ (realm.last_groups_sync_at or ''), kind='tri') }}
+                {% elif realm.last_groups_sync_status == 'error' %}
+                  {{ status_ico('error', _('Échec sync') ~ ' — ' ~ (realm.last_groups_sync_error or ''), kind='tri') }}
+                {% else %}
+                  {{ status_ico('none', _('Jamais synchronisé'), kind='tri') }}
+                {% endif %}
+              </td>
               <td>
                 <div class="users-row-actions realms-row-actions">
                   <a href="/admin/realms/{{ realm.id }}/edit" class="btn btn-ghost btn-sm">{{ _('Éditer') }}</a>
+                  {% if realm.groups_sync_enabled %}
+                  <form method="post" action="/admin/realms/{{ realm.id }}/sync">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <input type="hidden" name="redirect_to" value="/admin/realms">
+                    <button class="btn btn-ghost btn-sm" type="submit" title="{{ _('Importer les groupes Keycloak et relire les effectifs (users)') }}">{{ _('Sync') }}</button>
+                  </form>
+                  {% else %}
+                  <a href="/admin/realms/{{ realm.id }}/edit#sync" class="btn btn-ghost btn-sm" title="{{ _('Configurer le compte de service Keycloak') }}">{{ _('Sync') }}</a>
+                  {% endif %}
                   <form method="post" action="/admin/realms/{{ realm.id }}/export">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <button class="btn btn-ghost btn-sm" {% if realm.last_test_status != 'ok' %}disabled{% endif %}>Export</button>
@@ -142,7 +163,7 @@
             </tr>
             {% else %}
             <tr>
-              <td colspan="10">
+              <td colspan="11">
                 <div class="empty-state">
                   <div class="empty-icon">
                     <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
